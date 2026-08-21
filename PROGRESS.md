@@ -178,8 +178,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 - [x] M11.1 Endpoint store CRUD + safeStorage encryption + encrypted-file fallback
 - [x] M11.2 OpenAI chat-completions client (SSE stream parser) + fixture tests
-- [ ] M11.3 Anthropic messages client (SSE) + fixture tests
-- [ ] M11.4 Ollama client + fixture tests
+- [x] M11.3 Anthropic messages client (SSE) + fixture tests
+- [x] M11.4 Ollama client + fixture tests
 - [x] M11.5 Connection tester (latency, /models listing) + UI hooks
 - [x] M11.6 Agent loop: tool round-trips, cancellation, retry policy
 - [x] M11.7 System prompt builder + workspace context injection
