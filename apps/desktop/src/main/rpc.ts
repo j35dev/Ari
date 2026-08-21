@@ -1,7 +1,9 @@
+import { open, readdir, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import type { IPty, IPtyForkOptions } from 'node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
-import type { SessionEventFrame } from '@ari/contracts/rpc'
+import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import { Engine } from './engine'
 import { RpcRegistry } from './rpc-registry'
 import { getProjectStore, getSessionStore } from './store'
@@ -64,6 +66,12 @@ export interface EngineHandle {
   engine: Engine
   registry: DriverRegistry
 }
+
+/** Hard ceiling for `fs.readTextFile` regardless of the requested maxBytes. */
+const FS_READ_MAX_BYTES = 512 * 1024
+
+/** Bytes sniffed for NUL to decide a payload is binary. */
+const FS_BINARY_SNIFF_BYTES = 2048
 
 export function registerRpc(contents: WebContents): Promise<EngineHandle> {
   const rpcRegistry = new RpcRegistry({
@@ -250,6 +258,50 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       return { diffText: result.value }
     })
 
+    r.register('fs.list', async (params) => {
+      // Path jail: the caller passes an absolute directory; it must exist and
+      // be a directory, and only regular files/dirs directly inside are
+      // returned (symlinks and special entries are skipped so listings cannot
+      // escape the tree).
+      const info = await stat(params.path).catch(() => null)
+      if (info === null) throw new Error('path does not exist')
+      if (!info.isDirectory()) throw new Error('not a directory')
+      const dirents = await readdir(params.path, { withFileTypes: true })
+      const listed: RpcResults['fs.list'] = []
+      for (const dirent of dirents) {
+        if (dirent.isDirectory()) {
+          listed.push({ name: dirent.name, type: 'dir', size: 0 })
+        } else if (dirent.isFile()) {
+          const size = await stat(join(params.path, dirent.name)).then((s) => s.size, () => 0)
+          listed.push({ name: dirent.name, type: 'file', size })
+        }
+      }
+      return listed.sort((a, b) =>
+        a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1,
+      )
+    })
+
+    r.register('fs.readTextFile', async (params) => {
+      const cap = Math.min(params.maxBytes ?? FS_READ_MAX_BYTES, FS_READ_MAX_BYTES)
+      const handle = await open(params.path, 'r')
+      try {
+        const { size } = await handle.stat()
+        if (size === 0) return { content: '', truncated: false }
+        const length = Math.min(size, cap)
+        const buffer = Buffer.alloc(length)
+        const { bytesRead } = await handle.read(buffer, 0, length, 0)
+        if (buffer.subarray(0, Math.min(bytesRead, FS_BINARY_SNIFF_BYTES)).includes(0)) {
+          throw new Error('binary file')
+        }
+        return {
+          content: buffer.subarray(0, bytesRead).toString('utf8'),
+          truncated: size > bytesRead,
+        }
+      } finally {
+        await handle.close()
+      }
+    })
+
     r.register('stream.subscribe', (params) => {
       rpcRegistry.subscribe({
         id: params.id,
@@ -305,9 +357,11 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'endpoints.list',
       'endpoints.upsert',
       'endpoints.remove',
-      'git.status',
-      'git.diffWorktree',
-      'stream.subscribe',
+        'git.status',
+        'git.diffWorktree',
+        'fs.list',
+        'fs.readTextFile',
+        'stream.subscribe',
       'stream.unsubscribe',
     ] as const
 
