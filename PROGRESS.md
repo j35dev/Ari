@@ -37,115 +37,115 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 ## M2 — App shell
 
-- [ ] M2.1 Platform chrome adapter: win titleBarOverlay / mac hiddenInset / linux custom controls
-- [ ] M2.2 Titlebar component: drag regions, project chip, theme-synced overlay colors
-- [ ] M2.3 Left rail: icon nav, active states, badge slots, tooltips
-- [ ] M2.4 Sessions sidebar shell + collapse spring (width spring 320/34)
+- [x] M2.1 Platform chrome adapter: win titleBarOverlay / mac hiddenInset / linux custom controls
+- [x] M2.2 Titlebar component: drag regions, project chip, theme-synced overlay colors
+- [x] M2.3 Left rail: icon nav, active states, badge slots, tooltips
+- [x] M2.4 Sessions sidebar shell + collapse spring (width spring 320/34)
 - [ ] M2.5 Router + view registry (TanStack Router memory history)
-- [ ] M2.6 Status bar: engine dot, active runs, tokens/cost placeholder, mode chip
+- [x] M2.6 Status bar: engine dot, active runs, tokens/cost placeholder, mode chip
 - [ ] M2.7 Command palette skeleton: overlay, fuzzy matcher, action registry
-- [ ] M2.8 Settings shell routes (Appearance/Providers/Endpoints/Permissions/Keys/Advanced placeholders)
-- [ ] M2.9 Empty states kit (illustrative glyph + copy + CTA)
-- [ ] M2.10 Window-state persistence (bounds, maximized, sidebar prefs)
-- [ ] M2.11 Single-instance focus behavior + tray skeleton (running count, quick-new)
+- [x] M2.8 Settings shell routes (Appearance/Providers/Endpoints/Permissions/Keys/Advanced placeholders)
+- [x] M2.9 Empty states kit (illustrative glyph + copy + CTA)
+- [x] M2.10 Window-state persistence (bounds, maximized, sidebar prefs)
+- [x] M2.11 Single-instance focus behavior + tray skeleton (running count, quick-new)
 - [ ] M2.12 docs/arch-02.md + tag `milestone/M2`
 
 ## M3 — Engine core
 
-- [ ] M3.1 Contracts: full command/event unions + zod schemas for session/turn/message
+- [x] M3.1 Contracts: full command/event unions + zod schemas for session/turn/message
 - [ ] M3.2 JSONL journal: append w/ fsync policy, rotation, corruption-tail recovery + tests
 - [ ] M3.3 Projection framework: fold events → read model, subscription deltas
 - [ ] M3.4 Session state machine (idle/queued/running/waiting-approval/settled/error)
-- [ ] M3.5 Turn state machine + turn lifecycle events
+- [x] M3.5 Turn state machine + turn lifecycle events
 - [ ] M3.6 Typed IPC bridge: invoke channel map + subscribe streams, zod-validated
 - [ ] M3.7 Preload API surface (`window.ari.rpc`) + renderer client
 - [ ] M3.8 Zustand store factory bound to RPC subscriptions
 - [ ] M3.9 Engine boot: replay journals on startup, reconcile read model
-- [ ] M3.10 Command dispatcher: idempotency receipts, ordered queue
-- [ ] M3.11 Settings store (JSON file, atomic write, schema versioning)
+- [x] M3.10 Command dispatcher: idempotency receipts, ordered queue
+- [x] M3.11 Settings store (JSON file, atomic write, schema versioning)
 - [ ] M3.12 Crash-recovery tests (truncated tail, partial writes)
-- [ ] M3.13 Logger service (file + devtools, redaction hook)
-- [ ] M3.14 Error taxonomy + diagnostic event surfacing contract
+- [x] M3.13 Logger service (file + devtools, redaction hook)
+- [x] M3.14 Error taxonomy + diagnostic event surfacing contract
 - [ ] M3.15 Perf test: journal append < 1ms amortized; replay 100k events < 2s
 - [ ] M3.16 docs/arch-03.md + tag `milestone/M3`
 
 ## M4 — Provider subsystem
 
 - [ ] M4.1 Detector: PATH scan per-OS, well-known dirs, version probe, cache
-- [ ] M4.2 Auth-status readers (read-only) for all six CLIs + graceful unknown states
-- [ ] M4.3 Driver registry + adapter lifecycle supervision (respawn/backoff/dispose)
-- [ ] M4.4 AgentEvent normalization union + contracts wiring
+- [x] M4.2 Auth-status readers (read-only) for all six CLIs + graceful unknown states
+- [x] M4.3 Driver registry + adapter lifecycle supervision (respawn/backoff/dispose)
+- [x] M4.4 AgentEvent normalization union + contracts wiring
 - [ ] M4.5 Fixture recorder script (`scripts/record-fixture.ts`)
-- [ ] M4.6 Claude driver: spawn stream-json both directions + mapper + fixtures tests
+- [x] M4.6 Claude driver: spawn stream-json both directions + mapper + fixtures tests
 - [ ] M4.7 Claude control protocol: approvals, steering, resume
-- [ ] M4.8 Codex driver: `exec --json` mapper + fixtures tests
-- [ ] M4.9 Codex resume + auth-status edge cases
+- [x] M4.8 Codex driver: `exec --json` mapper + fixtures tests
+- [x] M4.9 Codex resume + auth-status edge cases
     - [x] M4.10 OpenCode driver: probe flags at runtime, mapper + fixtures
     - [x] M4.11 Grok driver: probe flags at runtime, mapper + fixtures
   - [x] M4.12 Pi driver: probe flags at runtime, mapper + fixtures
 - [x] M4.13 Hermes driver: probe flags at runtime, mapper + fixtures (synthesized fixtures — hermes CLI absent locally; re-record via record-fixture.ts when binary ships)
 - [ ] M4.14 Model catalogs per driver + merge into provider picker data
 - [ ] M4.15 Diagnostics card contract (flag drift, crash, auth-missing surfaces to UI)
-- [ ] M4.16 Session↔driver binding: workspace cwd, env sanitization
+- [x] M4.16 Session↔driver binding: workspace cwd, env sanitization
 - [ ] M4.17 Streaming backpressure + interrupt semantics per transport
-- [ ] M4.18 Usage extraction (tokens/cost where providers emit it)
+- [x] M4.18 Usage extraction (tokens/cost where providers emit it)
 - [ ] M4.19 Provider health probes + status bar integration points
-- [ ] M4.20 e2e-ish test: mock CLI script driven through registry end-to-end
+- [x] M4.20 e2e-ish test: mock CLI script driven through registry end-to-end
 - [ ] M4.21 Per-driver docs (docs/providers/*.md)
 - [ ] M4.22 docs/arch-04.md + tag `milestone/M4`
 
 ## M5 — Transcript experience
 
-- [ ] M5.1 Virtualized block list (TanStack Virtual), stable keys msgId#blockId
-- [ ] M5.2 Markdown block splitter + memoized block renderer
+- [x] M5.1 Virtualized block list (TanStack Virtual), stable keys msgId#blockId
+- [x] M5.2 Markdown block splitter + memoized block renderer
 - [x] M5.3 Shiki highlighter pool (warmed once, async)
-- [ ] M5.4 Streaming tail incremental re-parse
-- [ ] M5.5 Text row: streaming veil fade, cursor pulse
-- [ ] M5.6 Thinking row (collapsed by default, expand animation)
-- [ ] M5.7 Tool card: args summary, collapsible raw JSON, duration, exit state
+- [x] M5.4 Streaming tail incremental re-parse
+- [x] M5.5 Text row: streaming veil fade, cursor pulse
+- [x] M5.6 Thinking row (collapsed by default, expand animation)
+- [x] M5.7 Tool card: args summary, collapsible raw JSON, duration, exit state
 - [ ] M5.8 Diff card (delegates to shared diff viewer)
-- [ ] M5.9 Error/diagnostic rows
+- [x] M5.9 Error/diagnostic rows
 - [ ] M5.10 Copy affordances + language chips on code blocks
 - [ ] M5.11 Timestamps + usage footer per message
-- [ ] M5.12 Stick-to-bottom spring + wheel-up interrupt + 70px re-engage band
+- [x] M5.12 Stick-to-bottom spring + wheel-up interrupt + 70px re-engage band
 - [ ] M5.13 Perf test: 50k-block synthetic transcript ≥55fps scroll
 - [ ] M5.14 Transcript a11y pass (roles, announcements)
 
 ## M6 — Composer & steering
 
-- [ ] M6.1 Auto-grow textarea (76–260px) + IME safety
-- [ ] M6.2 Send→Steer→Stop morph button (180ms crossfade + width tween)
-- [ ] M6.3 Queue-while-running (pending messages list, reorder, cancel)
+- [x] M6.1 Auto-grow textarea (76–260px) + IME safety
+- [x] M6.2 Send→Steer→Stop morph button (180ms crossfade + width tween)
+- [x] M6.3 Queue-while-running (pending messages list, reorder, cancel)
 - [ ] M6.4 @file fuzzy mentions fed by watcher index
 - [x] M6.5 Slash command registry + palette-style popup
 - [ ] M6.6 Image paste/drop attachments
 - [x] M6.7 Drafts per session (persist, restore)
 - [ ] M6.8 Model/provider/mode pickers (keyboard-first popovers)
-- [ ] M6.9 Composer keybindings (Enter/Shift+Enter, history)
-- [ ] M6.10 Composer unit + interaction tests
+- [x] M6.9 Composer keybindings (Enter/Shift+Enter, history)
+- [x] M6.10 Composer unit + interaction tests
 
 ## M7 — Approvals & permissions
 
-- [ ] M7.1 Approval event flow through engine (request/respond/idempotent)
+- [x] M7.1 Approval event flow through engine (request/respond/idempotent)
 - [x] M7.2 Inline approval cards (approve/deny/always-allow)
 - [x] M7.3 Question panel (paged options, 1–9 keys, auto-advance)
 - [ ] M7.4 Permission modes: ask / allow-edits / full — engine enforcement
 - [ ] M7.5 Mode mapping per driver (claude control protocol, codex sandbox, ari-core gate)
 - [ ] M7.6 Allowlist persistence + settings surface
-- [ ] M7.7 Global approval badge + rail indicator
-- [ ] M7.8 Approval flow tests (timeout, deny, double-respond)
+- [x] M7.7 Global approval badge + rail indicator
+- [x] M7.8 Approval flow tests (timeout, deny, double-respond)
 
 ## M8 — Checkpoints & diffs
 
 - [x] M8.1 GitService: porcelain v2 parsing, branch info, safe subprocess layer
 - [x] M8.2 Hidden-ref checkpoints `refs/ari/<session>/<turn>` capture
 - [ ] M8.3 Revert reactor: workspace restore + conversation truncation
-- [ ] M8.4 Per-turn & whole-thread diff queries
+- [x] M8.4 Per-turn & whole-thread diff queries
 - [x] M8.5 Unified diff parser → virtualized hunk model
 - [x] M8.6 Diff viewer: syntax-tinted lines, hunk nav, word-diff option
 - [x] M8.7 File-tree grouping + collapse tweens (180ms height)
 - [ ] M8.8 Revert confirmation flow + undo toast
-- [ ] M8.9 Non-git graceful degradation (checkpoints disabled notice)
+- [x] M8.9 Non-git graceful degradation (checkpoints disabled notice)
 - [ ] M8.10 Checkpoint storage GC (cap refs per session)
 - [ ] M8.11 Diff perf test (10k-line diff virtualized)
 - [ ] M8.12 docs/arch-08.md
@@ -163,11 +163,11 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 ## M10 — Terminal & files
 
-- [ ] M10.1 node-pty host service in main (spawn, resize, kill process tree)
-- [ ] M10.2 xterm.js tabs in inspector pane
-- [ ] M10.3 Terminal theme sync + font binding
-- [ ] M10.4 Resize/input coalescing + scrollback replay (1MB cap)
-- [ ] M10.5 Shell detection per platform + profile hints
+- [x] M10.1 node-pty host service in main (spawn, resize, kill process tree)
+- [x] M10.2 xterm.js tabs in inspector pane
+- [x] M10.3 Terminal theme sync + font binding
+- [x] M10.4 Resize/input coalescing + scrollback replay (1MB cap)
+- [x] M10.5 Shell detection per platform + profile hints
 - [x] M10.6 File explorer tree (virtualized, watcher deltas)
 - [x] M10.7 File context actions (reveal in explorer, open in editor, copy path)
 - [x] M10.8 Binary/large-file guards
@@ -176,22 +176,22 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 ## M11 — Ari Core harness
 
-- [ ] M11.1 Endpoint store CRUD + safeStorage encryption + encrypted-file fallback
-- [ ] M11.2 OpenAI chat-completions client (SSE stream parser) + fixture tests
+- [x] M11.1 Endpoint store CRUD + safeStorage encryption + encrypted-file fallback
+- [x] M11.2 OpenAI chat-completions client (SSE stream parser) + fixture tests
 - [ ] M11.3 Anthropic messages client (SSE) + fixture tests
 - [ ] M11.4 Ollama client + fixture tests
-- [ ] M11.5 Connection tester (latency, /models listing) + UI hooks
-- [ ] M11.6 Agent loop: tool round-trips, cancellation, retry policy
-- [ ] M11.7 System prompt builder + workspace context injection
-- [ ] M11.8 Tool: bash (pty, timeout, output cap)
-- [ ] M11.9 Tools: read_file / write_file (path jail)
-- [ ] M11.10 Tool: edit_file exact-string replace + diff preview event
-- [ ] M11.11 Tools: glob / grep (rg if present else JS fallback)
+- [x] M11.5 Connection tester (latency, /models listing) + UI hooks
+- [x] M11.6 Agent loop: tool round-trips, cancellation, retry policy
+- [x] M11.7 System prompt builder + workspace context injection
+- [x] M11.8 Tool: bash (pty, timeout, output cap)
+- [x] M11.9 Tools: read_file / write_file (path jail)
+- [x] M11.10 Tool: edit_file exact-string replace + diff preview event
+- [x] M11.11 Tools: glob / grep (rg if present else JS fallback)
 - [ ] M11.12 Tool: todo_write (structured plan tracking)
 - [ ] M11.13 Context-window manager (truncate/summarize oldest tool results)
-- [ ] M11.14 Register as driver: transcript/approvals/checkpoints parity
-- [ ] M11.15 Token accounting + cost estimate plumbing
-- [ ] M11.16 Ari Core e2e test against scripted fake endpoint
+- [x] M11.14 Register as driver: transcript/approvals/checkpoints parity
+- [x] M11.15 Token accounting + cost estimate plumbing
+- [x] M11.16 Ari Core e2e test against scripted fake endpoint
 - [ ] M11.17 Endpoint security review (header handling, SSRF guardrails)
 - [ ] M11.18 docs/arch-11.md
 
@@ -200,7 +200,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M12.1 Appearance page: live theme preview, accent override, density
 - [ ] M12.2 Providers page: detect grid, auth badges, install hints, re-scan
 - [x] M12.3 Endpoints page: CRUD + test + key entry UX (UI-only, also covers M11.5 UI hooks: localStorage `ari.endpoints` store, engine store wiring lands later)
-- [ ] M12.4 Permissions page: modes default, allowlist editor
+- [x] M12.4 Permissions page: modes default, allowlist editor
 - [ ] M12.5 Keybindings page: logical map, Mod symbols, conflict detection
 - [ ] M12.6 Advanced page: logs viewer, journal tools, diagnostics export
 - [ ] M12.7 Settings events through engine (single writer)
