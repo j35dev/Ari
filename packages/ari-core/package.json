@@ -6,7 +6,8 @@
   "exports": {
     "./endpoints": "./src/endpoints.ts",
     "./openai": "./src/protocols/openai-chat.ts",
-    "./agent-loop": "./src/agent-loop.ts"
+    "./agent-loop": "./src/agent-loop.ts",
+    "./driver": "./src/ari-core-driver.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
