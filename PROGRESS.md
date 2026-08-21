@@ -16,7 +16,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M0.5 Electron main shell: app lifecycle, single-instance lock, BrowserWindow
 - [x] M0.6 Preload bridge skeleton (contextBridge) + renderer React mount
 - [x] M0.7 Verify pipeline green (`pnpm verify` = typecheck+lint+test) + `pnpm dev` runs
-- [ ] M0.8 docs/arch-00.md + tag `milestone/M0`
+- [x] M0.8 docs/arch-00.md + tag `milestone/M0`
 
 ## M1 — Design system
 
