@@ -92,6 +92,12 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
+  packages/engine:
+    dependencies:
+      '@ari/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/shared: {}
 
   packages/ui:

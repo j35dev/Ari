@@ -1,0 +1,16 @@
+{
+  "name": "@ari/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./journal": "./src/journal.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ari/shared": "workspace:*"
+  }
+}
