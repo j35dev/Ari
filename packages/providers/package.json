@@ -17,7 +17,9 @@
     "./opencode": "./src/opencode/opencode-driver.ts",
     "./opencode/mapper": "./src/opencode/mapper.ts",
     "./pi": "./src/pi/pi-driver.ts",
-    "./pi/mapper": "./src/pi/mapper.ts"
+    "./pi/mapper": "./src/pi/mapper.ts",
+    "./hermes": "./src/hermes/hermes-driver.ts",
+    "./hermes/mapper": "./src/hermes/mapper.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
