@@ -27,7 +27,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M1.5 Input + Textarea + Field wrapper (label, hint, error)
 - [ ] M1.6 Select (listbox popover, keyboard nav, typeahead)
 - [x] M1.7 Popover + Tooltip (origin-aware menu-in motion)
-- [ ] M1.8 Dialog + Sheet (focus trap, scale-fade in)
+- [x] M1.8 Dialog + Sheet (focus trap, scale-fade in)
 - [x] M1.9 Tabs + SegmentedControl (animated indicator)
 - [x] M1.10 Switch + Checkbox + Badge + Kbd
 - [x] M1.11 ScrollArea + Skeleton + Spinner
