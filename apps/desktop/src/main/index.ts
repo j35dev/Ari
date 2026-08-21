@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { registerRpc } from './rpc'
+import { createTray } from './tray'
 import { createMainWindow } from './window'
 
 const gotLock = app.requestSingleInstanceLock()
@@ -19,6 +20,11 @@ if (!gotLock) {
     if (mainWindow) return
     mainWindow = createMainWindow()
     void registerRpc(mainWindow.webContents)
+    createTray(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
+      mainWindow.show()
+      mainWindow.focus()
+    })
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
