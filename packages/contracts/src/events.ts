@@ -52,5 +52,13 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     turnId: z.string(),
     gitRef: z.string(),
   }),
+  eventBase.extend({
+    type: z.literal('message.enqueued'),
+    text: z.string().min(1),
+  }),
+  eventBase.extend({
+    type: z.literal('message.dequeued'),
+    text: z.string().min(1),
+  }),
 ])
 export type JournalEvent = z.infer<typeof journalEventSchema>
