@@ -33,7 +33,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M1.11 ScrollArea + Skeleton + Spinner
 - [x] M1.12 Toast system (queue, tones, actions, hover-pause; swipe dismiss deferred to M13.2)
 - [ ] M1.13 Motion kit: named variants/hooks from PLAN §6.4 + reduced-motion respect
-- [ ] M1.14 Gallery route (/gallery) rendering every primitive + visual QA pass
+- [x] M1.14 Gallery route (/gallery) rendering every primitive + visual QA pass
 
 ## M2 — App shell
 

@@ -7,11 +7,12 @@ import { rpc } from './lib/rpc'
 import { Titlebar } from './shell/Titlebar'
 import { LeftRail, type RailView } from './shell/LeftRail'
 import { SessionsSidebar } from './shell/SessionsSidebar'
+import { GalleryView } from './views'
 
-type Route = 'home'
+type Route = 'home' | 'gallery'
 
 function Shell() {
-  const [route] = useState<Route>('home')
+  const [route, setRoute] = useState<Route>('home')
   const [railView, setRailView] = useState<RailView>('sessions')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -24,7 +25,25 @@ function Shell() {
       .catch(() => undefined)
   }, [])
 
-  if (route !== 'home') return null
+  if (route === 'gallery') {
+    return (
+      <div className="flex h-full flex-col">
+        <Titlebar projectLabel="Gallery" />
+        <div className="border-b border-border bg-surface-0 px-4 py-2">
+          <button
+            type="button"
+            onClick={() => setRoute('home')}
+            className="rounded-md px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            ← Back to workspace
+          </button>
+        </div>
+        <div className="min-h-0 flex-1">
+          <GalleryView />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -67,7 +86,7 @@ function Shell() {
         </AnimatePresence>
 
         <main className="min-w-0 flex-1 bg-bg">
-          <EmptyState />
+          <EmptyState onOpenGallery={() => setRoute('gallery')} />
         </main>
       </div>
       <StatusBar />
@@ -75,7 +94,7 @@ function Shell() {
   )
 }
 
-function EmptyState() {
+function EmptyState({ onOpenGallery }: { onOpenGallery: () => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3">
       <div className="text-xl font-semibold tracking-[0.14em] text-fg">ARI</div>
@@ -83,6 +102,13 @@ function EmptyState() {
         Your agents, one surface. Create a session to begin.
       </p>
       <ThemeDots />
+      <button
+        type="button"
+        onClick={onOpenGallery}
+        className="mt-2 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        Browse component gallery
+      </button>
     </div>
   )
 }
