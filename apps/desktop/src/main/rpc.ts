@@ -14,6 +14,7 @@ import { CodexDriver } from '@ari/providers/codex'
 import { OpencodeDriver } from '@ari/providers/opencode'
 import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
+import { HermesDriver } from '@ari/providers/hermes'
 import { detectDriver } from '@ari/providers/detector'
 import { realDetectEnvironment } from '@ari/providers/types'
 import { AriCoreDriver } from '@ari/ari-core/driver'
@@ -28,7 +29,7 @@ async function buildRegistry(): Promise<DriverRegistry> {
   const registry = new DriverRegistry()
   const env = realDetectEnvironment()
   const candidates: {
-    kind: 'claude' | 'codex' | 'opencode' | 'grok' | 'pi'
+    kind: 'claude' | 'codex' | 'opencode' | 'grok' | 'pi' | 'hermes'
     make: (bin: string) => unknown
   }[] = [
     { kind: 'claude', make: (bin) => new ClaudeDriver(bin) },
@@ -36,6 +37,7 @@ async function buildRegistry(): Promise<DriverRegistry> {
     { kind: 'opencode', make: (bin) => new OpencodeDriver(bin) },
     { kind: 'grok', make: (bin) => new GrokDriver(bin) },
     { kind: 'pi', make: (bin) => new PiDriver(bin) },
+    { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
   ]
   for (const candidate of candidates) {
     const detection = await detectDriver(candidate.kind, env)

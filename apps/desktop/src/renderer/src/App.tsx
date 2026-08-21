@@ -13,6 +13,7 @@ import { TerminalView } from './features/terminal'
 import { AppearanceSettings, PermissionsSettings } from './features/settings'
 import { EndpointsManager } from './features/endpoints'
 import { ChangesView } from './features/changes'
+import { ProjectsView } from './features/projects'
 import './features/transcript/transcript.css'
 
 type Route = 'home' | 'gallery'
@@ -98,6 +99,8 @@ function Shell() {
             <TerminalView cwd={process.cwd()} />
           ) : railView === 'changes' ? (
             <ChangesView />
+          ) : railView === 'projects' ? (
+            <ProjectsView />
           ) : railView === 'settings' ? (
             <div className="ari-scroll h-full overflow-y-auto">
               <div className="mx-auto max-w-2xl space-y-10 p-8">
