@@ -127,8 +127,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 ## M7 — Approvals & permissions
 
 - [ ] M7.1 Approval event flow through engine (request/respond/idempotent)
-- [ ] M7.2 Inline approval cards (approve/deny/always-allow)
-- [ ] M7.3 Question panel (paged options, 1–9 keys, auto-advance)
+- [x] M7.2 Inline approval cards (approve/deny/always-allow)
+- [x] M7.3 Question panel (paged options, 1–9 keys, auto-advance)
 - [ ] M7.4 Permission modes: ask / allow-edits / full — engine enforcement
 - [ ] M7.5 Mode mapping per driver (claude control protocol, codex sandbox, ari-core gate)
 - [ ] M7.6 Allowlist persistence + settings surface
