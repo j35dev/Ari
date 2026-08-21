@@ -54,12 +54,14 @@ export class SettingsStore {
     appearance?: Partial<Settings['appearance']>
     sessions?: Partial<Settings['sessions']>
     permissions?: Partial<Settings['permissions']>
+    window?: Settings['window']
   }): Promise<Settings> {
     const next: Settings = {
       version: 1,
       appearance: { ...this.#current.appearance, ...patch.appearance },
       sessions: { ...this.#current.sessions, ...patch.sessions },
       permissions: { ...this.#current.permissions, ...patch.permissions },
+      window: patch.window !== undefined ? patch.window : this.#current.window,
     }
     const validated = settingsSchema.parse(next)
     await this.save(validated)

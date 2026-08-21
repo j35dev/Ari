@@ -1,16 +1,23 @@
 import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
+import { getSettingsStore } from './store'
 
 /**
  * Platform chrome strategy (PLAN §8):
  *  - Windows: hidden frame + native titleBarOverlay (snap/max/min preserved)
  *  - macOS:   hiddenInset traffic lights
- *  - Linux:   hidden frame; custom controls ship in the renderer titlebar (M2)
+ *  - Linux:   hidden frame; custom controls ship in the renderer titlebar
+ *
+ * Window bounds persist across launches via the settings store.
  */
 export function createMainWindow(): BrowserWindow {
+  const settings = getSettingsStore().current.window
+
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: settings?.width ?? 1280,
+    height: settings?.height ?? 800,
+    x: settings?.x,
+    y: settings?.y,
     minWidth: 960,
     minHeight: 600,
     show: false,
@@ -26,6 +33,35 @@ export function createMainWindow(): BrowserWindow {
       spellcheck: false,
     },
   })
+
+  if (settings?.maximized) win.maximize()
+
+  const persistBounds = (): void => {
+    if (win.isDestroyed() || win.isMinimized()) return
+    const bounds = win.isMaximized() ? null : win.getBounds()
+    const store = getSettingsStore()
+    void store
+      .update({
+        window:
+          bounds === null
+            ? {
+                ...(store.current.window ?? {
+                  x: 0,
+                  y: 0,
+                  width: 1280,
+                  height: 800,
+                }),
+                maximized: true,
+              }
+            : { ...bounds, maximized: false },
+      })
+      .catch(() => undefined)
+  }
+
+  win.on('resized', persistBounds)
+  win.on('moved', persistBounds)
+  win.on('maximize', persistBounds)
+  win.on('unmaximize', persistBounds)
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL'])

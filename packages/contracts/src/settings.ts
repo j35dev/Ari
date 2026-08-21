@@ -22,6 +22,16 @@ export const settingsSchema = z.object({
       allowlist: z.array(z.string()).default([]),
     })
     .default({ allowlist: [] }),
+  window: z
+    .object({
+      x: z.number().int(),
+      y: z.number().int(),
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+      maximized: z.boolean().default(false),
+    })
+    .nullable()
+    .default(null),
 })
 export type Settings = z.infer<typeof settingsSchema>
 
@@ -30,4 +40,5 @@ export const defaultSettings: Settings = {
   appearance: { themeId: 'obsidian', reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
+  window: null,
 }
