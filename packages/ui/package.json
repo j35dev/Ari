@@ -14,7 +14,11 @@
     "./icon-button": "./src/components/IconButton.tsx",
     "./input": "./src/components/Input.tsx",
     "./textarea": "./src/components/Textarea.tsx",
-    "./field": "./src/components/Field.tsx"
+    "./field": "./src/components/Field.tsx",
+    "./switch": "./src/components/Switch.tsx",
+    "./checkbox": "./src/components/Checkbox.tsx",
+    "./badge": "./src/components/Badge.tsx",
+    "./kbd": "./src/components/Kbd.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

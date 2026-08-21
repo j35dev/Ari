@@ -23,15 +23,20 @@
   --color-accent-subtle: var(--ari-accent-subtle);
   --color-accent-ring: var(--ari-accent-ring);
   --color-success: var(--ari-success);
+  --color-success-subtle: var(--ari-success-subtle);
   --color-warning: var(--ari-warning);
+  --color-warning-subtle: var(--ari-warning-subtle);
   --color-danger: var(--ari-danger);
   --color-danger-hover: var(--ari-danger-hover);
+  --color-danger-subtle: var(--ari-danger-subtle);
   --color-info: var(--ari-info);
+  --color-info-subtle: var(--ari-info-subtle);
   --radius-sm: var(--ari-radius-sm);
   --radius-md: var(--ari-radius-md);
   --radius-lg: var(--ari-radius-lg);
   --font-ui: var(--ari-font-ui);
   --font-mono: var(--ari-font-mono);
+  --text-2xs: var(--ari-text-2xs);
 }
 
 @layer base {
