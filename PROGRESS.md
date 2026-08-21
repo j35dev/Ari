@@ -83,7 +83,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
     - [x] M4.10 OpenCode driver: probe flags at runtime, mapper + fixtures
     - [x] M4.11 Grok driver: probe flags at runtime, mapper + fixtures
   - [x] M4.12 Pi driver: probe flags at runtime, mapper + fixtures
-- [ ] M4.13 Hermes driver: probe flags at runtime, mapper + fixtures
+- [x] M4.13 Hermes driver: probe flags at runtime, mapper + fixtures (synthesized fixtures — hermes CLI absent locally; re-record via record-fixture.ts when binary ships)
 - [ ] M4.14 Model catalogs per driver + merge into provider picker data
 - [ ] M4.15 Diagnostics card contract (flag drift, crash, auth-missing surfaces to UI)
 - [ ] M4.16 Session↔driver binding: workspace cwd, env sanitization
