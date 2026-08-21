@@ -25,10 +25,11 @@
       "./scroll-area": "./src/components/ScrollArea.tsx",
       "./skeleton": "./src/components/Skeleton.tsx",
       "./spinner": "./src/components/Spinner.tsx",
-    "./popover": "./src/components/Popover.tsx",
-    "./tooltip": "./src/components/Tooltip.tsx",
-    "./dialog": "./src/components/Dialog.tsx",
-    "./sheet": "./src/components/Sheet.tsx"
+      "./popover": "./src/components/Popover.tsx",
+      "./tooltip": "./src/components/Tooltip.tsx",
+      "./dialog": "./src/components/Dialog.tsx",
+      "./sheet": "./src/components/Sheet.tsx",
+      "./select": "./src/components/Select.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
