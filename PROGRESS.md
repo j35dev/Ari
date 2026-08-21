@@ -30,7 +30,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [ ] M1.8 Dialog + Sheet (focus trap, scale-fade in)
 - [x] M1.9 Tabs + SegmentedControl (animated indicator)
 - [x] M1.10 Switch + Checkbox + Badge + Kbd
-- [ ] M1.11 ScrollArea + Skeleton + Spinner
+- [x] M1.11 ScrollArea + Skeleton + Spinner
 - [x] M1.12 Toast system (queue, tones, actions, hover-pause; swipe dismiss deferred to M13.2)
 - [ ] M1.13 Motion kit: named variants/hooks from PLAN §6.4 + reduced-motion respect
 - [ ] M1.14 Gallery route (/gallery) rendering every primitive + visual QA pass
