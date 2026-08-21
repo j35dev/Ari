@@ -1,0 +1,7 @@
+node_modules
+dist
+out
+coverage
+pnpm-lock.yaml
+*.woff2
+*.woff
