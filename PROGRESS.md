@@ -137,8 +137,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 ## M8 — Checkpoints & diffs
 
-- [ ] M8.1 GitService: porcelain v2 parsing, branch info, safe subprocess layer
-- [ ] M8.2 Hidden-ref checkpoints `refs/ari/<session>/<turn>` capture
+- [x] M8.1 GitService: porcelain v2 parsing, branch info, safe subprocess layer
+- [x] M8.2 Hidden-ref checkpoints `refs/ari/<session>/<turn>` capture
 - [ ] M8.3 Revert reactor: workspace restore + conversation truncation
 - [ ] M8.4 Per-turn & whole-thread diff queries
 - [ ] M8.5 Unified diff parser → virtualized hunk model
