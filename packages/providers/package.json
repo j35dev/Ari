@@ -1,0 +1,17 @@
+{
+  "name": "@ari/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./detector": "./src/detector.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ari/contracts": "workspace:*",
+    "@ari/shared": "workspace:*"
+  }
+}

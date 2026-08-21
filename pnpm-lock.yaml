@@ -98,6 +98,15 @@ importers:
         specifier: workspace:*
         version: link:../shared
 
+  packages/providers:
+    dependencies:
+      '@ari/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@ari/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/shared: {}
 
   packages/ui:
