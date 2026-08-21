@@ -32,22 +32,9 @@ export function App() {
   }, [])
 
   return (
-    <div
-      style={{
-        height: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12,
-        background: '#0b0b0e',
-        color: '#e6e6ea',
-        fontFamily:
-          "'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif",
-      }}
-    >
-      <div style={{ fontSize: 44, letterSpacing: '0.22em', fontWeight: 600 }}>ARI</div>
-      <div style={{ opacity: 0.55, fontSize: 13 }}>
+    <div className="flex h-full flex-col items-center justify-center gap-3 bg-bg text-fg">
+      <div className="text-[2rem] font-semibold tracking-[0.22em]">ARI</div>
+      <div className="text-fg-muted text-[13px]">
         {bridge === 'connecting' && 'waking the engine…'}
         {bridge === 'alive' && `engine alive · ${new Date().toLocaleTimeString()}`}
         {bridge === 'broken' && 'bridge unreachable'}

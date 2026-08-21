@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+@import '@ari/ui/fonts.css';
+@import '@ari/ui/tokens.css';
+@import '@ari/ui/themes.css';
+
+/* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
+   resolve to live CSS variables and follow the active theme. */
+@theme inline {
+  --color-bg: var(--ari-bg);
+  --color-surface-0: var(--ari-surface-0);
+  --color-surface-1: var(--ari-surface-1);
+  --color-surface-2: var(--ari-surface-2);
+  --color-surface-3: var(--ari-surface-3);
+  --color-border: var(--ari-border);
+  --color-border-strong: var(--ari-border-strong);
+  --color-fg: var(--ari-fg);
+  --color-fg-muted: var(--ari-fg-muted);
+  --color-fg-subtle: var(--ari-fg-subtle);
+  --color-accent: var(--ari-accent);
+  --color-accent-hover: var(--ari-accent-hover);
+  --color-accent-active: var(--ari-accent-active);
+  --color-accent-subtle: var(--ari-accent-subtle);
+  --color-success: var(--ari-success);
+  --color-warning: var(--ari-warning);
+  --color-danger: var(--ari-danger);
+  --color-danger-hover: var(--ari-danger-hover);
+  --color-info: var(--ari-info);
+  --radius-sm: var(--ari-radius-sm);
+  --radius-md: var(--ari-radius-md);
+  --radius-lg: var(--ari-radius-lg);
+  --font-ui: var(--ari-font-ui);
+  --font-mono: var(--ari-font-mono);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--ari-font-ui);
+    font-size: var(--ari-text-md);
+    background: var(--ari-bg);
+    color: var(--ari-fg);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background: var(--ari-accent-subtle);
+  }
+}

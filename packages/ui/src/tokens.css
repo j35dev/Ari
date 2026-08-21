@@ -1,0 +1,81 @@
+/*
+ * Ari design tokens — the ONLY place raw color/oklch literals may appear
+ * (AGENTS.md). Themes override these custom properties in themes.css.
+ * All values oklch; hue 286 = cool graphite-violet neutral axis.
+ */
+
+:root {
+  /* surfaces */
+  --ari-bg: oklch(0.145 0.004 286);
+  --ari-surface-0: oklch(0.17 0.005 286);
+  --ari-surface-1: oklch(0.205 0.006 286);
+  --ari-surface-2: oklch(0.25 0.007 286);
+  --ari-surface-3: oklch(0.3 0.008 286);
+
+  /* strokes */
+  --ari-border: oklch(0.32 0.01 286 / 55%);
+  --ari-border-strong: oklch(0.42 0.012 286 / 80%);
+  --ari-inner-stroke: oklch(1 0 0 / 4%);
+
+  /* text */
+  --ari-fg: oklch(0.93 0.004 286);
+  --ari-fg-muted: oklch(0.66 0.009 286);
+  --ari-fg-subtle: oklch(0.48 0.008 286);
+  --ari-fg-on-accent: oklch(0.98 0.005 286);
+
+  /* accent (iris) */
+  --ari-accent: oklch(0.62 0.19 275);
+  --ari-accent-hover: oklch(0.68 0.19 275);
+  --ari-accent-active: oklch(0.56 0.19 275);
+  --ari-accent-subtle: oklch(0.62 0.19 275 / 14%);
+  --ari-accent-ring: oklch(0.62 0.19 275 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.72 0.17 155);
+  --ari-success-subtle: oklch(0.72 0.17 155 / 14%);
+  --ari-warning: oklch(0.78 0.15 80);
+  --ari-warning-subtle: oklch(0.78 0.15 80 / 14%);
+  --ari-danger: oklch(0.63 0.21 25);
+  --ari-danger-hover: oklch(0.69 0.21 25);
+  --ari-danger-subtle: oklch(0.63 0.21 25 / 15%);
+  --ari-info: oklch(0.7 0.13 230);
+  --ari-info-subtle: oklch(0.7 0.13 230 / 14%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 35%);
+  --ari-shadow-2: 0 4px 16px oklch(0 0 0 / 40%);
+  --ari-shadow-3: 0 12px 40px oklch(0 0 0 / 50%);
+
+  /* geometry */
+  --ari-radius-sm: 6px;
+  --ari-radius-md: 10px;
+  --ari-radius-lg: 14px;
+  --ari-border-width: 1px;
+
+  /* type */
+  --ari-font-ui: 'Geist Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --ari-font-mono: 'Geist Mono Variable', 'Cascadia Code', ui-monospace, monospace;
+  --ari-text-2xs: 0.6875rem;
+  --ari-text-xs: 0.75rem;
+  --ari-text-sm: 0.8125rem;
+  --ari-text-md: 0.875rem;
+  --ari-text-lg: 1rem;
+  --ari-text-xl: 1.25rem;
+  --ari-text-2xl: 1.5625rem;
+  --ari-text-3xl: 2rem;
+
+  /* layout metrics */
+  --ari-rail-width: 56px;
+  --ari-sidebar-width: 264px;
+  --ari-titlebar-height: 38px;
+  --ari-statusbar-height: 26px;
+
+  /* motion */
+  --ari-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ari-ease-slide: cubic-bezier(0.22, 1, 0.36, 1);
+  --ari-dur-fast: 140ms;
+  --ari-dur-base: 220ms;
+  --ari-dur-slow: 260ms;
+
+  color-scheme: dark;
+}

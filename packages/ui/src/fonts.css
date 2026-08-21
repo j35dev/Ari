@@ -1,0 +1,6 @@
+/*
+ * Font loading. Geist + Geist Mono are bundled (OFL-licensed) so rendering
+ * is identical across Windows, macOS, and Linux.
+ */
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';

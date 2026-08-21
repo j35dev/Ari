@@ -10,14 +10,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ari/ui": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^6.1.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "electron": "^43.4.1",
-    "electron-vite": "^5.0.0"
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.6"
   }
 }
