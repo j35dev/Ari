@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a022f5-a55a-7c42-b17a-016b8d692443"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"reasoning","text":"User wants exactly one word."}}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"User wants exactly one word."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"hello"}}
+{"type":"turn.completed","usage":{"input_tokens":42,"output_tokens":3}}

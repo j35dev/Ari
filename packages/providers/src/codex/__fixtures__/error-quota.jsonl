@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"01a022f5-a55a-7c42-b17a-016b8d692443"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5 (unexpected status 403 Forbidden: user quota is not enough (request id: 20260821141523204063070vw7dsxYQy8sBj), url: https://agentrouter.org/v1/responses)"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 403 Forbidden: user quota is not enough (request id: 202608211415256113035566r6vpOJyKyzAJ), url: https://agentrouter.org/v1/responses)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 403 Forbidden: user quota is not enough (request id: 20260821141527428388695qsbdnbt0toHi0), url: https://agentrouter.org/v1/responses)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 403 Forbidden: user quota is not enough (request id: 202608211415298794649008zzl706tNEqgG), url: https://agentrouter.org/v1/responses)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 403 Forbidden: user quota is not enough (request id: 20260821141532651552030xnfngHuvKzlEm), url: https://agentrouter.org/v1/responses)"}
+{"type":"error","message":"unexpected status 403 Forbidden: user quota is not enough (request id: 2026082114153862693752xzfz52AzWduKk), url: https://agentrouter.org/v1/responses"}
+{"type":"turn.failed","error":{"message":"unexpected status 403 Forbidden: user quota is not enough (request id: 2026082114153862693752xzfz52AzWduKk), url: https://agentrouter.org/v1/responses"}}

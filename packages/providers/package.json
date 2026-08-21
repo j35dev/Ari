@@ -7,7 +7,9 @@
     "./detector": "./src/detector.ts",
     "./driver": "./src/driver.ts",
     "./claude": "./src/claude/claude-driver.ts",
-    "./claude/mapper": "./src/claude/mapper.ts"
+    "./claude/mapper": "./src/claude/mapper.ts",
+    "./codex": "./src/codex/codex-driver.ts",
+    "./codex/mapper": "./src/codex/mapper.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
