@@ -9,6 +9,7 @@ import { LeftRail, type RailView } from './shell/LeftRail'
 import { SessionsSidebar } from './shell/SessionsSidebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
+import { TerminalView } from './features/terminal'
 import './features/transcript/transcript.css'
 
 type Route = 'home' | 'gallery'
@@ -90,7 +91,9 @@ function Shell() {
         </AnimatePresence>
 
         <main className="min-w-0 flex-1 bg-bg">
-          {activeSessionId ? (
+          {railView === 'terminal' ? (
+            <TerminalView cwd={process.cwd()} />
+          ) : activeSessionId ? (
             <SessionView sessionId={activeSessionId} />
           ) : (
             <EmptyState onOpenGallery={() => setRoute('gallery')} />
