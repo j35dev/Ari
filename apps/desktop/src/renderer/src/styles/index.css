@@ -34,6 +34,7 @@
   --radius-sm: var(--ari-radius-sm);
   --radius-md: var(--ari-radius-md);
   --radius-lg: var(--ari-radius-lg);
+  --shadow-2: var(--ari-shadow-2);
   --font-ui: var(--ari-font-ui);
   --font-mono: var(--ari-font-mono);
   --text-2xs: var(--ari-text-2xs);

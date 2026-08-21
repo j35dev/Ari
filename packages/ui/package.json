@@ -20,11 +20,13 @@
     "./checkbox": "./src/components/Checkbox.tsx",
     "./badge": "./src/components/Badge.tsx",
     "./kbd": "./src/components/Kbd.tsx",
-    "./tabs": "./src/components/Tabs.tsx",
-    "./segmented-control": "./src/components/SegmentedControl.tsx",
-    "./scroll-area": "./src/components/ScrollArea.tsx",
-    "./skeleton": "./src/components/Skeleton.tsx",
-    "./spinner": "./src/components/Spinner.tsx"
+      "./tabs": "./src/components/Tabs.tsx",
+      "./segmented-control": "./src/components/SegmentedControl.tsx",
+      "./scroll-area": "./src/components/ScrollArea.tsx",
+      "./skeleton": "./src/components/Skeleton.tsx",
+      "./spinner": "./src/components/Spinner.tsx",
+      "./popover": "./src/components/Popover.tsx",
+      "./tooltip": "./src/components/Tooltip.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
