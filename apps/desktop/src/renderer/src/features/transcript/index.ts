@@ -1,2 +1,5 @@
 export { TranscriptView } from './TranscriptView'
 export { splitBlocks } from './splitBlocks'
+export { CopyButton } from './CopyButton'
+export { MessageFooter } from './MessageFooter'
+export type { MessageUsage } from './MessageFooter'
