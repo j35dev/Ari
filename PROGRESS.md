@@ -22,7 +22,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 - [ ] M1.1 Token system: oklch neutral ramp, accent ramp, spacing, radius, shadow, type scale (tokens.css)
 - [ ] M1.2 Theme engine: ThemeProvider, CSS var bridge, 6 themes (Obsidian, Graphite, Porcelain, Ember, Verdant, Ultraviolet), persistence stub
-- [ ] M1.3 Fonts vendored: Geist + Geist Mono woff2, @font-face, tabular numerals utility
+- [x] M1.3 Fonts vendored: Geist + Geist Mono woff2, @font-face, tabular numerals utility (delivered via @fontsource-variable packages in M1.1 — same outcome, less fragility)
 - [ ] M1.4 Button + IconButton (variants, loading, kbd hint slot)
 - [ ] M1.5 Input + Textarea + Field wrapper (label, hint, error)
 - [ ] M1.6 Select (listbox popover, keyboard nav, typeahead)
