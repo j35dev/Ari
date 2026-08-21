@@ -2,6 +2,7 @@
 @import '@ari/ui/fonts.css';
 @import '@ari/ui/tokens.css';
 @import '@ari/ui/themes.css';
+@import '@ari/ui/scroll-area.css';
 
 /* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
    resolve to live CSS variables and follow the active theme. */

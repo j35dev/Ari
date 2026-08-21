@@ -29,7 +29,8 @@
       "./tooltip": "./src/components/Tooltip.tsx",
       "./dialog": "./src/components/Dialog.tsx",
       "./sheet": "./src/components/Sheet.tsx",
-      "./select": "./src/components/Select.tsx"
+      "./select": "./src/components/Select.tsx",
+      "./toast": "./src/components/Toast.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
