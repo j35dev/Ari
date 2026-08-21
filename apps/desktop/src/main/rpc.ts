@@ -7,6 +7,9 @@ import { getSessionStore } from './store'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
+import { OpencodeDriver } from '@ari/providers/opencode'
+import { GrokDriver } from '@ari/providers/grok'
+import { PiDriver } from '@ari/providers/pi'
 import { detectDriver } from '@ari/providers/detector'
 import { realDetectEnvironment } from '@ari/providers/types'
 
@@ -18,9 +21,15 @@ import { realDetectEnvironment } from '@ari/providers/types'
 async function buildRegistry(): Promise<DriverRegistry> {
   const registry = new DriverRegistry()
   const env = realDetectEnvironment()
-  const candidates: { kind: 'claude' | 'codex'; make: (bin: string) => unknown }[] = [
+  const candidates: {
+    kind: 'claude' | 'codex' | 'opencode' | 'grok' | 'pi'
+    make: (bin: string) => unknown
+  }[] = [
     { kind: 'claude', make: (bin) => new ClaudeDriver(bin) },
     { kind: 'codex', make: (bin) => new CodexDriver(bin) },
+    { kind: 'opencode', make: (bin) => new OpencodeDriver(bin) },
+    { kind: 'grok', make: (bin) => new GrokDriver(bin) },
+    { kind: 'pi', make: (bin) => new PiDriver(bin) },
   ]
   for (const candidate of candidates) {
     const detection = await detectDriver(candidate.kind, env)
