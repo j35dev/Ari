@@ -7,7 +7,9 @@
     "./tokens.css": "./src/tokens.css",
     "./themes.css": "./src/themes.css",
     "./fonts.css": "./src/fonts.css",
-    "./theme-provider": "./src/theme-provider.tsx"
+    "./theme-provider": "./src/theme-provider.tsx",
+    "./motion": "./src/motion/index.ts",
+    "./motion-provider": "./src/motion/MotionProvider.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -15,7 +17,8 @@
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.5",
-    "@fontsource-variable/geist-mono": "^5.2.5"
+    "@fontsource-variable/geist-mono": "^5.2.5",
+    "motion": "^13.1.1"
   },
   "peerDependencies": {
     "react": "^19.0.0"
