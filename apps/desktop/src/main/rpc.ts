@@ -1,9 +1,11 @@
 import { BrowserWindow, ipcMain, type WebContents } from 'electron'
+import type { IPty, IPtyForkOptions } from 'node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { SessionEventFrame } from '@ari/contracts/rpc'
 import { Engine } from './engine'
 import { RpcRegistry } from './rpc-registry'
 import { getSessionStore } from './store'
+import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
@@ -48,6 +50,11 @@ async function buildRegistry(): Promise<DriverRegistry> {
  */
 export const STREAM_CHANNEL = 'ari:stream'
 
+/** Structural type for the lazily-loaded node-pty module. */
+type NodePtyModule = {
+  spawn(file: string, args: string[], options: IPtyForkOptions): IPty
+}
+
 export interface EngineHandle {
   engine: Engine
   registry: DriverRegistry
@@ -69,6 +76,41 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
         rpcRegistry.publish('session.events', payload)
       },
     })
+
+    // node-pty is built for Electron's ABI; load it lazily and adapt.
+    let ptyModule: NodePtyModule | null = null
+    void import('node-pty').then((m) => {
+      ptyModule = m
+    })
+    const ptyFactory: PtyFactory = (file, args, options) => {
+      if (!ptyModule) throw new Error('terminal backend still loading')
+      const raw = ptyModule.spawn(file, args, {
+        name: options.name,
+        cwd: options.cwd,
+        env: options.env,
+      })
+      // Bridge node-pty's event properties onto the service's callback style.
+      const dataListeners: ((data: string) => void)[] = []
+      const exitListeners: ((code: number) => void)[] = []
+      raw.onData((data) => dataListeners.forEach((l) => l(data)))
+      raw.onExit((_e) => exitListeners.forEach((l) => l(0)))
+      const pty: PtyLike = {
+        pid: raw.pid,
+        write: (data) => raw.write(data),
+        resize: (cols, rows) => raw.resize(cols, rows),
+        kill: () => raw.kill(),
+        onData: (cb) => dataListeners.push(cb),
+        onExit: (cb) => exitListeners.push(() => cb(0)),
+      }
+      return pty
+    }
+    const terminals = new TerminalService(
+      {
+        onData: (id, data) => rpcRegistry.publish('terminal.data', { id, data }),
+        onExit: () => undefined,
+      },
+      ptyFactory,
+    )
 
     const r = rpcRegistry
     r.register('ping', () => ({ pong: true, at: Date.now() }))
@@ -127,6 +169,26 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       return { done: true }
     })
 
+    r.register('terminal.create', (params) => {
+      terminals.create(params.id, params.cwd)
+      return { created: true }
+    })
+
+    r.register('terminal.write', (params) => {
+      terminals.write(params.id, params.data)
+      return { written: true }
+    })
+
+    r.register('terminal.resize', (params) => {
+      terminals.resize(params.id, params.cols, params.rows)
+      return { resized: true }
+    })
+
+    r.register('terminal.kill', (params) => {
+      terminals.kill(params.id)
+      return { killed: true }
+    })
+
     r.register('stream.subscribe', (params) => {
       rpcRegistry.subscribe({
         id: params.id,
@@ -142,6 +204,15 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
               rpcRegistry.publish('session.events', { sessionId, event } satisfies SessionEventFrame)
             }
           })
+        }
+      }
+      if (params.name === 'terminal.data') {
+        const terminalId = params.params['id']
+        if (typeof terminalId === 'string') {
+          const scrollback = terminals.replay(terminalId)
+          if (scrollback.length > 0) {
+            rpcRegistry.publish('terminal.data', { id: terminalId, data: scrollback })
+          }
         }
       }
       return { subscribed: true }
@@ -163,6 +234,10 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'window.minimize',
       'window.toggleMaximize',
       'window.close',
+      'terminal.create',
+      'terminal.write',
+      'terminal.resize',
+      'terminal.kill',
       'stream.subscribe',
       'stream.unsubscribe',
     ] as const

@@ -24,13 +24,19 @@ export const sessionCreateParamsSchema = z.object({
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 
 /** Stream names the renderer may subscribe to. */
-export const streamNames = ['session.events'] as const
+export const streamNames = ['session.events', 'terminal.data'] as const
 export type StreamName = (typeof streamNames)[number]
 
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
   sessionId: string
   event: unknown
+}
+
+/** Payload delivered on the terminal.data stream. */
+export interface TerminalDataFrame {
+  id: string
+  data: string
 }
 
 /**
@@ -48,6 +54,14 @@ export const rpcParams = {
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
+  'terminal.create': z.object({ id: z.string().min(1), cwd: z.string().min(1) }),
+  'terminal.write': z.object({ id: z.string().min(1), data: z.string() }),
+  'terminal.resize': z.object({
+    id: z.string().min(1),
+    cols: z.number().int().positive(),
+    rows: z.number().int().positive(),
+  }),
+  'terminal.kill': z.object({ id: z.string().min(1) }),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -69,6 +83,10 @@ export interface RpcResults {
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }
+  'terminal.create': { created: boolean }
+  'terminal.write': { written: boolean }
+  'terminal.resize': { resized: boolean }
+  'terminal.kill': { killed: boolean }
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
