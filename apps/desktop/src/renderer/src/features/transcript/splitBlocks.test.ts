@@ -1,0 +1,65 @@
+import { describe, expect, it } from 'vitest'
+import type { Message, MessagePart } from '@ari/contracts/message'
+import { pendingToolCallIds, splitBlocks } from './splitBlocks'
+
+function msg(id: string, parts: MessagePart[], role: Message['role'] = 'assistant'): Message {
+  return { id, sessionId: 's1', turnId: 't1', role, parts, createdAt: 1 }
+}
+
+describe('splitBlocks', () => {
+  it('maps each part to a block with a stable msgId#partIndex key', () => {
+    const blocks = splitBlocks([
+      msg('m1', [
+        { type: 'text', text: 'hello' },
+        { type: 'thinking', text: 'hmm' },
+        { type: 'tool-call', callId: 'c1', name: 'bash', argsJson: '"ls"' },
+        { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+      ]),
+    ])
+
+    expect(blocks.map((b) => b.key)).toEqual(['m1#0', 'm1#1', 'm1#2', 'm1#3'])
+    expect(blocks.map((b) => b.kind)).toEqual([
+      'markdown',
+      'thinking',
+      'tool-call',
+      'tool-result',
+    ])
+    expect(blocks[2]).toMatchObject({ callId: 'c1', name: 'bash', argsJson: '"ls"' })
+    expect(blocks[3]).toMatchObject({ callId: 'c1', resultJson: '"ok"', isError: false })
+  })
+
+  it('keeps keys stable when later parts append to the same message', () => {
+    const before = splitBlocks([msg('m1', [{ type: 'text', text: 'par' }])])
+    const after = splitBlocks([
+      msg('m1', [
+        { type: 'text', text: 'paragraph grew' },
+        { type: 'thinking', text: 'deeper' },
+      ]),
+    ])
+    expect(after[0]?.key).toBe(before[0]?.key)
+    expect(after).toHaveLength(2)
+  })
+
+  it('flattens multiple messages in order and carries user messages through', () => {
+    const blocks = splitBlocks([
+      msg('u1', [{ type: 'text', text: 'question' }], 'user'),
+      msg('a1', [{ type: 'text', text: 'answer' }]),
+    ])
+    expect(blocks.map((b) => b.key)).toEqual(['u1#0', 'a1#0'])
+  })
+
+  it('returns an empty list for empty input', () => {
+    expect(splitBlocks([])).toEqual([])
+  })
+
+  it('computes pending tool calls as called-but-unanswered ids', () => {
+    const blocks = splitBlocks([
+      msg('m1', [
+        { type: 'tool-call', callId: 'c1', name: 'bash', argsJson: '{}' },
+        { type: 'tool-result', callId: 'c1', resultJson: '{}', isError: false },
+        { type: 'tool-call', callId: 'c2', name: 'read', argsJson: '{}' },
+      ]),
+    ])
+    expect(pendingToolCallIds(blocks)).toEqual(new Set(['c2']))
+  })
+})
