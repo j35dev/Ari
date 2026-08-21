@@ -4,7 +4,7 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { SessionEventFrame } from '@ari/contracts/rpc'
 import { Engine } from './engine'
 import { RpcRegistry } from './rpc-registry'
-import { getSessionStore } from './store'
+import { getProjectStore, getSessionStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
@@ -189,6 +189,17 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       return { killed: true }
     })
 
+    r.register('project.list', async () => getProjectStore().load())
+
+    r.register('project.add', async (params) => {
+      const project = await getProjectStore().add(params.path, params.name)
+      return project ? { id: project.id, name: project.name, path: project.path } : null
+    })
+
+    r.register('project.remove', async (params) => {
+      return { removed: await getProjectStore().remove(params.id) }
+    })
+
     r.register('stream.subscribe', (params) => {
       rpcRegistry.subscribe({
         id: params.id,
@@ -238,6 +249,9 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'terminal.write',
       'terminal.resize',
       'terminal.kill',
+      'project.list',
+      'project.add',
+      'project.remove',
       'stream.subscribe',
       'stream.unsubscribe',
     ] as const

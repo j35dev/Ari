@@ -62,6 +62,9 @@ export const rpcParams = {
     rows: z.number().int().positive(),
   }),
   'terminal.kill': z.object({ id: z.string().min(1) }),
+  'project.list': z.undefined(),
+  'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
+  'project.remove': z.object({ id: z.string().min(1) }),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -87,6 +90,9 @@ export interface RpcResults {
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }
   'terminal.kill': { killed: boolean }
+  'project.list': { id: string; name: string; path: string; colorIndex: number; createdAt: number }[]
+  'project.add': { id: string; name: string; path: string } | null
+  'project.remove': { removed: boolean }
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
