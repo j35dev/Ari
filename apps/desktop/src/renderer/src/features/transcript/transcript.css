@@ -1,0 +1,97 @@
+/* Transcript markdown styling — scoped under .ari-md. Tokens only. */
+
+.ari-md {
+  font-size: var(--ari-text-sm);
+  line-height: 1.65;
+  color: var(--ari-fg);
+  word-break: break-word;
+}
+
+.ari-md p {
+  margin: 0.5rem 0;
+}
+
+.ari-md h1,
+.ari-md h2,
+.ari-md h3,
+.ari-md h4 {
+  margin: 1rem 0 0.4rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.ari-md h1 { font-size: var(--ari-text-xl); }
+.ari-md h2 { font-size: var(--ari-text-lg); }
+.ari-md h3 { font-size: var(--ari-text-md); }
+
+.ari-md ul,
+.ari-md ol {
+  margin: 0.5rem 0;
+  padding-left: 1.4rem;
+}
+
+.ari-md ul { list-style: disc; }
+.ari-md ol { list-style: decimal; }
+.ari-md li { margin: 0.15rem 0; }
+
+.ari-md code {
+  font-family: var(--ari-font-mono);
+  font-size: var(--ari-text-xs);
+  background: var(--ari-surface-2);
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-sm);
+  padding: 0.05rem 0.3rem;
+}
+
+.ari-md pre {
+  margin: 0.6rem 0;
+  padding: 0.7rem 0.9rem;
+  background: var(--ari-surface-1);
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-md);
+  overflow-x: auto;
+}
+
+.ari-md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--ari-text-xs);
+  line-height: 1.55;
+}
+
+.ari-md a {
+  color: var(--ari-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ari-md a:hover { color: var(--ari-accent-hover); }
+
+.ari-md blockquote {
+  margin: 0.6rem 0;
+  padding-left: 0.8rem;
+  border-left: 3px solid var(--ari-border-strong);
+  color: var(--ari-fg-muted);
+}
+
+.ari-md table {
+  margin: 0.6rem 0;
+  border-collapse: collapse;
+  font-size: var(--ari-text-xs);
+}
+
+.ari-md th,
+.ari-md td {
+  border: 1px solid var(--ari-border);
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+}
+
+.ari-md th { background: var(--ari-surface-1); font-weight: 600; }
+
+.ari-md hr {
+  margin: 1rem 0;
+  border: none;
+  border-top: 1px solid var(--ari-border);
+}

@@ -8,6 +8,8 @@ import { Titlebar } from './shell/Titlebar'
 import { LeftRail, type RailView } from './shell/LeftRail'
 import { SessionsSidebar } from './shell/SessionsSidebar'
 import { GalleryView } from './views'
+import { SessionView } from './features/session/SessionView'
+import './features/transcript/transcript.css'
 
 type Route = 'home' | 'gallery'
 
@@ -18,12 +20,14 @@ function Shell() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
 
-  useEffect(() => {
+  const refreshSessions = (): void => {
     void rpc
       .invoke('session.list')
       .then(setSessions)
       .catch(() => undefined)
-  }, [])
+  }
+
+  useEffect(refreshSessions, [])
 
   if (route === 'gallery') {
     return (
@@ -76,7 +80,7 @@ function Shell() {
                     })
                     .then(({ sessionId }) => {
                       setActiveSessionId(sessionId)
-                      return rpc.invoke('session.list').then(setSessions)
+                      refreshSessions()
                     })
                     .catch(() => undefined)
                 }}
@@ -86,10 +90,14 @@ function Shell() {
         </AnimatePresence>
 
         <main className="min-w-0 flex-1 bg-bg">
-          <EmptyState onOpenGallery={() => setRoute('gallery')} />
+          {activeSessionId ? (
+            <SessionView sessionId={activeSessionId} />
+          ) : (
+            <EmptyState onOpenGallery={() => setRoute('gallery')} />
+          )}
         </main>
       </div>
-      <StatusBar />
+      <StatusBar sessionCount={sessions.length} active={activeSessionId !== null} />
     </div>
   )
 }
@@ -134,13 +142,22 @@ function ThemeDots() {
   )
 }
 
-function StatusBar() {
+function StatusBar({
+  sessionCount,
+  active,
+}: {
+  sessionCount: number
+  active: boolean
+}) {
   return (
     <footer className="flex h-[var(--ari-statusbar-height)] shrink-0 items-center gap-3 border-t border-border bg-surface-0 px-3 text-2xs text-fg-subtle">
       <span className="flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 rounded-full bg-success" /> engine ready
       </span>
-      <span>0 active runs</span>
+      <span>
+        {sessionCount} session{sessionCount === 1 ? '' : 's'}
+        {active ? ' · viewing' : ''}
+      </span>
       <div className="flex-1" />
       <span>v0.1.0</span>
     </footer>
