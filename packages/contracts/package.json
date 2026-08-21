@@ -11,7 +11,8 @@
     "./commands": "./src/commands.ts",
     "./events": "./src/events.ts",
     "./rpc": "./src/rpc.ts",
-    "./settings": "./src/settings.ts"
+    "./settings": "./src/settings.ts",
+    "./project": "./src/project.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

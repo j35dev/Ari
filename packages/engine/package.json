@@ -9,6 +9,7 @@
     "./projection": "./src/projection.ts",
     "./session-store": "./src/session-store.ts",
     "./settings": "./src/settings.ts",
+    "./projects": "./src/projects.ts",
     "./git": "./src/git/index.ts"
   },
   "scripts": {
