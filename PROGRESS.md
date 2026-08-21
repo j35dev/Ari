@@ -43,7 +43,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M2.4 Sessions sidebar shell + collapse spring (width spring 320/34)
 - [ ] M2.5 Router + view registry (TanStack Router memory history)
 - [x] M2.6 Status bar: engine dot, active runs, tokens/cost placeholder, mode chip
-- [ ] M2.7 Command palette skeleton: overlay, fuzzy matcher, action registry
+- [x] M2.7 Command palette skeleton: overlay, fuzzy matcher, action registry
 - [x] M2.8 Settings shell routes (Appearance/Providers/Endpoints/Permissions/Keys/Advanced placeholders)
 - [x] M2.9 Empty states kit (illustrative glyph + copy + CTA)
 - [x] M2.10 Window-state persistence (bounds, maximized, sidebar prefs)
