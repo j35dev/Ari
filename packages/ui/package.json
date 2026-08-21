@@ -11,7 +11,10 @@
     "./motion": "./src/motion/index.ts",
     "./motion-provider": "./src/motion/MotionProvider.tsx",
     "./button": "./src/components/Button.tsx",
-    "./icon-button": "./src/components/IconButton.tsx"
+    "./icon-button": "./src/components/IconButton.tsx",
+    "./input": "./src/components/Input.tsx",
+    "./textarea": "./src/components/Textarea.tsx",
+    "./field": "./src/components/Field.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
