@@ -1,0 +1,117 @@
+import type { AgentEvent } from '@ari/contracts/agent-event'
+import { defaultSseFetch, type SseFetch } from './openai-chat'
+
+/**
+ * Anthropic Messages API streaming client (`POST /v1/messages`, SSE).
+ * Transport is injected so tests replay recorded SSE fixtures.
+ */
+
+export interface AnthropicMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface AnthropicChatRequest {
+  baseUrl: string
+  apiKey: string | null
+  model: string
+  /** System prompt, sent in the top-level `system` field (not as a message). */
+  system?: string
+  messages: AnthropicMessage[]
+  headers?: Record<string, string>
+  signal?: AbortSignal
+}
+
+interface StreamEvent {
+  type?: string
+  delta?: { type?: string; text?: string; thinking?: string }
+  message?: { usage?: { input_tokens?: number } }
+  usage?: { output_tokens?: number }
+  error?: { type?: string; message?: string }
+}
+
+/**
+ * Streams one Anthropic completion, yielding normalized AgentEvents.
+ * `message_start` carries input tokens, `message_delta` output tokens, and
+ * `message_stop` terminates the stream with a final usage event.
+ */
+export async function* streamChatAnthropic(
+  request: AnthropicChatRequest,
+  sseFetch: SseFetch = defaultSseFetch,
+): AsyncGenerator<AgentEvent, void, undefined> {
+  const url = `${request.baseUrl.replace(/\/$/, '')}/v1/messages`
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'anthropic-version': '2023-06-01',
+    ...request.headers,
+  }
+  if (request.apiKey) headers['x-api-key'] = request.apiKey
+
+  let response
+  try {
+    response = await sseFetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: request.model,
+        max_tokens: 8192,
+        ...(request.system ? { system: request.system } : {}),
+        messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
+        stream: true,
+      }),
+      signal: request.signal,
+    })
+  } catch (e) {
+    yield { type: 'error', message: `endpoint unreachable: ${String(e)}`, rawJson: null }
+    yield { type: 'done' }
+    return
+  }
+
+  if (!response.body || response.status >= 400) {
+    yield {
+      type: 'error',
+      message: `endpoint error ${response.status}: ${response.statusText}`,
+      rawJson: null,
+    }
+    yield { type: 'done' }
+    return
+  }
+
+  let inputTokens = 0
+  let outputTokens = 0
+
+  for await (const raw of response.body) {
+    const data = raw.startsWith('data:') ? raw.slice(5).trim() : raw.trim()
+    if (data.length === 0) continue
+    let event: StreamEvent
+    try {
+      event = JSON.parse(data) as StreamEvent
+    } catch {
+      continue
+    }
+    if (event.type === 'content_block_delta') {
+      if (event.delta?.type === 'text_delta' && event.delta.text) {
+        yield { type: 'text-delta', text: event.delta.text }
+      } else if (event.delta?.type === 'thinking_delta' && event.delta.thinking) {
+        yield { type: 'thinking-delta', text: event.delta.thinking }
+      }
+    } else if (event.type === 'message_start') {
+      inputTokens = event.message?.usage?.input_tokens ?? inputTokens
+    } else if (event.type === 'message_delta') {
+      outputTokens = event.usage?.output_tokens ?? outputTokens
+    } else if (event.type === 'message_stop') {
+      break
+    } else if (event.type === 'error') {
+      yield {
+        type: 'error',
+        message: event.error?.message ?? 'anthropic stream error',
+        rawJson: data,
+      }
+      yield { type: 'done' }
+      return
+    }
+  }
+
+  yield { type: 'usage', inputTokens, outputTokens, costUsd: null }
+  yield { type: 'done' }
+}
