@@ -98,7 +98,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 - [ ] M5.1 Virtualized block list (TanStack Virtual), stable keys msgId#blockId
 - [ ] M5.2 Markdown block splitter + memoized block renderer
-- [ ] M5.3 Shiki highlighter pool (warmed once, async)
+- [x] M5.3 Shiki highlighter pool (warmed once, async)
 - [ ] M5.4 Streaming tail incremental re-parse
 - [ ] M5.5 Text row: streaming veil fade, cursor pulse
 - [ ] M5.6 Thinking row (collapsed by default, expand animation)
