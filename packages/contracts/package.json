@@ -9,7 +9,8 @@
     "./message": "./src/message.ts",
     "./agent-event": "./src/agent-event.ts",
     "./commands": "./src/commands.ts",
-    "./events": "./src/events.ts"
+    "./events": "./src/events.ts",
+    "./rpc": "./src/rpc.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

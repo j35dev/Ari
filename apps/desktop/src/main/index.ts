@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
+import { registerRpc } from './rpc'
 import { createMainWindow } from './window'
 
 const gotLock = app.requestSingleInstanceLock()
@@ -15,11 +16,15 @@ if (!gotLock) {
   })
 
   void app.whenReady().then(() => {
-    ipcMain.handle('ari:ping', () => ({ pong: true, at: Date.now() }))
+    if (mainWindow) return
     mainWindow = createMainWindow()
+    registerRpc(mainWindow.webContents)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow()
+      if (BrowserWindow.getAllWindows().length === 0) {
+        mainWindow = createMainWindow()
+        registerRpc(mainWindow.webContents)
+      }
     })
   })
 

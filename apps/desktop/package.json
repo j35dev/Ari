@@ -7,9 +7,13 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@ari/contracts": "workspace:*",
+    "@ari/engine": "workspace:*",
+    "@ari/shared": "workspace:*",
     "@ari/ui": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
