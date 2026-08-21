@@ -7,6 +7,7 @@
     "./tokens.css": "./src/tokens.css",
     "./themes.css": "./src/themes.css",
     "./fonts.css": "./src/fonts.css",
+    "./scroll-area.css": "./src/scroll-area.css",
     "./theme-provider": "./src/theme-provider.tsx",
     "./motion": "./src/motion/index.ts",
     "./motion-provider": "./src/motion/MotionProvider.tsx",
@@ -20,7 +21,10 @@
     "./badge": "./src/components/Badge.tsx",
     "./kbd": "./src/components/Kbd.tsx",
     "./tabs": "./src/components/Tabs.tsx",
-    "./segmented-control": "./src/components/SegmentedControl.tsx"
+    "./segmented-control": "./src/components/SegmentedControl.tsx",
+    "./scroll-area": "./src/components/ScrollArea.tsx",
+    "./skeleton": "./src/components/Skeleton.tsx",
+    "./spinner": "./src/components/Spinner.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
