@@ -95,3 +95,19 @@ pnpm format        # prettier write
 - Workers must not merge their own PRs. Orchestrator reviews and merges.
 - If two tasks touch the same directory, they are dependent by definition — take one, not
   both.
+
+## Fleet lifecycle (orchestrator)
+
+After merging a worker's PR the orchestrator immediately cleans up so the workspace stays
+pristine:
+
+1. `herdr pane close <pane-id>` — terminates the worker agent.
+2. `herdr worktree remove --workspace <ws-id> --force` (or delete the checkout dir +
+   `git worktree prune` if the workspace is already gone).
+3. Delete the task branch locally and on the remote (`git branch -D`, `git push origin
+   --delete`).
+4. Re-run `pnpm verify` on `main` after every merge batch.
+
+Workers never perform these steps themselves and never force-push; only the orchestrator
+rebases PR branches to resolve shared-file conflicts (PROGRESS.md, package.json exports,
+styles/index.css).
