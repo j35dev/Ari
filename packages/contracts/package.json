@@ -10,7 +10,8 @@
     "./agent-event": "./src/agent-event.ts",
     "./commands": "./src/commands.ts",
     "./events": "./src/events.ts",
-    "./rpc": "./src/rpc.ts"
+    "./rpc": "./src/rpc.ts",
+    "./settings": "./src/settings.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
