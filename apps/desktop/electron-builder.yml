@@ -1,0 +1,40 @@
+# electron-builder packaging config for Ari desktop (M14.1–M14.3).
+# Build from apps/desktop after `electron-vite build`; see scripts/README-packaging.md.
+$schema: https://raw.githubusercontent.com/electron-userland/electron-builder/master/scheme.json
+appId: com.ari.desktop
+productName: Ari
+directories:
+  output: ../../dist
+files:
+  - out/**
+  - package.json
+# node-pty is the only native dependency; it must stay physical on disk
+# (Electron ABI build) or ConPTY/Unix PTY loading fails inside asar.
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+win:
+  target:
+    - nsis
+  # Signing scaffolding: electron-builder auto-picks up CSC_LINK /
+  # CSC_KEY_PASSWORD (or a cert subject name via `sign`) when provided.
+  # Certificate procurement is deferred — see PLAN M14.1.
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Ari-Setup-${version}.exe
+mac:
+  target:
+    - target: dmg
+      arch:
+        - universal
+  category: public.app-category.developer-tools
+  artifactName: Ari-${version}-universal.dmg
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  maintainer: dev@ari.local
+# Auto-updates are disabled by default (publish: null); electron-updater
+# scaffolding lands in M14.6 and stays opt-in.
+publish: null
