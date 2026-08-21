@@ -80,9 +80,9 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [ ] M4.7 Claude control protocol: approvals, steering, resume
 - [ ] M4.8 Codex driver: `exec --json` mapper + fixtures tests
 - [ ] M4.9 Codex resume + auth-status edge cases
-  - [x] M4.10 OpenCode driver: probe flags at runtime, mapper + fixtures
-  - [x] M4.11 Grok driver: probe flags at runtime, mapper + fixtures
-- [ ] M4.12 Pi driver: probe flags at runtime, mapper + fixtures
+    - [x] M4.10 OpenCode driver: probe flags at runtime, mapper + fixtures
+    - [x] M4.11 Grok driver: probe flags at runtime, mapper + fixtures
+  - [x] M4.12 Pi driver: probe flags at runtime, mapper + fixtures
 - [ ] M4.13 Hermes driver: probe flags at runtime, mapper + fixtures
 - [ ] M4.14 Model catalogs per driver + merge into provider picker data
 - [ ] M4.15 Diagnostics card contract (flag drift, crash, auth-missing surfaces to UI)
