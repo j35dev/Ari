@@ -100,20 +100,33 @@ export class Engine {
       return
     }
 
+    let interrupted = false
     this.#activeTurns.set(session.id, {
       sessionId: session.id,
       turnId,
-      interrupt: () => adapter.interrupt(),
+      interrupt: () => {
+        interrupted = true
+        adapter.interrupt()
+      },
     })
 
     // Coalesced part buffer: text/thinking flush at ~120ms or on non-text.
     let buffer: { type: 'text' | 'thinking'; text: string }[] = []
     let lastFlush = Date.now()
     const messageId = newTypedId('msg')
-    let firstPart = true
+
+    // Post-interrupt guard: the decider already settled an interrupted turn;
+    // late adapter events must never overwrite that state.
+    const append = async (event: UnstampedEvent): Promise<void> => {
+      if (interrupted) return
+      await this.#append(session.id, event)
+    }
 
     const flush = async (): Promise<void> => {
-      if (buffer.length === 0) return
+      if (buffer.length === 0 || interrupted) {
+        buffer = []
+        return
+      }
       const parts = buffer.map((b) => ({ type: b.type, text: b.text }) as const)
       buffer = []
       lastFlush = Date.now()
@@ -136,26 +149,33 @@ export class Engine {
           case 'tool-started': {
             await flush()
             // Tool calls attach to the same streaming assistant message.
-            await this.#appendParts(session.id, messageId, [
-              { type: 'tool-call', callId: event.callId, name: event.name, argsJson: event.argsJson },
-            ])
-            firstPart = false
+            await append({
+              type: 'assistant.parts.appended',
+              messageId,
+              parts: [
+                { type: 'tool-call', callId: event.callId, name: event.name, argsJson: event.argsJson },
+              ],
+            })
             break
           }
           case 'tool-completed': {
             await flush()
-            await this.#appendParts(session.id, messageId, [
-              {
-                type: 'tool-result',
-                callId: event.callId,
-                resultJson: event.resultJson,
-                isError: event.isError,
-              },
-            ])
+            await append({
+              type: 'assistant.parts.appended',
+              messageId,
+              parts: [
+                {
+                  type: 'tool-result',
+                  callId: event.callId,
+                  resultJson: event.resultJson,
+                  isError: event.isError,
+                },
+              ],
+            })
             break
           }
           case 'usage': {
-            await this.#append(session.id, {
+            await append({
               type: 'usage.recorded',
               inputTokens: event.inputTokens,
               outputTokens: event.outputTokens,
@@ -164,7 +184,7 @@ export class Engine {
             break
           }
           case 'status':
-            await this.#append(session.id, {
+            await append({
               type: 'session.status.changed',
               from: session.status,
               to: event.status,
@@ -172,7 +192,7 @@ export class Engine {
             })
             break
           case 'approval-requested':
-            await this.#append(session.id, {
+            await append({
               type: 'approval.requested',
               approvalId: event.approvalId,
               toolName: event.toolName,
@@ -184,7 +204,7 @@ export class Engine {
             log.info('provider requested input', { sessionId: session.id })
             break
           case 'error':
-            await this.#append(session.id, {
+            await append({
               type: 'assistant.parts.appended',
               messageId,
               parts: [{ type: 'text', text: `\n\n⚠ ${event.message}` }],
@@ -193,44 +213,16 @@ export class Engine {
           case 'done':
             break
         }
-        if (firstPart && buffer.length > 0) firstPart = false
       }
       await flush()
-      await this.#settle(session.id, turnId, 'completed', null)
+      if (!interrupted) await this.#settle(session.id, turnId, 'completed', null)
     } catch (e) {
       await flush().catch(() => undefined)
-      await this.#settle(session.id, turnId, 'error', String(e))
+      if (!interrupted) await this.#settle(session.id, turnId, 'error', String(e))
     } finally {
       this.#activeTurns.delete(session.id)
       void adapter.dispose()
     }
-  }
-
-  async #appendParts(
-    sessionId: string,
-    messageId: string,
-    parts: { type: 'tool-call'; callId: string; name: string; argsJson: string }[],
-  ): Promise<void>
-  async #appendParts(
-    sessionId: string,
-    messageId: string,
-    parts: {
-      type: 'tool-result'
-      callId: string
-      resultJson: string
-      isError: boolean
-    }[],
-  ): Promise<void>
-  async #appendParts(
-    sessionId: string,
-    messageId: string,
-    parts: unknown[],
-  ): Promise<void> {
-    await this.#append(sessionId, {
-      type: 'assistant.parts.appended',
-      messageId,
-      parts: parts as never,
-    })
   }
 
   async #settle(
