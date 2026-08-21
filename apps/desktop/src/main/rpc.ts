@@ -1,4 +1,4 @@
-import { ipcMain, type WebContents } from 'electron'
+import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { SessionEventFrame } from '@ari/contracts/rpc'
 import { Engine } from './engine'
@@ -100,6 +100,24 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
 
     r.register('providers.detect', async () => driverRegistry.detectAll())
 
+    r.register('window.minimize', () => {
+      BrowserWindow.fromWebContents(contents)?.minimize()
+      return { done: true }
+    })
+
+    r.register('window.toggleMaximize', () => {
+      const win = BrowserWindow.fromWebContents(contents)
+      if (!win) return { maximized: false }
+      if (win.isMaximized()) win.unmaximize()
+      else win.maximize()
+      return { maximized: win.isMaximized() }
+    })
+
+    r.register('window.close', () => {
+      BrowserWindow.fromWebContents(contents)?.close()
+      return { done: true }
+    })
+
     r.register('stream.subscribe', (params) => {
       rpcRegistry.subscribe({
         id: params.id,
@@ -133,6 +151,9 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'session.destroy',
       'command.dispatch',
       'providers.detect',
+      'window.minimize',
+      'window.toggleMaximize',
+      'window.close',
       'stream.subscribe',
       'stream.unsubscribe',
     ] as const

@@ -45,6 +45,9 @@ export const rpcParams = {
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
   'command.dispatch': z.object({ command: commandSchema }),
   'providers.detect': z.undefined(),
+  'window.minimize': z.undefined(),
+  'window.toggleMaximize': z.undefined(),
+  'window.close': z.undefined(),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -63,6 +66,9 @@ export interface RpcResults {
   'session.destroy': { destroyed: boolean }
   'command.dispatch': { accepted: boolean }
   'providers.detect': { kind: string; binaryPath: string | null; version: string | null; authStatus: string }[]
+  'window.minimize': { done: boolean }
+  'window.toggleMaximize': { maximized: boolean }
+  'window.close': { done: boolean }
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
