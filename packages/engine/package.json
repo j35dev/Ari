@@ -8,7 +8,8 @@
     "./dispatcher": "./src/dispatcher.ts",
     "./projection": "./src/projection.ts",
     "./session-store": "./src/session-store.ts",
-    "./settings": "./src/settings.ts"
+    "./settings": "./src/settings.ts",
+    "./git": "./src/git/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
