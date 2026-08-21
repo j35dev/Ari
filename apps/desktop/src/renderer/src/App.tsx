@@ -10,6 +10,8 @@ import { SessionsSidebar } from './shell/SessionsSidebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { TerminalView } from './features/terminal'
+import { AppearanceSettings, PermissionsSettings } from './features/settings'
+import { EndpointsManager } from './features/endpoints'
 import './features/transcript/transcript.css'
 
 type Route = 'home' | 'gallery'
@@ -93,6 +95,14 @@ function Shell() {
         <main className="min-w-0 flex-1 bg-bg">
           {railView === 'terminal' ? (
             <TerminalView cwd={process.cwd()} />
+          ) : railView === 'settings' ? (
+            <div className="ari-scroll h-full overflow-y-auto">
+              <div className="mx-auto max-w-2xl space-y-10 p-8">
+                <AppearanceSettings />
+                <PermissionsSettings />
+                <EndpointsManager />
+              </div>
+            </div>
           ) : activeSessionId ? (
             <SessionView sessionId={activeSessionId} />
           ) : (
