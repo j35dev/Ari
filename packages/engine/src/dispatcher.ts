@@ -71,7 +71,12 @@ export function decideCommand(
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (!model.activeTurnId) return reject('no active turn to interrupt')
       return accept([
-        { type: 'turn.settled', turnId: model.activeTurnId, stopReason: 'interrupted' },
+        {
+          type: 'turn.settled',
+          turnId: model.activeTurnId,
+          stopReason: 'interrupted',
+          errorMessage: null,
+        },
         {
           type: 'session.status.changed',
           from: model.session.status,

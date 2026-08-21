@@ -13,6 +13,7 @@
   "dependencies": {
     "@ari/contracts": "workspace:*",
     "@ari/engine": "workspace:*",
+    "@ari/providers": "workspace:*",
     "@ari/shared": "workspace:*",
     "@ari/ui": "workspace:*",
     "react": "^19.2.8",

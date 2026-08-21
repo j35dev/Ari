@@ -75,7 +75,7 @@ describe('session projection', () => {
     expect(state.status).toBe('waiting-approval')
     state = applyEvent(state, ev(4, { type: 'approval.responded', approvalId: 'a1', decision: 'allow' }))
     expect(state.pendingApprovals).toHaveLength(0)
-    state = applyEvent(state, ev(5, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed' }))
+    state = applyEvent(state, ev(5, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed', errorMessage: null }))
     expect(state.activeTurnId).toBeNull()
     expect(state.streamingMessageId).toBeNull()
   })

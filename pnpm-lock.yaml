@@ -57,6 +57,9 @@ importers:
       '@ari/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@ari/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       '@ari/shared':
         specifier: workspace:*
         version: link:../../packages/shared

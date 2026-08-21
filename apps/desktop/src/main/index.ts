@@ -18,12 +18,12 @@ if (!gotLock) {
   void app.whenReady().then(() => {
     if (mainWindow) return
     mainWindow = createMainWindow()
-    registerRpc(mainWindow.webContents)
+    void registerRpc(mainWindow.webContents)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createMainWindow()
-        registerRpc(mainWindow.webContents)
+        void registerRpc(mainWindow.webContents)
       }
     })
   })

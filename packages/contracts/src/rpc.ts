@@ -27,6 +27,12 @@ export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 export const streamNames = ['session.events'] as const
 export type StreamName = (typeof streamNames)[number]
 
+/** Payload delivered on the session.events stream. */
+export interface SessionEventFrame {
+  sessionId: string
+  event: unknown
+}
+
 /**
  * Invoke-method parameter schemas. The result side is typed via
  * {@link RpcResults}; zod validates results only at development boundaries.
@@ -38,6 +44,7 @@ export const rpcParams = {
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
   'command.dispatch': z.object({ command: commandSchema }),
+  'providers.detect': z.undefined(),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -55,6 +62,7 @@ export interface RpcResults {
   'session.load': unknown
   'session.destroy': { destroyed: boolean }
   'command.dispatch': { accepted: boolean }
+  'providers.detect': { kind: string; binaryPath: string | null; version: string | null; authStatus: string }[]
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }

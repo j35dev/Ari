@@ -5,8 +5,10 @@
   "type": "module",
   "exports": {
     "./journal": "./src/journal.ts",
+    "./dispatcher": "./src/dispatcher.ts",
     "./projection": "./src/projection.ts",
-    "./session-store": "./src/session-store.ts"
+    "./session-store": "./src/session-store.ts",
+    "./settings": "./src/settings.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

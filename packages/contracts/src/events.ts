@@ -35,6 +35,13 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     type: z.literal('turn.settled'),
     turnId: z.string(),
     stopReason: z.enum(['completed', 'interrupted', 'error']),
+    errorMessage: z.string().nullable().default(null),
+  }),
+  eventBase.extend({
+    type: z.literal('usage.recorded'),
+    inputTokens: z.number().nonnegative(),
+    outputTokens: z.number().nonnegative(),
+    costUsd: z.number().nullable(),
   }),
   eventBase.extend({
     type: z.literal('approval.requested'),

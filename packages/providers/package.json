@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./detector": "./src/detector.ts",
-    "./driver": "./src/driver.ts",
+    "./types": "./src/types.ts",
+    "./registry": "./src/driver-registry.ts",
     "./claude": "./src/claude/claude-driver.ts",
     "./claude/mapper": "./src/claude/mapper.ts",
     "./codex": "./src/codex/codex-driver.ts",
