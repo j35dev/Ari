@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./detector": "./src/detector.ts"
+    "./detector": "./src/detector.ts",
+    "./driver": "./src/driver.ts",
+    "./claude": "./src/claude/claude-driver.ts",
+    "./claude/mapper": "./src/claude/mapper.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
