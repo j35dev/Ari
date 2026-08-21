@@ -6,7 +6,8 @@
   "exports": {
     "./tokens.css": "./src/tokens.css",
     "./themes.css": "./src/themes.css",
-    "./fonts.css": "./src/fonts.css"
+    "./fonts.css": "./src/fonts.css",
+    "./theme-provider": "./src/theme-provider.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

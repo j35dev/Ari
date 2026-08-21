@@ -16,7 +16,7 @@ const STORAGE_KEY = 'ari.theme'
 
 interface ThemeContextValue {
   theme: ThemeId
-  setTheme(theme: ThemeId): void
+  setTheme: (theme: ThemeId) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
