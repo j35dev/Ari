@@ -18,7 +18,9 @@
     "./switch": "./src/components/Switch.tsx",
     "./checkbox": "./src/components/Checkbox.tsx",
     "./badge": "./src/components/Badge.tsx",
-    "./kbd": "./src/components/Kbd.tsx"
+    "./kbd": "./src/components/Kbd.tsx",
+    "./tabs": "./src/components/Tabs.tsx",
+    "./segmented-control": "./src/components/SegmentedControl.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
