@@ -152,8 +152,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 ## M9 — Projects/workspaces
 
-- [ ] M9.1 Add-folder flow (dialog, recents, validation)
-- [ ] M9.2 Project registry store + icon/color chips
+- [x] M9.1 Add-folder flow (dialog, recents, validation)
+- [x] M9.2 Project registry store + icon/color chips
 - [ ] M9.3 Sidebar grouping by project + resort FLIP animation
 - [ ] M9.4 Branch chip + quick switch popover
 - [ ] M9.5 Watcher service (chokidar) + debounced fs events
