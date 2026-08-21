@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./journal": "./src/journal.ts"
+    "./journal": "./src/journal.ts",
+    "./projection": "./src/projection.ts",
+    "./session-store": "./src/session-store.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@ari/contracts": "workspace:*",
     "@ari/shared": "workspace:*"
   }
 }

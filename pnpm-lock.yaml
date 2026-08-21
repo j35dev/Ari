@@ -94,6 +94,9 @@ importers:
 
   packages/engine:
     dependencies:
+      '@ari/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@ari/shared':
         specifier: workspace:*
         version: link:../shared
