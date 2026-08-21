@@ -199,7 +199,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 - [x] M12.1 Appearance page: live theme preview, accent override, density
 - [ ] M12.2 Providers page: detect grid, auth badges, install hints, re-scan
-- [ ] M12.3 Endpoints page: CRUD + test + key entry UX
+- [x] M12.3 Endpoints page: CRUD + test + key entry UX (UI-only, also covers M11.5 UI hooks: localStorage `ari.endpoints` store, engine store wiring lands later)
 - [ ] M12.4 Permissions page: modes default, allowlist editor
 - [ ] M12.5 Keybindings page: logical map, Mod symbols, conflict detection
 - [ ] M12.6 Advanced page: logs viewer, journal tools, diagnostics export
