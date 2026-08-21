@@ -1,0 +1,16 @@
+{
+  "name": "@ari/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./result": "./src/result.ts",
+    "./ids": "./src/ids.ts",
+    "./jsonl": "./src/jsonl.ts",
+    "./logger": "./src/logger.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

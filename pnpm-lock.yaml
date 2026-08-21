@@ -33,6 +33,8 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0))
 
+  packages/shared: {}
+
 packages:
 
   '@eslint-community/eslint-utils@4.10.1':
