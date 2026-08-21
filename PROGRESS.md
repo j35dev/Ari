@@ -141,9 +141,9 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M8.2 Hidden-ref checkpoints `refs/ari/<session>/<turn>` capture
 - [ ] M8.3 Revert reactor: workspace restore + conversation truncation
 - [ ] M8.4 Per-turn & whole-thread diff queries
-- [ ] M8.5 Unified diff parser → virtualized hunk model
-- [ ] M8.6 Diff viewer: syntax-tinted lines, hunk nav, word-diff option
-- [ ] M8.7 File-tree grouping + collapse tweens (180ms height)
+- [x] M8.5 Unified diff parser → virtualized hunk model
+- [x] M8.6 Diff viewer: syntax-tinted lines, hunk nav, word-diff option
+- [x] M8.7 File-tree grouping + collapse tweens (180ms height)
 - [ ] M8.8 Revert confirmation flow + undo toast
 - [ ] M8.9 Non-git graceful degradation (checkpoints disabled notice)
 - [ ] M8.10 Checkpoint storage GC (cap refs per session)
