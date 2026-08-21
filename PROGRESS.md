@@ -25,7 +25,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M1.3 Fonts vendored: Geist + Geist Mono woff2, @font-face, tabular numerals utility (delivered via @fontsource-variable packages in M1.1 — same outcome, less fragility)
 - [x] M1.4 Button + IconButton (variants, loading, kbd hint slot)
 - [x] M1.5 Input + Textarea + Field wrapper (label, hint, error)
-- [ ] M1.6 Select (listbox popover, keyboard nav, typeahead)
+- [x] M1.6 Select (listbox popover, keyboard nav, typeahead)
 - [x] M1.7 Popover + Tooltip (origin-aware menu-in motion)
 - [x] M1.8 Dialog + Sheet (focus trap, scale-fade in)
 - [x] M1.9 Tabs + SegmentedControl (animated indicator)
