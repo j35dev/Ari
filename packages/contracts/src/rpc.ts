@@ -76,6 +76,8 @@ export const rpcParams = {
     headers: z.record(z.string(), z.string()).default({}),
   }),
   'endpoints.remove': z.object({ id: z.string().min(1) }),
+  'git.status': z.object({ path: z.string().min(1) }),
+  'git.diffWorktree': z.object({ path: z.string().min(1) }),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -114,6 +116,13 @@ export interface RpcResults {
   }[]
   'endpoints.upsert': { id: string; name: string }
   'endpoints.remove': { removed: boolean }
+  'git.status': {
+    isRepo: boolean
+    branch: string | null
+    files: { path: string; staged: boolean; kind: string }[]
+    error?: string
+  }
+  'git.diffWorktree': { diffText: string; error?: string }
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }

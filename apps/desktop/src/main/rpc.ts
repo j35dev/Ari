@@ -232,6 +232,24 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       return { removed: await store.remove(params.id) }
     })
 
+    r.register('git.status', async (params) => {
+      const { GitService } = await import('@ari/engine/git')
+      const result = await new GitService().status(params.path)
+      if (!result.ok) return { isRepo: false, branch: null, files: [], error: result.error.message }
+      return {
+        isRepo: true,
+        branch: result.value.branch,
+        files: result.value.files,
+      }
+    })
+
+    r.register('git.diffWorktree', async (params) => {
+      const { GitService } = await import('@ari/engine/git')
+      const result = await new GitService().diffForRef(params.path, 'HEAD')
+      if (!result.ok) return { diffText: '', error: result.error.message }
+      return { diffText: result.value }
+    })
+
     r.register('stream.subscribe', (params) => {
       rpcRegistry.subscribe({
         id: params.id,
@@ -287,6 +305,8 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'endpoints.list',
       'endpoints.upsert',
       'endpoints.remove',
+      'git.status',
+      'git.diffWorktree',
       'stream.subscribe',
       'stream.unsubscribe',
     ] as const
