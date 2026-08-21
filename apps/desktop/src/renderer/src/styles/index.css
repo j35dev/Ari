@@ -16,10 +16,12 @@
   --color-fg: var(--ari-fg);
   --color-fg-muted: var(--ari-fg-muted);
   --color-fg-subtle: var(--ari-fg-subtle);
+  --color-fg-on-accent: var(--ari-fg-on-accent);
   --color-accent: var(--ari-accent);
   --color-accent-hover: var(--ari-accent-hover);
   --color-accent-active: var(--ari-accent-active);
   --color-accent-subtle: var(--ari-accent-subtle);
+  --color-accent-ring: var(--ari-accent-ring);
   --color-success: var(--ari-success);
   --color-warning: var(--ari-warning);
   --color-danger: var(--ari-danger);
