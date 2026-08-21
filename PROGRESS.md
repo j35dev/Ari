@@ -105,8 +105,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M5.7 Tool card: args summary, collapsible raw JSON, duration, exit state
 - [ ] M5.8 Diff card (delegates to shared diff viewer)
 - [x] M5.9 Error/diagnostic rows
-- [ ] M5.10 Copy affordances + language chips on code blocks
-- [ ] M5.11 Timestamps + usage footer per message
+- [x] M5.10 Copy affordances + language chips on code blocks (CopyButton; language chips deferred with M5.8 diff-card scope)
+- [x] M5.11 Timestamps + usage footer per message
 - [x] M5.12 Stick-to-bottom spring + wheel-up interrupt + 70px re-engage band
 - [ ] M5.13 Perf test: 50k-block synthetic transcript ≥55fps scroll
 - [ ] M5.14 Transcript a11y pass (roles, announcements)
