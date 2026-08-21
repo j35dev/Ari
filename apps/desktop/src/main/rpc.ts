@@ -1,7 +1,7 @@
 import { open, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { BrowserWindow, ipcMain, type WebContents } from 'electron'
-import type { IPty, IPtyForkOptions } from 'node-pty'
+import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import { Engine } from './engine'
@@ -59,7 +59,7 @@ async function buildRegistry(): Promise<DriverRegistry> {
  */
 export const STREAM_CHANNEL = 'ari:stream'
 
-/** Structural type for the lazily-loaded node-pty module. */
+/** Structural type for the lazily-loaded pty module (@lydell/node-pty). */
 type NodePtyModule = {
   spawn(file: string, args: string[], options: IPtyForkOptions): IPty
 }
@@ -94,7 +94,7 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
 
     // node-pty is built for Electron's ABI; load it lazily and adapt.
     let ptyModule: NodePtyModule | null = null
-    void import('node-pty').then((m) => {
+    void import('@lydell/node-pty').then((m) => {
       ptyModule = m
     })
     const ptyFactory: PtyFactory = (file, args, options) => {

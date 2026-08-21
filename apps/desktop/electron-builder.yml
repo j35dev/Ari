@@ -11,7 +11,7 @@ files:
 # node-pty is the only native dependency; it must stay physical on disk
 # (Electron ABI build) or ConPTY/Unix PTY loading fails inside asar.
 asarUnpack:
-  - '**/node_modules/node-pty/**'
+  - '**/node_modules/@lydell/node-pty/**'
 win:
   target:
     - nsis
