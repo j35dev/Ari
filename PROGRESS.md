@@ -225,9 +225,9 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 ## M14 — Package & ship
 
-- [ ] M14.1 electron-builder config: NSIS target + signing scaffolding
-- [ ] M14.2 DMG universal target config
-- [ ] M14.3 AppImage + deb targets
+- [x] M14.1 electron-builder config: NSIS target + signing scaffolding
+- [x] M14.2 DMG universal target config
+- [x] M14.3 AppImage + deb targets
 - [ ] M14.4 App icons (win/mac/linux) + installer assets
 - [ ] M14.5 `pnpm dist` pipeline + artifact smoke checklist doc
 - [ ] M14.6 Auto-update scaffolding (electron-updater, disabled by default) + README/docs final pass
