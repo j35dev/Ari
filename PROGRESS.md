@@ -168,9 +168,9 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [ ] M10.3 Terminal theme sync + font binding
 - [ ] M10.4 Resize/input coalescing + scrollback replay (1MB cap)
 - [ ] M10.5 Shell detection per platform + profile hints
-- [ ] M10.6 File explorer tree (virtualized, watcher deltas)
-- [ ] M10.7 File context actions (reveal in explorer, open in editor, copy path)
-- [ ] M10.8 Binary/large-file guards
+- [x] M10.6 File explorer tree (virtualized, watcher deltas)
+- [x] M10.7 File context actions (reveal in explorer, open in editor, copy path)
+- [x] M10.8 Binary/large-file guards
 - [ ] M10.9 Terminal a11y + selection copy behaviors
 - [ ] M10.10 Terminal stress test (fast-spew process, no dropped frames)
 
