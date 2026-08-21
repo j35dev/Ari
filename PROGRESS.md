@@ -13,7 +13,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [ ] M0.2 Workspace + toolchain configs (pnpm workspace, tsconfig.base strict, eslint flat, prettier, editorconfig, gitattributes)
 - [ ] M0.3 `@ari/shared` package: result, ids, jsonl reader/writer, logger + tests
 - [ ] M0.4 `@ari/contracts` package: zod schemas, command/event unions skeleton + tests
-- [ ] M0.5 Electron main shell: app lifecycle, single-instance lock, BrowserWindow
+- [x] M0.5 Electron main shell: app lifecycle, single-instance lock, BrowserWindow
 - [ ] M0.6 Preload bridge skeleton (contextBridge) + renderer React mount
 - [ ] M0.7 Verify pipeline green (`pnpm verify` = typecheck+lint+test) + `pnpm dev` runs
 - [ ] M0.8 docs/arch-00.md + tag `milestone/M0`

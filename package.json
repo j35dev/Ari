@@ -14,6 +14,12 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
     "format": "prettier --write ."
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",
