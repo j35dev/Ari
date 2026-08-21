@@ -11,6 +11,13 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
   },
   {
+    files: ['**/*.test.{ts,tsx}'],
+    rules: {
+      // Test doubles implement async interfaces without awaiting.
+      '@typescript-eslint/require-await': 'off',
+    },
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       parserOptions: {

@@ -146,6 +146,18 @@ importers:
         specifier: ^7.3.6
         version: 7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0)
 
+  packages/ari-core:
+    dependencies:
+      '@ari/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@ari/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@ari/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/contracts:
     dependencies:
       zod:

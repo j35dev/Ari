@@ -1,0 +1,20 @@
+{
+  "name": "@ari/ari-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./endpoints": "./src/endpoints.ts",
+    "./openai": "./src/protocols/openai-chat.ts",
+    "./agent-loop": "./src/agent-loop.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ari/contracts": "workspace:*",
+    "@ari/providers": "workspace:*",
+    "@ari/shared": "workspace:*"
+  }
+}
