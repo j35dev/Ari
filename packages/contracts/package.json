@@ -1,0 +1,21 @@
+{
+  "name": "@ari/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./common": "./src/common.ts",
+    "./session": "./src/session.ts",
+    "./message": "./src/message.ts",
+    "./agent-event": "./src/agent-event.ts",
+    "./commands": "./src/commands.ts",
+    "./events": "./src/events.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}
