@@ -117,9 +117,9 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [ ] M6.2 Send→Steer→Stop morph button (180ms crossfade + width tween)
 - [ ] M6.3 Queue-while-running (pending messages list, reorder, cancel)
 - [ ] M6.4 @file fuzzy mentions fed by watcher index
-- [ ] M6.5 Slash command registry + palette-style popup
+- [x] M6.5 Slash command registry + palette-style popup
 - [ ] M6.6 Image paste/drop attachments
-- [ ] M6.7 Drafts per session (persist, restore)
+- [x] M6.7 Drafts per session (persist, restore)
 - [ ] M6.8 Model/provider/mode pickers (keyboard-first popovers)
 - [ ] M6.9 Composer keybindings (Enter/Shift+Enter, history)
 - [ ] M6.10 Composer unit + interaction tests
