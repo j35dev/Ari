@@ -51,6 +51,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@ari/ari-core':
+        specifier: workspace:*
+        version: link:../../packages/ari-core
       '@ari/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

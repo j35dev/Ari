@@ -14,6 +14,8 @@ import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
 import { detectDriver } from '@ari/providers/detector'
 import { realDetectEnvironment } from '@ari/providers/types'
+import { AriCoreDriver } from '@ari/ari-core/driver'
+import { getEndpointStore } from './store'
 
 /**
  * Registers every installed CLI driver. Detection is async at boot; drivers
@@ -39,6 +41,9 @@ async function buildRegistry(): Promise<DriverRegistry> {
       registry.register(candidate.make(detection.binaryPath) as never)
     }
   }
+  // Ari Core is always available; endpoints power it (empty list = unusable
+  // until the user configures one, surfaced via the endpoints manager).
+  registry.register(new AriCoreDriver(getEndpointStore()))
   return registry
 }
 
@@ -200,6 +205,33 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       return { removed: await getProjectStore().remove(params.id) }
     })
 
+    r.register('endpoints.list', async () => {
+      const store = getEndpointStore()
+      await store.load()
+      return store.list()
+    })
+
+    r.register('endpoints.upsert', async (params) => {
+      const store = getEndpointStore()
+      await store.load()
+      const saved = await store.upsert({
+        id: params.id,
+        name: params.name,
+        baseUrl: params.baseUrl,
+        flavor: params.flavor,
+        model: params.model,
+        headers: params.headers,
+        apiKey: params.apiKey,
+      })
+      return { id: saved.id, name: saved.name }
+    })
+
+    r.register('endpoints.remove', async (params) => {
+      const store = getEndpointStore()
+      await store.load()
+      return { removed: await store.remove(params.id) }
+    })
+
     r.register('stream.subscribe', (params) => {
       rpcRegistry.subscribe({
         id: params.id,
@@ -252,6 +284,9 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'project.list',
       'project.add',
       'project.remove',
+      'endpoints.list',
+      'endpoints.upsert',
+      'endpoints.remove',
       'stream.subscribe',
       'stream.unsubscribe',
     ] as const

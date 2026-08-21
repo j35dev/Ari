@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ari/ari-core": "workspace:*",
     "@ari/contracts": "workspace:*",
     "@ari/engine": "workspace:*",
     "@ari/providers": "workspace:*",

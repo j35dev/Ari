@@ -65,6 +65,17 @@ export const rpcParams = {
   'project.list': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.remove': z.object({ id: z.string().min(1) }),
+  'endpoints.list': z.undefined(),
+  'endpoints.upsert': z.object({
+    id: z.string(),
+    name: z.string().min(1),
+    baseUrl: z.string().url(),
+    flavor: z.enum(['openai-chat', 'anthropic-messages', 'ollama']),
+    model: z.string().min(1),
+    apiKey: z.string().nullable(),
+    headers: z.record(z.string(), z.string()).default({}),
+  }),
+  'endpoints.remove': z.object({ id: z.string().min(1) }),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -93,6 +104,16 @@ export interface RpcResults {
   'project.list': { id: string; name: string; path: string; colorIndex: number; createdAt: number }[]
   'project.add': { id: string; name: string; path: string } | null
   'project.remove': { removed: boolean }
+  'endpoints.list': {
+    id: string
+    name: string
+    baseUrl: string
+    flavor: string
+    model: string
+    apiKeyCipher: string | null
+  }[]
+  'endpoints.upsert': { id: string; name: string }
+  'endpoints.remove': { removed: boolean }
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }

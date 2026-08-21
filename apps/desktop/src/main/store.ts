@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { app } from 'electron'
+import { EndpointStore } from '@ari/ari-core/endpoints'
 import { ProjectStore } from '@ari/engine/projects'
 import { SessionStore } from '@ari/engine/session-store'
 import { SettingsStore } from '@ari/engine/settings'
@@ -10,6 +11,7 @@ const log = createLogger('desktop:store')
 let sessionStore: SessionStore | null = null
 let settingsStore: SettingsStore | null = null
 let projectStore: ProjectStore | null = null
+let endpointStore: EndpointStore | null = null
 
 /** Root for all per-session journals: <userData>/sessions/<sessionId>/. */
 export function sessionsRoot(): string {
@@ -36,4 +38,11 @@ export function getProjectStore(): ProjectStore {
     projectStore = new ProjectStore({ dir: app.getPath('userData') })
   }
   return projectStore
+}
+
+export function getEndpointStore(): EndpointStore {
+  if (!endpointStore) {
+    endpointStore = new EndpointStore({ dir: join(app.getPath('userData'), 'ari-core') })
+  }
+  return endpointStore
 }
