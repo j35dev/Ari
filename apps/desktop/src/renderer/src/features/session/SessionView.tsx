@@ -72,7 +72,6 @@ export function SessionView({
       cancelled = true
       unsubscribe()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyEvent is stable
   }, [sessionId])
 
   const applyEvent = useCallback(
@@ -174,7 +173,7 @@ export function SessionView({
 
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
-      onDefaultsChange(next)
+      onDefaultsChange({ ...defaults, ...next })
       void rpc
         .invoke('command.dispatch', {
           command: {
