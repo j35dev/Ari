@@ -1,10 +1,12 @@
 import { join } from 'node:path'
 import { app } from 'electron'
 import { EndpointStore } from '@ari/ari-core/endpoints'
+import type { WorkspaceWatcher } from '@ari/engine/watcher'
 import { ProjectStore } from '@ari/engine/projects'
 import { SessionStore } from '@ari/engine/session-store'
 import { SettingsStore } from '@ari/engine/settings'
 import { createLogger } from '@ari/shared/logger'
+import { watchers } from './watcher-bridge'
 
 const log = createLogger('desktop:store')
 
@@ -16,6 +18,14 @@ let endpointStore: EndpointStore | null = null
 /** Root for all per-session journals: <userData>/sessions/<sessionId>/. */
 export function sessionsRoot(): string {
   return join(app.getPath('userData'), 'sessions')
+}
+
+/**
+ * Singleton registry of per-project workspace watchers, keyed by normalized
+ * project path. Managed by ./watcher-bridge.
+ */
+export function getWatcherRegistry(): Map<string, WorkspaceWatcher> {
+  return watchers
 }
 
 export function getSessionStore(): SessionStore {
