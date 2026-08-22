@@ -1,8 +1,15 @@
-import type { ChildProcessByStdio } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 
-type LineProcess = ChildProcessByStdio<null, Readable, Readable>
+/**
+ * Structural process surface the pump depends on. Real spawned children
+ * satisfy it; so do test doubles built from PassThrough streams.
+ */
+export interface PumpableProcess {
+  stdout: Readable
+  stderr: Readable
+  on(event: 'close', listener: (code: number | null) => void): unknown
+}
 
 /**
  * Generic stdout JSONL pump shared by all CLI drivers: buffers partial
@@ -10,7 +17,7 @@ type LineProcess = ChildProcessByStdio<null, Readable, Readable>
  * terminal `done`, and surfaces non-zero exits as errors.
  */
 export function streamProcessEvents(
-  child: LineProcess,
+  child: PumpableProcess,
   mapLine: (line: string) => AgentEvent[],
   options: { label: string; stderrLog?: (text: string) => void } = { label: 'provider' },
 ): AsyncIterable<AgentEvent> {

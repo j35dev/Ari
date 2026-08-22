@@ -111,7 +111,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M4.4 AgentEvent normalization union + contracts wiring
 - [x] M4.5 Fixture recorder script (`scripts/record-fixture.ts`)
 - [x] M4.6 Claude driver: spawn stream-json both directions + mapper + fixtures tests
-- [ ] M4.7 Claude control protocol: approvals, steering, resume
+- [x] M4.7 Claude control protocol: approvals, steering, resume (stdin control layer on the claude adapter: user-turn steering frames, approval directive responses, interrupt frame with 2s kill fallback; resume shipped via --resume in M4.6)
 - [x] M4.8 Codex driver: `exec --json` mapper + fixtures tests
 - [x] M4.9 Codex resume + auth-status edge cases
     - [x] M4.10 OpenCode driver: probe flags at runtime, mapper + fixtures

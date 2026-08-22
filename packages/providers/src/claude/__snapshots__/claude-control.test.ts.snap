@@ -1,0 +1,6 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`claude stdin control frames > steer frame shape snapshot (exact stream-json input schema varies across claude versions) 1`] = `
+"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"focus on the parser module now"}]}}
+"
+`;
