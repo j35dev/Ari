@@ -145,5 +145,72 @@ describe('engine end-to-end with scripted driver', () => {
     expect(model.activeTurnId).toBeNull()
     expect(model.status).toBe('idle')
   }, 10000)
+
+  it('emits checkpoint.pruned when the capturer reports GC deletions', async () => {
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'gc run' }))
+    const prunedRefs = ['refs/ari/sess_gc_e2e/turn_old1', 'refs/ari/sess_gc_e2e/turn_old2']
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: {
+        captureCheckpoint: async () => ({
+          ok: true,
+          value: 'refs/ari/sess_gc_e2e/turn_new',
+        }),
+        pruneCheckpoints: async () => ({ ok: true, value: [...prunedRefs] }),
+      },
+    })
+
+    const sessionId = 'sess_gc_e2e'
+    await seedSession(store, sessionId)
+    const result = await engine.dispatch({
+      type: 'turn.start',
+      sessionId,
+      text: 'run with gc',
+    } as Command)
+    expect(result.accepted).toBe(true)
+
+    // The turn runs async; wait for settle.
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const events = published.filter((p) => p.sessionId === sessionId).map((p) => p.event)
+    const captured = events.find((e) => e.type === 'checkpoint.captured')
+    expect(captured).toBeDefined()
+    const prunedEvents = events.filter((e) => e.type === 'checkpoint.pruned')
+    expect(prunedEvents.map((e) => e.gitRef)).toEqual(prunedRefs)
+    expect(prunedEvents[0]?.turnId).toBe('turn_old1')
+
+    // Projection fold: pruned checkpoints leave the read model.
+    const model = await store.load(sessionId)
+    expect(model.checkpoints.some((c) => c.gitRef.includes('turn_old'))).toBe(false)
+  }, 10000)
+
+  it('skips GC silently when the capturer has no pruneCheckpoints', async () => {
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'no gc' }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: 'refs/ari/sess_nogc/turn_1' }) },
+    })
+    const sessionId = 'sess_nogc'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'x' } as Command)
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    const events = published.filter((p) => p.sessionId === sessionId).map((p) => p.event)
+    expect(events.some((e) => e.type === 'checkpoint.captured')).toBe(true)
+    expect(events.some((e) => e.type === 'checkpoint.pruned')).toBe(false)
+  }, 10000)
 })
 

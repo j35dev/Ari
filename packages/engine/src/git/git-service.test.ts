@@ -190,4 +190,47 @@ suite('GitService', () => {
     const badList = await service.listCheckpoints(dir, '..')
     expect(!badList.ok && badList.error.code).toBe('invalid_ref')
   })
+
+  it('pruneCheckpoints keeps the newest N refs and deletes the excess', async () => {
+    const dir = await initRepo()
+    for (let i = 1; i <= 5; i++) {
+      await service.captureCheckpoint(dir, 'sess-gc', `turn-0${i}`)
+    }
+
+    const pruned = await service.pruneCheckpoints(dir, 'sess-gc', 3)
+    expect(pruned.ok).toBe(true)
+    if (pruned.ok) expect(pruned.value).toHaveLength(2)
+
+    const list = await service.listCheckpoints(dir, 'sess-gc')
+    expect(list.ok).toBe(true)
+    if (list.ok) {
+      expect(list.value).toHaveLength(3)
+      // Newest survive (monotonic turn ids ⇒ refname sort is recency order).
+      expect(list.value.filter((c) => c.ref.endsWith('turn-03'))).toHaveLength(1)
+      expect(list.value.some((c) => c.ref.endsWith('turn-01'))).toBe(false)
+      expect(list.value.some((c) => c.ref.endsWith('turn-02'))).toBe(false)
+      expect(list.value.some((c) => c.ref.endsWith('turn-04'))).toBe(true)
+      expect(list.value.some((c) => c.ref.endsWith('turn-05'))).toBe(true)
+    }
+  })
+
+  it('pruneCheckpoints is a no-op at or under the cap and rejects invalid caps', async () => {
+    const dir = await initRepo()
+    await service.captureCheckpoint(dir, 'sess-gc2', 'turn-01')
+    await service.captureCheckpoint(dir, 'sess-gc2', 'turn-02')
+
+    const underCap = await service.pruneCheckpoints(dir, 'sess-gc2', 5)
+    expect(underCap.ok && underCap.value).toEqual([])
+
+    const exactCap = await service.pruneCheckpoints(dir, 'sess-gc2', 2)
+    expect(exactCap.ok && exactCap.value).toEqual([])
+    const still = await service.listCheckpoints(dir, 'sess-gc2')
+    if (still.ok) expect(still.value).toHaveLength(2)
+
+    const badCap = await service.pruneCheckpoints(dir, 'sess-gc2', -1)
+    expect(!badCap.ok && badCap.error.code).toBe('invalid_ref')
+
+    const fracCap = await service.pruneCheckpoints(dir, 'sess-gc2', 1.5)
+    expect(!fracCap.ok && fracCap.error.code).toBe('invalid_ref')
+  })
 })

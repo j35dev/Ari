@@ -174,7 +174,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M8.7 File-tree grouping + collapse tweens (180ms height)
 - [x] M8.8 Revert confirmation flow + undo toast (inline confirm + result toast via @ari/ui/toast; post-revert undo action deferred with M13.2)
 - [x] M8.9 Non-git graceful degradation (checkpoints disabled notice)
-- [ ] M8.10 Checkpoint storage GC (cap refs per session)
+- [x] M8.10 Checkpoint storage GC (cap refs per session)
 - [ ] M8.11 Diff perf test (10k-line diff virtualized)
 - [ ] M8.12 docs/arch-08.md
 
