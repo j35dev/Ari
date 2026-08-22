@@ -161,7 +161,7 @@ export function ProjectsView() {
               setFormOpen(true)
             }}
           >
-            <FolderPlus className="h-3.5 w-3.5" /> Add Project
+            <FolderPlus className="h-3.5 w-3.5" /> Add project
           </Button>
         )}
       </div>

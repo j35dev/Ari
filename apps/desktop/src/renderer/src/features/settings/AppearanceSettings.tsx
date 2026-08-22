@@ -27,7 +27,7 @@ function ThemeCard({ id, label, active, onSelect }: ThemeCardProps) {
       aria-pressed={active}
       onClick={() => onSelect(id)}
       className={[
-        'rounded-md border p-2 text-left transition-colors',
+        'rounded-md border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
         active
           ? 'border-accent ring-2 ring-accent-ring'
           : 'border-border hover:border-border-strong',

@@ -114,7 +114,7 @@ export function ProvidersView() {
         <p className="px-2 py-6 text-center text-xs text-fg-subtle">
           No providers detected.
           <br />
-          Install a supported CLI and Re-scan.
+          Install a supported CLI and re-scan.
         </p>
       ) : (
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">

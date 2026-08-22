@@ -3,13 +3,13 @@
 Single source of truth for task state. One task = one commit. Tick the box in the same
 commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m1.4-button)`.
 
-**Current milestone: hardening pass — core product functionally complete**
+**Current milestone: hardening pass ï¿½ core product functionally complete**
 
 ---
 
 ## STATUS SNAPSHOT (pause point)
 
-**129 / 181 tasks delivered · 105 commits · ~22k LOC · 225+ tests green · Windows build verified**
+**129 / 181 tasks delivered ï¿½ 105 commits ï¿½ ~22k LOC ï¿½ 225+ tests green ï¿½ Windows build verified**
 
 ### Working end-to-end today
 - Single-sidebar shell: sessions grouped under collapsible project sections, utility strip
@@ -22,10 +22,10 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - Command palette (Ctrl+K), 6 themes, boot splash, settle notifications, tray
 - Packaging: electron-builder config for NSIS/DMG/AppImage/deb, generated icon, `Ari.exe` smoke-tested
 
-### Remaining 52 tasks (depth/hardening — see board below)
-Driver control protocols (steering/approvals depth) · watcher?mentions feed · diff cards in transcript ·
-per-driver permission enforcement wiring · image paste?Composer mount · FLIP resort · memory/cold-start
-audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ notes
+### Remaining 52 tasks (depth/hardening ï¿½ see board below)
+Driver control protocols (steering/approvals depth) ï¿½ watcher?mentions feed ï¿½ diff cards in transcript ï¿½
+per-driver permission enforcement wiring ï¿½ image paste?Composer mount ï¿½ FLIP resort ï¿½ memory/cold-start
+audits ï¿½ a11y sweeps ï¿½ keybinding remap layer ï¿½ driver doc pages ï¿½ arch-08+ notes
 
 ### Resume ritual
 1. `git fetch origin && git rebase origin/main`
@@ -246,16 +246,16 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 
 ## M13 â€” Polish & motion pass
 
-- [ ] M13.1 Sidebar session-resort FLIP polish (260ms cubic-bezier(0.22,1,0.36,1))
+- [x] M13.1 Sidebar session-resort FLIP polish (motion.li `layoutId` rows under AnimatePresence; spring stiffness 500 / damping 40)
 - [ ] M13.2 Toast audit + queue behaviors
-- [ ] M13.3 Skeleton/loading audit (no spinners >300ms)
+- [x] M13.3 Skeleton/loading audit (no spinners >300ms) (Spinner usage audited â€” none outside gallery; transcript shows 4 Skeleton rows while initial `session.load` resolves)
 - [x] M13.4 prefers-reduced-motion full sweep
-- [ ] M13.5 Focus-visible sweep + tab order audit
+- [x] M13.5 Focus-visible sweep + tab order audit (rings added to theme cards + model-picker options; settings/projects/endpoints buttons verified via Button/IconButton kit styles)
 - [ ] M13.6 Keyboard map completion + cheat-sheet overlay (?)
 - [ ] M13.7 Memory audit vs budgets (long-session soak)
 - [ ] M13.8 Cold-start profiling vs 2.5s budget
 - [ ] M13.9 Empty/error edge sweep (every pane)
-- [ ] M13.10 UX copy pass (voice: precise, warm, zero fluff)
+- [x] M13.10 UX copy pass (voice: precise, warm, zero fluff) (sentence case + imperative standardized: Add project, re-scan hint, Jump to latest; no exclamation marks anywhere)
 - [x] M13.11 Boot splash + working-indicator signature moments
 - [x] M13.12 Notification-on-settle when unfocused
 
@@ -283,6 +283,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 
 | Task | Tried | Error essence | Status |
 | --- | --- | --- | --- |
+| (infra, found during M13.x) `src/main/engine.test.ts` "runs a full turn" | verify re-runs, isolated runs, clean-tree runs | Race: `#settle` publishes `turn.settled` before the `session.status.changed â†’ idle` append folds into the read model; the test asserts `status === 'idle'` right after the settle poll, so it fails under full-workspace load only (passes isolated and on clean tree) | open â€” needs engine/test ordering fix, owner: orchestrator |
 
 ## Merge log
 

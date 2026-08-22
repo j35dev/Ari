@@ -36,6 +36,7 @@ export function SessionView({
   onDefaultsChange: (next: SessionDefaults) => void
 }) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<string[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
@@ -51,24 +52,35 @@ export function SessionView({
   useEffect(() => {
     let cancelled = false
     setMessages([])
+    setLoading(true)
     setRunning(false)
     setApprovals([])
 
-    void rpc.invoke('session.load', { sessionId }).then((model) => {
-      if (cancelled || !model) return
-      const m = model as {
-        session: Session
-        messages: Message[]
-        activeTurnId: string | null
-      }
-      setMessages(m.messages)
-      setRunning(m.activeTurnId !== null)
-      onDefaultsChange({
-        driverKind: m.session.driverKind,
-        modelId: m.session.modelId,
-        permissionMode: m.session.permissionMode,
+    void rpc
+      .invoke('session.load', { sessionId })
+      .then((model) => {
+        if (cancelled) return
+        if (!model) {
+          setLoading(false)
+          return
+        }
+        const m = model as {
+          session: Session
+          messages: Message[]
+          activeTurnId: string | null
+        }
+        setMessages(m.messages)
+        setLoading(false)
+        setRunning(m.activeTurnId !== null)
+        onDefaultsChange({
+          driverKind: m.session.driverKind,
+          modelId: m.session.modelId,
+          permissionMode: m.session.permissionMode,
+        })
       })
-    })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
       const frame = payload as SessionEventFrame
@@ -199,7 +211,7 @@ export function SessionView({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
-        <TranscriptView sessionId={sessionId} messages={messages} />
+        <TranscriptView sessionId={sessionId} messages={messages} loading={loading} />
       </div>
       {approvals.length > 0 ? (
         <div className="max-h-56 space-y-2 overflow-y-auto border-t border-border bg-surface-0 p-3">
