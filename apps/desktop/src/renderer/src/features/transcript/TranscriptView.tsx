@@ -59,9 +59,13 @@ export function TranscriptView({
 
   return (
     <div className="relative h-full">
+      <h2 className="sr-only">Messages</h2>
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        role="log"
+        aria-label="Conversation transcript"
+        aria-live="polite"
         className="ari-scroll h-full overflow-y-auto px-4 py-4"
         data-session={sessionId}
       >
