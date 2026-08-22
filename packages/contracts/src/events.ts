@@ -73,6 +73,11 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     gitRef: z.string(),
   }),
   eventBase.extend({
+    type: z.literal('checkpoint.pruned'),
+    turnId: z.string(),
+    gitRef: z.string(),
+  }),
+  eventBase.extend({
     type: z.literal('session.updated'),
     driverKind: driverKindSchemaOptional,
     modelId: z.string().nullable().optional(),

@@ -173,6 +173,37 @@ export class GitService {
     return run.ok ? ok(undefined) : run
   }
 
+  /**
+   * Deletes checkpoint refs so at most `maxPerSession` remain per session,
+   * keeping the newest by refname sort (turn ids are monotonic, so sort
+   * order is recency order). Returns the refs that were deleted. Failures
+   * on individual deletes are collected, not fatal — GC is best-effort.
+   */
+  async pruneCheckpoints(
+    cwd: string,
+    sessionId: string,
+    maxPerSession: number,
+  ): Promise<Result<string[], GitError>> {
+    if (!Number.isInteger(maxPerSession) || maxPerSession < 0) {
+      return err({ code: 'invalid_ref', message: `invalid cap: ${maxPerSession}` })
+    }
+    const listed = await this.listCheckpoints(cwd, sessionId)
+    if (!listed.ok) return listed
+    if (listed.value.length <= maxPerSession) return ok([])
+    // for-each-ref sorts by refname; turn ids are monotonic, so the tail is newest.
+    const excess = listed.value.slice(0, listed.value.length - maxPerSession)
+    const deleted: string[] = []
+    for (const { ref } of excess) {
+      const run = await this.#run(cwd, ['update-ref', '-d', ref])
+      if (run.ok) {
+        deleted.push(ref)
+      } else {
+        log.warn('checkpoint prune delete failed', { ref, error: run.error.message })
+      }
+    }
+    return ok(deleted)
+  }
+
   async #run(
     cwd: string,
     args: string[],
