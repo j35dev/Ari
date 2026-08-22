@@ -118,6 +118,10 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       next.checkpoints = next.checkpoints.filter((c) => c.turnId !== event.turnId)
       break
 
+    case 'checkpoint.pruned':
+      next.checkpoints = next.checkpoints.filter((c) => c.turnId !== event.turnId)
+      break
+
     case 'session.updated': {
       if (!next.session) break
       next.session = {

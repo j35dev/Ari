@@ -17,7 +17,20 @@ export interface CheckpointCapturer {
     sessionId: string,
     turnId: string,
   ): Promise<{ ok: true; value: string | null } | { ok: false; error: { message: string } }>
+  /**
+   * Best-effort GC of hidden checkpoint refs, keeping the newest
+   * `maxPerSession` per session. Returns the deleted refs. Optional so
+   * test doubles can omit it.
+   */
+  pruneCheckpoints?(
+    cwd: string,
+    sessionId: string,
+    maxPerSession: number,
+  ): Promise<{ ok: true; value: string[] } | { ok: false; error: { message: string } }>
 }
+
+/** Upper bound on stored checkpoints per session before oldest are pruned. */
+const MAX_CHECKPOINTS_PER_SESSION = 50
 
 export interface EngineDeps {
   store: SessionStore
@@ -119,6 +132,20 @@ export class Engine {
         turnId,
         gitRef: captured.value,
       })
+      // M8.10: cap stored checkpoints per session. Pruning is event-sourced
+      // (checkpoint.pruned folds the projection) and best-effort.
+      const prune = git.pruneCheckpoints?.bind(git)
+      if (prune) {
+        const pruned = await prune(workspacePath, session.id, MAX_CHECKPOINTS_PER_SESSION)
+        if (pruned.ok) {
+          for (const ref of pruned.value) {
+            const turnId = ref.slice(ref.lastIndexOf('/') + 1)
+            if (turnId.length > 0) {
+              await this.#append(session.id, { type: 'checkpoint.pruned', turnId, gitRef: ref })
+            }
+          }
+        }
+      }
     }
 
     let adapter
