@@ -238,7 +238,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M12.5 Keybindings page: logical map, Mod symbols, conflict detection (read-only v1 table; remapping + conflict detection land with the keybindings layer)
 - [x] M12.6 Advanced page: logs viewer, journal tools, diagnostics export (diagnostics export + journal location hint + draft-cache danger zone; logs viewer/journal tools deferred to engine-backed settings work)
 - [x] M12.7 Settings events through engine (single writer)
-- [ ] M12.8 Import/export settings bundle
+- [x] M12.8 Import/export settings bundle
 - [x] M12.7 Settings events through engine (single writer) (`settings.get`/`settings.update` RPC over SettingsStore; Appearance/Permissions pages moved off localStorage via useEngineSettings)
 - [x] M12.8 Import/export settings bundle (Advanced page; loose client-side version check, engine-side deep validation; window bounds stay local)
 - [ ] M12.9 Settings search (palette-integrated)
