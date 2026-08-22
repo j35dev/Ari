@@ -82,7 +82,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M2.9 Empty states kit (illustrative glyph + copy + CTA)
 - [x] M2.10 Window-state persistence (bounds, maximized, sidebar prefs)
 - [x] M2.11 Single-instance focus behavior + tray skeleton (running count, quick-new)
-- [ ] M2.12 docs/arch-02.md + tag `milestone/M2`
+- [x] M2.12 docs/arch-02.md + tag `milestone/M2`
 
 ## M3 — Engine core
 
@@ -101,7 +101,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M3.13 Logger service (file + devtools, redaction hook)
 - [x] M3.14 Error taxonomy + diagnostic event surfacing contract
 - [x] M3.15 Perf test: journal append < 1ms amortized; replay 100k events < 2s (amortized budget measured in fsync batch mode with trailing flush; always-fsync measures disk latency, not the journal path)
-- [ ] M3.16 docs/arch-03.md + tag `milestone/M3`
+- [x] M3.16 docs/arch-03.md + tag `milestone/M3`
 
 ## M4 — Provider subsystem
 
@@ -126,7 +126,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M4.19 Provider health probes + status bar integration points
 - [x] M4.20 e2e-ish test: mock CLI script driven through registry end-to-end
 - [x] M4.21 Per-driver docs (docs/providers/README.md)
-- [ ] M4.22 docs/arch-04.md + tag `milestone/M4`
+- [x] M4.22 docs/arch-04.md + tag `milestone/M4`
 
 ## M5 — Transcript experience
 
@@ -227,7 +227,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M11.15 Token accounting + cost estimate plumbing
 - [x] M11.16 Ari Core e2e test against scripted fake endpoint
 - [x] M11.17 Endpoint security review (header handling, SSRF guardrails)
-- [ ] M11.18 docs/arch-11.md
+- [x] M11.18 docs/arch-11.md
 
 ## M12 — Settings & providers manager
 
