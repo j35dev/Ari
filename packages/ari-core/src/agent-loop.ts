@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { ChatMessage } from './protocols/openai-chat'
+import type { AllowRule } from './allowlist'
 import { findTool, type ToolContext } from './tools'
 
 export interface AgentLoopOptions {
@@ -8,6 +9,8 @@ export interface AgentLoopOptions {
   systemPrompt: string
   userPrompt: string
   workspacePath: string
+  /** Permission rules enforced inside the tool context (empty/absent = allow-all). */
+  allowlist?: AllowRule[]
   maxRounds?: number
   signal?: AbortSignal
 }
@@ -28,7 +31,9 @@ export async function* runAgentLoop(
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, void, undefined> {
   const { round, systemPrompt, userPrompt, workspacePath, maxRounds = 12, signal } = options
-  const ctx: ToolContext = { workspacePath }
+  const ctx: ToolContext = options.allowlist
+    ? { workspacePath, allowlist: options.allowlist }
+    : { workspacePath }
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },

@@ -164,8 +164,8 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M7.2 Inline approval cards (approve/deny/always-allow)
 - [x] M7.3 Question panel (paged options, 1â€“9 keys, auto-advance)
 - [x] M7.4 Permission modes: ask / allow-edits / full â€” engine enforcement
-- [ ] M7.5 Mode mapping per driver (claude control protocol, codex sandbox, ari-core gate)
-- [ ] M7.6 Allowlist persistence + settings surface
+- [x] M7.5 Mode mapping per driver (claude control protocol, codex sandbox, ari-core gate)
+- [x] M7.6 Allowlist persistence + settings surface
 - [x] M7.7 Global approval badge + rail indicator
 - [x] M7.8 Approval flow tests (timeout, deny, double-respond)
 
