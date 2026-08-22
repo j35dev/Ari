@@ -6,6 +6,7 @@
   "exports": {
     "./detector": "./src/detector.ts",
     "./types": "./src/types.ts",
+    "./catalogs": "./src/catalogs.ts",
     "./registry": "./src/driver-registry.ts",
     "./driver": "./src/driver.ts",
     "./claude": "./src/claude/claude-driver.ts",
