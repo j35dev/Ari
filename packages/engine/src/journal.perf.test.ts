@@ -11,6 +11,7 @@ const APPEND_COUNT = 10_000
 const APPEND_BUDGET_MS_PER_EVENT = 5
 const REPLAY_COUNT = 100_000
 const REPLAY_BUDGET_MS = 2_000
+const READ_BACK_BUDGET_MS = 2_000
 const BASE_AT = 1_700_000_000_000
 const SESSION_ID = 'sess_perf'
 
@@ -129,5 +130,27 @@ describe('journal performance budgets', () => {
     expect(parsed.every((p) => p.kind === 'value')).toBe(true)
     expect(model.lastSeq).toBe(REPLAY_COUNT - 1)
     expect(model.messages.length).toBeGreaterThan(0)
+  })
+
+  it('reads back a persisted 10k-event journal under the wall budget', { timeout: 30_000 }, async () => {
+    const journal = new Journal<PerfEvent>({ dir, name: 'perf-readback', fsync: 'batch' })
+    await journal.open()
+    for (let i = 0; i < APPEND_COUNT; i += 1) {
+      await journal.append({ seq: i, kind: 'perf', payload: 'x'.repeat(96) })
+    }
+    await journal.flush()
+    await journal.close()
+
+    // Cold read: fresh instance, as the engine boot path (M3.9) does.
+    const reopened = new Journal<PerfEvent>({ dir, name: 'perf-readback', fsync: 'batch' })
+    await reopened.open()
+    const start = performance.now()
+    const entries = await reopened.readAll()
+    const elapsedMs = performance.now() - start
+    await reopened.close()
+
+    expect(entries).toHaveLength(APPEND_COUNT)
+    expect(entries.every((p) => p.kind === 'value')).toBe(true)
+    expect(elapsedMs).toBeLessThan(READ_BACK_BUDGET_MS)
   })
 })
