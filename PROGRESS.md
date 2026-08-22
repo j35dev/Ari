@@ -91,7 +91,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [ ] M3.9 Engine boot: replay journals on startup, reconcile read model
 - [x] M3.10 Command dispatcher: idempotency receipts, ordered queue
 - [x] M3.11 Settings store (JSON file, atomic write, schema versioning)
-- [ ] M3.12 Crash-recovery tests (truncated tail, partial writes)
+- [x] M3.12 Crash-recovery tests (truncated tail, partial writes)
 - [x] M3.13 Logger service (file + devtools, redaction hook)
 - [x] M3.14 Error taxonomy + diagnostic event surfacing contract
 - [x] M3.15 Perf test: journal append < 1ms amortized; replay 100k events < 2s (amortized budget measured in fsync batch mode with trailing flush; always-fsync measures disk latency, not the journal path)
