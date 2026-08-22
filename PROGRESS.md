@@ -125,7 +125,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M4.18 Usage extraction (tokens/cost where providers emit it)
 - [x] M4.19 Provider health probes + status bar integration points
 - [x] M4.20 e2e-ish test: mock CLI script driven through registry end-to-end
-- [ ] M4.21 Per-driver docs (docs/providers/*.md)
+- [x] M4.21 Per-driver docs (docs/providers/README.md)
 - [ ] M4.22 docs/arch-04.md + tag `milestone/M4`
 
 ## M5 â€” Transcript experience
@@ -182,7 +182,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M8.9 Non-git graceful degradation (checkpoints disabled notice)
 - [x] M8.10 Checkpoint storage GC (cap refs per session)
 - [ ] M8.11 Diff perf test (10k-line diff virtualized)
-- [ ] M8.12 docs/arch-08.md
+- [x] M8.12 docs/arch-08.md
 
 ## M9 â€” Projects/workspaces
 
