@@ -1,5 +1,6 @@
+import type { Message } from '@ari/contracts/message'
 
-/** The four visual row kinds the transcript renders. */
+/** The visual row kinds the transcript renders. */
 export type TranscriptBlockKind = 'markdown' | 'thinking' | 'tool-call' | 'tool-result'
 
 /**
@@ -10,6 +11,8 @@ export type TranscriptBlockKind = 'markdown' | 'thinking' | 'tool-call' | 'tool-
 export interface TranscriptBlock {
   key: string
   kind: TranscriptBlockKind
+  /** Owning message role; drives user-bubble vs assistant styling. */
+  role?: Message['role']
   /** Markdown / thinking body. */
   text?: string
   callId?: string
@@ -17,4 +20,13 @@ export interface TranscriptBlock {
   argsJson?: string
   resultJson?: string
   isError?: boolean
+}
+
+/** A run of consecutive tool blocks collapsed into one activity row. */
+export interface ToolGroupRow {
+  kind: 'tool-group'
+  /** Stable key spanning first→last member block. */
+  key: string
+  calls: TranscriptBlock[]
+  resultsByCallId: Map<string, TranscriptBlock>
 }

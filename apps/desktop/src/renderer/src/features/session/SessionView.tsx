@@ -18,6 +18,28 @@ interface PendingApproval {
   summaryJson: string
 }
 
+/** Per-session telemetry shown under the transcript (latency + token counts). */
+interface Telemetry {
+  turnCount: number
+  lastDurationMs: number | null
+  inputTokens: number
+  outputTokens: number
+  startedAt: number | null
+}
+
+const EMPTY_TELEMETRY: Telemetry = {
+  turnCount: 0,
+  lastDurationMs: null,
+  inputTokens: 0,
+  outputTokens: 0,
+  startedAt: null,
+}
+
+function formatTokens(n: number): string {
+  if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`
+  return String(n)
+}
+
 export interface SessionDefaults {
   driverKind: DriverKind
   modelId: string | null
@@ -45,6 +67,7 @@ export function SessionView({
   const [queued, setQueued] = useState<string[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [turnError, setTurnError] = useState<string | null>(null)
+  const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const sessionTitleRef = useRef('Session')
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
@@ -72,6 +95,7 @@ export function SessionView({
     setQueued([])
     setApprovals([])
     setTurnError(null)
+    setTelemetry(EMPTY_TELEMETRY)
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
       const frame = payload as SessionEventFrame
@@ -139,9 +163,19 @@ export function SessionView({
           // A fresh turn supersedes any stale failure banner.
           setTurnError(null)
           setRunning(true)
+          setTelemetry((t) => ({
+            ...t,
+            turnCount: t.turnCount + 1,
+            startedAt: event.at,
+          }))
           break
         case 'turn.settled': {
           setRunning(false)
+          setTelemetry((t) => ({
+            ...t,
+            lastDurationMs: t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
+            startedAt: null,
+          }))
           if (event.stopReason === 'error' && event.errorMessage) {
             setTurnError(event.errorMessage)
             notifySettledRef.current({ error: event.errorMessage })
@@ -175,6 +209,13 @@ export function SessionView({
           break
         case 'approval.responded':
           setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
+          break
+        case 'usage.recorded':
+          setTelemetry((t) => ({
+            ...t,
+            inputTokens: t.inputTokens + (event.inputTokens ?? 0),
+            outputTokens: t.outputTokens + (event.outputTokens ?? 0),
+          }))
           break
         default:
           break
@@ -250,6 +291,33 @@ export function SessionView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
         <TranscriptView sessionId={sessionId} messages={messages} loading={loading} />
+      </div>
+      <div className="flex h-6 shrink-0 items-center gap-2.5 border-t border-border bg-surface-0 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
+        {telemetry.turnCount > 0 ? (
+          <>
+            <span>
+              {telemetry.turnCount} turn{telemetry.turnCount === 1 ? '' : 's'}
+            </span>
+            <span aria-hidden>·</span>
+            <span>
+              last{' '}
+              {telemetry.lastDurationMs !== null ? `${(telemetry.lastDurationMs / 1000).toFixed(1)}s` : '—'}
+            </span>
+            <span aria-hidden>·</span>
+            <span title="Input tokens">↑ {formatTokens(telemetry.inputTokens)}</span>
+            <span aria-hidden>·</span>
+            <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
+          </>
+        ) : (
+          <span>{running ? 'working…' : 'no turns yet'}</span>
+        )}
+        <div className="flex-1" />
+        {running ? (
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+            running
+          </span>
+        ) : null}
       </div>
       {approvals.length > 0 ? (
         <div className="max-h-56 space-y-2 overflow-y-auto border-t border-border bg-surface-0 p-3">

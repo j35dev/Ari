@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, Square } from 'lucide-react'
+import { ArrowUp, Clock, Square } from 'lucide-react'
 import { transitions } from '@ari/ui/motion'
 import { activeTokenAt } from './active-token'
 import type { SlashCommand } from './slash-commands'
@@ -151,15 +151,19 @@ export function Composer({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={transitions.fadeUp}
-            className="mb-2 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted"
+            className="mb-2 flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted"
           >
-            {queued.length} queued message{queued.length > 1 ? 's' : ''} · will send after the
-            current turn
+            <Clock size={12} className="shrink-0 text-fg-subtle" />
+            <span>
+              {queued.length} queued message{queued.length > 1 ? 's' : ''} · will send after the
+              current turn
+            </span>
           </motion.div>
         ) : null}
       </AnimatePresence>
 
-      <div className="relative flex items-end gap-2 rounded-lg border border-border bg-surface-1 p-2 transition-colors focus-within:border-border-strong">
+      {/* Zeron-style pill: input floats on top, controls docked underneath inside the card. */}
+      <div className="relative rounded-xl border border-border bg-surface-1 transition-shadow focus-within:border-border-strong focus-within:shadow-[0_0_0_3px_var(--ari-accent-ring)]">
         {token?.kind === 'slash' && !dismissed && slashItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <SlashPopup query={token.raw} onSelect={handleSlashSelect} onClose={closePopup} />
@@ -183,17 +187,16 @@ export function Composer({
           disabled={disabled}
           rows={1}
           aria-label="Message"
-          className="max-h-[260px] flex-1 resize-none bg-transparent px-1.5 py-1 text-sm text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50"
+          className="max-h-[260px] block w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-sm text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50"
         />
-        <SendStopButton running={running} onSend={send} onStop={onStop} canSend={text.trim().length > 0} />
-      </div>
-
-      <div className="flex items-center px-1">
-        {leading}
-        <div className="flex-1" />
-        <div className="text-2xs text-fg-subtle">
-          <kbd className="font-mono">Enter</kbd> send ·{' '}
-          <kbd className="font-mono">Shift+Enter</kbd> newline
+        <div className="flex items-center gap-1 px-2 pb-1.5 pt-0.5">
+          {leading}
+          <div className="flex-1" />
+          <span className="mr-1 hidden text-2xs text-fg-subtle md:block">
+            <kbd className="font-mono">Enter</kbd> send ·{' '}
+            <kbd className="font-mono">Shift+Enter</kbd> newline
+          </span>
+          <SendStopButton running={running} onSend={send} onStop={onStop} canSend={text.trim().length > 0} />
         </div>
       </div>
     </div>
@@ -217,9 +220,9 @@ function SendStopButton({
       aria-label={running ? 'Stop' : 'Send'}
       onClick={() => (running ? onStop?.() : onSend())}
       disabled={!running && !canSend}
-      whileTap={{ scale: 0.94 }}
+      whileTap={{ scale: 0.92 }}
       transition={transitions.morph}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         running
           ? 'bg-danger text-fg-on-accent hover:bg-danger-hover'
           : canSend
@@ -236,7 +239,7 @@ function SendStopButton({
             exit={{ opacity: 0, scale: 0.7 }}
             transition={{ duration: 0.09 }}
           >
-            <Square size={13} fill="currentColor" />
+            <Square size={12} fill="currentColor" />
           </motion.span>
         ) : (
           <motion.span
