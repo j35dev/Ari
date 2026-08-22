@@ -1,4 +1,4 @@
-export { DIFF_MAX_BYTES, GitService } from './git-service'
+export { DIFF_MAX_BYTES, GitService, newDefaultCapturer } from './git-service'
 export type {
   CheckpointInfo,
   GitError,

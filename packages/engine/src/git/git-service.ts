@@ -339,3 +339,8 @@ function stderrFirstLine(e: unknown): string {
   }
   return ''
 }
+
+/** Engine-facing adapter: capture-only view of the git service. */
+export function newDefaultCapturer(): GitService {
+  return new GitService()
+}

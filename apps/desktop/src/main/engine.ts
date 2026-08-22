@@ -11,11 +11,21 @@ import type { DriverRegistry } from '@ari/providers/registry'
 
 const log = createLogger('desktop:engine')
 
+export interface CheckpointCapturer {
+  captureCheckpoint(
+    cwd: string,
+    sessionId: string,
+    turnId: string,
+  ): Promise<{ ok: true; value: string | null } | { ok: false; error: { message: string } }>
+}
+
 export interface EngineDeps {
   store: SessionStore
   registry: DriverRegistry
   /** Delivers a journal event to live subscribers of that session. */
   publish: (sessionId: string, event: JournalEvent) => void
+  /** Checkpoint source; defaults to the real GitService. */
+  git?: CheckpointCapturer
 }
 
 interface ActiveTurn {
@@ -101,8 +111,8 @@ export class Engine {
     // (PLAN §3). captureCheckpoint returns null outside repos; failures are
     // non-fatal — checkpoints are best-effort.
     const workspacePath = session.projectId === 'adhoc' ? process.cwd() : session.projectId
-    const { GitService } = await import('@ari/engine/git')
-    const captured = await new GitService().captureCheckpoint(workspacePath, session.id, turnId)
+    const git = this.#deps.git ?? (await import('@ari/engine/git')).newDefaultCapturer()
+    const captured = await git.captureCheckpoint(workspacePath, session.id, turnId)
     if (captured.ok && captured.value !== null) {
       await this.#append(session.id, {
         type: 'checkpoint.captured',

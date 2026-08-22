@@ -76,6 +76,7 @@ describe('engine end-to-end with scripted driver', () => {
       store,
       registry,
       publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
     })
 
     const sessionId = 'sess_e2e'
@@ -88,7 +89,7 @@ describe('engine end-to-end with scripted driver', () => {
     } as Command)
     expect(result.accepted).toBe(true)
 
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 150; i++) {
       const model = await store.load(sessionId)
       if (model.activeTurnId === null && model.messages.length >= 2) break
       await new Promise((r) => setTimeout(r, 20))
@@ -125,6 +126,7 @@ describe('engine end-to-end with scripted driver', () => {
       store,
       registry,
       publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
     })
 
     const sessionId = 'sess_slow'
