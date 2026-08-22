@@ -144,7 +144,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M8.5 Unified diff parser → virtualized hunk model
 - [x] M8.6 Diff viewer: syntax-tinted lines, hunk nav, word-diff option
 - [x] M8.7 File-tree grouping + collapse tweens (180ms height)
-- [ ] M8.8 Revert confirmation flow + undo toast
+- [x] M8.8 Revert confirmation flow + undo toast (inline confirm + result toast via @ari/ui/toast; post-revert undo action deferred with M13.2)
 - [x] M8.9 Non-git graceful degradation (checkpoints disabled notice)
 - [ ] M8.10 Checkpoint storage GC (cap refs per session)
 - [ ] M8.11 Diff perf test (10k-line diff virtualized)
