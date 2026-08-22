@@ -237,7 +237,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M12.4 Permissions page: modes default, allowlist editor
 - [x] M12.5 Keybindings page: logical map, Mod symbols, conflict detection (read-only v1 table; remapping + conflict detection land with the keybindings layer)
 - [x] M12.6 Advanced page: logs viewer, journal tools, diagnostics export (diagnostics export + journal location hint + draft-cache danger zone; logs viewer/journal tools deferred to engine-backed settings work)
-- [ ] M12.7 Settings events through engine (single writer)
+- [x] M12.7 Settings events through engine (single writer)
 - [ ] M12.8 Import/export settings bundle
 - [ ] M12.9 Settings search (palette-integrated)
 - [ ] M12.10 Settings a11y + keyboard traversal
