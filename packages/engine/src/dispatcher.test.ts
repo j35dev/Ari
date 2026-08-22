@@ -128,13 +128,30 @@ describe('decideCommand', () => {
     expect(decideCommand(answered, command, ids).accepted).toBe(false)
   })
 
-  it('explicitly rejects milestone-deferred commands', () => {
+  it('accepts checkpoint.revert when a checkpoint exists for the turn', () => {
+    let model = modelWithSession()
+    model = previewDispatch(model, {
+      accepted: true,
+      events: [{ type: 'checkpoint.captured', turnId: 't1', gitRef: 'refs/ari/s/t1' }],
+    })
+    const result = decideCommand(
+      model,
+      { type: 'checkpoint.revert', sessionId: 'sess_1', turnId: 't1' },
+      ids,
+    )
+    expect(result.accepted).toBe(true)
+    expect(result.events[0]?.type).toBe('checkpoint.reverted')
+    const reverted = previewDispatch(model, result)
+    expect(reverted.checkpoints).toHaveLength(0)
+  })
+
+  it('rejects checkpoint.revert without a captured checkpoint', () => {
     const result = decideCommand(
       modelWithSession(),
       { type: 'checkpoint.revert', sessionId: 'sess_1', turnId: 't1' },
       ids,
     )
     expect(result.accepted).toBe(false)
-    expect(result.reason).toContain('checkpointing')
+    expect(result.reason).toContain('no checkpoint')
   })
 })

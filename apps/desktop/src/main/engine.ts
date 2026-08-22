@@ -65,6 +65,18 @@ export class Engine {
       this.#activeTurns.get(command.sessionId)?.interrupt()
     }
 
+    if (command.type === 'checkpoint.revert') {
+      const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
+      const ws = model.session?.projectId === 'adhoc' ? process.cwd() : (model.session?.projectId ?? process.cwd())
+      if (ref) {
+        const { GitService } = await import('@ari/engine/git')
+        const result = await new GitService().revertToRef(ws, ref)
+        if (!result.ok) {
+          log.error('checkpoint revert failed', { error: result.error.message })
+        }
+      }
+    }
+
     return { accepted: true }
   }
 

@@ -113,6 +113,10 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
         { turnId: event.turnId, gitRef: event.gitRef },
       ]
       break
+
+    case 'checkpoint.reverted':
+      next.checkpoints = next.checkpoints.filter((c) => c.turnId !== event.turnId)
+      break
   }
 
   return next

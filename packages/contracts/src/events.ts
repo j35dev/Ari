@@ -60,6 +60,11 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     gitRef: z.string(),
   }),
   eventBase.extend({
+    type: z.literal('checkpoint.reverted'),
+    turnId: z.string(),
+    gitRef: z.string(),
+  }),
+  eventBase.extend({
     type: z.literal('message.enqueued'),
     text: z.string().min(1),
   }),

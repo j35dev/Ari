@@ -101,9 +101,14 @@ export function decideCommand(
       // Question-panel flow lands with driver control protocols (M4.7).
       return reject('input.respond arrives with the question panel milestone')
 
-    case 'checkpoint.revert':
-      // Revert execution needs the git service (M8); rejected until then.
-      return reject('checkpoint.revert arrives with the checkpointing milestone')
+    case 'checkpoint.revert': {
+      if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      const checkpoint = model.checkpoints.find((c) => c.turnId === command.turnId)
+      if (!checkpoint) return reject('no checkpoint captured for that turn')
+      return accept([
+        { type: 'checkpoint.reverted', turnId: command.turnId, gitRef: checkpoint.gitRef },
+      ])
+    }
   }
 }
 
