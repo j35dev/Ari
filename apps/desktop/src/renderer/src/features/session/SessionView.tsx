@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import type { SessionEventFrame } from '@ari/contracts/rpc'
+import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { TranscriptView } from '../transcript'
 import { Composer } from '../composer/Composer'
+import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 
 interface PendingApproval {
@@ -14,28 +16,50 @@ interface PendingApproval {
   summaryJson: string
 }
 
+export interface SessionDefaults {
+  driverKind: DriverKind
+  modelId: string | null
+  permissionMode: PermissionMode
+}
+
 /**
  * Binds one session's journal to the transcript and composer: replays on
  * mount, applies live events, dispatches turns through the engine.
  */
-export function SessionView({ sessionId }: { sessionId: string }) {
+export function SessionView({
+  sessionId,
+  defaults,
+  onDefaultsChange,
+}: {
+  sessionId: string
+  defaults: SessionDefaults
+  onDefaultsChange: (next: SessionDefaults) => void
+}) {
   const [messages, setMessages] = useState<Message[]>([])
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<string[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
-  const queuedRef = useRef<string[]>([])
-  queuedRef.current = queued
 
   useEffect(() => {
     let cancelled = false
     setMessages([])
     setRunning(false)
+    setApprovals([])
 
     void rpc.invoke('session.load', { sessionId }).then((model) => {
       if (cancelled || !model) return
-      const m = model as { session: Session; messages: Message[]; activeTurnId: string | null }
+      const m = model as {
+        session: Session
+        messages: Message[]
+        activeTurnId: string | null
+      }
       setMessages(m.messages)
       setRunning(m.activeTurnId !== null)
+      onDefaultsChange({
+        driverKind: m.session.driverKind,
+        modelId: m.session.modelId,
+        permissionMode: m.session.permissionMode,
+      })
     })
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
@@ -48,71 +72,72 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       cancelled = true
       unsubscribe()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applyEvent is stable
   }, [sessionId])
 
-  const applyEvent = useCallback((event: JournalEvent) => {
-    switch (event.type) {
-      case 'user.message.added':
-        setMessages((prev) => [...prev, event.message])
-        break
-      case 'assistant.parts.appended':
-        setMessages((prev) => {
-          const existing = prev.find((m) => m.id === event.messageId)
-          if (existing) {
-            return prev.map((m) =>
-              m.id === event.messageId ? { ...m, parts: [...m.parts, ...event.parts] } : m,
-            )
-          }
-          return [
-            ...prev,
+  const applyEvent = useCallback(
+    (event: JournalEvent) => {
+      switch (event.type) {
+        case 'user.message.added':
+          setMessages((prev) => [...prev, event.message])
+          break
+        case 'assistant.parts.appended':
+          setMessages((prev) => {
+            const existing = prev.find((m) => m.id === event.messageId)
+            if (existing) {
+              return prev.map((m) =>
+                m.id === event.messageId ? { ...m, parts: [...m.parts, ...event.parts] } : m,
+              )
+            }
+            return [
+              ...prev,
+              {
+                id: event.messageId,
+                sessionId: event.sessionId,
+                turnId: null,
+                role: 'assistant',
+                parts: [...event.parts],
+                createdAt: event.at,
+              },
+            ]
+          })
+          break
+        case 'turn.started':
+          setRunning(true)
+          break
+        case 'turn.settled':
+          setRunning(false)
+          setQueued((prev) => {
+            const [next, ...rest] = prev
+            if (next) {
+              void rpc
+                .invoke('command.dispatch', {
+                  command: { type: 'turn.start', sessionId: event.sessionId, text: next },
+                })
+                .catch(() => undefined)
+            }
+            return rest
+          })
+          break
+        case 'approval.requested':
+          setApprovals((prev) => [
+            ...prev.filter((a) => a.approvalId !== event.approvalId),
             {
-              id: event.messageId,
-              sessionId: event.sessionId,
-              turnId: null,
-              role: 'assistant',
-              parts: [...event.parts],
-              createdAt: event.at,
+              approvalId: event.approvalId,
+              toolName: event.toolName,
+              summaryJson: event.summaryJson,
             },
-          ]
-        })
-        break
-      case 'turn.started':
-        setRunning(true)
-        break
-      case 'turn.settled':
-        setRunning(false)
-        // Release the head of the queue as the next turn.
-        setQueued((prev) => {
-          const [next, ...rest] = prev
-          if (next) {
-            void rpc
-              .invoke('command.dispatch', {
-                command: { type: 'turn.start', sessionId: event.sessionId, text: next },
-              })
-              .catch(() => undefined)
-          }
-          return rest
-        })
-        break
-      case 'approval.requested':
-        setApprovals((prev) => [
-          ...prev.filter((a) => a.approvalId !== event.approvalId),
-          {
-            approvalId: event.approvalId,
-            toolName: event.toolName,
-            summaryJson: event.summaryJson,
-          },
-        ])
-        break
-      case 'approval.responded':
-        setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
-        break
-      case 'session.status.changed':
-        break
-      default:
-        break
-    }
-  }, [])
+          ])
+          break
+        case 'approval.responded':
+          setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
+          break
+        default:
+          break
+      }
+    },
+    [],
+  )
 
   const handleSend = useCallback(
     (text: string) => {
@@ -147,6 +172,23 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     [sessionId],
   )
 
+  const changeModel = useCallback(
+    (next: { driverKind: DriverKind; modelId: string | null }) => {
+      onDefaultsChange(next)
+      void rpc
+        .invoke('command.dispatch', {
+          command: {
+            type: 'session.update',
+            sessionId,
+            driverKind: next.driverKind,
+            modelId: next.modelId,
+          },
+        })
+        .catch(() => undefined)
+    },
+    [sessionId, onDefaultsChange],
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
@@ -170,7 +212,19 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           ))}
         </div>
       ) : null}
-      <Composer onSend={handleSend} onStop={handleStop} running={running} queued={queued} />
+      <Composer
+        onSend={handleSend}
+        onStop={handleStop}
+        running={running}
+        queued={queued}
+        leading={
+          <ModelSelector
+            driverKind={defaults.driverKind}
+            modelId={defaults.modelId}
+            onChange={changeModel}
+          />
+        }
+      />
     </div>
   )
 }

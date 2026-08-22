@@ -24,9 +24,9 @@ export class DriverRegistry {
     return [...this.#drivers.keys()]
   }
 
-  /** Detects every registered driver kind (plus ari-core passthrough). */
+  /** Detects every registered driver kind exactly once. */
   async detectAll(env: DetectEnvironment = realDetectEnvironment()): Promise<Detection[]> {
-    const kinds: DriverKind[] = [...this.#drivers.keys(), 'ari-core']
+    const kinds = [...new Set([...this.#drivers.keys(), 'ari-core' as DriverKind])]
     return Promise.all(kinds.map((kind) => detectDriver(kind, env)))
   }
 }

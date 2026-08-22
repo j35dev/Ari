@@ -80,7 +80,9 @@ export class SessionStore {
   }
 
   /** Lightweight index for the sidebar: first event of every session dir. */
-  async listSessions(): Promise<{ id: string; title: string; updatedAt: number }[]> {
+  async listSessions(): Promise<
+    { id: string; projectId: string; title: string; updatedAt: number }[]
+  > {
     const { readdir } = await import('node:fs/promises')
     let dirs: string[]
     try {
@@ -88,12 +90,17 @@ export class SessionStore {
     } catch {
       return []
     }
-    const out: { id: string; title: string; updatedAt: number }[] = []
+    const out: { id: string; projectId: string; title: string; updatedAt: number }[] = []
     for (const id of dirs) {
       try {
         const model = await this.load(id)
         if (model.session) {
-          out.push({ id, title: model.session.title, updatedAt: model.session.updatedAt })
+          out.push({
+            id,
+            projectId: model.session.projectId,
+            title: model.session.title,
+            updatedAt: model.session.updatedAt,
+          })
         }
       } catch {
         // unreadable dir — skip rather than break listing

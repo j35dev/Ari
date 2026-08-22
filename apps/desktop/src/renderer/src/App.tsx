@@ -1,12 +1,18 @@
-import { useEffect, useState } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
-import { ThemeProvider, useTheme, THEMES } from '@ari/ui/theme-provider'
+import { useCallback, useEffect, useState } from 'react'
+import {
+  FolderGit2,
+  GitPullRequest,
+  MessageSquare,
+  Settings,
+  SquarePen,
+  TerminalSquare,
+} from 'lucide-react'
+import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from './lib/rpc'
 import { Titlebar } from './shell/Titlebar'
-import { LeftRail, type RailView } from './shell/LeftRail'
-import { SessionsSidebar } from './shell/SessionsSidebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { TerminalView } from './features/terminal'
@@ -17,38 +23,60 @@ import { ProjectsView } from './features/projects'
 import { ProvidersView } from './features/providers'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
-import { NewSessionPanel } from './features/session/NewSessionPanel'
 import { BootSplash } from './features/moment'
+import { SidebarHeader, SessionsList, UtilityStrip } from './shell/Sidebar'
 import './features/transcript/transcript.css'
 
-type Route = 'home' | 'gallery'
+type MainPane = 'session' | 'projects' | 'terminal' | 'changes' | 'settings'
+
+export interface SessionDefaults {
+  driverKind: DriverKind
+  modelId: string | null
+  permissionMode: PermissionMode
+}
 
 function Shell() {
-  const [route, setRoute] = useState<Route>('home')
-  const [railView, setRailView] = useState<RailView>('sessions')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [pane, setPane] = useState<MainPane>('session')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [newSessionOpen, setNewSessionOpen] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [defaults, setDefaults] = useState<SessionDefaults>({
+    driverKind: 'claude',
+    modelId: null,
+    permissionMode: 'ask',
+  })
   const { theme, setTheme } = useTheme()
 
-  const [booted, setBooted] = useState(false)
+  const refreshSessions = useCallback((): void => {
+    void rpc
+      .invoke('session.list')
+      .then(setSessions)
+      .catch(() => undefined)
+  }, [])
 
+  useEffect(refreshSessions, [])
+
+  // First available CLI becomes the default driver at boot.
   useEffect(() => {
     void rpc
-      .invoke('ping')
-      .then(() => setBooted(true))
-      .catch(() => setBooted(true))
+      .invoke('providers.detect')
+      .then((detections) => {
+        const installed = detections.find(
+          (d) => d.binaryPath !== null && d.kind !== 'ari-core',
+        )
+        if (installed) setDefaults((prev) => ({ ...prev, driverKind: installed.kind as DriverKind }))
+      })
+      .catch(() => undefined)
   }, [])
 
   const commands = useCommands({
     onNavigate: (view) => {
-      setRailView(view)
+      setPane(view === 'sessions' ? 'session' : view)
       setPaletteOpen(false)
     },
     onOpenGallery: () => {
-      setRoute('gallery')
+      setGalleryOpen(true)
       setPaletteOpen(false)
     },
     theme,
@@ -67,27 +95,31 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const refreshSessions = (): void => {
+  const createSession = useCallback((): void => {
     void rpc
-      .invoke('session.list')
-      .then(setSessions)
+      .invoke('session.create', {
+        projectId: 'adhoc',
+        title: 'New session',
+        driverKind: defaults.driverKind,
+        modelId: defaults.modelId,
+        permissionMode: defaults.permissionMode,
+      })
+      .then(({ sessionId }) => {
+        setActiveSessionId(sessionId)
+        setPane('session')
+        refreshSessions()
+      })
       .catch(() => undefined)
-  }
+  }, [defaults, refreshSessions])
 
-  useEffect(refreshSessions, [])
-
-  if (!booted) {
-    return <BootSplash ready={false} />
-  }
-
-  if (route === 'gallery') {
+  if (galleryOpen) {
     return (
       <div className="flex h-full flex-col">
         <Titlebar projectLabel="Gallery" />
         <div className="border-b border-border bg-surface-0 px-4 py-2">
           <button
             type="button"
-            onClick={() => setRoute('home')}
+            onClick={() => setGalleryOpen(false)}
             className="rounded-md px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             ← Back to workspace
@@ -104,138 +136,134 @@ function Shell() {
     <div className="flex h-full flex-col">
       <Titlebar projectLabel="" />
       <div className="flex min-h-0 flex-1">
-        <LeftRail
-          active={railView}
-          onSelect={(v) => {
-            setRailView(v)
-            if (v === 'sessions') setSidebarOpen(true)
-          }}
-        />
-        <AnimatePresence initial={false}>
-          {railView === 'sessions' ? (
-            <motion.div key="sidebar" className="flex" exit={{ width: 0 }}>
-              <SessionsSidebar
-                open={sidebarOpen}
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                onToggle={() => setSidebarOpen((o) => !o)}
-                onSelectSession={setActiveSessionId}
-                onNewSession={() => setNewSessionOpen(true)}
-              />
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+        <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col border-r border-border bg-surface-0">
+          <SidebarHeader onNewSession={createSession} />
+          <SessionsList
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelect={(id) => {
+              setActiveSessionId(id)
+              setPane('session')
+            }}
+          />
+          <UtilityStrip
+            active={pane}
+            onSelect={setPane}
+            items={[
+              { id: 'session', label: 'Sessions', icon: MessageSquare },
+              { id: 'projects', label: 'Projects', icon: FolderGit2 },
+              { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+              { id: 'changes', label: 'Changes', icon: GitPullRequest },
+              { id: 'settings', label: 'Settings', icon: Settings },
+            ]}
+          />
+        </aside>
 
         <main className="min-w-0 flex-1 bg-bg">
-          {railView === 'terminal' ? (
+          {pane === 'terminal' ? (
             <TerminalView cwd={process.cwd()} />
-          ) : railView === 'changes' ? (
+          ) : pane === 'changes' ? (
             <ChangesView />
-          ) : railView === 'projects' ? (
+          ) : pane === 'projects' ? (
             <ProjectsView />
-          ) : railView === 'settings' ? (
+          ) : pane === 'settings' ? (
             <div className="ari-scroll h-full overflow-y-auto">
               <div className="mx-auto max-w-2xl space-y-10 p-8">
-                <AppearanceSettings />
-                <ProvidersView />
-                <PermissionsSettings />
-                <EndpointsManager />
+                <SettingsSection title="Appearance">
+                  <AppearanceSettings />
+                </SettingsSection>
+                <SettingsSection title="Providers">
+                  <ProvidersView />
+                </SettingsSection>
+                <SettingsSection title="Permissions">
+                  <PermissionsSettings />
+                </SettingsSection>
+                <SettingsSection title="Endpoints">
+                  <EndpointsManager />
+                </SettingsSection>
               </div>
             </div>
           ) : activeSessionId ? (
-            <SessionView sessionId={activeSessionId} />
+            <SessionView
+              key={activeSessionId}
+              sessionId={activeSessionId}
+              defaults={defaults}
+              onDefaultsChange={setDefaults}
+            />
           ) : (
-            <EmptyState onOpenGallery={() => setRoute('gallery')} />
+            <EmptyState onCreate={createSession} onOpenGallery={() => setGalleryOpen(true)} />
           )}
         </main>
       </div>
-      <StatusBar sessionCount={sessions.length} active={activeSessionId !== null} />
+
+      <footer className="flex h-[var(--ari-statusbar-height)] shrink-0 items-center gap-3 border-t border-border bg-surface-0 px-3 text-2xs text-fg-subtle">
+        <span className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" /> ready
+        </span>
+        <span>
+          {sessions.length} session{sessions.length === 1 ? '' : 's'}
+        </span>
+        <div className="flex-1" />
+        <span>v0.1.0</span>
+      </footer>
+
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
-      {newSessionOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]"
-          style={{ background: 'color-mix(in oklab, black 45%, transparent)' }}
-          onClick={() => setNewSessionOpen(false)}
-        >
-          <div onClick={(e) => e.stopPropagation()}>
-            <NewSessionPanel
-              onSuccess={(sessionId) => {
-                setNewSessionOpen(false)
-                setActiveSessionId(sessionId)
-                refreshSessions()
-              }}
-              onCancel={() => setNewSessionOpen(false)}
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
 
-function EmptyState({ onOpenGallery }: { onOpenGallery: () => void }) {
+function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h2 className="mb-4 text-lg font-semibold text-fg">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function EmptyState({
+  onCreate,
+  onOpenGallery,
+}: {
+  onCreate: () => void
+  onOpenGallery: () => void
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3">
-      <div className="text-xl font-semibold tracking-[0.14em] text-fg">ARI</div>
+      <SquarePen size={28} className="text-fg-subtle" strokeWidth={1.5} />
       <p className="max-w-xs text-center text-sm text-fg-muted">
-        Your agents, one surface. Create a session to begin.
+        Start a session — your agents are already authenticated.
       </p>
-      <ThemeDots />
+      <button
+        type="button"
+        onClick={onCreate}
+        className="mt-1 rounded-md bg-accent px-3.5 py-1.5 text-sm font-medium text-fg-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        New session
+      </button>
       <button
         type="button"
         onClick={onOpenGallery}
-        className="mt-2 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="text-2xs text-fg-subtle underline-offset-2 hover:text-fg-muted hover:underline"
       >
-        Browse component gallery
+        browse components
       </button>
     </div>
   )
 }
 
-function ThemeDots() {
-  const { theme, setTheme } = useTheme()
-  return (
-    <div className="mt-1 flex gap-2" role="group" aria-label="Theme">
-      {THEMES.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          onClick={() => setTheme(t.id)}
-          aria-pressed={theme === t.id}
-          title={t.label}
-          className={`h-5 w-5 rounded-full border transition-transform hover:scale-110 ${
-            theme === t.id ? 'border-accent ring-2 ring-accent-ring' : 'border-border-strong'
-          }`}
-          style={{ background: 'var(--ari-accent)' }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function StatusBar({
-  sessionCount,
-  active,
-}: {
-  sessionCount: number
-  active: boolean
-}) {
-  return (
-    <footer className="flex h-[var(--ari-statusbar-height)] shrink-0 items-center gap-3 border-t border-border bg-surface-0 px-3 text-2xs text-fg-subtle">
-      <span className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full bg-success" /> engine ready
-      </span>
-      <span>
-        {sessionCount} session{sessionCount === 1 ? '' : 's'}
-        {active ? ' · viewing' : ''}
-      </span>
-      <div className="flex-1" />
-      <span>v0.1.0</span>
-    </footer>
-  )
-}
-
 export function App() {
+  const [booted, setBooted] = useState(false)
+
+  useEffect(() => {
+    void rpc
+      .invoke('ping')
+      .then(() => setBooted(true))
+      .catch(() => setBooted(true))
+  }, [])
+
+  if (!booted) return <BootSplash ready={false} />
+
   return (
     <ThemeProvider>
       <MotionProvider>

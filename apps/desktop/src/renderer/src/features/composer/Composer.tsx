@@ -22,6 +22,8 @@ export interface ComposerProps {
   onSlashCommand?: (name: string) => void
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
+  /** Rendered at the bottom-left of the input row (e.g. model pill). */
+  leading?: React.ReactNode
   placeholder?: string
   disabled?: boolean
 }
@@ -43,6 +45,7 @@ export function Composer({
   queued = [],
   onSlashCommand,
   suggestions,
+  leading,
   placeholder = 'Ask, steer, or describe a task…',
   disabled = false,
 }: ComposerProps) {
@@ -185,9 +188,13 @@ export function Composer({
         <SendStopButton running={running} onSend={send} onStop={onStop} canSend={text.trim().length > 0} />
       </div>
 
-      <div className="mt-1.5 px-1 text-2xs text-fg-subtle">
-        <kbd className="font-mono">Enter</kbd> send ·{' '}
-        <kbd className="font-mono">Shift+Enter</kbd> newline
+      <div className="flex items-center px-1">
+        {leading}
+        <div className="flex-1" />
+        <div className="text-2xs text-fg-subtle">
+          <kbd className="font-mono">Enter</kbd> send ·{' '}
+          <kbd className="font-mono">Shift+Enter</kbd> newline
+        </div>
       </div>
     </div>
   )

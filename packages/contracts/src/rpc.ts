@@ -9,6 +9,7 @@ import { driverKindSchema, permissionModeSchema } from './common'
 
 export const sessionSummarySchema = z.object({
   id: z.string(),
+  projectId: z.string(),
   title: z.string(),
   updatedAt: z.number(),
 })
