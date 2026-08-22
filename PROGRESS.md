@@ -156,7 +156,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M9.2 Project registry store + icon/color chips
 - [ ] M9.3 Sidebar grouping by project + resort FLIP animation
 - [ ] M9.4 Branch chip + quick switch popover
-- [ ] M9.5 Watcher service (chokidar) + debounced fs events
+- [x] M9.5 Watcher service (chokidar) + debounced fs events
 - [ ] M9.6 Watcher→mentions index feed
 - [ ] M9.7 Project settings (default provider/model/mode per project)
 - [ ] M9.8 Unseen/activity markers on sessions
