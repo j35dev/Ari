@@ -143,7 +143,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M5.11 Timestamps + usage footer per message
 - [x] M5.12 Stick-to-bottom spring + wheel-up interrupt + 70px re-engage band
 - [x] M5.13 Perf test: 50k-block synthetic transcript ≥55fps scroll (delivered as 50k pure-transform budget + jsdom mount smoke of TranscriptView @2000 messages; fps needs a real compositor, unverifiable headless)
-- [ ] M5.14 Transcript a11y pass (roles, announcements)
+- [x] M5.14 Transcript a11y pass (roles, announcements) (scroll container is `role="log"` + `aria-label="Conversation transcript"` + `aria-live="polite"`, sr-only "Messages" heading)
 
 ## M6 — Composer & steering
 
@@ -249,7 +249,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 ## M13 — Polish & motion pass
 
 - [x] M13.1 Sidebar session-resort FLIP polish (motion.li `layoutId` rows under AnimatePresence; spring stiffness 500 / damping 40)
-- [ ] M13.2 Toast audit + queue behaviors
+- [ ] M13.2 Toast audit + queue behaviors (audit done: queue/max-5/hover-pause/actions all live in `@ari/ui/toast`; blocked on App-level provider mount — see Blockers)
 - [x] M13.3 Skeleton/loading audit (no spinners >300ms) (Spinner usage audited — none outside gallery; transcript shows 4 Skeleton rows while initial `session.load` resolves)
 - [x] M13.4 prefers-reduced-motion full sweep
 - [x] M13.5 Focus-visible sweep + tab order audit (rings added to theme cards + model-picker options; settings/projects/endpoints buttons verified via Button/IconButton kit styles)
@@ -259,7 +259,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M13.6 Keyboard map completion + cheat-sheet overlay (?) (KeyboardCheatSheet opens on bare ? outside editable elements; complete map incl. composer/approval/question chords)
 - [ ] M13.7 Memory audit vs budgets (long-session soak)
 - [ ] M13.8 Cold-start profiling vs 2.5s budget
-- [ ] M13.9 Empty/error edge sweep (every pane)
+- [x] M13.9 Empty/error edge sweep (every pane) (audited ChangesView, ProjectsView, TerminalView, SettingsView — all render meaningful empty/error content when data is absent; no blank panes found, no fixes needed)
 - [x] M13.10 UX copy pass (voice: precise, warm, zero fluff) (sentence case + imperative standardized: Add project, re-scan hint, Jump to latest; no exclamation marks anywhere)
 - [x] M13.11 Boot splash + working-indicator signature moments
 - [x] M13.12 Notification-on-settle when unfocused
@@ -270,7 +270,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M14.2 DMG universal target config
 - [x] M14.3 AppImage + deb targets
 - [x] M14.4 App icons (win/mac/linux) + installer assets
-- [ ] M14.5 `pnpm dist` pipeline + artifact smoke checklist doc
+- [x] M14.5 `pnpm dist` pipeline + artifact smoke checklist doc (`scripts/dist.md`: exact per-platform electron-builder commands, artifact table, 4-step smoke checklist; raw `npx` commands until a root `dist` script lands)
 - [x] M14.6 Auto-update scaffolding (electron-updater, disabled by default) + README/docs final pass
 
 ## Stretch backlog (post-V1, unplanned)
@@ -288,6 +288,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 
 | Task | Tried | Error essence | Status |
 | --- | --- | --- | --- |
+| M13.2 `useToast()` consumers render outside any ToastProvider | Read all mount points: ToastProvider is mounted only inside GalleryView (and per-test wrappers); App.tsx wraps Theme+Motion only | `CheckpointList`/`SettleNotification` call `useToast()`, which throws outside a provider; fix requires mounting `<ToastProvider>` around `<Shell/>` in App.tsx, which is off-limits to this worker (orchestrator-owned) | open — needs orchestrator one-line App.tsx change |
 | (infra, found during M13.x) `src/main/engine.test.ts` "runs a full turn" | verify re-runs, isolated runs, clean-tree runs | Race: `#settle` publishes `turn.settled` before the `session.status.changed → idle` append folds into the read model; the test asserts `status === 'idle'` right after the settle poll, so it fails under full-workspace load only (passes isolated and on clean tree) | open — needs engine/test ordering fix, owner: orchestrator |
 
 ## Merge log
