@@ -89,9 +89,13 @@ export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthSt
       return 'unknown'
     }
     case 'codex': {
+      // Codex auths either via auth.json (ChatGPT/OpenAI login) or via a
+      // config.toml provider block (custom routers/API keys). Presence of
+      // either means the CLI is usable; only neither means unauthenticated.
       const authFile = join(env.homeDir, '.codex', 'auth.json')
-      if (!existsSync(authFile)) return 'unauthenticated'
-      return 'authenticated'
+      const configFile = join(env.homeDir, '.codex', 'config.toml')
+      if (existsSync(authFile) || existsSync(configFile)) return 'authenticated'
+      return 'unauthenticated'
     }
     case 'opencode': {
       const candidates =
