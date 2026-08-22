@@ -37,7 +37,7 @@ audits ท a11y sweeps ท keybinding remap layer ท driver doc pages ท arch-08+ note
 
 ## M0 โ€” Scaffold
 
-- [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
+- [ ] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
 - [x] M0.2 Workspace + toolchain configs (pnpm workspace, tsconfig.base strict, eslint flat, prettier, editorconfig, gitattributes)
 - [x] M0.3 `@ari/shared` package: result, ids, jsonl reader/writer, logger + tests
 - [x] M0.4 `@ari/contracts` package: zod schemas, command/event unions skeleton + tests
@@ -66,7 +66,7 @@ audits ท a11y sweeps ท keybinding remap layer ท driver doc pages ท arch-08+ note
 - [x] M1.10 Switch + Checkbox + Badge + Kbd
 - [x] M1.11 ScrollArea + Skeleton + Spinner
 - [x] M1.12 Toast system (queue, tones, actions, hover-pause; swipe dismiss deferred to M13.2)
-- [ ] M1.13 Motion kit: named variants/hooks from PLAN ยง6.4 + reduced-motion respect
+- [x] M1.13 Motion kit: named variants/hooks from PLAN ยง6.4 + reduced-motion respect
 - [x] M1.14 Gallery route (/gallery) rendering every primitive + visual QA pass
 
 ## M2 โ€” App shell
@@ -87,14 +87,14 @@ audits ท a11y sweeps ท keybinding remap layer ท driver doc pages ท arch-08+ note
 ## M3 โ€” Engine core
 
 - [x] M3.1 Contracts: full command/event unions + zod schemas for session/turn/message
-- [ ] M3.2 JSONL journal: append w/ fsync policy, rotation, corruption-tail recovery + tests
-- [ ] M3.3 Projection framework: fold events โ’ read model, subscription deltas
-- [ ] M3.4 Session state machine (idle/queued/running/waiting-approval/settled/error)
+- [x] M3.2 JSONL journal: append w/ fsync policy, rotation, corruption-tail recovery + tests
+- [x] M3.3 Projection framework: fold events โ’ read model, subscription deltas
+- [x] M3.4 Session state machine (idle/queued/running/waiting-approval/settled/error)
 - [x] M3.5 Turn state machine + turn lifecycle events
-- [ ] M3.6 Typed IPC bridge: invoke channel map + subscribe streams, zod-validated
-- [ ] M3.7 Preload API surface (`window.ari.rpc`) + renderer client
+- [x] M3.6 Typed IPC bridge: invoke channel map + subscribe streams, zod-validated
+- [x] M3.7 Preload API surface (`window.ari.rpc`) + renderer client
 - [ ] M3.8 Zustand store factory bound to RPC subscriptions
-- [ ] M3.9 Engine boot: replay journals on startup, reconcile read model
+- [x] M3.9 Engine boot: replay journals on startup, reconcile read model
 - [x] M3.10 Command dispatcher: idempotency receipts, ordered queue
 - [x] M3.11 Settings store (JSON file, atomic write, schema versioning)
 - [x] M3.12 Crash-recovery tests (truncated tail, partial writes)
@@ -105,7 +105,7 @@ audits ท a11y sweeps ท keybinding remap layer ท driver doc pages ท arch-08+ note
 
 ## M4 โ€” Provider subsystem
 
-- [ ] M4.1 Detector: PATH scan per-OS, well-known dirs, version probe, cache
+- [x] M4.1 Detector: PATH scan per-OS, well-known dirs, version probe, cache
 - [x] M4.2 Auth-status readers (read-only) for all six CLIs + graceful unknown states
 - [x] M4.3 Driver registry + adapter lifecycle supervision (respawn/backoff/dispose)
 - [x] M4.4 AgentEvent normalization union + contracts wiring
