@@ -14,6 +14,9 @@ import { AppearanceSettings, PermissionsSettings } from './features/settings'
 import { EndpointsManager } from './features/endpoints'
 import { ChangesView } from './features/changes'
 import { ProjectsView } from './features/projects'
+import { ProvidersView } from './features/providers'
+import { CommandPalette } from './features/palette/CommandPalette'
+import { useCommands } from './features/palette/useCommands'
 import './features/transcript/transcript.css'
 
 type Route = 'home' | 'gallery'
@@ -24,6 +27,33 @@ function Shell() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const { theme, setTheme } = useTheme()
+
+  const commands = useCommands({
+    onNavigate: (view) => {
+      setRailView(view)
+      setPaletteOpen(false)
+    },
+    onOpenGallery: () => {
+      setRoute('gallery')
+      setPaletteOpen(false)
+    },
+    theme,
+    setTheme,
+  })
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+      }
+      if (e.key === 'Escape') setPaletteOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const refreshSessions = (): void => {
     void rpc
@@ -105,6 +135,7 @@ function Shell() {
             <div className="ari-scroll h-full overflow-y-auto">
               <div className="mx-auto max-w-2xl space-y-10 p-8">
                 <AppearanceSettings />
+                <ProvidersView />
                 <PermissionsSettings />
                 <EndpointsManager />
               </div>
@@ -117,6 +148,7 @@ function Shell() {
         </main>
       </div>
       <StatusBar sessionCount={sessions.length} active={activeSessionId !== null} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   )
 }
