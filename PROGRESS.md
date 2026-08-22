@@ -37,7 +37,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 
 ## M0 — Scaffold
 
-- [ ] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
+- [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
 - [x] M0.2 Workspace + toolchain configs (pnpm workspace, tsconfig.base strict, eslint flat, prettier, editorconfig, gitattributes)
 - [x] M0.3 `@ari/shared` package: result, ids, jsonl reader/writer, logger + tests
 - [x] M0.4 `@ari/contracts` package: zod schemas, command/event unions skeleton + tests
@@ -93,7 +93,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M3.5 Turn state machine + turn lifecycle events
 - [x] M3.6 Typed IPC bridge: invoke channel map + subscribe streams, zod-validated
 - [x] M3.7 Preload API surface (`window.ari.rpc`) + renderer client
-- [ ] M3.8 Zustand store factory bound to RPC subscriptions
+- [x] M3.8 Zustand store factory bound to RPC subscriptions
 - [x] M3.9 Engine boot: replay journals on startup, reconcile read model
 - [x] M3.10 Command dispatcher: idempotency receipts, ordered queue
 - [x] M3.11 Settings store (JSON file, atomic write, schema versioning)
@@ -121,7 +121,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M4.14 Model catalogs per driver + merge into provider picker data
 - [x] M4.15 Diagnostics card contract (flag drift, crash, auth-missing surfaces to UI)
 - [x] M4.16 Session↔driver binding: workspace cwd, env sanitization
-- [ ] M4.17 Streaming backpressure + interrupt semantics per transport
+- [x] M4.17 Streaming backpressure + interrupt semantics per transport
 - [x] M4.18 Usage extraction (tokens/cost where providers emit it)
 - [x] M4.19 Provider health probes + status bar integration points
 - [x] M4.20 e2e-ish test: mock CLI script driven through registry end-to-end
