@@ -75,7 +75,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M4.2 Auth-status readers (read-only) for all six CLIs + graceful unknown states
 - [x] M4.3 Driver registry + adapter lifecycle supervision (respawn/backoff/dispose)
 - [x] M4.4 AgentEvent normalization union + contracts wiring
-- [ ] M4.5 Fixture recorder script (`scripts/record-fixture.ts`)
+- [x] M4.5 Fixture recorder script (`scripts/record-fixture.ts`)
 - [x] M4.6 Claude driver: spawn stream-json both directions + mapper + fixtures tests
 - [ ] M4.7 Claude control protocol: approvals, steering, resume
 - [x] M4.8 Codex driver: `exec --json` mapper + fixtures tests
