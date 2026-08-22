@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
+import { ToolResultBody } from './ToolResultBody'
 import type { TranscriptBlock } from './types'
 
 /** Short single-line preview of a tool's arguments. */
@@ -61,12 +62,6 @@ export function ToolCallBlock({ block }: { block: TranscriptBlock }) {
 /** Completed tool result card; error state tints the border. */
 export function ToolResultBlock({ block }: { block: TranscriptBlock }) {
   const [open, setOpen] = useState(false)
-  let pretty: string = block.resultJson ?? ''
-  try {
-    pretty = JSON.stringify(JSON.parse(block.resultJson ?? ''), null, 2)
-  } catch {
-    // keep raw string
-  }
   return (
     <div
       className={`my-1 overflow-hidden rounded-md border bg-surface-1 ${
@@ -92,11 +87,7 @@ export function ToolResultBlock({ block }: { block: TranscriptBlock }) {
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
         )}
       </button>
-      {open ? (
-        <pre className="max-h-40 overflow-auto border-t border-border bg-surface-0 p-2 font-mono text-2xs text-fg-muted">
-          {pretty}
-        </pre>
-      ) : null}
+      {open && block.resultJson ? <ToolResultBody resultJson={block.resultJson} /> : null}
     </div>
   )
 }
