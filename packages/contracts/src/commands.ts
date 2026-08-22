@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { driverKindSchema, permissionModeSchema } from './common'
+import {
+  driverKindSchema,
+  permissionModeSchema,
+} from './common'
 
 /**
  * Commands dispatched from the renderer to the engine. The engine validates
@@ -43,6 +46,14 @@ export const commandSchema = z.discriminatedUnion('type', [
     type: z.literal('checkpoint.revert'),
     sessionId: z.string(),
     turnId: z.string(),
+  }),
+  z.object({
+    type: z.literal('session.update'),
+    sessionId: z.string(),
+    driverKind: driverKindSchema.optional(),
+    modelId: z.string().nullable().optional(),
+    permissionMode: permissionModeSchema.optional(),
+    title: z.string().min(1).optional(),
   }),
 ])
 export type Command = z.infer<typeof commandSchema>

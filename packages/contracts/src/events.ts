@@ -1,5 +1,13 @@
 import { z } from 'zod'
-import { sessionStatusSchema, timestampSchema } from './common'
+import {
+  driverKindSchema,
+  permissionModeSchema,
+  sessionStatusSchema,
+  timestampSchema,
+} from './common'
+
+const driverKindSchemaOptional = driverKindSchema.optional()
+const permissionModeSchemaOptional = permissionModeSchema.optional()
 import { messageSchema, messagePartSchema } from './message'
 import { sessionSchema } from './session'
 
@@ -63,6 +71,13 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     type: z.literal('checkpoint.reverted'),
     turnId: z.string(),
     gitRef: z.string(),
+  }),
+  eventBase.extend({
+    type: z.literal('session.updated'),
+    driverKind: driverKindSchemaOptional,
+    modelId: z.string().nullable().optional(),
+    permissionMode: permissionModeSchemaOptional,
+    title: z.string().min(1).optional(),
   }),
   eventBase.extend({
     type: z.literal('message.enqueued'),
