@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, FolderGit2, SquarePen } from 'lucide-react'
+import { Check, ChevronRight, FolderGit2, Pencil, SquarePen, Trash2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
 
@@ -33,17 +33,135 @@ function SessionRow({
   session,
   activeSessionId,
   onSelect,
+  onRename,
+  onDelete,
 }: {
   session: SessionSummary
   activeSessionId: string | null
   onSelect: (id: string) => void
+  onRename: (id: string, title: string) => void
+  onDelete: (id: string) => void
 }) {
   const isActive = session.id === activeSessionId
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(session.title)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 rounded-md px-2 py-1.5">
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && draft.trim()) {
+              onRename(session.id, draft.trim())
+              setEditing(false)
+            }
+            if (e.key === 'Escape') {
+              setDraft(session.title)
+              setEditing(false)
+            }
+          }}
+          className="min-w-0 flex-1 rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        />
+        <button
+          type="button"
+          aria-label="Confirm rename"
+          onClick={() => {
+            if (draft.trim()) onRename(session.id, draft.trim())
+            setEditing(false)
+          }}
+          className="shrink-0 text-success"
+        >
+          <Check size={13} />
+        </button>
+        <button
+          type="button"
+          aria-label="Cancel rename"
+          onClick={() => {
+            setDraft(session.title)
+            setEditing(false)
+          }}
+          className="shrink-0 text-fg-subtle hover:text-fg"
+        >
+          <X size={13} />
+        </button>
+      </div>
+    )
+  }
+
+  if (confirmDelete) {
+    return (
+      <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-2xs text-danger">Delete session?</span>
+        <button
+          type="button"
+          aria-label="Confirm delete"
+          onClick={() => onDelete(session.id)}
+          className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+        >
+          Delete
+        </button>
+        <button
+          type="button"
+          aria-label="Cancel delete"
+          onClick={() => setConfirmDelete(false)}
+          className="shrink-0 text-fg-subtle hover:text-fg"
+        >
+          <X size={13} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="group relative">
+      <SessionRowButton
+        session={session}
+        isActive={isActive}
+        onSelect={onSelect}
+      />
+      <div className="absolute right-1 top-1.5 hidden items-center gap-0.5 group-hover:flex">
+        <button
+          type="button"
+          aria-label="Rename session"
+          onClick={() => {
+            setDraft(session.title)
+            setEditing(true)
+          }}
+          className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+        >
+          <Pencil size={11} />
+        </button>
+        <button
+          type="button"
+          aria-label="Delete session"
+          onClick={() => setConfirmDelete(true)}
+          className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-danger-subtle hover:text-danger"
+        >
+          <Trash2 size={11} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SessionRowButton({
+  session,
+  isActive,
+  onSelect,
+}: {
+  session: SessionSummary
+  isActive: boolean
+  onSelect: (id: string) => void
+}) {
   return (
     <button
       type="button"
       onClick={() => onSelect(session.id)}
-      className={`w-full rounded-md px-2 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+      className={`w-full rounded-md px-2 py-1.5 pr-12 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:bg-surface-1 hover:text-fg'
       }`}
     >
@@ -66,11 +184,15 @@ export function ProjectGroupSection({
   group,
   activeSessionId,
   onSelect,
+  onRename,
+  onDelete,
   defaultOpen = true,
 }: {
   group: ProjectGroup
   activeSessionId: string | null
   onSelect: (id: string) => void
+  onRename: (id: string, title: string) => void
+  onDelete: (id: string) => void
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -93,7 +215,13 @@ export function ProjectGroupSection({
         <ul className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1.5">
           {group.sessions.map((s) => (
             <li key={s.id}>
-              <SessionRow session={s} activeSessionId={activeSessionId} onSelect={onSelect} />
+              <SessionRow
+                session={s}
+                activeSessionId={activeSessionId}
+                onSelect={onSelect}
+                onRename={onRename}
+                onDelete={onDelete}
+              />
             </li>
           ))}
         </ul>
@@ -111,11 +239,15 @@ export function SessionsUnderProjects({
   projects,
   activeSessionId,
   onSelect,
+  onRename,
+  onDelete,
 }: {
   sessions: SessionSummary[]
   projects: { id: string; name: string }[]
   activeSessionId: string | null
   onSelect: (id: string) => void
+  onRename: (id: string, title: string) => void
+  onDelete: (id: string) => void
 }) {
   const groups: ProjectGroup[] = []
   for (const project of projects) {
@@ -147,6 +279,8 @@ export function SessionsUnderProjects({
           group={group}
           activeSessionId={activeSessionId}
           onSelect={onSelect}
+          onRename={onRename}
+          onDelete={onDelete}
           defaultOpen={group.id === 'adhoc' || group.sessions.some((s) => s.id === activeSessionId)}
         />
       ))}
