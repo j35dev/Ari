@@ -9,6 +9,7 @@
     "./anthropic-messages": "./src/protocols/anthropic-messages.ts",
     "./ollama": "./src/protocols/ollama.ts",
     "./agent-loop": "./src/agent-loop.ts",
+    "./context-manager": "./src/context-manager.ts",
     "./driver": "./src/ari-core-driver.ts"
   },
   "scripts": {

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
+import { todoWriteTool } from './tools/todo'
 
 /**
  * Built-in tools for the Ari Core harness. Every path-touching tool is
@@ -167,6 +168,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
         )
       }),
   },
+  todoWriteTool,
 ]
 
 /** Looks up a built-in tool by name. */
