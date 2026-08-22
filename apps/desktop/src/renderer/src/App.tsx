@@ -18,6 +18,7 @@ import { ProvidersView } from './features/providers'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { NewSessionPanel } from './features/session/NewSessionPanel'
+import { BootSplash } from './features/moment'
 import './features/transcript/transcript.css'
 
 type Route = 'home' | 'gallery'
@@ -31,6 +32,15 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [newSessionOpen, setNewSessionOpen] = useState(false)
   const { theme, setTheme } = useTheme()
+
+  const [booted, setBooted] = useState(false)
+
+  useEffect(() => {
+    void rpc
+      .invoke('ping')
+      .then(() => setBooted(true))
+      .catch(() => setBooted(true))
+  }, [])
 
   const commands = useCommands({
     onNavigate: (view) => {
@@ -65,6 +75,10 @@ function Shell() {
   }
 
   useEffect(refreshSessions, [])
+
+  if (!booted) {
+    return <BootSplash ready={false} />
+  }
 
   if (route === 'gallery') {
     return (
