@@ -20,12 +20,17 @@ export interface Tool {
 }
 
 /** Resolves a user-supplied path inside the jail; throws on escape. */
-function jailed(ctx: ToolContext, input: unknown): string {
+async function jailed(ctx: ToolContext, input: unknown): Promise<string> {
   const rel = typeof input === 'string' ? input : ''
-  const resolved = path.resolve(ctx.workspacePath, rel)
-  const root = path.resolve(ctx.workspacePath)
+  const root = await fs.realpath(ctx.workspacePath).catch(() => path.resolve(ctx.workspacePath))
+  const resolved = path.resolve(root, rel)
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     throw new Error(`path escapes workspace: ${rel}`)
+  }
+  // Resolve symlinks on the final target (if it exists) and re-check.
+  const real = await fs.realpath(resolved).catch(() => resolved)
+  if (real !== root && !real.startsWith(root + path.sep)) {
+    throw new Error(`symlink escapes workspace: ${rel}`)
   }
   return resolved
 }
@@ -44,7 +49,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
       properties: { path: { type: 'string', description: 'Workspace-relative path' } },
       required: ['path'],
     },
-    execute: async (args, ctx) => await fs.readFile(jailed(ctx, args['path']), 'utf8'),
+    execute: async (args, ctx) => await fs.readFile(await jailed(ctx, args['path']), 'utf8'),
   },
   {
     name: 'write_file',
@@ -58,7 +63,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
       required: ['path', 'content'],
     },
     execute: async (args, ctx) => {
-      const target = jailed(ctx, args['path'])
+      const target = await jailed(ctx, args['path'])
       await fs.mkdir(path.dirname(target), { recursive: true })
       await fs.writeFile(target, str(args, 'content'), 'utf8')
       return `wrote ${str(args, 'content').length} bytes to ${str(args, 'path')}`
@@ -78,7 +83,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
       required: ['path', 'oldString', 'newString'],
     },
     execute: async (args, ctx) => {
-      const target = jailed(ctx, args['path'])
+      const target = await jailed(ctx, args['path'])
       const content = await fs.readFile(target, 'utf8')
       const oldStr = str(args, 'oldString')
       const occurrences = content.split(oldStr).length - 1
