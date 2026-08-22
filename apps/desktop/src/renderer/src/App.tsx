@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { ThemeProvider, useTheme } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
+import { ToastProvider } from '@ari/ui/toast'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from './lib/rpc'
@@ -278,6 +279,17 @@ function EmptyState({
   )
 }
 
+/** Theme, motion, and toast context for the whole renderer tree. */
+export function AppProviders({ children }: { children: React.ReactNode }) {
+  return (
+    <ThemeProvider>
+      <MotionProvider>
+        <ToastProvider>{children}</ToastProvider>
+      </MotionProvider>
+    </ThemeProvider>
+  )
+}
+
 export function App() {
   const [booted, setBooted] = useState(false)
 
@@ -288,13 +300,17 @@ export function App() {
       .catch(() => setBooted(true))
   }, [])
 
-  if (!booted) return <BootSplash ready={false} />
+  if (!booted) {
+    return (
+      <AppProviders>
+        <BootSplash ready={false} />
+      </AppProviders>
+    )
+  }
 
   return (
-    <ThemeProvider>
-      <MotionProvider>
-        <Shell />
-      </MotionProvider>
-    </ThemeProvider>
+    <AppProviders>
+      <Shell />
+    </AppProviders>
   )
 }
