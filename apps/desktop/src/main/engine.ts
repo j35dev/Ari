@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
@@ -39,6 +40,12 @@ export interface EngineDeps {
   publish: (sessionId: string, event: JournalEvent) => void
   /** Checkpoint source; defaults to the real GitService. */
   git?: CheckpointCapturer
+  /**
+   * Maps a session's projectId to a workspace folder. Absent for tests: the
+   * legacy fallback treats 'adhoc' as process.cwd() and any other id as a
+   * literal path.
+   */
+  resolveWorkspace?: (projectId: string) => Promise<string | null>
 }
 
 interface ActiveTurn {
@@ -90,8 +97,8 @@ export class Engine {
 
     if (command.type === 'checkpoint.revert') {
       const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
-      const ws = model.session?.projectId === 'adhoc' ? process.cwd() : (model.session?.projectId ?? process.cwd())
-      if (ref) {
+      const ws = await this.#workspaceFor(model.session?.projectId ?? 'adhoc')
+      if (ref && ws !== null) {
         const { GitService } = await import('@ari/engine/git')
         const result = await new GitService().revertToRef(ws, ref)
         if (!result.ok) {
@@ -109,6 +116,17 @@ export class Engine {
     return stamped
   }
 
+  /** Resolves the workspace folder for a session; null when unresolvable. */
+  async #workspaceFor(projectId: string): Promise<string | null> {
+    if (!this.#deps.resolveWorkspace) {
+      // Legacy/test fallback: the id doubles as a literal path, unchecked.
+      return projectId === 'adhoc' ? process.cwd() : projectId
+    }
+    const resolved = await this.#deps.resolveWorkspace(projectId)
+    if (resolved !== null && !existsSync(resolved)) return null
+    return resolved
+  }
+
   /**
    * Runs one provider turn: spawns the adapter, maps normalized agent events
    * into journal parts (coalescing text), and settles the turn.
@@ -120,10 +138,19 @@ export class Engine {
       return
     }
 
+    const workspacePath = await this.#workspaceFor(session.projectId)
+    if (workspacePath === null) {
+      await this.#settle(
+        session.id,
+        turnId,
+        'error',
+        `workspace folder not found for project ${session.projectId} — add the folder in Projects and try again`,
+      )
+      return
+    }
     // Bracket the turn with a checkpoint when the workspace is a git repo
     // (PLAN §3). captureCheckpoint returns null outside repos; failures are
     // non-fatal — checkpoints are best-effort.
-    const workspacePath = session.projectId === 'adhoc' ? process.cwd() : session.projectId
     const git = this.#deps.git ?? (await import('@ari/engine/git')).newDefaultCapturer()
     const captured = await git.captureCheckpoint(workspacePath, session.id, turnId)
     if (captured.ok && captured.value !== null) {

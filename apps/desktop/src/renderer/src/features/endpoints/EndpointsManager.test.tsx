@@ -1,21 +1,33 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { EndpointsManager } from './EndpointsManager'
 
-const SEED_ENDPOINT = {
+const rpcMocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+}))
+
+vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
+
+const invoke = rpcMocks.invoke as unknown as Mock<
+  (method: string, params?: unknown) => Promise<unknown>
+>
+
+const SEED_STORED = {
   id: 'ep-1',
   name: 'Local llama',
   baseUrl: 'http://localhost:11434',
   flavor: 'openai-chat',
   model: 'llama3',
-  apiKey: 'sk-test',
+  apiKeyCipher: null,
 }
 
-type ProbeResponse = { ok: boolean; status: number }
-
-function seedStorage(): void {
-  localStorage.setItem('ari.endpoints', JSON.stringify([SEED_ENDPOINT]))
+function mockList(items: unknown[] = [SEED_STORED]): void {
+  invoke.mockImplementation((method: string) => {
+    if (method === 'endpoints.list') return Promise.resolve(items)
+    return Promise.resolve({ ok: true })
+  })
 }
 
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>): Promise<void> {
@@ -28,87 +40,122 @@ async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>): Promise<
 
 describe('EndpointsManager', () => {
   beforeEach(() => {
-    localStorage.clear()
-    vi.stubGlobal('fetch', vi.fn())
+    invoke.mockReset()
   })
 
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  it('save adds a card and persists the endpoint array', async () => {
+  it('save routes through the engine endpoint store with the typed key', async () => {
+    mockList([])
+    invoke.mockImplementation((method: string) => {
+      if (method === 'endpoints.list') return Promise.resolve([])
+      if (method === 'endpoints.upsert') return Promise.resolve({ id: 'new-1', name: 'x' })
+      return Promise.resolve({ ok: true })
+    })
     const user = userEvent.setup()
     render(<EndpointsManager />)
 
     await fillAndSubmit(user)
 
-    expect(screen.getByText('Local llama')).toBeInTheDocument()
-    expect(screen.getByText('http://localhost:11434')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        'endpoints.upsert',
+        expect.objectContaining({
+          name: 'Local llama',
+          baseUrl: 'http://localhost:11434',
+          flavor: 'openai-chat',
+          model: 'llama3',
+          apiKey: 'sk-test',
+          headers: {},
+        }),
+      )
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
 
-    const stored = JSON.parse(localStorage.getItem('ari.endpoints') ?? '[]') as Array<
-      Record<string, unknown>
-    >
-    expect(stored).toHaveLength(1)
-    const [first] = stored
-    expect(first?.id).toEqual(expect.any(String))
-    expect(first).toMatchObject({
-      name: 'Local llama',
-      baseUrl: 'http://localhost:11434',
-      flavor: 'openai-chat',
-      model: 'llama3',
-      apiKey: 'sk-test',
+  it('editing with a blank key keeps the stored key (apiKey undefined)', async () => {
+    mockList()
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+
+    await user.click(await screen.findByRole('button', { name: 'Edit Local llama' }))
+    // Change only the model; leave the key field empty.
+    const modelField = screen.getByLabelText('Model')
+    await user.clear(modelField)
+    await user.type(modelField, 'llama4')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        'endpoints.upsert',
+        expect.objectContaining({ id: 'ep-1', model: 'llama4', apiKey: undefined }),
+      )
     })
   })
 
-  it('delete removes the card and empties storage', async () => {
-    seedStorage()
+  it('delete removes through the engine store and refreshes the list', async () => {
+    let items: unknown[] = [SEED_STORED]
+    invoke.mockImplementation((method: string) => {
+      if (method === 'endpoints.list') return Promise.resolve(items)
+      if (method === 'endpoints.remove') {
+        items = []
+        return Promise.resolve({ removed: true })
+      }
+      return Promise.resolve({ ok: true })
+    })
     const user = userEvent.setup()
     render(<EndpointsManager />)
+    expect(await screen.findByText('Local llama')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Delete Local llama' }))
 
-    expect(screen.queryByText('Local llama')).not.toBeInTheDocument()
-    expect(localStorage.getItem('ari.endpoints')).toBe('[]')
+    await waitFor(() => {
+      expect(screen.queryByText('Local llama')).not.toBeInTheDocument()
+    })
+    expect(invoke).toHaveBeenCalledWith('endpoints.remove', { id: 'ep-1' })
   })
 
-  it('test success renders measured latency and sends bearer auth', async () => {
-    seedStorage()
-    const fetchMock = vi.fn<(input: string | URL, init?: RequestInit) => Promise<ProbeResponse>>()
-    fetchMock.mockResolvedValue({ ok: true, status: 200 })
-    vi.stubGlobal('fetch', fetchMock)
+  it('test probes reachability in the main process', async () => {
+    mockList()
+    invoke.mockImplementation((method: string, params?: unknown) => {
+      if (method === 'endpoints.list') return Promise.resolve([SEED_STORED])
+      if (method === 'endpoints.test')
+        return Promise.resolve({ ok: true, latencyMs: 42, message: 'connected' })
+      void params
+      return Promise.resolve({ ok: true })
+    })
     const user = userEvent.setup()
     render(<EndpointsManager />)
+    await screen.findByText('Local llama')
 
     await user.click(screen.getByRole('button', { name: 'Test Local llama' }))
 
-    const status = await waitFor(() => {
-      const node = screen.getByRole('status')
-      expect(node.textContent).toMatch(/^\d+ms$/)
-      return node
+    const status = await screen.findByRole('status')
+    await waitFor(() => {
+      expect(status.textContent).toContain('42ms')
     })
     expect(status.querySelector('.bg-success')).not.toBeNull()
-
-    expect(fetchMock).toHaveBeenCalledOnce()
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:11434/models')
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      headers: { Authorization: 'Bearer sk-test' },
-    })
+    expect(invoke).toHaveBeenCalledWith(
+      'endpoints.test',
+      expect.objectContaining({ baseUrl: 'http://localhost:11434', flavor: 'openai-chat' }),
+    )
   })
 
-  it('test failure renders unreachable', async () => {
-    seedStorage()
-    const fetchMock = vi.fn<(input: string | URL, init?: RequestInit) => Promise<ProbeResponse>>()
-    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
-    vi.stubGlobal('fetch', fetchMock)
+  it('test failure renders the main-process message', async () => {
+    mockList()
+    invoke.mockImplementation((method: string) => {
+      if (method === 'endpoints.list') return Promise.resolve([SEED_STORED])
+      if (method === 'endpoints.test')
+        return Promise.resolve({ ok: false, latencyMs: 6, message: 'timed out' })
+      return Promise.resolve({ ok: true })
+    })
     const user = userEvent.setup()
     render(<EndpointsManager />)
+    await screen.findByText('Local llama')
 
     await user.click(screen.getByRole('button', { name: 'Test Local llama' }))
 
-    const status = await waitFor(() => {
-      const node = screen.getByRole('status')
-      expect(node.textContent).toBe('unreachable')
-      return node
+    const status = await screen.findByRole('status')
+    await waitFor(() => {
+      expect(status.textContent).toContain('timed out')
     })
     expect(status.querySelector('.bg-danger')).not.toBeNull()
   })

@@ -49,31 +49,53 @@ export function installVisibilityGuard(): () => void {
 export interface SettleNotifyOptions {
   /** Toast dispatcher override (tests, callers outside ToastProvider). */
   toast?: (opts: ToastOptions) => void
+  /**
+   * When set, the settle was a failure: the toast uses the danger tone and
+   * fires even while the window is focused — errors are never silent.
+   */
+  error?: string | null
+}
+
+const MAX_ERROR_LENGTH = 220
+
+function describeError(error: string): string {
+  const flat = error.replace(/\s+/g, ' ').trim()
+  return flat.length > MAX_ERROR_LENGTH ? `${flat.slice(0, MAX_ERROR_LENGTH - 1)}…` : flat
 }
 
 /**
- * Fire a "session settled" toast — only when the window is hidden. Deliberately
- * side-effect-free otherwise: no subscriptions, no timers. Returns whether a
- * notification was emitted.
+ * Fire a settle toast. Success settles notify only when the window is hidden;
+ * error settles always notify. Returns whether a notification was emitted.
  */
 export function notifySettled(title: string, options?: SettleNotifyOptions): boolean {
-  if (!isWindowHidden()) return false
+  const isError = Boolean(options?.error)
+  if (!isError && !isWindowHidden()) return false
   const emit = options?.toast ?? toastDispatcher
   if (!emit) {
     log.warn('settle notification dropped: no toast dispatcher registered', { title })
     return false
   }
-  emit({ title, description: 'Turn complete.', tone: 'info' })
+  emit(
+    options?.error
+      ? {
+          title,
+          description: `Turn failed — ${describeError(options.error)}`,
+          tone: 'danger',
+          durationMs: 8000,
+        }
+      : { title, description: 'Turn complete.', tone: 'info' },
+  )
   return true
 }
 
 /**
  * Wire settle notifications into React: installs the visibility guard for the
  * mount lifetime and returns a callback that notifies with the session title
- * resolved at call time. Subscribes to nothing — callers decide when a turn
- * settles.
+ * resolved at call time; callers may pass `{ error }` for failure settles.
  */
-export function useSettleNotify(sessionTitleProvider: () => string): () => void {
+export function useSettleNotify(
+  sessionTitleProvider: () => string,
+): (payload?: { error?: string | null }) => void {
   const { toast } = useToast()
   const titleProviderRef = useRef(sessionTitleProvider)
   titleProviderRef.current = sessionTitleProvider
@@ -87,7 +109,10 @@ export function useSettleNotify(sessionTitleProvider: () => string): () => void 
     }
   }, [toast])
 
-  return useCallback(() => {
-    notifySettled(titleProviderRef.current(), { toast })
-  }, [toast])
+  return useCallback(
+    (payload?: { error?: string | null }) => {
+      notifySettled(titleProviderRef.current(), { toast, error: payload?.error })
+    },
+    [toast],
+  )
 }

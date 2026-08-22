@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Badge } from '@ari/ui/badge'
 import type { BadgeTone } from '@ari/ui/badge'
@@ -9,6 +9,7 @@ import { Input } from '@ari/ui/input'
 import { Select } from '@ari/ui/select'
 import type { SelectOption } from '@ari/ui/select'
 import { Eye, EyeOff, Pencil, Trash2 } from 'lucide-react'
+import { rpc } from '../../lib/rpc'
 
 /** API dialect spoken by an endpoint; drives auth headers and wire format. */
 export type EndpointFlavor = 'openai-chat' | 'anthropic-messages' | 'ollama'
@@ -17,18 +18,15 @@ const FLAVORS: readonly EndpointFlavor[] = ['openai-chat', 'anthropic-messages',
 
 const FLAVOR_SET: ReadonlySet<string> = new Set<string>(FLAVORS)
 
-/** A custom model endpoint managed by the user for Ari Core. */
-export interface ModelEndpoint {
+/** A model endpoint as stored by the engine (key material always redacted). */
+export interface StoredEndpoint {
   id: string
   name: string
   baseUrl: string
   flavor: EndpointFlavor
   model: string
-  apiKey: string
+  hasKey: boolean
 }
-
-/** localStorage key holding the JSON array of {@link ModelEndpoint} (includes apiKey). */
-export const ENDPOINTS_STORAGE_KEY = 'ari.endpoints'
 
 const FLAVOR_BADGES: Record<EndpointFlavor, { label: string; tone: BadgeTone }> = {
   'openai-chat': { label: 'OpenAI', tone: 'accent' },
@@ -42,9 +40,9 @@ const FLAVOR_OPTIONS: SelectOption[] = [
   { value: 'ollama', label: 'Ollama' },
 ]
 
-type TestResult = { status: 'ok'; latencyMs: number } | { status: 'error'; message: string }
+type ProbeResult = { ok: boolean; latencyMs: number; message: string }
 
-type TestState = { phase: 'testing' } | { phase: 'done'; result: TestResult }
+type TestState = { phase: 'testing' } | { phase: 'done'; result: ProbeResult }
 
 interface FormState {
   name: string
@@ -75,18 +73,20 @@ function parseFlavor(value: unknown): EndpointFlavor | null {
   return FLAVOR_SET.has(value) ? (value as EndpointFlavor) : null
 }
 
-function parseEndpoint(value: unknown): ModelEndpoint | null {
+function parseStored(value: unknown): StoredEndpoint | null {
   if (typeof value !== 'object' || value === null) return null
   const record = value as Record<string, unknown>
   const id = record['id']
   const name = record['name']
   const baseUrl = record['baseUrl']
   const flavor = parseFlavor(record['flavor'])
+  const model = record['model']
   if (
     typeof id !== 'string' ||
     typeof name !== 'string' ||
     typeof baseUrl !== 'string' ||
-    flavor === null
+    flavor === null ||
+    typeof model !== 'string'
   ) {
     return null
   }
@@ -95,25 +95,9 @@ function parseEndpoint(value: unknown): ModelEndpoint | null {
     name,
     baseUrl,
     flavor,
-    model: typeof record['model'] === 'string' ? record['model'] : '',
-    apiKey: typeof record['apiKey'] === 'string' ? record['apiKey'] : '',
+    model,
+    hasKey: record['apiKeyCipher'] != null,
   }
-}
-
-function loadEndpoints(): ModelEndpoint[] {
-  try {
-    const raw = window.localStorage.getItem(ENDPOINTS_STORAGE_KEY)
-    if (raw == null) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.map(parseEndpoint).filter((endpoint): endpoint is ModelEndpoint => endpoint != null)
-  } catch {
-    return []
-  }
-}
-
-function persistEndpoints(endpoints: ModelEndpoint[]): void {
-  window.localStorage.setItem(ENDPOINTS_STORAGE_KEY, JSON.stringify(endpoints))
 }
 
 function isHttpUrl(value: string): boolean {
@@ -125,15 +109,11 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function modelsUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}/models`
-}
-
 interface EndpointCardProps {
-  endpoint: ModelEndpoint
+  endpoint: StoredEndpoint
   testState: TestState | undefined
-  onTest: (endpoint: ModelEndpoint) => void
-  onEdit: (endpoint: ModelEndpoint) => void
+  onTest: (endpoint: StoredEndpoint) => void
+  onEdit: (endpoint: StoredEndpoint) => void
   onDelete: (id: string) => void
 }
 
@@ -148,9 +128,10 @@ function EndpointCard({ endpoint, testState, onTest, onEdit, onDelete }: Endpoin
             <Badge tone={badge.tone}>{badge.label}</Badge>
           </div>
           <p className="mt-0.5 truncate font-mono text-xs text-fg-muted">{endpoint.baseUrl}</p>
-          {endpoint.model !== '' && (
-            <p className="mt-0.5 truncate font-mono text-xs text-fg-subtle">{endpoint.model}</p>
-          )}
+          <p className="mt-0.5 truncate font-mono text-xs text-fg-subtle">
+            {endpoint.model}
+            {endpoint.hasKey ? ' · key saved' : ''}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <Button
@@ -181,17 +162,20 @@ function EndpointCard({ endpoint, testState, onTest, onEdit, onDelete }: Endpoin
         <p role="status" className="mt-2 flex items-center gap-1.5 text-xs">
           {testState.phase === 'testing' ? (
             <span className="text-fg-muted">Testing…</span>
-          ) : testState.result.status === 'ok' ? (
+          ) : testState.result.ok ? (
             <>
               <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
               <span className="font-mono tabular-nums text-success">
                 {testState.result.latencyMs}ms
               </span>
+              <span className="text-fg-muted">{testState.result.message}</span>
             </>
           ) : (
             <>
               <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
-              <span className="text-danger">{testState.result.message}</span>
+              <span className="text-danger">
+                {testState.result.message} · {testState.result.latencyMs}ms
+              </span>
             </>
           )}
         </p>
@@ -201,18 +185,26 @@ function EndpointCard({ endpoint, testState, onTest, onEdit, onDelete }: Endpoin
 }
 
 /**
- * Settings surface for Ari Core model endpoints: full CRUD over the
- * localStorage store (`ari.endpoints`) plus a per-endpoint connection probe
- * against `<baseUrl>/models`. Engine-backed persistence replaces localStorage
- * later; this component's contract stays the same.
+ * Settings surface for Ari Core model endpoints. Persistence lives in the
+ * engine's encrypted endpoint store over IPC — keys never sit in localStorage
+ * and never render back. Connection probes run in the main process.
  */
 export function EndpointsManager() {
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>(loadEndpoints)
+  const [endpoints, setEndpoints] = useState<StoredEndpoint[]>([])
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [testStates, setTestStates] = useState<Record<string, TestState>>({})
+
+  const refresh = useCallback(async (): Promise<void> => {
+    const stored = await rpc.invoke('endpoints.list')
+    setEndpoints(stored.map(parseStored).filter((e): e is StoredEndpoint => e !== null))
+  }, [])
+
+  useEffect(() => {
+    void refresh().catch(() => undefined)
+  }, [refresh])
 
   const updateField = (field: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -225,109 +217,120 @@ export function EndpointsManager() {
     setFormError(null)
   }
 
-  const handleSave = (event: FormEvent<HTMLFormElement>) => {
+  const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const name = form.name.trim()
     const baseUrl = form.baseUrl.trim()
+    const model = form.model.trim()
     if (name === '' || !isHttpUrl(baseUrl)) {
       setFormError('Name and a valid http(s) base URL are required.')
       return
     }
-    const model = form.model.trim()
-    if (editingId != null) {
-      const next = endpoints.map((endpoint) =>
-        endpoint.id === editingId
-          ? { ...endpoint, name, baseUrl, flavor: form.flavor, model, apiKey: form.apiKey }
-          : endpoint,
-      )
-      setEndpoints(next)
-      persistEndpoints(next)
-    } else {
-      const next: ModelEndpoint[] = [
-        ...endpoints,
-        { id: createId(), name, baseUrl, flavor: form.flavor, model, apiKey: form.apiKey },
-      ]
-      setEndpoints(next)
-      persistEndpoints(next)
+    if (model === '') {
+      setFormError('A model id is required (e.g. gpt-4o-mini).')
+      return
     }
-    resetForm()
+    try {
+      await rpc.invoke('endpoints.upsert', {
+        id: editingId ?? createId(),
+        name,
+        baseUrl,
+        flavor: form.flavor,
+        model,
+        // Blank key on edit keeps the stored one; blank on create clears.
+        apiKey: form.apiKey.trim() === '' ? (editingId != null ? undefined : null) : form.apiKey.trim(),
+        headers: {},
+      })
+      await refresh().catch(() => undefined)
+      resetForm()
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : String(e))
+    }
   }
 
-  const handleDelete = (id: string) => {
-    const next = endpoints.filter((endpoint) => endpoint.id !== id)
-    setEndpoints(next)
-    persistEndpoints(next)
-    setTestStates((prev) => {
-      if (!(id in prev)) return prev
-      const { [id]: _removed, ...rest } = prev
-      return rest
-    })
-    if (editingId === id) resetForm()
+  const handleDelete = async (id: string) => {
+    try {
+      await rpc.invoke('endpoints.remove', { id })
+    } finally {
+      setTestStates((prev) => {
+        if (!(id in prev)) return prev
+        const { [id]: _removed, ...rest } = prev
+        return rest
+      })
+      await refresh().catch(() => undefined)
+      if (editingId === id) resetForm()
+    }
   }
 
-  const startEdit = (endpoint: ModelEndpoint) => {
+  const startEdit = (endpoint: StoredEndpoint) => {
     setForm({
       name: endpoint.name,
       baseUrl: endpoint.baseUrl,
       flavor: endpoint.flavor,
       model: endpoint.model,
-      apiKey: endpoint.apiKey,
+      apiKey: '',
     })
     setEditingId(endpoint.id)
     setShowApiKey(false)
     setFormError(null)
   }
 
-  const runTest = async (endpoint: ModelEndpoint) => {
-    setTestStates((prev) => ({ ...prev, [endpoint.id]: { phase: 'testing' } }))
-    try {
-      // Only the OpenAI flavor authenticates /models with a bearer token;
-      // Anthropic and Ollama endpoints are probed unauthenticated.
-      const headers: Record<string, string> =
-        endpoint.flavor === 'openai-chat' && endpoint.apiKey !== ''
-          ? { Authorization: `Bearer ${endpoint.apiKey}` }
-          : {}
-      const startedAt = performance.now()
-      const response = await fetch(modelsUrl(endpoint.baseUrl), { headers })
-      const latencyMs = Math.round(performance.now() - startedAt)
-      setTestStates((prev) => ({
-        ...prev,
-        [endpoint.id]: response.ok
-          ? { phase: 'done', result: { status: 'ok', latencyMs } }
-          : { phase: 'done', result: { status: 'error', message: `HTTP ${response.status}` } },
-      }))
-    } catch {
-      // CORS and network failures both land here; browsers hide the cause.
-      setTestStates((prev) => ({
-        ...prev,
-        [endpoint.id]: { phase: 'done', result: { status: 'error', message: 'unreachable' } },
-      }))
-    }
-  }
+  const runTest = useCallback(
+    async (input: { baseUrl: string; flavor: EndpointFlavor }) => {
+      const key = `${input.baseUrl}|${input.flavor}`
+      setTestStates((prev) => ({ ...prev, [key]: { phase: 'testing' } }))
+      try {
+        const result = await rpc.invoke('endpoints.test', {
+          baseUrl: input.baseUrl,
+          flavor: input.flavor,
+          apiKey: null,
+        })
+        setTestStates((prev) => ({ ...prev, [key]: { phase: 'done', result } }))
+      } catch (e) {
+        setTestStates((prev) => ({
+          ...prev,
+          [key]: {
+            phase: 'done',
+            result: {
+              ok: false,
+              latencyMs: 0,
+              message: e instanceof Error ? e.message : String(e),
+            },
+          },
+        }))
+      }
+    },
+    [],
+  )
+
+  const testKeyFor = (baseUrl: string, flavor: EndpointFlavor): string => `${baseUrl}|${flavor}`
 
   return (
     <section aria-label="Model endpoints" className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-medium text-fg">Model endpoints</h2>
         {endpoints.length === 0 ? (
-          <p className="text-xs text-fg-muted">No endpoints yet.</p>
+          <p className="text-xs text-fg-muted">
+            No endpoints yet — add an OpenAI-compatible, Anthropic, or Ollama endpoint to chat
+            through Ari Core.
+          </p>
         ) : (
           <ul className="flex flex-col gap-2">
             {endpoints.map((endpoint) => (
               <EndpointCard
                 key={endpoint.id}
                 endpoint={endpoint}
-                testState={testStates[endpoint.id]}
+                testState={testStates[testKeyFor(endpoint.baseUrl, endpoint.flavor)]}
                 onTest={(endpoint) => void runTest(endpoint)}
                 onEdit={startEdit}
-                onDelete={handleDelete}
+                onDelete={(id) => void handleDelete(id)}
               />
             ))}
           </ul>
         )}
       </div>
       <form
-        onSubmit={handleSave}
+        onSubmit={(e) => void handleSave(e)}
         className="flex max-w-md flex-col gap-3 rounded-md border border-border bg-surface-1 p-3"
       >
         <h3 className="text-sm font-medium text-fg">
@@ -351,7 +354,7 @@ export function EndpointsManager() {
               type="url"
               value={form.baseUrl}
               onChange={(event) => updateField('baseUrl', event.target.value)}
-              placeholder="http://localhost:8080/v1"
+              placeholder="https://api.openai.com/v1"
               autoComplete="off"
             />
           )}
@@ -378,7 +381,14 @@ export function EndpointsManager() {
             />
           )}
         </Field>
-        <Field label="API key" hint="Kept in local storage on this machine only; never logged.">
+        <Field
+          label="API key"
+          hint={
+            editingId != null
+              ? 'Leave blank to keep the saved key.'
+              : 'Stored encrypted on this machine only; never logged.'
+          }
+        >
           {(controlProps) => (
             <Input
               {...controlProps}
@@ -410,6 +420,18 @@ export function EndpointsManager() {
           <Button type="submit" variant="primary" size="sm">
             {editingId != null ? 'Save changes' : 'Add endpoint'}
           </Button>
+          {isHttpUrl(form.baseUrl.trim()) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                void runTest({ baseUrl: form.baseUrl.trim(), flavor: form.flavor })
+              }
+            >
+              Test connection
+            </Button>
+          )}
           {editingId != null && (
             <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
               Cancel

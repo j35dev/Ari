@@ -154,6 +154,14 @@ export function registerRpc(contents: WebContents): EngineHandle {
       const payload: SessionEventFrame = { sessionId, event }
       rpcRegistry.publish('session.events', payload)
     },
+    // Workspace resolution lives here so the engine never guesses: ad-hoc
+    // sessions run against the home directory; project sessions resolve the
+    // registered folder path by id.
+    resolveWorkspace: async (projectId) => {
+      if (projectId === 'adhoc') return homedir()
+      await getProjectStore().load()
+      return getProjectStore().get(projectId)?.path ?? null
+    },
   })
 
   const ptyFactory: PtyFactory = (file, args, options) => {
@@ -327,7 +335,8 @@ export function registerRpc(contents: WebContents): EngineHandle {
       flavor: params.flavor,
       model: params.model,
       headers: params.headers,
-      apiKey: params.apiKey,
+      // undefined keeps the stored key; null clears it (store semantics).
+      apiKey: params.apiKey === undefined ? undefined : params.apiKey || null,
     })
     return { id: saved.id, name: saved.name }
   })
@@ -336,6 +345,42 @@ export function registerRpc(contents: WebContents): EngineHandle {
     const store = getEndpointStore()
     await store.load()
     return { removed: await store.remove(params.id) }
+  })
+
+  // Connection probe runs in the main process: the renderer is blocked from
+  // cross-origin fetches by CORS, which would report every endpoint broken.
+  r.register('endpoints.test', async (params) => {
+    const base = params.baseUrl.replace(/\/+$/, '')
+    const url =
+      params.flavor === 'anthropic-messages'
+        ? `${base}/v1/models`
+        : params.flavor === 'ollama'
+          ? `${base}/api/tags`
+          : `${base}/models`
+    const headers: Record<string, string> =
+      params.flavor === 'anthropic-messages'
+        ? { 'x-api-key': params.apiKey ?? '', 'anthropic-version': '2023-06-01' }
+        : params.flavor === 'openai-chat' && params.apiKey
+          ? { Authorization: `Bearer ${params.apiKey}` }
+          : {}
+    const startedAt = Date.now()
+    try {
+      const response = await fetch(url, { headers, signal: AbortSignal.timeout(6000) })
+      const latencyMs = Date.now() - startedAt
+      // Any HTTP answer proves the endpoint is reachable; auth/model problems
+      // surface with their real status so the user can fix them precisely.
+      return {
+        ok: true,
+        latencyMs,
+        message:
+          response.status === 200 ? 'connected' : `reachable (HTTP ${response.status} ${response.statusText})`,
+      }
+    } catch (error) {
+      const latencyMs = Date.now() - startedAt
+      const message =
+        error instanceof Error && error.name === 'TimeoutError' ? 'timed out' : 'unreachable'
+      return { ok: false, latencyMs, message }
+    }
   })
 
   r.register('git.status', async (params) => {
@@ -457,6 +502,7 @@ export function registerRpc(contents: WebContents): EngineHandle {
     'endpoints.list',
     'endpoints.upsert',
     'endpoints.remove',
+    'endpoints.test',
     'settings.get',
     'settings.update',
     'git.status',
