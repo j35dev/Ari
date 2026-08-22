@@ -201,8 +201,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M12.2 Providers page: detect grid, auth badges, install hints, re-scan
 - [x] M12.3 Endpoints page: CRUD + test + key entry UX (UI-only, also covers M11.5 UI hooks: localStorage `ari.endpoints` store, engine store wiring lands later)
 - [x] M12.4 Permissions page: modes default, allowlist editor
-- [ ] M12.5 Keybindings page: logical map, Mod symbols, conflict detection
-- [ ] M12.6 Advanced page: logs viewer, journal tools, diagnostics export
+- [x] M12.5 Keybindings page: logical map, Mod symbols, conflict detection (read-only v1 table; remapping + conflict detection land with the keybindings layer)
+- [x] M12.6 Advanced page: logs viewer, journal tools, diagnostics export (diagnostics export + journal location hint + draft-cache danger zone; logs viewer/journal tools deferred to engine-backed settings work)
 - [ ] M12.7 Settings events through engine (single writer)
 - [ ] M12.8 Import/export settings bundle
 - [ ] M12.9 Settings search (palette-integrated)

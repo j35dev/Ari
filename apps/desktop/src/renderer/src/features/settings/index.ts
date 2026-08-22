@@ -1,3 +1,5 @@
+export { AdvancedSettings } from './AdvancedSettings'
 export { AppearanceSettings } from './AppearanceSettings'
+export { KeybindingsSettings } from './KeybindingsSettings'
 export { PermissionsSettings } from './PermissionsSettings'
 export { SettingsPage } from './SettingsPage'

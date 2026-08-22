@@ -1,0 +1,69 @@
+import { Kbd } from '@ari/ui/kbd'
+import { SettingsPage } from './SettingsPage'
+
+interface Shortcut {
+  /** Stable logical action id, shared with the future keybindings layer. */
+  id: string
+  /** Human-readable row label. */
+  label: string
+  /** Logical chord; `Mod` resolves to Ctrl or Cmd per platform at render time. */
+  chord: string
+}
+
+/** The app's logical shortcut map. Single source for this page and, later, the keybindings layer. */
+const SHORTCUTS = [
+  { id: 'TogglePalette', label: 'Toggle command palette', chord: 'Mod+K' },
+  { id: 'NewSession', label: 'New session', chord: 'Mod+N' },
+  { id: 'ClosePalette', label: 'Close palette', chord: 'Escape' },
+  { id: 'CycleTheme', label: 'Cycle theme', chord: 'Mod+Shift+T' },
+] as const satisfies readonly Shortcut[]
+
+function isApplePlatform(): boolean {
+  return /mac|iphone|ipad|ipod/i.test(navigator.platform)
+}
+
+/** Splits a logical chord into display keys, resolving `Mod` for the current platform. */
+export function resolveChord(chord: string): string[] {
+  const modLabel = isApplePlatform() ? 'Cmd' : 'Ctrl'
+  return chord.split('+').map((key) => (key === 'Mod' ? modLabel : key))
+}
+
+/** Keybindings settings page: read-only table of the app's logical shortcuts. */
+export function KeybindingsSettings() {
+  return (
+    <SettingsPage
+      title="Keybindings"
+      description="Every shortcut the workspace responds to."
+    >
+      <section aria-labelledby="keybindings-map-heading" className="space-y-3">
+        <h2 id="keybindings-map-heading" className="text-sm font-medium">
+          Shortcuts
+        </h2>
+        <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
+          {SHORTCUTS.map((shortcut) => {
+            const keys = resolveChord(shortcut.chord)
+            return (
+              <li
+                key={shortcut.id}
+                className="flex items-center justify-between gap-4 px-3 py-2"
+              >
+                <span className="text-sm text-fg">{shortcut.label}</span>
+                <span
+                  className="flex shrink-0 items-center gap-1"
+                  aria-label={`${shortcut.label}: ${keys.join(' plus ')}`}
+                >
+                  {keys.map((key) => (
+                    <Kbd key={key}>{key}</Kbd>
+                  ))}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+        <p className="text-sm text-fg-muted">
+          Read-only in v1 — remapping lands with the keybindings layer.
+        </p>
+      </section>
+    </SettingsPage>
+  )
+}
