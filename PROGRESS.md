@@ -226,7 +226,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M11.14 Register as driver: transcript/approvals/checkpoints parity
 - [x] M11.15 Token accounting + cost estimate plumbing
 - [x] M11.16 Ari Core e2e test against scripted fake endpoint
-- [ ] M11.17 Endpoint security review (header handling, SSRF guardrails)
+- [x] M11.17 Endpoint security review (header handling, SSRF guardrails)
 - [ ] M11.18 docs/arch-11.md
 
 ## M12 â€” Settings & providers manager
