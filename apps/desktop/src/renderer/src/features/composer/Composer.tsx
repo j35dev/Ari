@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, Square } from 'lucide-react'
 import { transitions } from '@ari/ui/motion'
+import { activeTokenAt } from './active-token'
+import type { SlashCommand } from './slash-commands'
+import { matchSlash } from './slash-commands'
+import { matchSuggestions } from './match-suggestions'
+import { SlashPopup } from './SlashPopup'
+import { FilePopup } from './FilePopup'
 
 export interface ComposerProps {
   /** Called with the message text when the user sends. */
@@ -12,6 +18,10 @@ export interface ComposerProps {
   running?: boolean
   /** Messages waiting behind the active turn. */
   queued?: string[]
+  /** Called with the chosen command name when the user commits a slash command. */
+  onSlashCommand?: (name: string) => void
+  /** Workspace paths offered by the @file mention popup; absent hides it. */
+  suggestions?: string[]
   placeholder?: string
   disabled?: boolean
 }
@@ -21,18 +31,55 @@ const MAX_HEIGHT = 260
 
 /**
  * Message composer: auto-growing textarea, send→stop morph while a turn is
- * running, Enter to send / Shift+Enter for newline.
+ * running, Enter to send / Shift+Enter for newline. While the caret sits at
+ * the end of a ` /command` or ` @path` token, a picker popup lists completions
+ * above the input (slash commands from the registry, file paths from
+ * `suggestions`).
  */
 export function Composer({
   onSend,
   onStop,
   running = false,
   queued = [],
+  onSlashCommand,
+  suggestions,
   placeholder = 'Ask, steer, or describe a task…',
   disabled = false,
 }: ComposerProps) {
   const [text, setText] = useState('')
+  const [caret, setCaret] = useState(0)
+  const [dismissed, setDismissed] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const token = useMemo(() => activeTokenAt(text, caret), [text, caret])
+  const tokenKey = token ? `${token.kind}:${token.start}:${token.raw}` : ''
+
+  // Escape dismisses the popup until the token under the caret changes.
+  useEffect(() => {
+    setDismissed(false)
+  }, [tokenKey])
+
+  const slashItems = useMemo(() => (token?.kind === 'slash' ? matchSlash(token.raw) : []), [token])
+  const mentionItems = useMemo(
+    () =>
+      token?.kind === 'mention' && suggestions
+        ? matchSuggestions(suggestions, token.raw.slice(1))
+        : [],
+    [token, suggestions],
+  )
+
+  const syncCaret = useCallback((el: HTMLTextAreaElement) => {
+    setCaret(el.selectionStart ?? 0)
+  }, [])
+
+  const refocus = useCallback((caretIndex: number) => {
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(caretIndex, caretIndex)
+    })
+  }, [])
 
   const resize = useCallback(() => {
     const el = textareaRef.current
@@ -62,6 +109,36 @@ export function Composer({
     [send],
   )
 
+  const closePopup = useCallback(() => setDismissed(true), [])
+
+  /** Remove the `/command` token under the caret and commit the command. */
+  const handleSlashSelect = useCallback(
+    (command: SlashCommand) => {
+      if (token?.kind !== 'slash') return
+      const rest = text.slice(caret)
+      const next = (text.slice(0, token.start) + rest).replace(/^\s+/, '')
+      const nextCaret = next.length - rest.length
+      setText(next)
+      setCaret(nextCaret)
+      onSlashCommand?.(command.name)
+      refocus(nextCaret)
+    },
+    [token, text, caret, onSlashCommand, refocus],
+  )
+
+  /** Replace the `@partial` token with the chosen path plus a word break. */
+  const handleMentionSelect = useCallback(
+    (path: string) => {
+      if (token?.kind !== 'mention') return
+      const insert = `@${path} `
+      const nextCaret = token.start + insert.length
+      setText((prev) => prev.slice(0, token.start) + insert + prev.slice(caret))
+      setCaret(nextCaret)
+      refocus(nextCaret)
+    },
+    [token, caret, refocus],
+  )
+
   return (
     <div className="border-t border-border bg-surface-0 px-4 py-3">
       <AnimatePresence>
@@ -79,11 +156,25 @@ export function Composer({
         ) : null}
       </AnimatePresence>
 
-      <div className="flex items-end gap-2 rounded-lg border border-border bg-surface-1 p-2 transition-colors focus-within:border-border-strong">
+      <div className="relative flex items-end gap-2 rounded-lg border border-border bg-surface-1 p-2 transition-colors focus-within:border-border-strong">
+        {token?.kind === 'slash' && !dismissed && slashItems.length > 0 && (
+          <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
+            <SlashPopup query={token.raw} onSelect={handleSlashSelect} onClose={closePopup} />
+          </div>
+        )}
+        {token?.kind === 'mention' && !dismissed && mentionItems.length > 0 && (
+          <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
+            <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value)
+            syncCaret(e.target)
+          }}
+          onSelect={(e) => syncCaret(e.currentTarget)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}

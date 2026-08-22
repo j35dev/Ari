@@ -116,7 +116,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M6.1 Auto-grow textarea (76–260px) + IME safety
 - [x] M6.2 Send→Steer→Stop morph button (180ms crossfade + width tween)
 - [x] M6.3 Queue-while-running (pending messages list, reorder, cancel)
-- [ ] M6.4 @file fuzzy mentions fed by watcher index
+- [x] M6.4 @file fuzzy mentions fed by watcher index (composer picker wired via `suggestions` prop; watcher index feed lands with M9.6)
 - [x] M6.5 Slash command registry + palette-style popup
 - [ ] M6.6 Image paste/drop attachments
 - [x] M6.7 Drafts per session (persist, restore)
