@@ -8,6 +8,7 @@ import { Engine } from './engine'
 import { RpcRegistry } from './rpc-registry'
 import { getProjectStore, getSessionStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
+import { ensureProjectWatched, getIndexedFiles } from './watcher-bridge'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
@@ -208,11 +209,24 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
 
     r.register('project.add', async (params) => {
       const project = await getProjectStore().add(params.path, params.name)
+      // Warm the watcher + mentions file index in the background; the index
+      // walk is awaited lazily on the first `files.index` call instead.
+      if (project) void ensureProjectWatched(project)
       return project ? { id: project.id, name: project.name, path: project.path } : null
     })
 
     r.register('project.remove', async (params) => {
       return { removed: await getProjectStore().remove(params.id) }
+    })
+
+    r.register('files.index', async (params) => {
+      await getProjectStore().load()
+      const project = getProjectStore().get(params.projectId)
+      if (!project) throw new Error(`unknown project: ${params.projectId}`)
+      // Lazily (re)build after restarts: watchers only exist for projects
+      // added during this app run.
+      await ensureProjectWatched(project)
+      return { paths: getIndexedFiles(params.projectId) ?? [] }
     })
 
     r.register('endpoints.list', async () => {
@@ -356,6 +370,7 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'project.list',
       'project.add',
       'project.remove',
+      'files.index',
       'endpoints.list',
       'endpoints.upsert',
       'endpoints.remove',

@@ -65,6 +65,7 @@ export const rpcParams = {
   'project.list': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.remove': z.object({ id: z.string().min(1) }),
+  'files.index': z.object({ projectId: z.string().min(1) }),
   'endpoints.list': z.undefined(),
   'endpoints.upsert': z.object({
     id: z.string(),
@@ -111,6 +112,7 @@ export interface RpcResults {
   'project.list': { id: string; name: string; path: string; colorIndex: number; createdAt: number }[]
   'project.add': { id: string; name: string; path: string } | null
   'project.remove': { removed: boolean }
+  'files.index': { paths: string[] }
   'endpoints.list': {
     id: string
     name: string
