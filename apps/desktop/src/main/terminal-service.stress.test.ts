@@ -102,5 +102,7 @@ describe('TerminalService stress', () => {
     const replay = service.replay('soak')
     expect(replay.length).toBe(MAX_SCROLLBACK)
     expect(replay).toBe(expected.slice(-MAX_SCROLLBACK))
-  })
+    // 15k chunks is CPU-bound and runs beside every other package's suite in
+    // `pnpm verify`; 15s keeps it deterministic under full parallel load.
+  }, 15_000)
 })
