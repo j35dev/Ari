@@ -37,10 +37,10 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 
 ## M0 â€” Scaffold
 
-^- [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
-^- [x] M0.2 Workspace + toolchain configs (pnpm workspace, tsconfig.base strict, eslint flat, prettier, editorconfig, gitattributes)
-^- [x] M0.3 `@ari/shared` package: result, ids, jsonl reader/writer, logger + tests
-^- [x] M0.4 `@ari/contracts` package: zod schemas, command/event unions skeleton + tests
+- [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
+- [x] M0.2 Workspace + toolchain configs (pnpm workspace, tsconfig.base strict, eslint flat, prettier, editorconfig, gitattributes)
+- [x] M0.3 `@ari/shared` package: result, ids, jsonl reader/writer, logger + tests
+- [x] M0.4 `@ari/contracts` package: zod schemas, command/event unions skeleton + tests
 - [x] M0.5 Electron main shell: app lifecycle, single-instance lock, BrowserWindow
 - [x] M0.6 Preload bridge skeleton (contextBridge) + renderer React mount
 - [x] M0.7 Verify pipeline green (`pnpm verify` = typecheck+lint+test) + `pnpm dev` runs
@@ -48,8 +48,8 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 
 ## M1 â€” Design system
 
-^- [x] M1.1 Token system: oklch neutral ramp, accent ramp, spacing, radius, shadow, type scale (tokens.css)
-^- [x] M1.2 Theme engine: ThemeProvider, CSS var bridge, 6 themes (Obsidian, Graphite, Porcelain, Ember, Verdant, Ultraviolet), persistence stub
+- [x] M1.1 Token system: oklch neutral ramp, accent ramp, spacing, radius, shadow, type scale (tokens.css)
+- [x] M1.2 Theme engine: ThemeProvider, CSS var bridge, 6 themes (Obsidian, Graphite, Porcelain, Ember, Verdant, Ultraviolet), persistence stub
 - [x] M1.3 Fonts vendored: Geist + Geist Mono woff2, @font-face, tabular numerals utility (delivered via @fontsource-variable packages in M1.1 â€” same outcome, less fragility)
 - [x] M1.4 Button + IconButton (variants, loading, kbd hint slot)
 - [x] M1.5 Input + Textarea + Field wrapper (label, hint, error)
