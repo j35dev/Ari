@@ -1,17 +1,23 @@
 import type { Message, MessagePart } from '@ari/contracts/message'
 import type { TranscriptBlock } from './types'
 
-function partToBlock(messageId: string, part: MessagePart, partIndex: number): TranscriptBlock {
+function partToBlock(
+  messageId: string,
+  role: Message['role'],
+  part: MessagePart,
+  partIndex: number,
+): TranscriptBlock {
   const key = `${messageId}#${partIndex}`
   switch (part.type) {
     case 'text':
-      return { key, kind: 'markdown', text: part.text }
+      return { key, kind: 'markdown', role, text: part.text }
     case 'thinking':
-      return { key, kind: 'thinking', text: part.text }
+      return { key, kind: 'thinking', role, text: part.text }
     case 'tool-call':
       return {
         key,
         kind: 'tool-call',
+        role,
         callId: part.callId,
         name: part.name,
         argsJson: part.argsJson,
@@ -20,6 +26,7 @@ function partToBlock(messageId: string, part: MessagePart, partIndex: number): T
       return {
         key,
         kind: 'tool-result',
+        role,
         callId: part.callId,
         resultJson: part.resultJson,
         isError: part.isError,
@@ -36,7 +43,7 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = []
   for (const message of messages) {
     message.parts.forEach((part, partIndex) => {
-      blocks.push(partToBlock(message.id, part, partIndex))
+      blocks.push(partToBlock(message.id, message.role, part, partIndex))
     })
   }
   return blocks

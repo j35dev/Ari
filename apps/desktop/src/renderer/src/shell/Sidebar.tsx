@@ -152,6 +152,19 @@ function SessionRow({
   )
 }
 
+/** Compact relative time for session rows: now · 5m · 3h · 2d · date. */
+export function formatRelativeTime(timestamp: number, now = Date.now()): string {
+  const deltaMs = Math.max(0, now - timestamp)
+  const minutes = Math.floor(deltaMs / 60_000)
+  if (minutes < 1) return 'now'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d`
+  return new Date(timestamp).toLocaleDateString()
+}
+
 function SessionRowButton({
   session,
   isActive,
@@ -165,13 +178,15 @@ function SessionRowButton({
     <button
       type="button"
       onClick={() => onSelect(session.id)}
-      className={`w-full rounded-md px-2 py-1.5 pr-12 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-12 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:bg-surface-1 hover:text-fg'
       }`}
     >
-      <span className="block truncate text-sm">{session.title}</span>
-      <span className="block truncate text-2xs text-fg-subtle">
-        {new Date(session.updatedAt).toLocaleDateString()}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm">{session.title}</span>
+      </span>
+      <span className="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
+        {formatRelativeTime(session.updatedAt)}
       </span>
     </button>
   )

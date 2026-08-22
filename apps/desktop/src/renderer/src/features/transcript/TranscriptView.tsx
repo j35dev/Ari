@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { useVirtualizer } from './use-virtualizer'
 import { splitBlocks } from './splitBlocks'
+import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock, ToolResultBlock } from './ToolBlocks'
+import { ToolActivityGroup } from './ToolActivityGroup'
 import type { Message } from '@ari/contracts/message'
 
 const REENGAGE_BAND_PX = 70
@@ -14,8 +16,9 @@ const LOADING_ROW_WIDTHS = ['92%', '78%', '85%', '64%'] as const
 
 /**
  * Virtualized transcript: block-granular rows, dynamic measurement,
- * stick-to-bottom with a re-engage band (PLAN §6.5). While the initial
- * `session.load` resolves it shows skeleton rows instead of the empty state.
+ * stick-to-bottom with a re-engage band (PLAN §6.5). Consecutive tool calls
+ * collapse into single activity rows; user messages render as right-aligned
+ * bubbles. While the initial load resolves it shows skeleton rows.
  */
 export function TranscriptView({
   sessionId,
@@ -29,10 +32,10 @@ export function TranscriptView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
 
-  const blocks = useMemo(() => splitBlocks(messages), [messages])
+  const rows = useMemo(() => groupBlocks(splitBlocks(messages)), [messages])
 
   const virtualizer = useVirtualizer({
-    count: blocks.length,
+    count: rows.length,
     estimateSize: () => 64,
     getScrollElement: () => scrollRef.current,
     overscan: 6,
@@ -43,7 +46,7 @@ export function TranscriptView({
     if (atBottom) {
       virtualizer.scrollToBottom('auto')
     }
-  }, [blocks.length, atBottom, virtualizer])
+  }, [rows.length, atBottom, virtualizer])
 
   const handleScroll = (): void => {
     const el = scrollRef.current
@@ -74,11 +77,11 @@ export function TranscriptView({
           className="mx-auto max-w-3xl"
         >
           {virtualizer.getVirtualItems().map((item) => {
-            const block = blocks[item.index]
-            if (!block) return null
+            const row = rows[item.index]
+            if (!row) return null
             return (
               <div
-                key={block.key}
+                key={row.key}
                 data-index={item.index}
                 ref={measureElement}
                 style={{
@@ -89,16 +92,27 @@ export function TranscriptView({
                   transform: `translateY(${item.start}px)`,
                 }}
               >
-                {block.kind === 'markdown' ? <MarkdownBlock text={block.text ?? ''} /> : null}
-                {block.kind === 'thinking' ? <ThinkingBlock text={block.text ?? ''} /> : null}
-                {block.kind === 'tool-call' ? <ToolCallBlock block={block} /> : null}
-                {block.kind === 'tool-result' ? <ToolResultBlock block={block} /> : null}
+                {row.kind === 'tool-group' ? (
+                  <ToolActivityGroup row={row} />
+                ) : row.kind === 'markdown' ? (
+                  row.role === 'user' ? (
+                    <UserBubble text={row.text ?? ''} />
+                  ) : (
+                    <MarkdownBlock text={row.text ?? ''} />
+                  )
+                ) : row.kind === 'thinking' ? (
+                  <ThinkingBlock text={row.text ?? ''} />
+                ) : row.kind === 'tool-call' ? (
+                  <ToolCallBlock block={row} />
+                ) : (
+                  <ToolResultBlock block={row} />
+                )}
               </div>
             )
           })}
         </div>
 
-        {loading && blocks.length === 0 ? (
+        {loading && rows.length === 0 ? (
           <div className="mx-auto flex max-w-3xl flex-col gap-4" aria-hidden="true">
             {LOADING_ROW_WIDTHS.map((width) => (
               <Skeleton key={width} h={14} style={{ width }} />
@@ -106,14 +120,14 @@ export function TranscriptView({
           </div>
         ) : null}
 
-        {!loading && blocks.length === 0 ? (
+        {!loading && rows.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-fg-subtle">
             No messages yet — say hello.
           </div>
         ) : null}
       </div>
 
-      {!atBottom && blocks.length > 0 ? (
+      {!atBottom && rows.length > 0 ? (
         <button
           type="button"
           onClick={() => {
@@ -125,6 +139,17 @@ export function TranscriptView({
           Jump to latest ↓
         </button>
       ) : null}
+    </div>
+  )
+}
+
+/** Right-aligned user message bubble (Zeron style). */
+function UserBubble({ text }: { text: string }) {
+  return (
+    <div className="my-2 flex justify-end">
+      <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl bg-surface-2 px-3.5 py-2 text-sm leading-relaxed text-fg">
+        {text}
+      </div>
     </div>
   )
 }
