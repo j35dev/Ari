@@ -187,8 +187,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M11.9 Tools: read_file / write_file (path jail)
 - [x] M11.10 Tool: edit_file exact-string replace + diff preview event
 - [x] M11.11 Tools: glob / grep (rg if present else JS fallback)
-- [ ] M11.12 Tool: todo_write (structured plan tracking)
-- [ ] M11.13 Context-window manager (truncate/summarize oldest tool results)
+- [x] M11.12 Tool: todo_write (structured plan tracking)
+- [x] M11.13 Context-window manager (truncate/summarize oldest tool results)
 - [x] M11.14 Register as driver: transcript/approvals/checkpoints parity
 - [x] M11.15 Token accounting + cost estimate plumbing
 - [x] M11.16 Ari Core e2e test against scripted fake endpoint
