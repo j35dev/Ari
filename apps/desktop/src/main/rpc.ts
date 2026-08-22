@@ -6,7 +6,7 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import { Engine } from './engine'
 import { RpcRegistry } from './rpc-registry'
-import { getProjectStore, getSessionStore } from './store'
+import { getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles } from './watcher-bridge'
 import { DriverRegistry } from '@ari/providers/registry'
@@ -130,6 +130,18 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
 
     const r = rpcRegistry
     r.register('ping', () => ({ pong: true, at: Date.now() }))
+
+    // Settings are the single writer's file; load once at boot so window
+    // bounds and renderer reads share the same in-memory state.
+    void getSettingsStore().load()
+
+    r.register('settings.get', async () => {
+      const store = getSettingsStore()
+      await store.load()
+      return store.current
+    })
+
+    r.register('settings.update', async (params) => getSettingsStore().update(params))
 
     r.register('session.list', async () => getSessionStore().listSessions())
 
@@ -374,6 +386,8 @@ export function registerRpc(contents: WebContents): Promise<EngineHandle> {
       'endpoints.list',
       'endpoints.upsert',
       'endpoints.remove',
+      'settings.get',
+      'settings.update',
         'git.status',
         'git.diffWorktree',
         'fs.list',

@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { commandSchema } from './commands'
 import { driverKindSchema, permissionModeSchema } from './common'
+import type { Settings } from './settings'
+import { settingsUpdateSchema } from './settings'
 
 /**
  * The RPC surface between renderer and engine. Method names are an allowlist;
@@ -77,6 +79,8 @@ export const rpcParams = {
     headers: z.record(z.string(), z.string()).default({}),
   }),
   'endpoints.remove': z.object({ id: z.string().min(1) }),
+  'settings.get': z.undefined(),
+  'settings.update': settingsUpdateSchema,
     'git.status': z.object({ path: z.string().min(1) }),
     'git.diffWorktree': z.object({ path: z.string().min(1) }),
     'fs.list': z.object({ path: z.string().min(1) }),
@@ -123,6 +127,8 @@ export interface RpcResults {
   }[]
   'endpoints.upsert': { id: string; name: string }
   'endpoints.remove': { removed: boolean }
+  'settings.get': Settings
+  'settings.update': Settings
     'git.status': {
       isRepo: boolean
       branch: string | null
