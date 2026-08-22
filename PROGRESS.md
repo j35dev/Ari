@@ -118,7 +118,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M6.3 Queue-while-running (pending messages list, reorder, cancel)
 - [x] M6.4 @file fuzzy mentions fed by watcher index (composer picker wired via `suggestions` prop; watcher index feed lands with M9.6)
 - [x] M6.5 Slash command registry + palette-style popup
-- [ ] M6.6 Image paste/drop attachments
+- [x] M6.6 Image paste/drop attachments (primitives: useImageAttachments hook + AttachmentStrip with object-URL lifecycle; paste/drop wiring into Composer follows)
 - [x] M6.7 Drafts per session (persist, restore)
 - [ ] M6.8 Model/provider/mode pickers (keyboard-first popovers)
 - [x] M6.9 Composer keybindings (Enter/Shift+Enter, history)
