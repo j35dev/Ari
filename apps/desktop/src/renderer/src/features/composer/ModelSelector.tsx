@@ -100,7 +100,7 @@ export function ModelSelector({
                       })
                       setOpen(false)
                     }}
-                    className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left transition-colors ${
+                    className={`flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                       isActive ? 'bg-accent-subtle text-fg' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
                     }`}
                   >

@@ -1,7 +1,11 @@
 import { useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
 import { Check, ChevronRight, FolderGit2, Pencil, SquarePen, Trash2, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
+
+/** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
+const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
 
 /** Sidebar top: wordmark + one-click new session. */
 export function SidebarHeader({ onNewSession }: { onNewSession: () => void }) {
@@ -211,21 +215,31 @@ export function ProjectGroupSection({
         </span>
         <span className="shrink-0 text-2xs text-fg-subtle">{group.sessions.length}</span>
       </button>
-      {open ? (
-        <ul className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1.5">
-          {group.sessions.map((s) => (
-            <li key={s.id}>
-              <SessionRow
-                session={s}
-                activeSessionId={activeSessionId}
-                onSelect={onSelect}
-                onRename={onRename}
-                onDelete={onDelete}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.ul
+            key="sessions"
+            layout
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={RESORT_TRANSITION}
+            className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1.5"
+          >
+            {group.sessions.map((s) => (
+              <motion.li key={s.id} layoutId={s.id} transition={RESORT_TRANSITION}>
+                <SessionRow
+                  session={s}
+                  activeSessionId={activeSessionId}
+                  onSelect={onSelect}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                />
+              </motion.li>
+            ))}
+          </motion.ul>
+        ) : null}
+      </AnimatePresence>
     </div>
   )
 }

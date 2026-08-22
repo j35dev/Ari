@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Skeleton } from '@ari/ui/skeleton'
 import { useVirtualizer } from './use-virtualizer'
 import { splitBlocks } from './splitBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -8,16 +9,22 @@ import type { Message } from '@ari/contracts/message'
 
 const REENGAGE_BAND_PX = 70
 
+/** Placeholder row widths for the initial-load skeleton (M13.3: no spinners >300ms). */
+const LOADING_ROW_WIDTHS = ['92%', '78%', '85%', '64%'] as const
+
 /**
  * Virtualized transcript: block-granular rows, dynamic measurement,
- * stick-to-bottom with a re-engage band (PLAN §6.5).
+ * stick-to-bottom with a re-engage band (PLAN §6.5). While the initial
+ * `session.load` resolves it shows skeleton rows instead of the empty state.
  */
 export function TranscriptView({
   sessionId,
   messages,
+  loading = false,
 }: {
   sessionId: string
   messages: Message[]
+  loading?: boolean
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -87,7 +94,15 @@ export function TranscriptView({
           })}
         </div>
 
-        {blocks.length === 0 ? (
+        {loading && blocks.length === 0 ? (
+          <div className="mx-auto flex max-w-3xl flex-col gap-4" aria-hidden="true">
+            {LOADING_ROW_WIDTHS.map((width) => (
+              <Skeleton key={width} h={14} style={{ width }} />
+            ))}
+          </div>
+        ) : null}
+
+        {!loading && blocks.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-fg-subtle">
             No messages yet — say hello.
           </div>
@@ -103,7 +118,7 @@ export function TranscriptView({
           }}
           className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-1 text-xs font-medium text-fg-on-accent shadow-2 transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          jump to latest ↓
+          Jump to latest ↓
         </button>
       ) : null}
     </div>
