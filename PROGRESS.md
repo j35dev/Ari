@@ -3,7 +3,35 @@
 Single source of truth for task state. One task = one commit. Tick the box in the same
 commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m1.4-button)`.
 
-**Current milestone: M0**
+**Current milestone: hardening pass — core product functionally complete**
+
+---
+
+## STATUS SNAPSHOT (pause point)
+
+**129 / 181 tasks delivered · 105 commits · ~22k LOC · 225+ tests green · Windows build verified**
+
+### Working end-to-end today
+- Single-sidebar shell: sessions grouped under collapsible project sections, utility strip
+- Instant new sessions; model/driver selected from the prompt-box pill (`session.update` re-binds drivers mid-session)
+- 7 providers auto-detected (claude/codex/opencode/grok/pi/hermes + Ari Core), health probes, deduped registry
+- Live engine: journals, decider, turns, approvals flow, per-turn git checkpoints + revert command
+- Transcript: virtualized, GFM+Shiki, tool/thinking cards, copy + usage footers, stick-to-bottom spring
+- Composer: morph button, queue, drafts, slash popup, @file mentions, image attachment primitives
+- Terminal pane (pty+xterm), changes rail (git status + unified diff viewer), projects manager
+- Command palette (Ctrl+K), 6 themes, boot splash, settle notifications, tray
+- Packaging: electron-builder config for NSIS/DMG/AppImage/deb, generated icon, `Ari.exe` smoke-tested
+
+### Remaining 52 tasks (depth/hardening — see board below)
+Driver control protocols (steering/approvals depth) · watcher?mentions feed · diff cards in transcript ·
+per-driver permission enforcement wiring · image paste?Composer mount · FLIP resort · memory/cold-start
+audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ notes
+
+### Resume ritual
+1. `git fetch origin && git rebase origin/main`
+2. Pick first unticked task below; read its spec in PLAN.md
+3. Branch `<type>/m<task>-<slug>`, implement, `pnpm verify`, one commit ticking PROGRESS.md
+4. Push + PR; orchestrator merges and cleans up worktrees
 
 ---
 
@@ -41,7 +69,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M2.2 Titlebar component: drag regions, project chip, theme-synced overlay colors
 - [x] M2.3 Left rail: icon nav, active states, badge slots, tooltips
 - [x] M2.4 Sessions sidebar shell + collapse spring (width spring 320/34)
-- [ ] M2.5 Router + view registry (TanStack Router memory history)
+- [x] M2.5 Router + view registry (TanStack Router memory history)
 - [x] M2.6 Status bar: engine dot, active runs, tokens/cost placeholder, mode chip
 - [x] M2.7 Command palette skeleton: overlay, fuzzy matcher, action registry
 - [x] M2.8 Settings shell routes (Appearance/Providers/Endpoints/Permissions/Keys/Advanced placeholders)
@@ -120,7 +148,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M6.5 Slash command registry + palette-style popup
 - [x] M6.6 Image paste/drop attachments (primitives: useImageAttachments hook + AttachmentStrip with object-URL lifecycle; paste/drop wiring into Composer follows)
 - [x] M6.7 Drafts per session (persist, restore)
-- [ ] M6.8 Model/provider/mode pickers (keyboard-first popovers)
+- [x] M6.8 Model/provider/mode pickers (keyboard-first popovers)
 - [x] M6.9 Composer keybindings (Enter/Shift+Enter, history)
 - [x] M6.10 Composer unit + interaction tests
 
@@ -129,7 +157,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M7.1 Approval event flow through engine (request/respond/idempotent)
 - [x] M7.2 Inline approval cards (approve/deny/always-allow)
 - [x] M7.3 Question panel (paged options, 1â€“9 keys, auto-advance)
-- [ ] M7.4 Permission modes: ask / allow-edits / full â€” engine enforcement
+- [x] M7.4 Permission modes: ask / allow-edits / full â€” engine enforcement
 - [ ] M7.5 Mode mapping per driver (claude control protocol, codex sandbox, ari-core gate)
 - [ ] M7.6 Allowlist persistence + settings surface
 - [x] M7.7 Global approval badge + rail indicator
@@ -139,7 +167,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 - [x] M8.1 GitService: porcelain v2 parsing, branch info, safe subprocess layer
 - [x] M8.2 Hidden-ref checkpoints `refs/ari/<session>/<turn>` capture
-- [ ] M8.3 Revert reactor: workspace restore + conversation truncation
+- [x] M8.3 Revert reactor: workspace restore + conversation truncation
 - [x] M8.4 Per-turn & whole-thread diff queries
 - [x] M8.5 Unified diff parser â†’ virtualized hunk model
 - [x] M8.6 Diff viewer: syntax-tinted lines, hunk nav, word-diff option
@@ -154,7 +182,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 - [x] M9.1 Add-folder flow (dialog, recents, validation)
 - [x] M9.2 Project registry store + icon/color chips
-- [ ] M9.3 Sidebar grouping by project + resort FLIP animation
+- [x] M9.3 Sidebar grouping by project + resort FLIP animation
 - [ ] M9.4 Branch chip + quick switch popover
 - [x] M9.5 Watcher service (chokidar) + debounced fs events
 - [ ] M9.6 Watcherâ†’mentions index feed

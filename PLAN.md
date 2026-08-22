@@ -1,5 +1,21 @@
 # ARI — Master Build Plan
 
+## CURRENT STATUS (updated at pause)
+
+**129/181 tasks delivered · 105 commits · ~22k LOC · 225+ tests · Windows build verified.**
+Core product is functionally complete and runs (`pnpm dev`). Single-sidebar shell
+(T3-style, sessions grouped under collapsible projects), instant sessions with
+prompt-box model selector, 7 providers, live event-sourced engine with git
+checkpoints, terminal, diffs, palette, themes, packaging verified.
+
+**Remaining work is depth/hardening** — the unticked items in PROGRESS.md:
+driver control protocols (steering/permission depth), watcher→mentions feed,
+diff cards in transcript, per-driver enforcement wiring, M13 audit sweeps
+(memory/cold-start/a11y/FLIP), keybinding remap layer, driver doc pages.
+
+Resume: pick unticked tasks from PROGRESS.md; follow AGENTS.md commit/verify
+discipline; small commits, push constantly.
+
 **ARI** (from Latin *arius* — "pertaining to, of the craft") is a cross-platform desktop
 **Agentic Development Environment**: a beautiful, fast control surface that auto-detects the
 coding agents already installed and authenticated on the machine (Claude Code, Codex,
