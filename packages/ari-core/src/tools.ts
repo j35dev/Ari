@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
+import { matchesAllowlist, type AllowRule } from './allowlist'
 import { todoWriteTool } from './tools/todo'
 
 /**
@@ -10,6 +11,12 @@ import { todoWriteTool } from './tools/todo'
 
 export interface ToolContext {
   workspacePath: string
+  /**
+   * Permission rules scoped per tool kind. When at least one rule exists
+   * for a guarded tool (bash / write_file / edit_file), calls must match a
+   * rule to run; empty or absent means allow-all.
+   */
+  allowlist?: AllowRule[]
 }
 
 export interface Tool {
@@ -40,6 +47,22 @@ function str(args: Record<string, unknown>, key: string): string {
   return typeof v === 'string' ? v : ''
 }
 
+const GUARDED_TOOLS = new Set(['bash', 'write_file', 'edit_file'])
+
+/** Throws when the call is not covered by a non-empty per-tool allowlist. */
+function assertAllowed(
+  ctx: ToolContext,
+  toolName: string,
+  args: Record<string, unknown>,
+): void {
+  if (!GUARDED_TOOLS.has(toolName)) return
+  const hasRules = (ctx.allowlist ?? []).some((r) => r.tool === toolName)
+  if (!hasRules) return
+  if (!matchesAllowlist(toolName, JSON.stringify(args), ctx.allowlist ?? [])) {
+    throw new Error('blocked by permission allowlist')
+  }
+}
+
 export const BUILT_IN_TOOLS: Tool[] = [
   {
     name: 'read_file',
@@ -63,7 +86,8 @@ export const BUILT_IN_TOOLS: Tool[] = [
       required: ['path', 'content'],
     },
     execute: async (args, ctx) => {
-      const target = await jailed(ctx, args['path'])
+        assertAllowed(ctx, 'write_file', args)
+        const target = await jailed(ctx, args['path'])
       await fs.mkdir(path.dirname(target), { recursive: true })
       await fs.writeFile(target, str(args, 'content'), 'utf8')
       return `wrote ${str(args, 'content').length} bytes to ${str(args, 'path')}`
@@ -83,7 +107,8 @@ export const BUILT_IN_TOOLS: Tool[] = [
       required: ['path', 'oldString', 'newString'],
     },
     execute: async (args, ctx) => {
-      const target = await jailed(ctx, args['path'])
+        assertAllowed(ctx, 'edit_file', args)
+        const target = await jailed(ctx, args['path'])
       const content = await fs.readFile(target, 'utf8')
       const oldStr = str(args, 'oldString')
       const occurrences = content.split(oldStr).length - 1
@@ -157,8 +182,9 @@ export const BUILT_IN_TOOLS: Tool[] = [
       properties: { command: { type: 'string' } },
       required: ['command'],
     },
-    execute: async (args, ctx) =>
-      await new Promise<string>((resolve) => {
+    execute: async (args, ctx) => {
+      assertAllowed(ctx, 'bash', args)
+      return await new Promise<string>((resolve) => {
         const command = str(args, 'command')
         const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'
         const shellArg = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command]
@@ -171,7 +197,8 @@ export const BUILT_IN_TOOLS: Tool[] = [
             resolve(out || '(no output)')
           },
         )
-      }),
+      })
+    },
   },
   todoWriteTool,
 ]
