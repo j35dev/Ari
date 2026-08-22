@@ -1,11 +1,11 @@
-import { spawn } from 'node:child_process'
 import type { PermissionMode } from '@ari/contracts/common'
-import { createLogger } from '@ari/shared/logger'
 import type { Writable } from 'node:stream'
+import { createLogger } from '@ari/shared/logger'
 import { mapClaudeLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import type { PumpableProcess } from '../process-stream'
 import { streamProcessEvents } from '../process-stream'
+import { spawnCli } from '../spawn-cli'
 
 const log = createLogger('providers:claude')
 
@@ -155,7 +155,7 @@ export class ClaudeDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawn(this.binaryPath, buildClaudeArgs(session), {
+    const child = spawnCli(this.binaryPath, buildClaudeArgs(session), {
       cwd: session.workspacePath,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,

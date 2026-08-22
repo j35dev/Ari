@@ -48,6 +48,7 @@ export interface TerminalDataFrame {
  */
 export const rpcParams = {
   ping: z.undefined(),
+  'app.info': z.undefined(),
   'session.list': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
@@ -100,6 +101,12 @@ export type RpcMethod = keyof typeof rpcParams
 
 export interface RpcResults {
   ping: { pong: boolean; at: number }
+  'app.info': {
+    platform: string
+    homeDir: string
+    cwd: string
+    version: string
+  }
   'session.list': SessionSummary[]
   'session.create': { sessionId: string }
   'session.load': unknown

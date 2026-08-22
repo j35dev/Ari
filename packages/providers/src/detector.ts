@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { realDetectEnvironment } from './types'
 import type { AuthStatus, DetectEnvironment, Detection } from './types'
+import { needsWindowsShell, buildCmdSpawnArgs } from './spawn-cli'
 
 const log = createLogger('providers:detector')
 
@@ -61,18 +62,55 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
   return null
 }
 
+/**
+ * Probes `<binary> --version`. On Windows, .cmd shims are executed through an
+ * escaped cmd.exe wrapper (direct spawn is refused with EINVAL on Node ≥20).
+ */
 function probeVersion(binaryPath: string, timeoutMs = 5000): Promise<string | null> {
   return new Promise((resolve) => {
-    const child = execFile(binaryPath, ['--version'], { timeout: timeoutMs }, (error, stdout) => {
-      if (error && !stdout) {
-        log.debug('version probe failed', { binaryPath, error: error.message })
-        resolve(null)
+    let stdout = ''
+    let settled = false
+    const done = (value: string | null): void => {
+      if (!settled) {
+        settled = true
+        resolve(value)
+      }
+    }
+    const child = needsWindowsShell(binaryPath)
+      ? (() => {
+          const wrapped = buildCmdSpawnArgs(binaryPath, ['--version'])
+          const c = spawn(wrapped.file, wrapped.args, {
+            windowsVerbatimArguments: true,
+            stdio: ['ignore', 'pipe', 'ignore'],
+            windowsHide: true,
+            timeout: timeoutMs,
+          })
+          c.on('error', () => done(null))
+          return c
+        })()
+      : spawn(binaryPath, ['--version'], {
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
+          timeout: timeoutMs,
+        }).on('error', () => done(null))
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+    child.on('close', (code) => {
+      if (code !== 0 && stdout.length === 0) {
+        log.debug('version probe failed', { binaryPath, code })
+        done(null)
         return
       }
       const firstLine = stdout.split('\n')[0]?.trim()
-      resolve(firstLine ? firstLine : null)
+      done(firstLine ? firstLine : null)
     })
-    child.on('error', () => resolve(null))
+    setTimeout(() => {
+      if (!settled) {
+        child.kill()
+        done(null)
+      }
+    }, timeoutMs + 1000).unref?.()
   })
 }
 

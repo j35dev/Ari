@@ -19,7 +19,8 @@ if (!gotLock) {
   void app.whenReady().then(() => {
     if (mainWindow) return
     mainWindow = createMainWindow()
-    void registerRpc(mainWindow.webContents)
+    // Handlers register synchronously; driver detection hydrates in background.
+    registerRpc(mainWindow.webContents)
     createTray(() => {
       if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
       mainWindow.show()
@@ -29,7 +30,7 @@ if (!gotLock) {
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createMainWindow()
-        void registerRpc(mainWindow.webContents)
+        registerRpc(mainWindow.webContents)
       }
     })
   })

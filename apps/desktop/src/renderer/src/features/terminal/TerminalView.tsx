@@ -17,18 +17,34 @@ let terminalSeq = 0
  * Theme colors are sampled from the active design tokens at mount. Failures
  * surface as a visible error state with retry — never a blank pane.
  */
-export function TerminalView({ cwd }: { cwd: string }) {
+export function TerminalView({ cwd }: { cwd?: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  const [resolvedCwd, setResolvedCwd] = useState<string | null>(cwd ?? null)
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
-    if (failed !== null) return
+    setResolvedCwd(cwd ?? null)
+  }, [cwd])
+
+  // The renderer is sandboxed — the shell's working directory comes from the
+  // main process. Fall back to the user's home directory.
+  useEffect(() => {
+    if (resolvedCwd !== null) return
+    void rpc
+      .invoke('app.info')
+      .then((info) => setResolvedCwd(info.homeDir))
+      .catch((e: unknown) => setFailed(e instanceof Error ? e.message : String(e)))
+  }, [resolvedCwd])
+
+  useEffect(() => {
+    if (failed !== null || resolvedCwd === null) return
     const host = hostRef.current
     if (!host) return
 
     let cancelled = false
     const id = `term_${++terminalSeq}_${Math.random().toString(36).slice(2, 8)}`
+    const activeCwd = resolvedCwd
     const term = new Terminal({
       fontFamily: "var(--ari-font-mono, 'Geist Mono Variable'), monospace",
       fontSize: 12,
@@ -55,7 +71,7 @@ export function TerminalView({ cwd }: { cwd: string }) {
       // fitting before layout can fail; the resize observer retries
     }
 
-    void rpc.invoke('terminal.create', { id, cwd }).catch((e: unknown) => {
+    void rpc.invoke('terminal.create', { id, cwd: activeCwd }).catch((e: unknown) => {
       if (!cancelled) setFailed(e instanceof Error ? e.message : String(e))
     })
 
@@ -90,7 +106,7 @@ export function TerminalView({ cwd }: { cwd: string }) {
       void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
       term.dispose()
     }
-  }, [cwd, failed, attempt])
+  }, [resolvedCwd, failed, attempt])
 
   if (failed !== null) {
     return (

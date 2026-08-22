@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process'
 import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { mapGrokLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { streamProcessEvents } from '../process-stream'
+import { spawnCli } from '../spawn-cli'
 
 const log = createLogger('providers:grok')
 
@@ -43,7 +43,7 @@ export class GrokDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawn(this.binaryPath, buildGrokArgs(session), {
+    const child = spawnCli(this.binaryPath, buildGrokArgs(session), {
       cwd: session.workspacePath,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

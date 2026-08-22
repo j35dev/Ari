@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process'
 import { createLogger } from '@ari/shared/logger'
 import { mapOpencodeLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { streamProcessEvents } from '../process-stream'
+import { spawnCli } from '../spawn-cli'
 
 const log = createLogger('providers:opencode')
 
@@ -27,7 +27,7 @@ export class OpencodeDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawn(this.binaryPath, buildOpencodeArgs(session), {
+    const child = spawnCli(this.binaryPath, buildOpencodeArgs(session), {
       cwd: session.workspacePath,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
