@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
@@ -24,8 +25,10 @@ export interface SessionDefaults {
 }
 
 /**
- * Binds one session's journal to the transcript and composer: replays on
- * mount, applies live events, dispatches turns through the engine.
+ * Binds one session's journal to the transcript and composer. The events
+ * subscription is established before any state load: history arrives as a
+ * journal replay through the same stream live events use, so there is exactly
+ * one fold path and no load/replay race.
  */
 export function SessionView({
   sessionId,
@@ -41,15 +44,22 @@ export function SessionView({
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<string[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
+  const [turnError, setTurnError] = useState<string | null>(null)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const sessionTitleRef = useRef('Session')
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
   notifySettledRef.current = notifySettledTurn
 
+  // @file mentions index the first registered workspace; ad-hoc sessions have none.
   useEffect(() => {
     void rpc
-      .invoke('files.index', { projectId: 'adhoc' })
+      .invoke('project.list')
+      .then(async (projects) => {
+        const first = projects[0]
+        if (!first) return { paths: [] }
+        return rpc.invoke('files.index', { projectId: first.id })
+      })
       .then((r) => setFileSuggestions(r.paths))
       .catch(() => undefined)
   }, [])
@@ -59,40 +69,38 @@ export function SessionView({
     setMessages([])
     setLoading(true)
     setRunning(false)
+    setQueued([])
     setApprovals([])
-
-    void rpc
-      .invoke('session.load', { sessionId })
-      .then((model) => {
-        if (cancelled) return
-        if (!model) {
-          setLoading(false)
-          return
-        }
-        const m = model as {
-          session: Session
-          messages: Message[]
-          activeTurnId: string | null
-        }
-        setMessages(m.messages)
-        setLoading(false)
-        setRunning(m.activeTurnId !== null)
-        if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
-        onDefaultsChange({
-          driverKind: m.session.driverKind,
-          modelId: m.session.modelId,
-          permissionMode: m.session.permissionMode,
-        })
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false)
-      })
+    setTurnError(null)
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
       const frame = payload as SessionEventFrame
       if (frame.sessionId !== sessionId) return
       applyEvent(frame.event as JournalEvent)
     })
+
+    // Metadata only — message history comes exclusively from the replayed
+    // stream above, so this can never clobber or duplicate it.
+    void rpc
+      .invoke('session.load', { sessionId })
+      .then((model) => {
+        if (cancelled || !model) return
+        const m = model as {
+          session: Session
+          activeTurnId: string | null
+        }
+        if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
+        setRunning(m.activeTurnId !== null)
+        onDefaultsChange({
+          driverKind: m.session.driverKind,
+          modelId: m.session.modelId,
+          permissionMode: m.session.permissionMode,
+        })
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
 
     return () => {
       cancelled = true
@@ -128,10 +136,19 @@ export function SessionView({
           })
           break
         case 'turn.started':
+          // A fresh turn supersedes any stale failure banner.
+          setTurnError(null)
           setRunning(true)
           break
-        case 'turn.settled':
+        case 'turn.settled': {
           setRunning(false)
+          if (event.stopReason === 'error' && event.errorMessage) {
+            setTurnError(event.errorMessage)
+            notifySettledRef.current({ error: event.errorMessage })
+            // Held, not dropped: queued messages stay visible in the composer
+            // so the user can retry after fixing the cause.
+            return
+          }
           notifySettledRef.current()
           setQueued((prev) => {
             const [next, ...rest] = prev
@@ -145,6 +162,7 @@ export function SessionView({
             return rest
           })
           break
+        }
         case 'approval.requested':
           setApprovals((prev) => [
             ...prev.filter((a) => a.approvalId !== event.approvalId),
@@ -174,6 +192,7 @@ export function SessionView({
           .catch(() => undefined)
         return
       }
+      setTurnError(null)
       void rpc
         .invoke('command.dispatch', { command: { type: 'turn.start', sessionId, text } })
         .catch(() => undefined)
@@ -215,6 +234,18 @@ export function SessionView({
     [sessionId, onDefaultsChange],
   )
 
+  const changePermissionMode = useCallback(
+    (permissionMode: PermissionMode) => {
+      onDefaultsChange({ ...defaults, permissionMode })
+      void rpc
+        .invoke('command.dispatch', {
+          command: { type: 'session.update', sessionId, permissionMode },
+        })
+        .catch(() => undefined)
+    },
+    [sessionId, onDefaultsChange],
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
@@ -238,20 +269,104 @@ export function SessionView({
           ))}
         </div>
       ) : null}
+      {turnError ? (
+        <div
+          role="alert"
+          className="mx-3 mb-1 flex items-start gap-2 rounded-md border border-danger-subtle bg-danger-subtle px-3 py-2"
+        >
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-danger" />
+          <p className="min-w-0 flex-1 break-words text-xs leading-relaxed text-fg-muted">
+            <span className="font-medium text-danger">Turn failed.</span> {turnError}
+          </p>
+          <button
+            type="button"
+            aria-label="Dismiss error"
+            onClick={() => setTurnError(null)}
+            className="shrink-0 rounded-sm p-0.5 text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ) : null}
       <Composer
         onSend={handleSend}
         onStop={handleStop}
         running={running}
         queued={queued}
-        suggestions={fileSuggestions}
+        suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
         leading={
-          <ModelSelector
-            driverKind={defaults.driverKind}
-            modelId={defaults.modelId}
-            onChange={changeModel}
-          />
+          <>
+            <ModelSelector
+              driverKind={defaults.driverKind}
+              modelId={defaults.modelId}
+              onChange={changeModel}
+            />
+            <PermissionModeChip mode={defaults.permissionMode} onChange={changePermissionMode} />
+          </>
         }
       />
+    </div>
+  )
+}
+
+const PERMISSION_MODES: { value: PermissionMode; label: string; hint: string }[] = [
+  { value: 'ask', label: 'Ask', hint: 'Confirm every edit and command' },
+  { value: 'allow-edits', label: 'Edits', hint: 'Auto-approve edits; ask before commands' },
+  { value: 'full', label: 'Full auto', hint: 'Approve everything automatically' },
+]
+
+const DEFAULT_MODE = PERMISSION_MODES[0] as (typeof PERMISSION_MODES)[number]
+
+/** Inline permission-mode selector (Comet/DSH-style), bottom-left of the composer. */
+export function PermissionModeChip({
+  mode,
+  onChange,
+}: {
+  mode: PermissionMode
+  onChange: (mode: PermissionMode) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const current = PERMISSION_MODES.find((m) => m.value === mode) ?? DEFAULT_MODE
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        title={`Permission mode: ${current.hint}`}
+        aria-label={`Permission mode: ${current.label}`}
+        className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        <span
+          aria-hidden
+          className={`h-1.5 w-1.5 rounded-full ${
+            mode === 'full' ? 'bg-warning' : mode === 'allow-edits' ? 'bg-info' : 'bg-fg-subtle'
+          }`}
+        />
+        <span>{current.label}</span>
+      </button>
+      {open ? (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-md border border-border bg-surface-1 p-1 shadow-2">
+            {PERMISSION_MODES.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => {
+                  onChange(m.value)
+                  setOpen(false)
+                }}
+                className={`flex w-full flex-col rounded-sm px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                  m.value === mode ? 'bg-accent-subtle' : 'hover:bg-surface-2'
+                }`}
+              >
+                <span className="text-xs font-medium text-fg">{m.label}</span>
+                <span className="text-2xs text-fg-subtle">{m.hint}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

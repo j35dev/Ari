@@ -75,6 +75,7 @@ export class EndpointStore {
     const { mkdir, writeFile, rename } = await import('node:fs/promises')
     await mkdir(this.#dir, { recursive: true })
     const cipher = input.apiKey ? this.#box.encrypt(input.apiKey) : null
+    const existing = this.#endpoints.find((e) => e.id === input.id)
     const endpoint: Endpoint = {
       id: input.id,
       name: input.name,
@@ -82,12 +83,13 @@ export class EndpointStore {
       flavor: input.flavor,
       model: input.model,
       headers: input.headers,
+      // A new key wins; explicit null clears; omission keeps the stored one.
       apiKeyCipher:
         input.apiKey != null
           ? (cipher ?? null)
           : input.apiKey === null
             ? null
-            : (input.apiKeyCipher ?? null),
+            : (input.apiKeyCipher ?? existing?.apiKeyCipher ?? null),
     }
     const validated = endpointSchema.parse(endpoint)
     this.#endpoints = [...this.#endpoints.filter((e) => e.id !== validated.id), validated]

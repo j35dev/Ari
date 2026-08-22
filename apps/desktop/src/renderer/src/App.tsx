@@ -4,7 +4,6 @@ import {
   GitPullRequest,
   MessageSquare,
   Settings,
-  SquarePen,
   TerminalSquare,
 } from 'lucide-react'
 import { ThemeProvider, useTheme } from '@ari/ui/theme-provider'
@@ -27,6 +26,7 @@ import { useCommands } from './features/palette/useCommands'
 import { BootSplash } from './features/moment'
 import { SidebarHeader, SessionsUnderProjects, UtilityStrip } from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
 
 type MainPane = 'session' | 'projects' | 'terminal' | 'changes' | 'settings'
@@ -122,22 +122,27 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const createSession = useCallback((): void => {
-    void rpc
-      .invoke('session.create', {
-        projectId: 'adhoc',
-        title: 'New session',
-        driverKind: defaults.driverKind,
-        modelId: defaults.modelId,
-        permissionMode: defaults.permissionMode,
-      })
-      .then(({ sessionId }) => {
-        setActiveSessionId(sessionId)
-        setPane('session')
-        refreshSessions()
-      })
-      .catch(() => undefined)
-  }, [defaults, refreshSessions])
+  const createSession = useCallback(
+    (overrides?: Partial<SessionDefaults>): void => {
+      const effective = { ...defaults, ...overrides }
+      void rpc
+        .invoke('session.create', {
+          projectId: 'adhoc',
+          title: 'New session',
+          driverKind: effective.driverKind,
+          modelId: effective.modelId,
+          permissionMode: effective.permissionMode,
+        })
+        .then(({ sessionId }) => {
+          if (overrides) setDefaults(effective)
+          setActiveSessionId(sessionId)
+          setPane('session')
+          refreshSessions()
+        })
+        .catch(() => undefined)
+    },
+    [defaults, refreshSessions],
+  )
 
   if (galleryOpen) {
     return (
@@ -244,7 +249,14 @@ function Shell() {
               />
             </ErrorBoundary>
           ) : (
-            <EmptyState onCreate={createSession} onOpenGallery={() => setGalleryOpen(true)} />
+            <ErrorBoundary label="Welcome">
+              <WelcomePanel
+                onCreateSession={() => createSession()}
+                onConnect={(endpointId) =>
+                  createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
+                }
+              />
+            </ErrorBoundary>
           )}
         </main>
       </div>
@@ -271,37 +283,6 @@ function SettingsSection({ title, children }: { title: string; children: React.R
       <h2 className="mb-4 text-lg font-semibold text-fg">{title}</h2>
       {children}
     </section>
-  )
-}
-
-function EmptyState({
-  onCreate,
-  onOpenGallery,
-}: {
-  onCreate: () => void
-  onOpenGallery: () => void
-}) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3">
-      <SquarePen size={28} className="text-fg-subtle" strokeWidth={1.5} />
-      <p className="max-w-xs text-center text-sm text-fg-muted">
-        Start a session — your agents are already authenticated.
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        className="mt-1 rounded-md bg-accent px-3.5 py-1.5 text-sm font-medium text-fg-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-      >
-        New session
-      </button>
-      <button
-        type="button"
-        onClick={onOpenGallery}
-        className="text-2xs text-fg-subtle underline-offset-2 hover:text-fg-muted hover:underline"
-      >
-        browse components
-      </button>
-    </div>
   )
 }
 

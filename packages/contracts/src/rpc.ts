@@ -76,10 +76,16 @@ export const rpcParams = {
     baseUrl: z.string().url(),
     flavor: z.enum(['openai-chat', 'anthropic-messages', 'ollama']),
     model: z.string().min(1),
-    apiKey: z.string().nullable(),
+    // Omitted on update = keep the stored key; null clears it.
+    apiKey: z.string().nullable().optional(),
     headers: z.record(z.string(), z.string()).default({}),
   }),
   'endpoints.remove': z.object({ id: z.string().min(1) }),
+  'endpoints.test': z.object({
+    baseUrl: z.string().url(),
+    flavor: z.enum(['openai-chat', 'anthropic-messages', 'ollama']),
+    apiKey: z.string().nullable().default(null),
+  }),
   'settings.get': z.undefined(),
   'settings.update': settingsUpdateSchema,
     'git.status': z.object({ path: z.string().min(1) }),
@@ -134,6 +140,7 @@ export interface RpcResults {
   }[]
   'endpoints.upsert': { id: string; name: string }
   'endpoints.remove': { removed: boolean }
+  'endpoints.test': { ok: boolean; latencyMs: number; message: string }
   'settings.get': Settings
   'settings.update': Settings
     'git.status': {

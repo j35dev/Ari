@@ -54,6 +54,34 @@ describe('notifySettled', () => {
       tone: 'info',
     })
   })
+
+  it('always fires for error settles, even while visible', () => {
+    stubVisibility('visible')
+    const toast = vi.fn()
+
+    const fired = notifySettled('Docs review', { toast, error: 'spawn EINVAL' })
+
+    expect(fired).toBe(true)
+    expect(toast).toHaveBeenCalledOnce()
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Docs review',
+      description: 'Turn failed — spawn EINVAL',
+      tone: 'danger',
+      durationMs: 8000,
+    })
+  })
+
+  it('flattens and truncates long error messages', () => {
+    stubVisibility('visible')
+    const toast = vi.fn()
+    const long = Array.from({ length: 60 }, () => 'word \n').join('')
+
+    notifySettled('Docs review', { toast, error: long })
+
+    const call = toast.mock.calls[0]?.[0] as { description: string }
+    expect(call.description.length).toBeLessThanOrEqual(240)
+    expect(call.description).not.toContain('\n')
+  })
 })
 
 describe('installVisibilityGuard', () => {
