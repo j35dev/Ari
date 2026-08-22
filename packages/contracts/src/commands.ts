@@ -55,6 +55,10 @@ export const commandSchema = z.discriminatedUnion('type', [
     permissionMode: permissionModeSchema.optional(),
     title: z.string().min(1).optional(),
   }),
+  z.object({
+    type: z.literal('session.destroy'),
+    sessionId: z.string(),
+  }),
 ])
 export type Command = z.infer<typeof commandSchema>
 

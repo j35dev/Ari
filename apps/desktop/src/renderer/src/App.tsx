@@ -154,6 +154,23 @@ function Shell() {
               setActiveSessionId(id)
               setPane('session')
             }}
+            onRename={(id, title) => {
+              void rpc
+                .invoke('command.dispatch', {
+                  command: { type: 'session.update', sessionId: id, title },
+                })
+                .then(refreshSessions)
+                .catch(() => undefined)
+            }}
+            onDelete={(id) => {
+              void rpc
+                .invoke('session.destroy', { sessionId: id })
+                .then(() => {
+                  if (activeSessionId === id) setActiveSessionId(null)
+                  refreshSessions()
+                })
+                .catch(() => undefined)
+            }}
           />
           <UtilityStrip
             active={pane}

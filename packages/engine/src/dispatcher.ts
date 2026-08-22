@@ -121,6 +121,11 @@ export function decideCommand(
       }
       return accept([patch])
     }
+
+    case 'session.destroy':
+      // Destruction bypasses the decider — the rpc layer calls the store
+      // directly (journals are removed wholesale; no event survives).
+      return reject('session.destroy is handled by the store')
   }
 }
 
