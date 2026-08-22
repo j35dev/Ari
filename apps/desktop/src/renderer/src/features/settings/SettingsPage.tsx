@@ -12,7 +12,7 @@ export interface SettingsPageProps {
 /** Shared settings layout: centered column with a titled, described header. */
 export function SettingsPage({ title, description, children }: SettingsPageProps) {
   return (
-    <div className="mx-auto max-w-2xl space-y-8 p-8">
+    <div id={`settings-${title.toLowerCase()}`} className="mx-auto max-w-2xl space-y-8 p-8">
       <div className="space-y-1">
         <h1 className="text-lg font-semibold">{title}</h1>
         {description != null && <p className="text-sm text-fg-muted">{description}</p>}
