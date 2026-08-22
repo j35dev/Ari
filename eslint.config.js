@@ -11,6 +11,10 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
   },
   {
+    files: ['scripts/**'],
+    languageOptions: { globals: { Buffer: 'readonly', console: 'readonly', process: 'readonly' } },
+  },
+  {
     files: ['**/*.test.{ts,tsx}'],
     rules: {
       // Test doubles implement async interfaces without awaiting.
