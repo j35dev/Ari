@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Search } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 
 /**
@@ -6,7 +7,13 @@ import { rpc } from '../lib/rpc'
  * only the drag region + content render here; macOS traffic lights are
  * inset-natively; Linux needs our own controls.
  */
-export function Titlebar({ projectLabel }: { projectLabel: string }) {
+export function Titlebar({
+  projectLabel,
+  onOpenPalette,
+}: {
+  projectLabel: string
+  onOpenPalette?: () => void
+}) {
   const [platform, setPlatform] = useState<'win32' | 'darwin' | 'linux' | 'other'>('other')
   const [maximized, setMaximized] = useState(false)
 
@@ -31,6 +38,21 @@ export function Titlebar({ projectLabel }: { projectLabel: string }) {
           </>
         ) : null}
       </div>
+
+      <div className="flex-1" />
+
+      {onOpenPalette ? (
+        <button
+          type="button"
+          onClick={onOpenPalette}
+          aria-label="Open command palette"
+          className="mr-2 flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-2xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <Search size={11} />
+          <span>Ctrl K</span>
+        </button>
+      ) : null}
 
       <div className="flex-1" />
 

@@ -166,7 +166,14 @@ function Shell() {
 
   return (
     <div className="flex h-full flex-col">
-      <Titlebar projectLabel="" />
+      <Titlebar
+        projectLabel={
+          projects.find(
+            (p) => p.id === sessions.find((s) => s.id === activeSessionId)?.projectId,
+          )?.name ?? ''
+        }
+        onOpenPalette={galleryOpen ? undefined : () => setPaletteOpen(true)}
+      />
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col border-r border-border bg-surface-0">
           <SidebarHeader onNewSession={createSession} />
