@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { RotateCcw } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 import { rpc } from '../../lib/rpc'
 
@@ -13,15 +14,20 @@ let terminalSeq = 0
 
 /**
  * Interactive terminal pane backed by a pty session in the main process.
- * Theme colors are sampled from the active design tokens at mount.
+ * Theme colors are sampled from the active design tokens at mount. Failures
+ * surface as a visible error state with retry — never a blank pane.
  */
 export function TerminalView({ cwd }: { cwd: string }) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
+    if (failed !== null) return
     const host = hostRef.current
     if (!host) return
 
+    let cancelled = false
     const id = `term_${++terminalSeq}_${Math.random().toString(36).slice(2, 8)}`
     const term = new Terminal({
       fontFamily: "var(--ari-font-mono, 'Geist Mono Variable'), monospace",
@@ -49,14 +55,16 @@ export function TerminalView({ cwd }: { cwd: string }) {
       // fitting before layout can fail; the resize observer retries
     }
 
-    void rpc.invoke('terminal.create', { id, cwd })
+    void rpc.invoke('terminal.create', { id, cwd }).catch((e: unknown) => {
+      if (!cancelled) setFailed(e instanceof Error ? e.message : String(e))
+    })
 
     const dataSub = rpc.subscribe('terminal.data', { id }, (payload) => {
       const frame = payload as { id: string; data: string }
       if (frame.id === id) term.write(frame.data)
     })
     const inputSub = term.onData((data) => {
-      void rpc.invoke('terminal.write', { id, data })
+      void rpc.invoke('terminal.write', { id, data }).catch(() => undefined)
     })
 
     const observer = new ResizeObserver(() => {
@@ -75,13 +83,34 @@ export function TerminalView({ cwd }: { cwd: string }) {
     )
 
     return () => {
+      cancelled = true
       observer.disconnect()
       dataSub()
       inputSub.dispose()
       void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
       term.dispose()
     }
-  }, [cwd])
+  }, [cwd, failed, attempt])
+
+  if (failed !== null) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-bg">
+        <p className="max-w-sm text-center text-sm text-danger">
+          Terminal could not start: {failed}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setFailed(null)
+            setAttempt((a) => a + 1)
+          }}
+          className="flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <RotateCcw size={12} /> Retry
+        </button>
+      </div>
+    )
+  }
 
   return <div ref={hostRef} className="h-full w-full bg-bg p-1" />
 }
