@@ -11,12 +11,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ari/ari-core": "workspace:*",
-    "@ari/contracts": "workspace:*",
-    "@ari/engine": "workspace:*",
-    "@ari/providers": "workspace:*",
-    "@ari/shared": "workspace:*",
-    "@ari/ui": "workspace:*",
     "@lydell/node-pty": "1.2.0-beta.15",
     "@tanstack/react-router": "^1.170.31",
     "@tanstack/react-virtual": "^3.14.10",
@@ -25,7 +19,22 @@
     "lucide-react": "^1.33.0",
     "motion": "^13.1.1",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@ari/ari-core": "workspace:*",
+    "@ari/contracts": "workspace:*",
+    "@ari/engine": "workspace:*",
+    "@ari/providers": "workspace:*",
+    "@ari/shared": "workspace:*",
+    "@ari/ui": "workspace:*",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
     "rehype-sanitize": "^6.0.0",
     "rehype-slug": "^6.0.0",
     "rehype-stringify": "^10.0.1",
@@ -35,17 +44,8 @@
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
     "shiki": "^4.4.3",
-    "unified": "^11.0.5"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.3",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^5.2.0",
-    "electron": "^43.4.1",
-    "electron-builder": "^26.15.3",
-    "electron-vite": "^5.0.0",
     "tailwindcss": "^4.3.3",
+    "unified": "^11.0.5",
     "vite": "^7.3.6"
   }
 }

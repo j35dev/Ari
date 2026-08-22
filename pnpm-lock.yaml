@@ -51,24 +51,6 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@ari/ari-core':
-        specifier: workspace:*
-        version: link:../../packages/ari-core
-      '@ari/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@ari/engine':
-        specifier: workspace:*
-        version: link:../../packages/engine
-      '@ari/providers':
-        specifier: workspace:*
-        version: link:../../packages/providers
-      '@ari/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      '@ari/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
       '@lydell/node-pty':
         specifier: 1.2.0-beta.15
         version: 1.2.0-beta.15
@@ -96,6 +78,46 @@ importers:
       react-dom:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
+    devDependencies:
+      '@ari/ari-core':
+        specifier: workspace:*
+        version: link:../../packages/ari-core
+      '@ari/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@ari/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@ari/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@ari/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@ari/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@tailwindcss/postcss':
+        specifier: ^4.3.3
+        version: 4.3.3
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.4
+        version: 19.2.4(@types/react@19.2.18)
+      '@vitejs/plugin-react':
+        specifier: ^5.2.0
+        version: 5.2.0(vite@7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0))
+      electron:
+        specifier: ^43.4.1
+        version: 43.4.1
+      electron-builder:
+        specifier: ^26.15.3
+        version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
+      electron-vite:
+        specifier: ^5.0.0
+        version: 5.0.0(vite@7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0))
       rehype-sanitize:
         specifier: ^6.0.0
         version: 6.0.0
@@ -123,34 +145,12 @@ importers:
       shiki:
         specifier: ^4.4.3
         version: 4.4.3
-      unified:
-        specifier: ^11.0.5
-        version: 11.0.5
-    devDependencies:
-      '@tailwindcss/postcss':
-        specifier: ^4.3.3
-        version: 4.3.3
-      '@types/react':
-        specifier: ^19.2.18
-        version: 19.2.18
-      '@types/react-dom':
-        specifier: ^19.2.4
-        version: 19.2.4(@types/react@19.2.18)
-      '@vitejs/plugin-react':
-        specifier: ^5.2.0
-        version: 5.2.0(vite@7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0))
-      electron:
-        specifier: ^43.4.1
-        version: 43.4.1
-      electron-builder:
-        specifier: ^26.15.3
-        version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
-      electron-vite:
-        specifier: ^5.0.0
-        version: 5.0.0(vite@7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0))
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      unified:
+        specifier: ^11.0.5
+        version: 11.0.5
       vite:
         specifier: ^7.3.6
         version: 7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0)
