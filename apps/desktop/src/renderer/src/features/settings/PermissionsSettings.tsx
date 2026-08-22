@@ -1,10 +1,11 @@
 import { useState } from 'react'
+import { createLogger } from '@ari/shared/logger'
 import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { SettingsPage } from './SettingsPage'
+import { useEngineSettings } from './useEngineSettings'
 
-const ALLOWLIST_KEY = 'ari.allowlist'
-const DEFAULT_MODE_KEY = 'ari.defaultMode'
+const log = createLogger('settings:permissions')
 
 const PERMISSION_MODES = [
   { value: 'ask', label: 'Ask', hint: 'Confirm every tool run before it executes.' },
@@ -18,63 +19,32 @@ const PERMISSION_MODES = [
 
 export type PermissionMode = (typeof PERMISSION_MODES)[number]['value']
 
-function readAllowlist(): string[] {
-  try {
-    const raw = localStorage.getItem(ALLOWLIST_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed)
-      ? [...new Set(parsed.filter((v): v is string => typeof v === 'string'))]
-      : []
-  } catch {
-    // malformed storage — start from an empty allowlist
-    return []
-  }
-}
-
-function readDefaultMode(): PermissionMode {
-  try {
-    const raw = localStorage.getItem(DEFAULT_MODE_KEY)
-    if (raw && PERMISSION_MODES.some((m) => m.value === raw)) return raw as PermissionMode
-  } catch {
-    // fall through to the default below
-  }
-  return 'ask'
-}
-
 /** Permissions settings page: default permission mode + always-allow allowlist. */
 export function PermissionsSettings() {
-  const [entries, setEntries] = useState<string[]>(readAllowlist)
+  const { settings, update } = useEngineSettings()
   const [draft, setDraft] = useState('')
-  const [mode, setMode] = useState<PermissionMode>(readDefaultMode)
+  const entries = settings?.permissions.allowlist ?? []
+  const mode = settings?.sessions.defaultPermissionMode ?? 'ask'
 
-  const commitEntries = (next: string[]) => {
-    setEntries(next)
-    try {
-      localStorage.setItem(ALLOWLIST_KEY, JSON.stringify(next))
-    } catch {
-      // non-fatal: list simply won't persist
-    }
+  const persist = (patch: Parameters<typeof update>[0]) => {
+    void update(patch).catch((error: unknown) => {
+      log.warn('failed to persist permissions settings', { error })
+    })
   }
 
   const addEntry = () => {
     const value = draft.trim()
     if (!value || entries.includes(value)) return
-    commitEntries([...entries, value])
+    persist({ permissions: { allowlist: [...entries, value] } })
     setDraft('')
   }
 
   const removeEntry = (index: number) => {
-    commitEntries(entries.filter((_, i) => i !== index))
+    persist({ permissions: { allowlist: entries.filter((_, i) => i !== index) } })
   }
 
   const selectMode = (next: PermissionMode) => {
-    setMode(next)
-    try {
-      localStorage.setItem(DEFAULT_MODE_KEY, next)
-    } catch {
-      // non-fatal: choice simply won't persist
-    }
+    persist({ sessions: { defaultPermissionMode: next } })
   }
 
   return (

@@ -35,6 +35,46 @@ export const settingsSchema = z.object({
 })
 export type Settings = z.infer<typeof settingsSchema>
 
+/**
+ * Shallow per-section patch accepted by `settings.update`. Sections are
+ * optional; fields inside a provided section are optional and merged onto the
+ * stored settings by the engine. Fields are deliberately default-free so the
+ * parsed patch only carries keys the caller actually sent.
+ */
+export const settingsUpdateSchema = z.object({
+  appearance: z
+    .object({
+      themeId: z.string(),
+      reducedMotion: z.boolean(),
+    })
+    .partial()
+    .optional(),
+  sessions: z
+    .object({
+      defaultDriverKind: driverKindSchema.nullable(),
+      defaultPermissionMode: permissionModeSchema,
+    })
+    .partial()
+    .optional(),
+  permissions: z
+    .object({
+      allowlist: z.array(z.string()),
+    })
+    .partial()
+    .optional(),
+  window: z
+    .object({
+      x: z.number().int(),
+      y: z.number().int(),
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+      maximized: z.boolean(),
+    })
+    .nullable()
+    .optional(),
+})
+export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
+
 export const defaultSettings: Settings = {
   version: 1,
   appearance: { themeId: 'obsidian', reducedMotion: false },

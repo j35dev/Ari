@@ -4,6 +4,7 @@ import { commandSchema } from './commands'
 import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
 import { sessionSchema } from './session'
+import { settingsUpdateSchema } from './settings'
 
 const baseSession = {
   id: 'sess_1',
@@ -74,5 +75,18 @@ describe('contracts', () => {
     expect(() =>
       journalEventSchema.parse({ type: 'turn.settled', seq: -1, at: 1, sessionId: 's', turnId: 't', stopReason: 'completed' }),
     ).toThrow()
+  })
+
+  it('accepts empty and partial settings update patches, rejects bad fields', () => {
+    expect(settingsUpdateSchema.parse({})).toEqual({})
+    expect(settingsUpdateSchema.parse({ appearance: { themeId: 'ember' } })).toEqual({
+      appearance: { themeId: 'ember' },
+    })
+    expect(
+      settingsUpdateSchema.parse({ window: { x: 0, y: 0, width: 100, height: 100, maximized: true } }).window
+        ?.maximized,
+    ).toBe(true)
+    expect(settingsUpdateSchema.safeParse({ permissions: { allowlist: 'git status' } }).success).toBe(false)
+    expect(settingsUpdateSchema.safeParse({ window: { x: 'a' } }).success).toBe(false)
   })
 })

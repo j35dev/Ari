@@ -1,19 +1,11 @@
-import { useState } from 'react'
 import { THEMES, useTheme } from '@ari/ui/theme-provider'
 import type { ThemeId } from '@ari/ui/theme-provider'
+import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
 import { SettingsPage } from './SettingsPage'
+import { useEngineSettings } from './useEngineSettings'
 
-const REDUCED_MOTION_KEY = 'ari.reducedMotion'
-
-function readReducedMotion(): boolean {
-  try {
-    return localStorage.getItem(REDUCED_MOTION_KEY) === 'true'
-  } catch {
-    // storage unavailable — default to motion enabled
-    return false
-  }
-}
+const log = createLogger('settings:appearance')
 
 interface ThemeCardProps {
   id: ThemeId
@@ -59,15 +51,20 @@ function ThemeCard({ id, label, active, onSelect }: ThemeCardProps) {
 /** Appearance settings page: live theme previews, reduced motion, density note. */
 export function AppearanceSettings() {
   const { theme, setTheme } = useTheme()
-  const [reducedMotion, setReducedMotion] = useState<boolean>(readReducedMotion)
+  const { settings, update } = useEngineSettings()
+  const reducedMotion = settings?.appearance.reducedMotion ?? false
+
+  const selectTheme = (id: ThemeId) => {
+    setTheme(id)
+    void update({ appearance: { themeId: id } }).catch((error: unknown) => {
+      log.warn('failed to persist theme', { error })
+    })
+  }
 
   const handleReducedMotionChange = (checked: boolean) => {
-    setReducedMotion(checked)
-    try {
-      localStorage.setItem(REDUCED_MOTION_KEY, String(checked))
-    } catch {
-      // non-fatal: preference simply won't persist
-    }
+    void update({ appearance: { reducedMotion: checked } }).catch((error: unknown) => {
+      log.warn('failed to persist reduced motion', { error })
+    })
   }
 
   return (
@@ -86,7 +83,7 @@ export function AppearanceSettings() {
               id={t.id}
               label={t.label}
               active={theme === t.id}
-              onSelect={setTheme}
+              onSelect={selectTheme}
             />
           ))}
         </div>

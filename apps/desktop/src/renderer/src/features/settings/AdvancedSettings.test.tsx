@@ -1,45 +1,68 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type * as ThemeProviderModule from '@ari/ui/theme-provider'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { MockInstance } from 'vitest'
+import type { Settings } from '@ari/contracts/settings'
 import { AdvancedSettings } from './AdvancedSettings'
 
-const { setTheme } = vi.hoisted(() => ({ setTheme: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  setTheme: vi.fn(),
+  update: vi.fn(),
+  holder: { settings: null as Settings | null },
+}))
+
+vi.mock('./useEngineSettings', () => ({
+  useEngineSettings: () => ({ settings: mocks.holder.settings, update: mocks.update }),
+}))
 
 vi.mock('@ari/ui/theme-provider', async (importOriginal) => ({
   ...(await importOriginal<typeof ThemeProviderModule>()),
-  useTheme: () => ({ theme: 'ember', setTheme }),
+  useTheme: () => ({ theme: 'ember', setTheme: mocks.setTheme }),
 }))
 
+const engineSettings: Settings = {
+  version: 1,
+  appearance: { themeId: 'obsidian', reducedMotion: false },
+  sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  permissions: { allowlist: ['git status'] },
+  window: null,
+}
+
 describe('AdvancedSettings', () => {
+  let createSpy: MockInstance<(type: string) => HTMLElement>
+
+  function lastAnchor(): HTMLAnchorElement {
+    const values: unknown[] = createSpy.mock.results.map((r: { value: unknown }) => r.value)
+    const anchor = values.reverse().find((v) => v instanceof HTMLAnchorElement)
+    expect(anchor).toBeInstanceOf(HTMLAnchorElement)
+    return anchor as HTMLAnchorElement
+  }
+
   beforeEach(() => {
     localStorage.clear()
+    mocks.update.mockReset()
+    mocks.update.mockResolvedValue(engineSettings)
+    mocks.holder.settings = engineSettings
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    createSpy = vi.spyOn(document, 'createElement')
   })
 
   it('downloads ari-diagnostics.json via a blob anchor click', async () => {
-    const user = userEvent.setup()
     const createObjectURL = vi
       .spyOn(URL, 'createObjectURL')
       .mockReturnValue('blob:ari-test')
-    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {})
-    const createSpy = vi.spyOn(document, 'createElement')
+    const user = userEvent.setup()
 
     render(<AdvancedSettings />)
     await user.click(screen.getByRole('button', { name: 'Export diagnostics' }))
 
-    expect(createSpy).toHaveBeenCalledWith('a')
-    const anchor = createSpy.mock.results
-      .map((r) => r.value as unknown)
-      .find((v) => v instanceof HTMLAnchorElement) as HTMLAnchorElement
+    const anchor = lastAnchor()
     expect(anchor.download).toBe('ari-diagnostics.json')
     expect(anchor.href).toBe('blob:ari-test')
-    expect(clickSpy).toHaveBeenCalledOnce()
-    expect(revokeObjectURL).toHaveBeenCalledWith('blob:ari-test')
 
-    const blob = createObjectURL.mock.calls[0]?.[0]
+    const blob = createObjectURL.mock.calls.at(-1)?.[0]
     expect(blob).toBeInstanceOf(Blob)
     const bundle = JSON.parse(await (blob as Blob).text()) as Record<string, string>
     expect(bundle).toEqual({
@@ -47,6 +70,70 @@ describe('AdvancedSettings', () => {
       userAgent: navigator.userAgent,
       theme: 'ember',
     })
+  })
+
+  it('downloads the current settings as ari-settings.json', async () => {
+    const createObjectURL = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:ari-settings-test')
+    const user = userEvent.setup()
+
+    render(<AdvancedSettings />)
+    await user.click(screen.getByRole('button', { name: 'Export settings' }))
+
+    const anchor = lastAnchor()
+    expect(anchor.download).toBe('ari-settings.json')
+    expect(anchor.href).toBe('blob:ari-settings-test')
+
+    const blob = createObjectURL.mock.calls.at(-1)?.[0]
+    expect(await (blob as Blob).text()).toBe(JSON.stringify(engineSettings, null, 2))
+  })
+
+  it('imports a bundle by dispatching update with the parsed sections', async () => {
+    const user = userEvent.setup()
+    render(<AdvancedSettings />)
+
+    const input = screen.getByLabelText('Settings bundle file')
+    const bundle = {
+      version: 1,
+      appearance: { themeId: 'porcelain' },
+      permissions: { allowlist: ['git status'] },
+      window: { x: 10, y: 20, width: 800, height: 600, maximized: false },
+    }
+    await user.upload(
+      input,
+      new File([JSON.stringify(bundle)], 'bundle.json', { type: 'application/json' }),
+    )
+
+    // Device-local window bounds are never imported.
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({
+        appearance: { themeId: 'porcelain' },
+        permissions: { allowlist: ['git status'] },
+      }),
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('surfaces an error and skips update for invalid bundles', async () => {
+    const user = userEvent.setup()
+    render(<AdvancedSettings />)
+
+    const input = screen.getByLabelText('Settings bundle file')
+    await user.upload(
+      input,
+      new File(['{"version":2,"appearance":{}}'], 'bundle.json', { type: 'application/json' }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Import failed: unsupported settings version: 2',
+    )
+    expect(mocks.update).not.toHaveBeenCalled()
+
+    await user.upload(input, new File(['{not json'], 'bundle.json', { type: 'application/json' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Import failed: file is not valid JSON',
+    )
   })
 
   it('explains that session journals live under userData/sessions', () => {
