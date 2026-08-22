@@ -85,11 +85,11 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
   - [x] M4.12 Pi driver: probe flags at runtime, mapper + fixtures
 - [x] M4.13 Hermes driver: probe flags at runtime, mapper + fixtures (synthesized fixtures — hermes CLI absent locally; re-record via record-fixture.ts when binary ships)
 - [x] M4.14 Model catalogs per driver + merge into provider picker data
-- [ ] M4.15 Diagnostics card contract (flag drift, crash, auth-missing surfaces to UI)
+- [x] M4.15 Diagnostics card contract (flag drift, crash, auth-missing surfaces to UI)
 - [x] M4.16 Session↔driver binding: workspace cwd, env sanitization
 - [ ] M4.17 Streaming backpressure + interrupt semantics per transport
 - [x] M4.18 Usage extraction (tokens/cost where providers emit it)
-- [ ] M4.19 Provider health probes + status bar integration points
+- [x] M4.19 Provider health probes + status bar integration points
 - [x] M4.20 e2e-ish test: mock CLI script driven through registry end-to-end
 - [ ] M4.21 Per-driver docs (docs/providers/*.md)
 - [ ] M4.22 docs/arch-04.md + tag `milestone/M4`
