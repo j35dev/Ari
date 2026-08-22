@@ -150,7 +150,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M6.1 Auto-grow textarea (76â€“260px) + IME safety
 - [x] M6.2 Sendâ†’Steerâ†’Stop morph button (180ms crossfade + width tween)
 - [x] M6.3 Queue-while-running (pending messages list, reorder, cancel)
-- [x] M6.4 @file fuzzy mentions fed by watcher index (composer picker wired via `suggestions` prop; watcher index feed lands with M9.6)
+- [x] M6.4 @file fuzzy mentions fed by watcher index (composer picker wired via `suggestions` prop; feed served by the iles.index RPC, landed with M9.6)
 - [x] M6.5 Slash command registry + palette-style popup
 - [x] M6.6 Image paste/drop attachments (primitives: useImageAttachments hook + AttachmentStrip with object-URL lifecycle; paste/drop wiring into Composer follows)
 - [x] M6.7 Drafts per session (persist, restore)
@@ -191,7 +191,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M9.3 Sidebar grouping by project + resort FLIP animation
 - [ ] M9.4 Branch chip + quick switch popover
 - [x] M9.5 Watcher service (chokidar) + debounced fs events
-- [ ] M9.6 Watcherâ†’mentions index feed
+- [x] M9.6 Watcherâ†’mentions index feed (iles.index RPC over watcher-fed per-project index; UI picker wiring is a follow-up)
 - [ ] M9.7 Project settings (default provider/model/mode per project)
 - [ ] M9.8 Unseen/activity markers on sessions
 

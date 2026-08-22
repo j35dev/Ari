@@ -1,8 +1,13 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { closeAllWatchers, getWatcher } from './watcher-bridge'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  closeAllWatchers,
+  ensureProjectWatched,
+  getIndexedFiles,
+  getWatcher,
+} from './watcher-bridge'
 
 let dir: string
 
@@ -14,6 +19,10 @@ afterEach(async () => {
   await closeAllWatchers()
   await rm(dir, { recursive: true, force: true })
 })
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
+}
 
 describe('watcher bridge', () => {
   it('lazily creates and reuses one watcher per project path', () => {
@@ -36,5 +45,38 @@ describe('watcher bridge', () => {
     await closeAllWatchers()
     expect(watcher.rootCount).toBe(0)
     expect(getWatcher(dir)).not.toBe(watcher)
+  })
+
+  it('builds the file index for a project and is idempotent per id', async () => {
+    await mkdir(join(dir, 'src'), { recursive: true })
+    await writeFile(join(dir, 'src', 'a.ts'), '')
+    await writeFile(join(dir, 'b.md'), '')
+
+    await ensureProjectWatched({ id: 'p1', path: dir }, { debounceMs: 25 })
+    await ensureProjectWatched({ id: 'p1', path: dir }, { debounceMs: 25 })
+    expect(getIndexedFiles('p1')).toEqual(['b.md', 'src/a.ts'])
+  })
+
+  it('applies watcher change batches to the project index', async () => {
+    await ensureProjectWatched({ id: 'p2', path: dir }, { debounceMs: 25 })
+    await sleep(150)
+
+    const added = join(dir, 'later.ts')
+    await writeFile(added, '')
+    await vi.waitFor(() => expect(getIndexedFiles('p2')).toContain('later.ts'), {
+      timeout: 3000,
+    })
+
+    await rm(added)
+    await vi.waitFor(() => expect(getIndexedFiles('p2')).not.toContain('later.ts'), {
+      timeout: 3000,
+    })
+  })
+
+  it('clears indexes on closeAllWatchers', async () => {
+    await ensureProjectWatched({ id: 'p3', path: dir }, { debounceMs: 25 })
+    expect(getIndexedFiles('p3')).not.toBeNull()
+    await closeAllWatchers()
+    expect(getIndexedFiles('p3')).toBeNull()
   })
 })
