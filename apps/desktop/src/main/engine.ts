@@ -295,20 +295,23 @@ export class Engine {
     errorMessage: string | null,
   ): Promise<void> {
     const model = await this.#deps.store.load(sessionId)
+    const nextStatus = stopReason === 'error' ? 'error' : 'idle'
+    // Fold status before publishing turn.settled so subscribers that load
+    // the read model on settle already see idle/error, not a stale `running`.
+    if (model.status !== nextStatus) {
+      await this.#append(sessionId, {
+        type: 'session.status.changed',
+        from: model.status === 'unknown' ? 'idle' : model.status,
+        to: nextStatus,
+        reason: errorMessage,
+      })
+    }
     await this.#append(sessionId, {
       type: 'turn.settled',
       turnId,
       stopReason,
       errorMessage,
     })
-    if (model.status !== 'idle') {
-      await this.#append(sessionId, {
-        type: 'session.status.changed',
-        from: model.status === 'unknown' ? 'idle' : model.status,
-        to: stopReason === 'error' ? 'error' : 'idle',
-        reason: errorMessage,
-      })
-    }
   }
 
   /** Live tail: replays the journal, then forwards appended events. */
