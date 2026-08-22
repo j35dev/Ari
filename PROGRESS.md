@@ -213,7 +213,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [ ] M13.1 Sidebar session-resort FLIP polish (260ms cubic-bezier(0.22,1,0.36,1))
 - [ ] M13.2 Toast audit + queue behaviors
 - [ ] M13.3 Skeleton/loading audit (no spinners >300ms)
-- [ ] M13.4 prefers-reduced-motion full sweep
+- [x] M13.4 prefers-reduced-motion full sweep
 - [ ] M13.5 Focus-visible sweep + tab order audit
 - [ ] M13.6 Keyboard map completion + cheat-sheet overlay (?)
 - [ ] M13.7 Memory audit vs budgets (long-session soak)
@@ -230,7 +230,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [x] M14.3 AppImage + deb targets
 - [ ] M14.4 App icons (win/mac/linux) + installer assets
 - [ ] M14.5 `pnpm dist` pipeline + artifact smoke checklist doc
-- [ ] M14.6 Auto-update scaffolding (electron-updater, disabled by default) + README/docs final pass
+- [x] M14.6 Auto-update scaffolding (electron-updater, disabled by default) + README/docs final pass
 
 ## Stretch backlog (post-V1, unplanned)
 
