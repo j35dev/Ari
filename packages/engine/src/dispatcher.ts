@@ -58,6 +58,13 @@ export function decideCommand(
           reason: null,
         },
       ]
+      // Auto-title: first prompt names an untouched session (T3 behavior).
+      if (model.session.title === 'New session' && command.text.trim().length > 0) {
+        events.push({
+          type: 'session.updated',
+          title: deriveTitle(command.text),
+        })
+      }
       return accept(events)
     }
 
@@ -135,6 +142,13 @@ function accept(events: DispatchDecision['events']): DispatchDecision {
 
 function reject(reason: string): DispatchDecision {
   return { accepted: false, reason, events: [] }
+}
+
+/** Derives a sidebar title from the first user prompt (max 48 chars). */
+export function deriveTitle(prompt: string): string {
+  const firstLine = prompt.trim().split('\n')[0] ?? prompt.trim()
+  if (firstLine.length <= 48) return firstLine
+  return `${firstLine.slice(0, 45)}…`
 }
 
 /**
