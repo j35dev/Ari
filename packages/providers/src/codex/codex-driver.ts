@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process'
 import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { mapCodexLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { streamProcessEvents } from '../process-stream'
+import { spawnCli } from '../spawn-cli'
 
 const log = createLogger('providers:codex')
 
@@ -36,7 +36,7 @@ export class CodexDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawn(this.binaryPath, buildCodexArgs(session), {
+    const child = spawnCli(this.binaryPath, buildCodexArgs(session), {
       cwd: session.workspacePath,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

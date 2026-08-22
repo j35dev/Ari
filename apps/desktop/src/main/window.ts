@@ -36,6 +36,22 @@ export function createMainWindow(): BrowserWindow {
 
   if (settings?.maximized) win.maximize()
 
+  // Packaged builds enforce a strict CSP via response headers. Dev is exempt
+  // so the Vite dev server's inline React-refresh preamble keeps working, and
+  // so users can probe arbitrary model endpoints from the endpoints manager.
+  if (!process.env['ELECTRON_RENDERER_URL']) {
+    win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http: https: ws:",
+          ],
+        },
+      })
+    })
+  }
+
   const persistBounds = (): void => {
     if (win.isDestroyed() || win.isMinimized()) return
     const bounds = win.isMaximized() ? null : win.getBounds()

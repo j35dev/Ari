@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process'
 import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { mapHermesLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { streamProcessEvents } from '../process-stream'
+import { spawnCli } from '../spawn-cli'
 
 const log = createLogger('providers:hermes')
 
@@ -38,7 +38,7 @@ export class HermesDriver implements Driver {
   constructor(private readonly binaryPath: string) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawn(this.binaryPath, buildHermesArgs(session), {
+    const child = spawnCli(this.binaryPath, buildHermesArgs(session), {
       cwd: session.workspacePath,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,

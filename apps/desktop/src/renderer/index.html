@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
-    />
+    <!--
+      CSP is delivered as a response header by the main process in packaged
+      builds only. A static meta tag here would block the dev server's injected
+      React-refresh preamble and cross-origin endpoint probes.
+    -->
     <title>Ari</title>
   </head>
   <body>

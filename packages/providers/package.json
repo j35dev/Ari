@@ -10,6 +10,7 @@
     "./catalogs": "./src/catalogs.ts",
     "./registry": "./src/driver-registry.ts",
     "./driver": "./src/driver.ts",
+    "./spawn-cli": "./src/spawn-cli.ts",
     "./claude": "./src/claude/claude-driver.ts",
     "./claude/mapper": "./src/claude/mapper.ts",
     "./codex": "./src/codex/codex-driver.ts",

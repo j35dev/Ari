@@ -26,6 +26,7 @@ import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { BootSplash } from './features/moment'
 import { SidebarHeader, SessionsUnderProjects, UtilityStrip } from './shell/Sidebar'
+import { ErrorBoundary } from './shell/ErrorBoundary'
 import './features/transcript/transcript.css'
 
 type MainPane = 'session' | 'projects' | 'terminal' | 'changes' | 'settings'
@@ -43,12 +44,22 @@ function Shell() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
+  const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
   const [defaults, setDefaults] = useState<SessionDefaults>({
-    driverKind: 'claude',
+    // Ari Core is the safe default: it works with a user-configured endpoint
+    // and never depends on an installed CLI. Detection below upgrades this.
+    driverKind: 'ari-core',
     modelId: null,
     permissionMode: 'ask',
   })
   const { theme, setTheme } = useTheme()
+
+  useEffect(() => {
+    void rpc
+      .invoke('app.info')
+      .then((info) => setWorkspaceCwd(info.homeDir))
+      .catch(() => undefined)
+  }, [])
 
   const refreshSessions = useCallback((): void => {
     void rpc
@@ -66,7 +77,8 @@ function Shell() {
       .catch(() => undefined)
   }, [])
 
-  // First available CLI becomes the default driver at boot.
+  // First available CLI becomes the default driver at boot; when none is
+  // installed, sessions fall back to Ari Core (endpoint-powered).
   useEffect(() => {
     void rpc
       .invoke('providers.detect')
@@ -74,7 +86,13 @@ function Shell() {
         const installed = detections.find(
           (d) => d.binaryPath !== null && d.kind !== 'ari-core',
         )
-        if (installed) setDefaults((prev) => ({ ...prev, driverKind: installed.kind as DriverKind }))
+        if (installed) {
+          setDefaults((prev) =>
+            prev.driverKind === 'ari-core'
+              ? { ...prev, driverKind: installed.kind as DriverKind }
+              : prev,
+          )
+        }
       })
       .catch(() => undefined)
   }, [])
@@ -188,11 +206,17 @@ function Shell() {
 
         <main className="min-w-0 flex-1 bg-bg">
           {pane === 'terminal' ? (
-            <TerminalView cwd={process.cwd()} />
+            <ErrorBoundary label="Terminal">
+              <TerminalView cwd={workspaceCwd || undefined} />
+            </ErrorBoundary>
           ) : pane === 'changes' ? (
-            <ChangesView />
+            <ErrorBoundary label="Changes">
+              <ChangesView />
+            </ErrorBoundary>
           ) : pane === 'projects' ? (
-            <ProjectsView />
+            <ErrorBoundary label="Projects">
+              <ProjectsView />
+            </ErrorBoundary>
           ) : pane === 'settings' ? (
             <div className="ari-scroll h-full overflow-y-auto">
               <div className="mx-auto max-w-2xl space-y-10 p-8">
@@ -211,12 +235,14 @@ function Shell() {
               </div>
             </div>
           ) : activeSessionId ? (
-            <SessionView
-              key={activeSessionId}
-              sessionId={activeSessionId}
-              defaults={defaults}
-              onDefaultsChange={setDefaults}
-            />
+            <ErrorBoundary label="Session">
+              <SessionView
+                key={activeSessionId}
+                sessionId={activeSessionId}
+                defaults={defaults}
+                onDefaultsChange={setDefaults}
+              />
+            </ErrorBoundary>
           ) : (
             <EmptyState onCreate={createSession} onOpenGallery={() => setGalleryOpen(true)} />
           )}
