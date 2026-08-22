@@ -131,7 +131,7 @@ audits · a11y sweeps · keybinding remap layer · driver doc pages · arch-08+ note
 - [x] M5.5 Text row: streaming veil fade, cursor pulse
 - [x] M5.6 Thinking row (collapsed by default, expand animation)
 - [x] M5.7 Tool card: args summary, collapsible raw JSON, duration, exit state
-- [ ] M5.8 Diff card (delegates to shared diff viewer)
+- [x] M5.8 Diff card (delegates to shared diff viewer)
 - [x] M5.9 Error/diagnostic rows
 - [x] M5.10 Copy affordances + language chips on code blocks (CopyButton; language chips deferred with M5.8 diff-card scope)
 - [x] M5.11 Timestamps + usage footer per message
