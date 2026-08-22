@@ -39,6 +39,14 @@ export function SessionView({
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<string[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
+  const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
+
+  useEffect(() => {
+    void rpc
+      .invoke('files.index', { projectId: 'adhoc' })
+      .then((r) => setFileSuggestions(r.paths))
+      .catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -216,6 +224,7 @@ export function SessionView({
         onStop={handleStop}
         running={running}
         queued={queued}
+        suggestions={fileSuggestions}
         leading={
           <ModelSelector
             driverKind={defaults.driverKind}
