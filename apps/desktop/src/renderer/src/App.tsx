@@ -17,6 +17,7 @@ import { ProjectsView } from './features/projects'
 import { ProvidersView } from './features/providers'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
+import { NewSessionPanel } from './features/session/NewSessionPanel'
 import './features/transcript/transcript.css'
 
 type Route = 'home' | 'gallery'
@@ -28,6 +29,7 @@ function Shell() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [newSessionOpen, setNewSessionOpen] = useState(false)
   const { theme, setTheme } = useTheme()
 
   const commands = useCommands({
@@ -104,21 +106,7 @@ function Shell() {
                 activeSessionId={activeSessionId}
                 onToggle={() => setSidebarOpen((o) => !o)}
                 onSelectSession={setActiveSessionId}
-                onNewSession={() => {
-                  void rpc
-                    .invoke('session.create', {
-                      projectId: 'adhoc',
-                      title: `Session ${new Date().toLocaleTimeString()}`,
-                      driverKind: 'claude',
-                      modelId: null,
-                      permissionMode: 'ask',
-                    })
-                    .then(({ sessionId }) => {
-                      setActiveSessionId(sessionId)
-                      refreshSessions()
-                    })
-                    .catch(() => undefined)
-                }}
+                onNewSession={() => setNewSessionOpen(true)}
               />
             </motion.div>
           ) : null}
@@ -149,6 +137,24 @@ function Shell() {
       </div>
       <StatusBar sessionCount={sessions.length} active={activeSessionId !== null} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      {newSessionOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]"
+          style={{ background: 'color-mix(in oklab, black 45%, transparent)' }}
+          onClick={() => setNewSessionOpen(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <NewSessionPanel
+              onSuccess={(sessionId) => {
+                setNewSessionOpen(false)
+                setActiveSessionId(sessionId)
+                refreshSessions()
+              }}
+              onCancel={() => setNewSessionOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
