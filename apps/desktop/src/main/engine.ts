@@ -85,11 +85,25 @@ export class Engine {
       return
     }
 
+    // Bracket the turn with a checkpoint when the workspace is a git repo
+    // (PLAN §3). captureCheckpoint returns null outside repos; failures are
+    // non-fatal — checkpoints are best-effort.
+    const workspacePath = session.projectId === 'adhoc' ? process.cwd() : session.projectId
+    const { GitService } = await import('@ari/engine/git')
+    const captured = await new GitService().captureCheckpoint(workspacePath, session.id, turnId)
+    if (captured.ok && captured.value !== null) {
+      await this.#append(session.id, {
+        type: 'checkpoint.captured',
+        turnId,
+        gitRef: captured.value,
+      })
+    }
+
     let adapter
     try {
       adapter = await driver.create({
         sessionId: session.id,
-        workspacePath: session.projectId === 'adhoc' ? process.cwd() : session.projectId,
+        workspacePath,
         prompt,
         modelId: session.modelId,
         permissionMode: session.permissionMode,

@@ -88,7 +88,7 @@ describe('engine end-to-end with scripted driver', () => {
     } as Command)
     expect(result.accepted).toBe(true)
 
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 150; i++) {
       const model = await store.load(sessionId)
       if (model.activeTurnId === null && model.messages.length >= 2) break
       await new Promise((r) => setTimeout(r, 20))
