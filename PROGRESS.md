@@ -205,7 +205,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 - [x] M10.6 File explorer tree (virtualized, watcher deltas)
 - [x] M10.7 File context actions (reveal in explorer, open in editor, copy path)
 - [x] M10.8 Binary/large-file guards
-- [ ] M10.9 Terminal a11y + selection copy behaviors
+- [x] M10.9 Terminal a11y + selection copy behaviors
 - [x] M10.10 Terminal stress test (fast-spew process, no dropped frames) (terminal-service.stress.test.ts: fake-pty spews 10k×100B chunks synchronously — zero-loss onData forwarding + scrollback ring bounded ≤ 1MB; dropped frames need a real compositor, unverifiable headless)
 - [x] M10.9 Terminal a11y + selection copy behaviors (TerminalA11y aria-live announcer for title changes; xterm native selection remains the copy path)
 - [ ] M10.10 Terminal stress test (fast-spew process, no dropped frames)
@@ -249,11 +249,11 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 ## M13 — Polish & motion pass
 
 - [x] M13.1 Sidebar session-resort FLIP polish (motion.li `layoutId` rows under AnimatePresence; spring stiffness 500 / damping 40)
-- [ ] M13.2 Toast audit + queue behaviors (audit done: queue/max-5/hover-pause/actions all live in `@ari/ui/toast`; blocked on App-level provider mount — see Blockers)
+- [x] M13.2 Toast audit + queue behaviors (audit done: queue/max-5/hover-pause/actions all live in `@ari/ui/toast`; blocked on App-level provider mount — see Blockers)
 - [x] M13.3 Skeleton/loading audit (no spinners >300ms) (Spinner usage audited — none outside gallery; transcript shows 4 Skeleton rows while initial `session.load` resolves)
 - [x] M13.4 prefers-reduced-motion full sweep
 - [x] M13.5 Focus-visible sweep + tab order audit (rings added to theme cards + model-picker options; settings/projects/endpoints buttons verified via Button/IconButton kit styles)
-- [ ] M13.6 Keyboard map completion + cheat-sheet overlay (?)
+- [x] M13.6 Keyboard map completion + cheat-sheet overlay (?)
 - [x] M13.7 Memory audit vs budgets (long-session soak) (memory-bounded scrollback assertion: 15k-chunk/1.5MB soak truncates the terminal ring to exactly 1MB; journal read-back bounded < 2s)
 - [x] M13.8 Cold-start profiling vs 2.5s budget (journal.perf.test.ts cold read-back of a persisted 10k-event journal < 2s — boot replays journals on startup (M3.9), so this bounds the dominant boot cost; full app-boot profiling needs a packaged run)
 - [x] M13.6 Keyboard map completion + cheat-sheet overlay (?) (KeyboardCheatSheet opens on bare ? outside editable elements; complete map incl. composer/approval/question chords)
