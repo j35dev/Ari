@@ -288,7 +288,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 
 | Task | Tried | Error essence | Status |
 | --- | --- | --- | --- |
-| (infra, found during M13.x) `src/main/engine.test.ts` "runs a full turn" | verify re-runs, isolated runs, clean-tree runs | Race: `#settle` publishes `turn.settled` before the `session.status.changed → idle` append folds into the read model; the test asserts `status === 'idle'` right after the settle poll, so it fails under full-workspace load only (passes isolated and on clean tree) | open — needs engine/test ordering fix, owner: orchestrator |
+
 
 ## Merge log
 

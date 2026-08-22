@@ -89,12 +89,22 @@ describe('engine end-to-end with scripted driver', () => {
     } as Command)
     expect(result.accepted).toBe(true)
 
-    // Wait until the engine publishes turn.settled (load-independent).
+    // Wait until settle has folded idle into the read model (load-independent).
     const settledAt = Date.now()
-    while (!published.some((p) => p.event.type === 'turn.settled')) {
-      if (Date.now() - settledAt > 30000) throw new Error('turn never settled')
+    while (true) {
+      const model = await store.load(sessionId)
+      if (model.status === 'idle' && published.some((p) => p.event.type === 'turn.settled')) break
+      if (Date.now() - settledAt > 30000) throw new Error('turn never settled idle')
       await new Promise((r) => setTimeout(r, 25))
     }
+
+    const types = published.map((p) => p.event.type)
+    const idleIdx = published.findIndex(
+      (p) => p.event.type === 'session.status.changed' && p.event.to === 'idle',
+    )
+    const settledIdx = types.lastIndexOf('turn.settled')
+    expect(idleIdx).toBeGreaterThanOrEqual(0)
+    expect(idleIdx).toBeLessThan(settledIdx)
 
     const model = await store.load(sessionId)
     expect(model.status).toBe('idle')
