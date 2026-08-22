@@ -57,7 +57,7 @@ describe('ProjectsView', () => {
     render(<ProjectsView />)
 
     await screen.findByText('Ari')
-    await user.click(screen.getByRole('button', { name: 'Add Project' }))
+    await user.click(screen.getByRole('button', { name: 'Add project' }))
     await user.type(screen.getByLabelText('Folder path'), ADDED_PATH)
     await user.type(screen.getByLabelText('Name'), 'demo')
     await user.click(screen.getByRole('button', { name: 'Add project' }))
