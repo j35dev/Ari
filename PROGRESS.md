@@ -249,7 +249,7 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 ## M13 — Polish & motion pass
 
 - [x] M13.1 Sidebar session-resort FLIP polish (motion.li `layoutId` rows under AnimatePresence; spring stiffness 500 / damping 40)
-- [x] M13.2 Toast audit + queue behaviors (audit done: queue/max-5/hover-pause/actions all live in `@ari/ui/toast`; blocked on App-level provider mount — see Blockers)
+- [x] M13.2 Toast audit + queue behaviors (AppProviders mounts ToastProvider around the shell; CheckpointList/settle toasts no longer throw)
 - [x] M13.3 Skeleton/loading audit (no spinners >300ms) (Spinner usage audited — none outside gallery; transcript shows 4 Skeleton rows while initial `session.load` resolves)
 - [x] M13.4 prefers-reduced-motion full sweep
 - [x] M13.5 Focus-visible sweep + tab order audit (rings added to theme cards + model-picker options; settings/projects/endpoints buttons verified via Button/IconButton kit styles)
@@ -288,7 +288,6 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 
 | Task | Tried | Error essence | Status |
 | --- | --- | --- | --- |
-| M13.2 `useToast()` consumers render outside any ToastProvider | Read all mount points: ToastProvider is mounted only inside GalleryView (and per-test wrappers); App.tsx wraps Theme+Motion only | `CheckpointList`/`SettleNotification` call `useToast()`, which throws outside a provider; fix requires mounting `<ToastProvider>` around `<Shell/>` in App.tsx, which is off-limits to this worker (orchestrator-owned) | open — needs orchestrator one-line App.tsx change |
 | (infra, found during M13.x) `src/main/engine.test.ts` "runs a full turn" | verify re-runs, isolated runs, clean-tree runs | Race: `#settle` publishes `turn.settled` before the `session.status.changed → idle` append folds into the read model; the test asserts `status === 'idle'` right after the settle poll, so it fails under full-workspace load only (passes isolated and on clean tree) | open — needs engine/test ordering fix, owner: orchestrator |
 
 ## Merge log

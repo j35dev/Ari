@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
@@ -9,6 +9,7 @@ import { TranscriptView } from '../transcript'
 import { Composer } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
+import { useSettleNotify } from '../moment'
 
 interface PendingApproval {
   approvalId: string
@@ -41,6 +42,10 @@ export function SessionView({
   const [queued, setQueued] = useState<string[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
+  const sessionTitleRef = useRef('Session')
+  const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
+  const notifySettledRef = useRef(notifySettledTurn)
+  notifySettledRef.current = notifySettledTurn
 
   useEffect(() => {
     void rpc
@@ -72,6 +77,7 @@ export function SessionView({
         setMessages(m.messages)
         setLoading(false)
         setRunning(m.activeTurnId !== null)
+        if (m.session.title.trim().length > 0) sessionTitleRef.current = m.session.title
         onDefaultsChange({
           driverKind: m.session.driverKind,
           modelId: m.session.modelId,
@@ -126,6 +132,7 @@ export function SessionView({
           break
         case 'turn.settled':
           setRunning(false)
+          notifySettledRef.current()
           setQueued((prev) => {
             const [next, ...rest] = prev
             if (next) {
