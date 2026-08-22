@@ -11,6 +11,41 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 
 **129 / 181 tasks delivered � 105 commits � ~22k LOC � 225+ tests green � Windows build verified**
 
+> HONESTY CORRECTION (2026-08-23, feat/v2-usability-overhaul): the snapshot above
+> overstated reality. Despite every box being ticked and tests green, the app was
+> NOT usable: opening Terminal crashed the whole renderer (`process.cwd()` in a
+> sandboxed context -> blank screen, no way back), CLI spawns failed with EINVAL on
+> Windows (.cmd shims), turn errors were invisible (settle errors never rendered),
+> endpoints saved to localStorage never reached the engine store, and IPC handlers
+> registered only after multi-second detection. The M15 repair wave below fixed the
+> foundations; verified by unit tests AND a live CDP probe of the packaged build.
+
+## M15 - Usability repair wave (foundation fixes)
+
+- [x] M15.1 Root + per-pane ErrorBoundary; a crashing pane can never unmount the shell again
+- [x] M15.2 `app.info` RPC replaces sandbox-forbidden `process.cwd()`; home-dir fallback
+- [x] M15.3 Synchronous IPC registration; drivers hydrate concurrently in background
+- [x] M15.4 node-pty loads via guarded cached promise (descriptive error instead of hang)
+- [x] M15.5 cross-spawn port: .cmd/.bat/extensionless CLIs spawn through escaped cmd.exe
+      (validated live: codex/opencode/pi npm shims probe versions successfully)
+- [x] M15.6 Detector version probes use the same wrapper
+- [x] M15.7 Turn errors surface: banner in session + danger toast (fires even when focused)
+- [x] M15.8 EndpointsManager moved onto the engine's encrypted store over IPC (+ endpoints.test RPC,
+      CORS-free probes run in main); blank-key edits preserve stored keys
+- [x] M15.9 First-run welcome: detected-CLI grid + inline connect-a-model form (Ari Core works day one)
+- [x] M15.10 Session fold rebuilt on replayed events only (load/replay race eliminated);
+      queued messages hold on failure instead of auto-dispatching into the same wall
+- [x] M15.11 Engine resolveWorkspace: project ids map to real folders; adhoc sessions run in home dir
+- [x] M15.12 CSP moves from static meta (blocked dev preamble + endpoint probes) to prod-only headers
+- [x] M15.13 Zeron-style transcript: consecutive tools collapse into "Ran 2 commands / Edited 1 file"
+      activity rows with error badges; user messages as right-aligned bubbles
+- [x] M15.14 Composer pill redesign: docked control row, circular send/stop, permission-mode chip
+- [x] M15.15 DSH-style telemetry strip: turns, last-turn latency, token totals, running pulse
+- [x] M15.16 Multi-tab terminal (tabs stay mounted hidden; ptys die on close; focus follows tabs)
+- [x] M15.17 Sidebar relative timestamps; titlebar project breadcrumb + Ctrl K hint
+- [x] M15.18 Live smoke: packaged renderer boots (CDP-verified sidebar/sessions/composer/terminal),
+      navigation round-trips, zero error boundaries triggered
+
 ### Working end-to-end today
 - Single-sidebar shell: sessions grouped under collapsible project sections, utility strip
 - Instant new sessions; model/driver selected from the prompt-box pill (`session.update` re-binds drivers mid-session)
