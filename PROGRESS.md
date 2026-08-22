@@ -220,8 +220,8 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - [ ] M13.8 Cold-start profiling vs 2.5s budget
 - [ ] M13.9 Empty/error edge sweep (every pane)
 - [ ] M13.10 UX copy pass (voice: precise, warm, zero fluff)
-- [ ] M13.11 Boot splash + working-indicator signature moments
-- [ ] M13.12 Notification-on-settle when unfocused
+- [x] M13.11 Boot splash + working-indicator signature moments
+- [x] M13.12 Notification-on-settle when unfocused
 
 ## M14 — Package & ship
 
