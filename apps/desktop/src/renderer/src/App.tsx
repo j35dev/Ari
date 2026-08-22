@@ -7,7 +7,7 @@ import {
   SquarePen,
   TerminalSquare,
 } from 'lucide-react'
-import { ThemeProvider } from '@ari/ui/theme-provider'
+import { ThemeProvider, useTheme } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
@@ -24,7 +24,7 @@ import { ProvidersView } from './features/providers'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { BootSplash } from './features/moment'
-import { SidebarHeader, SessionsList, UtilityStrip } from './shell/Sidebar'
+import { SidebarHeader, SessionsUnderProjects, UtilityStrip } from './shell/Sidebar'
 import './features/transcript/transcript.css'
 
 type MainPane = 'session' | 'projects' | 'terminal' | 'changes' | 'settings'
@@ -38,6 +38,7 @@ export interface SessionDefaults {
 function Shell() {
   const [pane, setPane] = useState<MainPane>('session')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -56,6 +57,13 @@ function Shell() {
   }, [])
 
   useEffect(refreshSessions, [])
+
+  useEffect(() => {
+    void rpc
+      .invoke('project.list')
+      .then(setProjects)
+      .catch(() => undefined)
+  }, [])
 
   // First available CLI becomes the default driver at boot.
   useEffect(() => {
@@ -138,8 +146,9 @@ function Shell() {
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col border-r border-border bg-surface-0">
           <SidebarHeader onNewSession={createSession} />
-          <SessionsList
+          <SessionsUnderProjects
             sessions={sessions}
+            projects={projects}
             activeSessionId={activeSessionId}
             onSelect={(id) => {
               setActiveSessionId(id)
@@ -148,7 +157,7 @@ function Shell() {
           />
           <UtilityStrip
             active={pane}
-            onSelect={setPane}
+            onSelect={(id) => setPane(id as MainPane)}
             items={[
               { id: 'session', label: 'Sessions', icon: MessageSquare },
               { id: 'projects', label: 'Projects', icon: FolderGit2 },
