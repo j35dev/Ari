@@ -109,6 +109,18 @@ export function decideCommand(
         { type: 'checkpoint.reverted', turnId: command.turnId, gitRef: checkpoint.gitRef },
       ])
     }
+
+    case 'session.update': {
+      if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      const patch: UnstampedJournalEvent = {
+        type: 'session.updated',
+        ...(command.driverKind !== undefined ? { driverKind: command.driverKind } : {}),
+        ...(command.modelId !== undefined ? { modelId: command.modelId } : {}),
+        ...(command.permissionMode !== undefined ? { permissionMode: command.permissionMode } : {}),
+        ...(command.title !== undefined ? { title: command.title } : {}),
+      }
+      return accept([patch])
+    }
   }
 }
 

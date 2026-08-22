@@ -117,6 +117,18 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'checkpoint.reverted':
       next.checkpoints = next.checkpoints.filter((c) => c.turnId !== event.turnId)
       break
+
+    case 'session.updated': {
+      if (!next.session) break
+      next.session = {
+        ...next.session,
+        ...(event.driverKind !== undefined ? { driverKind: event.driverKind } : {}),
+        ...(event.modelId !== undefined ? { modelId: event.modelId } : {}),
+        ...(event.permissionMode !== undefined ? { permissionMode: event.permissionMode } : {}),
+        ...(event.title !== undefined ? { title: event.title } : {}),
+      }
+      break
+    }
   }
 
   return next
