@@ -3,7 +3,7 @@ import { agentEventSchema } from './agent-event'
 import { commandSchema } from './commands'
 import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
-import { rpcParams } from './rpc'
+import { rpcParams, SEARCH_CONTENT_MAX_RESULTS } from './rpc'
 import { sessionSchema } from './session'
 import { settingsUpdateSchema } from './settings'
 
@@ -99,5 +99,22 @@ describe('contracts', () => {
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, turnId: '-lead' })).toThrow()
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, sessionId: 'turn.lock' })).toThrow()
     expect(() => rpcParams['git.turnDiff'].parse({ path: '', sessionId: 's', turnId: 't' })).toThrow()
+  })
+
+  it('validates search.content params and rejects empty/anchorless queries', () => {
+    expect(rpcParams['search.content'].parse({ path: '/proj', query: 'needle' })).toEqual({
+      path: '/proj',
+      query: 'needle',
+    })
+    expect(rpcParams['search.content'].parse({ projectId: 'proj_1', query: 'n', maxResults: 5 })).toEqual({
+      projectId: 'proj_1',
+      query: 'n',
+      maxResults: 5,
+    })
+    expect(() => rpcParams['search.content'].parse({ path: '/proj', query: '' })).toThrow()
+    expect(() => rpcParams['search.content'].parse({ query: 'no-root' })).toThrow()
+    expect(() =>
+      rpcParams['search.content'].parse({ path: '/proj', query: 'n', maxResults: SEARCH_CONTENT_MAX_RESULTS + 1 }),
+    ).toThrow()
   })
 })

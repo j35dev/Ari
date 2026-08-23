@@ -74,6 +74,17 @@ export const checkpointComponentSchema = z
     message: 'invalid checkpoint ref component',
   })
 
+/** Hard ceiling for `search.content` results regardless of requested maxResults. */
+export const SEARCH_CONTENT_MAX_RESULTS = 200
+
+/** A single content-search hit: file path relative to the searched root. */
+export const contentMatchSchema = z.object({
+  path: z.string().min(1),
+  line: z.number().int().min(1),
+  text: z.string(),
+})
+export type ContentSearchMatch = z.infer<typeof contentMatchSchema>
+
 /** Invoke-method parameter schemas. The result side is typed via
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
@@ -101,6 +112,18 @@ export const rpcParams = {
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.remove': z.object({ id: z.string().min(1) }),
   'files.index': z.object({ projectId: z.string().min(1) }),
+  'search.content': z
+    .object({
+      /** Registered project id; resolved to its folder by the handler. */
+      projectId: z.string().min(1).optional(),
+      /** Explicit folder to search (jail boundary); used when projectId is absent. */
+      path: z.string().min(1).optional(),
+      query: z.string().min(1),
+      maxResults: z.number().int().positive().max(SEARCH_CONTENT_MAX_RESULTS).optional(),
+    })
+    .refine((v) => v.projectId !== undefined || v.path !== undefined, {
+      message: 'projectId or path is required',
+    }),
   'endpoints.list': z.undefined(),
   'endpoints.upsert': z.object({
     id: z.string(),
@@ -182,6 +205,7 @@ export interface RpcResults {
   'project.add': { id: string; name: string; path: string } | null
   'project.remove': { removed: boolean }
   'files.index': { paths: string[] }
+  'search.content': ContentSearchMatch[]
   'endpoints.list': {
     id: string
     name: string

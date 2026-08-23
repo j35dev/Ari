@@ -11,6 +11,7 @@ import { createLogger } from '@ari/shared/logger'
 import { Engine } from './engine'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
+import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
@@ -436,6 +437,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { paths: getIndexedFiles(params.projectId) ?? [] }
   })
 
+  // Project-wide content search (M18.4): resolves the folder from the project
+  // registry or an explicit path, then delegates to the jailed, capped,
+  // time-boxed searcher in ./content-search.
+  r.register('search.content', async (params) => {
+    let root = params.path ?? null
+    if (params.projectId !== undefined) {
+      await getProjectStore().load()
+      const project = getProjectStore().get(params.projectId)
+      if (!project) throw new Error(`unknown project: ${params.projectId}`)
+      root = project.path
+    }
+    if (root === null) throw new Error('projectId or path is required')
+    return searchProjectContent(root, params.query, { maxResults: params.maxResults })
+  })
+
   r.register('endpoints.list', async () => {
     const store = getEndpointStore()
     await store.load()
@@ -636,6 +652,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'project.add',
     'project.remove',
     'files.index',
+    'search.content',
     'endpoints.list',
     'endpoints.upsert',
     'endpoints.remove',
