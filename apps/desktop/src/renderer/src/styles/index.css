@@ -1,11 +1,11 @@
 @import 'tailwindcss';
 @import '@ari/ui/fonts.css';
 @import '@ari/ui/tokens.css';
-@import '@ari/ui/themes.css';
+@import '@ari/ui/glass.css';
 @import '@ari/ui/scroll-area.css';
 
 /* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
-   resolve to live CSS variables and follow the active theme. */
+   resolve to live CSS variables and follow the single glass appearance. */
 @theme inline {
   --color-bg: var(--ari-bg);
   --color-surface-0: var(--ari-surface-0);
@@ -32,6 +32,8 @@
   --color-danger-subtle: var(--ari-danger-subtle);
   --color-info: var(--ari-info);
   --color-info-subtle: var(--ari-info-subtle);
+  --color-busy: var(--ari-busy);
+  --color-busy-subtle: var(--ari-busy-subtle);
   --radius-sm: var(--ari-radius-sm);
   --radius-md: var(--ari-radius-md);
   --radius-lg: var(--ari-radius-lg);

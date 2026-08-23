@@ -1,13 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type * as ThemeProviderModule from '@ari/ui/theme-provider'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
 import type { Settings } from '@ari/contracts/settings'
 import { AdvancedSettings } from './AdvancedSettings'
 
 const mocks = vi.hoisted(() => ({
-  setTheme: vi.fn(),
   update: vi.fn(),
   holder: { settings: null as Settings | null },
 }))
@@ -16,14 +14,9 @@ vi.mock('./useEngineSettings', () => ({
   useEngineSettings: () => ({ settings: mocks.holder.settings, update: mocks.update }),
 }))
 
-vi.mock('@ari/ui/theme-provider', async (importOriginal) => ({
-  ...(await importOriginal<typeof ThemeProviderModule>()),
-  useTheme: () => ({ theme: 'ember', setTheme: mocks.setTheme }),
-}))
-
 const engineSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'obsidian', reducedMotion: false },
+  appearance: { themeId: 'comet-glass', reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: ['git status'] },
   window: null,
@@ -68,7 +61,7 @@ describe('AdvancedSettings', () => {
     expect(bundle).toEqual({
       appVersion: '0.1.0',
       userAgent: navigator.userAgent,
-      theme: 'ember',
+      appearance: 'comet-glass',
     })
   })
 

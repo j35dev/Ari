@@ -73,7 +73,7 @@ export function FilePopup({ items, onSelect, onClose }: FilePopupProps) {
       initial="hidden"
       animate="visible"
       variants={menuInVariants}
-      className="overflow-hidden rounded-md border border-border bg-surface-0 shadow-lg"
+      className="ari-glass-overlay overflow-hidden rounded-md border border-border shadow-lg"
     >
       <ul role="listbox" aria-label="File mentions" className="max-h-[232px] overflow-y-auto p-1">
         {items.map((path, index) => {

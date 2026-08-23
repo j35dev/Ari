@@ -1,5 +1,3 @@
-import { THEMES, useTheme } from '@ari/ui/theme-provider'
-import type { ThemeId } from '@ari/ui/theme-provider'
 import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
 import { SettingsPage } from './SettingsPage'
@@ -7,59 +5,14 @@ import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:appearance')
 
-interface ThemeCardProps {
-  id: ThemeId
-  label: string
-  active: boolean
-  onSelect: (id: ThemeId) => void
-}
-
 /**
- * One theme preview card. Scoping `data-theme` to the card makes that theme's
- * token overrides cascade locally, so the swatch bars render its real colors
- * regardless of the active document theme.
+ * Appearance settings: Ari ships one designed appearance (comet glass), so
+ * there are no theme pickers to maintain. When themes return (M1.2 endgame)
+ * this page grows the picker back.
  */
-function ThemeCard({ id, label, active, onSelect }: ThemeCardProps) {
-  return (
-    <button
-      type="button"
-      data-theme={id}
-      aria-pressed={active}
-      onClick={() => onSelect(id)}
-      className={[
-        'rounded-md border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring',
-        active
-          ? 'border-accent ring-2 ring-accent-ring'
-          : 'border-border hover:border-border-strong',
-      ].join(' ')}
-    >
-      <span
-        aria-hidden="true"
-        className="block overflow-hidden rounded-sm border border-border"
-        style={{ background: 'var(--ari-bg)' }}
-      >
-        <span className="flex h-12 flex-col justify-end gap-1 p-1.5">
-          <span className="h-2.5 rounded-sm" style={{ background: 'var(--ari-surface-2)' }} />
-          <span className="h-2.5 rounded-sm" style={{ background: 'var(--ari-accent)' }} />
-        </span>
-      </span>
-      <span className="mt-1.5 block text-sm text-fg">{label}</span>
-    </button>
-  )
-}
-
-/** Appearance settings page: live theme previews, reduced motion, density note. */
 export function AppearanceSettings() {
-  const { theme, setTheme } = useTheme()
   const { settings, update } = useEngineSettings()
   const reducedMotion = settings?.appearance.reducedMotion ?? false
-
-  const selectTheme = (id: ThemeId) => {
-    setTheme(id)
-    void update({ appearance: { themeId: id } }).catch((error: unknown) => {
-      log.warn('failed to persist theme', { error })
-    })
-  }
 
   const handleReducedMotionChange = (checked: boolean) => {
     void update({ appearance: { reducedMotion: checked } }).catch((error: unknown) => {
@@ -70,22 +23,19 @@ export function AppearanceSettings() {
   return (
     <SettingsPage
       title="Appearance"
-      description="Themes, motion, and density for the Ari workspace."
+      description="One look, designed — frosted dark chrome over your desktop."
     >
       <section aria-labelledby="appearance-theme-heading" className="space-y-3">
         <h2 id="appearance-theme-heading" className="text-sm font-medium">
           Theme
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {THEMES.map((t) => (
-            <ThemeCard
-              key={t.id}
-              id={t.id}
-              label={t.label}
-              active={theme === t.id}
-              onSelect={selectTheme}
-            />
-          ))}
+        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface-1 p-3">
+          <div className="space-y-0.5">
+            <p className="text-sm text-fg">Comet glass</p>
+            <p className="text-xs text-fg-muted">
+              A single frosted dark theme tuned for contrast. Alternate themes may return later.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -104,15 +54,6 @@ export function AppearanceSettings() {
             aria-label="Reduce motion"
           />
         </div>
-      </section>
-
-      <section aria-labelledby="appearance-density-heading" className="space-y-3">
-        <h2 id="appearance-density-heading" className="text-sm font-medium">
-          Density
-        </h2>
-        <p className="text-sm text-fg-muted">
-          Compact and comfortable density options arrive with the engine-backed settings store.
-        </p>
       </section>
     </SettingsPage>
   )

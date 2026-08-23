@@ -21,7 +21,7 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-appearance',
     label: 'Theme',
-    keywords: 'obsidian graphite porcelain ember verdant ultraviolet accent light dark preview',
+    keywords: 'comet glass accent light dark preview appearance',
   },
   {
     section: 'settings-appearance',

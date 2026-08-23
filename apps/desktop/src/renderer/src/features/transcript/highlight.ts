@@ -27,9 +27,9 @@ function cacheSet(key: string, html: string): void {
   cache.set(key, html)
 }
 
-/** Which bundled theme is the default color source, per the active app theme. */
+/** Which bundled theme is the default color source. Ari is dark-only. */
 function defaultColor(): 'light' | 'dark' {
-  return document.documentElement.dataset.theme === 'porcelain' ? 'light' : 'dark'
+  return 'dark'
 }
 
 /**

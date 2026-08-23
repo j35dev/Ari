@@ -15,7 +15,7 @@ vi.mock('./useEngineSettings', () => ({
 
 const engineSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'obsidian', reducedMotion: false },
+  appearance: { themeId: 'comet-glass', reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,
