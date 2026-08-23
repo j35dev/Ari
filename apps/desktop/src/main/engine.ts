@@ -330,8 +330,14 @@ export class Engine {
             })
             break
           case 'input-requested':
-            // Question panel arrives in M7; surface as an error-free notice.
-            log.info('provider requested input', { sessionId: session.id })
+            // Journal the question so the QuestionPanel can answer it via
+            // `input.respond` and answers survive replay.
+            await append({
+              type: 'input.requested',
+              inputId: event.inputId,
+              prompt: event.prompt,
+              choicesJson: event.choicesJson,
+            })
             break
           case 'session-ref':
             // Persist the provider-native thread id so the next turn resumes
