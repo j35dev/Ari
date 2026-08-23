@@ -1,13 +1,11 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Search } from 'lucide-react'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import {
   formatRelativeTime,
   SessionsUnderProjects,
   SidebarHeader,
-  UtilityStrip,
 } from './Sidebar'
 
 const HOUR = 60 * 60 * 1000
@@ -110,28 +108,5 @@ describe('SidebarHeader', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'New session' }))
     expect(onNewSession).toHaveBeenCalledOnce()
-  })
-})
-
-describe('UtilityStrip', () => {
-  it('highlights the active pane and selects on click', async () => {
-    const onSelect = vi.fn()
-    const icon = Search
-    render(
-      <UtilityStrip
-        active="terminal"
-        onSelect={onSelect}
-        items={[
-          { id: 'session', label: 'Sessions', icon },
-          { id: 'terminal', label: 'Terminal', icon },
-        ]}
-      />,
-    )
-    const terminal = screen.getByRole('button', { name: 'Terminal' })
-    expect(terminal).toHaveAttribute('aria-label', 'Terminal')
-
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Sessions' }))
-    expect(onSelect).toHaveBeenCalledWith('session')
   })
 })

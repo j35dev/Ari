@@ -10,7 +10,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
@@ -428,48 +427,6 @@ export function SidebarSearch({
           className="h-7 w-full rounded-lg border border-border bg-glass-input pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
         />
       </div>
-    </div>
-  )
-}
-
-export interface UtilityItem {
-  id: string
-  label: string
-  icon: LucideIcon
-}
-
-/** Sidebar bottom strip — switches the main pane without leaving the sidebar. */
-export function UtilityStrip({
-  active,
-  onSelect,
-  items,
-}: {
-  active: string
-  onSelect: (id: string) => void
-  items: UtilityItem[]
-}) {
-  return (
-    <div className="flex items-center gap-0.5 border-t border-border px-2 py-2">
-      {items.map(({ id, label, icon: Icon }) => {
-        const isActive = active === id
-        return (
-          <button
-            key={id}
-            type="button"
-            aria-label={label}
-            title={label}
-            onClick={() => onSelect(id)}
-            className={`flex h-8 w-9 items-center justify-center rounded-md transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-              isActive
-                ? 'bg-accent-subtle text-accent'
-                : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
-            }`}
-          >
-            <Icon size={15} strokeWidth={isActive ? 2.2 : 1.8} />
-          </button>
-        )
-      })}
-      <div className="flex-1" />
     </div>
   )
 }
