@@ -11,6 +11,7 @@ import { createLogger } from '@ari/shared/logger'
 import { Engine } from './engine'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
+import { queryTurnDiff } from './turn-diff'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles } from './watcher-bridge'
@@ -517,6 +518,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { diffText: result.value }
   })
 
+  // Per-turn diff (M8.4): worktree vs the turn's hidden checkpoint ref.
+  r.register('git.turnDiff', async (params) => {
+    const { GitService } = await import('@ari/engine/git')
+    return queryTurnDiff((cwd, gitRef) => new GitService().diffForRef(cwd, gitRef), params)
+  })
+
   r.register('fs.list', async (params) => {
     // Path jail: the caller passes an absolute directory; it must exist and
     // be a directory, and only regular files/dirs directly inside are
@@ -637,6 +644,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'settings.update',
     'git.status',
     'git.diffWorktree',
+    'git.turnDiff',
     'fs.list',
     'fs.readTextFile',
     'stream.subscribe',
