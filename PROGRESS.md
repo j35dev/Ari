@@ -106,6 +106,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 - [x] M19.1 Codex app-server JSON-RPC driver
 - [x] M19.2 MCP stdio client in Ari Core
+- [x] M19.3 Git worktree per session
 - [x] M19.4 Message retry / edit / regenerate
 - [x] M19.5 Git add / commit / push RPC
 
@@ -354,10 +355,6 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - Remote/web companion (lift engine to sidecar)
 - Plugin API
 - Usage dashboards/heatmaps
-- [x] M19.3 Git worktrees per session — project-backed sessions run turns in
-      `<repo>/.ari/worktrees/<sessionId>` on branch `ari/<sessionId>`; `.ari/`
-      ignored via `info/exclude` (never `.gitignore`); worktree failures fall
-      back to the project folder; ad-hoc sessions unchanged
 
 ---
 

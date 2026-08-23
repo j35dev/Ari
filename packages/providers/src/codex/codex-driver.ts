@@ -7,7 +7,7 @@ import { mapCodexLine, createAppServerMapper } from './mapper'
 import type { AppServerInbound } from './mapper'
 import { AppServerConnection } from './appserver-connection'
 import type { CodexChildProcess } from './appserver-connection'
-import type { AppServerProbe } from './appserver-probe'
+import { createAppServerProbe, type AppServerProbe } from './appserver-probe'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
@@ -66,9 +66,12 @@ export class CodexDriver implements Driver {
   ) {}
 
   async create(session: AdapterSession): Promise<ProviderAdapter> {
-    if (this.options.probe !== null && this.options.probe !== undefined) {
+    // `undefined` (production `new CodexDriver(bin)`) probes the binary;
+    // `null` skips app-server entirely (legacy-only tests).
+    const probe = this.options.probe === undefined ? createAppServerProbe() : this.options.probe
+    if (probe !== null) {
       try {
-        if (await this.options.probe.supportsAppServer(this.binaryPath)) {
+        if (await probe.supportsAppServer(this.binaryPath)) {
           const adapter = await createCodexAppServerAdapter(
             this.binaryPath,
             session,
