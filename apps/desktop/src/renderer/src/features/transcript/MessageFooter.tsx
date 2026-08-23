@@ -1,5 +1,6 @@
 import { CopyButton } from './CopyButton'
 import type { Message } from '@ari/contracts/message'
+import { RefreshCw } from 'lucide-react'
 
 /** Usage figures for one assistant message, as extracted by the engine (M4.18). */
 export interface MessageUsage {
@@ -32,9 +33,24 @@ function messageText(message: Message): string {
 
 /**
  * Metadata row rendered under a message: local timestamp, optional token/cost
- * usage line, and a copy affordance for the message's text content.
+ * usage line, and affordances — copy for the message's text content, plus a
+ * regenerate control on the newest assistant message (M19.4) that re-runs the
+ * last user prompt. Regenerate is disabled while `actionDisabled` is set
+ * (a turn is running).
  */
-export function MessageFooter({ message, usage }: { message: Message; usage?: MessageUsage }) {
+export function MessageFooter({
+  message,
+  usage,
+  onRegenerate,
+  actionDisabled = false,
+}: {
+  message: Message
+  usage?: MessageUsage
+  /** Present on the newest assistant message: offers regenerating the last turn. */
+  onRegenerate?: () => void
+  /** Disables action buttons — true while a turn runs or no prompt exists. */
+  actionDisabled?: boolean
+}) {
   const text = messageText(message)
   return (
     <div className="mt-1 flex items-center gap-2 text-2xs text-fg-subtle">
@@ -51,6 +67,18 @@ export function MessageFooter({ message, usage }: { message: Message; usage?: Me
         </span>
       ) : null}
       {text ? <CopyButton text={text} /> : null}
+      {onRegenerate ? (
+        <button
+          type="button"
+          onClick={onRegenerate}
+          disabled={actionDisabled}
+          aria-label="Regenerate response"
+          title="Regenerate response"
+          className="inline-flex items-center rounded-sm p-1 text-fg-subtle transition-colors hover:bg-surface-1 hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
+        >
+          <RefreshCw size={12} />
+        </button>
+      ) : null}
     </div>
   )
 }

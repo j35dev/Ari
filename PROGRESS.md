@@ -102,9 +102,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M18.4 Project-wide content search (Ctrl+Shift+F)
 - [x] M18.5 Usage dashboard
 
-## M19 — Git actions wave
+## M19 — Gap-audit P2 integrations
 
-- [x] M19.5 Main-process RPC for stage/commit/push (`git.add`/`git.commit`/`git.push`; execFile helpers in main, path jail, `{ok,error}` results)
+- [x] M19.4 Message retry / edit / regenerate
+- [x] M19.5 Git add / commit / push RPC
 
 ## M0 — Scaffold
 

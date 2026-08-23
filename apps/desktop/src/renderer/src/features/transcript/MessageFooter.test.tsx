@@ -56,4 +56,27 @@ describe('MessageFooter', () => {
     expect(writeText).toHaveBeenCalledOnce()
     expect(writeText).toHaveBeenCalledWith('Part one\nPart two')
   })
+
+  it('renders a regenerate control when a handler is given and calls it', async () => {
+    const user = userEvent.setup()
+    const onRegenerate = vi.fn()
+    render(<MessageFooter message={makeMessage()} onRegenerate={onRegenerate} />)
+
+    const button = screen.getByRole('button', { name: 'Regenerate response' })
+    expect(button).toBeEnabled()
+    await user.click(button)
+    expect(onRegenerate).toHaveBeenCalledOnce()
+  })
+
+  it('disables regenerate while actions are disabled', () => {
+    render(<MessageFooter message={makeMessage()} onRegenerate={vi.fn()} actionDisabled />)
+
+    expect(screen.getByRole('button', { name: 'Regenerate response' })).toBeDisabled()
+  })
+
+  it('omits regenerate without a handler', () => {
+    render(<MessageFooter message={makeMessage()} />)
+
+    expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument()
+  })
 })
