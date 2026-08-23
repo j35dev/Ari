@@ -102,6 +102,12 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M18.4 Project-wide content search (Ctrl+Shift+F)
 - [x] M18.5 Usage dashboard
 
+## M19 — Hardening pass
+
+- [x] M19.4 Message retry / edit / regenerate (edit-and-resend fills composer via seed;
+      regenerate on newest assistant message + retry in error banner both resend the
+      last user prompt through the normal send path, disabled mid-turn)
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
