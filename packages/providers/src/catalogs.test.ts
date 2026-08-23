@@ -1,8 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
-import { MODEL_CATALOGS, modelsFor } from './catalogs'
+import {
+  catalogSource,
+  clearDynamicModels,
+  MODEL_CATALOGS,
+  modelsFor,
+  setDynamicModels,
+} from './catalogs'
 
 const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
+
+afterEach(() => {
+  for (const kind of ALL_KINDS) clearDynamicModels(kind)
+})
 
 describe('MODEL_CATALOGS', () => {
   it('has a list for every driver kind', () => {
@@ -18,25 +28,16 @@ describe('MODEL_CATALOGS', () => {
     }
   })
 
-  it('curates the claude and codex families', () => {
-    expect(MODEL_CATALOGS.claude.map((model) => model.id)).toEqual([
-      'claude-sonnet-4-5',
-      'claude-opus-4-1',
-      'claude-haiku-4-5',
-    ])
-    expect(MODEL_CATALOGS.codex.map((model) => model.id)).toEqual(['gpt-5-codex', 'gpt-5-mini'])
-  })
-
   it('ships a single default for flag-driven CLIs and leaves ari-core empty', () => {
-    for (const kind of ['opencode', 'grok', 'pi', 'hermes'] as const) {
+    for (const kind of ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes'] as const) {
       expect(MODEL_CATALOGS[kind]).toEqual([{ id: 'default', label: 'CLI default' }])
     }
     expect(MODEL_CATALOGS['ari-core']).toEqual([])
   })
 })
 
-describe('modelsFor', () => {
-  it('returns at least one entry for every kind that ships static models', () => {
+describe('modelsFor fallback chain', () => {
+  it('returns at least one entry for every kind that ships models', () => {
     for (const kind of ALL_KINDS.filter((kind) => kind !== 'ari-core')) {
       expect(modelsFor(kind).length).toBeGreaterThanOrEqual(1)
     }
@@ -44,5 +45,34 @@ describe('modelsFor', () => {
 
   it('returns no entries for ari-core because endpoints supply models', () => {
     expect(modelsFor('ari-core')).toEqual([])
+  })
+
+  it('falls back to the bundled snapshot for claude/codex/grok before static defaults', () => {
+    // Snapshot data is generated from models.dev; ids drift by design, but
+    // claude/codex/grok must always resolve to real model ids, not "default".
+    for (const kind of ['claude', 'codex', 'grok'] as const) {
+      const models = modelsFor(kind)
+      expect(models.length).toBeGreaterThan(1)
+      expect(models.some((m) => m.id === 'default')).toBe(false)
+      expect(catalogSource(kind)).toBe('snapshot')
+    }
+  })
+
+  it('prefers the dynamic overlay over the snapshot and reports its source', () => {
+    setDynamicModels('claude', 'live', [{ id: 'claude-live-model', label: 'Live' }])
+    expect(modelsFor('claude')).toEqual([{ id: 'claude-live-model', label: 'Live' }])
+    expect(catalogSource('claude')).toBe('live')
+  })
+
+  it('ignores empty dynamic overlays instead of blanking a kind', () => {
+    setDynamicModels('codex', 'live', [])
+    expect(modelsFor('codex').length).toBeGreaterThan(1)
+  })
+
+  it('keeps CLI-default kinds on static until a live source lands', () => {
+    for (const kind of ['opencode', 'pi', 'hermes'] as const) {
+      expect(modelsFor(kind)).toEqual([{ id: 'default', label: 'CLI default' }])
+      expect(catalogSource(kind)).toBe('static')
+    }
   })
 })

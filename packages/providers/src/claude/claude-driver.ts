@@ -12,7 +12,12 @@ const log = createLogger('providers:claude')
 /** Time the CLI gets to honor an interrupt frame before the kill fallback fires. */
 const INTERRUPT_KILL_FALLBACK_MS = 2000
 
-export type ApprovalDecision = 'approve' | 'deny'
+/**
+ * Decision vocabulary accepted by the stdin control layer. `always-allow`
+ * degrades to a one-shot approve because plain-text directives cannot
+ * persist allowlist entries.
+ */
+export type ApprovalDecision = 'allow' | 'always-allow' | 'deny'
 
 /**
  * Builds the argv for a one-shot `claude` turn. Kept pure for tests; flag
@@ -55,7 +60,11 @@ export function buildApprovalResponseFrame(
   decision: ApprovalDecision,
 ): unknown {
   const directive =
-    decision === 'approve' ? `Approve tool use ${approvalId}.` : `Deny tool use ${approvalId}.`
+    decision === 'deny'
+      ? `Deny tool use ${approvalId}.`
+      : decision === 'always-allow'
+        ? `Always approve tool use ${approvalId}.`
+        : `Approve tool use ${approvalId}.`
   return buildUserFrame(directive)
 }
 

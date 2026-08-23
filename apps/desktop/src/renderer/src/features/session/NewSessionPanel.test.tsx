@@ -54,6 +54,7 @@ const ENDPOINTS = [
 function mockInvoke(): void {
   invokeFn.mockImplementation((method: string) => {
     if (method === 'providers.detect') return Promise.resolve(DETECTIONS)
+    if (method === 'providers.models') return Promise.resolve([])
     if (method === 'endpoints.list') return Promise.resolve(ENDPOINTS)
     if (method === 'session.create') return Promise.resolve({ sessionId: 'sess_new' })
     return Promise.reject(new Error(`unexpected method ${method}`))

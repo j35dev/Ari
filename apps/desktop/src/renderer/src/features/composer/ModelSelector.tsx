@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronUp } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
+import type { CatalogModelInfo } from '@ari/contracts/rpc'
 import { modelsFor } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
 
@@ -9,6 +10,9 @@ export interface SelectorOption {
   label: string
   group: string
 }
+
+/** Live catalogs by kind; absent kinds fall back to the bundled snapshot. */
+type CatalogByKind = Partial<Record<DriverKind, CatalogModelInfo[]>>
 
 /**
  * Prompt-box model pill: shows the active driver·model and opens a grouped
@@ -25,6 +29,7 @@ export function ModelSelector({
 }) {
   const [open, setOpen] = useState(false)
   const [drivers, setDrivers] = useState<{ kind: DriverKind; label: string }[]>([])
+  const [catalog, setCatalog] = useState<CatalogByKind>({})
   const [endpointModels, setEndpointModels] = useState<SelectorOption[]>([])
 
   useEffect(() => {
@@ -39,6 +44,14 @@ export function ModelSelector({
               label: d.kind === 'ari-core' ? 'Ari Core' : d.kind,
             })),
         )
+      })
+      .catch(() => undefined)
+    void rpc
+      .invoke('providers.models')
+      .then((rows) => {
+        const byKind: CatalogByKind = {}
+        for (const row of rows) byKind[row.kind as DriverKind] = row.models
+        setCatalog(byKind)
       })
       .catch(() => undefined)
     void rpc
@@ -58,12 +71,12 @@ export function ModelSelector({
         out.push(...endpointModels)
         continue
       }
-      for (const model of modelsFor(driver.kind)) {
+      for (const model of catalog[driver.kind] ?? modelsFor(driver.kind)) {
         out.push({ id: `${driver.kind}:${model.id}`, label: model.label, group: driver.label })
       }
     }
     return out
-  }, [drivers, endpointModels])
+  }, [drivers, endpointModels, catalog])
 
   const current = options.find((o) => o.id === `${driverKind}:${modelId ?? ''}`)
   const display = current?.label ?? (modelId ? modelId : driverKind)

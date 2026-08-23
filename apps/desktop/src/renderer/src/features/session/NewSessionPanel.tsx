@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
-import type { RpcResults } from '@ari/contracts/rpc'
+import type { CatalogModelInfo, RpcResults } from '@ari/contracts/rpc'
 import { modelsFor } from '@ari/providers/catalogs'
 import { Button } from '@ari/ui/button'
 import { Field } from '@ari/ui/field'
@@ -13,6 +13,8 @@ import { rpc } from '../../lib/rpc'
 
 type Detection = RpcResults['providers.detect'][number]
 type EndpointRow = RpcResults['endpoints.list'][number]
+/** Live catalogs by kind; absent kinds fall back to the bundled snapshot. */
+type CatalogByKind = Partial<Record<DriverKind, CatalogModelInfo[]>>
 
 interface NewSessionPanelProps {
   /** Called with the new session id once the engine accepts session.create. */
@@ -61,6 +63,7 @@ export function NewSessionPanel({ onSuccess, onCancel }: NewSessionPanelProps): 
   const [drivers, setDrivers] = useState<DriverKind[]>([])
   const [driverKind, setDriverKind] = useState<DriverKind | null>(null)
   const [modelId, setModelId] = useState<string | null>(null)
+  const [catalog, setCatalog] = useState<CatalogByKind>({})
   const [endpoints, setEndpoints] = useState<EndpointRow[]>([])
   const [title, setTitle] = useState('')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask')
@@ -83,6 +86,15 @@ export function NewSessionPanel({ onSuccess, onCancel }: NewSessionPanelProps): 
         // Detection is best-effort; Ari Core works without any installed CLI.
         if (!cancelled) setDriverKind('ari-core')
       })
+    void rpc
+      .invoke('providers.models')
+      .then((rows) => {
+        if (cancelled) return
+        const byKind: CatalogByKind = {}
+        for (const row of rows) byKind[row.kind as DriverKind] = row.models
+        setCatalog(byKind)
+      })
+      .catch(() => undefined)
     return () => {
       cancelled = true
     }
@@ -90,8 +102,9 @@ export function NewSessionPanel({ onSuccess, onCancel }: NewSessionPanelProps): 
 
   useEffect(() => {
     if (driverKind === null || driverKind === 'ari-core') return
-    setModelId(modelsFor(driverKind)[0]?.id ?? null)
-  }, [driverKind])
+    const models = catalog[driverKind] ?? modelsFor(driverKind)
+    setModelId(models[0]?.id ?? null)
+  }, [driverKind, catalog])
 
   useEffect(() => {
     if (driverKind !== 'ari-core') {
@@ -123,7 +136,7 @@ export function NewSessionPanel({ onSuccess, onCancel }: NewSessionPanelProps): 
       modelOptions.push({ value: endpoint.id, label: endpoint.name })
     }
   } else if (driverKind !== null) {
-    for (const model of modelsFor(driverKind)) {
+    for (const model of catalog[driverKind] ?? modelsFor(driverKind)) {
       modelOptions.push({
         value: model.id,
         label: model.contextHint != null ? `${model.label} · ${model.contextHint}` : model.label,
