@@ -272,6 +272,58 @@ describe('engine end-to-end with scripted driver', () => {
     expect(model.status).toBe('error')
   }, 10000)
 
+  it('passes the observed provider ref as resumeOf on the next turn only', async () => {
+    const created: AdapterSession[] = []
+    function resumingDriver(): Driver {
+      return {
+        kind: 'claude',
+        create: (session) => {
+          created.push(session)
+          return Promise.resolve({
+            start: () => ({
+              async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+                yield { type: 'session-ref', ref: 'native-thread-1' }
+                yield { type: 'done' }
+              },
+            }),
+            interrupt: () => undefined,
+            dispose: () => Promise.resolve(),
+          })
+        },
+      }
+    }
+    const registry = new DriverRegistry()
+    registry.register(resumingDriver())
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_resume'
+    await seedSession(store, sessionId)
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'first' } as Command)
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) break
+      if (i === 149) throw new Error('first turn never settled')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'second' } as Command)
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) break
+      if (i === 149) throw new Error('second turn never settled')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    expect(created).toHaveLength(2)
+    expect(created[0]?.resumeOf).toBeNull()
+    expect(created[1]?.resumeOf).toBe('native-thread-1')
+  }, 10000)
+
   it('routes approval.respond decisions into the live adapter (M16.8)', async () => {
     const decisions: { approvalId: string; decision: string }[] = []
     // An adapter that parks the stream until its approval is answered.

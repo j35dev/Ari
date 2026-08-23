@@ -89,7 +89,12 @@ export class Engine {
     }
 
     if (command.type === 'turn.start') {
-      void this.#runTurn(model.session as Session, command.text, ids.turnId).catch((e) => {
+      void this.#runTurn(
+        model.session as Session,
+        command.text,
+        ids.turnId,
+        model.providerSessionId,
+      ).catch((e) => {
         log.error('turn execution crashed', { error: String(e) })
       })
     }
@@ -141,9 +146,16 @@ export class Engine {
 
   /**
    * Runs one provider turn: spawns the adapter, maps normalized agent events
-   * into journal parts (coalescing text), and settles the turn.
+   * into journal parts (coalescing text), and settles the turn. `resumeOf`
+   * carries the provider-native session/thread id observed on a previous
+   * turn, so follow-up prompts continue the same provider thread.
    */
-  async #runTurn(session: Session, prompt: string, turnId: string): Promise<void> {
+  async #runTurn(
+    session: Session,
+    prompt: string,
+    turnId: string,
+    resumeOf: string | null,
+  ): Promise<void> {
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
       await this.#settle(session.id, turnId, 'error', `no driver registered for ${session.driverKind}`)
@@ -195,7 +207,7 @@ export class Engine {
         prompt,
         modelId: session.modelId,
         permissionMode: session.permissionMode,
-        resumeOf: null,
+        resumeOf,
       })
     } catch (e) {
       await this.#settle(session.id, turnId, 'error', String(e))
@@ -308,6 +320,11 @@ export class Engine {
           case 'input-requested':
             // Question panel arrives in M7; surface as an error-free notice.
             log.info('provider requested input', { sessionId: session.id })
+            break
+          case 'session-ref':
+            // Persist the provider-native thread id so the next turn resumes
+            // it instead of re-prompting cold.
+            await append({ type: 'session.ref.observed', ref: event.ref })
             break
           case 'error':
             if (firstErrorMessage === null) firstErrorMessage = event.message
