@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
+import type { PermissionMode } from '@ari/contracts/common'
 import { matchesAllowlist, type AllowRule } from './allowlist'
+import { checkPermission } from './permissions'
 import { todoWriteTool } from './tools/todo'
 
 /**
@@ -12,11 +14,18 @@ import { todoWriteTool } from './tools/todo'
 export interface ToolContext {
   workspacePath: string
   /**
-   * Permission rules scoped per tool kind. When at least one rule exists
-   * for a guarded tool (bash / write_file / edit_file), calls must match a
-   * rule to run; empty or absent means allow-all.
+   * Session permission mode (`ask` | `allow-edits` | `full`). Bash and file
+   * writes are gated by it — an absent mode is treated as `ask` (fail-closed).
+   */
+  permissionMode?: PermissionMode
+  /**
+   * Permission rules scoped per tool kind. When at least one rule exists for
+   * a guarded tool (bash / write_file / edit_file), calls must match a rule
+   * to run. Rules intersect with the permission mode: both must pass.
    */
   allowlist?: AllowRule[]
+  /** Tool names cleared for the rest of the run via an `always-allow` decision. */
+  approvedTools?: ReadonlySet<string>
 }
 
 export interface Tool {
@@ -49,7 +58,11 @@ function str(args: Record<string, unknown>, key: string): string {
 
 const GUARDED_TOOLS = new Set(['bash', 'write_file', 'edit_file'])
 
-/** Throws when the call is not covered by a non-empty per-tool allowlist. */
+/**
+ * Throws when the call is not permitted: allowlist rules apply first, then
+ * the permission mode (an explicit approval clears the mode gate only —
+ * the allowlist still binds even approved calls).
+ */
 function assertAllowed(
   ctx: ToolContext,
   toolName: string,
@@ -57,10 +70,12 @@ function assertAllowed(
 ): void {
   if (!GUARDED_TOOLS.has(toolName)) return
   const hasRules = (ctx.allowlist ?? []).some((r) => r.tool === toolName)
-  if (!hasRules) return
-  if (!matchesAllowlist(toolName, JSON.stringify(args), ctx.allowlist ?? [])) {
+  if (hasRules && !matchesAllowlist(toolName, JSON.stringify(args), ctx.allowlist ?? [])) {
     throw new Error('blocked by permission allowlist')
   }
+  if (ctx.approvedTools?.has(toolName)) return
+  const decision = checkPermission(ctx.permissionMode, toolName)
+  if (!decision.allowed) throw new Error(decision.reason)
 }
 
 export const BUILT_IN_TOOLS: Tool[] = [

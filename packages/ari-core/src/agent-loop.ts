@@ -1,6 +1,10 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import type { PermissionMode } from '@ari/contracts/common'
+import type { AdapterApprovalDecision } from '@ari/providers/driver'
+import { newId } from '@ari/shared/ids'
 import type { ChatMessage } from './protocols/openai-chat'
 import type { AllowRule } from './allowlist'
+import { checkPermission, MODE_GUARDED_TOOLS } from './permissions'
 import { findTool, type ToolContext } from './tools'
 
 export interface AgentLoopOptions {
@@ -9,10 +13,29 @@ export interface AgentLoopOptions {
   systemPrompt: string
   userPrompt: string
   workspacePath: string
-  /** Permission rules enforced inside the tool context (empty/absent = allow-all). */
+  /**
+   * Session permission mode (`ask` | `allow-edits` | `full`). Bash and file
+   * writes are gated by it; an absent mode is treated as `ask` (fail-closed).
+   */
+  permissionMode?: PermissionMode
+  /**
+   * Permission rules enforced inside the tool context. Rules intersect with
+   * the mode: a call must pass both to run.
+   */
   allowlist?: AllowRule[]
+  /**
+   * Resolves mode-gated tool calls through the host approval flow. When
+   * absent, mode-gated calls are denied outright instead of silently running.
+   */
+  requestApproval?: (request: ApprovalRequest) => Promise<AdapterApprovalDecision>
   maxRounds?: number
   signal?: AbortSignal
+}
+
+export interface ApprovalRequest {
+  approvalId: string
+  toolName: string
+  argsJson: string
 }
 
 interface PendingToolCall {
@@ -31,9 +54,16 @@ export async function* runAgentLoop(
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, void, undefined> {
   const { round, systemPrompt, userPrompt, workspacePath, maxRounds = 12, signal } = options
-  const ctx: ToolContext = options.allowlist
-    ? { workspacePath, allowlist: options.allowlist }
-    : { workspacePath }
+  // Fail-closed: an absent mode behaves as `ask`.
+  const permissionMode: PermissionMode = options.permissionMode ?? 'ask'
+  const ctx: ToolContext = {
+    workspacePath,
+    permissionMode,
+    ...(options.allowlist ? { allowlist: options.allowlist } : {}),
+  }
+  // Tools cleared by an `always-allow` decision run mode-unrestricted for the
+  // rest of the loop; single approvals build a per-call context instead.
+  const alwaysAllowed = new Set<string>()
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
@@ -86,9 +116,49 @@ export async function* runAgentLoop(
         isError = true
         resultJson = JSON.stringify(`unknown tool: ${call.name}`)
       } else {
+        let execCtx: ToolContext = ctx
         try {
           const args = JSON.parse(call.argsJson || '{}') as Record<string, unknown>
-          resultJson = JSON.stringify(await tool.execute(args, ctx))
+          if (MODE_GUARDED_TOOLS.has(call.name)) {
+            if (alwaysAllowed.has(call.name)) {
+              execCtx = { ...ctx, approvedTools: alwaysAllowed }
+            } else {
+              const decision = checkPermission(permissionMode, call.name)
+              if (!decision.allowed) {
+                const requestApproval = options.requestApproval
+                if (!requestApproval) {
+                  throw new Error(`${decision.reason} (no approval handler configured)`)
+                }
+                const approvalId = newId('apv')
+                // Register the parking spot before emitting, so a decision
+                // that arrives while the consumer holds the event is not lost.
+                const pendingDecision = requestApproval({
+                  approvalId,
+                  toolName: call.name,
+                  argsJson: call.argsJson,
+                })
+                yield {
+                  type: 'approval-requested',
+                  approvalId,
+                  toolName: call.name,
+                  summaryJson: call.argsJson,
+                }
+                const verdict = await pendingDecision
+                if (verdict === 'deny') {
+                  throw new Error(
+                    `denied by user under permission mode '${permissionMode}': ${call.name}`,
+                  )
+                }
+                if (verdict === 'always-allow') {
+                  alwaysAllowed.add(call.name)
+                  execCtx = { ...ctx, approvedTools: alwaysAllowed }
+                } else {
+                  execCtx = { ...ctx, approvedTools: new Set([call.name]) }
+                }
+              }
+            }
+          }
+          resultJson = JSON.stringify(await tool.execute(args, execCtx))
         } catch (e) {
           isError = true
           resultJson = JSON.stringify(String(e))

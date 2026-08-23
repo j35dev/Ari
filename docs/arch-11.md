@@ -20,11 +20,18 @@ replace), glob, grep (JS fallback), todo_write. Every path-touching tool is
 jailed via realpath-resolved path checks — symlinks inside the workspace that
 point outside are rejected.
 
-## Allowlist enforcement
+## Allowlist & permission-mode enforcement
 
-When an allowlist is configured for the session, bash/write_file/edit_file
-check glob-style rules against their candidate strings before executing.
-Empty or absent allowlist = allow all (current default).
+The session's permission mode (`ask` | `allow-edits` | `full`, from
+`AdapterSession`) gates Ari Core tools: `full` allows everything,
+`allow-edits` allows file edits but not bash, and `ask` gates both bash and
+file writes. An absent mode is treated as `ask` (fail-closed). Mode-gated
+calls emit an `approval-requested` agent event and park until the host
+answers via the adapter's `respondApproval` (or deny when no handler is
+configured / the turn aborts). Configured allowlist glob rules intersect
+with the mode — a call must pass both, and approvals clear only the mode
+gate. Read-only tools (read_file/glob/grep) and todo_write stay available
+in every mode; the path jail applies regardless.
 
 ## Security
 
