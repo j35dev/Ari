@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
-import type { SessionEventFrame } from '@ari/contracts/rpc'
+import type { CatalogModelInfo, SessionEventFrame } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { TranscriptView } from '../transcript'
@@ -76,6 +76,82 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+/**
+ * Parses a catalog `contextHint` ("200k", "1M", "32768") into a token count.
+ * Returns null when absent or unparseable — the meter then shows the used
+ * count without a denominator rather than inventing a window size.
+ */
+export function contextTokensFromHint(hint: string | undefined): number | null {
+  if (!hint) return null
+  const match = /^(\d+(?:\.\d+)?)\s*([kKmM]?)$/.exec(hint.trim())
+  if (!match) return null
+  const value = Number(match[1])
+  if (!Number.isFinite(value) || value <= 0) return null
+  const unit = match[2]?.toLowerCase() ?? ''
+  if (unit === 'k') return Math.round(value * 1000)
+  if (unit === 'm') return Math.round(value * 1_000_000)
+  return Math.round(value)
+}
+
+/** Compact token formatting for the meter chip: 200K, 1M, 12.5K, 999. */
+export function formatCompactTokens(n: number): string {
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`
+  }
+  if (n >= 1000) {
+    const k = n / 1000
+    return `${Number.isInteger(k) ? k : k.toFixed(1)}K`
+  }
+  return String(n)
+}
+
+const METER_WARN_PCT = 75
+const METER_DANGER_PCT = 90
+
+/**
+ * Context-window meter for the telemetry strip: a slim fill bar plus
+ * `used / window` tokens. Without a known window only the used count shows.
+ */
+export function ContextMeter({
+  used,
+  contextWindow,
+}: {
+  used: number
+  contextWindow: number | null
+}) {
+  const pct =
+    contextWindow !== null && contextWindow > 0
+      ? Math.min(100, Math.round((used / contextWindow) * 100))
+      : null
+  const tone =
+    pct !== null && pct >= METER_DANGER_PCT
+      ? 'bg-danger'
+      : pct !== null && pct >= METER_WARN_PCT
+        ? 'bg-warning'
+        : 'bg-accent'
+  return (
+    <span
+      className="flex items-center gap-1.5"
+      title={
+        contextWindow !== null
+          ? `Context: ${formatCompactTokens(used)} of ${formatCompactTokens(contextWindow)} tokens (${pct}%)`
+          : `Total tokens: ${formatCompactTokens(used)}`
+      }
+    >
+      {contextWindow !== null ? (
+        <span aria-hidden="true" className="h-1 w-9 overflow-hidden rounded-full bg-surface-2">
+          <span className={`block h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+        </span>
+      ) : null}
+      <span aria-label={`Token usage: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}>
+        {formatCompactTokens(used)}
+        {contextWindow !== null ? ` / ${formatCompactTokens(contextWindow)}` : ''}
+      </span>
+    </span>
+  )
+}
+
 export interface SessionDefaults {
   driverKind: DriverKind
   modelId: string | null
@@ -106,12 +182,26 @@ export function SessionView({
   const [turnError, setTurnError] = useState<string | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
+  const [turnDiffs, setTurnDiffs] = useState<Record<string, string>>({})
+  const [catalogModels, setCatalogModels] = useState<
+    { kind: string; models: CatalogModelInfo[] }[]
+  >([])
   const sessionTitleRef = useRef('Session')
+  // Workspace path of the session's project — needed by git.turnDiff. Held in
+  // a ref so the stable event applier can read it without re-subscribing.
+  const projectPathRef = useRef<string | null>(null)
+  const fetchedTurnIdsRef = useRef(new Set<string>())
+  const queuedDiffTurnIdsRef = useRef(new Set<string>())
+  const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
+  // Mirrors the engine fold's activeTurnId so locally synthesized assistant
+  // messages carry their turn id (drives per-turn diff card placement).
+  const activeTurnIdRef = useRef<string | null>(null)
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
   notifySettledRef.current = notifySettledTurn
 
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
+  // Model catalogs feed the context-window meter's denominator.
   useEffect(() => {
     void rpc
       .invoke('project.list')
@@ -122,7 +212,19 @@ export function SessionView({
       })
       .then((r) => setFileSuggestions(r.paths))
       .catch(() => undefined)
+    void rpc
+      .invoke('providers.models')
+      .then(setCatalogModels)
+      .catch(() => undefined)
   }, [])
+
+  // Window size for the meter: the session model's contextHint from the live
+  // catalog, when the catalog carries one. Absent → used-count-only chip.
+  const contextWindow = useMemo(() => {
+    const row = catalogModels.find((r) => r.kind === defaults.driverKind)
+    const model = row?.models.find((m) => m.id === defaults.modelId)
+    return contextTokensFromHint(model?.contextHint)
+  }, [catalogModels, defaults.driverKind, defaults.modelId])
 
   useEffect(() => {
     let cancelled = false
@@ -134,6 +236,11 @@ export function SessionView({
     setPendingQuestion(null)
     setTurnError(null)
     setTelemetry(EMPTY_TELEMETRY)
+    setTurnDiffs({})
+    projectPathRef.current = null
+    fetchedTurnIdsRef.current = new Set()
+    queuedDiffTurnIdsRef.current = new Set()
+    activeTurnIdRef.current = null
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
       const frame = payload as SessionEventFrame
@@ -141,11 +248,35 @@ export function SessionView({
       applyEvent(frame.event as JournalEvent)
     })
 
+    // Per-turn diff cards (M18.1): after a turn settles, query its checkpoint
+    // diff once. Fire-and-forget — streaming is never blocked; null/empty or
+    // failed queries simply render no card. Turns that settle before the
+    // workspace path resolves (journal replay) queue and flush on resolve.
+    const fetchTurnDiff = (turnId: string): void => {
+      if (fetchedTurnIdsRef.current.has(turnId)) return
+      const path = projectPathRef.current
+      if (!path) {
+        queuedDiffTurnIdsRef.current.add(turnId)
+        return
+      }
+      fetchedTurnIdsRef.current.add(turnId)
+      void rpc
+        .invoke('git.turnDiff', { path, sessionId, turnId })
+        .then((result) => {
+          const diffText = result.diffText
+          if (!cancelled && typeof diffText === 'string' && diffText.length > 0) {
+            setTurnDiffs((prev) => ({ ...prev, [turnId]: diffText }))
+          }
+        })
+        .catch(() => undefined)
+    }
+    fetchTurnDiffRef.current = fetchTurnDiff
+
     // Metadata only — message history comes exclusively from the replayed
     // stream above, so this can never clobber or duplicate it.
     void rpc
       .invoke('session.load', { sessionId })
-      .then((model) => {
+      .then(async (model) => {
         if (cancelled || !model) return
         const m = model as {
           session: Session
@@ -158,6 +289,12 @@ export function SessionView({
           modelId: m.session.modelId,
           permissionMode: m.session.permissionMode,
         })
+        const projects = await rpc.invoke('project.list').catch(() => [])
+        if (cancelled) return
+        projectPathRef.current = projects.find((p) => p.id === m.session.projectId)?.path ?? null
+        const pending = [...queuedDiffTurnIdsRef.current]
+        queuedDiffTurnIdsRef.current.clear()
+        for (const turnId of pending) fetchTurnDiff(turnId)
       })
       .catch(() => undefined)
       .finally(() => {
@@ -189,7 +326,7 @@ export function SessionView({
               {
                 id: event.messageId,
                 sessionId: event.sessionId,
-                turnId: null,
+                turnId: activeTurnIdRef.current,
                 role: 'assistant',
                 parts: [...event.parts],
                 createdAt: event.at,
@@ -201,6 +338,7 @@ export function SessionView({
           // A fresh turn supersedes any stale failure banner.
           setTurnError(null)
           setRunning(true)
+          activeTurnIdRef.current = event.turnId
           setTelemetry((t) => ({
             ...t,
             turnCount: t.turnCount + 1,
@@ -209,11 +347,13 @@ export function SessionView({
           break
         case 'turn.settled': {
           setRunning(false)
+          activeTurnIdRef.current = null
           setTelemetry((t) => ({
             ...t,
             lastDurationMs: t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
             startedAt: null,
           }))
+          fetchTurnDiffRef.current(event.turnId)
           if (event.stopReason === 'error' && event.errorMessage) {
             setTurnError(event.errorMessage)
             notifySettledRef.current({ error: event.errorMessage })
@@ -359,7 +499,12 @@ export function SessionView({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
-        <TranscriptView sessionId={sessionId} messages={messages} loading={loading} />
+        <TranscriptView
+          sessionId={sessionId}
+          messages={messages}
+          loading={loading}
+          turnDiffs={turnDiffs}
+        />
       </div>
       <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
         {telemetry.turnCount > 0 ? (
@@ -381,6 +526,12 @@ export function SessionView({
           <span>{running ? 'working…' : 'no turns yet'}</span>
         )}
         <div className="flex-1" />
+        {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
+          <ContextMeter
+            used={telemetry.inputTokens + telemetry.outputTokens}
+            contextWindow={contextWindow}
+          />
+        ) : null}
         {running ? (
           <span className="flex items-center gap-1.5">
             <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-busy" />
