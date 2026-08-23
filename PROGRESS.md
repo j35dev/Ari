@@ -104,6 +104,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 ## M19 — Gap-audit P2 integrations
 
+- [x] M19.1 Codex app-server JSON-RPC driver
 - [x] M19.2 MCP stdio client in Ari Core
 - [x] M19.4 Message retry / edit / regenerate
 - [x] M19.5 Git add / commit / push RPC

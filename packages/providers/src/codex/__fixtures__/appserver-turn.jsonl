@@ -1,0 +1,16 @@
+{"id":3,"method":"initialize","params":{"clientInfo":{"name":"ari","version":"0.1.0"},"capabilities":{}}}
+{"id":3,"result":{"codexHome":"/home/u/.codex","platformOs":"windows","platformFamily":"windows","userAgent":"codex_cli_rs/0.149.0"}}
+{"id":4,"method":"thread/start","params":{"cwd":"/w","approvalPolicy":"on-request"}}
+{"id":4,"result":{"thread":{"id":"thr_68b2","sessionId":"sess_68b2","cliVersion":"0.149.0","status":"active","turns":[],"createdAt":1756000000000,"updatedAt":1756000000000,"preview":"","ephemeral":false,"modelProvider":"openai"}}}
+{"method":"thread/started","params":{"threadId":"thr_68b2"}}
+{"method":"turn/started","params":{"threadId":"thr_68b2","turn":{"id":"turn_1","status":"inProgress","items":[],"startedAt":1756000000100}}}
+{"method":"item/started","params":{"threadId":"thr_68b2","turnId":"turn_1","item":{"id":"it_cmd_1","type":"commandExecution","command":"git status --porcelain","status":"inProgress","cwd":"/w","aggregatedOutput":null,"exitCode":null,"durationMs":null}}}
+{"method":"item/commandExecution/outputDelta","params":{"threadId":"thr_68b2","turnId":"turn_1","itemId":"it_cmd_1","chunk":"?? notes.md\n"}}
+{"method":"item/completed","params":{"threadId":"thr_68b2","turnId":"turn_1","item":{"id":"it_cmd_1","type":"commandExecution","command":"git status --porcelain","status":"completed","cwd":"/w","aggregatedOutput":"?? notes.md\n","exitCode":0,"durationMs":142}}}
+{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thr_68b2","turnId":"turn_1","itemId":"it_think_1","summaryIndex":0,"delta":"The tree is dirty; mention notes.md."}}
+{"method":"item/completed","params":{"threadId":"thr_68b2","turnId":"turn_1","item":{"id":"it_think_1","type":"reasoning","content":[{"text":"The tree is dirty; mention notes.md."}],"summary":[{"text":"The tree is dirty; mention notes.md."}]}}}
+{"method":"item/agentMessage/delta","params":{"threadId":"thr_68b2","turnId":"turn_1","itemId":"it_msg_1","delta":"You have "}}
+{"method":"item/agentMessage/delta","params":{"threadId":"thr_68b2","turnId":"turn_1","itemId":"it_msg_1","delta":"one untracked file: notes.md."}}
+{"method":"item/completed","params":{"threadId":"thr_68b2","turnId":"turn_1","item":{"id":"it_msg_1","type":"agentMessage","text":"You have one untracked file: notes.md.","delivery":"normal"}}}
+{"method":"thread/tokenUsage/updated","params":{"threadId":"thr_68b2","tokenUsage":{"last":{"inputTokens":812,"cachedInputTokens":0,"cacheWriteInputTokens":0,"reasoningOutputTokens":24,"outputTokens":57,"totalTokens":893},"total":{"inputTokens":812,"cachedInputTokens":0,"cacheWriteInputTokens":0,"reasoningOutputTokens":24,"outputTokens":57,"totalTokens":893},"modelContextWindow":272000}}}
+{"method":"turn/completed","params":{"threadId":"thr_68b2","turn":{"id":"turn_1","status":"completed","items":[],"startedAt":1756000000100,"completedAt":1756000004200,"durationMs":4100}}}

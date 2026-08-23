@@ -21,6 +21,8 @@
     "./claude/mapper": "./src/claude/mapper.ts",
     "./codex": "./src/codex/codex-driver.ts",
     "./codex/mapper": "./src/codex/mapper.ts",
+    "./codex/appserver-connection": "./src/codex/appserver-connection.ts",
+    "./codex/appserver-probe": "./src/codex/appserver-probe.ts",
     "./grok": "./src/grok/grok-driver.ts",
     "./grok/mapper": "./src/grok/mapper.ts",
     "./opencode": "./src/opencode/opencode-driver.ts",
