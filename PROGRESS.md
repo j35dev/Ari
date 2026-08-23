@@ -102,6 +102,13 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M18.4 Project-wide content search (Ctrl+Shift+F)
 - [x] M18.5 Usage dashboard
 
+## M19 — Stretch pull-forward
+
+- [x] M19.2 Ari Core MCP client: stdio JSON-RPC 2.0 connection (initialize handshake, bounded
+      timeouts), `McpServerStore` (`mcp-servers.json`, dir injectable), tools mapped to
+      `mcp_<server>_<tool>` and merged into the agent loop behind permissionMode/allowlist;
+      dead servers log-and-omit so the turn always runs
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)

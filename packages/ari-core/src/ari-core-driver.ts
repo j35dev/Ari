@@ -18,6 +18,13 @@ import { streamChatOllama, type OllamaChatRequest } from './protocols/ollama'
 import { CONTEXT_WINDOW_CHARS, trimMessages } from './context-manager'
 import type { AllowRule } from './allowlist'
 import type { Endpoint, EndpointStore } from './endpoints'
+import type { McpServerConfig } from './mcp-servers'
+import { McpConnection } from './mcp'
+import { mountMcpTools, type MountedMcpServer } from './mcp-tools'
+import type { Tool } from './tools'
+import { createLogger } from '@ari/shared/logger'
+
+const log = createLogger('ari-core:driver')
 
 const SYSTEM_PROMPT = [
   'You are Ari Core, a coding agent embedded in the Ari desktop app.',
@@ -44,6 +51,14 @@ export interface AriCoreDriverOptions {
    * mode enforcement works without it.
    */
   allowlist?: AllowRule[]
+  /**
+   * MCP servers mounted for every turn created by this driver. Disabled
+   * entries are skipped; a server that fails to start is logged and
+   * omitted so the turn always runs.
+   */
+  mcpServers?: McpServerConfig[]
+  /** Connection seam for tests; production connects over real stdio. */
+  mcpConnect?: (server: McpServerConfig) => Promise<McpConnection>
 }
 
 interface RenderedTurn {
@@ -133,6 +148,10 @@ function ollamaRequest(
  * The session's permission mode is enforced inside the agent loop: mode-gated
  * tool calls emit `approval-requested` and park until `respondApproval`
  * answers them (or the turn aborts, which denies them).
+ *
+ * Enabled MCP servers are mounted per turn: each one spawns over stdio,
+ * lists its tools as `mcp_<server>_<tool>`, and joins the loop's toolset.
+ * Failures fail soft — a dead server is logged and omitted for the turn.
  */
 export class AriCoreDriver implements Driver {
   readonly kind = 'ari-core' as const
@@ -141,12 +160,16 @@ export class AriCoreDriver implements Driver {
   readonly #clients: AriCoreDriverClients
   readonly #contextCharLimit: number
   readonly #allowlist: AllowRule[] | undefined
+  readonly #mcpServers: McpServerConfig[]
+  readonly #mcpConnectOverride?: (server: McpServerConfig) => Promise<McpConnection>
 
   constructor(endpoints: EndpointStore, options: AriCoreDriverOptions = {}) {
     this.#endpoints = endpoints
     this.#clients = options.clients ?? {}
     this.#contextCharLimit = options.contextCharLimit ?? CONTEXT_WINDOW_CHARS
     this.#allowlist = options.allowlist
+    this.#mcpServers = options.mcpServers ?? []
+    this.#mcpConnectOverride = options.mcpConnect
   }
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
@@ -159,11 +182,24 @@ export class AriCoreDriver implements Driver {
     const clients = this.#clients
     const contextCharLimit = this.#contextCharLimit
     const allowlist = this.#allowlist
+    const mcpServers = this.#mcpServers.filter((s) => !s.disabled)
+    const mcpConnect =
+      this.#mcpConnectOverride ??
+      ((server: McpServerConfig) =>
+        McpConnection.connect(server, { cwd: session.workspacePath }))
 
     const abort = new AbortController()
 
     // Mode-gated calls park here until the host answers via respondApproval.
     const pendingApprovals = new Map<string, (decision: AdapterApprovalDecision) => void>()
+    // Live MCP connections for this turn; disposed with the adapter or at
+    // the end of the loop, whichever comes first (dispose is idempotent).
+    const mcpConnections: McpConnection[] = []
+    const disposeMcpConnections = (): Promise<void> => {
+      const connections = [...mcpConnections]
+      mcpConnections.length = 0
+      return Promise.allSettled(connections.map((c) => c.dispose())).then(() => {})
+    }
     abort.signal.addEventListener(
       'abort',
       () => {
@@ -215,16 +251,42 @@ export class AriCoreDriver implements Driver {
         }
       }
 
-      yield* runAgentLoop({
-        round,
-        systemPrompt: SYSTEM_PROMPT,
-        userPrompt: session.prompt,
-        workspacePath: session.workspacePath,
-        permissionMode: session.permissionMode,
-        requestApproval,
-        ...(allowlist ? { allowlist } : {}),
-        signal: abort.signal,
-      })
+      // Mount enabled MCP servers for this turn: connect (fail-soft), list
+      // tools, and hand the merged toolset to the loop. A dead or slow
+      // server is logged and omitted; the turn always runs.
+      let extraTools: Tool[] = []
+      if (mcpServers.length > 0) {
+        const mounted: MountedMcpServer[] = []
+        for (const server of mcpServers) {
+          try {
+            const connection = await mcpConnect(server)
+            mcpConnections.push(connection)
+            mounted.push({ name: server.name, connection })
+          } catch (error) {
+            log.warn('mcp server unavailable; omitting', {
+              server: server.name,
+              error: String(error),
+            })
+          }
+        }
+        extraTools = await mountMcpTools(mounted)
+      }
+
+      try {
+        yield* runAgentLoop({
+          round,
+          systemPrompt: SYSTEM_PROMPT,
+          userPrompt: session.prompt,
+          workspacePath: session.workspacePath,
+          permissionMode: session.permissionMode,
+          requestApproval,
+          ...(allowlist ? { allowlist } : {}),
+          ...(extraTools.length > 0 ? { extraTools } : {}),
+          signal: abort.signal,
+        })
+      } finally {
+        await disposeMcpConnections()
+      }
     }
 
     const iterator = start()[Symbol.asyncIterator]()
@@ -240,6 +302,7 @@ export class AriCoreDriver implements Driver {
       interrupt: () => abort.abort(),
       dispose: () => {
         abort.abort()
+        void disposeMcpConnections()
         return Promise.resolve()
       },
     })

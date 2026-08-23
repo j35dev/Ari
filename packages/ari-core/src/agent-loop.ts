@@ -4,8 +4,9 @@ import type { AdapterApprovalDecision } from '@ari/providers/driver'
 import { newId } from '@ari/shared/ids'
 import type { ChatMessage } from './protocols/openai-chat'
 import type { AllowRule } from './allowlist'
+import { matchesAllowlist } from './allowlist'
 import { checkPermission, MODE_GUARDED_TOOLS } from './permissions'
-import { findTool, type ToolContext } from './tools'
+import { BUILT_IN_TOOLS, type Tool, type ToolContext } from './tools'
 
 export interface AgentLoopOptions {
   /** Streams one model round: given messages, yields normalized events. */
@@ -23,6 +24,12 @@ export interface AgentLoopOptions {
    * the mode: a call must pass both to run.
    */
   allowlist?: AllowRule[]
+  /**
+   * Extra tools mounted for this run (e.g. MCP server tools), merged with
+   * the built-ins for lookup. They count as external side effects: the
+   * permission mode gates them like bash and allowlist rules bind by name.
+   */
+  extraTools?: Tool[]
   /**
    * Resolves mode-gated tool calls through the host approval flow. When
    * absent, mode-gated calls are denied outright instead of silently running.
@@ -56,6 +63,11 @@ export async function* runAgentLoop(
   const { round, systemPrompt, userPrompt, workspacePath, maxRounds = 12, signal } = options
   // Fail-closed: an absent mode behaves as `ask`.
   const permissionMode: PermissionMode = options.permissionMode ?? 'ask'
+  const extraTools = options.extraTools ?? []
+  const extraNames = new Set(extraTools.map((t) => t.name))
+  const toolset = new Map<string, Tool>(
+    [...BUILT_IN_TOOLS, ...extraTools].map((t) => [t.name, t]),
+  )
   const ctx: ToolContext = {
     workspacePath,
     permissionMode,
@@ -109,7 +121,7 @@ export async function* runAgentLoop(
     messages.push({ role: 'assistant', content: '', toolCalls: assistantToolCalls })
 
     for (const call of pending) {
-      const tool = findTool(call.name)
+      const tool = toolset.get(call.name)
       let resultJson: string
       let isError = false
       if (!tool) {
@@ -119,11 +131,21 @@ export async function* runAgentLoop(
         let execCtx: ToolContext = ctx
         try {
           const args = JSON.parse(call.argsJson || '{}') as Record<string, unknown>
-          if (MODE_GUARDED_TOOLS.has(call.name)) {
+          const shellLike = extraNames.has(call.name)
+          if (MODE_GUARDED_TOOLS.has(call.name) || shellLike) {
+            // Extra tools enforce their allowlist here; built-ins re-check
+            // inside their own execute.
+            if (
+              shellLike &&
+              (ctx.allowlist ?? []).some((r) => r.tool === call.name) &&
+              !matchesAllowlist(call.name, call.argsJson, ctx.allowlist ?? [])
+            ) {
+              throw new Error('blocked by permission allowlist')
+            }
             if (alwaysAllowed.has(call.name)) {
               execCtx = { ...ctx, approvedTools: alwaysAllowed }
             } else {
-              const decision = checkPermission(permissionMode, call.name)
+              const decision = checkPermission(permissionMode, call.name, shellLike)
               if (!decision.allowed) {
                 const requestApproval = options.requestApproval
                 if (!requestApproval) {
