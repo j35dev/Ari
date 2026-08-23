@@ -500,5 +500,123 @@ describe('engine end-to-end with scripted driver', () => {
     }
     expect(decisions).toEqual([{ approvalId: 'ap_1', decision: 'always-allow' }])
   }, 10000)
+
+  it('upgrades the slice title once after the first successful turn (M18.2)', async () => {
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'ok' }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_title'
+    await seedSession(store, sessionId)
+    await store.append(sessionId, {
+      type: 'session.updated',
+      title: 'New session',
+    })
+
+    const prompt = 'can you fix the login redirect loop please'
+    await engine.dispatch({ type: 'turn.start', sessionId, text: prompt } as Command)
+    const settledAt = Date.now()
+    while (true) {
+      const model = await store.load(sessionId)
+      if (model.session?.title === 'Fix the login redirect loop please') break
+      if (Date.now() - settledAt > 30000) throw new Error('title never upgraded')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    const model = await store.load(sessionId)
+    expect(model.session?.title).toBe('Fix the login redirect loop please')
+
+    // Exactly two naming events so far: the turn.start slice + the upgrade.
+    const titleEvents = () =>
+      published.filter(
+        (p) =>
+          p.event.type === 'session.updated' &&
+          typeof (p.event as { title?: unknown }).title === 'string',
+      )
+    expect(titleEvents()).toHaveLength(2)
+
+    // A later turn never regenerates.
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'second task now' } as Command)
+    for (let i = 0; i < 150; i++) {
+      const m = await store.load(sessionId)
+      if (m.status === 'idle') break
+      if (i === 149) throw new Error('second turn never settled')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(titleEvents()).toHaveLength(2)
+    expect((await store.load(sessionId)).session?.title).toBe('Fix the login redirect loop please')
+  }, 10000)
+
+  it('never generates a title off an error-settled turn', async () => {
+    function failingDriver(): Driver {
+      return {
+        kind: 'claude',
+        create: () =>
+          Promise.resolve({
+            start: () => ({
+              async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+                yield { type: 'error', message: 'boom', rawJson: null }
+                yield { type: 'done' }
+              },
+            }),
+            interrupt: () => undefined,
+            dispose: () => Promise.resolve(),
+          }),
+      }
+    }
+    const registry = new DriverRegistry()
+    registry.register(failingDriver())
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_err_title'
+    await seedSession(store, sessionId)
+    await store.append(sessionId, { type: 'session.updated', title: 'New session' })
+    const prompt = 'can you fix the login redirect loop please'
+    await engine.dispatch({ type: 'turn.start', sessionId, text: prompt } as Command)
+    for (let i = 0; i < 150; i++) {
+      if (published.some((p) => p.event.type === 'turn.settled')) break
+      if (i === 149) throw new Error('turn never settled')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    await new Promise((r) => setTimeout(r, 50))
+    const model = await store.load(sessionId)
+    expect(model.status).toBe('error')
+    // Only the turn.start slice rename happened; no post-settle upgrade.
+    expect(model.session?.title).toBe(prompt)
+  }, 10000)
+
+  it('routes title generation through an injected strategy', async () => {
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'done' }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      titleStrategy: {
+        generate: (request) =>
+          Promise.resolve(request.prompt.includes('auth') ? 'Auth deep dive' : null),
+      },
+    })
+    const sessionId = 'sess_llm_title'
+    await seedSession(store, sessionId)
+    await store.append(sessionId, { type: 'session.updated', title: 'New session' })
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'explain auth flow' } as Command)
+    const startedAt = Date.now()
+    while (true) {
+      const model = await store.load(sessionId)
+      if (model.session?.title === 'Auth deep dive') break
+      if (Date.now() - startedAt > 30000) throw new Error('strategy title never landed')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect((await store.load(sessionId)).session?.title).toBe('Auth deep dive')
+  }, 10000)
 })
 
