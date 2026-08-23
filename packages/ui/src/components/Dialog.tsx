@@ -126,7 +126,7 @@ export function DialogContent({ className, style, children, ...rest }: DialogCon
             variants={menuInVariants}
             style={style}
             className={[
-              'bg-surface-1 border border-border rounded-lg shadow-2 p-5 w-[min(480px,90vw)] outline-none',
+              'ari-glass-overlay border border-border rounded-lg shadow-2 p-5 w-[min(480px,90vw)] outline-none',
               className,
             ]
               .filter(Boolean)

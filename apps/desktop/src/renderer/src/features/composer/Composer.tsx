@@ -143,7 +143,7 @@ export function Composer({
   )
 
   return (
-    <div className="border-t border-border bg-surface-0 px-4 py-3">
+    <div className="ari-glass px-4 pb-3 pt-1">
       <AnimatePresence>
         {queued.length > 0 ? (
           <motion.div
@@ -151,7 +151,7 @@ export function Composer({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={transitions.fadeUp}
-            className="mb-2 flex items-center gap-2 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted"
+            className="mb-2 flex items-center gap-2 rounded-md border border-border bg-glass-input px-3 py-1.5 text-xs text-fg-muted"
           >
             <Clock size={12} className="shrink-0 text-fg-subtle" />
             <span>
@@ -162,8 +162,8 @@ export function Composer({
         ) : null}
       </AnimatePresence>
 
-      {/* Zeron-style pill: input floats on top, controls docked underneath inside the card. */}
-      <div className="relative rounded-xl border border-border bg-surface-1 transition-shadow focus-within:border-border-strong focus-within:shadow-[0_0_0_3px_var(--ari-accent-ring)]">
+      {/* Zeron-style pill: frosted plate floating over the acrylic backdrop. */}
+      <div className="relative rounded-xl border border-border bg-glass-input shadow-2 transition-colors focus-within:border-border-strong">
         {token?.kind === 'slash' && !dismissed && slashItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <SlashPopup query={token.raw} onSelect={handleSlashSelect} onClose={closePopup} />

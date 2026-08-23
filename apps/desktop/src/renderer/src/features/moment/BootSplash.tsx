@@ -46,13 +46,13 @@ export function BootSplash({ ready }: BootSplashProps) {
             custom={index}
             initial="hidden"
             animate="visible"
-            className="text-3xl font-semibold tracking-[0.3em] text-fg"
+            className="bg-gradient-to-b from-fg to-fg-subtle bg-clip-text text-3xl font-semibold tracking-[0.3em] text-transparent"
           >
             {letter}
           </motion.span>
         ))}
       </div>
-      <div className="h-0.5 w-40 overflow-hidden rounded-full bg-surface-3">
+      <div className="h-0.5 w-40 overflow-hidden rounded-full bg-surface-2">
         <motion.div
           data-testid="boot-progress"
           className="h-full bg-accent"
