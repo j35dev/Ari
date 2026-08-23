@@ -356,12 +356,25 @@ function WorkspaceBreadcrumb({
 }
 
 /**
+ * Resolves a project id to its registered filesystem path. `git.status`
+ * expects a folder, and project ids are opaque — only `project.list` rows
+ * carry the real path.
+ */
+export function resolveProjectPath(
+  projects: { id: string; path: string }[],
+  projectId: string,
+): string | null {
+  return projects.find((p) => p.id === projectId)?.path ?? null
+}
+
+/**
  * Contextual branch readout in the workspace header: shows the active
- * session's git branch. Resolves the session's workspace through
- * session.load + git.status; hides entirely outside repos or without an
+ * session's git branch. Resolves the session's project id through
+ * session.load, maps it to the registered folder via project.list, then asks
+ * git.status for the branch; hides entirely outside repos or without an
  * active session.
  */
-function BranchChip({ sessionId }: { sessionId: string | null }) {
+export function BranchChip({ sessionId }: { sessionId: string | null }) {
   const [branch, setBranch] = useState<string | null>(null)
 
   useEffect(() => {
@@ -370,15 +383,15 @@ function BranchChip({ sessionId }: { sessionId: string | null }) {
     let cancelled = false
     void rpc
       .invoke('session.load', { sessionId })
-      .then((model) => {
+      .then(async (model) => {
         const session = (model as { session?: { projectId?: string } | null } | null)?.session
         const projectId = session?.projectId
         if (!projectId) return
-        return rpc.invoke('git.status', { path: projectId }).then((status) => {
-          if (!cancelled) {
-            const s = status as { isRepo: boolean; branch: string | null }
-            if (s.isRepo && s.branch) setBranch(s.branch)
-          }
+        const projects = await rpc.invoke('project.list')
+        const projectPath = resolveProjectPath(projects, projectId)
+        if (!projectPath) return
+        return rpc.invoke('git.status', { path: projectPath }).then((status) => {
+          if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
         })
       })
       .catch(() => undefined)
