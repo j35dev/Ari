@@ -64,8 +64,10 @@ describe('findNpxCommand', () => {
   })
 
   it('returns null when nowhere to look', () => {
+    // win32 well-known dirs are gated on localAppData; omitting it plus an
+    // empty PATH is empty on every host (linux CI still has /usr/bin/npx).
     expect(
-      findNpxCommand({ platform: 'linux', pathEnv: '', homeDir: '/nonexistent-home' }),
+      findNpxCommand({ platform: 'win32', pathEnv: '', homeDir: '/nonexistent-home' }),
     ).toBeNull()
   })
 })

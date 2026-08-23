@@ -56,7 +56,10 @@ describe('findBinary', () => {
 
   it('skips nonexistent well-known dirs without throwing', () => {
     const env: DetectEnvironment = { ...makeEnv(), homeDir: join(dir, 'nope') }
-    expect(wellKnownDirs({ ...env, platform: 'linux' })).toEqual([])
+    const dirs = wellKnownDirs({ ...env, platform: 'linux' })
+    // Host bin dirs (/usr/bin, /usr/local/bin) exist on CI; the missing
+    // home-relative path must still be omitted, and the scan must not throw.
+    expect(dirs).not.toContain(join(env.homeDir, '.local', 'bin'))
   })
 })
 

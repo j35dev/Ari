@@ -34,9 +34,15 @@ describe('ProjectStore', () => {
   it('deduplicates by path case-insensitively', async () => {
     const store = new ProjectStore({ dir })
     const first = await store.add(existingFolder)
-    const second = await store.add(existingFolder.toUpperCase())
-    expect(second?.id).toBe(first?.id)
+    const again = await store.add(existingFolder)
+    expect(again?.id).toBe(first?.id)
     expect(store.list()).toHaveLength(1)
+    // Linux paths are case-sensitive; the uppercased folder does not exist.
+    if (process.platform === 'win32') {
+      const folded = await store.add(existingFolder.toUpperCase())
+      expect(folded?.id).toBe(first?.id)
+      expect(store.list()).toHaveLength(1)
+    }
   })
 
   it('persists across instances and removes cleanly', async () => {
