@@ -1,6 +1,7 @@
 import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
 import { SettingsPage } from './SettingsPage'
+import { SettingsRow } from './SettingsRow'
 import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:appearance')
@@ -21,40 +22,22 @@ export function AppearanceSettings() {
   }
 
   return (
-    <SettingsPage
-      title="Appearance"
-      description="One look, designed — frosted dark chrome over your desktop."
-    >
-      <section aria-labelledby="appearance-theme-heading" className="space-y-3">
-        <h2 id="appearance-theme-heading" className="text-sm font-medium">
-          Theme
-        </h2>
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface-1 p-3">
-          <div className="space-y-0.5">
-            <p className="text-sm text-fg">Comet glass</p>
-            <p className="text-xs text-fg-muted">
-              A single frosted dark theme tuned for contrast. Alternate themes may return later.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section aria-labelledby="appearance-motion-heading" className="space-y-3">
-        <h2 id="appearance-motion-heading" className="text-sm font-medium">
-          Motion
-        </h2>
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface-1 p-3">
-          <div className="space-y-0.5">
-            <p className="text-sm text-fg">Reduce motion</p>
-            <p className="text-xs text-fg-muted">Minimize animations throughout the app.</p>
-          </div>
-          <Switch
-            checked={reducedMotion}
-            onCheckedChange={handleReducedMotionChange}
-            aria-label="Reduce motion"
-          />
-        </div>
-      </section>
+    <SettingsPage title="Appearance">
+      <SettingsRow
+        label="Theme"
+        hint="A single frosted dark chrome theme tuned for contrast."
+      >
+        <span className="rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs text-fg-muted">
+          Comet glass
+        </span>
+      </SettingsRow>
+      <SettingsRow label="Reduce motion" hint="Minimize animations throughout the app.">
+        <Switch
+          checked={reducedMotion}
+          onCheckedChange={handleReducedMotionChange}
+          aria-label="Reduce motion"
+        />
+      </SettingsRow>
     </SettingsPage>
   )
 }

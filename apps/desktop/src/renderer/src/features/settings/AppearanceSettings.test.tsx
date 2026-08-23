@@ -32,6 +32,7 @@ describe('AppearanceSettings', () => {
     render(<AppearanceSettings />)
     expect(screen.getByText('Comet glass')).toBeInTheDocument()
     expect(screen.getByText(/frosted dark chrome/i)).toBeInTheDocument()
+    expect(screen.getByText('Theme')).toBeInTheDocument()
   })
 
   it('reflects the engine-backed reduced-motion value and toggles via update', async () => {

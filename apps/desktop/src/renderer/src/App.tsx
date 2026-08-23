@@ -10,7 +10,7 @@ import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { TerminalView } from './features/terminal'
-import { SettingsDialog } from './features/settings'
+import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { ChangesView } from './features/changes'
 import { ProjectsView } from './features/projects'
 import { CommandPalette } from './features/palette/CommandPalette'
@@ -37,6 +37,7 @@ export interface SessionDefaults {
 function Shell() {
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -117,11 +118,17 @@ function Shell() {
         e.preventDefault()
         setPaletteOpen((o) => !o)
       }
-      if (e.key === 'Escape') setPaletteOpen(false)
+      if (e.key === 'Escape') {
+        if (paletteOpen) {
+          setPaletteOpen(false)
+          return
+        }
+        if (settingsOpen) setSettingsOpen(false)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [paletteOpen, settingsOpen])
 
   const createSession = useCallback(
     (overrides?: Partial<SessionDefaults>): void => {
@@ -162,6 +169,20 @@ function Shell() {
   const activeProjectName =
     projects.find((p) => p.id === sessions.find((s) => s.id === activeSessionId)?.projectId)
       ?.name ?? ''
+
+  if (settingsOpen) {
+    return (
+      <div className="flex h-full flex-col">
+        <Titlebar projectLabel="" onOpenPalette={() => setPaletteOpen(true)} />
+        <SettingsWorkspace
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
+          onBack={() => setSettingsOpen(false)}
+        />
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      </div>
+    )
+  }
 
   if (galleryOpen) {
     return (
@@ -308,7 +329,6 @@ function Shell() {
         </main>
       </div>
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   )
