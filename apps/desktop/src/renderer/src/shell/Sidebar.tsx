@@ -4,12 +4,17 @@ import {
   Check,
   ChevronRight,
   FolderGit2,
+  GitPullRequest,
+  MessageSquare,
   Pencil,
   Plus,
   Search,
+  Settings,
+  TerminalSquare,
   Trash2,
   X,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
@@ -428,5 +433,56 @@ export function SidebarSearch({
         />
       </div>
     </div>
+  )
+}
+
+export type SidebarNavId = 'session' | 'projects' | 'terminal' | 'changes' | 'settings'
+
+const SIDEBAR_NAV: { id: SidebarNavId; label: string; icon: LucideIcon }[] = [
+  { id: 'session', label: 'Sessions', icon: MessageSquare },
+  { id: 'projects', label: 'Projects', icon: FolderGit2 },
+  { id: 'changes', label: 'Changes', icon: GitPullRequest },
+  { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+  { id: 'settings', label: 'Settings', icon: Settings },
+]
+
+/**
+ * T3-style tool strip at the bottom of the sessions sidebar. Settings opens
+ * as an overlay; the other targets toggle a right inspector so chat stays put.
+ */
+export function SidebarFooter({
+  active,
+  onSelect,
+}: {
+  active: SidebarNavId | null
+  onSelect: (id: SidebarNavId) => void
+}) {
+  return (
+    <nav
+      aria-label="Workspace"
+      className="flex shrink-0 items-center gap-0.5 border-t border-border px-2 py-1.5"
+    >
+      {SIDEBAR_NAV.map((item) => {
+        const Icon = item.icon
+        const selected = item.id === active
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-label={item.label}
+            aria-pressed={selected}
+            title={item.label}
+            onClick={() => onSelect(item.id)}
+            className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+              selected
+                ? 'bg-accent-subtle text-accent'
+                : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
+            }`}
+          >
+            <Icon size={15} strokeWidth={1.8} aria-hidden />
+          </button>
+        )
+      })}
+    </nav>
   )
 }

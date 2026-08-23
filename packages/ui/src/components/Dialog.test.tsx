@@ -32,6 +32,7 @@ describe('Dialog', () => {
 
     expect(panel).toHaveAttribute('aria-modal', 'true')
     expect(panel.className).toContain('w-[min(480px,90vw)]')
+    expect(panel.className).not.toContain('w-[min(920px,92vw)]')
     expect(panel.parentElement).toHaveStyle({
       background: 'color-mix(in oklab, black 55%, transparent)',
     })
@@ -127,5 +128,16 @@ describe('Dialog', () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(true)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('applies the lg size class for workspace overlays', () => {
+    render(
+      <Dialog defaultOpen>
+        <Dialog.Content size="lg">
+          <Dialog.Title>Settings</Dialog.Title>
+        </Dialog.Content>
+      </Dialog>,
+    )
+    expect(screen.getByRole('dialog').className).toContain('w-[min(920px,92vw)]')
   })
 })
