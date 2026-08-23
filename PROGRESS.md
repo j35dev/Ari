@@ -102,6 +102,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M18.4 Project-wide content search (Ctrl+Shift+F)
 - [x] M18.5 Usage dashboard
 
+## M19 — Gap-audit P2 integrations
+
+- [x] M19.1 Codex app-server JSON-RPC driver (claimed @ feat/m19.1-codex-appserver)
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)

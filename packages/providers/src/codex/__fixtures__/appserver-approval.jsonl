@@ -1,0 +1,6 @@
+{"method":"turn/started","params":{"threadId":"thr_68b2","turn":{"id":"turn_2","status":"inProgress","items":[]}}}
+{"id":7,"method":"item/commandExecution/requestApproval","params":{"threadId":"thr_68b2","turnId":"turn_2","itemId":"it_cmd_9","command":"npm publish","cwd":"/w","reason":"Command requires network access","availableDecisions":["accept","acceptForSession","decline","cancel"],"approvalId":null,"startedAtMs":1756000005000}}
+{"id":8,"method":"item/fileChange/requestApproval","params":{"threadId":"thr_68b2","turnId":"turn_2","itemId":"it_fc_1","reason":"Patch touches tracked files","grantRoot":"/w","startedAtMs":1756000005200}}
+{"method":"item/started","params":{"threadId":"thr_68b2","turnId":"turn_2","item":{"id":"it_fc_2","type":"fileChange","changes":[{"path":"src/index.ts","kind":"update"}],"status":"inProgress"}}}
+{"method":"item/completed","params":{"threadId":"thr_68b2","turnId":"turn_2","item":{"id":"it_fc_2","type":"fileChange","changes":[{"path":"src/index.ts","kind":"update"}],"status":"completed"}}}
+{"method":"turn/completed","params":{"threadId":"thr_68b2","turn":{"id":"turn_2","status":"completed","items":[],"startedAt":1756000004900,"completedAt":1756000005400,"durationMs":500}}}
