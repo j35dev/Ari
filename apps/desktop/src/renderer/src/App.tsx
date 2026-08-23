@@ -3,7 +3,7 @@ import { GitBranch, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
-import type { SessionSummary } from '@ari/contracts/rpc'
+import type { RpcResults, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from './lib/rpc'
 import { Titlebar } from './shell/Titlebar'
@@ -14,6 +14,7 @@ import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { ProjectsView } from './features/projects'
+import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { BootSplash } from './features/moment'
@@ -29,6 +30,9 @@ import './features/transcript/transcript.css'
 
 type InspectorId = Exclude<SidebarNavId, 'session' | 'settings'>
 
+/** Full project registry rows; ids feed lookups, paths feed git/fs panes. */
+type ProjectRow = RpcResults['project.list'][number]
+
 export interface SessionDefaults {
   driverKind: DriverKind
   modelId: string | null
@@ -40,7 +44,7 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
+  const [projects, setProjects] = useState<ProjectRow[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -170,6 +174,12 @@ function Shell() {
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeProjectName =
     projects.find((p) => p.id === activeSession?.projectId)?.name ?? ''
+  // The explorer roots at the active session's project, falling back to the
+  // first registered project so the pane is never dead on arrival.
+  const activeProjectPath =
+    projects.find((p) => p.id === activeSession?.projectId)?.path ??
+    projects[0]?.path ??
+    null
 
   if (settingsOpen) {
     return (
@@ -298,7 +308,9 @@ function Shell() {
                       ? 'Terminal'
                       : inspector === 'changes'
                         ? 'Changes'
-                        : 'Projects'}
+                        : inspector === 'files'
+                          ? 'Files'
+                          : 'Projects'}
                   </span>
                   <div className="flex-1" />
                   <button
@@ -322,6 +334,14 @@ function Shell() {
                         projectId={activeSession?.projectId ?? null}
                       />
                     </ErrorBoundary>
+                  ) : inspector === 'files' ? (
+                    activeProjectPath ? (
+                      <FileExplorer root={activeProjectPath} />
+                    ) : (
+                      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
+                        Add a project first — the explorer browses its folder.
+                      </div>
+                    )
                   ) : (
                     <ErrorBoundary label="Projects">
                       <ProjectsView />
