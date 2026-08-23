@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import type { Message } from '@ari/contracts/message'
@@ -47,5 +48,66 @@ describe('TranscriptView loading state', () => {
 
     expect(container.querySelectorAll('.ari-pulse')).toHaveLength(0)
     expect(container.querySelector('[data-index]')).not.toBeNull()
+  })
+})
+
+const TURN_DIFF =
+  'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n'
+
+describe('TranscriptView per-turn diff cards', () => {
+  function turnMessage(id: string, turnId: string): Message {
+    return {
+      id,
+      sessionId: 'sess_1',
+      turnId,
+      role: 'assistant',
+      parts: [{ type: 'text', text: `edited in ${turnId}` }],
+      createdAt: 1,
+    }
+  }
+
+  it('renders a collapsed diff card for a settled turn with a diff', () => {
+    const { container } = render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [message('m1'), turnMessage('m2', 'turn_7')],
+        turnDiffs: { turn_7: TURN_DIFF },
+      }),
+    )
+
+    const toggle = screen.getByRole('button', { name: 'Turn diff: 1 file changed' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('-old')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-turn-diff="turn_7"]')).not.toBeNull()
+  })
+
+  it('renders no card when the turn has no diff entry', () => {
+    const { container } = render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [turnMessage('m2', 'turn_7')],
+      }),
+    )
+
+    expect(screen.queryByRole('button', { name: /Turn diff/ })).not.toBeInTheDocument()
+    expect(container.querySelector('[data-turn-diff]')).toBeNull()
+  })
+
+  it('expands into the shared unified diff viewer when clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [turnMessage('m2', 'turn_7')],
+        turnDiffs: { turn_7: TURN_DIFF },
+      }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Turn diff: 1 file changed' }))
+
+    expect(screen.getByRole('button', { name: 'Toggle src/a.ts' })).toBeInTheDocument()
+    // parseDiff strips marker characters, so rows render bare content.
+    expect(screen.getByText('new')).toBeInTheDocument()
+    expect(screen.getByText('old')).toBeInTheDocument()
   })
 })

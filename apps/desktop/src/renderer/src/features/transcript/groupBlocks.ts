@@ -1,19 +1,69 @@
-import type { TranscriptBlock, ToolGroupRow } from './types'
+import type { TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
 
-/** Rows the virtualizer renders: plain blocks plus collapsed tool runs. */
-export type TranscriptRow = TranscriptBlock | ToolGroupRow
+export type { TranscriptRow } from './types'
 
 function isToolBlock(block: TranscriptBlock): boolean {
   return block.kind === 'tool-call' || block.kind === 'tool-result'
+}
+
+/** The turn a row belongs to, or null for rows outside any turn. */
+function rowTurnId(row: TranscriptRow): string | null {
+  if (row.kind === 'tool-group') return row.calls[0]?.turnId ?? null
+  if (row.kind === 'turn-diff') return row.turnId
+  return row.turnId ?? null
+}
+
+/**
+ * Appends one collapsed {@link TurnDiffRow} after the last row of each turn
+ * present in `turnDiffs`. Cards attach at turn boundaries so they trail the
+ * turn's assistant/tool blocks; turns without an entry render untouched.
+ */
+export function insertTurnDiffRows(
+  rows: TranscriptRow[],
+  turnDiffs: Readonly<Record<string, string>>,
+): TranscriptRow[] {
+  const out: TranscriptRow[] = []
+  const emitted = new Set<string>()
+  let openTurnId: string | null = null
+  const flushCard = (): void => {
+    if (openTurnId === null) return
+    const diffText = turnDiffs[openTurnId]
+    if (typeof diffText === 'string' && diffText.length > 0 && !emitted.has(openTurnId)) {
+      emitted.add(openTurnId)
+      const row: TurnDiffRow = {
+        kind: 'turn-diff',
+        key: `turn-diff:${openTurnId}`,
+        turnId: openTurnId,
+        diffText,
+      }
+      out.push(row)
+    }
+    openTurnId = null
+  }
+  for (const row of rows) {
+    const turnId = rowTurnId(row)
+    if (turnId !== openTurnId) {
+      flushCard()
+      openTurnId = turnId
+    }
+    out.push(row)
+  }
+  flushCard()
+  return out
 }
 
 /**
  * Collapses consecutive tool-call/tool-result blocks into single activity
  * rows (Zeron-style "Ran 3 commands · edited 1 file"), leaving markdown and
  * thinking rows untouched. Group keys span first→last member so they stay
- * stable while more parts stream into the run.
+ * stable while more parts stream into the run. When `turnDiffs` carries an
+ * entry for a settled turn, a collapsed diff card is appended after that
+ * turn's final row.
  */
-export function groupBlocks(blocks: TranscriptBlock[]): TranscriptRow[] {
+export function groupBlocks(
+  blocks: TranscriptBlock[],
+  turnDiffs?: Readonly<Record<string, string>>,
+): TranscriptRow[] {
   const rows: TranscriptRow[] = []
   let run: TranscriptBlock[] = []
 
@@ -50,6 +100,9 @@ export function groupBlocks(blocks: TranscriptBlock[]): TranscriptRow[] {
     }
   }
   flush()
+  if (turnDiffs !== undefined && Object.keys(turnDiffs).length > 0) {
+    return insertTurnDiffRows(rows, turnDiffs)
+  }
   return rows
 }
 
