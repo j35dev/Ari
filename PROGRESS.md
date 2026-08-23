@@ -102,6 +102,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M18.4 Project-wide content search (Ctrl+Shift+F)
 - [x] M18.5 Usage dashboard
 
+## M19 — Git actions wave
+
+- [x] M19.5 Main-process RPC for stage/commit/push (`git.add`/`git.commit`/`git.push`; execFile helpers in main, path jail, `{ok,error}` results)
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)

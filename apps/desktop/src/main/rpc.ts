@@ -9,6 +9,7 @@ import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { Engine } from './engine'
+import { commit as gitCommit, performGitAction, push as gitPush, stage as gitStage } from './git-actions'
 import { writeTextFile } from './fs-write'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
@@ -544,6 +545,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return queryTurnDiff((cwd, gitRef) => new GitService().diffForRef(cwd, gitRef), params)
   })
 
+  // Mutating git actions (M19.5): performGitAction jails `path` to an existing
+  // directory and maps every failure into a `{ ok: false, error }` result so
+  // nothing throws across IPC.
+  r.register('git.add', async (params) =>
+    performGitAction(params.path, () => gitStage(params.path, params.paths)),
+  )
+
+  r.register('git.commit', async (params) =>
+    performGitAction(params.path, () => gitCommit(params.path, params.message)),
+  )
+
+  r.register('git.push', async (params) =>
+    performGitAction(params.path, () => gitPush(params.path, params.remote)),
+  )
+
   r.register('fs.list', async (params) => {
     // Path jail: the caller passes an absolute directory; it must exist and
     // be a directory, and only regular files/dirs directly inside are
@@ -676,6 +692,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'git.status',
     'git.diffWorktree',
     'git.turnDiff',
+    'git.add',
+    'git.commit',
+    'git.push',
     'fs.list',
     'fs.readTextFile',
     'fs.writeTextFile',
