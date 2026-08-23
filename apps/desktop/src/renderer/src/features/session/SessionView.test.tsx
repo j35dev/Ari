@@ -170,6 +170,83 @@ describe('SessionView question panel', () => {
 const TURN_DIFF =
   'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n'
 
+describe('SessionView edit and resend', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list') return []
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        sessionListener = onEvent
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  function emitUserMessage(): void {
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'please retry the build' }],
+        createdAt: 1,
+      },
+    })
+  }
+
+  it('fills and focuses the composer when a user message edit fires', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitUserMessage()
+
+    await user.click(await screen.findByRole('button', { name: 'Edit message' }))
+
+    const input = screen.getByLabelText('Message')
+    await waitFor(() => expect(input).toHaveValue('please retry the build'))
+    expect(input).toHaveFocus()
+  })
+
+  it('sends an edited prompt as a new turn through the normal path', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitUserMessage()
+    await user.click(await screen.findByRole('button', { name: 'Edit message' }))
+    const input = await screen.findByLabelText('Message')
+    await waitFor(() => expect(input).toHaveValue('please retry the build'))
+
+    await user.type(input, ', verbose{Enter}')
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+        command: { type: 'turn.start', sessionId: 'sess_1', text: 'please retry the build, verbose' },
+      })
+    })
+  })
+})
+
 describe('SessionView per-turn diff cards', () => {
   beforeEach(() => {
     invokeMock.mockReset()
