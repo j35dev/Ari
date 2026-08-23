@@ -38,13 +38,12 @@ describe('SettingsSearch', () => {
     Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
   })
 
-  it('renders the search input and the full index up front', () => {
+  it('renders the search input and keeps results hidden until the user types', () => {
     render(<SettingsSearch />)
 
     expect(screen.getByRole('searchbox', { name: 'Search settings' })).toBeInTheDocument()
-    expect(screen.getAllByRole('button')).toHaveLength(SETTINGS_SEARCH_INDEX.length)
-    expect(screen.getByText('Theme')).toBeInTheDocument()
-    expect(screen.getByText('Model endpoints')).toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.queryByText('Theme')).not.toBeInTheDocument()
   })
 
   it('filters results as the query changes and shows an empty state', async () => {

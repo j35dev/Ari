@@ -447,8 +447,8 @@ const SIDEBAR_NAV: { id: SidebarNavId; label: string; icon: LucideIcon }[] = [
 ]
 
 /**
- * T3-style tool strip at the bottom of the sessions sidebar. Settings opens
- * as an overlay; the other targets toggle a right inspector so chat stays put.
+ * T3-style tool strip at the bottom of the sessions sidebar. Settings swaps
+ * the sidebar for a section list; the other targets toggle a right inspector.
  */
 export function SidebarFooter({
   active,
