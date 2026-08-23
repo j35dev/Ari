@@ -21,15 +21,20 @@ const ALLOW: PermissionDecision = { allowed: true, reason: '' }
  * are blocked unless the caller explicitly runs permissive. Read-only and
  * planning tools stay available in every mode. This is the mode dimension
  * only — allowlist rules are enforced separately on top of it.
+ *
+ * `shellLike` marks external-execution tools (mounted MCP tools) that gate
+ * exactly like bash regardless of their name: blocked under `ask` and
+ * `allow-edits`, allowed only under `full` (or per-call approval).
  */
 export function checkPermission(
   mode: PermissionMode | undefined,
   toolName: string,
+  shellLike = false,
 ): PermissionDecision {
-  if (!MODE_GUARDED_TOOLS.has(toolName)) return ALLOW
+  if (!MODE_GUARDED_TOOLS.has(toolName) && !shellLike) return ALLOW
   const effective: PermissionMode = mode ?? 'ask'
   if (effective === 'full') return ALLOW
-  if (effective === 'allow-edits' && toolName !== 'bash') return ALLOW
+  if (effective === 'allow-edits' && toolName !== 'bash' && !shellLike) return ALLOW
   return {
     allowed: false,
     reason: `blocked by permission mode '${effective}': ${toolName} requires approval`,
