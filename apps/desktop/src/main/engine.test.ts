@@ -223,5 +223,53 @@ describe('engine end-to-end with scripted driver', () => {
     expect(events.some((e) => e.type === 'checkpoint.captured')).toBe(true)
     expect(events.some((e) => e.type === 'checkpoint.pruned')).toBe(false)
   }, 10000)
+
+  it('settles the turn as error when a provider emits an error event', async () => {
+    // Auth-failure shape: CLI exits 0 but emits an error mid-stream (the
+    // real-world `Not logged in · Please run /login` claude failure).
+    function failingDriver(): Driver {
+      function makeAdapter(): ProviderAdapter {
+        async function* start(): AsyncGenerator<AgentEvent> {
+          yield { type: 'error', message: 'authentication_failed: Not logged in · Please run /login', rawJson: null }
+          yield { type: 'done' }
+        }
+        return {
+          start: () => ({ [Symbol.asyncIterator]: () => start()[Symbol.asyncIterator]() }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }
+      }
+      return { kind: 'claude', create: () => Promise.resolve(makeAdapter()) }
+    }
+
+    const registry = new DriverRegistry()
+    registry.register(failingDriver())
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_auth_fail'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'hi' } as Command)
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const settled = published
+      .filter((p) => p.sessionId === sessionId)
+      .map((p) => p.event)
+      .find((e) => e.type === 'turn.settled')
+    expect(settled).toBeDefined()
+    if (settled?.type === 'turn.settled') {
+      expect(settled.stopReason).toBe('error')
+      expect(settled.errorMessage).toContain('authentication_failed')
+    }
+    const model = await store.load(sessionId)
+    expect(model.status).toBe('error')
+  }, 10000)
 })
 

@@ -228,6 +228,7 @@ export class Engine {
     }
 
     try {
+      let firstErrorMessage: string | null = null
       for await (const event of adapter.start()) {
         switch (event.type) {
           case 'text-delta':
@@ -294,6 +295,7 @@ export class Engine {
             log.info('provider requested input', { sessionId: session.id })
             break
           case 'error':
+            if (firstErrorMessage === null) firstErrorMessage = event.message
             await append({
               type: 'assistant.parts.appended',
               messageId,
@@ -305,7 +307,12 @@ export class Engine {
         }
       }
       await flush()
-      if (!interrupted) await this.#settle(session.id, turnId, 'completed', null)
+      // Provider-emitted errors (auth failures, CLI crashes with exit 0, HTTP
+      // errors) must settle the turn as `error`, never as a completed chat —
+      // otherwise the failure is invisible and the UI looks broken.
+      if (!interrupted) {
+        await this.#settle(session.id, turnId, firstErrorMessage === null ? 'completed' : 'error', firstErrorMessage)
+      }
     } catch (e) {
       await flush().catch(() => undefined)
       if (!interrupted) await this.#settle(session.id, turnId, 'error', String(e))
