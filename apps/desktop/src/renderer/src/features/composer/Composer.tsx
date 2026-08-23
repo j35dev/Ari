@@ -22,21 +22,25 @@ export interface ComposerProps {
   onSlashCommand?: (name: string) => void
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
-  /** Rendered at the bottom-left of the input row (e.g. model pill). */
+  /**
+   * Rendered in the pill's bottom control row (model picker, permission
+   * chip). T3-style: context lives inside the prompt box, not under it.
+   */
   leading?: React.ReactNode
   placeholder?: string
   disabled?: boolean
 }
 
-const MIN_HEIGHT = 44
+const MIN_HEIGHT = 52
 const MAX_HEIGHT = 260
 
 /**
- * Message composer: auto-growing textarea, send→stop morph while a turn is
- * running, Enter to send / Shift+Enter for newline. While the caret sits at
- * the end of a ` /command` or ` @path` token, a picker popup lists completions
- * above the input (slash commands from the registry, file paths from
- * `suggestions`).
+ * Message composer, T3-style: one rounded plate holding everything — a
+ * borderless auto-growing textarea on top, model/permission chips and the
+ * send control docked at its foot. Enter sends / Shift+Enter breaks the
+ * line. While the caret sits at the end of a ` /command` or ` @path` token,
+ * a picker popup lists completions above the input (slash commands from the
+ * registry, file paths from `suggestions`).
  */
 export function Composer({
   onSend,
@@ -46,7 +50,7 @@ export function Composer({
   onSlashCommand,
   suggestions,
   leading,
-  placeholder = 'Ask, steer, or describe a task…',
+  placeholder = 'Ask Ari…',
   disabled = false,
 }: ComposerProps) {
   const [text, setText] = useState('')
@@ -143,7 +147,7 @@ export function Composer({
   )
 
   return (
-    <div className="ari-glass px-4 pb-3 pt-1">
+    <div className="px-4 pb-4 pt-2">
       <AnimatePresence>
         {queued.length > 0 ? (
           <motion.div
@@ -162,8 +166,8 @@ export function Composer({
         ) : null}
       </AnimatePresence>
 
-      {/* Zeron-style pill: frosted plate floating over the acrylic backdrop. */}
-      <div className="relative rounded-xl border border-border bg-glass-input shadow-2 transition-colors focus-within:border-border-strong">
+      {/* T3-style prompt box: one plate — field on top, chips + send at its foot. */}
+      <div className="relative rounded-2xl border border-border bg-glass-input shadow-2 transition-colors focus-within:border-border-strong">
         {token?.kind === 'slash' && !dismissed && slashItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <SlashPopup query={token.raw} onSelect={handleSlashSelect} onClose={closePopup} />
@@ -187,15 +191,20 @@ export function Composer({
           disabled={disabled}
           rows={1}
           aria-label="Message"
-          className="max-h-[260px] block w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-sm text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50"
+          className="block max-h-[260px] w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50"
         />
-        <div className="flex items-center gap-1 px-2 pb-1.5 pt-0.5">
+        <div className="flex items-center gap-1 px-2.5 pb-2.5 pt-1">
           {leading}
-          <div className="flex-1" />
-          <span className="mr-1 hidden text-2xs text-fg-subtle md:block">
-            <kbd className="font-mono">Enter</kbd> send ·{' '}
-            <kbd className="font-mono">Shift+Enter</kbd> newline
-          </span>
+          <button
+            type="button"
+            aria-label="Send message"
+            onClick={send}
+            disabled={text.trim().length === 0 || disabled || running}
+            tabIndex={-1}
+            className="sr-only"
+          >
+            Send
+          </button>
           <SendStopButton running={running} onSend={send} onStop={onStop} canSend={text.trim().length > 0} />
         </div>
       </div>
@@ -224,10 +233,10 @@ function SendStopButton({
       transition={transitions.morph}
       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         running
-          ? 'bg-danger text-fg-on-accent hover:bg-danger-hover'
+          ? 'bg-busy text-fg-on-accent hover:brightness-110'
           : canSend
             ? 'bg-accent text-fg-on-accent hover:bg-accent-hover'
-            : 'bg-surface-2 text-fg-subtle'
+            : 'bg-surface-3 text-fg-subtle'
       }`}
     >
       <AnimatePresence mode="wait" initial={false}>

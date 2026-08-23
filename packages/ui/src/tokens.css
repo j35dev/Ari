@@ -80,7 +80,6 @@
   /* layout metrics */
   --ari-sidebar-width: 280px;
   --ari-titlebar-height: 38px;
-  --ari-statusbar-height: 26px;
 
   /* motion */
   --ari-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);

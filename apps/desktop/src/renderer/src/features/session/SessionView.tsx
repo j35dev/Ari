@@ -402,7 +402,7 @@ export function PermissionModeChip({
         onClick={() => setOpen((o) => !o)}
         title={`Permission mode: ${current.hint}`}
         aria-label={`Permission mode: ${current.label}`}
-        className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2.5 text-xs text-fg-muted transition-colors hover:text-fg hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span
           aria-hidden
@@ -415,7 +415,7 @@ export function PermissionModeChip({
       {open ? (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-md border border-border p-1 shadow-2">
+          <div className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2">
             {PERMISSION_MODES.map((m) => (
               <button
                 key={m.value}

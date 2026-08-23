@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  FolderGit2,
   GitBranch,
   GitPullRequest,
-  MessageSquare,
   Settings,
   TerminalSquare,
 } from 'lucide-react'
@@ -25,7 +23,7 @@ import { ProvidersView } from './features/providers'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { BootSplash } from './features/moment'
-import { SidebarHeader, SessionsUnderProjects, UtilityStrip } from './shell/Sidebar'
+import { SidebarHeader, SessionsUnderProjects } from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
@@ -52,16 +50,6 @@ function Shell() {
     driverKind: 'ari-core',
     modelId: null,
     permissionMode: 'ask',
-  })
-  const commands = useCommands({
-    onNavigate: (view) => {
-      setPane(view === 'sessions' ? 'session' : view)
-      setPaletteOpen(false)
-    },
-    onOpenGallery: () => {
-      setGalleryOpen(true)
-      setPaletteOpen(false)
-    },
   })
 
   useEffect(() => {
@@ -106,6 +94,17 @@ function Shell() {
       })
       .catch(() => undefined)
   }, [])
+
+  const commands = useCommands({
+    onNavigate: (view) => {
+      setPane(view === 'sessions' ? 'session' : view)
+      setPaletteOpen(false)
+    },
+    onOpenGallery: () => {
+      setGalleryOpen(true)
+      setPaletteOpen(false)
+    },
+  })
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -155,19 +154,26 @@ function Shell() {
     [defaults, sessions, refreshSessions],
   )
 
+  const activeProjectName =
+    projects.find((p) => p.id === sessions.find((s) => s.id === activeSessionId)?.projectId)
+      ?.name ?? ''
+
   if (galleryOpen) {
     return (
-      <div className="flex h-full flex-col">
-        <Titlebar projectLabel="Gallery" />
-        <div className="border-b border-border bg-surface-0 px-4 py-2">
+      <div className="flex h-full flex-col bg-bg">
+        <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center gap-2 pl-3">
+          <span className="text-fg text-xs font-semibold tracking-[0.18em]">ARI</span>
+          <span className="text-fg-subtle text-xs">/</span>
+          <span className="text-fg-muted text-xs">Component gallery</span>
+          <div className="flex-1" />
           <button
             type="button"
             onClick={() => setGalleryOpen(false)}
-            className="rounded-md px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="mr-3 flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-3 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             ← Back to workspace
           </button>
-        </div>
+        </header>
         <div className="min-h-0 flex-1">
           <GalleryView />
         </div>
@@ -177,17 +183,10 @@ function Shell() {
 
   return (
     <div className="flex h-full flex-col">
-      <Titlebar
-        projectLabel={
-          projects.find(
-            (p) => p.id === sessions.find((s) => s.id === activeSessionId)?.projectId,
-          )?.name ?? ''
-        }
-        onOpenPalette={galleryOpen ? undefined : () => setPaletteOpen(true)}
-      />
+      <Titlebar projectLabel={activeProjectName} onOpenPalette={() => setPaletteOpen(true)} />
       <div className="flex min-h-0 flex-1">
         <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
-          <SidebarHeader onNewSession={createSession} />
+          <SidebarHeader onNewSession={() => createSession()} />
           <SessionsUnderProjects
             sessions={sessions}
             projects={projects}
@@ -214,85 +213,165 @@ function Shell() {
                 .catch(() => undefined)
             }}
           />
-          <UtilityStrip
-            active={pane}
-            onSelect={(id) => setPane(id as MainPane)}
-            items={[
-              { id: 'session', label: 'Sessions', icon: MessageSquare },
-              { id: 'projects', label: 'Projects', icon: FolderGit2 },
-              { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
-              { id: 'changes', label: 'Changes', icon: GitPullRequest },
-              { id: 'settings', label: 'Settings', icon: Settings },
-            ]}
-          />
         </aside>
 
-        <main className="min-w-0 flex-1 bg-bg">
-          {pane === 'terminal' ? (
-            <ErrorBoundary label="Terminal">
-              <TerminalView cwd={workspaceCwd || undefined} />
-            </ErrorBoundary>
-          ) : pane === 'changes' ? (
-            <ErrorBoundary label="Changes">
-              <ChangesView />
-            </ErrorBoundary>
-          ) : pane === 'projects' ? (
-            <ErrorBoundary label="Projects">
-              <ProjectsView />
-            </ErrorBoundary>
-          ) : pane === 'settings' ? (
-            <div className="ari-scroll h-full overflow-y-auto">
-              <div className="mx-auto max-w-2xl space-y-10 p-8">
-                <SettingsSection title="Appearance">
-                  <AppearanceSettings />
-                </SettingsSection>
-                <SettingsSection title="Providers">
-                  <ProvidersView />
-                </SettingsSection>
-                <SettingsSection title="Permissions">
-                  <PermissionsSettings />
-                </SettingsSection>
-                <SettingsSection title="Endpoints">
-                  <EndpointsManager />
-                </SettingsSection>
+        <main className="flex min-w-0 flex-1 flex-col bg-bg">
+          {/* Workspace header — T3-style breadcrumb + context actions. */}
+          <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
+            <WorkspaceBreadcrumb
+              pane={pane}
+              projectName={pane === 'session' ? activeProjectName : ''}
+              sessionTitle={
+                pane === 'session'
+                  ? (sessions.find((s) => s.id === activeSessionId)?.title ?? '')
+                  : ''
+              }
+            />
+            <div className="flex-1" />
+            <BranchChip sessionId={activeSessionId} />
+            <WorkspaceNavButton
+              label="Changes"
+              active={pane === 'changes'}
+              onClick={() => setPane(pane === 'changes' ? 'session' : 'changes')}
+            >
+              <GitPullRequest size={14} strokeWidth={1.8} aria-hidden />
+            </WorkspaceNavButton>
+            <WorkspaceNavButton
+              label="Terminal"
+              active={pane === 'terminal'}
+              onClick={() => setPane(pane === 'terminal' ? 'session' : 'terminal')}
+            >
+              <TerminalSquare size={14} strokeWidth={1.8} aria-hidden />
+            </WorkspaceNavButton>
+            <WorkspaceNavButton
+              label="Settings"
+              active={pane === 'settings'}
+              onClick={() => setPane(pane === 'settings' ? 'session' : 'settings')}
+            >
+              <Settings size={14} strokeWidth={1.8} aria-hidden />
+            </WorkspaceNavButton>
+          </header>
+
+          <div className="min-h-0 flex-1">
+            {pane === 'terminal' ? (
+              <ErrorBoundary label="Terminal">
+                <TerminalView cwd={workspaceCwd || undefined} />
+              </ErrorBoundary>
+            ) : pane === 'changes' ? (
+              <ErrorBoundary label="Changes">
+                <ChangesView />
+              </ErrorBoundary>
+            ) : pane === 'projects' ? (
+              <ErrorBoundary label="Projects">
+                <ProjectsView />
+              </ErrorBoundary>
+            ) : pane === 'settings' ? (
+              <div className="ari-scroll h-full overflow-y-auto">
+                <div className="mx-auto max-w-2xl space-y-10 p-8">
+                  <SettingsSection title="Appearance">
+                    <AppearanceSettings />
+                  </SettingsSection>
+                  <SettingsSection title="Providers">
+                    <ProvidersView />
+                  </SettingsSection>
+                  <SettingsSection title="Permissions">
+                    <PermissionsSettings />
+                  </SettingsSection>
+                  <SettingsSection title="Endpoints">
+                    <EndpointsManager />
+                  </SettingsSection>
+                </div>
               </div>
-            </div>
-          ) : activeSessionId ? (
-            <ErrorBoundary label="Session">
-              <SessionView
-                key={activeSessionId}
-                sessionId={activeSessionId}
-                defaults={defaults}
-                onDefaultsChange={setDefaults}
-              />
-            </ErrorBoundary>
-          ) : (
-            <ErrorBoundary label="Welcome">
-              <WelcomePanel
-                onCreateSession={() => createSession()}
-                onConnect={(endpointId) =>
-                  createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
-                }
-              />
-            </ErrorBoundary>
-          )}
+            ) : activeSessionId ? (
+              <ErrorBoundary label="Session">
+                <SessionView
+                  key={activeSessionId}
+                  sessionId={activeSessionId}
+                  defaults={defaults}
+                  onDefaultsChange={setDefaults}
+                />
+              </ErrorBoundary>
+            ) : (
+              <ErrorBoundary label="Welcome">
+                <WelcomePanel
+                  onCreateSession={() => createSession()}
+                  onConnect={(endpointId) =>
+                    createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
+                  }
+                />
+              </ErrorBoundary>
+            )}
+          </div>
         </main>
       </div>
 
-      <footer className="flex h-[var(--ari-statusbar-height)] shrink-0 items-center gap-3 px-3 text-2xs text-fg-subtle">
-        <span className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-success" /> ready
-        </span>
-        <BranchChip sessionId={activeSessionId} />
-        <span>
-          {sessions.length} session{sessions.length === 1 ? '' : 's'}
-        </span>
-        <div className="flex-1" />
-        <span>v0.1.0</span>
-      </footer>
-
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
+  )
+}
+
+/** Breadcrumb for the active workspace surface (T3's `Ari / thread` pattern). */
+function WorkspaceBreadcrumb({
+  pane,
+  projectName,
+  sessionTitle,
+}: {
+  pane: MainPane
+  projectName: string
+  sessionTitle: string
+}) {
+  const surfaces: Record<Exclude<MainPane, 'session'>, string> = {
+    projects: 'Projects',
+    terminal: 'Terminal',
+    changes: 'Changes',
+    settings: 'Settings',
+  }
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 text-xs">
+      {pane !== 'session' ? (
+        <span className="text-fg font-medium">{surfaces[pane]}</span>
+      ) : (
+        <>
+          <span className="max-w-40 truncate font-medium text-fg">
+            {projectName || 'Workspace'}
+          </span>
+          {sessionTitle ? (
+            <>
+              <span className="text-fg-subtle">/</span>
+              <span className="max-w-72 truncate text-fg-muted">{sessionTitle}</span>
+            </>
+          ) : null}
+        </>
+      )}
+    </div>
+  )
+}
+
+function WorkspaceNavButton({
+  label,
+  active = false,
+  onClick,
+  children,
+}: {
+  label: string
+  active?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        active
+          ? 'bg-accent-subtle text-accent'
+          : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -306,9 +385,10 @@ function SettingsSection({ title, children }: { title: string; children: React.R
 }
 
 /**
- * Fable-style contextual footer: shows the active session's git branch.
- * Resolves the session's workspace through session.load + git.status; hides
- * entirely outside repos or without an active session.
+ * Contextual branch readout in the workspace header: shows the active
+ * session's git branch. Resolves the session's workspace through
+ * session.load + git.status; hides entirely outside repos or without an
+ * active session.
  */
 function BranchChip({ sessionId }: { sessionId: string | null }) {
   const [branch, setBranch] = useState<string | null>(null)
@@ -338,9 +418,12 @@ function BranchChip({ sessionId }: { sessionId: string | null }) {
 
   if (branch === null) return null
   return (
-    <span className="flex items-center gap-1" title="Active branch">
-      <GitBranch size={10} aria-hidden="true" />
-      <span className="max-w-40 truncate font-mono">{branch}</span>
+    <span
+      className="mr-1 flex h-7 items-center gap-1 rounded-full border border-border bg-surface-1 px-2.5 font-mono text-2xs text-fg-muted"
+      title="Active branch"
+    >
+      <GitBranch size={11} aria-hidden="true" />
+      <span className="max-w-40 truncate">{branch}</span>
     </span>
   )
 }
