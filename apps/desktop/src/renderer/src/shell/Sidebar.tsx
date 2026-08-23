@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Folder,
   FolderGit2,
+  Gauge,
   GitPullRequest,
   MessageSquare,
   Pencil,
@@ -437,13 +438,21 @@ export function SidebarSearch({
   )
 }
 
-export type SidebarNavId = 'session' | 'projects' | 'terminal' | 'changes' | 'settings' | 'files'
+export type SidebarNavId =
+  | 'session'
+  | 'projects'
+  | 'terminal'
+  | 'changes'
+  | 'settings'
+  | 'files'
+  | 'usage'
 
 const SIDEBAR_NAV: { id: SidebarNavId; label: string; icon: LucideIcon }[] = [
   { id: 'session', label: 'Sessions', icon: MessageSquare },
   { id: 'projects', label: 'Projects', icon: FolderGit2 },
   { id: 'changes', label: 'Changes', icon: GitPullRequest },
   { id: 'files', label: 'Files', icon: Folder },
+  { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
