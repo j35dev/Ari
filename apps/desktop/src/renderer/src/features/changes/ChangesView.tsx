@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw, FileText, GitBranch } from 'lucide-react'
 import { DiffViewer } from '../diffs'
 import { rpc } from '../../lib/rpc'
+import { CheckpointList } from './CheckpointList'
 
 interface StatusState {
   isRepo: boolean
@@ -10,11 +11,19 @@ interface StatusState {
   error?: string
 }
 
+export interface ChangesViewProps {
+  /** Active session whose per-turn checkpoints are listed below the diff. */
+  sessionId?: string | null
+  /** The active session's project id; pairs with {@link sessionId}. */
+  projectId?: string | null
+}
+
 /**
  * Changes rail view: worktree status for the first registered project plus
- * the full unified diff vs HEAD rendered by the shared diff viewer.
+ * the full unified diff vs HEAD rendered by the shared diff viewer. When a
+ * session is active its turn checkpoints (list + revert) mount underneath.
  */
-export function ChangesView() {
+export function ChangesView({ sessionId = null, projectId = null }: ChangesViewProps) {
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [status, setStatus] = useState<StatusState | null>(null)
   const [diffText, setDiffText] = useState<string>('')
@@ -98,6 +107,12 @@ export function ChangesView() {
             {diffText.length > 0 ? <DiffViewer diffText={diffText} /> : null}
           </>
         )}
+
+        {sessionId ? (
+          <div className="mt-8 border-t border-border pt-6">
+            <CheckpointList projectId={projectId ?? 'adhoc'} sessionId={sessionId} />
+          </div>
+        ) : null}
       </div>
     </div>
   )
