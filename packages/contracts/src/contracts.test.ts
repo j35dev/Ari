@@ -153,4 +153,27 @@ describe('contracts', () => {
       rpcParams['search.content'].parse({ path: '/proj', query: 'n', maxResults: SEARCH_CONTENT_MAX_RESULTS + 1 }),
     ).toThrow()
   })
+
+  it('validates git action params and rejects empty messages/pathspecs', () => {
+    expect(rpcParams['git.add'].parse({ path: '/repo', paths: ['src/a.ts'] })).toEqual({
+      path: '/repo',
+      paths: ['src/a.ts'],
+    })
+    expect(rpcParams['git.commit'].parse({ path: '/repo', message: 'Ship it' })).toEqual({
+      path: '/repo',
+      message: 'Ship it',
+    })
+    expect(rpcParams['git.push'].parse({ path: '/repo' })).toEqual({ path: '/repo' })
+    expect(rpcParams['git.push'].parse({ path: '/repo', remote: 'upstream' })).toEqual({
+      path: '/repo',
+      remote: 'upstream',
+    })
+    expect(() => rpcParams['git.add'].parse({ path: '/repo' })).toThrow()
+    expect(() => rpcParams['git.add'].parse({ path: '/repo', paths: [] })).toThrow()
+    expect(() => rpcParams['git.add'].parse({ path: '/repo', paths: [''] })).toThrow()
+    expect(() => rpcParams['git.commit'].parse({ path: '/repo' })).toThrow()
+    expect(() => rpcParams['git.commit'].parse({ path: '/repo', message: '' })).toThrow()
+    expect(() => rpcParams['git.push'].parse({ path: '', remote: 'origin' })).toThrow()
+    expect(() => rpcParams['git.push'].parse({ path: '/repo', remote: '' })).toThrow()
+  })
 })
