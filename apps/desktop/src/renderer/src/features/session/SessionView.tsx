@@ -7,7 +7,7 @@ import type { CatalogModelInfo, SessionEventFrame } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { TranscriptView } from '../transcript'
-import { Composer } from '../composer/Composer'
+import { Composer, type ComposerSeed } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
@@ -183,6 +183,7 @@ export function SessionView({
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, string>>({})
+  const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
   const [catalogModels, setCatalogModels] = useState<
     { kind: string; models: CatalogModelInfo[] }[]
   >([])
@@ -434,6 +435,12 @@ export function SessionView({
       .catch(() => undefined)
   }, [sessionId])
 
+  // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
+  // edit does; sending then starts a new turn through the normal send path.
+  const handleEditMessage = useCallback((text: string) => {
+    setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+
   const respondApproval = useCallback(
     (approvalId: string, decision: 'allow' | 'deny' | 'always-allow') => {
       void rpc
@@ -504,6 +511,7 @@ export function SessionView({
           messages={messages}
           loading={loading}
           turnDiffs={turnDiffs}
+          onEditUserMessage={handleEditMessage}
         />
       </div>
       <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
@@ -590,6 +598,7 @@ export function SessionView({
         onStop={handleStop}
         running={running}
         queued={queued}
+        seed={composerSeed ?? undefined}
         suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
         leading={
           <>
