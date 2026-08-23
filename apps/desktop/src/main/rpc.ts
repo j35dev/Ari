@@ -6,6 +6,7 @@ import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
 import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
+import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { Engine } from './engine'
 import { RpcRegistry } from './rpc-registry'
@@ -20,11 +21,59 @@ import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
 import { HermesDriver } from '@ari/providers/hermes'
 import { detectDriver } from '@ari/providers/detector'
-import type { DetectEnvironment } from '@ari/providers/types'
+import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { realDetectEnvironment } from '@ari/providers/types'
+import { CatalogService } from '@ari/providers/catalog-service'
+import { catalogSource, modelsFor } from '@ari/providers/catalogs'
+import { createUpdateChecker } from '@ari/providers/updates'
+import { AcpDriver } from '@ari/providers/acp'
+import { resolveAcpLaunch } from '@ari/providers/acp/launches'
+import type { AcpLaunch } from '@ari/providers/acp/connection'
+import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 
 const log = createLogger('desktop:rpc')
+
+/**
+ * Kinds whose ACP server is probed for the agent's own model list. Native
+ * ACP servers are cheap to ask; npx adapters would download packages in the
+ * background, so they only run when explicitly requested.
+ */
+function acpProbeKinds(): DriverKind[] {
+  if (process.env['ARI_ACP'] === '0') return []
+  if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
+    return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
+  }
+  return ['opencode', 'hermes']
+}
+
+/**
+ * Opens a throwaway ACP session against the agent and reads its advertised
+ * model list (session config options, category `model`) — models fetched
+ * from the provider itself instead of a bundled list (M16).
+ */
+async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.models'][number]['models'] | null> {
+  const { detectDriver } = await import('@ari/providers/detector')
+  const detection = await detectDriver(kind)
+  if (!detection.binaryPath) return null
+  const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath })
+  if (launch === null) return null
+  const { AcpConnection } = await import('@ari/providers/acp/connection')
+  const connection = await AcpConnection.connect({ launch, cwd: homedir(), initializeTimeoutMs: 20_000 })
+  try {
+    const created = await connection.newSession(homedir())
+    const modelOption = (created.configOptions ?? []).find((o) => o.category === 'model' && o.type === 'select')
+    const models = (modelOption?.options ?? [])
+      .filter((v) => typeof v.value === 'string' && v.value.length > 0)
+      .map((v) => ({
+        id: v.value as string,
+        label: typeof v.name === 'string' && v.name.length > 0 ? v.name : (v.value as string),
+      }))
+    return models
+  } finally {
+    connection.kill()
+  }
+}
 
 /**
  * Every CLI kind probed by `providers.detect`, regardless of hydration state,
@@ -35,6 +84,12 @@ const ALL_CLI_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi'
 /** Short cache so mount-time detect calls from several views share one probe round. */
 let detectionCache: { at: number; value: Promise<RpcResults['providers.detect']> } | null = null
 const DETECTION_CACHE_TTL_MS = 30_000
+
+/** Enriched detections (update info) cached for an hour; refreshed in background. */
+let updateCache: { at: number; value: RpcResults['providers.detect'] } | null = null
+const UPDATE_CACHE_TTL_MS = 60 * 60 * 1000
+
+const updateChecker = createUpdateChecker()
 
 function probeAllDetections(): Promise<RpcResults['providers.detect']> {
   if (detectionCache === null || Date.now() - detectionCache.at > DETECTION_CACHE_TTL_MS) {
@@ -47,25 +102,48 @@ function probeAllDetections(): Promise<RpcResults['providers.detect']> {
             return await detectDriver(kind, env)
           } catch (error) {
             log.error('detection crashed', { kind, error: String(error) })
-            return { kind, binaryPath: null, version: null, authStatus: 'unknown' }
+            return { kind, binaryPath: null, version: null, authStatus: 'unknown' } satisfies Detection
           }
         }),
       ),
     }
   }
+  // Serve the fast offline round immediately; enrich with update info once
+  // the registry answers and publish the fresh set to stream subscribers.
+  void detectionCache.value
+    .then(async (detections) => {
+      if (updateCache !== null && Date.now() - updateCache.at < UPDATE_CACHE_TTL_MS) {
+        return updateCache.value
+      }
+      const enriched = await updateChecker.enrich(detections as Detection[])
+      updateCache = { at: Date.now(), value: enriched }
+      rpcRegistryRef?.publish('providers.updates', {
+        type: 'detections',
+        detections: enriched,
+      } satisfies ProvidersUpdateFrame)
+      return enriched
+    })
+    .catch((error: unknown) => log.debug('update enrichment failed', { error: String(error) }))
   return detectionCache.value
 }
 
 /**
- * Registers each installed CLI driver as its detection resolves. Detection is
- * concurrent and runs in the background — the RPC surface is fully usable the
- * instant this function is called.
+ * Module-level hook so the detection round can publish stream frames without
+ * threading the registry through every helper; set during registerRpc.
+ */
+let rpcRegistryRef: RpcRegistry | null = null
+
+/**
+ * Registers each installed CLI driver as its detection resolves, preferring
+ * the ACP transport (M16) with the legacy one-shot CLI driver as automatic
+ * fallback inside {@link AcpDriver}. Detection is concurrent and runs in the
+ * background — the RPC surface is fully usable the instant this runs.
  */
 function hydrateDrivers(registry: DriverRegistry): void {
   const env = realDetectEnvironment()
   const candidates: {
     kind: 'claude' | 'codex' | 'opencode' | 'grok' | 'pi' | 'hermes'
-    make: (bin: string) => unknown
+    make: (bin: string) => Driver
   }[] = [
     { kind: 'claude', make: (bin) => new ClaudeDriver(bin) },
     { kind: 'codex', make: (bin) => new CodexDriver(bin) },
@@ -78,10 +156,16 @@ function hydrateDrivers(registry: DriverRegistry): void {
     candidates.map(async (candidate) => {
       try {
         const detection = await detectDriver(candidate.kind, env)
-        if (detection.binaryPath) {
-          registry.register(candidate.make(detection.binaryPath) as never)
-          log.info('driver registered', { kind: candidate.kind, version: detection.version })
-        }
+        if (!detection.binaryPath) return
+        const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
+          cliBinaryPath: detection.binaryPath,
+        })
+        registry.register(new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath)))
+        log.info('driver registered', {
+          kind: candidate.kind,
+          version: detection.version,
+          transport: launch === null ? 'cli' : 'acp+fallback',
+        })
       } catch (error) {
         log.error('driver detection failed', { kind: candidate.kind, error: String(error) })
       }
@@ -140,12 +224,23 @@ export function registerRpc(contents: WebContents): EngineHandle {
       if (!contents.isDestroyed()) contents.send(STREAM_CHANNEL, frame)
     },
   })
+  rpcRegistryRef = rpcRegistry
 
   // The registry exists immediately with Ari Core attached; CLI drivers are
   // added as background detection completes. Nothing waits on that to answer.
   const driverRegistry = new DriverRegistry()
   driverRegistry.register(new AriCoreDriver(getEndpointStore()))
   hydrateDrivers(driverRegistry)
+
+  // Model catalogs: bundled snapshot serves the first paint; a background
+  // models.dev refresh plus live ACP probes (agents advertising their own
+  // model lists) upgrade the pickers without any restart.
+  const catalogService = new CatalogService({
+    cachePath: join(app.getPath('userData'), 'model-catalog.json'),
+    probeModels: (kind) => probeAcpModels(kind),
+    probeKinds: acpProbeKinds(),
+  })
+  catalogService.start()
 
   const engine = new Engine({
     store: getSessionStore(),
@@ -251,6 +346,15 @@ export function registerRpc(contents: WebContents): EngineHandle {
   r.register('command.dispatch', async (params) => engine.dispatch(params.command))
 
   r.register('providers.detect', () => probeAllDetections())
+
+  // Merged model catalogs per kind: dynamic overlay → snapshot → static.
+  r.register('providers.models', () =>
+    ALL_CLI_KINDS.map((kind) => ({
+      kind,
+      source: catalogSource(kind),
+      models: modelsFor(kind),
+    })),
+  )
 
   r.register('window.minimize', () => {
     BrowserWindow.fromWebContents(contents)?.minimize()
@@ -471,6 +575,19 @@ export function registerRpc(contents: WebContents): EngineHandle {
         }
       }
     }
+    if (params.name === 'providers.updates') {
+      // Late subscribers immediately get the current state of both feeds.
+      if (updateCache !== null) {
+        rpcRegistry.publish('providers.updates', {
+          type: 'detections',
+          detections: updateCache.value,
+        } satisfies ProvidersUpdateFrame)
+      }
+      rpcRegistry.publish('providers.updates', {
+        type: 'catalog',
+        at: catalogService.lastRefreshAt,
+      } satisfies ProvidersUpdateFrame)
+    }
     return { subscribed: true }
   })
 
@@ -488,6 +605,7 @@ export function registerRpc(contents: WebContents): EngineHandle {
     'session.destroy',
     'command.dispatch',
     'providers.detect',
+    'providers.models',
     'window.minimize',
     'window.toggleMaximize',
     'window.close',
