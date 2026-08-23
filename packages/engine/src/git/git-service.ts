@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { err, ok, type Result } from '@ari/shared/result'
 import { createLogger } from '@ari/shared/logger'
@@ -57,6 +58,20 @@ export interface GitStatus {
 export interface CheckpointInfo {
   ref: string
   oid: string
+}
+
+/** One entry of `git worktree list --porcelain`. */
+export interface WorktreeInfo {
+  /** Absolute path of the worktree checkout (or bare repo). */
+  path: string
+  /** Commit checked out in that worktree; empty for bare entries. */
+  head: string
+  /** Full ref name of the checked-out branch; null when detached or bare. */
+  branch: string | null
+  /** True for the bare repository row. */
+  bare: boolean
+  /** True when no branch is checked out (detached HEAD). */
+  detached: boolean
 }
 
 export interface GitServiceOptions {
@@ -204,6 +219,78 @@ export class GitService {
     return ok(deleted)
   }
 
+  /**
+   * Registers `path` as a linked worktree:
+   *
+   * - `branch` omitted: detached-HEAD checkout at HEAD.
+   * - mode `create-branch` (default): checks out a NEW branch
+   *   (`git worktree add -b <branch> <path>`). Ari always passes an explicit
+   *   per-session branch so agent commits never move a user-checked-out
+   *   branch.
+   * - mode `checkout-branch`: attaches to an EXISTING branch
+   *   (`git worktree add <path> <branch>`), used to resurrect a session
+   *   worktree whose checkout was removed while its branch survived.
+   */
+  async addWorktree(
+    repo: string,
+    path: string,
+    branch?: string,
+    mode: 'create-branch' | 'checkout-branch' = 'create-branch',
+  ): Promise<Result<void, GitError>> {
+    if (path.startsWith('-')) {
+      return err({ code: 'invalid_ref', message: `unsafe worktree path: ${path}` })
+    }
+    if (
+      branch !== undefined &&
+      (branch.startsWith('-') || branch.includes('..') || branch.includes('\\') || !SAFE_REV.test(branch))
+    ) {
+      return err({ code: 'invalid_ref', message: `unsafe worktree branch: ${branch}` })
+    }
+    const args =
+      branch === undefined
+        ? ['worktree', 'add', path]
+        : mode === 'create-branch'
+          ? ['worktree', 'add', '-b', branch, path]
+          : ['worktree', 'add', path, branch]
+    const run = await this.#run(repo, args)
+    return run.ok ? ok(undefined) : run
+  }
+
+  /**
+   * Unlinks the worktree at `path`. Uses `--force`: session worktrees may
+   * hold uncommitted agent output and cleanup must not wedge on dirty state.
+   * The branch itself is left alone — deleting it is the caller's decision.
+   */
+  async removeWorktree(repo: string, path: string): Promise<Result<void, GitError>> {
+    if (path.startsWith('-')) {
+      return err({ code: 'invalid_ref', message: `unsafe worktree path: ${path}` })
+    }
+    const run = await this.#run(repo, ['worktree', 'remove', '--force', path])
+    return run.ok ? ok(undefined) : run
+  }
+
+  /** Every linked worktree plus the main checkout, in git's listing order. */
+  async listWorktrees(repo: string): Promise<Result<WorktreeInfo[], GitError>> {
+    const run = await this.#run(repo, ['worktree', 'list', '--porcelain'])
+    return run.ok ? ok(parseWorktrees(run.value.stdout)) : run
+  }
+
+  /**
+   * Absolute path of the repo-local `info/exclude` file — ignore rules that
+   * never touch the user's `.gitignore`. `--git-path` resolves shared files
+   * into the common dir, so all linked worktrees agree on one file.
+   */
+  async infoExcludePath(cwd: string): Promise<Result<string, GitError>> {
+    const run = await this.#run(cwd, ['rev-parse', '--git-path', 'info/exclude'])
+    if (!run.ok) return run
+    const raw = run.value.stdout.trim()
+    if (raw.length === 0) {
+      return err({ code: 'command_failed', message: 'git did not resolve info/exclude' })
+    }
+    // --git-path may answer with a cwd-relative path; pin it to the repo.
+    return ok(resolve(cwd, raw))
+  }
+
   async #run(
     cwd: string,
     args: string[],
@@ -270,6 +357,43 @@ function parseStatus(stdout: string): GitStatus {
 
 function pushEntry(files: StatusEntry[], entry: StatusEntry | null): void {
   if (entry) files.push(entry)
+}
+
+/**
+ * Porcelain worktree listing: entries of `worktree`/`HEAD`/`branch` lines
+ * (plus the `bare`/`detached`/`locked` flags) separated by blank lines.
+ */
+function parseWorktrees(stdout: string): WorktreeInfo[] {
+  const out: WorktreeInfo[] = []
+  let current: WorktreeInfo | null = null
+  for (const raw of stdout.split('\n')) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
+    if (line === '') {
+      if (current) out.push(current)
+      current = null
+    } else if (line.startsWith('worktree ')) {
+      if (current) out.push(current)
+      current = {
+        path: line.slice('worktree '.length),
+        head: '',
+        branch: null,
+        bare: false,
+        detached: false,
+      }
+    } else if (current) {
+      if (line.startsWith('HEAD ')) {
+        current.head = line.slice('HEAD '.length)
+      } else if (line.startsWith('branch ')) {
+        current.branch = line.slice('branch '.length)
+      } else if (line === 'bare') {
+        current.bare = true
+      } else if (line === 'detached') {
+        current.detached = true
+      }
+    }
+  }
+  if (current) out.push(current)
+  return out
 }
 
 /** Ordinary entries: `1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>`. */
