@@ -85,6 +85,11 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     title: z.string().min(1).optional(),
   }),
   eventBase.extend({
+    type: z.literal('session.ref.observed'),
+    /** Provider-native session/thread id reported by the adapter. */
+    ref: z.string().min(1),
+  }),
+  eventBase.extend({
     type: z.literal('message.enqueued'),
     text: z.string().min(1),
   }),

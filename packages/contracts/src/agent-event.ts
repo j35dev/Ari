@@ -34,6 +34,11 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     choicesJson: z.string().nullable(),
   }),
   z.object({
+    type: z.literal('session-ref'),
+    /** Provider-native session/thread id to resume on later turns. */
+    ref: z.string().min(1),
+  }),
+  z.object({
     type: z.literal('usage'),
     inputTokens: z.number().nonnegative(),
     outputTokens: z.number().nonnegative(),

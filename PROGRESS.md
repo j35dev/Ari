@@ -92,6 +92,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 ## M17 — Gap-audit repair wave (P0)
 
+- [x] M17.1 Engine wiring: resumeOf, steer, input.respond, queue fold, listSessions index
 - [x] M17.2 Ari Core honors permissionMode; grep uses rg when present
 - [x] M17.5 GitHub Actions workflow runs pnpm verify
 
