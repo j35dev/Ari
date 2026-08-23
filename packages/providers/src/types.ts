@@ -9,6 +9,13 @@ export interface Detection {
   /** First line of `--version` output, trimmed. Null when probe failed. */
   version: string | null
   authStatus: AuthStatus
+  /**
+   * Newest version published upstream by the vendor, when the CLI is
+   * npm-distributed and the registry answered. Null/undefined when unknown.
+   */
+  latestVersion?: string | null
+  /** True when latestVersion is newer than version; null when unknowable. */
+  updateAvailable?: boolean | null
 }
 
 /** Everything detect() needs from the outside world; injectable for tests. */
