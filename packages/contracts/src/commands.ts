@@ -54,6 +54,8 @@ export const commandSchema = z.discriminatedUnion('type', [
     modelId: z.string().nullable().optional(),
     permissionMode: permissionModeSchema.optional(),
     title: z.string().min(1).optional(),
+    archived: z.boolean().optional(),
+    pinned: z.boolean().optional(),
   }),
   z.object({
     type: z.literal('session.destroy'),

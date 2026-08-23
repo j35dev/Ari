@@ -58,7 +58,13 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
 
   switch (event.type) {
     case 'session.created':
-      next.session = event.session
+      // Normalize the optional sidebar flags so every read model carries
+      // concrete booleans even when folding pre-M18.2 journals.
+      next.session = {
+        ...event.session,
+        archived: event.session.archived ?? false,
+        pinned: event.session.pinned ?? false,
+      }
       next.status = event.session.status
       break
 
@@ -168,6 +174,8 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
         ...(event.modelId !== undefined ? { modelId: event.modelId } : {}),
         ...(event.permissionMode !== undefined ? { permissionMode: event.permissionMode } : {}),
         ...(event.title !== undefined ? { title: event.title } : {}),
+        ...(event.archived !== undefined ? { archived: event.archived } : {}),
+        ...(event.pinned !== undefined ? { pinned: event.pinned } : {}),
       }
       break
     }

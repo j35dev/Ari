@@ -97,6 +97,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 ## M18 — Gap-audit P1 table-stakes
 
 - [x] M18.1 Transcript diff cards + context-window meter
+- [x] M18.2 Session titles + pin/archive flags
 - [x] M18.3 In-app file editing + write-back RPC
 
 ## M0 — Scaffold

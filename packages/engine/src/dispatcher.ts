@@ -130,6 +130,8 @@ export function decideCommand(
         ...(command.modelId !== undefined ? { modelId: command.modelId } : {}),
         ...(command.permissionMode !== undefined ? { permissionMode: command.permissionMode } : {}),
         ...(command.title !== undefined ? { title: command.title } : {}),
+        ...(command.archived !== undefined ? { archived: command.archived } : {}),
+        ...(command.pinned !== undefined ? { pinned: command.pinned } : {}),
       }
       return accept([patch])
     }
