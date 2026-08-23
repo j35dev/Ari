@@ -1,6 +1,11 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import type { AdapterSession, Driver, ProviderAdapter } from '@ari/providers/driver'
-import { runAgentLoop } from './agent-loop'
+import type {
+  AdapterApprovalDecision,
+  AdapterSession,
+  Driver,
+  ProviderAdapter,
+} from '@ari/providers/driver'
+import { runAgentLoop, type ApprovalRequest } from './agent-loop'
 import {
   streamChatCompletion,
   type ChatMessage,
@@ -11,6 +16,7 @@ import {
 } from './protocols/anthropic-messages'
 import { streamChatOllama, type OllamaChatRequest } from './protocols/ollama'
 import { CONTEXT_WINDOW_CHARS, trimMessages } from './context-manager'
+import type { AllowRule } from './allowlist'
 import type { Endpoint, EndpointStore } from './endpoints'
 
 const SYSTEM_PROMPT = [
@@ -32,6 +38,12 @@ export interface AriCoreDriverOptions {
   clients?: AriCoreDriverClients
   /** Char budget handed to the context manager before each round. */
   contextCharLimit?: number
+  /**
+   * Permission rules (glob per tool) intersected with the session's
+   * permission mode inside the agent loop. Not yet wired from settings;
+   * mode enforcement works without it.
+   */
+  allowlist?: AllowRule[]
 }
 
 interface RenderedTurn {
@@ -117,6 +129,10 @@ function ollamaRequest(
  * Requests route through the protocol client matching `endpoint.flavor`
  * (openai-chat | anthropic-messages | ollama), and the context manager
  * trims history before every round once it grows past the char budget.
+ *
+ * The session's permission mode is enforced inside the agent loop: mode-gated
+ * tool calls emit `approval-requested` and park until `respondApproval`
+ * answers them (or the turn aborts, which denies them).
  */
 export class AriCoreDriver implements Driver {
   readonly kind = 'ari-core' as const
@@ -124,11 +140,13 @@ export class AriCoreDriver implements Driver {
   readonly #endpoints: EndpointStore
   readonly #clients: AriCoreDriverClients
   readonly #contextCharLimit: number
+  readonly #allowlist: AllowRule[] | undefined
 
   constructor(endpoints: EndpointStore, options: AriCoreDriverOptions = {}) {
     this.#endpoints = endpoints
     this.#clients = options.clients ?? {}
     this.#contextCharLimit = options.contextCharLimit ?? CONTEXT_WINDOW_CHARS
+    this.#allowlist = options.allowlist
   }
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
@@ -140,8 +158,27 @@ export class AriCoreDriver implements Driver {
     const endpoint = this.#endpoints.list().find((e) => e.id === endpointId)
     const clients = this.#clients
     const contextCharLimit = this.#contextCharLimit
+    const allowlist = this.#allowlist
 
     const abort = new AbortController()
+
+    // Mode-gated calls park here until the host answers via respondApproval.
+    const pendingApprovals = new Map<string, (decision: AdapterApprovalDecision) => void>()
+    abort.signal.addEventListener(
+      'abort',
+      () => {
+        for (const [id, resolve] of pendingApprovals) {
+          pendingApprovals.delete(id)
+          resolve('deny')
+        }
+      },
+      { once: true },
+    )
+    const requestApproval = (request: ApprovalRequest): Promise<AdapterApprovalDecision> => {
+      return new Promise((resolve) => {
+        pendingApprovals.set(request.approvalId, resolve)
+      })
+    }
 
     async function* start(): AsyncGenerator<AgentEvent> {
       if (!endpoint) {
@@ -183,6 +220,9 @@ export class AriCoreDriver implements Driver {
         systemPrompt: SYSTEM_PROMPT,
         userPrompt: session.prompt,
         workspacePath: session.workspacePath,
+        permissionMode: session.permissionMode,
+        requestApproval,
+        ...(allowlist ? { allowlist } : {}),
         signal: abort.signal,
       })
     }
@@ -191,6 +231,12 @@ export class AriCoreDriver implements Driver {
 
     return Promise.resolve({
       start: () => ({ [Symbol.asyncIterator]: () => iterator }),
+      respondApproval: (approvalId, decision) => {
+        const resolve = pendingApprovals.get(approvalId)
+        if (!resolve) return
+        pendingApprovals.delete(approvalId)
+        resolve(decision)
+      },
       interrupt: () => abort.abort(),
       dispose: () => {
         abort.abort()

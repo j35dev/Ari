@@ -10,13 +10,18 @@ import type { AnthropicChatRequest } from './protocols/anthropic-messages'
 import type { OllamaChatRequest } from './protocols/ollama'
 import { TRIMMED_TOOL_RESULTS_PLACEHOLDER } from './context-manager'
 
-function makeSession(workspacePath: string, prompt: string, endpointId: string) {
+function makeSession(
+  workspacePath: string,
+  prompt: string,
+  endpointId: string,
+  permissionMode: 'ask' | 'allow-edits' | 'full' = 'ask',
+) {
   return {
     sessionId: 's1',
     workspacePath,
     prompt,
     modelId: endpointId,
-    permissionMode: 'ask' as const,
+    permissionMode,
     resumeOf: null,
   }
 }
@@ -257,6 +262,117 @@ describe('ari core driver flavor routing', () => {
       expect(requests[0]?.model).toBe('gpt-test')
       expect(events.some((e) => e.type === 'error')).toBe(false)
       expect(events[0]).toEqual({ type: 'text-delta', text: 'hi' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('ari core driver permission enforcement', () => {
+  async function scriptedDriver(dir: string): Promise<AriCoreDriver> {
+    const endpoints = new EndpointStore({ dir })
+    await endpoints.upsert({
+      id: 'ep-perm',
+      name: 'Router',
+      baseUrl: 'https://oai.test/v1',
+      flavor: 'openai-chat',
+      model: 'm',
+      headers: {},
+    })
+    let round = 0
+    return new AriCoreDriver(endpoints, {
+      clients: {
+        openai: async function* () {
+          round++
+          if (round === 1) {
+            yield {
+              type: 'tool-started',
+              callId: 'c1',
+              name: 'bash',
+              argsJson: JSON.stringify({ command: 'echo gated-run' }),
+            }
+          } else {
+            yield { type: 'text-delta', text: 'finished' }
+          }
+          yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+          yield { type: 'done' }
+        },
+      },
+    })
+  }
+
+  it('parks ask-mode bash calls on approval-requested and forwards decisions', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-driver-appr-'))
+    try {
+      const driver = await scriptedDriver(dir)
+      const adapter = await driver.create(makeSession(dir, 'run', 'ep-perm', 'ask'))
+      const iterator = adapter.start()[Symbol.asyncIterator]()
+      const events: AgentEvent[] = []
+      for (;;) {
+        const next = await iterator.next()
+        if (next.done) break
+        events.push(next.value)
+        if (next.value.type === 'approval-requested') break
+      }
+      const request = events.at(-1)
+      if (request?.type !== 'approval-requested') throw new Error('expected approval-requested')
+      expect(request.toolName).toBe('bash')
+      expect(request.summaryJson).toContain('gated-run')
+
+      adapter.respondApproval?.(request.approvalId, 'deny')
+      const denied = await iterator.next()
+      if (denied.done || denied.value.type !== 'tool-completed') {
+        throw new Error('expected tool-completed after decision')
+      }
+      expect(denied.value.isError).toBe(true)
+      expect(denied.value.resultJson).toContain("denied by user under permission mode 'ask'")
+
+      for (;;) {
+        const next = await iterator.next()
+        if (next.done) break
+        events.push(next.value)
+      }
+      expect(events.some((e) => e.type === 'text-delta')).toBe(true)
+      expect(events.at(-1)).toEqual({ type: 'done' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('runs bash without approvals in full mode', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-driver-full-'))
+    try {
+      const driver = await scriptedDriver(dir)
+      const adapter = await driver.create(makeSession(dir, 'run', 'ep-perm', 'full'))
+      const events = await collect(adapter.start())
+      expect(events.some((e) => e.type === 'approval-requested')).toBe(false)
+      const completed = events.find((e) => e.type === 'tool-completed')
+      if (completed?.type !== 'tool-completed') throw new Error('expected tool-completed')
+      expect(completed.isError).toBe(false)
+      expect(completed.resultJson).toContain('gated-run')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('denies parked approvals when the adapter is disposed mid-wait', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-driver-dispose-'))
+    try {
+      const driver = await scriptedDriver(dir)
+      const adapter = await driver.create(makeSession(dir, 'run', 'ep-perm', 'ask'))
+      const iterator = adapter.start()[Symbol.asyncIterator]()
+      for (;;) {
+        const next = await iterator.next()
+        if (next.done) throw new Error('stream ended before approval-requested')
+        if (next.value.type === 'approval-requested') break
+      }
+      await adapter.dispose()
+      const after = await iterator.next()
+      if (after.done || after.value.type !== 'tool-completed') {
+        throw new Error('expected tool-completed after dispose')
+      }
+      expect(after.value.isError).toBe(true)
+      expect(after.value.resultJson).toContain("denied by user under permission mode 'ask'")
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
