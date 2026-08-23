@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { useVirtualizer } from './use-virtualizer'
 import { splitBlocks } from './splitBlocks'
@@ -28,12 +28,15 @@ export function TranscriptView({
   messages,
   loading = false,
   turnDiffs,
+  onEditUserMessage,
 }: {
   sessionId: string
   messages: Message[]
   loading?: boolean
   /** Settled turns' unified diffs (turnId → diffText); cards render inline. */
   turnDiffs?: Readonly<Record<string, string>>
+  /** Called with a user bubble's text when its edit action fires (M19.4). */
+  onEditUserMessage?: (text: string) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -107,7 +110,7 @@ export function TranscriptView({
                   <TurnDiffCard turnId={row.turnId} diffText={row.diffText} />
                 ) : row.kind === 'markdown' ? (
                   row.role === 'user' ? (
-                    <UserBubble text={row.text ?? ''} />
+                    <UserBubble text={row.text ?? ''} onEdit={onEditUserMessage} />
                   ) : (
                     <div>
                       <MarkdownBlock text={row.text ?? ''} />
@@ -168,8 +171,12 @@ export function TranscriptView({
   )
 }
 
-/** Right-aligned user message bubble (Zeron style) with hover copy affordance. */
-function UserBubble({ text }: { text: string }) {
+/**
+ * Right-aligned user message bubble (Zeron style) with hover copy and edit
+ * affordances. Edit hands the bubble's text back via `onEdit`, which fills
+ * the composer for an edit-and-resend flow.
+ */
+function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) => void }) {
   const [copied, setCopied] = useState(false)
   const copy = async (): Promise<void> => {
     try {
@@ -183,6 +190,17 @@ function UserBubble({ text }: { text: string }) {
   return (
     <div className="group my-2 flex justify-end">
       <div className="flex max-w-[85%] items-end gap-1">
+        {onEdit ? (
+          <button
+            type="button"
+            onClick={() => onEdit(text)}
+            aria-label="Edit message"
+            title="Edit and resend"
+            className="mb-1 shrink-0 rounded-sm p-0.5 text-fg-subtle opacity-0 transition-opacity duration-150 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+          >
+            <Pencil size={12} />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => void copy()}

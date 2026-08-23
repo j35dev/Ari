@@ -11,6 +11,16 @@ import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
 
+/**
+ * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
+ * replaces the draft with `text`, focuses the field, and parks the caret at
+ * the end. Re-delivering the same nonce is a no-op.
+ */
+export interface ComposerSeed {
+  text: string
+  nonce: number
+}
+
 export interface ComposerProps {
   /** Called with the message text when the user sends. */
   onSend: (text: string) => void
@@ -31,6 +41,8 @@ export interface ComposerProps {
   leading?: React.ReactNode
   placeholder?: string
   disabled?: boolean
+  /** Draft injection from outside (edit a transcript message); see {@link ComposerSeed}. */
+  seed?: ComposerSeed
 }
 
 const MIN_HEIGHT = 52
@@ -55,6 +67,7 @@ export function Composer({
   leading,
   placeholder = 'Ask Ari…',
   disabled = false,
+  seed,
 }: ComposerProps) {
   const [text, setText] = useState('')
   const [caret, setCaret] = useState(0)
@@ -101,6 +114,23 @@ export function Composer({
   }, [])
 
   useEffect(resize, [text, resize])
+
+  // Draft injection: only a fresh nonce applies the seed, so re-renders with
+  // the same object never clobber what the user is typing.
+  const seededNonceRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!seed || seededNonceRef.current === seed.nonce) return
+    seededNonceRef.current = seed.nonce
+    setText(seed.text)
+    const end = seed.text.length
+    setCaret(end)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(end, end)
+    })
+  }, [seed])
 
   const send = useCallback(() => {
     const trimmed = text.trim()

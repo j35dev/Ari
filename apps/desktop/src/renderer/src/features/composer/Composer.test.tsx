@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
@@ -46,6 +46,43 @@ describe('Composer', () => {
   it('announces queued messages behind the active turn', () => {
     render(<Composer onSend={vi.fn()} running queued={['a', 'b']} />)
     expect(screen.getByText(/2 queued messages/)).toBeInTheDocument()
+  })
+})
+
+describe('Composer draft seeding', () => {
+  it('replaces the draft, focuses the field, and sends the edited text', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    const { rerender } = render(<Composer onSend={onSend} />)
+    await user.type(screen.getByLabelText('Message'), 'draft in progress')
+    rerender(<Composer onSend={onSend} seed={{ text: 'first attempt, corrected:', nonce: 1 }} />)
+
+    const input = screen.getByLabelText('Message')
+    await waitFor(() => expect(input).toHaveValue('first attempt, corrected:'))
+    await waitFor(() => expect(input).toHaveFocus())
+    await user.type(input, ' with the fix{Enter}')
+    expect(onSend).toHaveBeenCalledWith('first attempt, corrected: with the fix')
+  })
+
+  it('applies a new nonce over both user edits and earlier seeds', async () => {
+    const { rerender } = render(
+      <Composer onSend={vi.fn()} seed={{ text: 'one', nonce: 1 }} />,
+    )
+    const input = screen.getByLabelText('Message')
+    await waitFor(() => expect(input).toHaveValue('one'))
+    rerender(<Composer onSend={vi.fn()} seed={{ text: 'two', nonce: 2 }} />)
+    await waitFor(() => expect(input).toHaveValue('two'))
+  })
+
+  it('ignores a repeated nonce so typing is never clobbered', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<Composer onSend={vi.fn()} seed={{ text: 'seed', nonce: 7 }} />)
+    const input = screen.getByLabelText('Message')
+    await waitFor(() => expect(input).toHaveValue('seed'))
+    await user.clear(input)
+    await user.type(input, 'my own words')
+    rerender(<Composer onSend={vi.fn()} seed={{ text: 'seed', nonce: 7 }} />)
+    expect(input).toHaveValue('my own words')
   })
 })
 

@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import type { Message } from '@ari/contracts/message'
 import { TranscriptView } from './TranscriptView'
@@ -48,6 +48,29 @@ describe('TranscriptView loading state', () => {
 
     expect(container.querySelectorAll('.ari-pulse')).toHaveLength(0)
     expect(container.querySelector('[data-index]')).not.toBeNull()
+  })
+})
+
+describe('TranscriptView message actions', () => {
+  it('offers edit on user bubbles and reports the bubble text', async () => {
+    const user = userEvent.setup()
+    const onEditUserMessage = vi.fn()
+    render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [message('m1')],
+        onEditUserMessage,
+      }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Edit message' }))
+    expect(onEditUserMessage).toHaveBeenCalledWith('hello m1')
+  })
+
+  it('hides the edit affordance without a handler', () => {
+    render(createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }))
+
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument()
   })
 })
 
