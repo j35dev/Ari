@@ -124,6 +124,15 @@ describe('session projection', () => {
     expect(noop.queuedMessages).toEqual([])
   })
 
+  it('accumulates token usage and keeps cost null until a price arrives', () => {
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    expect(state.usage).toEqual({ inputTokens: 0, outputTokens: 0, costUsd: null })
+    state = applyEvent(state, ev(1, { type: 'usage.recorded', inputTokens: 10, outputTokens: 4, costUsd: 0.01 }))
+    state = applyEvent(state, ev(2, { type: 'usage.recorded', inputTokens: 5, outputTokens: 6, costUsd: null }))
+    state = applyEvent(state, ev(3, { type: 'usage.recorded', inputTokens: 1, outputTokens: 2, costUsd: 0.005 }))
+    expect(state.usage).toEqual({ inputTokens: 16, outputTokens: 12, costUsd: 0.015 })
+  })
+
   it('projectEvents folds a full list in order', () => {
     const model = projectEvents([
       ev(0, { type: 'session.created', session }),

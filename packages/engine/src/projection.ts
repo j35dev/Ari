@@ -8,6 +8,14 @@ export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omi
 /** A journal event before the engine stamps seq/at/sessionId onto it. */
 export type UnstampedEvent = DistributiveOmit<JournalEvent, 'seq' | 'at' | 'sessionId'>
 
+/** Cumulative token/cost accounting for one session. */
+export interface UsageTotals {
+  inputTokens: number
+  outputTokens: number
+  /** Sum of provider-reported costs; null until an event carries a price. */
+  costUsd: number | null
+}
+
 /**
  * Read model for one session, derived purely by folding journal events.
  * The UI observes this shape; it never reads journals directly.
@@ -27,6 +35,7 @@ export interface SessionReadModel {
   checkpoints: { turnId: string; gitRef: string }[]
   /** Provider-native session/thread id to resume, when one was observed. */
   providerSessionId: string | null
+  usage: UsageTotals
   lastSeq: number
 }
 
@@ -42,6 +51,7 @@ export function initialReadModel(): SessionReadModel {
     queuedMessages: [],
     checkpoints: [],
     providerSessionId: null,
+    usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
     lastSeq: -1,
   }
 }
@@ -101,6 +111,17 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'turn.settled':
       next.activeTurnId = null
       next.streamingMessageId = null
+      break
+
+    case 'usage.recorded':
+      next.usage = {
+        inputTokens: state.usage.inputTokens + event.inputTokens,
+        outputTokens: state.usage.outputTokens + event.outputTokens,
+        costUsd:
+          event.costUsd === null
+            ? state.usage.costUsd
+            : (state.usage.costUsd ?? 0) + event.costUsd,
+      }
       break
 
     case 'approval.requested':

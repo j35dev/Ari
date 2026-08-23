@@ -3,7 +3,7 @@ import { agentEventSchema } from './agent-event'
 import { commandSchema } from './commands'
 import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
-import { rpcParams } from './rpc'
+import { rpcParams, usageSummarySchema } from './rpc'
 import { sessionSchema } from './session'
 import { settingsUpdateSchema } from './settings'
 
@@ -99,5 +99,33 @@ describe('contracts', () => {
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, turnId: '-lead' })).toThrow()
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, sessionId: 'turn.lock' })).toThrow()
     expect(() => rpcParams['git.turnDiff'].parse({ path: '', sessionId: 's', turnId: 't' })).toThrow()
+  })
+
+  it('validates the usage.summary payload and rejects malformed rows', () => {
+    const summary = usageSummarySchema.parse({
+      rows: [
+        {
+          sessionId: 'sess_1',
+          title: 'Fix bug',
+          driverKind: 'claude',
+          updatedAt: 10,
+          inputTokens: 30,
+          outputTokens: 12,
+          costUsd: null,
+        },
+      ],
+      totals: { inputTokens: 30, outputTokens: 12, costUsd: 0.02 },
+    })
+    expect(summary.rows[0]?.driverKind).toBe('claude')
+    expect(summary.totals.costUsd).toBeCloseTo(0.02)
+    expect(() =>
+      usageSummarySchema.parse({ rows: [{ sessionId: 'sess_1' }], totals: { inputTokens: -1 } }),
+    ).toThrow()
+    expect(() =>
+      usageSummarySchema.parse({
+        rows: [],
+        totals: { inputTokens: 0, outputTokens: 0, costUsd: 'free' },
+      }),
+    ).toThrow()
   })
 })

@@ -110,6 +110,80 @@ describe('SessionStore', () => {
     expect(await fresher.listSessions()).toHaveLength(1)
   })
 
+  it('serves usage.summary from sidecar indexes without replaying journals', async () => {
+    const s2: Session = {
+      ...session,
+      id: 'sess_test2',
+      title: 'Second',
+      driverKind: 'codex',
+      updatedAt: 3000,
+    }
+    await store.append(session.id, { type: 'session.created', session })
+    await store.append(session.id, { type: 'usage.recorded', inputTokens: 100, outputTokens: 40, costUsd: 0.02 })
+    await store.append(s2.id, { type: 'session.created', session: s2 })
+    await store.append(s2.id, { type: 'usage.recorded', inputTokens: 50, outputTokens: 10, costUsd: null })
+
+    // Warm-up listing builds the sidecar indexes (may replay).
+    expect(await store.listSessions()).toHaveLength(2)
+
+    const spies = []
+    for (const id of [session.id, s2.id]) {
+      const j = await store.openJournal(id)
+      spies.push(vi.spyOn(j, 'readAll'))
+    }
+
+    const summary = await store.usageSummary()
+    // Warm path reads only the sidecars — zero journal replays.
+    expect(spies.every((s) => s.mock.calls.length === 0)).toBe(true)
+    expect(summary.totals).toEqual({ inputTokens: 150, outputTokens: 50, costUsd: 0.02 })
+    expect(summary.rows.map((r) => r.sessionId)).toEqual(['sess_test2', 'sess_test1'])
+    expect(summary.rows[1]).toEqual({
+      sessionId: session.id,
+      title: 'Test session',
+      driverKind: 'claude',
+      updatedAt: 1000,
+      inputTokens: 100,
+      outputTokens: 40,
+      costUsd: 0.02,
+    })
+  })
+
+  it('omits sessions without usage and reports empty totals', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    const summary = await store.usageSummary()
+    expect(summary.rows).toEqual([])
+    expect(summary.totals).toEqual({ inputTokens: 0, outputTokens: 0, costUsd: null })
+  })
+
+  it('migrates pre-M18.5 sidecar indexes via replay and rewrites them', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.append(session.id, { type: 'usage.recorded', inputTokens: 7, outputTokens: 3, costUsd: null })
+    expect(await store.listSessions()).toHaveLength(1)
+
+    // Hand-rollback to the v1 shape (correct bytes, no usage fields).
+    const { readFile, writeFile } = await import('node:fs/promises')
+    const indexPath = join(rootDir, session.id, 'index.json')
+    const legacy = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
+    delete legacy['driverKind']
+    delete legacy['inputTokens']
+    delete legacy['outputTokens']
+    delete legacy['costUsd']
+    legacy['version'] = 1
+    await writeFile(indexPath, JSON.stringify(legacy), 'utf8')
+
+    // Cold reader rejects the old version, replays once, and still answers.
+    const fresh = new SessionStore({ rootDir })
+    const summary = await fresh.usageSummary()
+    expect(summary.totals.inputTokens).toBe(7)
+    expect(summary.totals.outputTokens).toBe(3)
+
+    // The repair persisted as a v2 index carrying the token pair.
+    const migrated = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
+    expect(migrated['version']).toBe(2)
+    expect(migrated['inputTokens']).toBe(7)
+    expect(migrated['outputTokens']).toBe(3)
+  })
+
   it('destroy removes the journal directory entirely', async () => {
     await store.append(session.id, { type: 'session.created', session })
     await store.destroy(session.id)

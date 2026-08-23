@@ -28,6 +28,26 @@ export const sessionCreateParamsSchema = z.object({
 })
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 
+/** One per-session row of the `usage.summary` dashboard payload. */
+export const usageRowSchema = z.object({
+  sessionId: z.string(),
+  title: z.string(),
+  driverKind: z.string(),
+  updatedAt: z.number(),
+  inputTokens: z.number().nonnegative(),
+  outputTokens: z.number().nonnegative(),
+  /** Provider-reported cost sum; null while no event carried a price. */
+  costUsd: z.number().nullable(),
+})
+export type UsageRow = z.infer<typeof usageRowSchema>
+
+export const usageSummarySchema = z.object({
+  /** Sessions with recorded tokens, newest first; empty until any usage lands. */
+  rows: z.array(usageRowSchema),
+  totals: usageRowSchema.pick({ inputTokens: true, outputTokens: true, costUsd: true }),
+})
+export type UsageSummary = z.infer<typeof usageSummarySchema>
+
 /** Stream names the renderer may subscribe to. */
 export const streamNames = ['session.events', 'terminal.data', 'providers.updates'] as const
 export type StreamName = (typeof streamNames)[number]
@@ -83,7 +103,9 @@ export const rpcParams = {
   'session.list': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
-  'session.destroy': z.object({ sessionId: z.string().min(1) }),  'command.dispatch': z.object({ command: commandSchema }),
+  'session.destroy': z.object({ sessionId: z.string().min(1) }),
+  'usage.summary': z.undefined(),
+  'command.dispatch': z.object({ command: commandSchema }),
   'providers.detect': z.undefined(),
   'providers.models': z.undefined(),
   'window.minimize': z.undefined(),
@@ -154,6 +176,7 @@ export interface RpcResults {
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.destroy': { destroyed: boolean }
+  'usage.summary': UsageSummary
   'command.dispatch': { accepted: boolean }
   'providers.detect': {
     kind: string
