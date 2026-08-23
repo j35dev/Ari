@@ -7,4 +7,15 @@ export type {
   GitStatus,
   StatusEntry,
   StatusKind,
+  WorktreeInfo,
 } from './git-service'
+export {
+  ensureSessionWorktree,
+  isValidSessionId,
+  newDefaultWorktreeSource,
+  SESSION_WORKTREE_ROOT,
+  sessionWorktreeBranch,
+  sessionWorktreePath,
+  WORKTREE_BRANCH_PREFIX,
+} from './session-worktree'
+export type { WorktreeGitOps } from './session-worktree'
