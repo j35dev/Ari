@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   FolderGit2,
+  GitBranch,
   GitPullRequest,
   MessageSquare,
   Settings,
@@ -286,6 +287,7 @@ function Shell() {
         <span className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-success" /> ready
         </span>
+        <BranchChip sessionId={activeSessionId} />
         <span>
           {sessions.length} session{sessions.length === 1 ? '' : 's'}
         </span>
@@ -304,6 +306,46 @@ function SettingsSection({ title, children }: { title: string; children: React.R
       <h2 className="mb-4 text-lg font-semibold text-fg">{title}</h2>
       {children}
     </section>
+  )
+}
+
+/**
+ * Fable-style contextual footer: shows the active session's git branch.
+ * Resolves the session's workspace through session.load + git.status; hides
+ * entirely outside repos or without an active session.
+ */
+function BranchChip({ sessionId }: { sessionId: string | null }) {
+  const [branch, setBranch] = useState<string | null>(null)
+
+  useEffect(() => {
+    setBranch(null)
+    if (sessionId === null) return
+    let cancelled = false
+    void rpc
+      .invoke('session.load', { sessionId })
+      .then((model) => {
+        const session = (model as { session?: { projectId?: string } | null } | null)?.session
+        const projectId = session?.projectId
+        if (!projectId) return
+        return rpc.invoke('git.status', { path: projectId }).then((status) => {
+          if (!cancelled) {
+            const s = status as { isRepo: boolean; branch: string | null }
+            if (s.isRepo && s.branch) setBranch(s.branch)
+          }
+        })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
+
+  if (branch === null) return null
+  return (
+    <span className="flex items-center gap-1" title="Active branch">
+      <GitBranch size={10} aria-hidden="true" />
+      <span className="max-w-40 truncate font-mono">{branch}</span>
+    </span>
   )
 }
 
