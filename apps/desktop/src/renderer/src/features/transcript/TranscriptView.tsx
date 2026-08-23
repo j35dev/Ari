@@ -9,6 +9,7 @@ import { MessageFooter } from './MessageFooter'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock, ToolResultBlock } from './ToolBlocks'
 import { ToolActivityGroup } from './ToolActivityGroup'
+import { TurnDiffCard } from './TurnDiffCard'
 import type { Message } from '@ari/contracts/message'
 
 const REENGAGE_BAND_PX = 70
@@ -26,15 +27,21 @@ export function TranscriptView({
   sessionId,
   messages,
   loading = false,
+  turnDiffs,
 }: {
   sessionId: string
   messages: Message[]
   loading?: boolean
+  /** Settled turns' unified diffs (turnId → diffText); cards render inline. */
+  turnDiffs?: Readonly<Record<string, string>>
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
 
-  const rows = useMemo(() => groupBlocks(splitBlocks(messages)), [messages])
+  const rows = useMemo(
+    () => groupBlocks(splitBlocks(messages), turnDiffs),
+    [messages, turnDiffs],
+  )
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -96,6 +103,8 @@ export function TranscriptView({
               >
                 {row.kind === 'tool-group' ? (
                   <ToolActivityGroup row={row} />
+                ) : row.kind === 'turn-diff' ? (
+                  <TurnDiffCard turnId={row.turnId} diffText={row.diffText} />
                 ) : row.kind === 'markdown' ? (
                   row.role === 'user' ? (
                     <UserBubble text={row.text ?? ''} />

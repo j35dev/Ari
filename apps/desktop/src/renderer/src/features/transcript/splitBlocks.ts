@@ -9,20 +9,22 @@ function partToBlock(
 ): TranscriptBlock {
   const key = `${message.id}#${partIndex}`
   // Assistant text rows carry message metadata so the transcript can render
-  // the timestamp + copy footer under the message's final block.
+  // the timestamp + copy footer under the message's final block. Every block
+  // carries its turn id so per-turn diff cards can attach at boundaries.
   const meta =
     message.role === 'assistant' && part.type === 'text'
       ? {
           messageId: message.id,
           messageCreatedAt: message.createdAt,
           isLastOfMessage: isLastPart,
+          turnId: message.turnId,
         }
-      : {}
+      : { turnId: message.turnId }
   switch (part.type) {
     case 'text':
       return { key, kind: 'markdown', role: message.role, text: part.text, ...meta }
     case 'thinking':
-      return { key, kind: 'thinking', role: message.role, text: part.text }
+      return { key, kind: 'thinking', role: message.role, text: part.text, ...meta }
     case 'tool-call':
       return {
         key,
@@ -31,6 +33,7 @@ function partToBlock(
         callId: part.callId,
         name: part.name,
         argsJson: part.argsJson,
+        ...meta,
       }
     case 'tool-result':
       return {
@@ -40,6 +43,7 @@ function partToBlock(
         callId: part.callId,
         resultJson: part.resultJson,
         isError: part.isError,
+        ...meta,
       }
   }
 }
