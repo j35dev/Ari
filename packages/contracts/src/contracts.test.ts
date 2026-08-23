@@ -91,6 +91,14 @@ describe('contracts', () => {
     expect(settingsUpdateSchema.safeParse({ window: { x: 'a' } }).success).toBe(false)
   })
 
+  it('validates fs.writeTextFile params and rejects malformed payloads', () => {
+    const params = { path: '/proj/src/main.ts', content: 'export {}\n' }
+    expect(rpcParams['fs.writeTextFile'].parse(params)).toEqual(params)
+    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '', content: 'hi' })).toThrow()
+    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '/a.txt' })).toThrow()
+    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 7 })).toThrow()
+  })
+
   it('validates git.turnDiff params and rejects unsafe checkpoint components', () => {
     const params = { path: '/repo', sessionId: 'sess_1', turnId: 'turn_2' }
     expect(rpcParams['git.turnDiff'].parse(params)).toEqual(params)
