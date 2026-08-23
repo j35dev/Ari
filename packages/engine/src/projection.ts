@@ -22,6 +22,8 @@ export interface SessionReadModel {
   pendingApprovals: { approvalId: string; toolName: string; summaryJson: string }[]
   /** Agent questions awaiting an `input.respond` answer. */
   pendingInputs: { inputId: string; prompt: string; choicesJson: string | null }[]
+  /** User messages queued behind the active turn (survives reload via replay). */
+  queuedMessages: string[]
   checkpoints: { turnId: string; gitRef: string }[]
   /** Provider-native session/thread id to resume, when one was observed. */
   providerSessionId: string | null
@@ -37,6 +39,7 @@ export function initialReadModel(): SessionReadModel {
     status: 'unknown',
     pendingApprovals: [],
     pendingInputs: [],
+    queuedMessages: [],
     checkpoints: [],
     providerSessionId: null,
     lastSeq: -1,
@@ -123,6 +126,20 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'input.responded':
       next.pendingInputs = next.pendingInputs.filter((i) => i.inputId !== event.inputId)
       break
+
+    case 'message.enqueued':
+      next.queuedMessages = [...next.queuedMessages, event.text]
+      break
+
+    case 'message.dequeued': {
+      const idx = next.queuedMessages.indexOf(event.text)
+      if (idx === -1) break
+      next.queuedMessages = [
+        ...next.queuedMessages.slice(0, idx),
+        ...next.queuedMessages.slice(idx + 1),
+      ]
+      break
+    }
 
     case 'checkpoint.captured':
       next.checkpoints = [

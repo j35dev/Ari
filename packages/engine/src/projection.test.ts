@@ -100,6 +100,30 @@ describe('session projection', () => {
     expect(state.pendingInputs).toHaveLength(0)
   })
 
+  it('restores the message queue from enqueued/dequeued events', () => {
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))
+    state = applyEvent(state, ev(2, { type: 'message.enqueued', text: 'first' }))
+    state = applyEvent(state, ev(3, { type: 'message.enqueued', text: 'second' }))
+    expect(state.queuedMessages).toEqual(['first', 'second'])
+    state = applyEvent(state, ev(4, { type: 'message.dequeued', text: 'first' }))
+    expect(state.queuedMessages).toEqual(['second'])
+    // A full replay (reload path) restores the same queue.
+    expect(projectEvents([
+      ev(0, { type: 'session.created', session }),
+      ev(1, { type: 'turn.started', turnId: 'turn_1' }),
+      ev(2, { type: 'message.enqueued', text: 'first' }),
+      ev(3, { type: 'message.enqueued', text: 'second' }),
+      ev(4, { type: 'message.dequeued', text: 'first' }),
+    ]).queuedMessages).toEqual(['second'])
+    // Dequeuing unknown text is a no-op.
+    const noop = applyEvent(
+      projectEvents([ev(0, { type: 'session.created', session })]),
+      ev(1, { type: 'message.dequeued', text: 'ghost' }),
+    )
+    expect(noop.queuedMessages).toEqual([])
+  })
+
   it('projectEvents folds a full list in order', () => {
     const model = projectEvents([
       ev(0, { type: 'session.created', session }),
