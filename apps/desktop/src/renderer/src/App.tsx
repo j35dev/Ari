@@ -186,7 +186,7 @@ function Shell() {
         onOpenPalette={galleryOpen ? undefined : () => setPaletteOpen(true)}
       />
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col border-r border-border bg-surface-0">
+        <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
           <SidebarHeader onNewSession={createSession} />
           <SessionsUnderProjects
             sessions={sessions}
@@ -279,7 +279,7 @@ function Shell() {
         </main>
       </div>
 
-      <footer className="flex h-[var(--ari-statusbar-height)] shrink-0 items-center gap-3 border-t border-border bg-surface-0 px-3 text-2xs text-fg-subtle">
+      <footer className="flex h-[var(--ari-statusbar-height)] shrink-0 items-center gap-3 px-3 text-2xs text-fg-subtle">
         <span className="flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-success" /> ready
         </span>
