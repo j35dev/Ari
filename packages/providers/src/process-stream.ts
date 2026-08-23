@@ -26,7 +26,9 @@ export function streamProcessEvents(
     const queue: AgentEvent[] = []
     let notify: (() => void) | null = null
     let closed = false
-
+    // Bounded stderr tail (comet #95): the actionable part of a crash is the
+    // LAST few lines, not the first — keep appending, trim on report.
+    const stderrTail: string[] = []
     const push = (event: AgentEvent): void => {
       queue.push(event)
       notify?.()
@@ -50,6 +52,8 @@ export function streamProcessEvents(
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (chunk: string) => {
       options.stderrLog?.(chunk)
+      stderrTail.push(chunk)
+      while (stderrTail.length > 8) stderrTail.shift()
     })
 
     void new Promise<number | null>((resolve) => {
@@ -57,9 +61,12 @@ export function streamProcessEvents(
     }).then((code) => {
       closed = true
       if (code !== 0 && code !== null) {
+        const tail = stderrTail.join('').trim().split('\n').slice(-4).join('\n')
         push({
           type: 'error',
-          message: `${options.label} exited with code ${code}`,
+          message:
+            `${options.label} exited with code ${code}` +
+            (tail.length > 0 ? `\n${tail}` : ''),
           rawJson: null,
         })
       }
