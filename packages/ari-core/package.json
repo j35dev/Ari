@@ -10,7 +10,10 @@
     "./ollama": "./src/protocols/ollama.ts",
     "./agent-loop": "./src/agent-loop.ts",
     "./context-manager": "./src/context-manager.ts",
-    "./driver": "./src/ari-core-driver.ts"
+    "./driver": "./src/ari-core-driver.ts",
+    "./mcp": "./src/mcp.ts",
+    "./mcp-servers": "./src/mcp-servers.ts",
+    "./mcp-tools": "./src/mcp-tools.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
