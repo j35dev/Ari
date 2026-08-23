@@ -53,6 +53,9 @@ describe('SessionStore', () => {
     await store.append(s2.id, { type: 'session.created', session: s2 })
     const list = await store.listSessions()
     expect(list.map((s) => s.id)).toEqual(['sess_test2', 'sess_test1'])
+    // Pristine sessions report zero messages so the shell can reuse them
+    // instead of piling up empty chats.
+    expect(list.every((s) => s.messageCount === 0)).toBe(true)
   })
 
   it('destroy removes the journal directory entirely', async () => {
