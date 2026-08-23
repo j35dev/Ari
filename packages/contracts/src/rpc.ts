@@ -62,7 +62,19 @@ export const catalogModelSchema = z.object({
 export type CatalogModelInfo = z.infer<typeof catalogModelSchema>
 
 /**
- * Invoke-method parameter schemas. The result side is typed via
+ * One path component of a hidden checkpoint ref (`refs/ari/<session>/<turn>`).
+ * Mirrors the name rules enforced by @ari/engine/git.
+ */
+export const checkpointComponentSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+  .refine((v) => !v.includes('..') && !v.endsWith('.lock'), {
+    message: 'invalid checkpoint ref component',
+  })
+
+/** Invoke-method parameter schemas. The result side is typed via
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
 export const rpcParams = {
@@ -110,6 +122,11 @@ export const rpcParams = {
   'settings.update': settingsUpdateSchema,
     'git.status': z.object({ path: z.string().min(1) }),
     'git.diffWorktree': z.object({ path: z.string().min(1) }),
+    'git.turnDiff': z.object({
+      path: z.string().min(1),
+      sessionId: checkpointComponentSchema,
+      turnId: checkpointComponentSchema,
+    }),
     'fs.list': z.object({ path: z.string().min(1) }),
     'fs.readTextFile': z.object({
       path: z.string().min(1),
@@ -185,6 +202,7 @@ export interface RpcResults {
       error?: string
     }
     'git.diffWorktree': { diffText: string; error?: string }
+    'git.turnDiff': { diffText: string | null; error?: string }
     'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
     'fs.readTextFile': { content: string; truncated: boolean }
     'stream.subscribe': { subscribed: boolean }

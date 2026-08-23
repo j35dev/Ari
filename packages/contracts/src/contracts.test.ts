@@ -3,6 +3,7 @@ import { agentEventSchema } from './agent-event'
 import { commandSchema } from './commands'
 import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
+import { rpcParams } from './rpc'
 import { sessionSchema } from './session'
 import { settingsUpdateSchema } from './settings'
 
@@ -88,5 +89,15 @@ describe('contracts', () => {
     ).toBe(true)
     expect(settingsUpdateSchema.safeParse({ permissions: { allowlist: 'git status' } }).success).toBe(false)
     expect(settingsUpdateSchema.safeParse({ window: { x: 'a' } }).success).toBe(false)
+  })
+
+  it('validates git.turnDiff params and rejects unsafe checkpoint components', () => {
+    const params = { path: '/repo', sessionId: 'sess_1', turnId: 'turn_2' }
+    expect(rpcParams['git.turnDiff'].parse(params)).toEqual(params)
+    expect(() => rpcParams['git.turnDiff'].parse({ ...params, sessionId: '../escape' })).toThrow()
+    expect(() => rpcParams['git.turnDiff'].parse({ ...params, turnId: 'tu..rn' })).toThrow()
+    expect(() => rpcParams['git.turnDiff'].parse({ ...params, turnId: '-lead' })).toThrow()
+    expect(() => rpcParams['git.turnDiff'].parse({ ...params, sessionId: 'turn.lock' })).toThrow()
+    expect(() => rpcParams['git.turnDiff'].parse({ path: '', sessionId: 's', turnId: 't' })).toThrow()
   })
 })
