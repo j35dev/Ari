@@ -347,7 +347,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - Remote/web companion (lift engine to sidecar)
 - Plugin API
 - Usage dashboards/heatmaps
-- Git worktrees per session
+- [x] M19.3 Git worktrees per session — project-backed sessions run turns in
+      `<repo>/.ari/worktrees/<sessionId>` on branch `ari/<sessionId>`; `.ari/`
+      ignored via `info/exclude` (never `.gitignore`); worktree failures fall
+      back to the project folder; ad-hoc sessions unchanged
 
 ---
 
