@@ -5,6 +5,7 @@ import { buildAppCommands, useCommands } from './useCommands'
 const ctx = {
   onNavigate: vi.fn(),
   onOpenGallery: vi.fn(),
+  onOpenSearch: vi.fn(),
 }
 
 describe('buildAppCommands', () => {
@@ -36,6 +37,13 @@ describe('buildAppCommands', () => {
       .find((c) => c.id === 'view.gallery')!
       .run()
     expect(ctx.onOpenGallery).toHaveBeenCalledOnce()
+  })
+
+  it('opens project content search with the keyboard hint', () => {
+    const search = buildAppCommands(ctx).find((c) => c.id === 'search.project')!
+    expect(search.hint).toBe('Ctrl+Shift+F')
+    search.run()
+    expect(ctx.onOpenSearch).toHaveBeenCalledOnce()
   })
 })
 
