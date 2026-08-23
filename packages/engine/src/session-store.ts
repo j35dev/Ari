@@ -81,7 +81,7 @@ export class SessionStore {
 
   /** Lightweight index for the sidebar: first event of every session dir. */
   async listSessions(): Promise<
-    { id: string; projectId: string; title: string; updatedAt: number }[]
+    { id: string; projectId: string; title: string; updatedAt: number; messageCount: number }[]
   > {
     const { readdir } = await import('node:fs/promises')
     let dirs: string[]
@@ -90,7 +90,7 @@ export class SessionStore {
     } catch {
       return []
     }
-    const out: { id: string; projectId: string; title: string; updatedAt: number }[] = []
+    const out: { id: string; projectId: string; title: string; updatedAt: number; messageCount: number }[] = []
     for (const id of dirs) {
       try {
         const model = await this.load(id)
@@ -100,6 +100,7 @@ export class SessionStore {
             projectId: model.session.projectId,
             title: model.session.title,
             updatedAt: model.session.updatedAt,
+            messageCount: model.messages.length,
           })
         }
       } catch {

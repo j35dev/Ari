@@ -125,6 +125,20 @@ function Shell() {
   const createSession = useCallback(
     (overrides?: Partial<SessionDefaults>): void => {
       const effective = { ...defaults, ...overrides }
+      // Reuse the newest pristine (zero-message) session when its config is
+      // compatible — spamming ✎ must not pile up empty chats.
+      const reusable = sessions.find(
+        (s) =>
+          s.projectId === 'adhoc' &&
+          s.messageCount === 0 &&
+          (overrides === undefined || overrides.driverKind === undefined),
+      )
+      if (reusable) {
+        if (overrides) setDefaults(effective)
+        setActiveSessionId(reusable.id)
+        setPane('session')
+        return
+      }
       void rpc
         .invoke('session.create', {
           projectId: 'adhoc',
@@ -141,7 +155,7 @@ function Shell() {
         })
         .catch(() => undefined)
     },
-    [defaults, refreshSessions],
+    [defaults, sessions, refreshSessions],
   )
 
   if (galleryOpen) {

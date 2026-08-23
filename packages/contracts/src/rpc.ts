@@ -14,6 +14,8 @@ export const sessionSummarySchema = z.object({
   projectId: z.string(),
   title: z.string(),
   updatedAt: z.number(),
+  /** Messages in the session; 0 marks a pristine, reusable session. */
+  messageCount: z.number().int().nonnegative(),
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
