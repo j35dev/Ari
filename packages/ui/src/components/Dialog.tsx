@@ -80,6 +80,8 @@ export function DialogTrigger({ onClick, type, ...rest }: DialogTriggerProps) {
   )
 }
 
+export type DialogSize = 'md' | 'lg'
+
 export type DialogContentProps = Omit<
   HTMLAttributes<HTMLDivElement>,
   | 'onDrag'
@@ -88,10 +90,24 @@ export type DialogContentProps = Omit<
   | 'onAnimationStart'
   | 'onAnimationEnd'
   | 'onAnimationIteration'
->
+> & {
+  /** `md` is the default confirm panel; `lg` is a workspace overlay (settings). */
+  size?: DialogSize
+}
+
+const SIZE_CLASS: Record<DialogSize, string> = {
+  md: 'w-[min(480px,90vw)] p-5',
+  lg: 'flex h-[min(680px,86vh)] w-[min(920px,92vw)] flex-col p-0',
+}
 
 /** Centered modal panel portaled to document.body; traps focus while open. */
-export function DialogContent({ className, style, children, ...rest }: DialogContentProps) {
+export function DialogContent({
+  className,
+  style,
+  children,
+  size = 'md',
+  ...rest
+}: DialogContentProps) {
   const { open, setOpen, panelRef, titleId, descriptionId } = useDialogContext('Dialog.Content')
   const close = useCallback(() => setOpen(false), [setOpen])
 
@@ -126,7 +142,8 @@ export function DialogContent({ className, style, children, ...rest }: DialogCon
             variants={menuInVariants}
             style={style}
             className={[
-              'ari-glass-overlay border border-border rounded-lg shadow-2 p-5 w-[min(480px,90vw)] outline-none',
+              'ari-glass-overlay border border-border rounded-lg shadow-2 outline-none',
+              SIZE_CLASS[size],
               className,
             ]
               .filter(Boolean)

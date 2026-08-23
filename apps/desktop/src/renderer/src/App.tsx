@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import {
-  GitBranch,
-  GitPullRequest,
-  Settings,
-  TerminalSquare,
-} from 'lucide-react'
+import { GitBranch, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
@@ -15,20 +10,23 @@ import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { TerminalView } from './features/terminal'
-import { AppearanceSettings, PermissionsSettings } from './features/settings'
-import { EndpointsManager } from './features/endpoints'
+import { SettingsDialog } from './features/settings'
 import { ChangesView } from './features/changes'
 import { ProjectsView } from './features/projects'
-import { ProvidersView } from './features/providers'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { BootSplash } from './features/moment'
-import { SidebarHeader, SessionsUnderProjects } from './shell/Sidebar'
+import {
+  SidebarFooter,
+  SidebarHeader,
+  SessionsUnderProjects,
+  type SidebarNavId,
+} from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
 
-type MainPane = 'session' | 'projects' | 'terminal' | 'changes' | 'settings'
+type InspectorId = Exclude<SidebarNavId, 'session' | 'settings'>
 
 export interface SessionDefaults {
   driverKind: DriverKind
@@ -37,7 +35,8 @@ export interface SessionDefaults {
 }
 
 function Shell() {
-  const [pane, setPane] = useState<MainPane>('session')
+  const [inspector, setInspector] = useState<InspectorId | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -97,7 +96,13 @@ function Shell() {
 
   const commands = useCommands({
     onNavigate: (view) => {
-      setPane(view === 'sessions' ? 'session' : view)
+      if (view === 'settings') {
+        setSettingsOpen(true)
+      } else if (view === 'sessions') {
+        setInspector(null)
+      } else {
+        setInspector(view)
+      }
       setPaletteOpen(false)
     },
     onOpenGallery: () => {
@@ -132,7 +137,7 @@ function Shell() {
       if (reusable) {
         if (overrides) setDefaults(effective)
         setActiveSessionId(reusable.id)
-        setPane('session')
+        setInspector(null)
         return
       }
       void rpc
@@ -146,7 +151,7 @@ function Shell() {
         .then(({ sessionId }) => {
           if (overrides) setDefaults(effective)
           setActiveSessionId(sessionId)
-          setPane('session')
+          setInspector(null)
           refreshSessions()
         })
         .catch(() => undefined)
@@ -193,7 +198,7 @@ function Shell() {
             activeSessionId={activeSessionId}
             onSelect={(id) => {
               setActiveSessionId(id)
-              setPane('session')
+              setInspector(null)
             }}
             onRename={(id, title) => {
               void rpc
@@ -213,98 +218,97 @@ function Shell() {
                 .catch(() => undefined)
             }}
           />
+          <SidebarFooter
+            active={settingsOpen ? 'settings' : (inspector ?? 'session')}
+            onSelect={(id) => {
+              if (id === 'settings') {
+                setSettingsOpen(true)
+                return
+              }
+              setSettingsOpen(false)
+              if (id === 'session') {
+                setInspector(null)
+                return
+              }
+              setInspector((prev) => (prev === id ? null : id))
+            }}
+          />
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col bg-bg">
-          {/* Workspace header — T3-style breadcrumb + context actions. */}
           <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
             <WorkspaceBreadcrumb
-              pane={pane}
-              projectName={pane === 'session' ? activeProjectName : ''}
-              sessionTitle={
-                pane === 'session'
-                  ? (sessions.find((s) => s.id === activeSessionId)?.title ?? '')
-                  : ''
-              }
+              projectName={activeProjectName}
+              sessionTitle={sessions.find((s) => s.id === activeSessionId)?.title ?? ''}
             />
             <div className="flex-1" />
             <BranchChip sessionId={activeSessionId} />
-            <WorkspaceNavButton
-              label="Changes"
-              active={pane === 'changes'}
-              onClick={() => setPane(pane === 'changes' ? 'session' : 'changes')}
-            >
-              <GitPullRequest size={14} strokeWidth={1.8} aria-hidden />
-            </WorkspaceNavButton>
-            <WorkspaceNavButton
-              label="Terminal"
-              active={pane === 'terminal'}
-              onClick={() => setPane(pane === 'terminal' ? 'session' : 'terminal')}
-            >
-              <TerminalSquare size={14} strokeWidth={1.8} aria-hidden />
-            </WorkspaceNavButton>
-            <WorkspaceNavButton
-              label="Settings"
-              active={pane === 'settings'}
-              onClick={() => setPane(pane === 'settings' ? 'session' : 'settings')}
-            >
-              <Settings size={14} strokeWidth={1.8} aria-hidden />
-            </WorkspaceNavButton>
           </header>
 
-          <div className="min-h-0 flex-1">
-            {pane === 'terminal' ? (
-              <ErrorBoundary label="Terminal">
-                <TerminalView cwd={workspaceCwd || undefined} />
-              </ErrorBoundary>
-            ) : pane === 'changes' ? (
-              <ErrorBoundary label="Changes">
-                <ChangesView />
-              </ErrorBoundary>
-            ) : pane === 'projects' ? (
-              <ErrorBoundary label="Projects">
-                <ProjectsView />
-              </ErrorBoundary>
-            ) : pane === 'settings' ? (
-              <div className="ari-scroll h-full overflow-y-auto">
-                <div className="mx-auto max-w-2xl space-y-10 p-8">
-                  <SettingsSection title="Appearance">
-                    <AppearanceSettings />
-                  </SettingsSection>
-                  <SettingsSection title="Providers">
-                    <ProvidersView />
-                  </SettingsSection>
-                  <SettingsSection title="Permissions">
-                    <PermissionsSettings />
-                  </SettingsSection>
-                  <SettingsSection title="Endpoints">
-                    <EndpointsManager />
-                  </SettingsSection>
+          <div className="flex min-h-0 flex-1">
+            <div className="min-h-0 min-w-0 flex-1">
+              {activeSessionId ? (
+                <ErrorBoundary label="Session">
+                  <SessionView
+                    key={activeSessionId}
+                    sessionId={activeSessionId}
+                    defaults={defaults}
+                    onDefaultsChange={setDefaults}
+                  />
+                </ErrorBoundary>
+              ) : (
+                <ErrorBoundary label="Welcome">
+                  <WelcomePanel
+                    onCreateSession={() => createSession()}
+                    onConnect={(endpointId) =>
+                      createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
+                    }
+                  />
+                </ErrorBoundary>
+              )}
+            </div>
+            {inspector ? (
+              <aside className="flex w-[min(520px,46vw)] shrink-0 flex-col border-l border-border">
+                <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+                  <span className="text-xs font-medium text-fg">
+                    {inspector === 'terminal'
+                      ? 'Terminal'
+                      : inspector === 'changes'
+                        ? 'Changes'
+                        : 'Projects'}
+                  </span>
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    aria-label="Close inspector"
+                    onClick={() => setInspector(null)}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  >
+                    <X size={13} />
+                  </button>
                 </div>
-              </div>
-            ) : activeSessionId ? (
-              <ErrorBoundary label="Session">
-                <SessionView
-                  key={activeSessionId}
-                  sessionId={activeSessionId}
-                  defaults={defaults}
-                  onDefaultsChange={setDefaults}
-                />
-              </ErrorBoundary>
-            ) : (
-              <ErrorBoundary label="Welcome">
-                <WelcomePanel
-                  onCreateSession={() => createSession()}
-                  onConnect={(endpointId) =>
-                    createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
-                  }
-                />
-              </ErrorBoundary>
-            )}
+                <div className="min-h-0 flex-1">
+                  {inspector === 'terminal' ? (
+                    <ErrorBoundary label="Terminal">
+                      <TerminalView cwd={workspaceCwd || undefined} />
+                    </ErrorBoundary>
+                  ) : inspector === 'changes' ? (
+                    <ErrorBoundary label="Changes">
+                      <ChangesView />
+                    </ErrorBoundary>
+                  ) : (
+                    <ErrorBoundary label="Projects">
+                      <ProjectsView />
+                    </ErrorBoundary>
+                  )}
+                </div>
+              </aside>
+            ) : null}
           </div>
         </main>
       </div>
 
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   )
@@ -312,75 +316,22 @@ function Shell() {
 
 /** Breadcrumb for the active workspace surface (T3's `Ari / thread` pattern). */
 function WorkspaceBreadcrumb({
-  pane,
   projectName,
   sessionTitle,
 }: {
-  pane: MainPane
   projectName: string
   sessionTitle: string
 }) {
-  const surfaces: Record<Exclude<MainPane, 'session'>, string> = {
-    projects: 'Projects',
-    terminal: 'Terminal',
-    changes: 'Changes',
-    settings: 'Settings',
-  }
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs">
-      {pane !== 'session' ? (
-        <span className="text-fg font-medium">{surfaces[pane]}</span>
-      ) : (
+      <span className="max-w-40 truncate font-medium text-fg">{projectName || 'Workspace'}</span>
+      {sessionTitle ? (
         <>
-          <span className="max-w-40 truncate font-medium text-fg">
-            {projectName || 'Workspace'}
-          </span>
-          {sessionTitle ? (
-            <>
-              <span className="text-fg-subtle">/</span>
-              <span className="max-w-72 truncate text-fg-muted">{sessionTitle}</span>
-            </>
-          ) : null}
+          <span className="text-fg-subtle">/</span>
+          <span className="max-w-72 truncate text-fg-muted">{sessionTitle}</span>
         </>
-      )}
+      ) : null}
     </div>
-  )
-}
-
-function WorkspaceNavButton({
-  label,
-  active = false,
-  onClick,
-  children,
-}: {
-  label: string
-  active?: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-        active
-          ? 'bg-accent-subtle text-accent'
-          : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
-      }`}
-    >
-      {children}
-    </button>
-  )
-}
-
-function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="mb-4 text-lg font-semibold text-fg">{title}</h2>
-      {children}
-    </section>
   )
 }
 
