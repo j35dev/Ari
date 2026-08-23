@@ -20,6 +20,12 @@ export interface TranscriptBlock {
   argsJson?: string
   resultJson?: string
   isError?: boolean
+  /** Owning message id (assistant text rows) — drives the copy footer. */
+  messageId?: string
+  /** Owning message creation time (assistant text rows). */
+  messageCreatedAt?: number
+  /** True on the final text part of its message; the footer renders there. */
+  isLastOfMessage?: boolean
 }
 
 /** A run of consecutive tool blocks collapsed into one activity row. */

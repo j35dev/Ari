@@ -2,22 +2,32 @@ import type { Message, MessagePart } from '@ari/contracts/message'
 import type { TranscriptBlock } from './types'
 
 function partToBlock(
-  messageId: string,
-  role: Message['role'],
+  message: Message,
   part: MessagePart,
   partIndex: number,
+  isLastPart: boolean,
 ): TranscriptBlock {
-  const key = `${messageId}#${partIndex}`
+  const key = `${message.id}#${partIndex}`
+  // Assistant text rows carry message metadata so the transcript can render
+  // the timestamp + copy footer under the message's final block.
+  const meta =
+    message.role === 'assistant' && part.type === 'text'
+      ? {
+          messageId: message.id,
+          messageCreatedAt: message.createdAt,
+          isLastOfMessage: isLastPart,
+        }
+      : {}
   switch (part.type) {
     case 'text':
-      return { key, kind: 'markdown', role, text: part.text }
+      return { key, kind: 'markdown', role: message.role, text: part.text, ...meta }
     case 'thinking':
-      return { key, kind: 'thinking', role, text: part.text }
+      return { key, kind: 'thinking', role: message.role, text: part.text }
     case 'tool-call':
       return {
         key,
         kind: 'tool-call',
-        role,
+        role: message.role,
         callId: part.callId,
         name: part.name,
         argsJson: part.argsJson,
@@ -26,7 +36,7 @@ function partToBlock(
       return {
         key,
         kind: 'tool-result',
-        role,
+        role: message.role,
         callId: part.callId,
         resultJson: part.resultJson,
         isError: part.isError,
@@ -43,7 +53,7 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = []
   for (const message of messages) {
     message.parts.forEach((part, partIndex) => {
-      blocks.push(partToBlock(message.id, message.role, part, partIndex))
+      blocks.push(partToBlock(message, part, partIndex, partIndex === message.parts.length - 1))
     })
   }
   return blocks
