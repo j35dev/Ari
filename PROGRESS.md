@@ -94,6 +94,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M17.4 SecretBox on EndpointStore; tray status; git.turnDiff RPC
 - [x] M17.5 GitHub Actions workflow runs pnpm verify
 
+## M18 — Depth wave (in flight)
+
+- [x] M18.4 Project-wide content search: `search.content` RPC (ripgrep via spawn-cli, JS walk fallback, path-jail, 200-result/3s caps) + Ctrl+Shift+F results overlay + palette command; hits copy as `path:line`
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
