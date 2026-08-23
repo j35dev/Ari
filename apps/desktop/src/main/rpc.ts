@@ -9,6 +9,7 @@ import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { Engine } from './engine'
+import { writeTextFile } from './fs-write'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
 import { queryTurnDiff } from './turn-diff'
@@ -568,6 +569,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     }
   })
 
+  r.register('fs.writeTextFile', async (params) => {
+    // Writes are jailed harder than reads: the target must canonicalize
+    // (symlinks included) inside a registered project folder.
+    await getProjectStore().load()
+    const roots = getProjectStore().list().map((p) => p.path)
+    const bytesWritten = await writeTextFile(params, roots)
+    return { bytesWritten }
+  })
+
   r.register('stream.subscribe', (params) => {
     rpcRegistry.subscribe({
       id: params.id,
@@ -647,6 +657,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'git.turnDiff',
     'fs.list',
     'fs.readTextFile',
+    'fs.writeTextFile',
     'stream.subscribe',
     'stream.unsubscribe',
   ] as const

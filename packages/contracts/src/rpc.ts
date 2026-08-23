@@ -132,6 +132,10 @@ export const rpcParams = {
       path: z.string().min(1),
       maxBytes: z.number().int().positive().optional(),
     }),
+    'fs.writeTextFile': z.object({
+      path: z.string().min(1),
+      content: z.string(),
+    }),
     'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -205,6 +209,7 @@ export interface RpcResults {
     'git.turnDiff': { diffText: string | null; error?: string }
     'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
     'fs.readTextFile': { content: string; truncated: boolean }
+    'fs.writeTextFile': { bytesWritten: number }
     'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
