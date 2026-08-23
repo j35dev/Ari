@@ -119,7 +119,7 @@ export function WelcomePanel({
   }
 
   return (
-    <div className="flex h-full items-center justify-center overflow-y-auto p-6">
+    <div className="ari-scroll flex h-full items-center justify-center overflow-y-auto p-6">
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -127,7 +127,9 @@ export function WelcomePanel({
         className="flex w-full max-w-md flex-col gap-6"
       >
         <div className="flex flex-col gap-2 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">Ari</h1>
+          <h1 className="bg-gradient-to-b from-fg to-fg-muted bg-clip-text text-3xl font-semibold tracking-tight text-transparent">
+            Ari
+          </h1>
           <p className="text-sm text-fg-muted">
             One surface for every coding agent on your machine — chat, steer, review diffs, run
             terminals.
@@ -137,7 +139,7 @@ export function WelcomePanel({
         <button
           type="button"
           onClick={onCreateSession}
-          className="group flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           Start a session
           <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
@@ -152,7 +154,7 @@ export function WelcomePanel({
               {clis.map((cli) => (
                 <li
                   key={cli.kind}
-                  className={`flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 text-xs ${
+                  className={`flex items-center gap-2 rounded-lg border border-border bg-glass-input px-2.5 py-1.5 text-xs ${
                     cli.installed ? 'text-fg-muted' : 'text-fg-subtle opacity-60'
                   }`}
                   title={
@@ -188,7 +190,7 @@ export function WelcomePanel({
         {needsSetup ? (
           <form
             onSubmit={(e) => void connect(e)}
-            className="flex flex-col gap-3 rounded-lg border border-border bg-surface-1 p-4"
+            className="flex flex-col gap-3 rounded-xl border border-border bg-glass-input p-4"
           >
             <div className="flex items-center gap-2">
               <PlugZap size={14} className="text-accent" />
