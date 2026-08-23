@@ -225,4 +225,40 @@ describe('ari core driver flavor routing', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('strips the UI `ep:` prefix from modelId before endpoint lookup', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-core-ep-'))
+    try {
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'oai',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'gpt-test',
+        headers: {},
+      })
+      const requests: ChatRequest[] = []
+      const driver = new AriCoreDriver(endpoints, {
+        clients: {
+          openai: async function* (request) {
+            requests.push(request)
+            yield { type: 'text-delta', text: 'hi' }
+            yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+            yield { type: 'done' }
+          },
+        },
+      })
+      // The ModelSelector and WelcomePanel namespace endpoint ids as `ep:<id>`.
+      const adapter = await driver.create(makeSession(dir, 'hello', 'ep:oai'))
+      const events = await collect(adapter.start())
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.model).toBe('gpt-test')
+      expect(events.some((e) => e.type === 'error')).toBe(false)
+      expect(events[0]).toEqual({ type: 'text-delta', text: 'hi' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

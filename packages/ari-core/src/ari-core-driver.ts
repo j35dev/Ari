@@ -132,7 +132,10 @@ export class AriCoreDriver implements Driver {
   }
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const endpointId = session.modelId ?? ''
+    // The UI namespaces endpoint models as `ep:<id>` in the shared selector;
+    // the driver owns stripping that prefix so every caller is safe.
+    const raw = session.modelId ?? ''
+    const endpointId = raw.startsWith('ep:') ? raw.slice(3) : raw
     const apiKey = this.#endpoints.apiKeyFor(endpointId)
     const endpoint = this.#endpoints.list().find((e) => e.id === endpointId)
     const clients = this.#clients
