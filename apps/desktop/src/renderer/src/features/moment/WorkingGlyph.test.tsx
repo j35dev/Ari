@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { WorkingGlyph } from './WorkingGlyph'
+import { ElapsedSeconds, formatElapsed, WorkingGlyph } from './WorkingGlyph'
 
 /**
  * Motion animations share jsdom's requestAnimationFrame clock, so these tests
@@ -33,5 +33,27 @@ describe('WorkingGlyph', () => {
 
     expect(await screen.findByText('thinking…', {}, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByText('forging…')).not.toBeInTheDocument()
+  })
+})
+
+describe('formatElapsed', () => {
+  it('formats seconds under a minute and minutes beyond', () => {
+    expect(formatElapsed(0)).toBe('0s')
+    expect(formatElapsed(59)).toBe('59s')
+    expect(formatElapsed(60)).toBe('1m 00s')
+    expect(formatElapsed(125)).toBe('2m 05s')
+  })
+})
+
+describe('ElapsedSeconds', () => {
+  it('renders the live elapsed count from startedAt and ticks forward', async () => {
+    const startedAt = Date.now() - 3_000
+    render(<ElapsedSeconds startedAt={startedAt} />)
+
+    expect(screen.getByText('3s')).toBeInTheDocument()
+
+    await waitMs(1100)
+
+    expect(screen.getByText('4s')).toBeInTheDocument()
   })
 })
