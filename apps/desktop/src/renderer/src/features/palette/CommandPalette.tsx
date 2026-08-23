@@ -110,7 +110,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
             aria-modal="true"
             aria-label="Command palette"
             onClick={(event) => event.stopPropagation()}
-            className="mt-[12vh] h-fit w-[min(560px,90vw)] overflow-hidden rounded-lg border border-border bg-surface-1"
+            className="mt-[12vh] h-fit w-[min(560px,90vw)] overflow-hidden rounded-lg border border-border ari-glass-overlay"
             style={{ boxShadow: 'var(--ari-shadow-3)' }}
           >
             <div className="flex h-12 items-center gap-2 border-b border-border px-4">

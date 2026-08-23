@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     "./tokens.css": "./src/tokens.css",
-    "./themes.css": "./src/themes.css",
+    "./glass.css": "./src/glass.css",
     "./fonts.css": "./src/fonts.css",
     "./scroll-area.css": "./src/scroll-area.css",
     "./theme-provider": "./src/theme-provider.tsx",

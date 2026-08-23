@@ -6,10 +6,11 @@ export const settingsSchema = z.object({
   version: z.literal(1),
   appearance: z
     .object({
-      themeId: z.string().default('obsidian'),
+      /** Legacy field from the multi-theme era; Ari is dark-glass only now. */
+      themeId: z.string().default('comet-glass'),
       reducedMotion: z.boolean().default(false),
     })
-    .default({ themeId: 'obsidian', reducedMotion: false }),
+    .default({ themeId: 'comet-glass', reducedMotion: false }),
   sessions: z
     .object({
       defaultDriverKind: driverKindSchema.nullable().default(null),
@@ -77,7 +78,7 @@ export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'obsidian', reducedMotion: false },
+  appearance: { themeId: 'comet-glass', reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,

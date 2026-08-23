@@ -292,7 +292,7 @@ export function SessionView({
       <div className="min-h-0 flex-1">
         <TranscriptView sessionId={sessionId} messages={messages} loading={loading} />
       </div>
-      <div className="flex h-6 shrink-0 items-center gap-2.5 border-t border-border bg-surface-0 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
+      <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
         {telemetry.turnCount > 0 ? (
           <>
             <span>
@@ -314,13 +314,13 @@ export function SessionView({
         <div className="flex-1" />
         {running ? (
           <span className="flex items-center gap-1.5">
-            <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
+            <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-busy" />
             running
           </span>
         ) : null}
       </div>
       {approvals.length > 0 ? (
-        <div className="max-h-56 space-y-2 overflow-y-auto border-t border-border bg-surface-0 p-3">
+        <div className="ari-glass-overlay max-h-56 space-y-2 overflow-y-auto border-t border-border p-3">
           {approvals.map((a) => (
             <ApprovalCard
               key={a.approvalId}
@@ -402,7 +402,7 @@ export function PermissionModeChip({
         onClick={() => setOpen((o) => !o)}
         title={`Permission mode: ${current.hint}`}
         aria-label={`Permission mode: ${current.label}`}
-        className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2.5 text-xs text-fg-muted transition-colors hover:text-fg hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span
           aria-hidden
@@ -415,7 +415,7 @@ export function PermissionModeChip({
       {open ? (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-md border border-border bg-surface-1 p-1 shadow-2">
+          <div className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2">
             {PERMISSION_MODES.map((m) => (
               <button
                 key={m.value}

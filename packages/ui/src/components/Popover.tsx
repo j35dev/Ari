@@ -181,7 +181,7 @@ export function PopoverContent({
           exit="exit"
           variants={menuInVariants}
           style={{ ...floatingStyles, transformOrigin: transformOriginFor(placement), ...style }}
-          className={['z-50 bg-surface-1 border border-border rounded-lg shadow-2 p-3', className]
+          className={['z-50 ari-glass-overlay border border-border rounded-lg shadow-2 p-3', className]
             .filter(Boolean)
             .join(' ')}
           {...rest}

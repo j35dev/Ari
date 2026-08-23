@@ -1,45 +1,58 @@
 /*
  * Ari design tokens — the ONLY place raw color/oklch literals may appear
- * (AGENTS.md). Themes override these custom properties in themes.css.
- * All values oklch; hue 286 = cool graphite-violet neutral axis.
+ * (AGENTS.md). Single appearance: comet-style near-black glass. Neutral axis
+ * is pure achromatic (chroma 0); accents sit on the indigo 277° axis.
+ * Values are sampled from comet's theme.rs (zeron scale) so the app shares
+ * that palette's contrast relationships (~17.5:1 primary text on its plane).
  */
 
 :root {
-  /* surfaces */
-  --ari-bg: oklch(0.145 0.004 286);
-  --ari-surface-0: oklch(0.17 0.005 286);
-  --ari-surface-1: oklch(0.205 0.006 286);
-  --ari-surface-2: oklch(0.25 0.007 286);
-  --ari-surface-3: oklch(0.3 0.008 286);
+  /* surfaces — comet dark(): main panel #060606, shell/sidebar #0d0d0d */
+  --ari-bg: oklch(0.09 0 0);
+  --ari-surface-0: oklch(0.115 0 0);
+  --ari-surface-1: oklch(0.15 0 0);
+  --ari-surface-2: oklch(0.205 0 0);
+  --ari-surface-3: oklch(0.27 0 0);
 
-  /* strokes */
-  --ari-border: oklch(0.32 0.01 286 / 55%);
-  --ari-border-strong: oklch(0.42 0.012 286 / 80%);
+  /* strokes — white hairlines at low alpha (comet border recipe) */
+  --ari-border: oklch(1 0 0 / 8%);
+  --ari-border-strong: oklch(1 0 0 / 14%);
   --ari-inner-stroke: oklch(1 0 0 / 4%);
 
-  /* text */
-  --ari-fg: oklch(0.93 0.004 286);
-  --ari-fg-muted: oklch(0.66 0.009 286);
-  --ari-fg-subtle: oklch(0.48 0.008 286);
-  --ari-fg-on-accent: oklch(0.98 0.005 286);
+  /* text — neutral-200 / 400 / 500 equivalents */
+  --ari-fg: oklch(0.922 0 0);
+  --ari-fg-muted: oklch(0.708 0 0);
+  --ari-fg-subtle: oklch(0.556 0 0);
+  --ari-fg-on-accent: oklch(0.985 0 0);
 
-  /* accent (iris) */
-  --ari-accent: oklch(0.62 0.19 275);
-  --ari-accent-hover: oklch(0.68 0.19 275);
-  --ari-accent-active: oklch(0.56 0.19 275);
-  --ari-accent-subtle: oklch(0.62 0.19 275 / 14%);
-  --ari-accent-ring: oklch(0.62 0.19 275 / 45%);
+  /* accent — comet indigo-400, strong fill indigo-500 */
+  --ari-accent: oklch(0.673 0.182 276.94);
+  --ari-accent-hover: oklch(0.72 0.17 276.94);
+  --ari-accent-active: oklch(0.585 0.233 277.12);
+  --ari-accent-subtle: oklch(0.673 0.182 276.94 / 14%);
+  --ari-accent-ring: oklch(0.673 0.182 276.94 / 45%);
 
-  /* semantic */
-  --ari-success: oklch(0.72 0.17 155);
-  --ari-success-subtle: oklch(0.72 0.17 155 / 14%);
-  --ari-warning: oklch(0.78 0.15 80);
-  --ari-warning-subtle: oklch(0.78 0.15 80 / 14%);
-  --ari-danger: oklch(0.63 0.21 25);
-  --ari-danger-hover: oklch(0.69 0.21 25);
-  --ari-danger-subtle: oklch(0.63 0.21 25 / 15%);
-  --ari-info: oklch(0.7 0.13 230);
-  --ari-info-subtle: oklch(0.7 0.13 230 / 14%);
+  /* semantic — comet 400-level tones (tuned against near-black) */
+  --ari-success: oklch(0.765 0.177 163.22);
+  --ari-success-subtle: oklch(0.765 0.177 163.22 / 14%);
+  --ari-warning: oklch(0.828 0.189 84.43);
+  --ari-warning-subtle: oklch(0.828 0.189 84.43 / 14%);
+  --ari-danger: oklch(0.704 0.191 22.22);
+  --ari-danger-hover: oklch(0.76 0.18 22.22);
+  --ari-danger-subtle: oklch(0.704 0.191 22.22 / 15%);
+  --ari-info: oklch(0.74 0.12 245);
+  --ari-info-subtle: oklch(0.74 0.12 245 / 14%);
+  /* working/streaming indicator — comet pink-400 */
+  --ari-busy: oklch(0.718 0.202 349.76);
+  --ari-busy-subtle: oklch(0.718 0.202 349.76 / 14%);
+
+  /* glass — translucent chrome over the acrylic/vibrancy window backdrop.
+     Opaque-platform fallbacks live in glass.css (prefers-reduced-transparency). */
+  --ari-glass-scrim: oklch(0.08 0 0 / 76%);
+  --ari-glass-overlay: oklch(0.33 0 0 / 34%);
+  --ari-glass-input: oklch(1 0 0 / 4%);
+  --ari-glass-hover: oklch(0.92 0 0 / 11%);
+  --ari-glass-active: oklch(0.92 0 0 / 16%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 35%);
@@ -65,10 +78,8 @@
   --ari-text-3xl: 2rem;
 
   /* layout metrics */
-  --ari-rail-width: 56px;
-  --ari-sidebar-width: 264px;
+  --ari-sidebar-width: 280px;
   --ari-titlebar-height: 38px;
-  --ari-statusbar-height: 26px;
 
   /* motion */
   --ari-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);

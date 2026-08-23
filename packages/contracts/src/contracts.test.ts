@@ -79,8 +79,8 @@ describe('contracts', () => {
 
   it('accepts empty and partial settings update patches, rejects bad fields', () => {
     expect(settingsUpdateSchema.parse({})).toEqual({})
-    expect(settingsUpdateSchema.parse({ appearance: { themeId: 'ember' } })).toEqual({
-      appearance: { themeId: 'ember' },
+    expect(settingsUpdateSchema.parse({ appearance: { themeId: 'comet-glass' } })).toEqual({
+      appearance: { themeId: 'comet-glass' },
     })
     expect(
       settingsUpdateSchema.parse({ window: { x: 0, y: 0, width: 100, height: 100, maximized: true } }).window

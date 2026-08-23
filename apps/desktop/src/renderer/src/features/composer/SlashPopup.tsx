@@ -76,7 +76,7 @@ export function SlashPopup({ query, onSelect, onClose }: SlashPopupProps) {
       initial="hidden"
       animate="visible"
       variants={menuInVariants}
-      className="overflow-hidden rounded-md border border-border bg-surface-0 shadow-lg"
+      className="ari-glass-overlay overflow-hidden rounded-md border border-border shadow-lg"
     >
       <ul role="listbox" aria-label="Slash commands" className="p-1">
         {items.map((command, index) => {
