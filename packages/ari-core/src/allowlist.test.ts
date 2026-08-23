@@ -109,6 +109,7 @@ describe('tool-level allowlist enforcement', () => {
         { path: 'out/notes.md', content: 'hello' },
         {
           workspacePath: dir,
+          permissionMode: 'full',
           allowlist: [{ tool: 'write_file', pattern: 'out/**' }],
         },
       )
@@ -118,21 +119,50 @@ describe('tool-level allowlist enforcement', () => {
     }
   })
 
-  it('allows everything when the allowlist is empty or absent', async () => {
+  it('allows guarded tools under full mode with an empty or absent allowlist', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-allow-'))
     try {
       const bash = findTool('bash')
       const editor = findTool('edit_file')
       await writeFile(join(dir, 'seed.txt'), 'alpha', 'utf8')
       await expect(
-        bash?.execute({ command: 'echo unrestricted' }, { workspacePath: dir, allowlist: [] }),
+        bash?.execute(
+          { command: 'echo unrestricted' },
+          { workspacePath: dir, permissionMode: 'full', allowlist: [] },
+        ),
       ).resolves.toContain('unrestricted')
       await expect(
         editor?.execute(
           { path: 'seed.txt', oldString: 'alpha', newString: 'beta' },
-          { workspacePath: dir },
+          { workspacePath: dir, permissionMode: 'full' },
         ),
       ).resolves.toBe('edited')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('no longer treats an empty allowlist as allow-all outside full mode', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-allow-'))
+    try {
+      const bash = findTool('bash')
+      const writer = findTool('write_file')
+      // Absent mode is ask (fail-closed): exec and writes are gated.
+      await expect(
+        bash?.execute({ command: 'echo gated' }, { workspacePath: dir, allowlist: [] }),
+      ).rejects.toThrow("blocked by permission mode 'ask'")
+      await expect(
+        writer?.execute(
+          { path: 'w.txt', content: 'x' },
+          { workspacePath: dir, permissionMode: 'ask', allowlist: [] },
+        ),
+      ).rejects.toThrow("blocked by permission mode 'ask'")
+      // Reads stay available in every mode.
+      const reader = findTool('read_file')
+      await writeFile(join(dir, 'open.txt'), 'visible', 'utf8')
+      await expect(
+        reader?.execute({ path: 'open.txt' }, { workspacePath: dir, permissionMode: 'ask' }),
+      ).resolves.toBe('visible')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -170,6 +200,7 @@ describe('tool-level allowlist enforcement', () => {
       systemPrompt: '',
       userPrompt: '',
       workspacePath: '.',
+      permissionMode: 'full',
       allowlist: [{ tool: 'bash', pattern: 'git *' }],
     })) {
       if (event.type === 'tool-completed') blocked.push(event.resultJson)
