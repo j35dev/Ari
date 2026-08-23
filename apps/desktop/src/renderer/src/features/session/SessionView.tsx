@@ -10,12 +10,48 @@ import { TranscriptView } from '../transcript'
 import { Composer } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
+import { QuestionPanel } from '../approvals/QuestionPanel'
 import { useSettleNotify } from '../moment'
 
 interface PendingApproval {
   approvalId: string
   toolName: string
   summaryJson: string
+}
+
+/** A question the agent is waiting on (drives the QuestionPanel mount). */
+interface PendingQuestion {
+  inputId: string
+  prompt: string
+  choicesJson: string | null
+}
+
+/**
+ * Structural guard for the pending-question journal event. The contracts
+ * union gains `input.requested` / `input.responded` together with engine
+ * decider support; until then these arrive as unknown-typed stream frames
+ * and are narrowed here so the UI is ready the moment they flow.
+ */
+function asInputRequested(event: JournalEvent): PendingQuestion | null {
+  const e = event as {
+    type?: unknown
+    inputId?: unknown
+    prompt?: unknown
+    choicesJson?: unknown
+  }
+  if (e.type !== 'input.requested') return null
+  if (typeof e.inputId !== 'string' || typeof e.prompt !== 'string') return null
+  return {
+    inputId: e.inputId,
+    prompt: e.prompt,
+    choicesJson: typeof e.choicesJson === 'string' ? e.choicesJson : null,
+  }
+}
+
+/** Returns the answered question's id for `input.responded` events, else null. */
+function respondedInputId(event: JournalEvent): string | null {
+  const e = event as { type?: unknown; inputId?: unknown }
+  return e.type === 'input.responded' && typeof e.inputId === 'string' ? e.inputId : null
 }
 
 /** Per-session telemetry shown under the transcript (latency + token counts). */
@@ -66,6 +102,7 @@ export function SessionView({
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<string[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
+  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
@@ -94,6 +131,7 @@ export function SessionView({
     setRunning(false)
     setQueued([])
     setApprovals([])
+    setPendingQuestion(null)
     setTurnError(null)
     setTelemetry(EMPTY_TELEMETRY)
 
@@ -217,8 +255,17 @@ export function SessionView({
             outputTokens: t.outputTokens + (event.outputTokens ?? 0),
           }))
           break
-        default:
-          break
+        default: {
+          const question = asInputRequested(event)
+          if (question) {
+            setPendingQuestion(question)
+            break
+          }
+          const respondedId = respondedInputId(event)
+          if (respondedId !== null) {
+            setPendingQuestion((prev) => (prev?.inputId === respondedId ? null : prev))
+          }
+        }
       }
     },
     [],
@@ -256,6 +303,28 @@ export function SessionView({
         .catch(() => undefined)
     },
     [sessionId],
+  )
+
+  const respondQuestion = useCallback(
+    (value: string) => {
+      if (pendingQuestion === null) return
+      void rpc
+        .invoke('command.dispatch', {
+          command: {
+            type: 'input.respond',
+            sessionId,
+            inputId: pendingQuestion.inputId,
+            value,
+          },
+        })
+        .then((result) => {
+          // Cleared on acceptance; the `input.responded` replay is a no-op.
+          // A rejection keeps the panel up so the answer can be retried.
+          if (result.accepted) setPendingQuestion(null)
+        })
+        .catch(() => undefined)
+    },
+    [sessionId, pendingQuestion],
   )
 
   const changeModel = useCallback(
@@ -319,6 +388,15 @@ export function SessionView({
           </span>
         ) : null}
       </div>
+      {pendingQuestion ? (
+        <div className="ari-glass-overlay border-t border-border p-3">
+          <QuestionPanel
+            prompt={pendingQuestion.prompt}
+            choicesJson={pendingQuestion.choicesJson}
+            onRespond={respondQuestion}
+          />
+        </div>
+      ) : null}
       {approvals.length > 0 ? (
         <div className="ari-glass-overlay max-h-56 space-y-2 overflow-y-auto border-t border-border p-3">
           {approvals.map((a) => (

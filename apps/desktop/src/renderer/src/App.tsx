@@ -11,6 +11,7 @@ import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { TerminalView } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
+import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { ProjectsView } from './features/projects'
 import { CommandPalette } from './features/palette/CommandPalette'
@@ -180,6 +181,7 @@ function Shell() {
           onBack={() => setSettingsOpen(false)}
         />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+        <KeyboardCheatSheet />
       </div>
     )
   }
@@ -333,6 +335,7 @@ function Shell() {
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      <KeyboardCheatSheet />
     </div>
   )
 }
