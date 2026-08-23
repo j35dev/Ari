@@ -99,7 +99,12 @@ function groupLabel(section: string): string {
  * section on click via smooth `scrollIntoView`. A polite live region reports
  * the result count so keyboard and screen-reader users get filter feedback.
  */
-export function SettingsSearch() {
+export function SettingsSearch({
+  onJump,
+}: {
+  /** Optional: switch the settings overlay to the matching section before scrolling. */
+  onJump?: (section: string) => void
+} = {}) {
   const [query, setQuery] = useState('')
   const results = useMemo(() => filterSettingsIndex(query), [query])
 
@@ -108,7 +113,15 @@ export function SettingsSearch() {
   }
 
   const jumpToSection = (section: string): void => {
-    document.getElementById(section)?.scrollIntoView({ behavior: 'smooth' })
+    onJump?.(section)
+    const target = document.getElementById(section)
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth' })
+      return
+    }
+    requestAnimationFrame(() => {
+      document.getElementById(section)?.scrollIntoView({ behavior: 'smooth' })
+    })
   }
 
   return (
