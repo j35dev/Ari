@@ -324,6 +324,59 @@ describe('engine end-to-end with scripted driver', () => {
     expect(created[1]?.resumeOf).toBe('native-thread-1')
   }, 10000)
 
+  it('steers a live adapter when a message is enqueued mid-turn', async () => {
+    const steered: string[] = []
+    let release: (() => void) | null = null
+    const steerableDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'status', status: 'running' as const }
+              await new Promise<void>((resolve) => {
+                release = resolve
+              })
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          steer: (text) => {
+            steered.push(text)
+            release?.()
+          },
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(steerableDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_steer'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    await new Promise((r) => setTimeout(r, 50))
+
+    const queued = await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId,
+      text: 'focus on the parser instead',
+    })
+    expect(queued.accepted).toBe(true)
+
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) break
+      if (i === 149) throw new Error('turn never settled after steer')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(steered).toEqual(['focus on the parser instead'])
+  }, 10000)
+
   it('routes approval.respond decisions into the live adapter (M16.8)', async () => {
     const decisions: { approvalId: string; decision: string }[] = []
     // An adapter that parks the stream until its approval is answered.
