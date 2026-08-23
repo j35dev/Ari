@@ -18,6 +18,7 @@ import { UsageDashboard } from './features/usage'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
+import { ContentSearchOverlay } from './features/search'
 import { BootSplash } from './features/moment'
 import {
   SidebarFooter,
@@ -48,6 +49,7 @@ function Shell() {
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
   const [defaults, setDefaults] = useState<SessionDefaults>({
@@ -116,6 +118,10 @@ function Shell() {
       setGalleryOpen(true)
       setPaletteOpen(false)
     },
+    onOpenSearch: () => {
+      setSearchOpen(true)
+      setPaletteOpen(false)
+    },
   })
 
   useEffect(() => {
@@ -123,6 +129,10 @@ function Shell() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((o) => !o)
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        setSearchOpen((o) => !o)
       }
       if (e.key === 'Escape') {
         if (paletteOpen) {
@@ -362,6 +372,7 @@ function Shell() {
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      <ContentSearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} root={activeProjectPath} />
       <KeyboardCheatSheet />
     </div>
   )

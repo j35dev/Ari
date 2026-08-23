@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import {
+  FileSearch,
   Folder,
   FolderGit2,
   Gauge,
@@ -39,6 +40,7 @@ export type NavigableView =
 export interface CommandsContext {
   onNavigate: (view: NavigableView) => void
   onOpenGallery: () => void
+  onOpenSearch: () => void
 }
 
 /**
@@ -90,6 +92,13 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       run: () => ctx.onNavigate('settings'),
     },
     {
+      id: 'search.project',
+      label: 'Search in project',
+      icon: FileSearch,
+      hint: 'Ctrl+Shift+F',
+      run: () => ctx.onOpenSearch(),
+    },
+    {
       id: 'view.gallery',
       label: 'Browse component gallery',
       icon: Images,
@@ -100,9 +109,9 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
 
 /** Memoized app command list built from the passed context object. */
 export function useCommands(ctx: CommandsContext): PaletteCommand[] {
-  const { onNavigate, onOpenGallery } = ctx
+  const { onNavigate, onOpenGallery, onOpenSearch } = ctx
   return useMemo(
-    () => buildAppCommands({ onNavigate, onOpenGallery }),
-    [onNavigate, onOpenGallery],
+    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch }),
+    [onNavigate, onOpenGallery, onOpenSearch],
   )
 }
