@@ -1,0 +1,307 @@
+{
+  "generatedAt": 1787472287212,
+  "sourceUrl": "https://models.dev/api.json",
+  "providers": {
+    "anthropic": [
+      {
+        "id": "claude-opus-5",
+        "label": "Claude Opus 5",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-sonnet-5",
+        "label": "Claude Sonnet 5",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-fable-5",
+        "label": "Claude Fable 5",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-opus-4-8",
+        "label": "Claude Opus 4.8",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-opus-4-7",
+        "label": "Claude Opus 4.7",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-opus-4-6",
+        "label": "Claude Opus 4.6",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-opus-4-5",
+        "label": "Claude Opus 4.5 (latest)",
+        "contextHint": "200k"
+      },
+      {
+        "id": "claude-opus-4-5-20251101",
+        "label": "Claude Opus 4.5",
+        "contextHint": "200k"
+      },
+      {
+        "id": "claude-haiku-4-5",
+        "label": "Claude Haiku 4.5 (latest)",
+        "contextHint": "200k"
+      },
+      {
+        "id": "claude-haiku-4-5-20251001",
+        "label": "Claude Haiku 4.5",
+        "contextHint": "200k"
+      },
+      {
+        "id": "claude-sonnet-4-5",
+        "label": "Claude Sonnet 4.5 (latest)",
+        "contextHint": "1m"
+      },
+      {
+        "id": "claude-sonnet-4-5-20250929",
+        "label": "Claude Sonnet 4.5",
+        "contextHint": "1m"
+      }
+    ],
+    "openai": [
+      {
+        "id": "gpt-5.6",
+        "label": "GPT-5.6",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "label": "GPT-5.6 Luna",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "label": "GPT-5.6 Sol",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "label": "GPT-5.6 Terra",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-realtime-2.1",
+        "label": "GPT-Realtime-2.1",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-5.5",
+        "label": "GPT-5.5",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-5.5-pro",
+        "label": "GPT-5.5 Pro",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-5.4-mini",
+        "label": "GPT-5.4 mini",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5.4-nano",
+        "label": "GPT-5.4 nano",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5.4",
+        "label": "GPT-5.4",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-5.4-pro",
+        "label": "GPT-5.4 Pro",
+        "contextHint": "1.1m"
+      },
+      {
+        "id": "gpt-5.3-chat-latest",
+        "label": "GPT-5.3 Chat (latest)",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-5.3-codex",
+        "label": "GPT-5.3 Codex",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5.3-codex-spark",
+        "label": "GPT-5.3 Codex Spark",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-5.2",
+        "label": "GPT-5.2",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5.2-chat-latest",
+        "label": "GPT-5.2 Chat",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-5.2-pro",
+        "label": "GPT-5.2 Pro",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5.1",
+        "label": "GPT-5.1",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5-pro",
+        "label": "GPT-5 Pro",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5",
+        "label": "GPT-5",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5-mini",
+        "label": "GPT-5 Mini",
+        "contextHint": "400k"
+      },
+      {
+        "id": "gpt-5-nano",
+        "label": "GPT-5 Nano",
+        "contextHint": "400k"
+      },
+      {
+        "id": "o3-pro",
+        "label": "o3-pro",
+        "contextHint": "200k"
+      },
+      {
+        "id": "o3",
+        "label": "o3",
+        "contextHint": "200k"
+      },
+      {
+        "id": "o4-mini",
+        "label": "o4-mini",
+        "contextHint": "200k"
+      },
+      {
+        "id": "gpt-4.1",
+        "label": "GPT-4.1",
+        "contextHint": "1m"
+      },
+      {
+        "id": "gpt-4.1-mini",
+        "label": "GPT-4.1 mini",
+        "contextHint": "1m"
+      },
+      {
+        "id": "gpt-4.1-nano",
+        "label": "GPT-4.1 nano",
+        "contextHint": "1m"
+      },
+      {
+        "id": "o1-pro",
+        "label": "o1-pro",
+        "contextHint": "200k"
+      },
+      {
+        "id": "o3-mini",
+        "label": "o3-mini",
+        "contextHint": "200k"
+      },
+      {
+        "id": "o1",
+        "label": "o1",
+        "contextHint": "200k"
+      },
+      {
+        "id": "gpt-4o-2024-11-20",
+        "label": "GPT-4o (2024-11-20)",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-4o-2024-08-06",
+        "label": "GPT-4o (2024-08-06)",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-4o-mini",
+        "label": "GPT-4o mini",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-4o",
+        "label": "GPT-4o",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-4o-2024-05-13",
+        "label": "GPT-4o (2024-05-13)",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-4",
+        "label": "GPT-4",
+        "contextHint": "8k"
+      },
+      {
+        "id": "gpt-4-turbo",
+        "label": "GPT-4 Turbo",
+        "contextHint": "128k"
+      },
+      {
+        "id": "gpt-3.5-turbo",
+        "label": "GPT-3.5-turbo",
+        "contextHint": "16k"
+      }
+    ],
+    "xai": [
+      {
+        "id": "grok-4.6",
+        "label": "Grok 4.6",
+        "contextHint": "500k"
+      },
+      {
+        "id": "grok-4.5",
+        "label": "Grok 4.5",
+        "contextHint": "500k"
+      },
+      {
+        "id": "grok-4.3",
+        "label": "Grok 4.3",
+        "contextHint": "1m"
+      },
+      {
+        "id": "grok-build-0.1",
+        "label": "Grok Build 0.1",
+        "contextHint": "256k"
+      },
+      {
+        "id": "grok-4.20-0309-non-reasoning",
+        "label": "Grok 4.20 (Non-Reasoning)",
+        "contextHint": "1m"
+      },
+      {
+        "id": "grok-4.20-0309-reasoning",
+        "label": "Grok 4.20 (Reasoning)",
+        "contextHint": "1m"
+      },
+      {
+        "id": "grok-4.20-multi-agent-0309",
+        "label": "Grok 4.20 Multi-Agent",
+        "contextHint": "1m"
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import type { DriverKind } from '@ari/contracts/common'
+import snapshot from './catalog-snapshot.json'
 
 /** One curated model entry for a driver's picker. */
 export interface CatalogModel {
@@ -8,24 +9,19 @@ export interface CatalogModel {
   contextHint?: string
 }
 
+/** Where the current catalog for a kind came from. */
+export type CatalogSource = 'live' | 'cache' | 'snapshot' | 'static'
+
 const CLI_DEFAULT_MODELS: CatalogModel[] = [{ id: 'default', label: 'CLI default' }]
 
 /**
- * Static model catalogs backing the new-session provider picker, one list per
- * {@link DriverKind}. CLIs whose model flags vary by install ship a single
- * `default` entry; `ari-core` stays empty because its endpoints supply their
- * own models at session-create time.
+ * Last-resort static catalogs (M4.14). Used only when neither a live refresh
+ * nor the bundled snapshot has data for a kind; `ari-core` stays empty
+ * because its endpoints supply their own models at session-create time.
  */
 export const MODEL_CATALOGS: Record<DriverKind, CatalogModel[]> = {
-  claude: [
-    { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', contextHint: '200k' },
-    { id: 'claude-opus-4-1', label: 'Claude Opus 4.1', contextHint: '200k' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextHint: '200k' },
-  ],
-  codex: [
-    { id: 'gpt-5-codex', label: 'GPT-5 Codex', contextHint: '400k' },
-    { id: 'gpt-5-mini', label: 'GPT-5 mini', contextHint: '400k' },
-  ],
+  claude: CLI_DEFAULT_MODELS,
+  codex: CLI_DEFAULT_MODELS,
   opencode: CLI_DEFAULT_MODELS,
   grok: CLI_DEFAULT_MODELS,
   pi: CLI_DEFAULT_MODELS,
@@ -33,7 +29,59 @@ export const MODEL_CATALOGS: Record<DriverKind, CatalogModel[]> = {
   'ari-core': [],
 }
 
-/** Catalog entries for a driver kind; empty for kinds without static models. */
+/**
+ * models.dev provider id backing each kind's bundled snapshot fallback.
+ * Kinds without an entry (opencode/pi/hermes route through their own
+ * provider configs) fall through to `CLI default` until a live source or
+ * an ACP session reports real models.
+ */
+const SNAPSHOT_PROVIDER: Partial<Record<DriverKind, string>> = {
+  claude: 'anthropic',
+  codex: 'openai',
+  grok: 'xai',
+}
+
+const SNAPSHOT = snapshot as {
+  generatedAt: number
+  sourceUrl: string
+  providers: Record<string, CatalogModel[]>
+}
+
+/**
+ * Dynamic overlay populated by the main-process CatalogService (models.dev
+ * refreshes + ACP model probes). Renderer-safe: the module is pure until a
+ * host process calls {@link setDynamicModels}.
+ */
+const dynamic = new Map<DriverKind, { source: CatalogSource; models: CatalogModel[] }>()
+
+/** Installs a freshly-fetched catalog for a kind, replacing any previous one. */
+export function setDynamicModels(kind: DriverKind, source: CatalogSource, models: CatalogModel[]): void {
+  if (models.length === 0) return
+  dynamic.set(kind, { source, models })
+}
+
+/** Removes any dynamic overlay for a kind (tests, invalidation). */
+export function clearDynamicModels(kind: DriverKind): void {
+  dynamic.delete(kind)
+}
+
+/** Where {@link modelsFor} data currently comes from for a kind. */
+export function catalogSource(kind: DriverKind): CatalogSource {
+  return dynamic.get(kind)?.source ?? (snapshotFor(kind) !== null ? 'snapshot' : 'static')
+}
+
+function snapshotFor(kind: DriverKind): CatalogModel[] | null {
+  const providerId = SNAPSHOT_PROVIDER[kind]
+  const models = providerId !== undefined ? (SNAPSHOT.providers[providerId] ?? null) : null
+  return models && models.length > 0 ? models : null
+}
+
+/**
+ * Model catalog entries for a driver's picker, merged in priority order:
+ * live provider data → cached refresh → bundled snapshot → static defaults.
+ * Synchronous and renderer-safe; dynamic overlays arrive via
+ * {@link setDynamicModels} in the main process.
+ */
 export function modelsFor(kind: DriverKind): CatalogModel[] {
-  return MODEL_CATALOGS[kind]
+  return dynamic.get(kind)?.models ?? snapshotFor(kind) ?? MODEL_CATALOGS[kind]
 }

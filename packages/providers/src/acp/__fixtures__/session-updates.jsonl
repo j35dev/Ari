@@ -1,0 +1,10 @@
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Let me check the repo layout."}}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looking at "}}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"**src/** now."}}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"tool_call","toolCallId":"call_1","title":"Read file src/main.ts","kind":"read","status":"pending","rawInput":{"name":"read_file","path":"src/main.ts"}}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"in_progress"}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_1","status":"completed","content":[{"type":"content","content":[{"type":"text","text":"export function main() {}"}]}]}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"tool_call","toolCallId":"call_2","title":"Edit src/util.ts","kind":"edit","status":"pending","rawInput":{"name":"edit_file"}}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_2","status":"failed","content":[{"type":"diff","path":"src/util.ts","oldText":"a","newText":"b"}]}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"usage_update","used":4210,"size":200000,"cost":{"amount":0.0142,"currency":"USD"}}}
+{"sessionId":"sess_agent_1","update":{"sessionUpdate":"plan","entries":[{"content":"ship it","status":"completed"}]}}

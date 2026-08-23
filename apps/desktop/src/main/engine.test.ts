@@ -271,5 +271,68 @@ describe('engine end-to-end with scripted driver', () => {
     const model = await store.load(sessionId)
     expect(model.status).toBe('error')
   }, 10000)
+
+  it('routes approval.respond decisions into the live adapter (M16.8)', async () => {
+    const decisions: { approvalId: string; decision: string }[] = []
+    // An adapter that parks the stream until its approval is answered.
+    let release: ((decision: string) => void) | null = null
+    const approvalDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator]() {
+              yield { type: 'approval-requested', approvalId: 'ap_1', toolName: 'bash', summaryJson: '{}' }
+              const decision = await new Promise<string>((resolve) => {
+                release = resolve
+              })
+              yield { type: 'text-delta', text: `resolved:${decision}` }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          respondApproval: (approvalId, decision) => {
+            decisions.push({ approvalId, decision })
+            release?.(decision)
+          },
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(approvalDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_approval'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'run it' } as Command)
+
+    // Wait for the adapter's approval-requested to reach the read model.
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.pendingApprovals.some((a) => a.approvalId === 'ap_1')) break
+      if (i === 149) throw new Error('approval never surfaced')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const responded = await engine.dispatch({
+      type: 'approval.respond',
+      sessionId,
+      approvalId: 'ap_1',
+      decision: 'always-allow',
+    })
+    expect(responded.accepted).toBe(true)
+
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) break
+      if (i === 149) throw new Error('turn never settled after approval')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(decisions).toEqual([{ approvalId: 'ap_1', decision: 'always-allow' }])
+  }, 10000)
 })
 
