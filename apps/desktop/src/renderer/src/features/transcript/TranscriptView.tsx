@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, Copy } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { useVirtualizer } from './use-virtualizer'
 import { splitBlocks } from './splitBlocks'
@@ -143,12 +144,32 @@ export function TranscriptView({
   )
 }
 
-/** Right-aligned user message bubble (Zeron style). */
+/** Right-aligned user message bubble (Zeron style) with hover copy affordance. */
 function UserBubble({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch {
+      // clipboard unavailable — affordance stays silent
+    }
+  }
   return (
-    <div className="my-2 flex justify-end">
-      <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-xl bg-surface-2 px-3.5 py-2 text-sm leading-relaxed text-fg">
-        {text}
+    <div className="group my-2 flex justify-end">
+      <div className="flex max-w-[85%] items-end gap-1">
+        <button
+          type="button"
+          onClick={() => void copy()}
+          aria-label={copied ? 'Copied' : 'Copy message'}
+          className="mb-1 shrink-0 rounded-sm p-0.5 text-fg-subtle opacity-0 transition-opacity duration-150 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+        <div className="whitespace-pre-wrap break-words rounded-xl bg-surface-2 px-3.5 py-2 text-sm leading-relaxed text-fg">
+          {text}
+        </div>
       </div>
     </div>
   )
