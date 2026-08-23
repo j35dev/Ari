@@ -9,6 +9,7 @@ import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { Engine } from './engine'
+import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
@@ -191,6 +192,11 @@ export interface EngineHandle {
   registry: DriverRegistry
 }
 
+export interface RegisterRpcOptions {
+  /** Notified whenever the live mid-turn count changes (tray status). */
+  onRunningCount?: (runningCount: number) => void
+}
+
 /** Hard ceiling for `fs.readTextFile` regardless of the requested maxBytes. */
 const FS_READ_MAX_BYTES = 512 * 1024
 
@@ -218,7 +224,7 @@ void loadPtyModule().then((m) => {
   ptyModule = m
 })
 
-export function registerRpc(contents: WebContents): EngineHandle {
+export function registerRpc(contents: WebContents, options: RegisterRpcOptions = {}): EngineHandle {
   const rpcRegistry = new RpcRegistry({
     send: (frame) => {
       if (!contents.isDestroyed()) contents.send(STREAM_CHANNEL, frame)
@@ -242,12 +248,18 @@ export function registerRpc(contents: WebContents): EngineHandle {
   })
   catalogService.start()
 
+  // The running-turn counter feeds the tray from the same event flow the
+  // renderer subscribes to; no extra engine coupling.
+  const runningTurns = new RunningTurnCounter()
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
     publish: (sessionId: string, event: JournalEvent) => {
       const payload: SessionEventFrame = { sessionId, event }
       rpcRegistry.publish('session.events', payload)
+      if (options.onRunningCount && runningTurns.push(event)) {
+        options.onRunningCount(runningTurns.count)
+      }
     },
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
