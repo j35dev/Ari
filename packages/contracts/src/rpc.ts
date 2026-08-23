@@ -29,7 +29,7 @@ export const sessionCreateParamsSchema = z.object({
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 
 /** Stream names the renderer may subscribe to. */
-export const streamNames = ['session.events', 'terminal.data'] as const
+export const streamNames = ['session.events', 'terminal.data', 'providers.updates'] as const
 export type StreamName = (typeof streamNames)[number]
 
 /** Payload delivered on the session.events stream. */
@@ -45,6 +45,23 @@ export interface TerminalDataFrame {
 }
 
 /**
+ * Payload delivered on the providers.updates stream: fresh detection rounds
+ * (with update availability) and catalog refresh notifications.
+ */
+export type ProvidersUpdateFrame =
+  | { type: 'detections'; detections: RpcResults['providers.detect'] }
+  | { type: 'catalog'; at: number }
+
+/** One model entry in a driver's picker catalog. */
+export const catalogModelSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  /** Short context-window hint rendered beside the label, e.g. `200k`. */
+  contextHint: z.string().optional(),
+})
+export type CatalogModelInfo = z.infer<typeof catalogModelSchema>
+
+/**
  * Invoke-method parameter schemas. The result side is typed via
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
@@ -56,6 +73,7 @@ export const rpcParams = {
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),  'command.dispatch': z.object({ command: commandSchema }),
   'providers.detect': z.undefined(),
+  'providers.models': z.undefined(),
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
@@ -120,7 +138,22 @@ export interface RpcResults {
   'session.load': unknown
   'session.destroy': { destroyed: boolean }
   'command.dispatch': { accepted: boolean }
-  'providers.detect': { kind: string; binaryPath: string | null; version: string | null; authStatus: string }[]
+  'providers.detect': {
+    kind: string
+    binaryPath: string | null
+    version: string | null
+    authStatus: string
+    /** Newest version published upstream; null when unknown or not checkable. */
+    latestVersion?: string | null
+    /** True when latestVersion > version; null when either side is unknown. */
+    updateAvailable?: boolean | null
+  }[]
+  /**
+   * Merged model catalogs per driver kind, sourced live from the provider
+   * (`source: 'live'`), a cached refresh (`'cache'`), the bundled snapshot
+   * (`'snapshot'`), or static defaults (`'static'`).
+   */
+  'providers.models': { kind: string; source: 'live' | 'cache' | 'snapshot' | 'static'; models: CatalogModelInfo[] }[]
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }
