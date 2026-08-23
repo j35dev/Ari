@@ -1,59 +1,50 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-export const THEMES = [
-  { id: 'obsidian', label: 'Obsidian', appearance: 'dark' },
-  { id: 'graphite', label: 'Graphite', appearance: 'dark' },
-  { id: 'porcelain', label: 'Porcelain', appearance: 'light' },
-  { id: 'ember', label: 'Ember', appearance: 'dark' },
-  { id: 'verdant', label: 'Verdant', appearance: 'dark' },
-  { id: 'ultraviolet', label: 'Ultraviolet', appearance: 'dark' },
-] as const
+/**
+ * Ari ships a single designed appearance: comet-style dark glass. The provider
+ * remains as the mount point that applies `data-ari` to <html> (glass.css and
+ * platform fallbacks key off it) so components have one stable hook.
+ */
+export const APPEARANCE = 'comet-glass'
 
-export type ThemeId = (typeof THEMES)[number]['id']
+const STORAGE_KEY = 'ari.appearance'
 
-const STORAGE_KEY = 'ari.theme'
-
-interface ThemeContextValue {
-  theme: ThemeId
-  setTheme: (theme: ThemeId) => void
+interface AppearanceContextValue {
+  /** Identifier of the active appearance; constant until themes return. */
+  appearance: typeof APPEARANCE
 }
 
-const ThemeContext = createContext<ThemeContextValue | null>(null)
+const AppearanceContext = createContext<AppearanceContextValue | null>(null)
 
-function readStoredTheme(): ThemeId {
+function readStoredAppearance(): typeof APPEARANCE {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw && THEMES.some((t) => t.id === raw)) return raw as ThemeId
+    if (raw === APPEARANCE) return APPEARANCE
   } catch {
     // storage unavailable (e.g. file:// restrictions) — fall through to default
   }
-  return 'obsidian'
+  return APPEARANCE
 }
 
-/**
- * Applies the active theme via `data-theme` on <html> and persists the
- * choice. Persistence moves to the engine settings store in M12; localStorage
- * is the boot-time stub so themes work before the engine exists.
- */
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeId>(readStoredTheme)
+  const [appearance] = useState<typeof APPEARANCE>(readStoredAppearance)
 
   useEffect(() => {
-    document.documentElement.dataset['theme'] = theme
+    document.documentElement.dataset['ari'] = appearance
     try {
-      localStorage.setItem(STORAGE_KEY, theme)
+      localStorage.setItem(STORAGE_KEY, appearance)
     } catch {
-      // non-fatal: theme simply won't persist
+      // non-fatal: appearance simply won't persist
     }
-  }, [theme])
+  }, [appearance])
 
-  const value = useMemo(() => ({ theme, setTheme: setThemeState }), [theme])
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  const value = useMemo(() => ({ appearance }), [appearance])
+  return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>
 }
 
-export function useTheme(): ThemeContextValue {
-  const ctx = useContext(ThemeContext)
+export function useTheme(): AppearanceContextValue {
+  const ctx = useContext(AppearanceContext)
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider')
   return ctx
 }

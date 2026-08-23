@@ -4,7 +4,6 @@ import type { SettingsUpdate } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
 import { err, formatUnknownError, ok, type Result } from '@ari/shared/result'
 import { Button } from '@ari/ui/button'
-import { useTheme } from '@ari/ui/theme-provider'
 import { SettingsPage } from './SettingsPage'
 import { useEngineSettings } from './useEngineSettings'
 
@@ -16,15 +15,15 @@ const DRAFTS_PREFIX = 'ari.drafts'
 interface DiagnosticsBundle {
   appVersion: string
   userAgent: string
-  theme: string
+  appearance: string
 }
 
 /** Collects the renderer-reachable facts shipped in `ari-diagnostics.json`. */
-export function collectDiagnostics(theme: string): DiagnosticsBundle {
+export function collectDiagnostics(appearance: string): DiagnosticsBundle {
   return {
     appVersion: APP_VERSION,
     userAgent: navigator.userAgent,
-    theme,
+    appearance,
   }
 }
 
@@ -90,7 +89,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /** Advanced settings page: diagnostics + settings bundles, journal location, danger zone. */
 export function AdvancedSettings() {
-  const { theme } = useTheme()
   const { settings, update } = useEngineSettings()
   const [confirmingClear, setConfirmingClear] = useState(false)
   const [clearedCount, setClearedCount] = useState<number | null>(null)
@@ -98,7 +96,14 @@ export function AdvancedSettings() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const exportDiagnostics = () => {
-    downloadJson(JSON.stringify(collectDiagnostics(theme), null, 2), 'ari-diagnostics.json')
+    downloadJson(
+      JSON.stringify(
+        collectDiagnostics(document.documentElement.dataset['ari'] ?? 'comet-glass'),
+        null,
+        2,
+      ),
+      'ari-diagnostics.json',
+    )
   }
 
   const exportSettings = () => {

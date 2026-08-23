@@ -19,7 +19,6 @@ import { highlightCode } from './highlight'
 
 describe('highlightCode', () => {
   beforeEach(() => {
-    delete document.documentElement.dataset.theme
     shiki.codeToHtml.mockClear()
     shiki.loadLanguage.mockClear()
   })
@@ -43,14 +42,13 @@ describe('highlightCode', () => {
     expect(shiki.loadLanguage).toHaveBeenCalledWith(expect.any(Function))
   })
 
-  it('picks the light theme when the app theme is porcelain', async () => {
-    document.documentElement.dataset.theme = 'porcelain'
+  it('always highlights with the dark default color', async () => {
     const html = await highlightCode('let b = 2;', 'ts')
     expect(html).toContain('let b = 2;')
     expect(shiki.codeToHtml).toHaveBeenCalledWith(expect.anything(), {
       lang: 'ts',
       themes: { light: 'github-light', dark: 'github-dark' },
-      defaultColor: 'light',
+      defaultColor: 'dark',
     })
   })
 

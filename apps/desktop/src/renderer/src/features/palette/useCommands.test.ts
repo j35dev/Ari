@@ -1,14 +1,10 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ThemeProvider } from '@ari/ui/theme-provider'
-import type { ThemeId } from '@ari/ui/theme-provider'
-import { buildAppCommands, nextThemeId, useAppCommands } from './useCommands'
+import { buildAppCommands, useCommands } from './useCommands'
 
 const ctx = {
   onNavigate: vi.fn(),
   onOpenGallery: vi.fn(),
-  theme: 'obsidian' as ThemeId,
-  setTheme: vi.fn(),
 }
 
 describe('buildAppCommands', () => {
@@ -33,32 +29,13 @@ describe('buildAppCommands', () => {
       .run()
     expect(ctx.onOpenGallery).toHaveBeenCalledOnce()
   })
-
-  it('cycles the theme forward and labels the target theme', () => {
-    const commands = buildAppCommands(ctx)
-    const cycle = commands.find((c) => c.id === 'theme.cycle')!
-    expect(cycle.label).toContain('Graphite')
-    cycle.run()
-    expect(ctx.setTheme).toHaveBeenCalledWith('graphite')
-  })
 })
 
-describe('nextThemeId', () => {
-  it('wraps around at the end of the theme list', () => {
-    expect(nextThemeId('obsidian')).toBe('graphite')
-    expect(nextThemeId('ultraviolet')).toBe('obsidian')
-  })
-})
-
-describe('useAppCommands', () => {
-  it('builds the command list inside a ThemeProvider', () => {
-    const { result } = renderHook(
-      () => useAppCommands({ onNavigate: vi.fn(), onOpenGallery: vi.fn() }),
-      { wrapper: ThemeProvider },
-    )
-    expect(result.current.length).toBeGreaterThanOrEqual(6)
-    const cycle = result.current.find((c) => c.id === 'theme.cycle')
-    expect(cycle).toBeDefined()
-    act(() => cycle!.run())
+describe('useCommands', () => {
+  it('memoizes the command list per context', () => {
+    const { result, rerender } = renderHook(() => useCommands(ctx))
+    const first = result.current
+    rerender()
+    expect(result.current).toBe(first)
   })
 })
