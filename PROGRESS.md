@@ -70,6 +70,10 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 
 ---
 
+## M17 — Gap-audit repair wave (P0)
+
+- [x] M17.4 SecretBox on EndpointStore; tray status; git.turnDiff RPC (claimed @ feat/m17.4-tray-secrets)
+
 ## M16 — Provider system rework: ACP transport, live catalogs, update awareness
 
 Driver rework so Ari stays an *interface* over provider harnesses (Agent Client Protocol,
