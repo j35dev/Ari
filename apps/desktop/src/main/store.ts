@@ -1,11 +1,12 @@
 import { join } from 'node:path'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import { EndpointStore } from '@ari/ari-core/endpoints'
 import type { WorkspaceWatcher } from '@ari/engine/watcher'
 import { ProjectStore } from '@ari/engine/projects'
 import { SessionStore } from '@ari/engine/session-store'
 import { SettingsStore } from '@ari/engine/settings'
 import { createLogger } from '@ari/shared/logger'
+import { migrateLegacyPlaintextKeys, resolveSecretBox } from './secret-box'
 import { watchers } from './watcher-bridge'
 
 const log = createLogger('desktop:store')
@@ -52,7 +53,18 @@ export function getProjectStore(): ProjectStore {
 
 export function getEndpointStore(): EndpointStore {
   if (!endpointStore) {
-    endpointStore = new EndpointStore({ dir: join(app.getPath('userData'), 'ari-core') })
+    // Keys encrypt via the OS keyring (safeStorage), falling back to an
+    // AES-GCM key file on headless machines; pre-encryption plaintext files
+    // are rewritten once here so existing users keep working.
+    const dir = join(app.getPath('userData'), 'ari-core')
+    const box = resolveSecretBox({
+      storage: safeStorage,
+      keyDir: join(app.getPath('userData'), 'secrets'),
+    })
+    if (migrateLegacyPlaintextKeys(join(dir, 'endpoints.json'), box)) {
+      log.info('migrated legacy plaintext endpoint keys to encrypted form')
+    }
+    endpointStore = new EndpointStore({ dir, secretBox: box })
   }
   return endpointStore
 }
