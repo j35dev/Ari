@@ -128,6 +128,44 @@ describe('decideCommand', () => {
     expect(decideCommand(answered, command, ids).accepted).toBe(false)
   })
 
+  it('accepts input.respond for a live agent question and answers once', () => {
+    let model = modelWithSession()
+    model = previewDispatch(model, {
+      accepted: true,
+      events: [
+        { type: 'turn.started', turnId: 'turn_1' },
+        { type: 'input.requested', inputId: 'q1', prompt: 'Pick one', choicesJson: '["a","b"]' },
+      ],
+    })
+    const command: Command = {
+      type: 'input.respond',
+      sessionId: 'sess_1',
+      inputId: 'q1',
+      value: 'a',
+    }
+    const result = decideCommand(model, command, ids)
+    expect(result.accepted).toBe(true)
+    expect(result.events[0]?.type).toBe('input.responded')
+    const answered = previewDispatch(model, result)
+    expect(answered.pendingInputs).toHaveLength(0)
+    expect(decideCommand(answered, command, ids).accepted).toBe(false)
+  })
+
+  it('rejects input.respond without a matching pending question', () => {
+    let model = modelWithSession()
+    model = previewDispatch(model, {
+      accepted: true,
+      events: [{ type: 'turn.started', turnId: 'turn_1' }],
+    })
+    const result = decideCommand(
+      model,
+      { type: 'input.respond', sessionId: 'sess_1', inputId: 'q_missing', value: 'x' },
+      ids,
+    )
+    expect(result.accepted).toBe(false)
+    expect(result.reason).toContain('unknown or already-answered')
+  })
+
   it('accepts checkpoint.revert when a checkpoint exists for the turn', () => {
     let model = modelWithSession()
     model = previewDispatch(model, {

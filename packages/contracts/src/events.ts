@@ -63,6 +63,17 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     decision: z.enum(['allow', 'deny', 'always-allow']),
   }),
   eventBase.extend({
+    type: z.literal('input.requested'),
+    inputId: z.string(),
+    prompt: z.string(),
+    choicesJson: z.string().nullable(),
+  }),
+  eventBase.extend({
+    type: z.literal('input.responded'),
+    inputId: z.string(),
+    value: z.string(),
+  }),
+  eventBase.extend({
     type: z.literal('checkpoint.captured'),
     turnId: z.string(),
     gitRef: z.string(),
