@@ -1,7 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@ari/contracts/session'
 import { SessionStore } from './session-store'
 
@@ -56,6 +56,58 @@ describe('SessionStore', () => {
     // Pristine sessions report zero messages so the shell can reuse them
     // instead of piling up empty chats.
     expect(list.every((s) => s.messageCount === 0)).toBe(true)
+  })
+
+  it('serves listSessions from the index and replays only stale journals', async () => {
+    const s2: Session = { ...session, id: 'sess_test2', title: 'Second', updatedAt: 2000 }
+    await store.append(session.id, { type: 'session.created', session })
+    await store.append(s2.id, { type: 'session.created', session: s2 })
+    await store.append(s2.id, {
+      type: 'user.message.added',
+      message: { id: 'm1', sessionId: s2.id, turnId: 'turn_1', role: 'user', parts: [{ type: 'text', text: 'hi' }], createdAt: 2001 },
+    })
+
+    // Warm-up listing builds the sidecar indexes (may replay).
+    const warm = await store.listSessions()
+    expect(warm.find((s) => s.id === s2.id)?.messageCount).toBe(1)
+
+    const spies = []
+    for (const id of [session.id, s2.id]) {
+      const j = await store.openJournal(id)
+      spies.push(vi.spyOn(j, 'readAll'))
+    }
+
+    // Simulate a crash between journal append and index write: the journal
+    // grows behind the sidecar's back.
+    const j2 = await store.openJournal(s2.id)
+    await j2.append({ type: 'session.updated', title: 'Renamed', seq: 2, at: 2500, sessionId: s2.id })
+
+    const list = await store.listSessions()
+    expect(list.map((s) => s.title)).toEqual(['Renamed', 'Test session'])
+    // Exactly one replay: the stale journal. The fresh one was never read.
+    expect(spies.map((s) => s.mock.calls.length)).toEqual([0, 1])
+
+    // Once repaired, listing is replay-free for every session.
+    spies.forEach((s) => s.mockClear())
+    const again = await store.listSessions()
+    expect(spies.every((s) => s.mock.calls.length === 0)).toBe(true)
+    expect(again.map((s) => s.title)).toEqual(['Renamed', 'Test session'])
+  })
+
+  it('repairs a corrupt or missing sidecar index via replay', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    expect(await store.listSessions()).toHaveLength(1)
+    await writeFile(join(rootDir, session.id, 'index.json'), '{corrupt', 'utf8')
+
+    // Cold store (crash survivor): falls back to replay, serves correct data.
+    const fresh = new SessionStore({ rootDir })
+    const list = await fresh.listSessions()
+    expect(list).toHaveLength(1)
+    expect(list[0]?.title).toBe('Test session')
+
+    // The repair persisted: yet another cold reader sees the same data.
+    const fresher = new SessionStore({ rootDir })
+    expect(await fresher.listSessions()).toHaveLength(1)
   })
 
   it('destroy removes the journal directory entirely', async () => {
