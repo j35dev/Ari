@@ -13,15 +13,19 @@ import { Engine } from './engine'
 let dir: string
 let store: SessionStore
 let published: { sessionId: string; event: JournalEvent }[]
+/** Extra scratch directories (project folders) created by individual tests. */
+let dirs: string[]
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ari-engine-e2e-'))
   store = new SessionStore({ rootDir: dir })
   published = []
+  dirs = []
 })
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
+  await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })))
 })
 
 interface Script {
@@ -51,12 +55,16 @@ function scriptedDriver(script: Script): Driver {
   return { kind: 'claude', create: (session) => Promise.resolve(makeAdapter(session)) }
 }
 
-async function seedSession(store: SessionStore, sessionId: string): Promise<void> {
+async function seedSession(
+  store: SessionStore,
+  sessionId: string,
+  projectId = 'proj_1',
+): Promise<void> {
   await store.append(sessionId, {
     type: 'session.created',
     session: {
       id: sessionId,
-      projectId: 'proj_1',
+      projectId,
       title: 'E2E',
       driverKind: 'claude',
       modelId: null,
@@ -659,5 +667,139 @@ describe('engine end-to-end with scripted driver', () => {
     expect(model.session?.pinned).toBe(false)
     expect((await store.listSessions()).find((s) => s.id === sessionId)?.archived).toBe(false)
   })
+})
+
+describe('M19.3 session worktrees', () => {
+  /** Driver that records every AdapterSession it is created with. */
+  function recordingDriver(created: AdapterSession[]): Driver {
+    return {
+      kind: 'claude',
+      create: (session) => {
+        created.push(session)
+        return Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        })
+      },
+    }
+  }
+
+  async function waitSettled(store: SessionStore, sessionId: string): Promise<void> {
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null) return
+      if (i === 149) throw new Error('turn never settled')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }
+
+  it('runs project turns inside the session worktree handed to driver.create', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'ari-proj-'))
+    dirs.push(projectDir)
+    const worktreePath = join(projectDir, '.ari', 'worktrees', 'sess_wt_run')
+
+    const created: AdapterSession[] = []
+    const ensureCalls: [string, string][] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver(created))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      resolveWorkspace: async () => projectDir,
+      worktrees: {
+        // Stands in for the real GitService-backed source.
+        ensure: async (repoPath, sessionId) => {
+          ensureCalls.push([repoPath, sessionId])
+          return worktreePath
+        },
+      },
+    })
+
+    const sessionId = 'sess_wt_run'
+    await seedSession(store, sessionId)
+    const result = await engine.dispatch({ type: 'turn.start', sessionId, text: 'hi' } as Command)
+    expect(result.accepted).toBe(true)
+    await waitSettled(store, sessionId)
+
+    // The turn's cwd — and therefore driver.create's workspacePath — is the
+    // session worktree derived from the project folder + session id.
+    expect(ensureCalls).toEqual([[projectDir, sessionId]])
+    expect(created).toHaveLength(1)
+    expect(created[0]?.workspacePath).toBe(worktreePath)
+  }, 10000)
+
+  it('falls back to the project folder when no worktree can be ensured', async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), 'ari-proj-'))
+    dirs.push(projectDir)
+
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver(created))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      resolveWorkspace: async () => projectDir,
+      worktrees: { ensure: async () => null }, // fail-soft signal
+    })
+
+    const sessionId = 'sess_wt_fallback'
+    await seedSession(store, sessionId)
+    const result = await engine.dispatch({
+      type: 'turn.start',
+      sessionId,
+      text: 'still works',
+    } as Command)
+    expect(result.accepted).toBe(true)
+    await waitSettled(store, sessionId)
+
+    expect(created[0]?.workspacePath).toBe(projectDir)
+    const settled = published.find(
+      (p) => p.sessionId === sessionId && p.event.type === 'turn.settled',
+    )
+    if (settled?.event.type === 'turn.settled') {
+      expect(settled.event.stopReason).toBe('completed') // fallback never fails the turn
+    }
+  }, 10000)
+
+  it('keeps ad-hoc sessions on the home directory without asking for worktrees', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'ari-home-'))
+    dirs.push(homeDir)
+
+    const created: AdapterSession[] = []
+    let askedForWorktree = false
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver(created))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      resolveWorkspace: async (projectId) => (projectId === 'adhoc' ? homeDir : null),
+      worktrees: {
+        ensure: async () => {
+          askedForWorktree = true
+          return '/tmp/should-not-happen'
+        },
+      },
+    })
+
+    const sessionId = 'sess_adhoc_wt'
+    await seedSession(store, sessionId, 'adhoc')
+    const result = await engine.dispatch({ type: 'turn.start', sessionId, text: 'q' } as Command)
+    expect(result.accepted).toBe(true)
+    await waitSettled(store, sessionId)
+
+    expect(askedForWorktree).toBe(false)
+    expect(created[0]?.workspacePath).toBe(homeDir)
+  }, 10000)
 })
 

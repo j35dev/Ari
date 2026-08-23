@@ -36,6 +36,16 @@ export interface CheckpointCapturer {
 /** Upper bound on stored checkpoints per session before oldest are pruned. */
 const MAX_CHECKPOINTS_PER_SESSION = 50
 
+/**
+ * Provides per-session git worktrees (M19.3): project-backed sessions in git
+ * repos run inside `<repo>/.ari/worktrees/<sessionId>` so parallel agents
+ * never share one working copy. Implementations must fail soft — return
+ * null to run in the project folder instead; never throw.
+ */
+export interface SessionWorktreeSource {
+  ensure: (repoPath: string, sessionId: string) => Promise<string | null>
+}
+
 export interface EngineDeps {
   store: SessionStore
   registry: DriverRegistry
@@ -49,6 +59,13 @@ export interface EngineDeps {
    * literal path.
    */
   resolveWorkspace?: (projectId: string) => Promise<string | null>
+  /**
+   * Per-session git worktree source (M19.3). When omitted, a default
+   * GitService-backed source is used whenever `resolveWorkspace` is present;
+   * legacy/test setups without workspace resolution keep their behavior
+   * (plain project folder, no worktrees).
+   */
+  worktrees?: SessionWorktreeSource
   /**
    * Upgrades the auto-slice title after the first settled turn (M18.2).
    * Defaults to the deterministic strategy; an LLM-backed one can be
@@ -134,8 +151,15 @@ export class Engine {
 
     if (command.type === 'checkpoint.revert') {
       const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
-      const ws = await this.#workspaceFor(model.session?.projectId ?? 'adhoc')
-      if (ref && ws !== null) {
+      const session = model.session
+      const folder = session === null ? null : await this.#workspaceFor(session.projectId)
+      // Reverts target the session worktree when the session ran in one, so
+      // restoring checkpoint state never rewrites the user's own checkout.
+      const ws =
+        ref !== undefined && session !== null && folder !== null
+          ? await this.#turnWorkspace(folder, session)
+          : null
+      if (ref !== undefined && ws !== null) {
         const { GitService } = await import('@ari/engine/git')
         const result = await new GitService().revertToRef(ws, ref)
         if (!result.ok) {
@@ -165,6 +189,37 @@ export class Engine {
   }
 
   /**
+   * Resolves the cwd a turn runs in (M19.3): the session's git worktree when
+   * one can be ensured for a project-backed session, else the project folder.
+   * Ad-hoc sessions keep their home-dir workspace, and legacy/test engines
+   * without workspace resolution are untouched. Fail-soft: any resolver
+   * trouble falls back to `projectFolder`; this never throws and never
+   * fails the turn.
+   */
+  async #turnWorkspace(projectFolder: string, session: Session): Promise<string> {
+    if (session.projectId === 'adhoc') return projectFolder
+    if (!this.#deps.worktrees && !this.#deps.resolveWorkspace) return projectFolder
+    try {
+      const source =
+        this.#deps.worktrees ?? (await import('@ari/engine/git')).newDefaultWorktreeSource()
+      const ensured = await source.ensure(projectFolder, session.id)
+      if (ensured !== null && ensured !== projectFolder) {
+        log.info('session runs in its own worktree', {
+          sessionId: session.id,
+          workspace: ensured,
+        })
+        return ensured
+      }
+    } catch (e) {
+      log.warn('worktree resolution failed; using project folder', {
+        sessionId: session.id,
+        error: String(e),
+      })
+    }
+    return projectFolder
+  }
+
+  /**
    * Runs one provider turn: spawns the adapter, maps normalized agent events
    * into journal parts (coalescing text), and settles the turn. `resumeOf`
    * carries the provider-native session/thread id observed on a previous
@@ -182,8 +237,8 @@ export class Engine {
       return
     }
 
-    const workspacePath = await this.#workspaceFor(session.projectId)
-    if (workspacePath === null) {
+    const projectFolder = await this.#workspaceFor(session.projectId)
+    if (projectFolder === null) {
       await this.#settle(
         session.id,
         turnId,
@@ -192,6 +247,7 @@ export class Engine {
       )
       return
     }
+    const workspacePath = await this.#turnWorkspace(projectFolder, session)
     // Bracket the turn with a checkpoint when the workspace is a git repo
     // (PLAN §3). captureCheckpoint returns null outside repos; failures are
     // non-fatal — checkpoints are best-effort.
