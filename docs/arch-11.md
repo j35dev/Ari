@@ -16,7 +16,8 @@ budget exhausted. All events pass through as normalized `AgentEvent`s.
 ## Tools
 
 bash (pty, 30s timeout), read_file, write_file, edit_file (exact-match
-replace), glob, grep (JS fallback), todo_write. Every path-touching tool is
+replace), glob, grep (ripgrep when found on PATH — spawned via the shared
+escaped cmd.exe wrapper on Windows — else the JS workspace walk), todo_write. Every path-touching tool is
 jailed via realpath-resolved path checks — symlinks inside the workspace that
 point outside are rejected.
 

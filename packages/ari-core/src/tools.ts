@@ -2,9 +2,13 @@ import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import type { PermissionMode } from '@ari/contracts/common'
+import { createLogger } from '@ari/shared/logger'
 import { matchesAllowlist, type AllowRule } from './allowlist'
 import { checkPermission } from './permissions'
+import { resolveRipgrep, searchWithRipgrep } from './rg'
 import { todoWriteTool } from './tools/todo'
+
+const log = createLogger('ari-core:tools')
 
 /**
  * Built-in tools for the Ari Core harness. Every path-touching tool is
@@ -26,6 +30,11 @@ export interface ToolContext {
   allowlist?: AllowRule[]
   /** Tool names cleared for the rest of the run via an `always-allow` decision. */
   approvedTools?: ReadonlySet<string>
+  /**
+   * Ripgrep binary for the grep tool: explicit path, `null` to force the JS
+   * fallback, or absent to auto-detect on PATH.
+   */
+  rgPath?: string | null
 }
 
 export interface Tool {
@@ -161,6 +170,15 @@ export const BUILT_IN_TOOLS: Tool[] = [
     },
     execute: async (args, ctx) => {
       const needle = str(args, 'pattern')
+      const rgPath = ctx.rgPath === undefined ? await resolveRipgrep() : ctx.rgPath
+      if (rgPath) {
+        try {
+          return await searchWithRipgrep(rgPath, needle, ctx.workspacePath)
+        } catch (e) {
+          // ripgrep is an accelerator; a broken binary degrades to the walk.
+          log.warn('ripgrep failed; falling back to JS grep', { error: String(e) })
+        }
+      }
       const out: string[] = []
       const walk = async (dir: string, depth: number): Promise<void> => {
         if (depth > 6 || out.length >= 100) return
