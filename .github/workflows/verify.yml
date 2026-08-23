@@ -1,0 +1,42 @@
+name: verify
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'fix/**'
+      - 'chore/**'
+      - 'test/**'
+      - 'refactor/**'
+      - 'perf/**'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `packageManager` field in root package.json, so pin explicitly.
+      # Lockfile is lockfileVersion 9.0 (pnpm >= 9); local dev runs pnpm 10.x.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (typecheck + lint + test)
+        run: pnpm verify
