@@ -18,7 +18,7 @@ describe('SettingsStore', () => {
   it('creates defaults on first load', async () => {
     const store = new SettingsStore({ dir })
     const settings = await store.load()
-    expect(settings.appearance.themeId).toBe('obsidian')
+    expect(settings.appearance.themeId).toBe('comet-glass')
     expect(settings.sessions.defaultPermissionMode).toBe('ask')
     const raw: unknown = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))
     expect((raw as { version: number }).version).toBe(1)
@@ -43,7 +43,7 @@ describe('SettingsStore', () => {
     const store = new SettingsStore({ dir })
     const settings = await store.load()
     expect(settings).toEqual(await new SettingsStore({ dir }).load())
-    expect(settings.appearance.themeId).toBe('obsidian')
+    expect(settings.appearance.themeId).toBe('comet-glass')
   })
 
   it('drops unknown fields via schema validation', async () => {
