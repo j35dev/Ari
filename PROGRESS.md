@@ -86,6 +86,18 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M16.7 Engine: route `approval.respond` decisions into live adapters (claude stdin control + ACP outcomes); fixes approvals hanging forever
 - [x] M16.8 Desktop wiring: ACP-preferred hydration, catalog boot, `providers.models` handler, updates stream replay; renderer pickers consume live catalogs
 
+## M17 — Gap-audit repair wave (P0)
+
+- [x] M17.3 Mount orphaned renderer components; fix BranchChip (claimed @ feat/m17.3-mount-orphans)
+      (BranchChip resolves the real project.list path for git.status; CheckpointList mounts under
+      ChangesView in the changes inspector; FileExplorer is reachable as a Files entry in the sidebar
+      tool strip + inspector; AttachmentStrip wired into Composer paste/drop; QuestionPanel handles
+      input.requested/responded frames ahead of engine decider support; KeyboardCheatSheet mounted
+      globally on bare ? in both shell modes. Settings search/keybindings/advanced were landed by the
+      T3-style SettingsWorkspace on main, superseding this branch's pane — dropped here to avoid
+      duplication. NewSessionPanel deliberately not mounted: WelcomePanel plus the instant-session
+      flow already cover driver/model/permission choice.)
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
