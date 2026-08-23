@@ -3,7 +3,7 @@ import { agentEventSchema } from './agent-event'
 import { commandSchema } from './commands'
 import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
-import { rpcParams, usageSummarySchema } from './rpc'
+import { rpcParams, SEARCH_CONTENT_MAX_RESULTS, usageSummarySchema } from './rpc'
 import { sessionSchema } from './session'
 import { settingsUpdateSchema } from './settings'
 
@@ -134,6 +134,23 @@ describe('contracts', () => {
         rows: [],
         totals: { inputTokens: 0, outputTokens: 0, costUsd: 'free' },
       }),
+    ).toThrow()
+  })
+
+  it('validates search.content params and rejects empty/anchorless queries', () => {
+    expect(rpcParams['search.content'].parse({ path: '/proj', query: 'needle' })).toEqual({
+      path: '/proj',
+      query: 'needle',
+    })
+    expect(rpcParams['search.content'].parse({ projectId: 'proj_1', query: 'n', maxResults: 5 })).toEqual({
+      projectId: 'proj_1',
+      query: 'n',
+      maxResults: 5,
+    })
+    expect(() => rpcParams['search.content'].parse({ path: '/proj', query: '' })).toThrow()
+    expect(() => rpcParams['search.content'].parse({ query: 'no-root' })).toThrow()
+    expect(() =>
+      rpcParams['search.content'].parse({ path: '/proj', query: 'n', maxResults: SEARCH_CONTENT_MAX_RESULTS + 1 }),
     ).toThrow()
   })
 })
