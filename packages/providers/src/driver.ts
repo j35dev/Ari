@@ -23,6 +23,12 @@ export interface ProviderAdapter {
    * CLIs without an approval channel cannot act on decisions.
    */
   respondApproval?(approvalId: string, decision: AdapterApprovalDecision): void
+  /**
+   * Steers a running turn with an additional user message mid-flight
+   * (M17.1). Optional: transports without a writable control channel
+   * cannot accept steering.
+   */
+  steer?(text: string): void
 }
 
 /** Decision vocabulary shared with the `approval.respond` command contract. */

@@ -55,6 +55,8 @@ interface ActiveTurn {
   interrupt: () => void
   /** Forwards approval decisions into the live adapter (M16.8). */
   respondApproval: (approvalId: string, decision: AdapterApprovalDecision) => void
+  /** Forwards mid-turn steering text into the live adapter (M17.1). */
+  steer: (text: string) => void
 }
 
 /**
@@ -110,6 +112,13 @@ export class Engine {
       this.#activeTurns
         .get(command.sessionId)
         ?.respondApproval(command.approvalId, command.decision)
+    }
+
+    if (command.type === 'message.enqueue') {
+      // A user message arriving behind a running turn steers that turn in
+      // providers with a writable control channel (claude stdin, ACP);
+      // transports without one simply queue it for the next turn.
+      this.#activeTurns.get(command.sessionId)?.steer(command.text)
     }
 
     if (command.type === 'checkpoint.revert') {
@@ -224,6 +233,9 @@ export class Engine {
       },
       respondApproval: (approvalId, decision) => {
         adapter.respondApproval?.(approvalId, decision)
+      },
+      steer: (text) => {
+        adapter.steer?.(text)
       },
     })
 
