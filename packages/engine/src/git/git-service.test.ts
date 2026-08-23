@@ -233,4 +233,82 @@ suite('GitService', () => {
     const fracCap = await service.pruneCheckpoints(dir, 'sess-gc2', 1.5)
     expect(!fracCap.ok && fracCap.error.code).toBe('invalid_ref')
   })
+
+  suite('GitService worktrees (M19.3)', () => {
+    it('adds a linked worktree on a new branch, lists it, and removes it', async () => {
+      const dir = await initRepo()
+      const wt = join(dir, 'wt-roundtrip')
+
+      const added = await service.addWorktree(dir, wt, 'ari/sess-rt')
+      expect(added).toEqual({ ok: true, value: undefined })
+      git(wt, 'rev-parse', '--verify', 'HEAD') // checkout actually materialized
+
+      const list = await service.listWorktrees(dir)
+      expect(list.ok).toBe(true)
+      if (!list.ok) return
+      const entry = list.value.find((w) => w.path.replace(/\\/g, '/') === wt.replace(/\\/g, '/'))
+      expect(entry?.branch).toBe('refs/heads/ari/sess-rt')
+      expect(entry?.head).toMatch(/^[0-9a-f]{40}$/)
+      expect(entry?.bare).toBe(false)
+      expect(entry?.detached).toBe(false)
+      // The main checkout row is always present too.
+      expect(list.value.some((w) => w.path.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))).toBe(
+        true,
+      )
+
+      const removed = await service.removeWorktree(dir, wt)
+      expect(removed).toEqual({ ok: true, value: undefined })
+      const after = await service.listWorktrees(dir)
+      expect(after.ok).toBe(true)
+      if (after.ok) {
+        expect(after.value.some((w) => w.path.replace(/\\/g, '/') === wt.replace(/\\/g, '/'))).toBe(
+          false,
+        )
+      }
+    }, 30000)
+
+    it('removes dirty worktrees (--force) without touching the branch', async () => {
+      const dir = await initRepo()
+      const wt = join(dir, 'wt-dirty')
+      const added = await service.addWorktree(dir, wt, 'ari/sess-dirty')
+      expect(added.ok).toBe(true)
+      await writeFile(join(wt, 'wip.txt'), 'half-done\n', 'utf8')
+
+      const removed = await service.removeWorktree(dir, wt)
+      expect(removed.ok).toBe(true)
+
+      // The session branch survives the checkout removal.
+      const branches = execFileSync('git', ['branch', '--list', 'ari/sess-dirty'], {
+        cwd: dir,
+        encoding: 'utf8',
+      })
+      expect(branches).toContain('ari/sess-dirty')
+    }, 30000)
+
+    it('rejects dash-prefixed paths and unsafe branch names', async () => {
+      const dir = await initRepo()
+
+      const badPath = await service.addWorktree(dir, '-oProxyCommand=x', 'ari/x')
+      expect(!badPath.ok && badPath.error.code).toBe('invalid_ref')
+
+      const badRemove = await service.removeWorktree(dir, '--force')
+      expect(!badRemove.ok && badRemove.error.code).toBe('invalid_ref')
+
+      for (const branch of ['-evil', '../escape', 'a..b']) {
+        const badBranch = await service.addWorktree(dir, join(dir, 'wt-bad'), branch)
+        expect(!badBranch.ok && badBranch.error.code).toBe('invalid_ref')
+      }
+      // Nothing was created by the rejected calls.
+      const list = await service.listWorktrees(dir)
+      if (list.ok) expect(list.value).toHaveLength(1)
+    }, 30000)
+
+    it('resolves the repo-local info/exclude path', async () => {
+      const dir = await initRepo()
+      const resolved = await service.infoExcludePath(dir)
+      expect(resolved.ok).toBe(true)
+      if (!resolved.ok) return
+      expect(resolved.value.replace(/\\/g, '/')).toContain('.git/info/exclude')
+    })
+  })
 })
