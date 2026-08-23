@@ -80,8 +80,8 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M16.1 Contracts: `providers.models` RPC, `providers.updates` stream frame, Detection gains latestVersion/updateAvailable
 - [x] M16.2 Update awareness: npm dist-tag checks per CLI kind, semver compare, TTL cache, fail-soft offline
 - [x] M16.3 Dynamic catalog core: generated models.dev snapshot (`scripts/update-model-snapshot.ts`) + dynamic overlay behind sync `modelsFor`
-- [ ] M16.4 CatalogService: disk cache + background models.dev refresh + injectable live probe
-- [ ] M16.5 ACP transport: lenient wire types + update folder + stdio JSON-RPC connection (initialize/session lifecycle/request_permission bridge)
+- [x] M16.4 CatalogService: disk cache + background models.dev refresh + injectable live probe
+- [x] M16.5 ACP transport: lenient wire types + update folder + stdio JSON-RPC connection (initialize/session lifecycle/request_permission bridge)
 - [ ] M16.6 ACP launch table + AcpDriver: npx adapters (claude/codex/pi), native servers (opencode/hermes/grok), transparent legacy-driver fallback per turn
 - [ ] M16.7 Engine: route `approval.respond` decisions into live adapters (claude stdin control + ACP outcomes); fixes approvals hanging forever
 - [ ] M16.8 Desktop wiring: ACP-preferred hydration, catalog boot, `providers.models` handler, updates stream replay; renderer pickers consume live catalogs

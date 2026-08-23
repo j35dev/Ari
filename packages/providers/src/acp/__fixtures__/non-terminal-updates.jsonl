@@ -1,0 +1,3 @@
+{"sessionId":"sess_agent_2","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Partial progress before the wall."}}}
+{"sessionId":"sess_agent_2","update":{"sessionUpdate":"session_info_update","title":"Refactor the auth module"}}
+{"sessionId":"sess_agent_2","update":{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"m2","options":[{"value":"m1"},{"value":"m2"}]}]}}
