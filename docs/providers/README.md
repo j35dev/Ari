@@ -6,13 +6,18 @@ recorded fixtures in its `__fixtures__/` directory.
 
 | Kind | Binary | Transport | Auth reused from | Fixtures |
 |---|---|---|---|---|
-| claude | `claude` | `-p --input-format stream-json --output-format stream-json --verbose` + control protocol (stdin steering/interrupt) | `~/.claude/.credentials.json`, `~/.claude.json` | success, error-model-not-found |
-| codex | `codex` | `exec --json --skip-git-repo-check` + sandbox/approval flags | `~/.codex/auth.json`, `~/.codex/config.toml` | success, error-quota |
-| opencode | `opencode` | JSON run mode (probed at build time) | `%LOCALAPPDATA%/opencode/auth.json`, `~/.local/share/opencode/` | per-driver |
-| grok | `grok` | JSON mode (probed at build time) | `~/.grok/bin/` install config | per-driver |
-| pi | `pi` | JSON mode (probed at build time) | npm-global install config | per-driver |
-| hermes | `hermes` | JSON mode (synthesized schema; CLI absent at build time) | hermes CLI config | success, error |
+| claude | `claude` | **ACP** via `npx @agentclientprotocol/claude-agent-acp`; fallback: `-p --input-format stream-json --output-format stream-json --verbose` + control protocol (stdin steering/interrupt) | `~/.claude/.credentials.json`, `~/.claude.json` | success, error-model-not-found |
+| codex | `codex` | **ACP** via `npx @agentclientprotocol/codex-acp`; fallback: `exec --json --skip-git-repo-check` + sandbox/approval flags | `~/.codex/auth.json`, `~/.codex/config.toml` | success, error-quota |
+| opencode | `opencode` | **ACP** native (`opencode acp`); fallback: JSON run mode | `%LOCALAPPDATA%/opencode/auth.json`, `~/.local/share/opencode/` | per-driver |
+| grok | `grok` | **ACP** native (`grok agent stdio`); fallback: JSON mode | `~/.grok/bin/` install config | per-driver |
+| pi | `pi` | **ACP** via `npx pi-acp`; fallback: JSON mode | npm-global install config | per-driver |
+| hermes | `hermes` | **ACP** native (`hermes acp`); fallback: JSON mode (synthesized schema) | hermes CLI config | success, error |
 | ari-core | *(internal)* | Direct HTTP to user-configured endpoints (openai-chat / anthropic-messages / ollama) | Endpoint keys via safeStorage | client-level |
+
+Since M16 every CLI driver is wrapped in an `AcpDriver`: the Agent Client
+Protocol transport is preferred and the legacy one-shot CLI argv driver is
+used automatically whenever ACP is disabled (`ARI_ACP=0`) or its handshake
+fails. Model catalogs are no longer hardcoded — see `docs/arch-16.md`.
 
 ## Adding a driver
 
