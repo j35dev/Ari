@@ -357,6 +357,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { destroyed: true }
   })
 
+  // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
+  r.register('usage.summary', async () => getSessionStore().usageSummary())
+
   r.register('command.dispatch', async (params) => engine.dispatch(params.command))
 
   r.register('providers.detect', () => probeAllDetections())
@@ -632,6 +635,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'session.create',
     'session.load',
     'session.destroy',
+    'usage.summary',
     'command.dispatch',
     'providers.detect',
     'providers.models',
