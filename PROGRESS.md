@@ -88,7 +88,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 ## M17 — Gap-audit repair wave (P0)
 
-- [ ] M17.1 Engine wiring: resumeOf, steer, input.respond, queue fold, listSessions index (claimed @ feat/m17.1-engine-wiring)
+- [x] M17.1 Engine wiring: resumeOf, steer, input.respond, queue fold, listSessions index (claimed @ feat/m17.1-engine-wiring)
 
 ## M0 — Scaffold
 

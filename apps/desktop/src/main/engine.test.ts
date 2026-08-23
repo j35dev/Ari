@@ -253,9 +253,11 @@ describe('engine end-to-end with scripted driver', () => {
     const sessionId = 'sess_auth_fail'
     await seedSession(store, sessionId)
     await engine.dispatch({ type: 'turn.start', sessionId, text: 'hi' } as Command)
+    // Wait on the subscriber stream itself — the journal can observe the
+    // settle a beat before publish lands.
     for (let i = 0; i < 150; i++) {
-      const model = await store.load(sessionId)
-      if (model.activeTurnId === null) break
+      if (published.some((p) => p.sessionId === sessionId && p.event.type === 'turn.settled')) break
+      if (i === 149) throw new Error('turn never settled')
       await new Promise((r) => setTimeout(r, 20))
     }
 
