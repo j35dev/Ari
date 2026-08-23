@@ -1,6 +1,7 @@
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import { applyEvent, initialReadModel, type DistributiveOmit, type SessionReadModel } from './projection'
+import { deriveSliceTitle } from './title'
 
 export type UnstampedJournalEvent = DistributiveOmit<JournalEvent, 'seq' | 'at' | 'sessionId'>
 
@@ -62,7 +63,7 @@ export function decideCommand(
       if (model.session.title === 'New session' && command.text.trim().length > 0) {
         events.push({
           type: 'session.updated',
-          title: deriveTitle(command.text),
+          title: deriveSliceTitle(command.text),
         })
       }
       return accept(events)
@@ -149,11 +150,7 @@ function reject(reason: string): DispatchDecision {
 }
 
 /** Derives a sidebar title from the first user prompt (max 48 chars). */
-export function deriveTitle(prompt: string): string {
-  const firstLine = prompt.trim().split('\n')[0] ?? prompt.trim()
-  if (firstLine.length <= 48) return firstLine
-  return `${firstLine.slice(0, 45)}…`
-}
+export { deriveSliceTitle as deriveTitle } from './title'
 
 /**
  * Convenience: folds decided events onto a copy of the model so callers can
