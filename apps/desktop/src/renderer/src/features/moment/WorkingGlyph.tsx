@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { transitions } from '@ari/ui/motion'
 
@@ -8,16 +8,49 @@ const RING_ORDER = [0, 1, 2, 5, 8, 7, 6, 3]
 const WORD_CYCLE_MS = 2000
 const FLAVOUR_WORDS = ['forging', 'thinking', 'crafting', 'wielding']
 
+export function formatElapsed(s: number): string {
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+/**
+ * Self-ticking elapsed readout ("12s", "1m 04s"): mutates its own text node
+ * once a second so long turns never trigger React commits (T3/comet practice
+ * for zero-rerender timers).
+ */
+export function ElapsedSeconds({ startedAt }: { startedAt: number }) {
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    const tick = (): void => {
+      if (ref.current === null) return
+      ref.current.textContent = formatElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)))
+    }
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [startedAt])
+
+  return (
+    <span ref={ref} className="text-fg-subtle tabular-nums">
+      0s
+    </span>
+  )
+}
+
 export interface WorkingGlyphProps {
   /** Fixed label; omit to cycle the flavour words ("forging…"). */
   label?: string
+  /** Turn start epoch-ms; renders a live elapsed counter beside the word. */
+  startedAt?: number | null
 }
 
 /**
  * Working indicator (PLAN §6.2): a rotating 3x3 matrix glyph chasing light
- * around its perimeter beside a flavour word that swaps every 2s.
+ * around its perimeter beside a flavour word that swaps every 2s, plus an
+ * optional live elapsed timer when `startedAt` is given.
  */
-export function WorkingGlyph({ label }: WorkingGlyphProps) {
+export function WorkingGlyph({ label, startedAt }: WorkingGlyphProps) {
   const [wordIndex, setWordIndex] = useState(0)
 
   useEffect(() => {
@@ -67,6 +100,7 @@ export function WorkingGlyph({ label }: WorkingGlyphProps) {
           {word}…
         </motion.span>
       </AnimatePresence>
+      {startedAt != null ? <ElapsedSeconds startedAt={startedAt} /> : null}
     </span>
   )
 }

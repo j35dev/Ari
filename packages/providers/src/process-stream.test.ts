@@ -1,5 +1,5 @@
 import { PassThrough } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { streamProcessEvents } from './process-stream'
 
@@ -71,5 +71,59 @@ describe('streamProcessEvents', () => {
     const out = await events
     expect(out.some((e) => e.type === 'error')).toBe(false)
     expect(out).toEqual([{ type: 'done' }])
+  })
+
+  it('fails the stream with the stderr tail when the handshake window lapses', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = fakeChild()
+      const events = collect(
+        streamProcessEvents(child, () => [], { label: 'codex', handshakeTimeoutMs: 5_000 }),
+      )
+      child.stderr.write('waiting for auth\n')
+      const promise = events
+      await vi.advanceTimersByTimeAsync(5_001)
+      const out = await promise
+      const error = out.find((e) => e.type === 'error')
+      expect(error).toBeDefined()
+      if (error?.type === 'error') {
+        expect(error.message).toContain('codex produced no output within 5s')
+        expect(error.message).toContain('waiting for auth')
+      }
+      expect(out.at(-1)).toEqual({ type: 'done' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('disarms the handshake once real output arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = fakeChild()
+      const iterator = streamProcessEvents(
+        child,
+        (line) => [{ type: 'text-delta', text: line }],
+        { handshakeTimeoutMs: 5_000 },
+      )[Symbol.asyncIterator]()
+      child.stdout.write('alive\n')
+      const first = await Promise.race([
+        iterator.next(),
+        new Promise<null>((r) => setTimeout(() => r(null), 50)),
+      ])
+      expect(first?.value).toEqual({ type: 'text-delta', text: 'alive' })
+      // Well past the original window: no error may appear.
+      await vi.advanceTimersByTimeAsync(10_000)
+      child.close(0)
+      const drained: AgentEvent[] = []
+      for (;;) {
+        const next = await iterator.next()
+        if (next.done) break
+        drained.push(next.value)
+      }
+      expect(drained.some((e) => e.type === 'error')).toBe(false)
+      expect(drained.at(-1)).toEqual({ type: 'done' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
