@@ -88,6 +88,18 @@ describe('session projection', () => {
     expect(state.lastSeq).toBe(9)
   })
 
+  it('tracks agent questions from request to answered input', () => {
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))
+    state = applyEvent(
+      state,
+      ev(2, { type: 'input.requested', inputId: 'q1', prompt: 'Proceed?', choicesJson: null }),
+    )
+    expect(state.pendingInputs).toEqual([{ inputId: 'q1', prompt: 'Proceed?', choicesJson: null }])
+    state = applyEvent(state, ev(3, { type: 'input.responded', inputId: 'q1', value: 'yes' }))
+    expect(state.pendingInputs).toHaveLength(0)
+  })
+
   it('projectEvents folds a full list in order', () => {
     const model = projectEvents([
       ev(0, { type: 'session.created', session }),

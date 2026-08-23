@@ -377,6 +377,65 @@ describe('engine end-to-end with scripted driver', () => {
     expect(steered).toEqual(['focus on the parser instead'])
   }, 10000)
 
+  it('journals agent questions and accepts input.respond mid-turn', async () => {
+    let finish: (() => void) | null = null
+    const askingDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'input-requested', inputId: 'q1', prompt: 'Proceed?', choicesJson: null }
+              await new Promise<void>((resolve) => {
+                finish = resolve
+              })
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(askingDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_input'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'ask me' } as Command)
+
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.pendingInputs.some((q) => q.inputId === 'q1')) break
+      if (i === 149) throw new Error('agent question never surfaced')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const answered = await engine.dispatch({
+      type: 'input.respond',
+      sessionId,
+      inputId: 'q1',
+      value: 'proceed',
+    })
+    expect(answered.accepted).toBe(true)
+
+    ;(finish as (() => void) | null)?.()
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null && model.pendingInputs.length === 0) break
+      if (i === 149) throw new Error('turn never settled after answering')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const types = published.filter((p) => p.sessionId === sessionId).map((p) => p.event.type)
+    expect(types).toContain('input.requested')
+    expect(types).toContain('input.responded')
+  }, 10000)
+
   it('routes approval.respond decisions into the live adapter (M16.8)', async () => {
     const decisions: { approvalId: string; decision: string }[] = []
     // An adapter that parks the stream until its approval is answered.

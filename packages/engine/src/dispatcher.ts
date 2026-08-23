@@ -104,9 +104,13 @@ export function decideCommand(
       ])
     }
 
-    case 'input.respond':
-      // Question-panel flow lands with driver control protocols (M4.7).
-      return reject('input.respond arrives with the question panel milestone')
+    case 'input.respond': {
+      if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      if (!model.activeTurnId) return reject('no active turn awaiting input')
+      const pending = model.pendingInputs.find((i) => i.inputId === command.inputId)
+      if (!pending) return reject('unknown or already-answered input')
+      return accept([{ type: 'input.responded', inputId: command.inputId, value: command.value }])
+    }
 
     case 'checkpoint.revert': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
