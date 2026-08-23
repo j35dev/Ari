@@ -14,7 +14,8 @@ export interface SessionStoreOptions {
  * `listSessions()` never has to full-replay every journal. `journalBytes` is
  * the on-disk size the entry was computed at: any mismatch (crash between
  * journal append and index write, external mutation) falls back to one
- * authoritative replay that repairs the index.
+ * authoritative replay that repairs the index. The M18.5 token/cost fields
+ * feed `usageSummary()` from the same sidecar.
  */
 interface SessionIndex {
   version: 2
@@ -26,6 +27,10 @@ interface SessionIndex {
   messageCount: number
   archived: boolean
   pinned: boolean
+  driverKind: string
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
   journalBytes: number
 }
 
@@ -37,6 +42,23 @@ export interface SessionListEntry {
   messageCount: number
   archived: boolean
   pinned: boolean
+}
+
+/** One per-session row of the usage dashboard. */
+export interface UsageRow {
+  sessionId: string
+  title: string
+  /** Driver that ran the session, mirrored from the session record. */
+  driverKind: string
+  updatedAt: number
+  inputTokens: number
+  outputTokens: number
+  costUsd: number | null
+}
+
+export interface UsageSummary {
+  rows: UsageRow[]
+  totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
 }
 
 const INDEX_VERSION = 2
@@ -52,6 +74,10 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
     messageCount: model.messages.length,
     archived: model.session?.archived ?? false,
     pinned: model.session?.pinned ?? false,
+    driverKind: model.session?.driverKind ?? '',
+    inputTokens: model.usage.inputTokens,
+    outputTokens: model.usage.outputTokens,
+    costUsd: model.usage.costUsd,
     journalBytes,
   }
 }
@@ -63,6 +89,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
   } catch {
     return null
   }
+  const cost = value['costUsd']
   if (
     value['version'] !== INDEX_VERSION ||
     typeof value['lastSeq'] !== 'number' ||
@@ -73,6 +100,10 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     typeof value['messageCount'] !== 'number' ||
     typeof value['archived'] !== 'boolean' ||
     typeof value['pinned'] !== 'boolean' ||
+    typeof value['driverKind'] !== 'string' ||
+    typeof value['inputTokens'] !== 'number' ||
+    typeof value['outputTokens'] !== 'number' ||
+    !(cost === null || typeof cost === 'number') ||
     typeof value['journalBytes'] !== 'number'
   ) {
     return null
@@ -87,6 +118,10 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     messageCount: value['messageCount'],
     archived: value['archived'],
     pinned: value['pinned'],
+    driverKind: value['driverKind'],
+    inputTokens: value['inputTokens'],
+    outputTokens: value['outputTokens'],
+    costUsd: cost,
     journalBytes: value['journalBytes'],
   }
 }
@@ -202,9 +237,19 @@ export class SessionStore {
 
   /** Sidebar fields for one session; null when no session ever existed. */
   async #listingFor(id: string): Promise<Omit<SessionListEntry, 'id'> | null> {
+    const entry = await this.#indexFor(id)
+    return entry ? this.#fields(entry) : null
+  }
+
+  /**
+   * Fresh sidecar index for one session directory: served from the in-memory
+   * cache or disk when the journal size matches, else one authoritative
+   * replay that also repairs the sidecar. Null when no session ever existed.
+   */
+  async #indexFor(id: string): Promise<SessionIndex | null> {
     const bytes = await this.#measureJournalBytes(id)
     const cached = this.#indexCache.get(id)
-    if (cached && cached.journalBytes === bytes) return this.#fields(cached)
+    if (cached && cached.journalBytes === bytes) return cached
     const { readFile } = await import('node:fs/promises')
     let disk: SessionIndex | null
     try {
@@ -213,18 +258,59 @@ export class SessionStore {
       disk = null
     }
     if (disk && disk.journalBytes === bytes) {
-      if (disk.hasSession) {
-        this.#indexCache.set(id, disk)
-        return this.#fields(disk)
-      }
-      return null
+      this.#indexCache.set(id, disk)
+      return disk.hasSession ? disk : null
     }
-    // Stale, missing, or corrupt index: one authoritative replay, then repair.
+    // Stale, missing, corrupt, or old-version index: one replay, then repair.
     const model = await this.load(id)
     const entry = entryFrom(model, bytes)
     this.#indexCache.set(id, entry)
     await this.#writeIndex(id, entry)
-    return model.session ? this.#fields(entry) : null
+    return model.session ? entry : null
+  }
+
+  /**
+   * Token totals for the usage dashboard, served from the same sidecar
+   * indexes as {@link listSessions} — no journal replay on the warm path.
+   * Rows cover only sessions that actually recorded tokens, newest first.
+   */
+  async usageSummary(): Promise<UsageSummary> {
+    const emptyTotals: UsageSummary['totals'] = {
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: null,
+    }
+    const { readdir } = await import('node:fs/promises')
+    let dirs: string[]
+    try {
+      dirs = await readdir(this.#rootDir)
+    } catch {
+      return { rows: [], totals: emptyTotals }
+    }
+    const rows: UsageRow[] = []
+    const totals = { ...emptyTotals }
+    for (const id of dirs) {
+      try {
+        const entry = await this.#indexFor(id)
+        if (!entry || (entry.inputTokens === 0 && entry.outputTokens === 0)) continue
+        rows.push({
+          sessionId: id,
+          title: entry.title,
+          driverKind: entry.driverKind,
+          updatedAt: entry.updatedAt,
+          inputTokens: entry.inputTokens,
+          outputTokens: entry.outputTokens,
+          costUsd: entry.costUsd,
+        })
+        totals.inputTokens += entry.inputTokens
+        totals.outputTokens += entry.outputTokens
+        if (entry.costUsd !== null) totals.costUsd = (totals.costUsd ?? 0) + entry.costUsd
+      } catch {
+        // unreadable dir — skip rather than break the summary
+      }
+    }
+    rows.sort((a, b) => b.updatedAt - a.updatedAt)
+    return { rows, totals }
   }
 
   #fields(entry: SessionIndex): Omit<SessionListEntry, 'id'> {
