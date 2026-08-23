@@ -21,6 +21,8 @@ export interface SessionReadModel {
   status: SessionStatus | 'unknown'
   pendingApprovals: { approvalId: string; toolName: string; summaryJson: string }[]
   checkpoints: { turnId: string; gitRef: string }[]
+  /** Provider-native session/thread id to resume, when one was observed. */
+  providerSessionId: string | null
   lastSeq: number
 }
 
@@ -33,6 +35,7 @@ export function initialReadModel(): SessionReadModel {
     status: 'unknown',
     pendingApprovals: [],
     checkpoints: [],
+    providerSessionId: null,
     lastSeq: -1,
   }
 }
@@ -120,6 +123,10 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
 
     case 'checkpoint.pruned':
       next.checkpoints = next.checkpoints.filter((c) => c.turnId !== event.turnId)
+      break
+
+    case 'session.ref.observed':
+      next.providerSessionId = event.ref
       break
 
     case 'session.updated': {

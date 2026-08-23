@@ -86,6 +86,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M16.7 Engine: route `approval.respond` decisions into live adapters (claude stdin control + ACP outcomes); fixes approvals hanging forever
 - [x] M16.8 Desktop wiring: ACP-preferred hydration, catalog boot, `providers.models` handler, updates stream replay; renderer pickers consume live catalogs
 
+## M17 — Gap-audit repair wave (P0)
+
+- [ ] M17.1 Engine wiring: resumeOf, steer, input.respond, queue fold, listSessions index (claimed @ feat/m17.1-engine-wiring)
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
