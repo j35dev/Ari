@@ -12,6 +12,7 @@ import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
 import { useSettleNotify } from '../moment'
+import { WorkingGlyph } from '../moment'
 
 interface PendingApproval {
   approvalId: string
@@ -557,7 +558,7 @@ export function SessionView({
             <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
           </>
         ) : (
-          <span>{running ? 'working…' : 'no turns yet'}</span>
+          <span>{running ? null : 'no turns yet'}</span>
         )}
         <div className="flex-1" />
         {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
@@ -566,12 +567,7 @@ export function SessionView({
             contextWindow={contextWindow}
           />
         ) : null}
-        {running ? (
-          <span className="flex items-center gap-1.5">
-            <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-busy" />
-            running
-          </span>
-        ) : null}
+        {running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
       </div>
       {pendingQuestion ? (
         <div className="ari-glass-overlay border-t border-border p-3">
