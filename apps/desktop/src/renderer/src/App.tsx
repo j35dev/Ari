@@ -166,9 +166,9 @@ function Shell() {
     [defaults, sessions, refreshSessions],
   )
 
+  const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeProjectName =
-    projects.find((p) => p.id === sessions.find((s) => s.id === activeSessionId)?.projectId)
-      ?.name ?? ''
+    projects.find((p) => p.id === activeSession?.projectId)?.name ?? ''
 
   if (settingsOpen) {
     return (
@@ -315,7 +315,10 @@ function Shell() {
                     </ErrorBoundary>
                   ) : inspector === 'changes' ? (
                     <ErrorBoundary label="Changes">
-                      <ChangesView />
+                      <ChangesView
+                        sessionId={activeSessionId}
+                        projectId={activeSession?.projectId ?? null}
+                      />
                     </ErrorBoundary>
                   ) : (
                     <ErrorBoundary label="Projects">
