@@ -3,9 +3,11 @@ import { Search } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 
 /**
- * Custom titlebar. Windows uses native overlay buttons (titleBarOverlay), so
- * only the drag region + content render here; macOS traffic lights are
- * inset-natively; Linux needs our own controls.
+ * Custom titlebar, comet-glass style: the bar is a transparent drag strip
+ * over the acrylic backdrop (no plate of its own) with a hairline only when
+ * it needs to separate from scrolled content. Windows uses native overlay
+ * buttons (titleBarOverlay); macOS traffic lights are inset-natively; Linux
+ * needs our own controls.
  */
 export function Titlebar({
   projectLabel,
@@ -26,7 +28,7 @@ export function Titlebar({
 
   return (
     <header
-      className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border bg-surface-0"
+      className="ari-glass flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div className="flex items-center gap-2 pl-3">
@@ -46,7 +48,7 @@ export function Titlebar({
           type="button"
           onClick={onOpenPalette}
           aria-label="Open command palette"
-          className="mr-2 flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2 py-1 font-mono text-2xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="mr-2 flex items-center gap-1.5 rounded-md border border-border bg-glass-input px-2 py-1 font-mono text-2xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           <Search size={11} />
@@ -107,7 +109,7 @@ function WindowButton({
       aria-label={label}
       onClick={onClick}
       className={`flex w-11 items-center justify-center text-fg-muted transition-colors ${
-        danger ? 'hover:bg-danger hover:text-fg-on-accent' : 'hover:bg-surface-2 hover:text-fg'
+        danger ? 'hover:bg-danger hover:text-fg-on-accent' : 'hover:bg-glass-hover hover:text-fg'
       }`}
     >
       {children}

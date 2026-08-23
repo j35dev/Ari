@@ -1,52 +1,72 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { Check, ChevronRight, FolderGit2, Pencil, SquarePen, Trash2, X } from 'lucide-react'
+import {
+  Check,
+  ChevronRight,
+  FolderGit2,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
 const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
 
-/** Sidebar top: wordmark + one-click new session. */
+/** Recency split between the Active and Earlier sections (T3-style). */
+const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/** Sidebar top: wordmark + one-click new session (T3 brand row). */
 export function SidebarHeader({ onNewSession }: { onNewSession: () => void }) {
   return (
-    <div className="flex items-center justify-between px-3 pb-2 pt-3">
-      <span className="text-xs font-semibold tracking-[0.18em] text-fg">ARI</span>
+    <div className="flex items-center justify-between px-3 pb-1 pt-3">
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-sm font-semibold tracking-tight text-fg">Ari</span>
+        <span className="text-2xs text-fg-subtle">beta</span>
+      </div>
       <button
         type="button"
         aria-label="New session"
         onClick={onNewSession}
-        className="flex h-6 w-6 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <SquarePen size={13} />
+        <Plus size={14} />
       </button>
     </div>
   )
 }
 
-function GroupChevron({ open }: { open: boolean }) {
-  return (
-    <ChevronRight
-      size={11}
-      className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
-    />
-  )
+/** Compact relative time for session rows: now · 5m · 3h · 2d · date. */
+export function formatRelativeTime(timestamp: number, now = Date.now()): string {
+  const deltaMs = Math.max(0, now - timestamp)
+  const minutes = Math.floor(deltaMs / 60_000)
+  if (minutes < 1) return 'now'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d`
+  return new Date(timestamp).toLocaleDateString()
 }
 
 function SessionRow({
   session,
-  activeSessionId,
+  projectName,
+  isActive,
   onSelect,
   onRename,
   onDelete,
 }: {
   session: SessionSummary
-  activeSessionId: string | null
+  projectName: string | null
+  isActive: boolean
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
 }) {
-  const isActive = session.id === activeSessionId
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(session.title)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -68,7 +88,7 @@ function SessionRow({
               setEditing(false)
             }
           }}
-          className="min-w-0 flex-1 rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="min-w-0 flex-1 rounded-sm border border-border bg-glass-input px-1.5 py-0.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
         <button
           type="button"
@@ -122,11 +142,25 @@ function SessionRow({
 
   return (
     <div className="group relative">
-      <SessionRowButton
-        session={session}
-        isActive={isActive}
-        onSelect={onSelect}
-      />
+      <button
+        type="button"
+        onClick={() => onSelect(session.id)}
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-12 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+          isActive ? 'bg-glass-active text-fg' : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
+        }`}
+      >
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-accent' : 'bg-transparent group-hover:bg-surface-3'}`} />
+        <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+        {projectName ? (
+          <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle group-hover:hidden lg:flex">
+            <FolderGit2 size={10} aria-hidden />
+            {projectName}
+          </span>
+        ) : null}
+        <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
+          {formatRelativeTime(session.updatedAt)}
+        </span>
+      </button>
       <div className="absolute right-1 top-1.5 hidden items-center gap-0.5 group-hover:flex">
         <button
           type="button"
@@ -152,100 +186,85 @@ function SessionRow({
   )
 }
 
-/** Compact relative time for session rows: now · 5m · 3h · 2d · date. */
-export function formatRelativeTime(timestamp: number, now = Date.now()): string {
-  const deltaMs = Math.max(0, now - timestamp)
-  const minutes = Math.floor(deltaMs / 60_000)
-  if (minutes < 1) return 'now'
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d`
-  return new Date(timestamp).toLocaleDateString()
-}
-
-function SessionRowButton({
-  session,
-  isActive,
-  onSelect,
+function SectionLabel({
+  children,
+  count,
 }: {
-  session: SessionSummary
-  isActive: boolean
-  onSelect: (id: string) => void
+  children: React.ReactNode
+  count?: number
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(session.id)}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-12 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-        isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:bg-surface-1 hover:text-fg'
-      }`}
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm">{session.title}</span>
+    <div className="flex items-center gap-1.5 px-2 pb-1 pt-3">
+      <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+        {children}
       </span>
-      <span className="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
-        {formatRelativeTime(session.updatedAt)}
-      </span>
-    </button>
+      {count !== undefined ? (
+        <span className="rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
+          {count}
+        </span>
+      ) : null}
+    </div>
   )
 }
 
-export interface ProjectGroup {
-  id: string
-  name: string
-  sessions: SessionSummary[]
-}
-
-/** One collapsible project group with its sessions nested underneath. */
-export function ProjectGroupSection({
-  group,
+/** Collapsible "Earlier" bucket — collapsed until summoned (T3 Settled pattern). */
+function EarlierSection({
+  sessions,
+  projectNameOf,
   activeSessionId,
   onSelect,
   onRename,
   onDelete,
-  defaultOpen = true,
 }: {
-  group: ProjectGroup
+  sessions: SessionSummary[]
+  projectNameOf: (projectId: string) => string | null
   activeSessionId: string | null
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
-  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(
+    sessions.some((s) => s.id === activeSessionId),
+  )
+
+  // Auto-open when the active session moves into this bucket.
+  useEffect(() => {
+    if (sessions.some((s) => s.id === activeSessionId)) setOpen(true)
+  }, [activeSessionId, sessions])
+
   return (
-    <div className="mb-1">
+    <div>
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <GroupChevron open={open} />
-        <FolderGit2 size={11} className="shrink-0 text-fg-subtle" />
-        <span className="min-w-0 flex-1 truncate text-2xs font-semibold uppercase tracking-widest text-fg-muted">
-          {group.name}
+        <ChevronRight
+          size={11}
+          className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+        />
+        <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+          Earlier
         </span>
-        <span className="shrink-0 text-2xs text-fg-subtle">{group.sessions.length}</span>
       </button>
       <AnimatePresence initial={false}>
         {open ? (
           <motion.ul
-            key="sessions"
+            key="earlier"
             layout
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={RESORT_TRANSITION}
-            className="ml-3 flex flex-col gap-0.5 border-l border-border pl-1.5"
+            className="flex flex-col gap-0.5"
           >
-            {group.sessions.map((s) => (
+            {sessions.map((s) => (
               <motion.li key={s.id} layoutId={s.id} transition={RESORT_TRANSITION}>
                 <SessionRow
                   session={s}
-                  activeSessionId={activeSessionId}
+                  projectName={projectNameOf(s.projectId)}
+                  isActive={s.id === activeSessionId}
                   onSelect={onSelect}
                   onRename={onRename}
                   onDelete={onDelete}
@@ -259,9 +278,16 @@ export function ProjectGroupSection({
   )
 }
 
+export interface ProjectGroup {
+  id: string
+  name: string
+  sessions: SessionSummary[]
+}
+
 /**
- * Sessions grouped under collapsible project sections (T3-style). Named
- * projects first, then the default ad-hoc bucket.
+ * T3-style sidebar body: search box, flat Active section (last 24h), then a
+ * collapsible Earlier section. Rows stay flat — no nested project trees —
+ * with the owning project shown as a small tag on named-project sessions.
  */
 export function SessionsUnderProjects({
   sessions,
@@ -278,86 +304,129 @@ export function SessionsUnderProjects({
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
 }) {
-  // T3-style sidebar search: case-insensitive title filter; when filtering,
-  // matching sessions surface in one flat list regardless of project group.
   const [query, setQuery] = useState('')
   const trimmed = query.trim().toLowerCase()
-  const visible = trimmed
-    ? sessions.filter((s) => s.title.toLowerCase().includes(trimmed))
-    : sessions
 
-  const groups: ProjectGroup[] = []
-  if (!trimmed) {
-    for (const project of projects) {
-      const groupSessions = visible.filter((s) => s.projectId === project.id)
-      if (groupSessions.length > 0) {
-        groups.push({ id: project.id, name: project.name, sessions: groupSessions })
-      }
-    }
-    const adhoc = visible.filter((s) => s.projectId === 'adhoc' || !projects.some((p) => p.id === s.projectId))
-    if (adhoc.length > 0) groups.push({ id: 'adhoc', name: 'Sessions', sessions: adhoc })
-  }
+  const projectNameOf = useMemo(() => {
+    const byId = new Map(projects.map((p) => [p.id, p.name]))
+    return (projectId: string): string | null =>
+      projectId === 'adhoc' ? null : (byId.get(projectId) ?? null)
+  }, [projects])
+
+  // Newest first — the sidebar reads top-down like T3's thread list.
+  const sorted = useMemo(
+    () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
+    [sessions],
+  )
+  const visible = trimmed
+    ? sorted.filter((s) => s.title.toLowerCase().includes(trimmed))
+    : sorted
+
+  const cutoff = Date.now() - ACTIVE_WINDOW_MS
+  const active = visible.filter((s) => s.updatedAt >= cutoff)
+  const earlier = visible.filter((s) => s.updatedAt < cutoff)
 
   if (sessions.length === 0) {
     return (
-      <div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2">
-        <p className="px-2 py-6 text-center text-xs text-fg-subtle">
-          No sessions yet.
-          <br />
-          Start one with the ✎ button.
-        </p>
-      </div>
+      <>
+        <SidebarSearch query={query} onQueryChange={setQuery} />
+        <div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2">
+          <p className="px-2 py-8 text-center text-xs leading-relaxed text-fg-subtle">
+            No sessions yet.
+            <br />
+            Start one with the + button.
+          </p>
+        </div>
+      </>
     )
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="px-2 pb-1">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search sessions…"
-          aria-label="Search sessions"
-          className="h-6 w-full rounded-sm border border-border bg-surface-1 px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
-        />
-      </div>
-      <div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2">
+    <>
+      <SidebarSearch query={query} onQueryChange={setQuery} />
+      <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
         {visible.length === 0 ? (
           <p className="px-2 py-6 text-center text-xs text-fg-subtle">
             No sessions match “{query.trim()}”.
           </p>
         ) : trimmed ? (
+          // Searching flattens matches into one list regardless of recency.
           <ul className="flex flex-col gap-0.5">
             {visible.map((s) => (
               <li key={s.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(s.id)}
-                  className={`w-full rounded-md px-2 py-1.5 text-left transition-colors duration-150 ${
-                    s.id === activeSessionId
-                      ? 'bg-surface-2 text-fg'
-                      : 'text-fg-muted hover:bg-surface-1 hover:text-fg'
-                  }`}
-                >
-                  <span className="block truncate text-sm">{s.title}</span>
-                </button>
+                <SessionRow
+                  session={s}
+                  projectName={projectNameOf(s.projectId)}
+                  isActive={s.id === activeSessionId}
+                  onSelect={onSelect}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                />
               </li>
             ))}
           </ul>
         ) : (
-          groups.map((group) => (
-            <ProjectGroupSection
-              key={group.id}
-              group={group}
-              activeSessionId={activeSessionId}
-              onSelect={onSelect}
-              onRename={onRename}
-              onDelete={onDelete}
-              defaultOpen={group.id === 'adhoc' || group.sessions.some((s) => s.id === activeSessionId)}
-            />
-          ))
+          <>
+            {active.length > 0 || earlier.length === 0 ? (
+              <>
+                <SectionLabel count={active.length}>Active</SectionLabel>
+                <ul className="flex flex-col gap-0.5">
+                  {(active.length > 0 ? active : visible.slice(0, 8)).map((s) => (
+                    <li key={s.id}>
+                      <SessionRow
+                        session={s}
+                        projectName={projectNameOf(s.projectId)}
+                        isActive={s.id === activeSessionId}
+                        onSelect={onSelect}
+                        onRename={onRename}
+                        onDelete={onDelete}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            {earlier.length > 0 ? (
+              <EarlierSection
+                sessions={earlier}
+                projectNameOf={projectNameOf}
+                activeSessionId={activeSessionId}
+                onSelect={onSelect}
+                onRename={onRename}
+                onDelete={onDelete}
+              />
+            ) : null}
+          </>
         )}
+      </nav>
+    </>
+  )
+}
+
+/** T3-style sidebar search — icon inset, quiet border, glass plate. */
+export function SidebarSearch({
+  query,
+  onQueryChange,
+}: {
+  query: string
+  onQueryChange: (q: string) => void
+}) {
+  return (
+    <div className="px-3 pb-1 pt-2">
+      <div className="relative">
+        <Search
+          size={12}
+          aria-hidden
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="Search…"
+          aria-label="Search sessions"
+          className="h-7 w-full rounded-lg border border-border bg-glass-input pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+        />
       </div>
     </div>
   )
@@ -380,7 +449,7 @@ export function UtilityStrip({
   items: UtilityItem[]
 }) {
   return (
-    <div className="flex items-center justify-around border-t border-border p-1.5">
+    <div className="flex items-center gap-0.5 border-t border-border px-2 py-2">
       {items.map(({ id, label, icon: Icon }) => {
         const isActive = active === id
         return (
@@ -390,16 +459,17 @@ export function UtilityStrip({
             aria-label={label}
             title={label}
             onClick={() => onSelect(id)}
-            className={`flex h-7 w-9 items-center justify-center rounded-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+            className={`flex h-8 w-9 items-center justify-center rounded-md transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
               isActive
                 ? 'bg-accent-subtle text-accent'
-                : 'text-fg-subtle hover:bg-surface-2 hover:text-fg'
+                : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
             }`}
           >
-            <Icon size={14} strokeWidth={isActive ? 2.2 : 1.8} />
+            <Icon size={15} strokeWidth={isActive ? 2.2 : 1.8} />
           </button>
         )
       })}
+      <div className="flex-1" />
     </div>
   )
 }
