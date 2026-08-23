@@ -108,6 +108,12 @@ export const contentMatchSchema = z.object({
 })
 export type ContentSearchMatch = z.infer<typeof contentMatchSchema>
 
+/**
+ * Outcome for the mutating git RPCs (`git.add` / `git.commit` / `git.push`):
+ * failures come back as data instead of being thrown across IPC.
+ */
+export type GitActionResult = { ok: true } | { ok: false; error: string }
+
 /** Invoke-method parameter schemas. The result side is typed via
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
@@ -174,6 +180,20 @@ export const rpcParams = {
       path: z.string().min(1),
       sessionId: checkpointComponentSchema,
       turnId: checkpointComponentSchema,
+    }),
+    'git.add': z.object({
+      path: z.string().min(1),
+      /** Repo-relative pathspecs passed to `git add --`; `['.']` stages everything. */
+      paths: z.array(z.string().min(1)).min(1),
+    }),
+    'git.commit': z.object({
+      path: z.string().min(1),
+      message: z.string().min(1),
+    }),
+    'git.push': z.object({
+      path: z.string().min(1),
+      /** Remote name; defaults to `origin` in the handler. */
+      remote: z.string().min(1).optional(),
     }),
     'fs.list': z.object({ path: z.string().min(1) }),
     'fs.readTextFile': z.object({
@@ -257,6 +277,9 @@ export interface RpcResults {
     }
     'git.diffWorktree': { diffText: string; error?: string }
     'git.turnDiff': { diffText: string | null; error?: string }
+    'git.add': GitActionResult
+    'git.commit': GitActionResult
+    'git.push': GitActionResult
     'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
     'fs.readTextFile': { content: string; truncated: boolean }
     'fs.writeTextFile': { bytesWritten: number }
