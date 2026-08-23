@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import {
   Folder,
   FolderGit2,
+  Gauge,
   GitPullRequest,
   Images,
   MessageSquare,
@@ -32,6 +33,7 @@ export type NavigableView =
   | 'changes'
   | 'settings'
   | 'files'
+  | 'usage'
 
 /** Callbacks the app command list is built from. */
 export interface CommandsContext {
@@ -74,6 +76,12 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       label: 'Go to Files',
       icon: Folder,
       run: () => ctx.onNavigate('files'),
+    },
+    {
+      id: 'nav.usage',
+      label: 'Go to Usage',
+      icon: Gauge,
+      run: () => ctx.onNavigate('usage'),
     },
     {
       id: 'nav.settings',

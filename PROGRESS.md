@@ -338,6 +338,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M14.5 `pnpm dist` pipeline + artifact smoke checklist doc (`scripts/dist.md`: exact per-platform electron-builder commands, artifact table, 4-step smoke checklist; raw `npx` commands until a root `dist` script lands)
 - [x] M14.6 Auto-update scaffolding (electron-updater, disabled by default) + README/docs final pass
 
+## M18 — Post-V1 additions
+
+- [x] M18.5 Usage dashboard: engine folds `usage.recorded` into the M17.1 sidecar index (v2, gains `driverKind`/`inputTokens`/`outputTokens`/`costUsd`; old versions replay-repair), `usage.summary` RPC returns per-session rows + totals, and a Usage inspector page renders stat cards, CSS share bars, and an empty state
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
