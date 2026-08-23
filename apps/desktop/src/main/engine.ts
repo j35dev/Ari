@@ -9,6 +9,7 @@ import type { SessionStore } from '@ari/engine/session-store'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
 import type { DriverRegistry } from '@ari/providers/registry'
+import type { AdapterApprovalDecision } from '@ari/providers/driver'
 
 const log = createLogger('desktop:engine')
 
@@ -52,6 +53,8 @@ interface ActiveTurn {
   sessionId: string
   turnId: string
   interrupt: () => void
+  /** Forwards approval decisions into the live adapter (M16.8). */
+  respondApproval: (approvalId: string, decision: AdapterApprovalDecision) => void
 }
 
 /**
@@ -93,6 +96,15 @@ export class Engine {
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
+    }
+
+    if (command.type === 'approval.respond') {
+      // Route the decision to the live adapter so in-band approval protocols
+      // (claude stdin control, ACP request_permission) actually proceed —
+      // previously the decision was only journaled and the provider hung.
+      this.#activeTurns
+        .get(command.sessionId)
+        ?.respondApproval(command.approvalId, command.decision)
     }
 
     if (command.type === 'checkpoint.revert') {
@@ -197,6 +209,9 @@ export class Engine {
       interrupt: () => {
         interrupted = true
         adapter.interrupt()
+      },
+      respondApproval: (approvalId, decision) => {
+        adapter.respondApproval?.(approvalId, decision)
       },
     })
 

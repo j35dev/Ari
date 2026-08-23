@@ -18,7 +18,15 @@ export interface ProviderAdapter {
   start(): AsyncIterable<AgentEvent>
   interrupt(): void
   dispose(): Promise<void>
+  /**
+   * Answers a pending in-band approval request (M16.8). Optional: one-shot
+   * CLIs without an approval channel cannot act on decisions.
+   */
+  respondApproval?(approvalId: string, decision: AdapterApprovalDecision): void
 }
+
+/** Decision vocabulary shared with the `approval.respond` command contract. */
+export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow'
 
 export interface Driver {
   kind: DriverKind
