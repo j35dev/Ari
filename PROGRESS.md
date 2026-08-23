@@ -88,7 +88,8 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 ## M17 — Gap-audit repair wave (P0)
 
-- [x] M17.5 GitHub Actions workflow runs pnpm verify (claimed @ feat/m17.5-github-ci)
+- [x] M17.2 Ari Core honors permissionMode; grep uses rg when present
+- [x] M17.5 GitHub Actions workflow runs pnpm verify
 
 ## M0 — Scaffold
 
