@@ -17,13 +17,15 @@ export interface SessionStoreOptions {
  * authoritative replay that repairs the index.
  */
 interface SessionIndex {
-  version: 1
+  version: 2
   lastSeq: number
   hasSession: boolean
   projectId: string
   title: string
   updatedAt: number
   messageCount: number
+  archived: boolean
+  pinned: boolean
   journalBytes: number
 }
 
@@ -33,9 +35,11 @@ export interface SessionListEntry {
   title: string
   updatedAt: number
   messageCount: number
+  archived: boolean
+  pinned: boolean
 }
 
-const INDEX_VERSION = 1
+const INDEX_VERSION = 2
 
 function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex {
   return {
@@ -46,6 +50,8 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
     title: model.session?.title ?? '',
     updatedAt: model.session?.updatedAt ?? 0,
     messageCount: model.messages.length,
+    archived: model.session?.archived ?? false,
+    pinned: model.session?.pinned ?? false,
     journalBytes,
   }
 }
@@ -65,18 +71,22 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     typeof value['title'] !== 'string' ||
     typeof value['updatedAt'] !== 'number' ||
     typeof value['messageCount'] !== 'number' ||
+    typeof value['archived'] !== 'boolean' ||
+    typeof value['pinned'] !== 'boolean' ||
     typeof value['journalBytes'] !== 'number'
   ) {
     return null
   }
   return {
-    version: 1,
+    version: 2,
     lastSeq: value['lastSeq'],
     hasSession: value['hasSession'],
     projectId: value['projectId'],
     title: value['title'],
     updatedAt: value['updatedAt'],
     messageCount: value['messageCount'],
+    archived: value['archived'],
+    pinned: value['pinned'],
     journalBytes: value['journalBytes'],
   }
 }
@@ -223,6 +233,8 @@ export class SessionStore {
       title: entry.title,
       updatedAt: entry.updatedAt,
       messageCount: entry.messageCount,
+      archived: entry.archived,
+      pinned: entry.pinned,
     }
   }
 

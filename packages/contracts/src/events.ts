@@ -94,6 +94,8 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     modelId: z.string().nullable().optional(),
     permissionMode: permissionModeSchemaOptional,
     title: z.string().min(1).optional(),
+    archived: z.boolean().optional(),
+    pinned: z.boolean().optional(),
   }),
   eventBase.extend({
     type: z.literal('session.ref.observed'),

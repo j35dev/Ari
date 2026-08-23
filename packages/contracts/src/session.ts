@@ -23,6 +23,13 @@ export const sessionSchema = z.object({
   modelId: z.string().nullable(),
   permissionMode: permissionModeSchema,
   status: sessionStatusSchema,
+  /**
+   * Sidebar flags (M18.2). Optional on the wire for pre-M18.2 journals;
+   * the projection normalizes both to concrete booleans (default false)
+   * when folding `session.created`, so read models always carry them.
+   */
+  archived: z.boolean().optional(),
+  pinned: z.boolean().optional(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
 })

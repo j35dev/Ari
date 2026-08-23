@@ -94,6 +94,12 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M17.4 SecretBox on EndpointStore; tray status; git.turnDiff RPC
 - [x] M17.5 GitHub Actions workflow runs pnpm verify
 
+## M18 — Engine table-stakes vs T3/DSH
+
+- [x] M18.2 Quality session titles (`TitleStrategy` extension point, deterministic default,
+      upgrade after first non-error settle) + persisted `session.pinned`/`session.archived`
+      flags through contracts/projection/sidecar index v2 and `session.list`
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)

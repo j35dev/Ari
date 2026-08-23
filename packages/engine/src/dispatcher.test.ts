@@ -192,4 +192,37 @@ describe('decideCommand', () => {
     expect(result.accepted).toBe(false)
     expect(result.reason).toContain('no checkpoint')
   })
+
+  it('pins, archives, and unpins through session.update patches', () => {
+    const pin = decideCommand(
+      modelWithSession(),
+      { type: 'session.update', sessionId: 'sess_1', pinned: true },
+      ids,
+    )
+    expect(pin.accepted).toBe(true)
+    expect(pin.events[0]).toEqual({ type: 'session.updated', pinned: true })
+    let model = previewDispatch(modelWithSession(), pin)
+    expect(model.session?.pinned).toBe(true)
+
+    const archive = decideCommand(
+      model,
+      { type: 'session.update', sessionId: 'sess_1', archived: true },
+      ids,
+    )
+    expect(archive.events[0]).toEqual({ type: 'session.updated', archived: true })
+    model = previewDispatch(model, archive)
+    expect(model.session?.archived).toBe(true)
+    expect(model.session?.pinned).toBe(true)
+
+    // Unpin + unarchive round-trip back to the defaults.
+    const clear = decideCommand(
+      model,
+      { type: 'session.update', sessionId: 'sess_1', archived: false, pinned: false },
+      ids,
+    )
+    expect(clear.accepted).toBe(true)
+    model = previewDispatch(model, clear)
+    expect(model.session?.archived).toBe(false)
+    expect(model.session?.pinned).toBe(false)
+  })
 })
