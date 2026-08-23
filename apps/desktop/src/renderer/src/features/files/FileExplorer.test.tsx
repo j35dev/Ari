@@ -96,4 +96,48 @@ describe('FileExplorer', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('path does not exist')
   })
+
+  it('opens a clicked file in the editor and refreshes after save', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'fs.list') {
+        const path = (params as { path: string }).path
+        if (path === ROOT) return structuredClone(ROOT_ENTRIES)
+        throw new Error('path does not exist')
+      }
+      if (method === 'fs.readTextFile') return { content: 'saved version', truncated: false }
+      if (method === 'fs.writeTextFile') return { bytesWritten: 5 }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    render(<FileExplorer root={ROOT} />)
+    await screen.findByRole('treeitem', { name: /^README\.md/ })
+    invokeMock.mockClear()
+
+    await user.click(screen.getByRole('button', { name: /^README\.md/ }))
+    const buffer = await screen.findByRole('textbox', { name: 'File contents' })
+    await waitFor(() => expect(buffer).toHaveValue('saved version'))
+    expect(invokeMock).toHaveBeenCalledWith('fs.readTextFile', { path: `${ROOT}\\README.md` })
+
+    await user.type(buffer, '!')
+
+    // Saving writes through the jailed RPC and re-lists the tree.
+    invokeMock.mockClear()
+    invokeMock.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'fs.list') {
+        const path = (params as { path: string }).path
+        if (path === ROOT) return structuredClone(ROOT_ENTRIES)
+        throw new Error('path does not exist')
+      }
+      return { bytesWritten: 6 }
+    })
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('fs.writeTextFile', {
+        path: `${ROOT}\\README.md`,
+        content: 'saved version!',
+      }),
+    )
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('fs.list', { path: ROOT }))
+  })
 })

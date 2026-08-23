@@ -94,6 +94,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M17.4 SecretBox on EndpointStore; tray status; git.turnDiff RPC
 - [x] M17.5 GitHub Actions workflow runs pnpm verify
 
+## M18 — In-app file editing
+
+- [x] M18.3 In-app file editing + write-back RPC: `fs.writeTextFile` jailed to registered project folders (realpath-checked), binary/512 KiB guards, atomic temp+rename save; FileExplorer opens a Save/Cancel editor with dirty indicator when a text file is clicked
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)

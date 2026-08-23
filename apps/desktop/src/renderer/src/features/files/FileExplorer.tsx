@@ -3,6 +3,7 @@ import type { RpcResults } from '@ari/contracts/rpc'
 import { IconButton } from '@ari/ui/icon-button'
 import { ChevronRight, FileText, Folder, FolderOpen, RotateCw } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
+import { FileEditor } from './FileEditor'
 
 /** One listing row as returned by the `fs.list` RPC. */
 type FsEntry = RpcResults['fs.list'][number]
@@ -130,6 +131,7 @@ export function FileExplorer({ root }: { root: string }) {
   const [entries, setEntries] = useState<EntriesByDir>({})
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [selected, setSelected] = useState<string | null>(null)
+  const [editingPath, setEditingPath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -137,6 +139,7 @@ export function FileExplorer({ root }: { root: string }) {
     setEntries({})
     setExpanded(new Set())
     setSelected(null)
+    setEditingPath(null)
     setError(null)
     void rpc
       .invoke('fs.list', { path: root })
@@ -188,6 +191,12 @@ export function FileExplorer({ root }: { root: string }) {
     for (const dir of expanded) listDir(dir)
   }, [expanded, listDir, root])
 
+  /** Selecting a file highlights it and opens it in the editor. */
+  const openFile = useCallback((path: string): void => {
+    setSelected(path)
+    setEditingPath(path)
+  }, [])
+
   const rootEntries = entries[root]
 
   return (
@@ -226,12 +235,19 @@ export function FileExplorer({ root }: { root: string }) {
                 entries={entries}
                 selected={selected}
                 onToggleDir={toggleDir}
-                onSelectFile={setSelected}
+                onSelectFile={openFile}
               />
             ))}
           </ul>
         )}
       </div>
+      {editingPath !== null && (
+        <FileEditor
+          path={editingPath}
+          onClose={() => setEditingPath(null)}
+          onSaved={refresh}
+        />
+      )}
     </section>
   )
 }
