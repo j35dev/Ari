@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '@ari/contracts/settings'
-import { SettingsDialog, SETTINGS_SECTIONS } from './SettingsDialog'
+import { SettingsWorkspace, SETTINGS_SECTIONS } from './SettingsWorkspace'
 
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
@@ -29,7 +29,7 @@ const engineSettings: Settings = {
   window: null,
 }
 
-describe('SettingsDialog', () => {
+describe('SettingsWorkspace', () => {
   beforeEach(() => {
     mocks.update.mockReset()
     mocks.update.mockResolvedValue(engineSettings)
@@ -38,32 +38,40 @@ describe('SettingsDialog', () => {
     mocks.invoke.mockResolvedValue([])
   })
 
-  it('renders as an overlay dialog with every settings section in the nav', () => {
-    render(<SettingsDialog open onOpenChange={() => undefined} />)
+  it('uses a sidebar of sections, not a dump of every setting', () => {
+    render(<SettingsWorkspace onBack={() => undefined} />)
 
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Settings sections' })).toBeInTheDocument()
     for (const section of SETTINGS_SECTIONS) {
-      expect(screen.getByRole('tab', { name: section.label })).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: section.label }),
+      ).toBeInTheDocument()
     }
-    expect(screen.getByRole('tab', { name: 'Appearance' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('Detected providers')).not.toBeInTheDocument()
+    expect(screen.queryByText('Export diagnostics')).not.toBeInTheDocument()
     expect(screen.getByText('Comet glass')).toBeInTheDocument()
   })
 
-  it('switches the panel when a section tab is chosen', async () => {
+  it('switches the page from the sidebar', async () => {
     const user = userEvent.setup()
-    render(<SettingsDialog open onOpenChange={() => undefined} />)
+    render(<SettingsWorkspace onBack={() => undefined} />)
 
-    await user.click(screen.getByRole('tab', { name: 'Keybindings' }))
-    expect(screen.getByRole('tab', { name: 'Keybindings' })).toHaveAttribute(
-      'aria-selected',
-      'true',
+    await user.click(screen.getByRole('button', { name: 'Keybindings' }))
+    expect(screen.getByRole('button', { name: 'Keybindings' })).toHaveAttribute(
+      'aria-current',
+      'page',
     )
     expect(screen.getByText(/Every shortcut the workspace responds to/)).toBeInTheDocument()
     expect(screen.queryByText('Comet glass')).not.toBeInTheDocument()
   })
 
-  it('does not render when closed, so the session pane stays visible', () => {
-    render(<SettingsDialog open={false} onOpenChange={() => undefined} />)
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  it('returns to the session via Back', async () => {
+    const onBack = vi.fn()
+    const user = userEvent.setup()
+    render(<SettingsWorkspace onBack={onBack} />)
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(onBack).toHaveBeenCalledOnce()
   })
 })

@@ -124,34 +124,38 @@ export function SettingsSearch({
     })
   }
 
+  const searching = query.trim().length > 0
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <Input
         type="search"
         aria-label="Search settings"
-        placeholder="Search settings…"
+        placeholder="Search"
         value={query}
         onChange={handleQueryChange}
       />
-      <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
-        {results.map((entry) => (
-          <li key={`${entry.section}:${entry.label}`}>
-            <button
-              type="button"
-              onClick={() => jumpToSection(entry.section)}
-              className="flex w-full items-center justify-between gap-4 px-3 py-2 text-left transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
-            >
-              <span className="text-sm text-fg">{entry.label}</span>
-              <span className="shrink-0 text-xs text-fg-subtle">{groupLabel(entry.section)}</span>
-            </button>
-          </li>
-        ))}
-        {results.length === 0 && (
-          <li className="px-3 py-2 text-sm text-fg-subtle">No matching settings</li>
-        )}
-      </ul>
+      {searching ? (
+        <ul className="overflow-hidden rounded-md border border-border bg-surface-1">
+          {results.map((entry) => (
+            <li key={`${entry.section}:${entry.label}`}>
+              <button
+                type="button"
+                onClick={() => jumpToSection(entry.section)}
+                className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+              >
+                <span className="text-xs text-fg">{entry.label}</span>
+                <span className="shrink-0 text-2xs text-fg-subtle">{groupLabel(entry.section)}</span>
+              </button>
+            </li>
+          ))}
+          {results.length === 0 ? (
+            <li className="px-2.5 py-1.5 text-xs text-fg-subtle">No matching settings</li>
+          ) : null}
+        </ul>
+      ) : null}
       <p role="status" className="sr-only">
-        {results.length} {results.length === 1 ? 'result' : 'results'}
+        {searching ? `${results.length} ${results.length === 1 ? 'result' : 'results'}` : ''}
       </p>
     </div>
   )
