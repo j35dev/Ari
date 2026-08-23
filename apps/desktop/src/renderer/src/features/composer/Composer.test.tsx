@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
@@ -46,6 +46,64 @@ describe('Composer', () => {
   it('announces queued messages behind the active turn', () => {
     render(<Composer onSend={vi.fn()} running queued={['a', 'b']} />)
     expect(screen.getByText(/2 queued messages/)).toBeInTheDocument()
+  })
+})
+
+describe('Composer image attachments', () => {
+  function imageFile(name: string): File {
+    return new File([new Uint8Array(8)], name, { type: 'image/png' })
+  }
+
+  /** Minimal FileList stand-in, as paste/drop handlers receive. */
+  function fakeFileList(files: File[]): FileList {
+    return Object.assign([...files], {
+      item: (index: number) => files[index] ?? null,
+    })
+  }
+
+  function pasteImages(input: HTMLElement, files: File[]): void {
+    fireEvent.paste(input, { clipboardData: { files: fakeFileList(files) } })
+  }
+
+  it('renders the attachment strip after pasting images', () => {
+    render(<Composer onSend={vi.fn()} />)
+    pasteImages(screen.getByLabelText('Message'), [imageFile('shot.png')])
+
+    const strip = screen.getByRole('list', { name: 'Attached images' })
+    expect(strip).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'shot.png' })).toBeInTheDocument()
+  })
+
+  it('ignores non-image paste payloads', () => {
+    render(<Composer onSend={vi.fn()} />)
+    pasteImages(screen.getByLabelText('Message'), [
+      new File(['hello'], 'notes.txt', { type: 'text/plain' }),
+    ])
+
+    expect(screen.queryByRole('list', { name: 'Attached images' })).not.toBeInTheDocument()
+  })
+
+  it('removes a chip via its remove button', () => {
+    render(<Composer onSend={vi.fn()} />)
+    pasteImages(screen.getByLabelText('Message'), [imageFile('a.png'), imageFile('b.png')])
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove a.png' }))
+
+    expect(screen.getByRole('img', { name: 'b.png' })).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'a.png' })).not.toBeInTheDocument()
+  })
+
+  it('clears pending images when the message is sent', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    render(<Composer onSend={onSend} />)
+    const input = screen.getByLabelText('Message')
+    pasteImages(input, [imageFile('shot.png')])
+    await user.type(input, 'look at this{Enter}')
+
+    expect(onSend).toHaveBeenCalledWith('look at this')
+    expect(screen.queryByRole('list', { name: 'Attached images' })).not.toBeInTheDocument()
   })
 })
 

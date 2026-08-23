@@ -8,6 +8,8 @@ import { matchSlash } from './slash-commands'
 import { matchSuggestions } from './match-suggestions'
 import { SlashPopup } from './SlashPopup'
 import { FilePopup } from './FilePopup'
+import { AttachmentStrip } from './AttachmentStrip'
+import { useImageAttachments } from './useImageAttachments'
 
 export interface ComposerProps {
   /** Called with the message text when the user sends. */
@@ -40,7 +42,8 @@ const MAX_HEIGHT = 260
  * send control docked at its foot. Enter sends / Shift+Enter breaks the
  * line. While the caret sits at the end of a ` /command` or ` @path` token,
  * a picker popup lists completions above the input (slash commands from the
- * registry, file paths from `suggestions`).
+ * registry, file paths from `suggestions`). Pasted or dropped images show
+ * as removable thumbnails in an attachment strip inside the plate.
  */
 export function Composer({
   onSend,
@@ -57,6 +60,7 @@ export function Composer({
   const [caret, setCaret] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const { images, addFiles, removeAt, clear } = useImageAttachments()
 
   const token = useMemo(() => activeTokenAt(text, caret), [text, caret])
   const tokenKey = token ? `${token.kind}:${token.start}:${token.raw}` : ''
@@ -103,8 +107,33 @@ export function Composer({
     if (trimmed.length === 0 || disabled) return
     onSend(trimmed)
     setText('')
+    // Pending images are visual-only for now: handing real file paths to
+    // turn.start needs a staging IPC in the main process (sandboxed
+    // renderers cannot resolve File paths), so they clear on send.
+    clear()
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [text, disabled, onSend])
+  }, [text, disabled, onSend, clear])
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (e.clipboardData.files.length > 0) addFiles(e.clipboardData.files)
+    },
+    [addFiles],
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLTextAreaElement>) => {
+      if (e.dataTransfer.files.length > 0) {
+        e.preventDefault()
+        addFiles(e.dataTransfer.files)
+      }
+    },
+    [addFiles],
+  )
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+  }, [])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -178,6 +207,11 @@ export function Composer({
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
           </div>
         )}
+        {images.length > 0 && (
+          <div className="px-3 pt-2">
+            <AttachmentStrip images={images} onRemove={removeAt} />
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
@@ -187,6 +221,9 @@ export function Composer({
           }}
           onSelect={(e) => syncCaret(e.currentTarget)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
