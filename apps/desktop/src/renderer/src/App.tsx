@@ -7,7 +7,7 @@ import {
   Settings,
   TerminalSquare,
 } from 'lucide-react'
-import { ThemeProvider, useTheme } from '@ari/ui/theme-provider'
+import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -53,7 +53,16 @@ function Shell() {
     modelId: null,
     permissionMode: 'ask',
   })
-  const { theme, setTheme } = useTheme()
+  const commands = useCommands({
+    onNavigate: (view) => {
+      setPane(view === 'sessions' ? 'session' : view)
+      setPaletteOpen(false)
+    },
+    onOpenGallery: () => {
+      setGalleryOpen(true)
+      setPaletteOpen(false)
+    },
+  })
 
   useEffect(() => {
     void rpc
@@ -97,19 +106,6 @@ function Shell() {
       })
       .catch(() => undefined)
   }, [])
-
-  const commands = useCommands({
-    onNavigate: (view) => {
-      setPane(view === 'sessions' ? 'session' : view)
-      setPaletteOpen(false)
-    },
-    onOpenGallery: () => {
-      setGalleryOpen(true)
-      setPaletteOpen(false)
-    },
-    theme,
-    setTheme,
-  })
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

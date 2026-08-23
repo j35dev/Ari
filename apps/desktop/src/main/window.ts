@@ -1,15 +1,21 @@
 import { join } from 'node:path'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, nativeTheme } from 'electron'
 import { getSettingsStore } from './store'
 
 /**
  * Platform chrome strategy (PLAN §8):
- *  - Windows: hidden frame + native titleBarOverlay (snap/max/min preserved)
- *  - macOS:   hiddenInset traffic lights
- *  - Linux:   hidden frame; custom controls ship in the renderer titlebar
+ *  - Windows: hidden frame + native titleBarOverlay (snap/max/min preserved),
+ *    backgroundMaterial 'acrylic' so the glass chrome shows the desktop
+ *  - macOS:   hiddenInset traffic lights + vibrancy 'under-window'
+ *  - Linux:   hidden frame; custom controls ship in the renderer titlebar;
+ *    transparent window over the desktop (compositor blur not guaranteed)
  *
  * Window bounds persist across launches via the settings store.
  */
+
+/** Overlay symbol color matching --ari-fg (comet neutral-200). */
+const OVERLAY_SYMBOL = '#eaeaea'
+
 export function createMainWindow(): BrowserWindow {
   const settings = getSettingsStore().current.window
 
@@ -21,10 +27,20 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#0b0b0e',
+    backgroundColor: '#00000000',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay:
-      process.platform === 'win32' ? { color: '#00000000', symbolColor: '#e6e6ea' } : false,
+      process.platform === 'win32'
+        ? { color: '#00000000', symbolColor: OVERLAY_SYMBOL, height: 38 }
+        : false,
+    // Glass: the desktop shows through the shell chrome. Windows gets DWM
+    // acrylic; macOS gets native vibrancy; Linux composites its own blur via
+    // CSS backdrop-filter inside a transparent window.
+    ...(process.platform === 'win32'
+      ? { backgroundMaterial: 'acrylic' as const }
+      : process.platform === 'darwin'
+        ? { vibrancy: 'under-window' as const, visualEffectState: 'active' as const }
+        : { transparent: true }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: true,
@@ -33,6 +49,10 @@ export function createMainWindow(): BrowserWindow {
       spellcheck: false,
     },
   })
+
+  if (process.platform === 'win32') {
+    nativeTheme.themeSource = 'dark'
+  }
 
   if (settings?.maximized) win.maximize()
 
