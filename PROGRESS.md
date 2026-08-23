@@ -94,6 +94,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M17.4 SecretBox on EndpointStore; tray status; git.turnDiff RPC
 - [x] M17.5 GitHub Actions workflow runs pnpm verify
 
+## M18 — Gap-audit P1 table-stakes
+
+- [x] M18.1 Transcript diff cards + context-window meter (claimed @ feat/m18.1-transcript-diff-meter)
+
 ## M0 — Scaffold
 
 - [x] M0.1 Charter docs committed & pushed (PLAN/AGENTS/PROGRESS/README/LICENSE)
