@@ -5,6 +5,7 @@ import { useVirtualizer } from './use-virtualizer'
 import { splitBlocks } from './splitBlocks'
 import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
+import { MessageFooter } from './MessageFooter'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock, ToolResultBlock } from './ToolBlocks'
 import { ToolActivityGroup } from './ToolActivityGroup'
@@ -99,7 +100,21 @@ export function TranscriptView({
                   row.role === 'user' ? (
                     <UserBubble text={row.text ?? ''} />
                   ) : (
-                    <MarkdownBlock text={row.text ?? ''} />
+                    <div>
+                      <MarkdownBlock text={row.text ?? ''} />
+                      {row.isLastOfMessage && row.messageId ? (
+                        <MessageFooter
+                          message={{
+                            id: row.messageId,
+                            sessionId: '',
+                            turnId: null,
+                            role: 'assistant',
+                            parts: [{ type: 'text', text: row.text ?? '' }],
+                            createdAt: row.messageCreatedAt ?? Date.now(),
+                          }}
+                        />
+                      ) : null}
+                    </div>
                   )
                 ) : row.kind === 'thinking' ? (
                   <ThinkingBlock text={row.text ?? ''} />
