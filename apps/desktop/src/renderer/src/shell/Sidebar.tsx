@@ -278,15 +278,25 @@ export function SessionsUnderProjects({
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
 }) {
+  // T3-style sidebar search: case-insensitive title filter; when filtering,
+  // matching sessions surface in one flat list regardless of project group.
+  const [query, setQuery] = useState('')
+  const trimmed = query.trim().toLowerCase()
+  const visible = trimmed
+    ? sessions.filter((s) => s.title.toLowerCase().includes(trimmed))
+    : sessions
+
   const groups: ProjectGroup[] = []
-  for (const project of projects) {
-    const groupSessions = sessions.filter((s) => s.projectId === project.id)
-    if (groupSessions.length > 0) {
-      groups.push({ id: project.id, name: project.name, sessions: groupSessions })
+  if (!trimmed) {
+    for (const project of projects) {
+      const groupSessions = visible.filter((s) => s.projectId === project.id)
+      if (groupSessions.length > 0) {
+        groups.push({ id: project.id, name: project.name, sessions: groupSessions })
+      }
     }
+    const adhoc = visible.filter((s) => s.projectId === 'adhoc' || !projects.some((p) => p.id === s.projectId))
+    if (adhoc.length > 0) groups.push({ id: 'adhoc', name: 'Sessions', sessions: adhoc })
   }
-  const adhoc = sessions.filter((s) => s.projectId === 'adhoc' || !projects.some((p) => p.id === s.projectId))
-  if (adhoc.length > 0) groups.push({ id: 'adhoc', name: 'Sessions', sessions: adhoc })
 
   if (sessions.length === 0) {
     return (
@@ -301,18 +311,54 @@ export function SessionsUnderProjects({
   }
 
   return (
-    <div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2">
-      {groups.map((group) => (
-        <ProjectGroupSection
-          key={group.id}
-          group={group}
-          activeSessionId={activeSessionId}
-          onSelect={onSelect}
-          onRename={onRename}
-          onDelete={onDelete}
-          defaultOpen={group.id === 'adhoc' || group.sessions.some((s) => s.id === activeSessionId)}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="px-2 pb-1">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search sessions…"
+          aria-label="Search sessions"
+          className="h-6 w-full rounded-sm border border-border bg-surface-1 px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
         />
-      ))}
+      </div>
+      <div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2">
+        {visible.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-fg-subtle">
+            No sessions match “{query.trim()}”.
+          </p>
+        ) : trimmed ? (
+          <ul className="flex flex-col gap-0.5">
+            {visible.map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(s.id)}
+                  className={`w-full rounded-md px-2 py-1.5 text-left transition-colors duration-150 ${
+                    s.id === activeSessionId
+                      ? 'bg-surface-2 text-fg'
+                      : 'text-fg-muted hover:bg-surface-1 hover:text-fg'
+                  }`}
+                >
+                  <span className="block truncate text-sm">{s.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          groups.map((group) => (
+            <ProjectGroupSection
+              key={group.id}
+              group={group}
+              activeSessionId={activeSessionId}
+              onSelect={onSelect}
+              onRename={onRename}
+              onDelete={onDelete}
+              defaultOpen={group.id === 'adhoc' || group.sessions.some((s) => s.id === activeSessionId)}
+            />
+          ))
+        )}
+      </div>
     </div>
   )
 }
