@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import {
+  Folder,
   FolderGit2,
   GitPullRequest,
   Images,
@@ -24,7 +25,13 @@ export interface PaletteCommand {
 }
 
 /** Views the palette can navigate to; mirrors the shell rail targets. */
-export type NavigableView = 'sessions' | 'projects' | 'terminal' | 'changes' | 'settings'
+export type NavigableView =
+  | 'sessions'
+  | 'projects'
+  | 'terminal'
+  | 'changes'
+  | 'settings'
+  | 'files'
 
 /** Callbacks the app command list is built from. */
 export interface CommandsContext {
@@ -61,6 +68,12 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       label: 'Go to Changes',
       icon: GitPullRequest,
       run: () => ctx.onNavigate('changes'),
+    },
+    {
+      id: 'nav.files',
+      label: 'Go to Files',
+      icon: Folder,
+      run: () => ctx.onNavigate('files'),
     },
     {
       id: 'nav.settings',

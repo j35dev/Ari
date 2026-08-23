@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import {
   Check,
   ChevronRight,
+  Folder,
   FolderGit2,
   GitPullRequest,
   MessageSquare,
@@ -436,12 +437,13 @@ export function SidebarSearch({
   )
 }
 
-export type SidebarNavId = 'session' | 'projects' | 'terminal' | 'changes' | 'settings'
+export type SidebarNavId = 'session' | 'projects' | 'terminal' | 'changes' | 'settings' | 'files'
 
 const SIDEBAR_NAV: { id: SidebarNavId; label: string; icon: LucideIcon }[] = [
   { id: 'session', label: 'Sessions', icon: MessageSquare },
   { id: 'projects', label: 'Projects', icon: FolderGit2 },
   { id: 'changes', label: 'Changes', icon: GitPullRequest },
+  { id: 'files', label: 'Files', icon: Folder },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
