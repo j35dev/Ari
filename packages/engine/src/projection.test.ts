@@ -88,6 +88,30 @@ describe('session projection', () => {
     expect(state.lastSeq).toBe(9)
   })
 
+  it('defaults archived/pinned to false and folds session.updated flag patches', () => {
+    // Pre-M18.2 journal shape: no flags on session.created at all.
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    expect(state.session?.archived).toBe(false)
+    expect(state.session?.pinned).toBe(false)
+
+    state = applyEvent(state, ev(1, { type: 'session.updated', pinned: true }))
+    expect(state.session?.pinned).toBe(true)
+    expect(state.session?.archived).toBe(false)
+
+    state = applyEvent(state, ev(2, { type: 'session.updated', archived: true, pinned: false }))
+    expect(state.session?.archived).toBe(true)
+    expect(state.session?.pinned).toBe(false)
+
+    // A full replay lands on the same folded state.
+    const replayed = projectEvents([
+      ev(0, { type: 'session.created', session }),
+      ev(1, { type: 'session.updated', pinned: true }),
+      ev(2, { type: 'session.updated', archived: true, pinned: false }),
+    ])
+    expect(replayed.session?.archived).toBe(true)
+    expect(replayed.session?.pinned).toBe(false)
+  })
+
   it('tracks agent questions from request to answered input', () => {
     let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
     state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))

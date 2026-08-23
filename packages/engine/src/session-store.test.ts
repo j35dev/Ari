@@ -125,4 +125,62 @@ describe('SessionStore', () => {
     const model = await second.load(session.id)
     expect(model.session?.id).toBe(session.id)
   })
+
+  it('persists pin/archive flags through index and replay; archived sessions still list', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.append(session.id, {
+      type: 'session.updated',
+      pinned: true,
+      archived: true,
+    })
+
+    const listed = await store.listSessions()
+    expect(listed).toHaveLength(1) // archived sessions stay listed, flagged
+    expect(listed[0]?.archived).toBe(true)
+    expect(listed[0]?.pinned).toBe(true)
+
+    // Cold reader: flags survive via replay and land in a fresh sidecar.
+    const cold = new SessionStore({ rootDir })
+    const again = await cold.listSessions()
+    expect(again[0]?.archived).toBe(true)
+    expect(again[0]?.pinned).toBe(true)
+
+    // Unpin + unarchive round-trip.
+    await store.append(session.id, {
+      type: 'session.updated',
+      pinned: false,
+      archived: false,
+    })
+    const cleared = await store.listSessions()
+    expect(cleared[0]?.archived).toBe(false)
+    expect(cleared[0]?.pinned).toBe(false)
+    const model = await store.load(session.id)
+    expect(model.session?.archived).toBe(false)
+    expect(model.session?.pinned).toBe(false)
+  })
+
+  it('repairs pre-M18.2 v1 sidecar indexes via replay', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.append(session.id, { type: 'session.updated', pinned: true })
+    expect(await store.listSessions()).toHaveLength(1)
+
+    // Hand-write a legacy v1-shaped sidecar (no flag fields).
+    const bytes = await import('node:fs/promises').then((f) =>
+      f.readFile(join(rootDir, session.id, 'index.json'), 'utf8'),
+    )
+    const v2 = JSON.parse(bytes) as Record<string, unknown>
+    await writeFile(
+      join(rootDir, session.id, 'index.json'),
+      JSON.stringify({ ...v2, version: 1, archived: undefined, pinned: undefined }),
+      'utf8',
+    )
+
+    // The stale version forces one authoritative replay that repairs to v2.
+    const fresh = new SessionStore({ rootDir })
+    const list = await fresh.listSessions()
+    expect(list).toHaveLength(1)
+    expect(list[0]?.title).toBe('Test session')
+    expect(list[0]?.pinned).toBe(true)
+    expect(list[0]?.archived).toBe(false)
+  })
 })

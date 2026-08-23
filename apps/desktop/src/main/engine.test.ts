@@ -618,5 +618,46 @@ describe('engine end-to-end with scripted driver', () => {
     }
     expect((await store.load(sessionId)).session?.title).toBe('Auth deep dive')
   }, 10000)
+
+  it('pins, archives, and unpins a session end-to-end (M18.2)', async () => {
+    const registry = new DriverRegistry()
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_flags'
+    await seedSession(store, sessionId)
+
+    const pin = await engine.dispatch({ type: 'session.update', sessionId, pinned: true })
+    expect(pin.accepted).toBe(true)
+    let model = await store.load(sessionId)
+    expect(model.session?.pinned).toBe(true)
+    expect(model.session?.archived).toBe(false)
+
+    const archive = await engine.dispatch({ type: 'session.update', sessionId, archived: true })
+    expect(archive.accepted).toBe(true)
+    model = await store.load(sessionId)
+    expect(model.session?.archived).toBe(true)
+
+    // Archived sessions still list — flagged, not hidden (renderer decides).
+    const listed = await store.listSessions()
+    const entry = listed.find((s) => s.id === sessionId)
+    expect(entry?.archived).toBe(true)
+    expect(entry?.pinned).toBe(true)
+
+    const clear = await engine.dispatch({
+      type: 'session.update',
+      sessionId,
+      archived: false,
+      pinned: false,
+    })
+    expect(clear.accepted).toBe(true)
+    model = await store.load(sessionId)
+    expect(model.session?.archived).toBe(false)
+    expect(model.session?.pinned).toBe(false)
+    expect((await store.listSessions()).find((s) => s.id === sessionId)?.archived).toBe(false)
+  })
 })
 

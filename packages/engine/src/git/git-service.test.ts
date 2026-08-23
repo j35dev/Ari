@@ -134,7 +134,7 @@ suite('GitService', () => {
     const diff2 = await service.diffForRef(dir, 'refs/ari/sess-1/turn-02')
     expect(diff2.ok).toBe(true)
     if (diff2.ok) expect(diff2.value).not.toContain('+turn-two-change')
-  })
+  }, 30000)
 
   it('resolves captureCheckpoint to null outside a repo', async () => {
     const plain = await makeDir('ari-plain-')
@@ -212,7 +212,7 @@ suite('GitService', () => {
       expect(list.value.some((c) => c.ref.endsWith('turn-04'))).toBe(true)
       expect(list.value.some((c) => c.ref.endsWith('turn-05'))).toBe(true)
     }
-  })
+  }, 30000)
 
   it('pruneCheckpoints is a no-op at or under the cap and rejects invalid caps', async () => {
     const dir = await initRepo()

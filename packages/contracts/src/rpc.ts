@@ -16,6 +16,9 @@ export const sessionSummarySchema = z.object({
   updatedAt: z.number(),
   /** Messages in the session; 0 marks a pristine, reusable session. */
   messageCount: z.number().int().nonnegative(),
+  /** Sidebar flags; treat missing as false. The engine always reports them. */
+  archived: z.boolean().optional(),
+  pinned: z.boolean().optional(),
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
