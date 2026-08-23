@@ -67,15 +67,17 @@ describe('claude stdin control frames', () => {
     expect(child.lines.join('')).toMatchSnapshot()
   })
 
-  it('respondApproval wraps approve/deny directives in the same user-turn shape (conservative stand-in for version-specific permission schemas)', () => {
+  it('respondApproval wraps allow/deny directives in the same user-turn shape (conservative stand-in for version-specific permission schemas)', () => {
     const { child, adapter } = harness()
 
-    adapter.respondApproval('toolu_01', 'approve')
+    adapter.respondApproval('toolu_01', 'allow')
     adapter.respondApproval('toolu_02', 'deny')
+    adapter.respondApproval('toolu_03', 'always-allow')
 
     expect(child.lines.map((line) => JSON.parse(line) as unknown)).toEqual([
       buildUserFrame('Approve tool use toolu_01.'),
       buildUserFrame('Deny tool use toolu_02.'),
+      buildUserFrame('Always approve tool use toolu_03.'),
     ])
   })
 })
