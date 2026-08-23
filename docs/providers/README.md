@@ -7,7 +7,7 @@ recorded fixtures in its `__fixtures__/` directory.
 | Kind | Binary | Transport | Auth reused from | Fixtures |
 |---|---|---|---|---|
 | claude | `claude` | **ACP** via `npx @agentclientprotocol/claude-agent-acp`; fallback: `-p --input-format stream-json --output-format stream-json --verbose` + control protocol (stdin steering/interrupt) | `~/.claude/.credentials.json`, `~/.claude.json` | success, error-model-not-found |
-| codex | `codex` | **ACP** via `npx @agentclientprotocol/codex-acp`; fallback: `exec --json --skip-git-repo-check` + sandbox/approval flags | `~/.codex/auth.json`, `~/.codex/config.toml` | success, error-quota |
+| codex | `codex` | **ACP** via `npx @agentclientprotocol/codex-acp`; else native **app-server** NDJSON-RPC over stdio (probed via `--help`, cached): initialize/thread/start|resume/turn/start/steer/interrupt + approval requests — protocol shapes from `codex app-server generate-json-schema` (0.149.0); fallback: `exec --json --skip-git-repo-check` + sandbox/approval flags | `~/.codex/auth.json`, `~/.codex/config.toml` | success, error-quota, appserver-turn, appserver-approval |
 | opencode | `opencode` | **ACP** native (`opencode acp`); fallback: JSON run mode | `%LOCALAPPDATA%/opencode/auth.json`, `~/.local/share/opencode/` | per-driver |
 | grok | `grok` | **ACP** native (`grok agent stdio`); fallback: JSON mode | `~/.grok/bin/` install config | per-driver |
 | pi | `pi` | **ACP** via `npx pi-acp`; fallback: JSON mode | npm-global install config | per-driver |
