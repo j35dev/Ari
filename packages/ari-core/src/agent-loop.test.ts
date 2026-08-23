@@ -373,4 +373,91 @@ describe('permission modes', () => {
     expect(completions[0]?.resultJson).toContain('first')
     expect(completions[1]?.resultJson).toContain('second')
   })
+
+  it('retries an empty round and completes on the next attempt', async () => {
+    let calls = 0
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      if (calls === 1) {
+        // Whitespace-only deltas count as empty.
+        yield { type: 'text-delta', text: '  \n' }
+        yield { type: 'usage', inputTokens: 7, outputTokens: 0, costUsd: null }
+        yield { type: 'done' }
+        return
+      }
+      yield { type: 'text-delta', text: 'recovered' }
+      yield { type: 'usage', inputTokens: 1, outputTokens: 2, costUsd: null }
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+    })
+    expect(calls).toBe(2)
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    expect(events.filter((e) => e.type === 'text-delta')).toHaveLength(1)
+    // The empty attempt's usage must not be counted.
+    const usages = events.filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage')
+    expect(usages.map((u) => u.inputTokens)).toEqual([1])
+  })
+
+  it('fails visibly after exhausting empty-response retries', async () => {
+    let calls = 0
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+      emptyResponseRetries: 2,
+    })
+    expect(calls).toBe(3)
+    const error = events.find((e) => e.type === 'error')
+    expect(error).toBeDefined()
+    if (error?.type === 'error') {
+      expect(error.message).toContain('empty response (3 attempts)')
+    }
+    expect(events.at(-1)).toEqual({ type: 'done' })
+  })
+
+  it('an empty retry still executes tool calls that arrive on the next attempt', async () => {
+    let calls = 0
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      if (calls === 2) {
+        yield {
+          type: 'tool-started',
+          callId: 't1',
+          name: 'read_file',
+          argsJson: JSON.stringify({ path: 'note.txt' }),
+        }
+        yield { type: 'done' }
+        return
+      }
+      yield { type: 'done' }
+    }
+    const dir = await mkdtemp(join(tmpdir(), 'ari-loop-'))
+    try {
+      await writeFile(join(dir, 'note.txt'), 'payload', 'utf8')
+      const events = await collect({
+        round,
+        systemPrompt: 's',
+        userPrompt: 'u',
+        workspacePath: dir,
+      })
+      // Round 1 empty → retry; round 2 requests the tool; round 3+ answer
+      // empties exhaust the default retry budget and fail visibly.
+      expect(calls).toBe(5)
+      const completed = events.find((e): e is Extract<AgentEvent, { type: 'tool-completed' }> => e.type === 'tool-completed')
+      expect(completed?.resultJson).toContain('payload')
+      expect(events.some((e) => e.type === 'error' && e.message.includes('empty response'))).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

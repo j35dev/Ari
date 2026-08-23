@@ -36,6 +36,13 @@ export interface AgentLoopOptions {
    */
   requestApproval?: (request: ApprovalRequest) => Promise<AdapterApprovalDecision>
   maxRounds?: number
+  /**
+   * How many times an entirely empty model round (no text, no thinking, no
+   * tool calls) is retried before the turn fails with a visible error.
+   * An empty completion is a retryable provider hiccup, not a silent success
+   * (DSH EMPTY_RESPONSE semantics). Default 2; 0 disables.
+   */
+  emptyResponseRetries?: number
   signal?: AbortSignal
 }
 
@@ -88,28 +95,72 @@ export async function* runAgentLoop(
       return
     }
 
-    const pending: PendingToolCall[] = []
-    let sawDone = false
+    // Empty-response guard: a round with no content and no tool calls is
+    // retried instead of ending the turn silently. Usage events are deferred
+    // to the end of the round so an empty attempt's usage is never counted.
+    const maxEmptyRetries = options.emptyResponseRetries ?? 2
+    let emptyAttempts = 0
+    let pending: PendingToolCall[]
+    for (;;) {
+      let sawContent = false
+      const deferredUsage: AgentEvent[] = []
+      // Whitespace-only deltas held back until real content shows up, so an
+      // empty attempt never leaks stray fragments to the transcript.
+      const deferredWhitespace: AgentEvent[] = []
+      pending = []
 
-    for await (const event of round(messages, signal)) {
-      if (event.type === 'tool-started') {
-        pending.push({
-          callId: event.callId,
-          name: event.name,
-          argsJson: event.argsJson,
-        })
+      for await (const event of round(messages, signal)) {
+        if (event.type === 'tool-started') {
+          pending.push({
+            callId: event.callId,
+            name: event.name,
+            argsJson: event.argsJson,
+          })
+        }
+        if (event.type === 'usage') {
+          deferredUsage.push(event)
+          continue
+        }
+        if (
+          (event.type === 'text-delta' || event.type === 'thinking-delta') &&
+          !sawContent &&
+          event.text.trim().length === 0
+        ) {
+          deferredWhitespace.push(event)
+          continue
+        }
+        if (
+          (event.type === 'text-delta' || event.type === 'thinking-delta') &&
+          event.text.trim().length > 0
+        ) {
+          sawContent = true
+        }
+        // usage/done are per-round; only forward done on the final round.
+        if (event.type !== 'done') yield event
       }
-      if (event.type === 'done') sawDone = true
-      // usage/done are per-round; only forward done on the final round.
-      if (event.type !== 'done') yield event
+
+      if (!sawContent && pending.length === 0) {
+        emptyAttempts++
+        if (emptyAttempts > maxEmptyRetries) {
+          yield {
+            type: 'error',
+            message: `model returned an empty response (${emptyAttempts} attempts)`,
+            rawJson: null,
+          }
+          yield { type: 'done' }
+          return
+        }
+        continue
+      }
+
+      for (const w of deferredWhitespace) yield w
+      for (const u of deferredUsage) yield u
+      break
     }
 
     if (pending.length === 0) {
       yield { type: 'done' }
       return
-    }
-    if (sawDone && pending.length > 0) {
-      // Model claimed completion while requesting tools — trust the tools.
     }
 
     // Record the assistant's tool calls, then execute and append results.
