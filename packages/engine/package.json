@@ -6,6 +6,7 @@
   "exports": {
     "./journal": "./src/journal.ts",
     "./dispatcher": "./src/dispatcher.ts",
+    "./title": "./src/title.ts",
     "./projection": "./src/projection.ts",
     "./session-store": "./src/session-store.ts",
     "./settings": "./src/settings.ts",

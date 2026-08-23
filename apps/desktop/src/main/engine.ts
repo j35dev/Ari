@@ -6,6 +6,8 @@ import { decideCommand } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
+import { deterministicTitleStrategy, isAutoTitle } from '@ari/engine/title'
+import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
 import type { DriverRegistry } from '@ari/providers/registry'
@@ -47,6 +49,12 @@ export interface EngineDeps {
    * literal path.
    */
   resolveWorkspace?: (projectId: string) => Promise<string | null>
+  /**
+   * Upgrades the auto-slice title after the first settled turn (M18.2).
+   * Defaults to the deterministic strategy; an LLM-backed one can be
+   * injected without touching the turn flow. Failures never surface.
+   */
+  titleStrategy?: TitleStrategy
 }
 
 interface ActiveTurn {
@@ -67,6 +75,8 @@ interface ActiveTurn {
 export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
+  /** Sessions whose first non-error settle already ran title generation. */
+  readonly #titleSettled = new Set<string>()
 
   constructor(deps: EngineDeps) {
     this.#deps = deps
@@ -103,6 +113,7 @@ export class Engine {
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
+      this.#onFirstSettle(command.sessionId)
     }
 
     if (command.type === 'approval.respond') {
@@ -396,6 +407,34 @@ export class Engine {
       stopReason,
       errorMessage,
     })
+    if (stopReason !== 'error') this.#onFirstSettle(sessionId)
+  }
+
+  /**
+   * Title generation hook (M18.2): after the session's first settled turn
+   * that did not end in error — and only while the title is still the
+   * automatic slice of the first prompt — upgrades it through the configured
+   * {@link TitleStrategy}. Fire-and-forget: never blocks or fails the turn.
+   */
+  #onFirstSettle(sessionId: string): void {
+    if (this.#titleSettled.has(sessionId)) return
+    this.#titleSettled.add(sessionId)
+    void this.#generateTitle(sessionId).catch((e) => {
+      log.debug('title generation skipped', { sessionId, error: String(e) })
+    })
+  }
+
+  async #generateTitle(sessionId: string): Promise<void> {
+    const model = await this.#deps.store.load(sessionId)
+    const session = model.session
+    const firstPrompt = model.messages.find((m) => m.role === 'user')
+    if (!session || !firstPrompt) return
+    const prompt = firstPrompt.parts.find((p) => p.type === 'text')?.text ?? ''
+    if (!isAutoTitle(session.title, prompt)) return
+    const strategy = this.#deps.titleStrategy ?? deterministicTitleStrategy
+    const title = await strategy.generate({ prompt, currentTitle: session.title })
+    if (title === null || title.length === 0 || title === session.title) return
+    await this.#append(sessionId, { type: 'session.updated', title })
   }
 
   /** Live tail: replays the journal, then forwards appended events. */
