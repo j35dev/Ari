@@ -441,6 +441,30 @@ export function SessionView({
     setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
   }, [])
 
+  // M19.4 regenerate/retry: the prompt to re-run is the most recent user
+  // message's concatenated text parts (null when the transcript has none).
+  const lastUserPrompt = useMemo((): string | null => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (!m || m.role !== 'user') continue
+      const text = m.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('\n')
+        .trim()
+      return text.length > 0 ? text : null
+    }
+    return null
+  }, [messages])
+
+  // Both regenerate (assistant footer) and retry (error banner) resend the
+  // last user prompt as a fresh turn via the normal send path; disabled while
+  // a turn runs so it can never enqueue behind itself.
+  const resendLastPrompt = useCallback(() => {
+    if (running || lastUserPrompt === null) return
+    handleSend(lastUserPrompt)
+  }, [running, lastUserPrompt, handleSend])
+
   const respondApproval = useCallback(
     (approvalId: string, decision: 'allow' | 'deny' | 'always-allow') => {
       void rpc
@@ -512,6 +536,8 @@ export function SessionView({
           loading={loading}
           turnDiffs={turnDiffs}
           onEditUserMessage={handleEditMessage}
+          onRegenerate={lastUserPrompt !== null ? resendLastPrompt : undefined}
+          regenerateDisabled={running}
         />
       </div>
       <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
@@ -583,6 +609,18 @@ export function SessionView({
           <p className="min-w-0 flex-1 break-words text-xs leading-relaxed text-fg-muted">
             <span className="font-medium text-danger">Turn failed.</span> {turnError}
           </p>
+          {lastUserPrompt !== null ? (
+            <button
+              type="button"
+              onClick={resendLastPrompt}
+              disabled={running}
+              aria-label="Retry last message"
+              title="Resend the last message"
+              className="shrink-0 rounded-sm border border-danger px-2 py-0.5 text-2xs font-medium text-danger transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
+            >
+              Retry
+            </button>
+          ) : null}
           <button
             type="button"
             aria-label="Dismiss error"

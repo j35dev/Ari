@@ -74,6 +74,50 @@ describe('TranscriptView message actions', () => {
   })
 })
 
+describe('TranscriptView regenerate action', () => {
+  function assistantMessage(id: string): Message {
+    return { ...message(id), role: 'assistant' }
+  }
+
+  it('shows regenerate only on the newest assistant message and invokes it', async () => {
+    const user = userEvent.setup()
+    const onRegenerate = vi.fn()
+    render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [assistantMessage('a1'), message('m2'), assistantMessage('a2')],
+        onRegenerate,
+      }),
+    )
+
+    const buttons = screen.getAllByRole('button', { name: 'Regenerate response' })
+    expect(buttons).toHaveLength(1)
+    await user.click(buttons[0]!)
+    expect(onRegenerate).toHaveBeenCalledOnce()
+  })
+
+  it('passes the disabled state through while a turn runs', () => {
+    render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [assistantMessage('a1')],
+        onRegenerate: vi.fn(),
+        regenerateDisabled: true,
+      }),
+    )
+
+    expect(screen.getByRole('button', { name: 'Regenerate response' })).toBeDisabled()
+  })
+
+  it('omits regenerate without a handler', () => {
+    render(
+      createElement(TranscriptView, { sessionId: 'sess_1', messages: [assistantMessage('a1')] }),
+    )
+
+    expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument()
+  })
+})
+
 const TURN_DIFF =
   'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n'
 

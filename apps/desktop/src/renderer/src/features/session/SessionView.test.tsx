@@ -247,6 +247,173 @@ describe('SessionView edit and resend', () => {
   })
 })
 
+describe('SessionView regenerate and retry', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list') return []
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      if (method === 'git.turnDiff') return { diffText: null }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        sessionListener = onEvent
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  function emitTurn(
+    stopReason: 'completed' | 'error',
+    errorMessage: string | null,
+  ): void {
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'run the test suite' }],
+        createdAt: 1,
+      },
+    })
+    emitSessionEvent({ seq: 2, at: 2, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'assistant.parts.appended',
+      messageId: 'm2',
+      parts: [{ type: 'text', text: 'Working…' }],
+    })
+    emitSessionEvent({
+      seq: 4,
+      at: 4,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason,
+      errorMessage,
+    })
+  }
+
+  it('offers regenerate after a settled turn and resends the last user prompt', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitTurn('completed', null)
+    invokeMock.mockClear()
+
+    const button = await screen.findByRole('button', { name: 'Regenerate response' })
+    expect(button).toBeEnabled()
+    await user.click(button)
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite' },
+      })
+    })
+  })
+
+  it('disables regenerate while a turn is running and enables it on settle', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'run the test suite' }],
+        createdAt: 1,
+      },
+    })
+    emitSessionEvent({ seq: 2, at: 2, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'assistant.parts.appended',
+      messageId: 'm2',
+      parts: [{ type: 'text', text: 'Streaming…' }],
+    })
+
+    expect(await screen.findByRole('button', { name: 'Regenerate response' })).toBeDisabled()
+
+    emitSessionEvent({
+      seq: 4,
+      at: 4,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Regenerate response' })).toBeEnabled()
+    })
+  })
+
+  it('shows retry on settle error and resends the last prompt as a new turn', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitTurn('error', 'provider exploded')
+    expect(await screen.findByRole('alert')).toHaveTextContent('provider exploded')
+
+    invokeMock.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Retry last message' }))
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite' },
+      })
+    })
+  })
+
+  it('hides the retry control when the failed turn has no user prompt to resend', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_9' })
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_9',
+      stopReason: 'error',
+      errorMessage: 'no prompt ever sent',
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('no prompt ever sent')
+    expect(screen.queryByRole('button', { name: 'Retry last message' })).not.toBeInTheDocument()
+  })
+})
+
 describe('SessionView per-turn diff cards', () => {
   beforeEach(() => {
     invokeMock.mockReset()

@@ -29,6 +29,8 @@ export function TranscriptView({
   loading = false,
   turnDiffs,
   onEditUserMessage,
+  onRegenerate,
+  regenerateDisabled = false,
 }: {
   sessionId: string
   messages: Message[]
@@ -37,6 +39,10 @@ export function TranscriptView({
   turnDiffs?: Readonly<Record<string, string>>
   /** Called with a user bubble's text when its edit action fires (M19.4). */
   onEditUserMessage?: (text: string) => void
+  /** Regenerate the last turn by resending the last user prompt (M19.4). */
+  onRegenerate?: () => void
+  /** Disables the regenerate control — true while a turn runs. */
+  regenerateDisabled?: boolean
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -45,6 +51,16 @@ export function TranscriptView({
     () => groupBlocks(splitBlocks(messages), turnDiffs),
     [messages, turnDiffs],
   )
+
+  // Regenerate (M19.4) attaches to the newest assistant message only, so the
+  // control reads as "redo this answer", not mid-history rewriting.
+  const lastAssistantMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m && m.role === 'assistant') return m.id
+    }
+    return null
+  }, [messages])
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -124,6 +140,12 @@ export function TranscriptView({
                             parts: [{ type: 'text', text: row.text ?? '' }],
                             createdAt: row.messageCreatedAt ?? Date.now(),
                           }}
+                          onRegenerate={
+                            onRegenerate && row.messageId === lastAssistantMessageId
+                              ? onRegenerate
+                              : undefined
+                          }
+                          actionDisabled={regenerateDisabled}
                         />
                       ) : null}
                     </div>
