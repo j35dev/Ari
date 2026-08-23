@@ -14,6 +14,7 @@ import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { ProjectsView } from './features/projects'
+import { UsageDashboard } from './features/usage'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
@@ -310,7 +311,9 @@ function Shell() {
                         ? 'Changes'
                         : inspector === 'files'
                           ? 'Files'
-                          : 'Projects'}
+                          : inspector === 'usage'
+                            ? 'Usage'
+                            : 'Projects'}
                   </span>
                   <div className="flex-1" />
                   <button
@@ -342,6 +345,10 @@ function Shell() {
                         Add a project first — the explorer browses its folder.
                       </div>
                     )
+                  ) : inspector === 'usage' ? (
+                    <ErrorBoundary label="Usage">
+                      <UsageDashboard />
+                    </ErrorBoundary>
                   ) : (
                     <ErrorBoundary label="Projects">
                       <ProjectsView />

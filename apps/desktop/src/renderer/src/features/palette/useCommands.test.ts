@@ -16,7 +16,15 @@ describe('buildAppCommands', () => {
 
   it('wires each navigation command to its rail view', () => {
     const commands = buildAppCommands(ctx)
-    for (const view of ['sessions', 'projects', 'terminal', 'changes', 'settings'] as const) {
+    for (const view of [
+      'sessions',
+      'projects',
+      'terminal',
+      'changes',
+      'settings',
+      'files',
+      'usage',
+    ] as const) {
       ctx.onNavigate.mockClear()
       commands.find((c) => c.id === `nav.${view}`)!.run()
       expect(ctx.onNavigate).toHaveBeenCalledWith(view)

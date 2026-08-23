@@ -7,7 +7,7 @@ describe('SidebarFooter', () => {
   it('places workspace tools in the sidebar strip', () => {
     render(<SidebarFooter active="session" onSelect={() => undefined} />)
     expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
-    for (const label of ['Sessions', 'Projects', 'Changes', 'Files', 'Terminal', 'Settings']) {
+    for (const label of ['Sessions', 'Projects', 'Changes', 'Files', 'Usage', 'Terminal', 'Settings']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
     expect(screen.getByRole('button', { name: 'Sessions' })).toHaveAttribute('aria-pressed', 'true')
