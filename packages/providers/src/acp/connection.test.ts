@@ -11,27 +11,38 @@ interface FakeChild extends AcpChildProcess {
   stdout: PassThrough
   stderr: PassThrough
   killed: boolean
+  /** Fires registered exit listeners with the given code and ends stdout. */
+  emitClose(code: number | null): void
 }
 
 function fakeChild(): FakeChild {
   const stdin = new PassThrough()
   const stdout = new PassThrough()
   const stderr = new PassThrough()
+  const exitListeners: ((code: number | null) => void)[] = []
   const child: FakeChild = {
     stdin,
     stdout,
     stderr,
     killed: false,
     sent: [],
+    emitClose(code) {
+      for (const listener of [...exitListeners]) listener(code)
+      stdout.end()
+    },
     kill() {
       if (child.killed) return true
       child.killed = true
       stdin.end()
-      stdout.end()
       stderr.end()
+      child.emitClose(null)
       return true
     },
-    on() {
+    on(): unknown {
+      return child
+    },
+    onExit(listener: (code: number | null) => void): unknown {
+      exitListeners.push(listener)
       return child
     },
   }
@@ -236,6 +247,23 @@ describe('AcpConnection', () => {
     ).rejects.toThrow(/went silent for (120ms|0s).*wedged or waiting for login/s)
     expect(child.killed).toBe(false)
     connection.kill()
+  })
+
+  it('decodes npm fatal exits when an npx-launched adapter dies at startup', async () => {
+    const child = fakeChild()
+    // Never answers the handshake — npm died before the agent started.
+    script(child, (method) => (method === 'initialize' ? NO_REPLY : { ok: true }))
+    const connectionPromise = AcpConnection.connect({
+      launch: { ...LAUNCH, viaNpx: true },
+      cwd: '/w',
+      spawn: () => child,
+      initializeTimeoutMs: 5000,
+    })
+    // npm's silent ENOENT death (exit 254).
+    child.emitClose(254)
+    await expect(connectionPromise).rejects.toThrow(
+      /initialization failed.*exit 254.*npx failed before the agent started/s,
+    )
   })
 
   it('inbound traffic proves liveness and disarms the stall watchdog', async () => {
