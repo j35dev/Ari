@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { contrastRatio } from './color'
-import { defaultThemeId, isThemeId, systemTheme, themeColorRoles, themeIds, themeList, themeOf, themes } from './themes'
+import { defaultThemeId, isThemeId, systemTheme, themeColorRoles, themeIds, themeList, themeOf } from './themes'
 
 const tokensCss = readFileSync(join(import.meta.dirname, 'tokens.css'), 'utf8')
 

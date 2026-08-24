@@ -121,7 +121,7 @@ export function AppearanceSettings() {
       <div role="radiogroup" aria-label="Follow system">
         <ThemeCard
           label="Follow system"
-          description="Obsidian when the OS is dark, Porcelain when it is light."
+          description="Matches your OS light and dark preference automatically."
           selected={mode === 'system'}
           chips={<Monitor size={14} className="shrink-0 text-fg-muted" aria-hidden="true" />}
           onSelect={() => setMode('system')}
