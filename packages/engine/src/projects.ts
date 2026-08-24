@@ -50,12 +50,16 @@ function withStatus(project: StoredProject): Project {
 export class ProjectStore {
   readonly #path: string
   #projects: StoredProject[] = []
+  // Guards against a `load()` racing an in-flight mutation and clobbering it
+  // with the on-disk snapshot: the first load wins, later ones are no-ops.
+  #loaded = false
 
   constructor(options: ProjectStoreOptions) {
     this.#path = join(options.dir, 'projects.json')
   }
 
   async load(): Promise<Project[]> {
+    if (this.#loaded) return this.list()
     try {
       const raw = await readFile(this.#path, 'utf8')
       const parsed: unknown = JSON.parse(raw)
@@ -63,6 +67,7 @@ export class ProjectStore {
     } catch {
       this.#projects = []
     }
+    this.#loaded = true
     return this.list()
   }
 
