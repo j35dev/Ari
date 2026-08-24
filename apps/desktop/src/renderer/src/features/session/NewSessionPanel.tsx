@@ -91,9 +91,7 @@ export function NewSessionPanel({ onSuccess, onCancel }: NewSessionPanelProps): 
       .then((rows) => {
         if (cancelled) return
         const byKind: CatalogByKind = {}
-        for (const row of rows) {
-          if (row.source === 'live') byKind[row.kind as DriverKind] = row.models
-        }
+        for (const row of rows) byKind[row.kind as DriverKind] = row.models
         setCatalog(byKind)
       })
       .catch(() => undefined)

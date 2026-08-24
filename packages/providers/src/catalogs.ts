@@ -70,10 +70,31 @@ export function catalogSource(kind: DriverKind): CatalogSource {
   return dynamic.get(kind)?.source ?? (snapshotFor(kind) !== null ? 'snapshot' : 'static')
 }
 
+/**
+ * models.dev lists every model a vendor ever shipped; each CLI only serves a
+ * handful. These prefixes keep the picker to what the harness actually
+ * accepts today, ordered newest-first by the snapshot itself.
+ *
+ * simplification: prefix matching, not a per-CLI capability probe. A live ACP
+ * probe (source `live`) always wins over this, so the ceiling only applies to
+ * the snapshot fallback. Upgrade path: ask each CLI for its model list.
+ */
+const CURRENT_MODEL_PREFIXES: Partial<Record<DriverKind, string[]>> = {
+  claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-6'],
+  codex: ['gpt-5.6', 'gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex'],
+  grok: ['grok-4.6', 'grok-4.5', 'grok-build'],
+}
+
 function snapshotFor(kind: DriverKind): CatalogModel[] | null {
   const providerId = SNAPSHOT_PROVIDER[kind]
   const models = providerId !== undefined ? (SNAPSHOT.providers[providerId] ?? null) : null
-  return models && models.length > 0 ? models : null
+  if (models === null || models.length === 0) return null
+  const prefixes = CURRENT_MODEL_PREFIXES[kind]
+  if (prefixes === undefined) return models
+  const current = models.filter((model) => prefixes.some((prefix) => model.id.startsWith(prefix)))
+  // Never return an empty list because a prefix went stale: a picker with the
+  // full vendor catalog beats a picker with nothing in it.
+  return current.length > 0 ? current : models
 }
 
 /**
