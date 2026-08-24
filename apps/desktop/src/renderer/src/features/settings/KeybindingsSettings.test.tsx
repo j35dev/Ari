@@ -18,12 +18,15 @@ describe('KeybindingsSettings', () => {
     for (const label of [
       'Toggle command palette',
       'New session',
+      'Search project content',
+      'Jump to session 1–9',
+      'Next session',
+      'Previous session',
       'Close palette',
-      'Cycle theme',
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
-    expect(screen.getAllByRole('listitem')).toHaveLength(4)
+    expect(screen.getAllByRole('listitem')).toHaveLength(7)
   })
 
   it('shows Cmd chords on Apple platforms', () => {
@@ -33,11 +36,6 @@ describe('KeybindingsSettings', () => {
     const paletteRow = screen.getByText('Toggle command palette').closest('li')
     expect(within(paletteRow as HTMLElement).getByText('Cmd')).toBeInTheDocument()
     expect(within(paletteRow as HTMLElement).getByText('K')).toBeInTheDocument()
-
-    const themeRow = screen.getByText('Cycle theme').closest('li')
-    expect(within(themeRow as HTMLElement).getByText('Cmd')).toBeInTheDocument()
-    expect(within(themeRow as HTMLElement).getByText('Shift')).toBeInTheDocument()
-    expect(within(themeRow as HTMLElement).getByText('T')).toBeInTheDocument()
   })
 
   it('shows Ctrl chords on Windows platforms', () => {
