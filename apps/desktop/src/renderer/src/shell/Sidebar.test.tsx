@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -172,7 +172,7 @@ describe('SessionsUnderProjects', () => {
     expect(onCloseProject).toHaveBeenCalledWith('gone')
   })
 
-  it('exposes per-project new-session, reveal and close actions', async () => {
+  it('exposes per-project actions through the right-click menu', async () => {
     const onNewSessionInProject = vi.fn()
     const onRevealProject = vi.fn()
     const onCloseProject = vi.fn()
@@ -183,11 +183,21 @@ describe('SessionsUnderProjects', () => {
     })
     const user = userEvent.setup()
 
-    await user.click(screen.getByRole('button', { name: 'New session in Ari' }))
+    // Rows carry no inline action buttons any more — everything is in the menu.
+    expect(screen.queryByRole('button', { name: 'New session in Ari' })).not.toBeInTheDocument()
+
+    const openMenu = async (): Promise<HTMLElement> => {
+      await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Ari1' }) })
+      return screen.getByRole('menu', { name: 'Project actions for Ari' })
+    }
+
+    await user.click(within(await openMenu()).getByRole('menuitem', { name: 'New session here' }))
     expect(onNewSessionInProject).toHaveBeenCalledWith('proj-1')
-    await user.click(screen.getByRole('button', { name: 'Reveal Ari' }))
+
+    await user.click(within(await openMenu()).getByRole('menuitem', { name: 'Reveal in file manager' }))
     expect(onRevealProject).toHaveBeenCalledWith('proj-1')
-    await user.click(screen.getByRole('button', { name: 'Close Ari' }))
+
+    await user.click(within(await openMenu()).getByRole('menuitem', { name: 'Close project' }))
     expect(onCloseProject).toHaveBeenCalledWith('proj-1')
   })
 
@@ -196,7 +206,8 @@ describe('SessionsUnderProjects', () => {
     renderSidebar([session('a', 1, 'proj-1')], null, { onRemoveProject })
     const user = userEvent.setup()
 
-    await user.click(screen.getByRole('button', { name: 'Remove Ari' }))
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Ari1' }) })
+    await user.click(screen.getByRole('menuitem', { name: 'Remove project' }))
     expect(onRemoveProject).not.toHaveBeenCalled()
     expect(screen.getByText('Remove project?')).toBeInTheDocument()
 
@@ -231,7 +242,8 @@ describe('SessionsUnderProjects', () => {
     renderSidebar([pinned], null, { onTogglePin })
 
     const user = userEvent.setup()
-    await user.click(screen.getAllByRole('button', { name: 'Unpin session' })[0] as HTMLElement)
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Session p1') })
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin' }))
     expect(onTogglePin).toHaveBeenCalledWith('p1', false)
   })
 
@@ -246,7 +258,8 @@ describe('SessionsUnderProjects', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /archived/i }))
     expect(screen.getByText('Session old')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Unarchive session' }))
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Session old') })
+    await user.click(screen.getByRole('menuitem', { name: 'Unarchive' }))
     expect(onToggleArchive).toHaveBeenCalledWith('old', false)
   })
 })

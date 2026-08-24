@@ -30,6 +30,7 @@ import {
   type SidebarNavId,
 } from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import { SIDEBAR_WIDTH_BOUNDS, useSidebarWidth } from './shell/use-sidebar-width'
 import { WelcomePanel } from './features/welcome'
 import { RaceDialog } from './features/race/RaceDialog'
 import './features/transcript/transcript.css'
@@ -78,6 +79,7 @@ function Shell() {
   // Sidebar collapse: ephemeral UI state, so localStorage (not engine settings)
   // is the right home. Ctrl+B toggles; a rail button restores it.
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('ari.sidebar.open') !== '0')
+  const sidebar = useSidebarWidth()
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
       localStorage.setItem('ari.sidebar.open', open ? '0' : '1')
@@ -367,7 +369,10 @@ function Shell() {
       />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
-          <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
+          <aside
+            className="ari-glass flex shrink-0 flex-col"
+            style={{ width: sidebar.width }}
+          >
             <SidebarHeader onNewSession={() => createSession()} onCollapse={toggleSidebar} />
           <SessionsUnderProjects
             sessions={sessions}
@@ -397,6 +402,8 @@ function Shell() {
             onSelect={(id) => {
               setActiveSessionId(id)
               setInspector(null)
+              // Selecting a chat must land on it, not leave Usage/Changes up.
+              setFullPage(null)
             }}
             onRename={(id, title) => {
               void rpc
@@ -433,6 +440,23 @@ function Shell() {
             }}
           />
           </aside>
+        ) : null}
+
+        {sidebarOpen ? (
+          <div
+            role="separator"
+            aria-label="Resize sidebar"
+            aria-orientation="vertical"
+            aria-valuenow={sidebar.width}
+            aria-valuemin={SIDEBAR_WIDTH_BOUNDS.min}
+            aria-valuemax={SIDEBAR_WIDTH_BOUNDS.max}
+            tabIndex={0}
+            title="Drag to resize · double-click to reset"
+            {...sidebar.handleProps}
+            className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
+              sidebar.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
+            }`}
+          />
         ) : null}
 
         <main className="flex min-w-0 flex-1 flex-col bg-bg">

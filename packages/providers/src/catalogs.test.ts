@@ -75,4 +75,22 @@ describe('modelsFor fallback chain', () => {
       expect(catalogSource(kind)).toBe('static')
     }
   })
+
+  it('scopes the snapshot to models the CLI currently serves', () => {
+    // models.dev ships the whole vendor history; a picker showing gpt-3.5 or
+    // claude-4-5-20250929 next to gpt-5.6 is what the filter exists to stop.
+    const codex = modelsFor('codex').map((m) => m.id)
+    expect(codex.length).toBeLessThan(39)
+    expect(codex).toContain('gpt-5.6')
+    expect(codex.some((id) => id.startsWith('gpt-4'))).toBe(false)
+    expect(codex.some((id) => id.startsWith('o1') || id.startsWith('o3'))).toBe(false)
+
+    const claude = modelsFor('claude').map((m) => m.id)
+    expect(claude).toContain('claude-opus-5')
+    expect(claude).not.toContain('claude-opus-4-5-20251101')
+
+    const grok = modelsFor('grok').map((m) => m.id)
+    expect(grok).toContain('grok-4.6')
+    expect(grok.some((id) => id.startsWith('grok-4.20'))).toBe(false)
+  })
 })

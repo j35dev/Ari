@@ -9,6 +9,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderX,
+  MoreHorizontal,
   PanelLeftClose,
   Pencil,
   Pin,
@@ -26,6 +27,7 @@ import {
   UNFILED_GROUP_ID,
 } from '../features/session/session-nav'
 import { useProjectExpand } from './use-project-expand'
+import { ContextMenu, useContextMenu } from './ContextMenu'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
 const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
@@ -104,6 +106,7 @@ function SessionRow({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(session.title)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const menu = useContextMenu()
 
   if (editing) {
     return (
@@ -179,7 +182,8 @@ function SessionRow({
       <button
         type="button"
         onClick={() => onSelect(session.id)}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-[96px] text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        onContextMenu={(e) => menu.open(session.id, e)}
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           isActive ? 'bg-glass-active text-fg' : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
         }`}
       >
@@ -195,53 +199,61 @@ function SessionRow({
             {projectName}
           </span>
         ) : null}
-        <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
+        <span className="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
           {formatRelativeTime(session.updatedAt)}
         </span>
-      </button>
-      {/* Row actions sit in the reserved right gutter (pr-[96px] above), so
-          hovering never paints over the title, project chip, or timestamp. */}
-      <div className="pointer-events-none absolute right-1 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-        <button
-          type="button"
-          aria-label={session.pinned ? 'Unpin session' : 'Pin session'}
-          title={session.pinned ? 'Unpin' : 'Pin'}
-          onClick={() => onTogglePin(session.id, !session.pinned)}
-          className={`flex h-5 w-5 items-center justify-center rounded-sm transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-            session.pinned ? 'text-accent' : 'text-fg-subtle'
-          }`}
-        >
-          {session.pinned ? <PinOff size={11} /> : <Pin size={11} />}
-        </button>
-        <button
-          type="button"
-          aria-label="Rename session"
-          onClick={() => {
-            setDraft(session.title)
-            setEditing(true)
+        {/* Affordance for the right-click menu, which is the only action
+            surface — rows no longer reserve a gutter for icon clusters. */}
+        <span
+          role="button"
+          tabIndex={-1}
+          aria-label={`Session actions for ${session.title}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            menu.open(session.id, e)
           }}
-          className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+          className="shrink-0 rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-fg group-hover:opacity-100"
         >
-          <Pencil size={11} />
-        </button>
-        <button
-          type="button"
-          aria-label={session.archived ? 'Unarchive session' : 'Archive session'}
-          title={session.archived ? 'Unarchive' : 'Archive'}
-          onClick={() => onToggleArchive(session.id, !session.archived)}
-          className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
-        >
-          {session.archived ? <ArchiveRestore size={11} /> : <Archive size={11} />}
-        </button>
-        <button
-          type="button"
-          aria-label="Delete session"
-          onClick={() => setConfirmDelete(true)}
-          className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-danger-subtle hover:text-danger"
-        >
-          <Trash2 size={11} />
-        </button>
-      </div>
+          <MoreHorizontal size={13} aria-hidden />
+        </span>
+      </button>
+      {menu.openFor === session.id ? (
+        <ContextMenu
+          anchor={menu.anchor}
+          label={`Session actions for ${session.title}`}
+          onClose={menu.close}
+          items={[
+            {
+              id: 'pin',
+              label: session.pinned ? 'Unpin' : 'Pin to top',
+              icon: session.pinned ? PinOff : Pin,
+              onSelect: () => onTogglePin(session.id, !session.pinned),
+            },
+            {
+              id: 'rename',
+              label: 'Rename',
+              icon: Pencil,
+              onSelect: () => {
+                setDraft(session.title)
+                setEditing(true)
+              },
+            },
+            {
+              id: 'archive',
+              label: session.archived ? 'Unarchive' : 'Archive',
+              icon: session.archived ? ArchiveRestore : Archive,
+              onSelect: () => onToggleArchive(session.id, !session.archived),
+            },
+            {
+              id: 'delete',
+              label: 'Delete session',
+              icon: Trash2,
+              danger: true,
+              onSelect: () => setConfirmDelete(true),
+            },
+          ]}
+        />
+      ) : null}
     </div>
   )
 }
@@ -383,15 +395,17 @@ function ProjectGroupSection({
   actions: ProjectActions
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const menu = useContextMenu()
   const missing = project?.status === 'missing'
 
   return (
     <section className="group/project" aria-label={name}>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center">
         <button
           type="button"
           aria-expanded={expanded}
           onClick={onToggle}
+          onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
           className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
             missing ? 'opacity-60' : ''
           }`}
@@ -414,48 +428,56 @@ function ProjectGroupSection({
           <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
             {sessions.length}
           </span>
+          {project ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label={`Project actions for ${name}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                menu.open(project.id, e)
+              }}
+              className="shrink-0 rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-fg group-hover/project:opacity-100"
+            >
+              <MoreHorizontal size={13} aria-hidden />
+            </span>
+          ) : null}
         </button>
-        {project && !confirmRemove ? (
-          <div className="flex w-[88px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
-            <button
-              type="button"
-              aria-label={`New session in ${name}`}
-              title="New session here"
-              onClick={() => actions.onNewSessionInProject?.(project.id)}
-              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
-            >
-              <Plus size={11} />
-            </button>
-            <button
-              type="button"
-              aria-label={`Reveal ${name}`}
-              title="Reveal in file manager"
-              onClick={() => actions.onRevealProject?.(project.id)}
-              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
-            >
-              <FolderOpen size={11} />
-            </button>
-            <button
-              type="button"
-              aria-label={`Close ${name}`}
-              title="Close project (keeps sessions)"
-              onClick={() => actions.onCloseProject?.(project.id)}
-              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
-            >
-              <X size={11} />
-            </button>
-            <button
-              type="button"
-              aria-label={`Remove ${name}`}
-              title="Remove project"
-              onClick={() => setConfirmRemove(true)}
-              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-danger-subtle hover:text-danger"
-            >
-              <Trash2 size={11} />
-            </button>
-          </div>
-        ) : null}
       </div>
+      {project && menu.openFor === project.id ? (
+        <ContextMenu
+          anchor={menu.anchor}
+          label={`Project actions for ${name}`}
+          onClose={menu.close}
+          items={[
+            {
+              id: 'new',
+              label: 'New session here',
+              icon: Plus,
+              onSelect: () => actions.onNewSessionInProject?.(project.id),
+            },
+            {
+              id: 'reveal',
+              label: 'Reveal in file manager',
+              icon: FolderOpen,
+              onSelect: () => actions.onRevealProject?.(project.id),
+            },
+            {
+              id: 'close',
+              label: 'Close project',
+              icon: X,
+              onSelect: () => actions.onCloseProject?.(project.id),
+            },
+            {
+              id: 'remove',
+              label: 'Remove project',
+              icon: Trash2,
+              danger: true,
+              onSelect: () => setConfirmRemove(true),
+            },
+          ]}
+        />
+      ) : null}
       {project && confirmRemove ? (
         <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
           <span className="min-w-0 flex-1 truncate text-2xs text-danger">Remove project?</span>

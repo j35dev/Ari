@@ -69,11 +69,10 @@ export function ModelSelector({
       }),
       rpc.invoke('providers.models').then((rows) => {
         const byKind: CatalogByKind = {}
-        // Live probes only. models.dev cache/snapshot lists every model a
-        // vendor ever shipped, not what this install currently offers.
-        for (const row of rows) {
-          if (row.source === 'live') byKind[row.kind as DriverKind] = row.models
-        }
+        // Every source is usable now that the snapshot is filtered to what each
+        // CLI currently serves (catalogs.ts CURRENT_MODEL_PREFIXES). Taking
+        // only `live` left the picker empty whenever no ACP probe had landed.
+        for (const row of rows) byKind[row.kind as DriverKind] = row.models
         setCatalog(byKind)
       }),
       rpc.invoke('endpoints.list').then((endpoints) => {
@@ -93,10 +92,10 @@ export function ModelSelector({
   const optionsFor = useMemo(() => {
     const compute = (kind: DriverKind): SelectorOption[] => {
       if (kind === 'ari-core') return endpointModels
-      // Live catalogs only — snapshot dumps every models.dev entry and is
-      // why OpenCode showed 380 models the user does not actually have.
+      // The catalog is already scoped to what this CLI serves; when it is
+      // genuinely empty fall back to the CLI's own default rather than nothing.
       const live = catalog[kind]
-      const list = live && live.length > 0 ? live : modelsFor(kind).filter((m) => m.id === 'default')
+      const list = live && live.length > 0 ? live : modelsFor(kind)
       return list.map((model) => ({
         id: `${kind}:${model.id}`,
         label: model.label,
