@@ -24,8 +24,11 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await rm(dir, { recursive: true, force: true })
-  await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })))
+  // Windows keeps a brief handle on journal files after the engine closes, so a
+  // plain recursive rm intermittently hits ENOTEMPTY. Retry instead of flaking.
+  const wipe = (target: string) => rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  await wipe(dir)
+  await Promise.all(dirs.map(wipe))
 })
 
 interface Script {
