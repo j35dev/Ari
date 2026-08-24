@@ -13,6 +13,7 @@
     "./registry": "./src/driver-registry.ts",
     "./driver": "./src/driver.ts",
     "./spawn-cli": "./src/spawn-cli.ts",
+    "./shell-env": "./src/shell-env.ts",
     "./acp": "./src/acp/acp-driver.ts",
     "./acp/connection": "./src/acp/connection.ts",
     "./acp/launches": "./src/acp/launches.ts",
