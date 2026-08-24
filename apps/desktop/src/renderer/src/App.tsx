@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitBranch, X } from 'lucide-react'
+import { GitBranch, PanelLeftOpen, Plus, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
@@ -18,7 +18,7 @@ import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { openProjectViaPicker } from './features/projects/open-project'
-import { UsageDashboard } from './features/usage'
+import { UsagePage } from './features/usage/UsagePage'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
@@ -48,6 +48,9 @@ export interface SessionDefaults {
 
 function Shell() {
   const [inspector, setInspector] = useState<InspectorId | null>(null)
+  // Usage and Changes get the full page, not a 520px inspector pane — they're
+  // reading surfaces, not tools. Files and Terminal stay inspectors.
+  const [fullPage, setFullPage] = useState<'usage' | 'changes' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -70,8 +73,28 @@ function Shell() {
     void rpc
       .invoke('app.info')
       .then((info) => setWorkspaceCwd(info.homeDir))
-      .catch((error: unknown) => log.warn("rpc call failed", error))
+      .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
+
+  // Sidebar collapse: ephemeral UI state, so localStorage (not engine settings)
+  // is the right home. Ctrl+B toggles; a rail button restores it.
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('ari.sidebar.open') !== '0')
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((open) => {
+      localStorage.setItem('ari.sidebar.open', open ? '0' : '1')
+      return !open
+    })
+  }, [])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault()
+        toggleSidebar()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggleSidebar])
 
   const refreshSessions = useCallback((): void => {
     void rpc
@@ -268,7 +291,7 @@ function Shell() {
   if (settingsOpen) {
     return (
       <div className="flex h-full flex-col">
-        <Titlebar projectLabel="" onOpenPalette={() => setPaletteOpen(true)} />
+        <Titlebar projectLabel="" />
         <SettingsWorkspace
           section={settingsSection}
           onSectionChange={setSettingsSection}
@@ -316,10 +339,11 @@ function Shell() {
 
   return (
     <div className="flex h-full flex-col">
-      <Titlebar projectLabel={activeProjectName} onOpenPalette={() => setPaletteOpen(true)} />
+      <Titlebar projectLabel={activeProjectName} />
       <div className="flex min-h-0 flex-1">
-        <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
-          <SidebarHeader onNewSession={() => createSession()} />
+        {sidebarOpen ? (
+          <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
+            <SidebarHeader onNewSession={() => createSession()} onCollapse={toggleSidebar} />
           <SessionsUnderProjects
             sessions={sessions}
             projects={openProjects}
@@ -388,17 +412,46 @@ function Shell() {
             onSelect={(id) => {
               if (id === 'settings') {
                 setSettingsOpen(true)
+                setFullPage(null)
                 return
               }
               setSettingsOpen(false)
               if (id === 'session') {
                 setInspector(null)
+                setFullPage(null)
                 return
               }
+              if (id === 'usage' || id === 'changes') {
+                setInspector(null)
+                setFullPage((prev) => (prev === id ? null : id))
+                return
+              }
+              setFullPage(null)
               setInspector((prev) => (prev === id ? null : id))
             }}
           />
-        </aside>
+          </aside>
+        ) : (
+          <div className="flex shrink-0 flex-col items-center gap-1 border-r border-border py-2">
+            <button
+              type="button"
+              aria-label="Expand sidebar"
+              title="Expand sidebar (Ctrl+B)"
+              onClick={toggleSidebar}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <PanelLeftOpen size={15} />
+            </button>
+            <button
+              type="button"
+              aria-label="New session"
+              onClick={() => createSession()}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <Plus size={15} />
+            </button>
+          </div>
+        )}
 
         <main className="flex min-w-0 flex-1 flex-col bg-bg">
           <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
@@ -410,6 +463,22 @@ function Shell() {
             <BranchChip sessionId={activeSessionId} />
           </header>
 
+          {fullPage !== null ? (
+            <div className="min-h-0 flex-1">
+              {fullPage === 'usage' ? (
+                <ErrorBoundary label="Usage">
+                  <UsagePage />
+                </ErrorBoundary>
+              ) : (
+                <ErrorBoundary label="Changes">
+                  <ChangesView
+                    sessionId={activeSessionId}
+                    projectId={activeSession?.projectId ?? null}
+                  />
+                </ErrorBoundary>
+              )}
+            </div>
+          ) : (
           <div className="flex min-h-0 flex-1">
             <div className="min-h-0 min-w-0 flex-1">
               {activeSessionId ? (
@@ -440,9 +509,7 @@ function Shell() {
                       ? 'Terminal'
                       : inspector === 'changes'
                         ? 'Changes'
-                        : inspector === 'files'
-                          ? 'Files'
-                          : 'Usage'}
+                        : 'Files'}
                   </span>
                   <div className="flex-1" />
                   <button
@@ -455,11 +522,7 @@ function Shell() {
                   </button>
                 </div>
                 <div className="min-h-0 flex-1">
-                  {inspector === 'terminal' ? (
-                    <ErrorBoundary label="Terminal">
-                      <TerminalView cwd={workspaceCwd || undefined} />
-                    </ErrorBoundary>
-                  ) : inspector === 'changes' ? (
+                  {inspector === 'changes' ? (
                     <ErrorBoundary label="Changes">
                       <ChangesView
                         sessionId={activeSessionId}
@@ -475,14 +538,15 @@ function Shell() {
                       </div>
                     )
                   ) : (
-                    <ErrorBoundary label="Usage">
-                      <UsageDashboard />
+                    <ErrorBoundary label="Terminal">
+                      <TerminalView cwd={workspaceCwd || undefined} />
                     </ErrorBoundary>
                   )}
                 </div>
               </aside>
             ) : null}
           </div>
+          )}
         </main>
       </div>
 

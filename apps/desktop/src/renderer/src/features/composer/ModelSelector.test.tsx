@@ -74,39 +74,70 @@ describe('ModelSelector', () => {
     })
   })
 
-  it('opens a grouped, searchable menu and selects with keyboard', async () => {
+  it('opens on the provider list, drills in, and selects with keyboard', async () => {
     const { onChange } = setup()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
 
-    const listbox = screen.getByRole('listbox', { name: 'Models' })
-    expect(within(listbox).getByText('Claude')).toBeInTheDocument()
-    expect(within(listbox).getByText('Codex')).toBeInTheDocument()
-    expect(within(listbox).getByText('200k')).toBeInTheDocument()
+    // Step one: providers only, never a mixed model dump.
+    const providers = screen.getByRole('listbox', { name: 'Providers' })
+    expect(within(providers).getByText('Claude')).toBeInTheDocument()
+    expect(within(providers).getByText('Codex')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText('Search models'), 'gpt')
-    expect(within(listbox).getByText('GPT-5.6')).toBeInTheDocument()
-    expect(within(listbox).queryByText('Sonnet 4.5')).not.toBeInTheDocument()
+    // The current provider is marked and shows its active model in its row.
+    expect(within(providers).getByRole('option', { selected: true })).toHaveTextContent('Claude')
+    expect(within(providers).getByText('Sonnet 4.5')).toBeInTheDocument()
+    // …but no models are selectable at this step — only providers are options.
+    expect(within(providers).queryByRole('option', { name: 'Sonnet 4.5' })).not.toBeInTheDocument()
 
-    await user.clear(screen.getByLabelText('Search models'))
+    // Enter drills into the highlighted provider (Claude is first).
+    await user.keyboard('{Enter}')
+    const models = screen.getByRole('listbox', { name: 'Models' })
+    expect(within(models).getByText('Sonnet 4.5')).toBeInTheDocument()
+    expect(within(models).getByText('Opus 4')).toBeInTheDocument()
+    expect(within(models).queryByText('GPT-5.6')).not.toBeInTheDocument()
+
+    // Search filters within the provider.
+    await user.type(screen.getByLabelText('Search models'), 'opus')
+    expect(within(models).getByText('Opus 4')).toBeInTheDocument()
+    expect(within(models).queryByText('Sonnet 4.5')).not.toBeInTheDocument()
+
     await user.keyboard('{Home}{Enter}')
-
     await waitFor(() => {
-      expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
+      expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'opus-4' })
     })
   })
 
-  it('marks the active model and picks on click', async () => {
+  it('marks the active model and picks on click, across providers', async () => {
     const { onChange } = setup('codex', 'gpt-5.6')
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
 
-    const listbox = screen.getByRole('listbox', { name: 'Models' })
-    const active = within(listbox).getByRole('option', { selected: true })
-    expect(active).toHaveTextContent('GPT-5.6')
+    const providers = screen.getByRole('listbox', { name: 'Providers' })
+    expect(within(providers).getByRole('option', { selected: true })).toHaveTextContent('Codex')
 
-    await user.click(within(listbox).getByText('Sonnet 4.5'))
+    await user.click(within(providers).getByText('Claude'))
+    const models = screen.getByRole('listbox', { name: 'Models' })
+    await user.click(within(models).getByText('Sonnet 4.5'))
     expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
+  })
+
+  it('goes back with the header button and Esc', async () => {
+    setup()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+    await user.click(within(screen.getByRole('listbox', { name: 'Providers' })).getByText('Codex'))
+    expect(screen.getByRole('listbox', { name: 'Models' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Codex' }))
+    expect(screen.getByRole('listbox', { name: 'Providers' })).toBeInTheDocument()
+
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('listbox', { name: 'Models' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    // Esc on step two goes back to providers, not straight out of the menu.
+    expect(screen.getByRole('listbox', { name: 'Providers' })).toBeInTheDocument()
   })
 
   it('shows a loading empty state before catalogs resolve', async () => {
@@ -114,13 +145,14 @@ describe('ModelSelector', () => {
     setup()
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /model:/i }))
-    expect(screen.getByText(/loading models/i)).toBeInTheDocument()
+    expect(screen.getByText(/loading/i)).toBeInTheDocument()
   })
 
-  it('shows a no-match state for nonsense queries', async () => {
+  it('shows a no-match state for nonsense queries inside a provider', async () => {
     setup()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
+    await user.click(within(screen.getByRole('listbox', { name: 'Providers' })).getByText('Claude'))
     await user.type(screen.getByLabelText('Search models'), 'zzz')
     expect(screen.getByText(/no models match/i)).toBeInTheDocument()
   })
