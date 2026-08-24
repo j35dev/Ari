@@ -86,6 +86,23 @@ function writeCache(prefs: ThemePreferences): void {
   }
 }
 
+/**
+ * Paints the cached theme onto `<html>` before React mounts, so a light-theme
+ * user never sees a frame of the default dark palette. Call once from the
+ * renderer entry point; the provider re-applies (and corrects) after hydration.
+ * Deliberately not an inline `<script>` in index.html: the packaged CSP is
+ * `default-src 'self'` and inline script would require loosening it.
+ */
+export function applyCachedTheme(): void {
+  const prefs = readCache()
+  const theme = prefs.mode === 'system' ? systemTheme(matches('(prefers-color-scheme: dark)')) : themes[prefs.mode]
+  const root = document.documentElement
+  root.dataset['ariTheme'] = theme.id
+  root.dataset['ariScheme'] = theme.scheme
+  const glass = theme.glass && prefs.glass && !matches('(prefers-reduced-transparency: reduce)')
+  root.dataset['ariGlass'] = glass ? 'on' : 'off'
+}
+
 /** Subscribes to a media query, returning its current match state. */
 function useMediaQuery(query: string): boolean {
   const [matched, setMatched] = useState(() => matches(query))
@@ -114,6 +131,9 @@ export function ThemeProvider({
   const [prefs, setPrefs] = useState<ThemePreferences>(readCache)
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)')
   const reducedTransparency = useMediaQuery('(prefers-reduced-transparency: reduce)')
+  // Gates the save effect: writing the localStorage cache back before the
+  // durable copy has been read would clobber it with a stale value.
+  const [hydrated, setHydrated] = useState(!persistence)
 
   // Adopt the durable copy once; the cache only exists to avoid a flash.
   useEffect(() => {
@@ -121,13 +141,20 @@ export function ThemeProvider({
     let cancelled = false
     persistence.load().then(
       (stored) => {
-        if (cancelled || !stored) return
-        setPrefs((current) => ({
-          mode: stored.mode === 'system' || isThemeId(stored.mode) ? stored.mode : current.mode,
-          glass: typeof stored.glass === 'boolean' ? stored.glass : current.glass,
-        }))
+        if (cancelled) return
+        if (stored) {
+          setPrefs((current) => ({
+            mode: stored.mode === 'system' || isThemeId(stored.mode) ? stored.mode : current.mode,
+            glass: typeof stored.glass === 'boolean' ? stored.glass : current.glass,
+          }))
+        }
+        setHydrated(true)
       },
-      () => undefined,
+      () => {
+        // Unreadable durable store: keep the cached preferences and allow
+        // later user changes to persist rather than freezing the UI.
+        if (!cancelled) setHydrated(true)
+      },
     )
     return () => {
       cancelled = true
@@ -147,9 +174,9 @@ export function ThemeProvider({
 
   useEffect(() => {
     writeCache(prefs)
-    if (!persistence) return
+    if (!persistence || !hydrated) return
     void persistence.save({ ...prefs, themeId: theme.id }).catch(() => undefined)
-  }, [persistence, prefs, theme.id])
+  }, [persistence, prefs, theme.id, hydrated])
 
   const setMode = useCallback((mode: ThemeMode) => {
     setPrefs((current) => ({ ...current, mode }))

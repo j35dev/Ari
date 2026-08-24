@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { themes } from '@ari/ui/themes'
+import { themeIdSchema } from '@ari/contracts/settings'
+import { themeIds, themes } from '@ari/ui/themes'
 import { themeWindowChrome } from './window'
+
+// The two lists are hand-maintained in packages that must not import each
+// other (@ari/contracts stays UI-free), so nothing but this cross-package
+// assertion stops a seventh theme from being unpersistable.
+describe('theme registries agree across packages', () => {
+  it('contracts accepts exactly the themes the UI defines', () => {
+    expect([...themeIdSchema.options].sort()).toEqual([...themeIds].sort())
+  })
+})
 
 describe('themeWindowChrome', () => {
   it('requests platform translucency for glass themes', () => {
