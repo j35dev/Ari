@@ -53,4 +53,56 @@ describe('ApprovalCard', () => {
     expect(onRespond).toHaveBeenLastCalledWith('deny')
     expect(onRespond).toHaveBeenCalledTimes(3)
   })
+
+  it('extracts a command headline for shell-like tools', () => {
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson='{"command":"rm -rf dist","cwd":"/repo"}'
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Command')).toBeInTheDocument()
+    expect(screen.getByText('rm -rf dist')).toBeInTheDocument()
+  })
+
+  it('falls back to a file headline for file tools', () => {
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="edit_file"
+        summaryJson='{"path":"src/app.ts"}'
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('File')).toBeInTheDocument()
+    expect(screen.getByText('src/app.ts')).toBeInTheDocument()
+  })
+
+  it('shows the pending counter only with more than one approval', () => {
+    const { rerender } = render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        position={1}
+        total={3}
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('1/3 pending')).toBeInTheDocument()
+
+    rerender(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        position={1}
+        total={1}
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/pending/)).not.toBeInTheDocument()
+  })
 })
