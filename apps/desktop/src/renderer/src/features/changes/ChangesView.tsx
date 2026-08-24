@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { RefreshCw, FileText, GitBranch } from 'lucide-react'
+import { RefreshCw, FileText, GitBranch, GitPullRequest } from 'lucide-react'
 import { DiffViewer } from '../diffs'
 import { rpc } from '../../lib/rpc'
 import { CheckpointList } from './CheckpointList'
@@ -10,6 +10,8 @@ interface StatusState {
   files: { path: string; staged: boolean; kind: string }[]
   error?: string
 }
+
+type ShipPhase = 'commit' | 'pr' | 'done'
 
 export interface ChangesViewProps {
   /** Active session whose per-turn checkpoints are listed below the diff. */
@@ -113,7 +115,168 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
             <CheckpointList projectId={projectId ?? 'adhoc'} sessionId={sessionId} />
           </div>
         ) : null}
+
+        {status?.isRepo ? (
+          <div className="mt-8 border-t border-border pt-6">
+            <ShipSection projectPath={projectPath} hasChanges={status.files.length > 0} onShipped={refresh} />
+          </div>
+        ) : null}
       </div>
     </div>
+  )
+}
+
+/**
+ * Ship flow (M21.4, Conductor's arc): stage-all → commit → push in one
+ * action, then an inline PR form driven by `gh pr create`. Each step reports
+ * its failure inline; the PR link lands as plain text.
+ */
+export function ShipSection({
+  projectPath,
+  hasChanges,
+  onShipped,
+}: {
+  projectPath: string
+  hasChanges: boolean
+  onShipped: () => void
+}) {
+  const [message, setMessage] = useState('')
+  const [phase, setPhase] = useState<ShipPhase>('commit')
+  const [prTitle, setPrTitle] = useState('')
+  const [prBody, setPrBody] = useState('')
+  const [prUrl, setPrUrl] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const commitAndPush = (): void => {
+    const trimmed = message.trim()
+    if (trimmed.length === 0 || busy) return
+    setBusy(true)
+    setError(null)
+    void rpc
+      .invoke('git.add', { path: projectPath, paths: ['.'] })
+      .then((r) => {
+        if (!r.ok) throw new Error(r.error)
+        return rpc.invoke('git.commit', { path: projectPath, message: trimmed })
+      })
+      .then((r) => {
+        if (!r.ok) throw new Error(r.error)
+        return rpc.invoke('git.push', { path: projectPath }).then((p) => {
+          if (!p.ok) throw new Error(p.error)
+        })
+      })
+      .then(() => {
+        setPhase('pr')
+        setPrTitle(trimmed.split('\n')[0] ?? trimmed)
+        setMessage('')
+        onShipped()
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  const createPr = (): void => {
+    if (busy || prTitle.trim().length === 0) return
+    setBusy(true)
+    setError(null)
+    void rpc
+      .invoke('git.createPr', {
+        path: projectPath,
+        title: prTitle.trim(),
+        ...(prBody.trim().length > 0 ? { body: prBody.trim() } : {}),
+      })
+      .then((r) => {
+        if (!r.ok) throw new Error(r.error ?? 'PR creation failed')
+        setPrUrl(r.url)
+        setPhase('done')
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <section aria-label="Ship" className="flex flex-col gap-2">
+      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-fg">
+        <GitPullRequest size={13} className="text-fg-subtle" /> Ship
+      </h3>
+
+      {phase === 'commit' ? (
+        <div className="flex items-center gap-2">
+          <input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitAndPush()
+            }}
+            disabled={busy || !hasChanges}
+            placeholder={hasChanges ? 'Commit message — stages all changes' : 'Worktree clean'}
+            aria-label="Commit message"
+            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-glass-input px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={commitAndPush}
+            disabled={busy || !hasChanges || message.trim().length === 0}
+            className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-fg-on-accent transition-colors hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            {busy ? 'Shipping…' : 'Commit & push'}
+          </button>
+        </div>
+      ) : null}
+
+      {phase === 'pr' ? (
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-surface-1 p-2.5">
+          <input
+            value={prTitle}
+            onChange={(e) => setPrTitle(e.target.value)}
+            aria-label="Pull request title"
+            placeholder="PR title"
+            className="h-7 w-full rounded-md border border-border bg-glass-input px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+          />
+          <textarea
+            value={prBody}
+            onChange={(e) => setPrBody(e.target.value)}
+            aria-label="Pull request description"
+            placeholder="Description (optional)"
+            rows={3}
+            className="w-full resize-none rounded-md border border-border bg-glass-input px-2 py-1 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={createPr}
+              disabled={busy || prTitle.trim().length === 0}
+              className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-fg-on-accent transition-colors hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              {busy ? 'Creating…' : 'Open pull request'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPhase('commit')}
+              className="rounded-md px-2 py-1 text-xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {phase === 'done' ? (
+        <p className="text-xs text-success">
+          Pull request open{prUrl !== null ? ' — ' : ''}
+          {prUrl !== null ? (
+            <span className="font-mono break-all">{prUrl}</span>
+          ) : (
+            ' (gh printed no URL)'
+          )}
+        </p>
+      ) : null}
+
+      {error !== null ? (
+        <p role="alert" className="break-words text-xs text-danger">
+          {error}
+        </p>
+      ) : null}
+    </section>
   )
 }
