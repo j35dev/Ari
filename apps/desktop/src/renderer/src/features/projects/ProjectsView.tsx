@@ -1,15 +1,46 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Project } from '@ari/contracts/project'
 import { Button } from '@ari/ui/button'
 import { Field } from '@ari/ui/field'
 import { IconButton } from '@ari/ui/icon-button'
 import { Input } from '@ari/ui/input'
-import { Check, FolderPlus, Trash2, X } from 'lucide-react'
+import { Check, FolderPlus, Play, Trash2, X } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
+import { requestTerminalTab } from '../terminal/terminal-requests'
 
 /** Degrees of accent hue rotation per project color index slot (8 slots). */
 const HUE_STEP_DEG = 40
+
+const MAX_SCRIPT_BUTTONS = 6
+
+interface ScriptInfo {
+  name: string
+  command: string
+}
+
+/**
+ * Picks the package-manager runner from lockfile evidence (Cline Kanban's
+ * script-shortcut pattern). Defaults to npm when nothing distinctive exists.
+ */
+export function pickRunner(entries: { name: string }[]): 'pnpm' | 'yarn' | 'npm' {
+  const names = new Set(entries.map((e) => e.name))
+  if (names.has('pnpm-lock.yaml')) return 'pnpm'
+  if (names.has('yarn.lock')) return 'yarn'
+  return 'npm'
+}
+
+/** Loads the project's scripts plus the runner implied by its lockfiles. */
+async function loadScripts(path: string): Promise<{ scripts: ScriptInfo[]; runner: 'pnpm' | 'yarn' | 'npm' }> {
+  const [scriptResult, files] = await Promise.all([
+    rpc.invoke('scripts.list', { path }),
+    rpc.invoke('fs.list', { path }).catch(() => [] as { name: string; type: string; size: number }[]),
+  ])
+  return {
+    scripts: scriptResult.scripts.slice(0, MAX_SCRIPT_BUTTONS),
+    runner: pickRunner(files),
+  }
+}
 
 interface FormState {
   path: string
@@ -24,6 +55,8 @@ interface ProjectCardProps {
   onAskRemove: () => void
   onCancelRemove: () => void
   onConfirmRemove: () => void
+  /** Switches the shell to the terminal inspector (run scripts land there). */
+  onOpenTerminal?: () => void
 }
 
 function ProjectCard({
@@ -32,7 +65,34 @@ function ProjectCard({
   onAskRemove,
   onCancelRemove,
   onConfirmRemove,
+  onOpenTerminal,
 }: ProjectCardProps) {
+  const [scripts, setScripts] = useState<ScriptInfo[] | null>(null)
+  const runnerRef = useRef<'pnpm' | 'yarn' | 'npm'>('npm')
+
+  useEffect(() => {
+    let cancelled = false
+    void loadScripts(project.path)
+      .then((result) => {
+        if (cancelled) return
+        setScripts(result.scripts)
+        runnerRef.current = result.runner
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [project.path])
+
+  const runScript = (script: ScriptInfo): void => {
+    requestTerminalTab({
+      title: `${project.name}: ${script.name}`,
+      cwd: project.path,
+      command: `${runnerRef.current} run ${script.name}`,
+    })
+    onOpenTerminal?.()
+  }
+
   return (
     <li className="flex flex-col gap-2 rounded-md border border-border bg-surface-1 p-3">
       <div className="flex items-start justify-between gap-2">
@@ -76,16 +136,31 @@ function ProjectCard({
         )}
       </div>
       <p className="truncate font-mono text-2xs text-fg-subtle">{project.path}</p>
+      {scripts !== null && scripts.length > 0 ? (
+        <div className="flex flex-wrap gap-1" aria-label={`${project.name} run scripts`}>
+          {scripts.map((script) => (
+            <button
+              key={script.name}
+              type="button"
+              title={`${runnerRef.current} run ${script.name} — ${script.command}`}
+              onClick={() => runScript(script)}
+              className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 font-mono text-2xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <Play size={9} aria-hidden />
+              {script.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </li>
   )
 }
-
 /**
  * Projects manager (rail "Projects" destination, PLAN §6.1): grid of
  * registered workspace folders with add/remove flows over the `project.*`
  * RPC surface.
  */
-export function ProjectsView() {
+export function ProjectsView({ onOpenTerminal }: { onOpenTerminal?: () => void } = {}) {
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
@@ -229,6 +304,7 @@ export function ProjectsView() {
               }}
               onCancelRemove={() => setConfirmingId(null)}
               onConfirmRemove={() => handleRemove(project.id)}
+              onOpenTerminal={onOpenTerminal}
             />
           ))}
         </ul>

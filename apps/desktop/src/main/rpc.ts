@@ -15,6 +15,7 @@ import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
+import { listScripts } from './scripts-list'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles } from './watcher-bridge'
@@ -648,6 +649,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return { items: null }
     }
   })
+
+  // Run scripts (M21.3): npm-style `scripts` from the folder's package.json.
+  r.register('scripts.list', async (params) => listScripts(params.path))
 
   r.register('stream.subscribe', (params) => {
     rpcRegistry.subscribe({
