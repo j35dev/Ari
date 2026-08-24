@@ -113,9 +113,11 @@ function probeAllDetections(): Promise<RpcResults['providers.detect']> {
               log.error('detection crashed', { kind, error: String(error) })
               return {
                 kind,
+                installed: false,
                 binaryPath: null,
                 version: null,
                 authStatus: 'unknown',
+                authReason: 'Detection failed - see logs.',
               } satisfies Detection
             }
           }),

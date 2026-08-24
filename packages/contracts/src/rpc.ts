@@ -238,9 +238,13 @@ export interface RpcResults {
   'command.dispatch': { accepted: boolean }
   'providers.detect': {
     kind: string
+    /** True when a binary was resolved on disk; independent of authStatus. */
+    installed: boolean
     binaryPath: string | null
     version: string | null
     authStatus: string
+    /** Why authStatus is 'unknown'; never carries credential values. */
+    authReason?: string
     /** Newest version published upstream; null when unknown or not checkable. */
     latestVersion?: string | null
     /** True when latestVersion > version; null when either side is unknown. */
