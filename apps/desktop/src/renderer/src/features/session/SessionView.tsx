@@ -63,6 +63,9 @@ interface Telemetry {
   inputTokens: number
   outputTokens: number
   startedAt: number | null
+  /** Running total for the ACTIVE turn only (drives the context meter). */
+  turnInputTokens: number
+  turnOutputTokens: number
 }
 
 const EMPTY_TELEMETRY: Telemetry = {
@@ -71,6 +74,8 @@ const EMPTY_TELEMETRY: Telemetry = {
   inputTokens: 0,
   outputTokens: 0,
   startedAt: null,
+  turnInputTokens: 0,
+  turnOutputTokens: 0,
 }
 
 function formatTokens(n: number): string {
@@ -407,6 +412,8 @@ export function SessionView({
             ...t,
             inputTokens: t.inputTokens + (event.inputTokens ?? 0),
             outputTokens: t.outputTokens + (event.outputTokens ?? 0),
+            turnInputTokens: t.turnInputTokens + (event.inputTokens ?? 0),
+            turnOutputTokens: t.turnOutputTokens + (event.outputTokens ?? 0),
           }))
           break
         default: {
@@ -596,9 +603,12 @@ export function SessionView({
           <span>{running ? null : 'no turns yet'}</span>
         )}
         <div className="flex-1" />
-        {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
+        {/* Context meter shows the ACTIVE/last turn's footprint, not the
+            lifetime total — the window is per-turn, so lifetime totals would
+            lie about headroom (DSH token-meter semantics). */}
+        {telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
           <ContextMeter
-            used={telemetry.inputTokens + telemetry.outputTokens}
+            used={telemetry.turnInputTokens + telemetry.turnOutputTokens}
             contextWindow={contextWindow}
           />
         ) : null}
