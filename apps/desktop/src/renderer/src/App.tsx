@@ -14,7 +14,7 @@ import { TerminalView } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
-import { ProjectsView } from './features/projects'
+import { openProjectViaPicker } from './features/projects/open-project'
 import { UsageDashboard } from './features/usage'
 import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
@@ -136,7 +136,25 @@ function Shell() {
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
-  const navOrder = useMemo(() => sidebarOrder(sessions), [sessions])
+  // Grouped by the open projects so keyboard order matches what is rendered.
+  const openProjects = useMemo(() => projects.filter((p) => p.open), [projects])
+  const navOrder = useMemo(() => sidebarOrder(sessions, openProjects), [sessions, openProjects])
+
+  const refreshProjects = useCallback((): void => {
+    void rpc
+      .invoke('project.list')
+      .then(setProjects)
+      .catch(() => undefined)
+  }, [])
+
+  // Native picker → open; a cancelled picker resolves to null (silent no-op).
+  const openProjectViaDialog = useCallback((): void => {
+    void openProjectViaPicker()
+      .then((project) => {
+        if (project !== null) refreshProjects()
+      })
+      .catch(() => undefined)
+  }, [refreshProjects])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -191,13 +209,13 @@ function Shell() {
   }, [paletteOpen, settingsOpen, navOrder, activeSessionId])
 
   const createSession = useCallback(
-    (overrides?: Partial<SessionDefaults>): void => {
+    (overrides?: Partial<SessionDefaults>, projectId = 'adhoc'): void => {
       const effective = { ...defaults, ...overrides }
       // Reuse the newest pristine (zero-message) session when its config is
       // compatible — spamming ✎ must not pile up empty chats.
       const reusable = sessions.find(
         (s) =>
-          s.projectId === 'adhoc' &&
+          s.projectId === projectId &&
           s.messageCount === 0 &&
           (overrides === undefined || overrides.driverKind === undefined),
       )
@@ -209,7 +227,7 @@ function Shell() {
       }
       void rpc
         .invoke('session.create', {
-          projectId: 'adhoc',
+          projectId,
           title: 'New session',
           driverKind: effective.driverKind,
           modelId: effective.modelId,
@@ -294,7 +312,27 @@ function Shell() {
           <SidebarHeader onNewSession={() => createSession()} />
           <SessionsUnderProjects
             sessions={sessions}
-            projects={projects}
+            projects={openProjects}
+            onOpenProject={openProjectViaDialog}
+            onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
+            onRevealProject={(projectId) => {
+              const path = projects.find((p) => p.id === projectId)?.path
+              if (path === undefined) return
+              void rpc.invoke('shell.revealPath', { path }).catch(() => undefined)
+            }}
+            onCloseProject={(projectId) => {
+              void rpc
+                .invoke('project.close', { id: projectId })
+                .then(refreshProjects)
+                .catch(() => undefined)
+            }}
+            onRemoveProject={(projectId) => {
+              void rpc
+                .invoke('project.remove', { id: projectId })
+                .then(refreshProjects)
+                .catch(() => undefined)
+            }}
+            onLocateProject={openProjectViaDialog}
             activeSessionId={activeSessionId}
             onSelect={(id) => {
               setActiveSessionId(id)
