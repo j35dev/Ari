@@ -19,6 +19,7 @@ vi.mock('@ari/providers/catalogs', () => ({ modelsFor: modelsForFn }))
 
 interface DetectionFixture {
   kind: string
+  installed: boolean
   binaryPath: string | null
   version: string | null
   authStatus: string
@@ -27,13 +28,15 @@ interface DetectionFixture {
 const DETECTIONS: DetectionFixture[] = [
   {
     kind: 'claude',
+    installed: true,
     binaryPath: 'C:\\bin\\claude.exe',
     version: '2.1.0',
     authStatus: 'authenticated',
   },
-  { kind: 'codex', binaryPath: null, version: null, authStatus: 'unknown' },
+  { kind: 'codex', installed: false, binaryPath: null, version: null, authStatus: 'unknown' },
   {
     kind: 'opencode',
+    installed: true,
     binaryPath: '/usr/local/bin/opencode',
     version: '0.4.2',
     authStatus: 'unknown',
