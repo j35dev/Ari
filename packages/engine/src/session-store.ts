@@ -1,8 +1,20 @@
 import { join } from 'node:path'
 import type { JournalEvent } from '@ari/contracts/events'
 import { newTypedId } from '@ari/shared/ids'
+import { createLogger } from '@ari/shared/logger'
 import { Journal } from './journal'
-import { applyEvent, initialReadModel, type SessionReadModel, type UnstampedEvent } from './projection'
+import {
+  diagnosticsOf,
+  replayEntries,
+  type RejectedLine,
+  type ReplayDiagnostics,
+} from './journal-replay'
+import { applyEvent, type SessionReadModel, type UnstampedEvent } from './projection'
+
+const log = createLogger('engine:session-store')
+
+/** Sibling file that quarantines journal lines rejected during replay. */
+const REJECTED_NAME = 'journal.rejected.jsonl'
 
 export interface SessionStoreOptions {
   /** Root directory, e.g. `<userData>/sessions`. */
@@ -136,6 +148,10 @@ export class SessionStore {
   readonly #journals = new Map<string, Journal<JournalEvent>>()
   /** In-memory mirror of the sidecar index; disk copy stays authoritative. */
   readonly #indexCache = new Map<string, SessionIndex>()
+  /** Last replay diagnostic per session, surfaced to the UI. */
+  readonly #diagnostics = new Map<string, ReplayDiagnostics>()
+  /** Raw lines already quarantined this process, so replays never duplicate. */
+  readonly #quarantined = new Map<string, Set<string>>()
 
   constructor(options: SessionStoreOptions) {
     this.#rootDir = options.rootDir
@@ -197,15 +213,73 @@ export class SessionStore {
     return stamped
   }
 
-  /** Replays the full journal into a read model. */
+  /**
+   * Replays the full journal into a read model. Every line is validated
+   * against `journalEventSchema`: invalid lines are neither applied nor
+   * dropped — they are quarantined in `journal.rejected.jsonl` and reported
+   * by {@link replayDiagnostics} while the valid lines still fold.
+   */
   async load(sessionId: string): Promise<SessionReadModel> {
     const journal = await this.openJournal(sessionId)
     const entries = await journal.readAll()
-    let state = initialReadModel()
-    for (const entry of entries) {
-      if (entry.kind === 'value') state = applyEvent(state, entry.value)
+    const { model, rejected } = replayEntries(entries)
+    this.#diagnostics.set(sessionId, diagnosticsOf(rejected))
+    if (rejected.length > 0) await this.#quarantine(sessionId, rejected)
+    return model
+  }
+
+  /**
+   * Count and first reason of the lines rejected by the most recent replay of
+   * this session; zero-count when the journal replayed cleanly or was never
+   * loaded in this process.
+   */
+  replayDiagnostics(sessionId: string): ReplayDiagnostics {
+    return this.#diagnostics.get(sessionId) ?? { rejectedCount: 0, firstReason: null }
+  }
+
+  /** Absolute path of the quarantine file for a session. */
+  rejectedPath(sessionId: string): string {
+    return join(this.#dirFor(sessionId), REJECTED_NAME)
+  }
+
+  /**
+   * Appends rejected lines verbatim to the sibling quarantine file, skipping
+   * lines already recorded (`load` runs on every append) so a corrupt journal
+   * cannot grow the file without bound.
+   */
+  async #quarantine(sessionId: string, rejected: RejectedLine[]): Promise<void> {
+    const { appendFile, mkdir, readFile } = await import('node:fs/promises')
+    let seen = this.#quarantined.get(sessionId)
+    if (!seen) {
+      seen = new Set<string>()
+      try {
+        for (const line of (await readFile(this.rejectedPath(sessionId), 'utf8')).split('\n')) {
+          const trimmed = line.trim()
+          if (trimmed.length > 0) seen.add(trimmed)
+        }
+      } catch {
+        // No quarantine file yet — nothing recorded.
+      }
+      this.#quarantined.set(sessionId, seen)
     }
-    return state
+    const fresh = rejected.filter((entry) => !seen.has(entry.raw))
+    if (fresh.length === 0) return
+    for (const entry of fresh) seen.add(entry.raw)
+    log.warn('journal lines rejected on replay', {
+      sessionId,
+      count: fresh.length,
+      firstReason: fresh[0]?.reason ?? null,
+    })
+    try {
+      await mkdir(this.#dirFor(sessionId), { recursive: true })
+      await appendFile(
+        this.rejectedPath(sessionId),
+        `${fresh.map((entry) => entry.raw).join('\n')}\n`,
+        'utf8',
+      )
+    } catch (e) {
+      log.error('failed to write journal quarantine file', { sessionId, error: String(e) })
+    }
   }
 
   /**
@@ -371,6 +445,8 @@ export class SessionStore {
   async destroy(sessionId: string): Promise<void> {
     await this.closeJournal(sessionId)
     this.#indexCache.delete(sessionId)
+    this.#diagnostics.delete(sessionId)
+    this.#quarantined.delete(sessionId)
     const { rm } = await import('node:fs/promises')
     await rm(this.#dirFor(sessionId), { recursive: true, force: true })
   }
