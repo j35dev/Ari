@@ -1,30 +1,53 @@
 /*
- * Glass layer — the comet-style translucent chrome. `backdrop-filter` blurs
- * whatever sits behind an element INSIDE the window (in-app content), which
- * Chromium rasterizes on every platform; the window itself additionally shows
- * the desktop through Electron's native acrylic/vibrancy (see main/window.ts),
- * so the shell chrome reads as frosted glass over the user's desktop.
+ * Glass layer — translucent chrome, opt-in per theme.
  *
- * Accessibility: @media rules fall back to opaque surfaces when the OS reports
- * reduced transparency, so text never floats over an unknown backdrop.
+ * The `.ari-glass*` classes ship OPAQUE by default (surface tokens), because
+ * every theme must be legible without a blurred backdrop. Blur + the
+ * translucent `--ari-glass-*` planes only apply while <html> carries
+ * `data-ari-glass="on"`, which the ThemeProvider sets when the active theme is
+ * glass-capable, the user has glass enabled, and the OS does not report
+ * reduced transparency.
+ *
+ * `backdrop-filter` blurs whatever sits behind an element INSIDE the window;
+ * the window itself additionally shows the desktop through Electron's native
+ * acrylic/vibrancy (main/window.ts), which is likewise only requested for
+ * glass themes.
  */
 
-/* Shell planes that sit on the window backdrop: sidebar + titlebar + footer. */
+/* Opaque substrate — the baseline every theme renders on. */
 .ari-glass {
+  background: var(--ari-surface-0);
+}
+.ari-glass-overlay {
+  background: var(--ari-surface-2);
+}
+.ari-glass-input {
+  background: var(--ari-surface-1);
+}
+.ari-glass-hover:hover {
+  background: var(--ari-surface-2);
+}
+.ari-glass-active {
+  background: var(--ari-surface-2);
+}
+
+/* Glass on: translucent planes + blur. Shell planes on the window backdrop
+   (sidebar, titlebar, footer). */
+[data-ari-glass='on'] .ari-glass {
   background: var(--ari-glass-scrim);
   -webkit-backdrop-filter: blur(28px) saturate(1.35);
   backdrop-filter: blur(28px) saturate(1.35);
 }
 
 /* Floating surfaces — popovers, menus, dialogs, palette. */
-.ari-glass-overlay {
+[data-ari-glass='on'] .ari-glass-overlay {
   background: var(--ari-glass-overlay);
   -webkit-backdrop-filter: blur(32px) saturate(1.4);
   backdrop-filter: blur(32px) saturate(1.4);
 }
 
 /* Input plates / composer pill / cards resting on glass. */
-.ari-glass-input {
+[data-ari-glass='on'] .ari-glass-input {
   background: var(--ari-glass-input);
   -webkit-backdrop-filter: blur(20px) saturate(1.3);
   backdrop-filter: blur(20px) saturate(1.3);
@@ -32,27 +55,9 @@
 
 /* Hover wash for rows and buttons sitting ON glass — one recipe both places,
    selection adds only a ring (comet glass_hover). */
-.ari-glass-hover:hover {
+[data-ari-glass='on'] .ari-glass-hover:hover {
   background: var(--ari-glass-hover);
 }
-.ari-glass-active {
+[data-ari-glass='on'] .ari-glass-active {
   background: var(--ari-glass-active);
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .ari-glass {
-    background: var(--ari-surface-0);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  .ari-glass-overlay {
-    background: var(--ari-surface-2);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  .ari-glass-input {
-    background: var(--ari-surface-1);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
