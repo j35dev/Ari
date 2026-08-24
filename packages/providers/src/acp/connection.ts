@@ -59,6 +59,21 @@ interface PendingRequest {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout> | null
+  /** Silence watchdog interval; set only for long-lived turn requests. */
+  stallTimer: ReturnType<typeof setInterval> | null
+}
+
+/**
+ * Prompt-stall ceiling from `ARI_ACP_PROMPT_STALL_MS`: how long an agent may
+ * stay completely silent mid-turn before its prompt fails legibly instead of
+ * spinning forever (comet's wedge detection). Number in ms; 0 disables;
+ * unset falls back to the 120s default.
+ */
+export function acpPromptStallMs(raw = process.env['ARI_ACP_PROMPT_STALL_MS']): number {
+  if (raw === undefined || raw.trim() === '') return 120_000
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value < 0) return 120_000
+  return value
 }
 
 /**
@@ -72,8 +87,11 @@ export class AcpConnection {
   readonly #child: AcpChildProcess
   readonly #pending = new Map<number, PendingRequest>()
   readonly #closeWaiter: Promise<void>
+  readonly #stderrTail: string[] = []
   #nextId = 1
   #closed = false
+  /** Last inbound byte timestamp — liveness signal for the stall watchdog. */
+  #lastInboundAt = Date.now()
 
   launch: AcpLaunch
   initialize: AcpInitializeResult
@@ -125,17 +143,7 @@ export class AcpConnection {
       throw new AcpConnectionError(`${launch.label} failed to spawn: ${describeAcpFailure(error)}`)
     }
 
-    const stderrTail: string[] = []
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', (chunk: string) => {
-      stderrTail.push(chunk)
-      while (stderrTail.length > 6) stderrTail.shift()
-    })
-
-    const tailReport = (): string => {
-      const tail = stderrTail.join('').trim().split('\n').slice(-3).join('\n')
-      return tail.length > 0 ? `\n${tail}` : ''
-    }
 
     const closeWaiter = new Promise<void>((resolveClose) => {
       // stdout close is the transport end for stdio JSON-RPC.
@@ -143,6 +151,11 @@ export class AcpConnection {
     })
 
     const connection = new AcpConnection(child, launch, options.onRequestPermission ?? null, closeWaiter)
+
+    child.stderr.on('data', (chunk: string) => {
+      if (connection.#stderrTail.length > 6) connection.#stderrTail.shift()
+      connection.#stderrTail.push(chunk)
+    })
 
     // Spawn failures (missing binary, ENOENT) arrive asynchronously; without
     // this listener they crash the host as unhandled 'error' events.
@@ -177,16 +190,22 @@ export class AcpConnection {
       connection.kill()
       const message = error instanceof Error ? error.message : String(error)
       throw new AcpConnectionError(
-        `${launch.label} initialization failed: ${message}${tailReport()}`,
+        `${launch.label} initialization failed: ${message}${connection.#tailReport()}`,
         error instanceof AcpConnectionError ? error.code : null,
       )
     }
+  }
+
+  #tailReport(): string {
+    const tail = this.#stderrTail.join('').trim().split('\n').slice(-3).join('\n')
+    return tail.length > 0 ? `\n${tail}` : ''
   }
 
   #wireStdout(): void {
     let buffer = ''
     this.#child.stdout.setEncoding('utf8')
     this.#child.stdout.on('data', (chunk: string) => {
+      this.#lastInboundAt = Date.now()
       buffer += chunk
       let index = buffer.indexOf('\n')
       while (index !== -1) {
@@ -208,6 +227,7 @@ export class AcpConnection {
   #failAllPending(error: AcpConnectionError): void {
     for (const [id, pending] of this.#pending) {
       if (pending.timer !== null) clearTimeout(pending.timer)
+      if (pending.stallTimer !== null) clearInterval(pending.stallTimer)
       pending.reject(error)
       this.#pending.delete(id)
     }
@@ -242,6 +262,7 @@ export class AcpConnection {
       if (!pending) return
       this.#pending.delete(message['id'] as number)
       if (pending.timer !== null) clearTimeout(pending.timer)
+      if (pending.stallTimer !== null) clearInterval(pending.stallTimer)
       const error = message['error'] as { code?: number; message?: string } | undefined
       if (error !== undefined && error !== null) {
         pending.reject(new AcpConnectionError(error.message ?? 'agent error', error.code ?? null))
@@ -282,26 +303,52 @@ export class AcpConnection {
     return true
   }
 
-  #request(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
+  #request(method: string, params: unknown, timeoutMs?: number, stallSilenceMs?: number): Promise<unknown> {
     if (this.#closed) {
       return Promise.reject(new AcpConnectionError(`${this.launch.label} connection is closed`))
     }
     const id = this.#nextId++
     return new Promise<unknown>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | null = null
+      let stallTimer: ReturnType<typeof setInterval> | null = null
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
           this.#pending.delete(id)
+          if (timer !== null) clearTimeout(timer)
+          if (stallTimer !== null) clearInterval(stallTimer)
           reject(
             new AcpConnectionError(`${this.launch.label}: ${method} timed out after ${timeoutMs}ms`),
           )
         }, timeoutMs)
         timer.unref?.()
       }
-      this.#pending.set(id, { resolve, reject, timer })
+      if (stallSilenceMs !== undefined && stallSilenceMs > 0) {
+        // Silence watchdog: any inbound traffic (updates, pings, partials)
+        // proves liveness; total silence past the ceiling fails the request.
+        const interval = setInterval(() => {
+          if (Date.now() - this.#lastInboundAt < stallSilenceMs) return
+          if (timer !== null) clearTimeout(timer)
+          clearInterval(interval)
+          this.#pending.delete(id)
+          const quiet =
+            stallSilenceMs < 1000
+              ? `${stallSilenceMs}ms`
+              : `${Math.round(stallSilenceMs / 1000)}s`
+          reject(
+            new AcpConnectionError(
+              `${this.launch.label} went silent for ${quiet} mid-${method} — ` +
+                `the agent may be wedged or waiting for login${this.#tailReport()}`,
+            ),
+          )
+        }, Math.min(2000, Math.max(25, Math.floor(stallSilenceMs / 8))))
+        interval.unref?.()
+        stallTimer = interval
+      }
+      this.#pending.set(id, { resolve, reject, timer, stallTimer })
       if (!this.#write({ jsonrpc: '2.0', id, method, params })) {
         this.#pending.delete(id)
         if (timer !== null) clearTimeout(timer)
+        if (stallTimer !== null) clearInterval(stallTimer)
         reject(new AcpConnectionError(`${this.launch.label} stdin unavailable`))
       }
     })
@@ -332,12 +379,25 @@ export class AcpConnection {
     return created
   }
 
-  /** Sends one user text prompt; resolves with the turn's stopReason. */
-  async prompt(sessionId: string, text: string): Promise<string> {
-    const result = (await this.#request('session/prompt', {
-      sessionId,
-      prompt: [{ type: 'text', text }],
-    })) as { stopReason?: string } | null
+  /**
+   * Sends one user text prompt; resolves with the turn's stopReason. A
+   * totally silent agent fails after `stallSilenceMs` (default from
+   * {@link acpPromptStallMs}) instead of hanging the turn forever.
+   */
+  async prompt(
+    sessionId: string,
+    text: string,
+    stallSilenceMs: number = acpPromptStallMs(),
+  ): Promise<string> {
+    const result = (await this.#request(
+      'session/prompt',
+      {
+        sessionId,
+        prompt: [{ type: 'text', text }],
+      },
+      undefined,
+      stallSilenceMs,
+    )) as { stopReason?: string } | null
     return typeof result?.stopReason === 'string' ? result.stopReason : 'end_turn'
   }
 
