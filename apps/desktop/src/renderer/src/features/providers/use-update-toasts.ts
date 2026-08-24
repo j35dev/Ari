@@ -32,9 +32,18 @@ export function useUpdateToasts(): void {
         seen.add(key)
         toastRef.current({
           title: `${capitalize(detection.kind)} ${detection.latestVersion} available`,
-          description: 'Open Settings → Providers to update.',
+          description: 'Update now, without opening Settings.',
           tone: 'info',
-          durationMs: 15_000,
+          durationMs: 20_000,
+          action: {
+            label: 'Update',
+            onClick: () => {
+              void rpc.invoke('providers.install', {
+                kind: detection.kind,
+                operation: 'upgrade',
+              })
+            },
+          },
         })
       }
     }

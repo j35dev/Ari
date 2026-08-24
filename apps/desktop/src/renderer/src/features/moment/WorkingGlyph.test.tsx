@@ -31,7 +31,7 @@ describe('WorkingGlyph', () => {
 
     await waitMs(2300)
 
-    expect(await screen.findByText('thinking…', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(await screen.findByText('weighing…', {}, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByText('forging…')).not.toBeInTheDocument()
   })
 })

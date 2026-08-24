@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitBranch, PanelLeftOpen, Plus, X } from 'lucide-react'
+import { GitBranch, PanelLeftOpen, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
@@ -25,7 +25,6 @@ import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
 import { BootSplash } from './features/moment'
 import {
-  SidebarFooter,
   SidebarHeader,
   SessionsUnderProjects,
   type SidebarNavId,
@@ -278,6 +277,28 @@ function Shell() {
   )
   createSessionRef.current = createSession
 
+  const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
+    if (id === 'settings') {
+      setSettingsOpen(true)
+      setFullPage(null)
+      setInspector(null)
+      return
+    }
+    setSettingsOpen(false)
+    if (id === 'session') {
+      setInspector(null)
+      setFullPage(null)
+      return
+    }
+    if (id === 'usage' || id === 'changes') {
+      setInspector(null)
+      setFullPage((prev) => (prev === id ? null : id))
+      return
+    }
+    setFullPage(null)
+    setInspector((prev) => (prev === id ? null : id))
+  }, [])
+
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeProjectName =
     projects.find((p) => p.id === activeSession?.projectId)?.name ?? ''
@@ -339,7 +360,11 @@ function Shell() {
 
   return (
     <div className="flex h-full flex-col">
-      <Titlebar projectLabel={activeProjectName} />
+      <Titlebar
+        projectLabel={activeProjectName}
+        activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
+        onSelectTool={selectWorkspaceTool}
+      />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
           <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
@@ -407,54 +432,22 @@ function Shell() {
                 .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
           />
-          <SidebarFooter
-            active={settingsOpen ? 'settings' : (inspector ?? 'session')}
-            onSelect={(id) => {
-              if (id === 'settings') {
-                setSettingsOpen(true)
-                setFullPage(null)
-                return
-              }
-              setSettingsOpen(false)
-              if (id === 'session') {
-                setInspector(null)
-                setFullPage(null)
-                return
-              }
-              if (id === 'usage' || id === 'changes') {
-                setInspector(null)
-                setFullPage((prev) => (prev === id ? null : id))
-                return
-              }
-              setFullPage(null)
-              setInspector((prev) => (prev === id ? null : id))
-            }}
-          />
           </aside>
-        ) : (
-          <div className="flex shrink-0 flex-col items-center gap-1 border-r border-border py-2">
-            <button
-              type="button"
-              aria-label="Expand sidebar"
-              title="Expand sidebar (Ctrl+B)"
-              onClick={toggleSidebar}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <PanelLeftOpen size={15} />
-            </button>
-            <button
-              type="button"
-              aria-label="New session"
-              onClick={() => createSession()}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <Plus size={15} />
-            </button>
-          </div>
-        )}
+        ) : null}
 
         <main className="flex min-w-0 flex-1 flex-col bg-bg">
           <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
+            {!sidebarOpen ? (
+              <button
+                type="button"
+                aria-label="Expand sidebar"
+                title="Expand sidebar (Ctrl+B)"
+                onClick={toggleSidebar}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              >
+                <PanelLeftOpen size={15} />
+              </button>
+            ) : null}
             <WorkspaceBreadcrumb
               projectName={activeProjectName}
               sessionTitle={sessions.find((s) => s.id === activeSessionId)?.title ?? ''}

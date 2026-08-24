@@ -120,20 +120,6 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
         </p>
       )}
 
-      {running != null && running.lines.length > 0 && (
-        <pre
-          role="log"
-          aria-label={`${capitalize(detection.kind)} command output`}
-          className="max-h-32 overflow-y-auto rounded bg-surface-0 p-2 font-mono text-2xs leading-4 text-fg-subtle"
-        >
-          {running.lines.map((line, index) => (
-            // Output lines have no stable id; position is their identity.
-            <span key={index} className="block whitespace-pre-wrap break-all">
-              {line.text}
-            </span>
-          ))}
-        </pre>
-      )}
 
       {running?.outcome != null && !running.outcome.ok && (
         <p role="alert" className="text-xs text-danger">
@@ -172,7 +158,7 @@ export function ProvidersView() {
     void scan()
   }, [scan])
 
-  /** Fetches the plan first so the dialog can show the literal command. */
+  /** Fresh installs still confirm the command; updates just run. */
   const beginAction = async (detection: Detection, operation: 'install' | 'upgrade'): Promise<void> => {
     try {
       const plan = await planFor(detection.kind as DriverKind)
@@ -180,14 +166,16 @@ export function ProvidersView() {
         setError(`No known install channel for ${capitalize(detection.kind)}. Install it manually and re-scan.`)
         return
       }
+      setError(null)
+      if (operation === 'upgrade') {
+        await start(detection.kind as DriverKind, 'upgrade')
+        return
+      }
       setPending({
         kind: detection.kind as DriverKind,
         operation,
-        // For an update of an installed CLI the upgrade command is the honest
-        // preview; for a fresh install show the install command instead.
-        display: (operation === 'install' ? plan.installCommand : plan.upgradeCommand).join(' '),
+        display: plan.installCommand.join(' '),
       })
-      setError(null)
     } catch {
       setError('Could not plan the operation.')
     }

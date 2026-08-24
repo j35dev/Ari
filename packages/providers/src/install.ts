@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createLogger } from '@ari/shared/logger'
 import { teardownChild } from './teardown'
-import { needsWindowsShell } from './spawn-cli'
+import { buildCmdSpawnArgs, needsWindowsShell } from './spawn-cli'
 
 const log = createLogger('providers:install')
 
@@ -78,16 +78,20 @@ export function runInstall(
 
   const program = argv[0] ?? ''
   const args = argv.slice(1)
-
-  const useShell = process.platform === 'win32' && needsWindowsShell(program)
-  const { spawnProgram, spawnArgs } = shellify(program, args, useShell)
-
   const startedAt = Date.now()
-  const child = spawn(spawnProgram, spawnArgs, {
+  // Reuse spawnCli's cmd.exe wrapper so .cmd shims (npm/pnpm) get the
+  // cross-spawn escaping — wrapping each arg in extra quotes produced
+  // `Unknown command: ""install""` on Windows.
+  const wrapped =
+    process.platform === 'win32' && needsWindowsShell(program)
+      ? buildCmdSpawnArgs(program, args)
+      : { file: program, args, windowsVerbatimArguments: false as const }
+  const child = spawn(wrapped.file, wrapped.args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
+    ...(wrapped.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     ...(cwd !== undefined ? { cwd } : {}),
-    ...(env !== undefined ? { env: { ...process.env, ...env } } : {}),
+    env: sanitizeNpmEnv({ ...process.env, ...env }),
   })
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
@@ -140,27 +144,15 @@ function stringify(error: unknown): string {
   return typeof error === 'string' ? error : JSON.stringify(error)
 }
 
-/** Selects the spawn argv: argv directly, or wrapped through a shell. */
-function shellify(
-  program: string,
-  args: readonly string[],
-  useShell: boolean,
-): { spawnProgram: string; spawnArgs: readonly string[] } {
-  if (!useShell) return { spawnProgram: program, spawnArgs: args }
-  if (process.platform === 'win32') {
-    // cmd.exe /c needs each arg quoted with internal " doubled.
-    return {
-      spawnProgram: 'cmd.exe',
-      spawnArgs: ['/c', program, ...args.map((arg) => `"${arg.replace(/"/g, '""')}"`)],
-    }
+/** Drop parent-process npm_config_* so a pnpm/Electron host does not leak unknown npm configs into the install. */
+function sanitizeNpmEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const next: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue
+    if (/^npm_config_/i.test(key)) continue
+    next[key] = value
   }
-  // POSIX fallback (needsWindowsShell is win32-specific today).
-  return { spawnProgram: '/bin/sh', spawnArgs: ['-c', [program, ...args].map(quoteForSh).join(' ')] }
-}
-
-/** POSIX shell quoting — single-quoted with internal ' escaped. */
-function quoteForSh(arg: string): string {
-  return `'${arg.replace(/'/g, `'\\''`)}'`
+  return next
 }
 
 /** A bounded ring of the most recent N bytes, with overflow tracking. */
