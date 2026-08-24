@@ -98,7 +98,9 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
 ## M21 — Fleet/parallelism wave (Cline Kanban · Conductor · Nimbalyst research)
 
 - [x] M21.1 Diff-line comments that attach to the composer as feedback for the session's next turn
-- [ ] M21.2 A/B race mode: run two providers on the same prompt in sibling worktrees, compare diffs
+- [~] M21.2 A/B race mode — 2a DONE: race launcher (palette "New A/B provider race") creates two
+      sibling sessions from one prompt and starts both turns. Remaining: side-by-side diff
+      comparison + keep-A/keep-B resolution (M21.2b)
 - [x] M21.3 Named run-script buttons per project (pnpm dev etc.) with captured output
 - [x] M21.4 Ship flow: stage-all → commit → push in one action, then inline PR creation via `gh`
       (`git.createPr` RPC; gh-missing and auth failures surface as actionable guidance)
