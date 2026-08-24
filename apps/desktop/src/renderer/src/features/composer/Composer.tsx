@@ -273,8 +273,9 @@ export function Composer({
         ) : null}
       </AnimatePresence>
 
-      {/* T3-style prompt box: one plate — field on top, chips + send at its foot. */}
-      <div className="relative rounded-2xl border border-border bg-glass-input shadow-2 transition-colors focus-within:border-border-strong">
+      {/* T3-style prompt box: one plate — field on top, chips + send at its
+          foot. Focus lights the border and adds a soft accent halo. */}
+      <div className="relative rounded-2xl border border-border bg-glass-input shadow-2 transition-all duration-150 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--ari-accent-subtle)]">
         {token?.kind === 'slash' && !dismissed && slashItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <SlashPopup query={token.raw} onSelect={handleSlashSelect} onClose={closePopup} />
@@ -391,6 +392,19 @@ export function Composer({
             Send
           </button>
           <SendStopButton running={running} onSend={send} onStop={onStop} canSend={text.trim().length > 0} />
+          <span
+            aria-hidden
+            className="ml-auto hidden select-none items-center gap-1 text-2xs text-fg-subtle md:flex"
+          >
+            <kbd className="rounded-sm border border-border bg-surface-1 px-1 font-mono text-2xs leading-4">
+              ↵
+            </kbd>
+            send
+            <kbd className="rounded-sm border border-border bg-surface-1 px-1 font-mono text-2xs leading-4">
+              ⇧↵
+            </kbd>
+            newline
+          </span>
         </div>
       </div>
     </div>

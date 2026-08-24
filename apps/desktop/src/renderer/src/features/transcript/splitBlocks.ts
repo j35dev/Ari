@@ -55,21 +55,26 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = []
   for (const message of messages) {
     let mergeIndex: number | null = null
-    let mergeKind: 'text' | 'thinking' | null = null
+    let mergeKind: 'markdown' | 'thinking' | null = null
 
     message.parts.forEach((part, partIndex) => {
-      const blockKind =
-        part.type === 'text' ? 'markdown' : part.type === 'thinking' ? 'thinking' : null
-      if (blockKind !== null && mergeKind === blockKind && mergeIndex !== null) {
+      if (part.type === 'text' && mergeKind === 'markdown' && mergeIndex !== null) {
         const target = blocks[mergeIndex]
-        if (target !== undefined && target.kind === blockKind) {
+        if (target !== undefined && target.kind === 'markdown') {
+          target.text = (target.text ?? '') + part.text
+          return
+        }
+      }
+      if (part.type === 'thinking' && mergeKind === 'thinking' && mergeIndex !== null) {
+        const target = blocks[mergeIndex]
+        if (target !== undefined && target.kind === 'thinking') {
           target.text = (target.text ?? '') + part.text
           return
         }
       }
       blocks.push(partToBlock(message, part, partIndex))
       mergeIndex = blocks.length - 1
-      mergeKind = blockKind
+      mergeKind = part.type === 'text' ? 'markdown' : part.type === 'thinking' ? 'thinking' : null
     })
 
     // The message footer attaches to the final markdown block, whichever
