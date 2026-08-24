@@ -62,4 +62,52 @@ describe('splitBlocks', () => {
     ])
     expect(pendingToolCallIds(blocks)).toEqual(new Set(['c2']))
   })
+
+  it('coalesces streamed text parts into one flowing block with a stable key', () => {
+    const before = splitBlocks([
+      msg('m1', [
+        { type: 'text', text: 'Hi' },
+        { type: 'text', text: ' there' },
+      ]),
+    ])
+    expect(before).toHaveLength(1)
+    expect(before[0]).toMatchObject({ kind: 'markdown', text: 'Hi there', key: 'm1#0' })
+
+    // The next flush grows the SAME block in place.
+    const after = splitBlocks([
+      msg('m1', [
+        { type: 'text', text: 'Hi' },
+        { type: 'text', text: ' there' },
+        { type: 'text', text: ' friend' },
+      ]),
+    ])
+    expect(after).toHaveLength(1)
+    expect(after[0]?.key).toBe(before[0]?.key)
+    expect(after[0]).toMatchObject({ text: 'Hi there friend' })
+  })
+
+  it('coalesces thinking parts separately and a tool call breaks the run', () => {
+    const blocks = splitBlocks([
+      msg('m1', [
+        { type: 'thinking', text: 'hmm ' },
+        { type: 'thinking', text: 'ok' },
+        { type: 'tool-call', callId: 'c1', name: 'bash', argsJson: '{}' },
+        { type: 'text', text: 'done' },
+      ]),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['thinking', 'tool-call', 'markdown'])
+    expect(blocks[0]).toMatchObject({ text: 'hmm ok' })
+    expect(blocks[2]).toMatchObject({ text: 'done', key: 'm1#3' })
+  })
+
+  it('marks the final markdown block with isLastOfMessage for the footer', () => {
+    const blocks = splitBlocks([
+      msg('m1', [
+        { type: 'text', text: 'part one ' },
+        { type: 'text', text: 'part two' },
+      ]),
+    ])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]?.isLastOfMessage).toBe(true)
+  })
 })
