@@ -1,5 +1,6 @@
 import type { Readable, Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
+import { explainExitCode } from '../exit-codes'
 import { spawnCli } from '../spawn-cli'
 import {
   AUTH_REQUIRED_ERROR,
@@ -20,6 +21,8 @@ export interface AcpLaunch {
   label: string
   command: string
   args: string[]
+  /** True when the agent rides `npx -y <pkg>` — enables npm exit decoding. */
+  viaNpx?: boolean
 }
 
 /** Structural child surface the connection needs; real spawns satisfy it. */
@@ -31,6 +34,8 @@ export interface AcpChildProcess {
   kill(): boolean
   /** Subscribes to process-level failures (spawn ENOENT, EPIPE…). */
   on(event: 'error', listener: (error: Error) => void): unknown
+  /** Optional exit subscription (`child.on('close', …)`); enables npm exit decoding. */
+  onExit?(listener: (code: number | null) => void): unknown
 }
 
 export interface AcpConnectOptions {
@@ -92,6 +97,7 @@ export class AcpConnection {
   #closed = false
   /** Last inbound byte timestamp — liveness signal for the stall watchdog. */
   #lastInboundAt = Date.now()
+  #exitCode: number | null = null
 
   launch: AcpLaunch
   initialize: AcpInitializeResult
@@ -139,6 +145,13 @@ export class AcpConnection {
               stdio: ['pipe', 'pipe', 'pipe'],
               windowsHide: true,
             })
+      if (options.spawn === undefined) {
+        // Adapt the real child_process surface to the exit hook.
+        const real = child as AcpChildProcess & { on: (e: string, l: unknown) => unknown }
+        real.onExit = (listener: (code: number | null) => void) => {
+          real.on('close', (code: unknown) => listener(typeof code === 'number' ? code : null))
+        }
+      }
     } catch (error) {
       throw new AcpConnectionError(`${launch.label} failed to spawn: ${describeAcpFailure(error)}`)
     }
@@ -155,6 +168,11 @@ export class AcpConnection {
     child.stderr.on('data', (chunk: string) => {
       if (connection.#stderrTail.length > 6) connection.#stderrTail.shift()
       connection.#stderrTail.push(chunk)
+    })
+
+    // Exit codes feed npm errno decoding in failure messages (comet #95).
+    child.onExit?.((code: number | null) => {
+      connection.#exitCode = code
     })
 
     // Spawn failures (missing binary, ENOENT) arrive asynchronously; without
@@ -190,7 +208,9 @@ export class AcpConnection {
       connection.kill()
       const message = error instanceof Error ? error.message : String(error)
       throw new AcpConnectionError(
-        `${launch.label} initialization failed: ${message}${connection.#tailReport()}`,
+        `${launch.label} initialization failed: ${message}` +
+          explainExitCode(connection.#exitCode, launch.viaNpx === true) +
+          connection.#tailReport(),
         error instanceof AcpConnectionError ? error.code : null,
       )
     }
@@ -220,7 +240,12 @@ export class AcpConnection {
   #watchExit(): void {
     this.#child.stdout.once('close', () => {
       this.#closed = true
-      this.#failAllPending(new AcpConnectionError(`${this.launch.label} exited mid-request`))
+      const exitDetail = explainExitCode(this.#exitCode, this.launch.viaNpx === true)
+      this.#failAllPending(
+        new AcpConnectionError(
+          `${this.launch.label} exited mid-request${exitDetail}${this.#tailReport()}`,
+        ),
+      )
     })
   }
 
