@@ -91,6 +91,16 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
       can never re-run as a follow-up turn; after a clean settle the engine dispatches the oldest
       queued message itself (renderer now only mirrors enqueued/dequeued events; previously a
       steered prompt executed twice and journal queues never drained)
+- [x] M20.13 Attention toast when an approval or question blocks while the window is hidden
+- [x] M20.14 Live plan panel: `.ari-todo.json` from todo_write renders as a collapsible checklist
+      pinned above the transcript (`plan.get` RPC; refreshes on settle)
+
+## M21 — Fleet/parallelism wave (Cline Kanban · Conductor · Nimbalyst research)
+
+- [ ] M21.1 Diff-line comments that attach to the composer as feedback for the session's next turn
+- [ ] M21.2 A/B race mode: run two providers on the same prompt in sibling worktrees, compare diffs
+- [ ] M21.3 Named run-script buttons per project (pnpm dev etc.) with captured output
+- [ ] M21.4 Ship flow: commit-and-open-PR action wired to the agent prompt path
 
 ## M16 — Provider system rework: ACP transport, live catalogs, update awareness
 
