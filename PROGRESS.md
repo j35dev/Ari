@@ -97,10 +97,11 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
 
 ## M21 — Fleet/parallelism wave (Cline Kanban · Conductor · Nimbalyst research)
 
-- [ ] M21.1 Diff-line comments that attach to the composer as feedback for the session's next turn
+- [x] M21.1 Diff-line comments that attach to the composer as feedback for the session's next turn
 - [ ] M21.2 A/B race mode: run two providers on the same prompt in sibling worktrees, compare diffs
-- [ ] M21.3 Named run-script buttons per project (pnpm dev etc.) with captured output
-- [ ] M21.4 Ship flow: commit-and-open-PR action wired to the agent prompt path
+- [x] M21.3 Named run-script buttons per project (pnpm dev etc.) with captured output
+- [x] M21.4 Ship flow: stage-all → commit → push in one action, then inline PR creation via `gh`
+      (`git.createPr` RPC; gh-missing and auth failures surface as actionable guidance)
 
 ## M16 — Provider system rework: ACP transport, live catalogs, update awareness
 
