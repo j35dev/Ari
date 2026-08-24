@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DiffViewer } from './DiffViewer'
 
 const DIFF = [
@@ -78,5 +78,46 @@ describe('DiffViewer', () => {
   it('shows an empty state for input without any diff', () => {
     render(<DiffViewer diffText="not a diff at all" />)
     expect(screen.getByText('No changes')).toBeInTheDocument()
+  })
+})
+
+describe('DiffViewer review notes (M21.1)', () => {
+  it('hides comment affordances without onLineComment', () => {
+    render(<DiffViewer diffText={DIFF} />)
+    expect(
+      screen.queryByRole('button', { name: /Comment on src\/app.ts/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('saves an inline note and reports path, line, and text', async () => {
+    const user = userEvent.setup()
+    const onLineComment = vi.fn()
+    render(<DiffViewer diffText={DIFF} onLineComment={onLineComment} />)
+
+    await user.click(screen.getAllByRole('button', { name: /Comment on src\/app.ts/ })[0]!)
+    const box = screen.getByLabelText(/Review note for/)
+    await user.type(box, 'extract this into a helper')
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+
+    expect(onLineComment).toHaveBeenCalledOnce()
+    expect(onLineComment).toHaveBeenCalledWith({
+      path: 'src/app.ts',
+      line: 1,
+      text: 'extract this into a helper',
+    })
+  })
+
+  it('does not save empty notes and cancel dismisses the editor', async () => {
+    const user = userEvent.setup()
+    const onLineComment = vi.fn()
+    render(<DiffViewer diffText={DIFF} onLineComment={onLineComment} />)
+
+    await user.click(screen.getAllByRole('button', { name: /Comment on src\/app.ts/ })[0]!)
+    await user.type(screen.getByLabelText(/Review note for/), '   ')
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    expect(onLineComment).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel note' }))
+    expect(screen.queryByLabelText(/Review note for/)).not.toBeInTheDocument()
   })
 })

@@ -33,6 +33,7 @@ export function TranscriptView({
   onRegenerate,
   regenerateDisabled = false,
   header,
+  onDiffComment,
 }: {
   sessionId: string
   messages: Message[]
@@ -47,6 +48,8 @@ export function TranscriptView({
   regenerateDisabled?: boolean
   /** Surface pinned above the transcript (plan panel); scrolls away with it. */
   header?: React.ReactNode
+  /** Review-note loop (M21.1): inline diff comments flow to the composer. */
+  onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -174,7 +177,7 @@ export function TranscriptView({
                 {row.kind === 'tool-group' ? (
                   <ToolActivityGroup row={row} />
                 ) : row.kind === 'turn-diff' ? (
-                  <TurnDiffCard turnId={row.turnId} diffText={row.diffText} />
+                  <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
                 ) : row.kind === 'markdown' ? (
                   row.role === 'user' ? (
                     <UserBubble text={row.text ?? ''} onEdit={onEditUserMessage} />
