@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { commandSchema } from './commands'
 import { driverKindSchema, permissionModeSchema } from './common'
+import type { Project } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema } from './settings'
 
@@ -141,7 +142,11 @@ export const rpcParams = {
   'terminal.kill': z.object({ id: z.string().min(1) }),
   'project.list': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
+  'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
+  'project.close': z.object({ id: z.string().min(1) }),
   'project.remove': z.object({ id: z.string().min(1) }),
+  'dialog.pickFolder': z.undefined(),
+  'shell.revealPath': z.object({ path: z.string().min(1) }),
   'files.index': z.object({ projectId: z.string().min(1) }),
   'search.content': z
     .object({
@@ -263,9 +268,14 @@ export interface RpcResults {
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }
   'terminal.kill': { killed: boolean }
-  'project.list': { id: string; name: string; path: string; colorIndex: number; createdAt: number }[]
-  'project.add': { id: string; name: string; path: string } | null
+  'project.list': Project[]
+  'project.add': Project
+  'project.open': Project
+  'project.close': Project | null
   'project.remove': { removed: boolean }
+  /** Native folder picker; `path` is null when the user cancels (clean no-op). */
+  'dialog.pickFolder': { path: string | null }
+  'shell.revealPath': { revealed: boolean }
   'files.index': { paths: string[] }
   'search.content': ContentSearchMatch[]
   'endpoints.list': {

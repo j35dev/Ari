@@ -14,8 +14,26 @@ vi.mock('../../lib/rpc', () => ({
 }))
 
 const SEED_PROJECTS: Project[] = [
-  { id: 'proj_1', name: 'Ari', path: 'C:\\code\\ari', colorIndex: 0, createdAt: 1 },
-  { id: 'proj_2', name: 'Website', path: 'C:\\code\\site', colorIndex: 1, createdAt: 2 },
+  {
+    id: 'proj_1',
+    name: 'Ari',
+    path: 'C:\\code\\ari',
+    colorIndex: 0,
+    createdAt: 1,
+    lastOpenedAt: 0,
+    open: true,
+    status: 'ok',
+  },
+  {
+    id: 'proj_2',
+    name: 'Website',
+    path: 'C:\\code\\site',
+    colorIndex: 1,
+    createdAt: 2,
+    lastOpenedAt: 0,
+    open: false,
+    status: 'ok',
+  },
 ]
 
 const ADDED_PATH = 'D:\\work\\demo'
@@ -25,6 +43,9 @@ const ADDED_PROJECT: Project = {
   path: ADDED_PATH,
   colorIndex: 2,
   createdAt: 3,
+  lastOpenedAt: 0,
+  open: false,
+  status: 'ok',
 }
 
 /**
@@ -46,7 +67,7 @@ function installRpc(overrides: {
         return listQueue.length > 0 ? (listQueue.shift() as Project[]) : SEED_PROJECTS
       case 'project.add':
         if ((params as { path?: string })?.path !== ADDED_PATH) throw new Error('bad path')
-        return { id: ADDED_PROJECT.id, name: ADDED_PROJECT.name, path: ADDED_PATH }
+        return ADDED_PROJECT
       case 'project.remove':
         return { removed: true }
       case 'scripts.list':
