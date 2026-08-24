@@ -4,6 +4,7 @@ import { ToastProvider } from '@ari/ui/toast'
 import {
   currentVisibility,
   installVisibilityGuard,
+  notifyNeedsAttention,
   notifySettled,
   useSettleNotify,
 } from './SettleNotification'
@@ -163,5 +164,42 @@ describe('useSettleNotify', () => {
 
     await act(async () => {})
     expect(screen.queryByText('Turn complete.')).not.toBeInTheDocument()
+  })
+})
+
+describe('notifyNeedsAttention', () => {
+  it('stays silent while the window is visible', () => {
+    stubVisibility('visible')
+    const toast = vi.fn()
+
+    expect(notifyNeedsAttention('Refactor', { toast, detail: 'bash approval' })).toBe(false)
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it('fires a warning toast with the blocking detail while hidden', () => {
+    stubVisibility('hidden')
+    const toast = vi.fn()
+
+    const fired = notifyNeedsAttention('Refactor', { toast, detail: 'bash approval' })
+
+    expect(fired).toBe(true)
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Refactor',
+      description: 'Waiting for you — bash approval',
+      tone: 'warning',
+    })
+  })
+
+  it('falls back to a generic description without detail', () => {
+    stubVisibility('hidden')
+    const toast = vi.fn()
+
+    notifyNeedsAttention('Refactor', { toast })
+
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Refactor',
+      description: 'Waiting for your approval.',
+      tone: 'warning',
+    })
   })
 })

@@ -3,6 +3,7 @@ export type { BootSplashProps } from './BootSplash'
 export {
   currentVisibility,
   installVisibilityGuard,
+  notifyNeedsAttention,
   notifySettled,
   useSettleNotify,
 } from './SettleNotification'
