@@ -1,22 +1,6 @@
 import { Kbd } from '@ari/ui/kbd'
 import { SettingsPage } from './SettingsPage'
-
-interface Shortcut {
-  /** Stable logical action id, shared with the future keybindings layer. */
-  id: string
-  /** Human-readable row label. */
-  label: string
-  /** Logical chord; `Mod` resolves to Ctrl or Cmd per platform at render time. */
-  chord: string
-}
-
-/** The app's logical shortcut map. Single source for this page and, later, the keybindings layer. */
-const SHORTCUTS = [
-  { id: 'TogglePalette', label: 'Toggle command palette', chord: 'Mod+K' },
-  { id: 'NewSession', label: 'New session', chord: 'Mod+N' },
-  { id: 'ClosePalette', label: 'Close palette', chord: 'Escape' },
-  { id: 'CycleTheme', label: 'Cycle theme', chord: 'Mod+Shift+T' },
-] as const satisfies readonly Shortcut[]
+import { APP_SHORTCUTS } from './shortcuts'
 
 function isApplePlatform(): boolean {
   return /mac|iphone|ipad|ipod/i.test(navigator.platform)
@@ -40,7 +24,7 @@ export function KeybindingsSettings() {
           Shortcuts
         </h2>
         <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
-          {SHORTCUTS.map((shortcut) => {
+          {APP_SHORTCUTS.map((shortcut) => {
             const keys = resolveChord(shortcut.chord)
             return (
               <li
