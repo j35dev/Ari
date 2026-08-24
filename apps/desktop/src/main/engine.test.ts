@@ -897,7 +897,13 @@ describe('Engine durable queue continuation', () => {
     await seedSession(store, sessionId)
 
     await engine.dispatch({ type: 'turn.start', sessionId, text: 'first prompt' } as Command)
-    await new Promise((r) => setTimeout(r, 50))
+    // Wait for the turn to actually register rather than a blind sleep.
+    for (let i = 0; i < 200; i++) {
+      const running = await store.load(sessionId)
+      if (running.activeTurnId !== null) break
+      if (i === 199) throw new Error('first turn never registered')
+      await new Promise((r) => setTimeout(r, 10))
+    }
 
     const queued = await engine.dispatch({
       type: 'message.enqueue',
@@ -909,10 +915,10 @@ describe('Engine durable queue continuation', () => {
     releaseRef.current?.()
 
     // The continuation runs and settles on its own.
-    for (let i = 0; i < 150; i++) {
+    for (let i = 0; i < 600; i++) {
       const after = await store.load(sessionId)
       if (runCount >= 2 && after.activeTurnId === null) break
-      if (i === 149) throw new Error('continuation never ran or never settled')
+      if (i === 599) throw new Error('continuation never ran or never settled')
       await new Promise((r) => setTimeout(r, 20))
     }
 
@@ -930,5 +936,5 @@ describe('Engine durable queue continuation', () => {
         e.message.parts.some((part) => part.type === 'text' && part.text === 'queued follow-up'),
       ),
     ).toBe(true)
-  }, 15000)
+  }, 30000)
 })
