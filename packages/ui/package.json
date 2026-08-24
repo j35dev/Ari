@@ -9,6 +9,8 @@
     "./fonts.css": "./src/fonts.css",
     "./scroll-area.css": "./src/scroll-area.css",
     "./theme-provider": "./src/theme-provider.tsx",
+    "./themes": "./src/themes.ts",
+    "./color": "./src/color.ts",
     "./motion": "./src/motion/index.ts",
     "./motion-provider": "./src/motion/MotionProvider.tsx",
     "./button": "./src/components/Button.tsx",

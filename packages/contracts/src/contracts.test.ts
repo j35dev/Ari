@@ -80,9 +80,11 @@ describe('contracts', () => {
 
   it('accepts empty and partial settings update patches, rejects bad fields', () => {
     expect(settingsUpdateSchema.parse({})).toEqual({})
-    expect(settingsUpdateSchema.parse({ appearance: { themeId: 'comet-glass' } })).toEqual({
-      appearance: { themeId: 'comet-glass' },
+    expect(settingsUpdateSchema.parse({ appearance: { themeId: 'nocturne' } })).toEqual({
+      appearance: { themeId: 'nocturne' },
     })
+    // Patches carry no legacy migration; only settingsSchema rewrites 'comet-glass'.
+    expect(settingsUpdateSchema.safeParse({ appearance: { themeId: 'comet-glass' } }).success).toBe(false)
     expect(
       settingsUpdateSchema.parse({ window: { x: 0, y: 0, width: 100, height: 100, maximized: true } }).window
         ?.maximized,

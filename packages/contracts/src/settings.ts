@@ -1,16 +1,50 @@
 import { z } from 'zod'
 import { driverKindSchema, permissionModeSchema } from './common'
 
+/**
+ * Theme identifiers. Mirrors `themeIds` in packages/ui/src/themes.ts, which
+ * owns the palettes; contracts keeps its own literal list so the engine never
+ * depends on the React UI package.
+ */
+export const themeIdSchema = z.enum([
+  'obsidian',
+  'graphite',
+  'nocturne',
+  'verdant',
+  'porcelain',
+  'sandstone',
+])
+export type ThemeIdSetting = z.infer<typeof themeIdSchema>
+
+/** Either an explicit theme or 'system' (follow the OS color scheme). */
+export const themeModeSchema = z.union([z.literal('system'), themeIdSchema])
+export type ThemeMode = z.infer<typeof themeModeSchema>
+
+const defaultAppearance = {
+  themeId: 'obsidian',
+  mode: 'system',
+  glass: true,
+  reducedMotion: false,
+} as const
+
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
   version: z.literal(1),
   appearance: z
     .object({
-      /** Legacy field from the multi-theme era; Ari is dark-glass only now. */
-      themeId: z.string().default('comet-glass'),
-      reducedMotion: z.boolean().default(false),
+      /** Theme resolved and applied on last run; the paint source before boot. */
+      themeId: z.preprocess(
+        // Pre-M16 files stored 'comet-glass'; map anything unknown to the default.
+        (v) => (themeIdSchema.safeParse(v).success ? v : defaultAppearance.themeId),
+        themeIdSchema,
+      ).default(defaultAppearance.themeId),
+      /** User's selection: 'system' tracks the OS, otherwise a pinned theme. */
+      mode: themeModeSchema.default(defaultAppearance.mode),
+      /** Opt-in translucent chrome; only honored by glass-capable themes. */
+      glass: z.boolean().default(defaultAppearance.glass),
+      reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
     })
-    .default({ themeId: 'comet-glass', reducedMotion: false }),
+    .default(defaultAppearance),
   sessions: z
     .object({
       defaultDriverKind: driverKindSchema.nullable().default(null),
@@ -45,7 +79,9 @@ export type Settings = z.infer<typeof settingsSchema>
 export const settingsUpdateSchema = z.object({
   appearance: z
     .object({
-      themeId: z.string(),
+      themeId: themeIdSchema,
+      mode: themeModeSchema,
+      glass: z.boolean(),
       reducedMotion: z.boolean(),
     })
     .partial()
@@ -78,7 +114,7 @@ export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'comet-glass', reducedMotion: false },
+  appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,

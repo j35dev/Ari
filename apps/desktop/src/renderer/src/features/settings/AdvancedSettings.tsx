@@ -98,7 +98,7 @@ export function AdvancedSettings() {
   const exportDiagnostics = () => {
     downloadJson(
       JSON.stringify(
-        collectDiagnostics(document.documentElement.dataset['ari'] ?? 'comet-glass'),
+        collectDiagnostics(document.documentElement.dataset['ariTheme'] ?? 'obsidian'),
         null,
         2,
       ),
