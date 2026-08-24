@@ -1,23 +1,81 @@
 import { join } from 'node:path'
 import { BrowserWindow, nativeTheme } from 'electron'
+import { oklchToHex } from '@ari/ui/color'
+import { themeOf } from '@ari/ui/themes'
+import type { Theme } from '@ari/ui/themes'
 import { getSettingsStore } from './store'
 
 /**
  * Platform chrome strategy (PLAN §8):
  *  - Windows: hidden frame + native titleBarOverlay (snap/max/min preserved),
- *    backgroundMaterial 'acrylic' so the glass chrome shows the desktop
- *  - macOS:   hiddenInset traffic lights + vibrancy 'under-window'
+ *    backgroundMaterial 'acrylic' when the active theme opts into glass
+ *  - macOS:   hiddenInset traffic lights + vibrancy 'under-window' (glass only)
  *  - Linux:   hidden frame; custom controls ship in the renderer titlebar;
- *    transparent window over the desktop (compositor blur not guaranteed)
+ *    transparent window for glass themes (compositor blur not guaranteed)
+ *
+ * Opaque themes get a solid `backgroundColor` from their own `bg` token, so a
+ * light theme never flashes black before the renderer paints.
  *
  * Window bounds persist across launches via the settings store.
  */
 
-/** Overlay symbol color matching --ari-fg (comet neutral-200). */
-const OVERLAY_SYMBOL = '#eaeaea'
+/** Fallback chrome colors if a token ever fails to parse. */
+const FALLBACK_BG = '#171717'
+const FALLBACK_SYMBOL = '#eaeaea'
+
+export interface ThemeWindowChrome {
+  backgroundColor: string
+  symbolColor: string
+  transparent?: true
+  backgroundMaterial?: 'acrylic'
+  vibrancy?: 'under-window'
+  visualEffectState?: 'active'
+}
+
+/**
+ * Native window options derived from a theme. Glass themes request the
+ * platform's translucency and a fully transparent backdrop; opaque themes get
+ * the theme's own background so the first frame matches the UI.
+ */
+export function themeWindowChrome(
+  theme: Theme,
+  platform: NodeJS.Platform = process.platform,
+): ThemeWindowChrome {
+  const symbolColor = oklchToHex(theme.colors.fg) ?? FALLBACK_SYMBOL
+  if (!theme.glass) {
+    return { backgroundColor: oklchToHex(theme.colors.bg) ?? FALLBACK_BG, symbolColor }
+  }
+  const translucent =
+    platform === 'win32'
+      ? { backgroundMaterial: 'acrylic' as const }
+      : platform === 'darwin'
+        ? { vibrancy: 'under-window' as const, visualEffectState: 'active' as const }
+        : { transparent: true as const }
+  return { backgroundColor: '#00000000', symbolColor, ...translucent }
+}
+
+/** The theme the window should paint, per persisted settings. */
+export function persistedTheme(): Theme {
+  return themeOf(getSettingsStore().current.appearance.themeId)
+}
+
+/**
+ * Repaints native chrome for a live theme change: the Windows overlay symbol
+ * color and the OS-level light/dark hint. Window material cannot change after
+ * creation, so glass transitions land on the next launch.
+ */
+export function applyThemeToWindow(win: BrowserWindow, theme: Theme): void {
+  const chrome = themeWindowChrome(theme)
+  nativeTheme.themeSource = theme.scheme
+  if (process.platform === 'win32' && !win.isDestroyed()) {
+    win.setTitleBarOverlay({ color: '#00000000', symbolColor: chrome.symbolColor, height: 38 })
+  }
+}
 
 export function createMainWindow(): BrowserWindow {
   const settings = getSettingsStore().current.window
+  const theme = persistedTheme()
+  const chrome = themeWindowChrome(theme)
 
   const win = new BrowserWindow({
     width: settings?.width ?? 1280,
@@ -27,20 +85,21 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#00000000',
+    backgroundColor: chrome.backgroundColor,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay:
       process.platform === 'win32'
-        ? { color: '#00000000', symbolColor: OVERLAY_SYMBOL, height: 38 }
+        ? { color: '#00000000', symbolColor: chrome.symbolColor, height: 38 }
         : false,
     // Glass: the desktop shows through the shell chrome. Windows gets DWM
     // acrylic; macOS gets native vibrancy; Linux composites its own blur via
-    // CSS backdrop-filter inside a transparent window.
-    ...(process.platform === 'win32'
-      ? { backgroundMaterial: 'acrylic' as const }
-      : process.platform === 'darwin'
-        ? { vibrancy: 'under-window' as const, visualEffectState: 'active' as const }
-        : { transparent: true }),
+    // CSS backdrop-filter inside a transparent window. Opaque themes skip all
+    // three and render on the solid backgroundColor above.
+    ...(chrome.backgroundMaterial ? { backgroundMaterial: chrome.backgroundMaterial } : {}),
+    ...(chrome.vibrancy
+      ? { vibrancy: chrome.vibrancy, visualEffectState: chrome.visualEffectState }
+      : {}),
+    ...(chrome.transparent ? { transparent: true } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: true,
@@ -50,9 +109,7 @@ export function createMainWindow(): BrowserWindow {
     },
   })
 
-  if (process.platform === 'win32') {
-    nativeTheme.themeSource = 'dark'
-  }
+  nativeTheme.themeSource = theme.scheme
 
   if (settings?.maximized) win.maximize()
 

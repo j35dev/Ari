@@ -18,7 +18,9 @@ describe('SettingsStore', () => {
   it('creates defaults on first load', async () => {
     const store = new SettingsStore({ dir })
     const settings = await store.load()
-    expect(settings.appearance.themeId).toBe('comet-glass')
+    expect(settings.appearance.themeId).toBe('obsidian')
+    expect(settings.appearance.mode).toBe('system')
+    expect(settings.appearance.glass).toBe(true)
     expect(settings.sessions.defaultPermissionMode).toBe('ask')
     const raw: unknown = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))
     expect((raw as { version: number }).version).toBe(1)
@@ -27,14 +29,15 @@ describe('SettingsStore', () => {
   it('updates sections with merge semantics and persists atomically', async () => {
     const store = new SettingsStore({ dir })
     await store.load()
-    const next = await store.update({ appearance: { themeId: 'ember' } })
-    expect(next.appearance.themeId).toBe('ember')
+    const next = await store.update({ appearance: { themeId: 'nocturne', mode: 'nocturne' } })
+    expect(next.appearance.themeId).toBe('nocturne')
     expect(next.appearance.reducedMotion).toBe(false)
-    expect(store.current.appearance.themeId).toBe('ember')
+    expect(store.current.appearance.themeId).toBe('nocturne')
 
     const reloaded = new SettingsStore({ dir })
     const persisted = await reloaded.load()
-    expect(persisted.appearance.themeId).toBe('ember')
+    expect(persisted.appearance.themeId).toBe('nocturne')
+    expect(persisted.appearance.mode).toBe('nocturne')
   })
 
   it('falls back to defaults on corrupt file', async () => {
@@ -43,7 +46,19 @@ describe('SettingsStore', () => {
     const store = new SettingsStore({ dir })
     const settings = await store.load()
     expect(settings).toEqual(await new SettingsStore({ dir }).load())
-    expect(settings.appearance.themeId).toBe('comet-glass')
+    expect(settings.appearance.themeId).toBe('obsidian')
+  })
+
+  it('migrates the pre-M16 single-appearance themeId to the default theme', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, appearance: { themeId: 'comet-glass', reducedMotion: true } }),
+      'utf8',
+    )
+    const settings = await new SettingsStore({ dir }).load()
+    expect(settings.appearance.themeId).toBe('obsidian')
+    expect(settings.appearance.reducedMotion).toBe(true)
   })
 
   it('drops unknown fields via schema validation', async () => {

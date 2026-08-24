@@ -23,7 +23,7 @@ vi.mock('../../lib/rpc', () => ({
 
 const engineSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'comet-glass', reducedMotion: false },
+  appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,

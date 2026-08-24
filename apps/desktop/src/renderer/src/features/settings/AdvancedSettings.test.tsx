@@ -16,7 +16,7 @@ vi.mock('./useEngineSettings', () => ({
 
 const engineSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'comet-glass', reducedMotion: false },
+  appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: ['git status'] },
   window: null,
@@ -61,7 +61,7 @@ describe('AdvancedSettings', () => {
     expect(bundle).toEqual({
       appVersion: '0.1.0',
       userAgent: navigator.userAgent,
-      appearance: 'comet-glass',
+      appearance: 'obsidian',
     })
   })
 

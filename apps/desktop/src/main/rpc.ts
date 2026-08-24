@@ -20,6 +20,8 @@ import { createPullRequest } from './gh-pr'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles } from './watcher-bridge'
+import { applyThemeToWindow } from './window'
+import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
@@ -409,6 +411,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { done: true }
   })
 
+  // Live theme change: repaint native chrome (Windows overlay symbols + the OS
+  // light/dark hint). Window material is fixed at creation, so a glass <-> opaque
+  // switch only takes full effect on the next launch.
+  r.register('theme.apply', (params) => {
+    const win = BrowserWindow.fromWebContents(contents)
+    if (!win) return { applied: false }
+    applyThemeToWindow(win, themeOf(params.themeId))
+    return { applied: true }
+  })
+
   r.register('terminal.create', async (params) => {
     // Await the guarded loader so a slow native import delays creation instead
     // of failing it; a hard load failure becomes a descriptive error.
@@ -760,6 +772,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'window.minimize',
     'window.toggleMaximize',
     'window.close',
+    'theme.apply',
     'terminal.create',
     'terminal.write',
     'terminal.resize',

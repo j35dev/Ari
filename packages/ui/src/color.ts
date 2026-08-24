@@ -64,6 +64,30 @@ export function toLinearSrgb(color: Oklch): [number, number, number] {
   return [clamp01(r), clamp01(g), clamp01(b)]
 }
 
+const HEX = (n: number): string =>
+  Math.round(clamp01(n) * 255)
+    .toString(16)
+    .padStart(2, '0')
+
+/** sRGB gamma transfer (linear → encoded). */
+function encodeSrgb(channel: number): number {
+  return channel <= 0.0031308 ? channel * 12.92 : 1.055 * Math.pow(channel, 1 / 2.4) - 0.055
+}
+
+/**
+ * Converts an `oklch(...)` literal to `#rrggbb`. Electron's `backgroundColor`
+ * and `titleBarOverlay.symbolColor` only accept hex, so theme colors have to
+ * be flattened before they cross into the main process. Alpha is dropped: the
+ * window backdrop must be opaque for non-glass themes.
+ * Returns null when the literal cannot be parsed.
+ */
+export function oklchToHex(value: string): string | null {
+  const color = parseOklch(value)
+  if (!color) return null
+  const [r, g, b] = toLinearSrgb(color)
+  return `#${HEX(encodeSrgb(r))}${HEX(encodeSrgb(g))}${HEX(encodeSrgb(b))}`
+}
+
 /** WCAG 2.x relative luminance of an oklch color (alpha ignored). */
 export function relativeLuminance(color: Oklch): number {
   const [r, g, b] = toLinearSrgb(color)
