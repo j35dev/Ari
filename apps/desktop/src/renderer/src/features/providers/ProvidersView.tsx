@@ -45,10 +45,11 @@ interface ProviderCardProps {
   running: ReturnType<typeof useProviderInstalls>['installs'][DriverKind]
   onInstall: (detection: Detection) => void
   onUpdate: (detection: Detection) => void
+  onRecheck: () => void
   onCancel: (kind: DriverKind) => void
 }
 
-function ProviderCard({ detection, running, onInstall, onUpdate, onCancel }: ProviderCardProps) {
+function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCancel }: ProviderCardProps) {
   const isCore = detection.kind === 'ari-core'
   const auth = authBadgeFor(isCore ? 'authenticated' : detection.authStatus)
   const badge = <Badge tone={auth.tone}>{auth.label}</Badge>
@@ -106,7 +107,7 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onCancel }: Pro
               Cancel
             </Button>
           ) : (
-            <Button size="sm" variant="ghost" onClick={() => onUpdate(detection)} disabled={detection.binaryPath === null}>
+            <Button size="sm" variant="ghost" onClick={onRecheck} disabled={detection.binaryPath === null}>
               Re-check
             </Button>
           )}
@@ -222,6 +223,7 @@ export function ProvidersView() {
               running={installs[detection.kind as DriverKind]}
               onInstall={(d) => void beginAction(d, 'install')}
               onUpdate={(d) => void beginAction(d, d.installed && d.updateAvailable === true ? 'upgrade' : 'install')}
+              onRecheck={() => void scan()}
               onCancel={(kind) => void cancel(kind)}
             />
           ))}
