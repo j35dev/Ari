@@ -1,14 +1,29 @@
 import { useEffect, useState } from 'react'
+import { Folder, Gauge, GitPullRequest, Settings, TerminalSquare } from 'lucide-react'
 import { rpc } from '../lib/rpc'
+import type { SidebarNavId } from './Sidebar'
+
+const TITLEBAR_TOOLS: { id: Exclude<SidebarNavId, 'session'>; label: string; icon: typeof Folder }[] = [
+  { id: 'changes', label: 'Changes', icon: GitPullRequest },
+  { id: 'files', label: 'Files', icon: Folder },
+  { id: 'usage', label: 'Usage', icon: Gauge },
+  { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+  { id: 'settings', label: 'Settings', icon: Settings },
+]
 
 /**
- * Custom titlebar, comet-glass style: the bar is a transparent drag strip
- * over the acrylic backdrop (no plate of its own) with a hairline only when
- * it needs to separate from scrolled content. Windows uses native overlay
- * buttons (titleBarOverlay); macOS traffic lights are inset-natively; Linux
- * needs our own controls.
+ * Custom titlebar: drag strip plus compact workspace tools. Tools live here
+ * so the session sidebar stays a session list, not a second nav.
  */
-export function Titlebar({ projectLabel }: { projectLabel: string }) {
+export function Titlebar({
+  projectLabel,
+  activeTool,
+  onSelectTool,
+}: {
+  projectLabel: string
+  activeTool?: SidebarNavId | null
+  onSelectTool?: (id: SidebarNavId) => void
+}) {
   const [platform, setPlatform] = useState<'win32' | 'darwin' | 'linux' | 'other'>('other')
   const [maximized, setMaximized] = useState(false)
 
@@ -35,6 +50,36 @@ export function Titlebar({ projectLabel }: { projectLabel: string }) {
       </div>
 
       <div className="flex-1" />
+
+      {onSelectTool ? (
+        <nav
+          aria-label="Workspace"
+          className="flex items-center gap-0.5 pr-2"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {TITLEBAR_TOOLS.map((item) => {
+            const Icon = item.icon
+            const selected = item.id === activeTool
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={item.label}
+                aria-pressed={selected}
+                title={item.label}
+                onClick={() => onSelectTool(item.id)}
+                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                  selected
+                    ? 'bg-accent-subtle text-accent'
+                    : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
+                }`}
+              >
+                <Icon size={14} strokeWidth={1.8} aria-hidden />
+              </button>
+            )
+          })}
+        </nav>
+      ) : null}
 
       {platform === 'linux' ? (
         <div

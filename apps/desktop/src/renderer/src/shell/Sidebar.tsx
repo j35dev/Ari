@@ -5,26 +5,19 @@ import {
   ArchiveRestore,
   Check,
   ChevronRight,
-  Folder,
   FolderGit2,
   FolderOpen,
   FolderPlus,
   FolderX,
-  Gauge,
-  GitPullRequest,
-PanelLeftClose,
-  MessageSquare,
+  PanelLeftClose,
   Pencil,
   Pin,
   PinOff,
   Plus,
   Search,
-  Settings,
-  TerminalSquare,
   Trash2,
   X,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import {
@@ -676,54 +669,4 @@ export type SidebarNavId =
   | 'files'
   | 'usage'
 
-const SIDEBAR_NAV: { id: SidebarNavId; label: string; icon: LucideIcon }[] = [
-  { id: 'session', label: 'Sessions', icon: MessageSquare },
-  { id: 'changes', label: 'Changes', icon: GitPullRequest },
-  { id: 'files', label: 'Files', icon: Folder },
-  { id: 'usage', label: 'Usage', icon: Gauge },
-  { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
-  { id: 'settings', label: 'Settings', icon: Settings },
-]
 
-/**
- * Labeled tool list at the bottom of the sessions sidebar — icon + text rows
- * instead of bare icon buttons, so each destination reads at a glance.
- * Settings swaps the sidebar for a section list; the other targets toggle a
- * right inspector.
- */
-export function SidebarFooter({
-  active,
-  onSelect,
-}: {
-  active: SidebarNavId | null
-  onSelect: (id: SidebarNavId) => void
-}) {
-  return (
-    <nav
-      aria-label="Workspace"
-      className="flex shrink-0 flex-col gap-0.5 border-t border-border px-2 py-2"
-    >
-      {SIDEBAR_NAV.map((item) => {
-        const Icon = item.icon
-        const selected = item.id === active
-        return (
-          <button
-            key={item.id}
-            type="button"
-            aria-label={item.label}
-            aria-pressed={selected}
-            onClick={() => onSelect(item.id)}
-            className={`flex h-7 items-center gap-2.5 rounded-md px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-              selected
-                ? 'bg-accent-subtle text-accent'
-                : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
-            }`}
-          >
-            <Icon size={15} strokeWidth={1.8} aria-hidden className="shrink-0" />
-            <span className="truncate text-xs font-medium">{item.label}</span>
-          </button>
-        )
-      })}
-    </nav>
-  )
-}
