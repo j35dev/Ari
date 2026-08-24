@@ -407,6 +407,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M23.8 ACP steering: ACP has no mid-turn injection method (verified against agentclientprotocol.com v2 prompt-lifecycle), so the adapter now accepts `steer` and chains the text as the next `session/prompt` at the turn boundary inside one continuous stream instead of omitting steer entirely; texts lost to transport failure surface as an error event naming them
 - [x] M23.9 Wire-boundary parsing: the `as unknown as` cast at `acp/protocol.ts` replaced with zod validation (`acpToolCallContentSchema`, fail-soft via `.catch([])`); provider mappers audited — all already parse defensively into surfaced error events
 - [x] M23.16 UX polish: workspace tools moved from the session sidebar into the titlebar so the sidebar is sessions-only; collapse hides the sidebar completely with a restore button in the session header; Windows install spawn uses `buildCmdSpawnArgs` instead of extra-quoted argv (the `Unknown command: ""install""` bug); Update runs immediately without dumping npm logs; update toasts carry an in-place Update action; model picker uses live catalogs only; thinking glyph lives in the transcript; Usage auto-runs ccusage; separate Effort chip beside permission
+- [x] M23.17 Usage dashboard: ccusage runs with `--json` and renders a hero cost / sparkline / totals / model breakdown instead of a log dump; session rows open the chat; project hover actions no longer overlay the name; picker ignores models.dev cache/snapshot dumps
 
 ## Stretch backlog (post-V1, unplanned)
 

@@ -460,7 +460,13 @@ function Shell() {
             <div className="min-h-0 flex-1">
               {fullPage === 'usage' ? (
                 <ErrorBoundary label="Usage">
-                  <UsagePage />
+                  <UsagePage
+                    onOpenSession={(sessionId) => {
+                      setActiveSessionId(sessionId)
+                      setFullPage(null)
+                      setInspector(null)
+                    }}
+                  />
                 </ErrorBoundary>
               ) : (
                 <ErrorBoundary label="Changes">
