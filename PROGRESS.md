@@ -393,10 +393,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M14.5 `pnpm dist` pipeline + artifact smoke checklist doc (`scripts/dist.md`: exact per-platform electron-builder commands, artifact table, 4-step smoke checklist; raw `npx` commands until a root `dist` script lands)
 - [x] M14.6 Auto-update scaffolding (electron-updater, disabled by default) + README/docs final pass
 
-## M16 - V3 overhaul
+## M23 - V3 overhaul
 
-- [x] M16.1 Split provider install state from auth state: `Detection.installed` + `authReason` (contracts + detector), a missing binary is `installed:false` / `authStatus:'unknown'` instead of the old false `'unauthenticated'`; real read-only auth probes for grok/pi/hermes with `XAI_API_KEY` / `PI_CODING_AGENT_DIR` / `HERMES_HOME` overrides; pure `package-manager.ts` mapping binary path + kind to argv install/upgrade commands
-- [ ] M16.2 Install/update execution + UI: `install.ts` runner (single-flight, timeout, tail-capped output, mandatory re-detect), progress RPC/stream pair, ProvidersView card rebuild with confirm-before-run, dismissible update toast
+- [x] M23.1 Split provider install state from auth state: `Detection.installed` + `authReason` (contracts + detector), a missing binary is `installed:false` / `authStatus:'unknown'` instead of the old false `'unauthenticated'`; real read-only auth probes for grok/pi/hermes with `XAI_API_KEY` / `PI_CODING_AGENT_DIR` / `HERMES_HOME` overrides; pure `package-manager.ts` mapping binary path + kind to argv install/upgrade commands
+- [ ] M23.2 Install/update execution + UI: `install.ts` runner (single-flight, timeout, tail-capped output, mandatory re-detect), progress RPC/stream pair, ProvidersView card rebuild with confirm-before-run, dismissible update toast
 
 ## Stretch backlog (post-V1, unplanned)
 
