@@ -580,12 +580,14 @@ export function SessionView({
       ) : null}
       {approvals.length > 0 ? (
         <div className="ari-glass-overlay max-h-56 space-y-2 overflow-y-auto border-t border-border p-3">
-          {approvals.map((a) => (
+          {approvals.map((a, i) => (
             <ApprovalCard
               key={a.approvalId}
               approvalId={a.approvalId}
               toolName={a.toolName}
               summaryJson={a.summaryJson}
+              position={i + 1}
+              total={approvals.length}
               onRespond={(decision) =>
                 respondApproval(
                   a.approvalId,
