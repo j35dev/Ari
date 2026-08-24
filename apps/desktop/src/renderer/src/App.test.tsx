@@ -2,8 +2,9 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
+import { fireEvent } from '@testing-library/react'
 import { useToast } from '@ari/ui/toast'
-import { BranchChip, AppProviders } from './App'
+import { BranchChip, AppProviders, App } from './App'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -93,5 +94,109 @@ describe('BranchChip', () => {
     })
 
     expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+  })
+})
+
+describe('Shell session navigation keys', () => {
+  const NOW = Date.now()
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: 'C:\\Users\\tester' }
+        case 'session.list':
+          return [
+            {
+              id: 'sess-alpha',
+              projectId: 'adhoc',
+              title: 'Alpha',
+              updatedAt: NOW - 60_000,
+              messageCount: 1,
+            },
+            {
+              id: 'sess-beta',
+              projectId: 'adhoc',
+              title: 'Beta',
+              updatedAt: NOW - 120_000,
+              messageCount: 1,
+            },
+          ]
+        case 'project.list':
+          return []
+        case 'providers.detect':
+          return []
+        case 'providers.models':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        case 'endpoints.list':
+          return []
+        case 'session.load':
+          return { session: null, activeTurnId: null }
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+  })
+
+  it('Mod+2 opens the second session in sidebar order', async () => {
+    render(<App />)
+    await screen.findByText('Alpha')
+
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true })
+
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+    })
+  })
+
+  it('Ctrl+Tab cycles forward through sessions and wraps', async () => {
+    render(<App />)
+    await screen.findByText('Alpha')
+
+    fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true })
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' })
+    })
+
+    fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true })
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+    })
+  })
+
+  it('Ctrl+Shift+Tab cycles backward', async () => {
+    render(<App />)
+    await screen.findByText('Alpha')
+
+    fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true, shiftKey: true })
+    // Wraps from "nothing active" to the last row.
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+    })
+  })
+
+  it('Mod+N creates a new session via the reuse path', async () => {
+    render(<App />)
+    await screen.findByText('Alpha')
+
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
+
+    // Reuses the pristine adhoc session or creates one; either way the
+    // command path runs.
+    await vi.waitFor(() => {
+      const created = invokeMock.mock.calls.some(
+        ([method]) => method === 'session.create',
+      )
+      const reused = invokeMock.mock.calls.some(
+        ([method, params]) =>
+          method === 'session.load' &&
+          (params as { sessionId?: string } | undefined)?.sessionId !== undefined,
+      )
+      expect(created || reused).toBe(true)
+    })
   })
 })

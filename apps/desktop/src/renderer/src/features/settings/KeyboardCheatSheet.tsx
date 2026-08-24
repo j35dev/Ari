@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Dialog } from '@ari/ui/dialog'
 import { Kbd } from '@ari/ui/kbd'
 import { resolveChord } from './KeybindingsSettings'
+import { APP_SHORTCUTS } from './shortcuts'
 
 interface CheatShortcut {
   /** Stable logical action id, shared with the future keybindings layer. */
@@ -15,20 +16,18 @@ interface CheatShortcut {
 }
 
 /**
- * The complete logical keyboard map (M13.6) — a superset of the read-only
- * Keybindings table covering composer, approval, and question-panel chords.
+ * The complete logical keyboard map (M13.6): the shared global shortcuts
+ * (single source in shortcuts.ts) plus context-local chords for the composer,
+ * approvals, and question panel.
  */
-const CHEAT_SHEET_SHORTCUTS = [
-  { id: 'TogglePalette', label: 'Toggle command palette', chord: 'Mod+K' },
-  { id: 'NewSession', label: 'New session', chord: 'Mod+N' },
-  { id: 'CycleTheme', label: 'Cycle theme', chord: 'Mod+Shift+T' },
-  { id: 'CloseOverlay', label: 'Close palette or dialog', chord: 'Escape' },
+const CHEAT_SHEET_SHORTCUTS: readonly CheatShortcut[] = [
+  ...APP_SHORTCUTS,
   { id: 'OpenCheatSheet', label: 'Open this cheat sheet', chord: '?' },
   { id: 'SendTurn', label: 'Send message', chord: 'Enter' },
   { id: 'InsertNewline', label: 'New line in composer', chord: 'Shift+Enter' },
   { id: 'AnswerApproval', label: 'Answer an approval card', keys: ['Y', 'A', 'N'] },
   { id: 'PickQuestionOption', label: 'Pick a question option', keys: ['1–9'] },
-] as const satisfies readonly CheatShortcut[]
+]
 
 function shortcutKeys(shortcut: CheatShortcut): readonly string[] {
   return shortcut.keys ?? resolveChord(shortcut.chord ?? '')
