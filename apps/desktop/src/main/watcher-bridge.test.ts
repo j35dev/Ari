@@ -7,6 +7,7 @@ import {
   ensureProjectWatched,
   getIndexedFiles,
   getWatcher,
+  stopWatchingProject,
 } from './watcher-bridge'
 
 let dir: string
@@ -45,6 +46,32 @@ describe('watcher bridge', () => {
     await closeAllWatchers()
     expect(watcher.rootCount).toBe(0)
     expect(getWatcher(dir)).not.toBe(watcher)
+  })
+
+  it('stops one project without touching the others', async () => {
+    const other = join(dir, 'other')
+    await mkdir(other, { recursive: true })
+    const stopped = getWatcher(dir)
+    const kept = getWatcher(other)
+
+    await stopWatchingProject(dir, 'p1')
+    expect(stopped.rootCount).toBe(0)
+    // The next watch request starts fresh instead of reusing the closed one.
+    expect(getWatcher(dir)).not.toBe(stopped)
+    expect(kept.rootCount).toBe(1)
+    expect(getWatcher(other)).toBe(kept)
+  })
+
+  it('drops the file index of a removed project', async () => {
+    await ensureProjectWatched({ id: 'p2', path: dir }, { debounceMs: 25 })
+    expect(getIndexedFiles('p2')).not.toBeNull()
+
+    await stopWatchingProject(dir, 'p2')
+    expect(getIndexedFiles('p2')).toBeNull()
+  })
+
+  it('is a no-op for a path that was never watched', async () => {
+    await expect(stopWatchingProject(join(dir, 'never-watched'), 'nope')).resolves.toBeUndefined()
   })
 
   it('builds the file index for a project and is idempotent per id', async () => {

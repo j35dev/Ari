@@ -74,8 +74,23 @@ export async function ensureProjectWatched(
 }
 
 /** Indexed workspace-relative paths for a project, or null if none built. */
+/** Indexed workspace-relative paths for a project, or null if none built. */
 export function getIndexedFiles(projectId: string): string[] | null {
   return indexes.get(projectId)?.paths() ?? null
+}
+
+/**
+ * Drops a removed project's file index and stops its watcher. Without this
+ * the folder keeps being watched and indexed for the rest of the process.
+ * Idempotent; safe when nothing was ever watching.
+ */
+export async function stopWatchingProject(projectPath: string, projectId?: string): Promise<void> {
+  if (projectId) indexes.delete(projectId)
+  const watcher = watchers.get(keyFor(projectPath))
+  if (!watcher) return
+  watchers.delete(keyFor(projectPath))
+  await watcher.close()
+  log.info('workspace watcher stopped', { projectPath })
 }
 
 /** Shuts down every project watcher and clears all indexes. Idempotent. */

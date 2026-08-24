@@ -512,11 +512,14 @@ export function SessionsUnderProjects({
   onTogglePin,
   onToggleArchive,
   onOpenProject,
+  knownProjectNames,
   ...actions
 }: SessionRowHandlers &
   ProjectActions & {
     sessions: SessionSummary[]
     projects: SidebarProject[]
+    /** Every known project (open or not), so archived/search rows keep their origin chip. */
+    knownProjectNames?: { id: string; name: string }[]
     /** Opens the native folder picker; a cancel is a silent no-op. */
     onOpenProject?: () => void
   }) {
@@ -533,10 +536,10 @@ export function SessionsUnderProjects({
   }
 
   const projectNameOf = useMemo(() => {
-    const byId = new Map(projects.map((p) => [p.id, p.name]))
+    const byId = new Map((knownProjectNames ?? projects).map((p) => [p.id, p.name]))
     return (projectId: string): string | null =>
       projectId === UNFILED_GROUP_ID ? null : (byId.get(projectId) ?? null)
-  }, [projects])
+  }, [projects, knownProjectNames])
 
   // Same grouping the keyboard traversal walks (sidebarOrder flattens it).
   const groups = useMemo(() => sidebarGroups(sessions, projects), [sessions, projects])

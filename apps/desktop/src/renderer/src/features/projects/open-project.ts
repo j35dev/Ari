@@ -6,8 +6,8 @@ import { rpc } from '../../lib/rpc'
  * cancelled picker resolves to null so callers stay a clean no-op (no error,
  * no state churn).
  */
-export async function openProjectViaPicker(): Promise<Project | null> {
-  const { path } = await rpc.invoke('dialog.pickFolder')
+export async function openProjectViaPicker(defaultPath?: string): Promise<Project | null> {
+  const { path } = await rpc.invoke('dialog.pickFolder', { defaultPath })
   if (path === null) return null
   return rpc.invoke('project.open', { path })
 }
