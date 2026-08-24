@@ -16,6 +16,7 @@ import { RpcRegistry } from './rpc-registry'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
+import { createPullRequest } from './gh-pr'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles } from './watcher-bridge'
@@ -572,6 +573,22 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('git.push', async (params) =>
     performGitAction(params.path, () => gitPush(params.path, params.remote)),
   )
+
+  // Ship flow (M21.4): open a PR through the GitHub CLI.
+  r.register('git.createPr', async (params) => {
+    const info = await stat(params.path).catch(() => null)
+    if (info === null || !info.isDirectory()) {
+      return { ok: false, url: null, error: 'path must be an existing project directory' }
+    }
+    const result = await createPullRequest(params.path, {
+      title: params.title,
+      ...(params.body !== undefined ? { body: params.body } : {}),
+      ...(params.base !== undefined ? { base: params.base } : {}),
+    })
+    return result.ok
+      ? { ok: true, url: result.value.length > 0 ? result.value : null }
+      : { ok: false, url: null, error: result.error.message }
+  })
 
   r.register('fs.list', async (params) => {
     // Path jail: the caller passes an absolute directory; it must exist and
