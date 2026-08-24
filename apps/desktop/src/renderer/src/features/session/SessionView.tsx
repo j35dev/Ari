@@ -11,7 +11,7 @@ import { Composer, type ComposerSeed } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
-import { useSettleNotify } from '../moment'
+import { notifyNeedsAttention, useSettleNotify } from '../moment'
 import { WorkingGlyph } from '../moment'
 
 interface PendingApproval {
@@ -386,6 +386,10 @@ export function SessionView({
               summaryJson: event.summaryJson,
             },
           ])
+          // An approval blocks the turn silently while away — say so.
+          notifyNeedsAttention(sessionTitleRef.current, {
+            detail: `${event.toolName} approval`,
+          })
           break
         case 'approval.responded':
           setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
@@ -401,6 +405,9 @@ export function SessionView({
           const question = asInputRequested(event)
           if (question) {
             setPendingQuestion(question)
+            notifyNeedsAttention(sessionTitleRef.current, {
+              detail: question.prompt.slice(0, 80),
+            })
             break
           }
           const respondedId = respondedInputId(event)
