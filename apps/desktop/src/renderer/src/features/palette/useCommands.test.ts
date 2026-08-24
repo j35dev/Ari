@@ -20,7 +20,6 @@ describe('buildAppCommands', () => {
     const commands = buildAppCommands(ctx)
     for (const view of [
       'sessions',
-      'projects',
       'terminal',
       'changes',
       'settings',
@@ -31,6 +30,11 @@ describe('buildAppCommands', () => {
       commands.find((c) => c.id === `nav.${view}`)!.run()
       expect(ctx.onNavigate).toHaveBeenCalledWith(view)
     }
+  })
+
+  it('no longer offers Projects as a navigation destination', () => {
+    // Projects live in the sidebar itself (M16); the rail entry is gone.
+    expect(buildAppCommands(ctx).find((c) => c.id === 'nav.projects')).toBeUndefined()
   })
 
   it('opens the gallery', () => {

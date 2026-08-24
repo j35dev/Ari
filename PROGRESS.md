@@ -397,6 +397,8 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 - [x] M23.1 Split provider install state from auth state: `Detection.installed` + `authReason` (contracts + detector), a missing binary is `installed:false` / `authStatus:'unknown'` instead of the old false `'unauthenticated'`; real read-only auth probes for grok/pi/hermes with `XAI_API_KEY` / `PI_CODING_AGENT_DIR` / `HERMES_HOME` overrides; pure `package-manager.ts` mapping binary path + kind to argv install/upgrade commands
 - [ ] M23.2 Install/update execution + UI: `install.ts` runner (single-flight, timeout, tail-capped output, mandatory re-detect), progress RPC/stream pair, ProvidersView card rebuild with confirm-before-run, dismissible update toast
+- [x] M23.3 Multiple projects open directly in the sidebar: `Project` gains `open`/`lastOpenedAt`/live `status`, realpath-canonicalized dedupe so reopening a folder reuses its project, `project.open`/`project.close`/`dialog.pickFolder`/`shell.revealPath` RPCs, collapsible per-project session groups with an Unfiled group and a degraded missing-folder row, project-aware `sidebarOrder` so keyboard traversal matches the rendered order, `projects` removed from the bottom nav strip
+- [ ] M23.4 Move ProjectsView to a settings section for known-but-closed projects (it still owns the script runner and per-project defaults)
 
 ## Stretch backlog (post-V1, unplanned)
 

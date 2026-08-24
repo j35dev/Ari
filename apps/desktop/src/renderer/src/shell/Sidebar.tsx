@@ -7,6 +7,9 @@ import {
   ChevronRight,
   Folder,
   FolderGit2,
+  FolderOpen,
+  FolderPlus,
+  FolderX,
   Gauge,
   GitPullRequest,
   MessageSquare,
@@ -21,14 +24,17 @@ import {
   X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { sidebarOrder } from '../features/session/session-nav'
+import {
+  sidebarGroups,
+  sidebarOrder,
+  UNFILED_GROUP_ID,
+} from '../features/session/session-nav'
+import { useProjectExpand } from './use-project-expand'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
 const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
-
-/** Recency split between the Active and Earlier sections (T3-style). */
-const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /** Sidebar top: wordmark + one-click new session (T3 brand row). */
 export function SidebarHeader({ onNewSession }: { onNewSession: () => void }) {
@@ -225,57 +231,64 @@ function SessionRow({
   )
 }
 
-function SectionLabel({
-  children,
-  count,
-}: {
-  children: React.ReactNode
-  count?: number
-}) {
-  return (
-    <div className="flex items-center gap-1.5 px-2 pb-1 pt-3">
-      <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-        {children}
-      </span>
-      {count !== undefined ? (
-        <span className="rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
-          {count}
-        </span>
-      ) : null}
-    </div>
-  )
-}
-
-/** Collapsible session bucket (Earlier / Archived) — collapsed until summoned. */
-function CollapsibleSessions({
-  label,
-  sessions,
-  projectNameOf,
-  activeSessionId,
-  onSelect,
-  onRename,
-  onDelete,
-  onTogglePin,
-  onToggleArchive,
-}: {
-  label: string
-  sessions: SessionSummary[]
-  projectNameOf: (projectId: string) => string | null
+/** Handlers every session row needs; passed down unchanged through groups. */
+interface SessionRowHandlers {
   activeSessionId: string | null
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
+}
+
+/** FLIP-animated session list; shared by groups, the archived shelf and search. */
+function SessionList({
+  sessions,
+  projectNameOf,
+  handlers,
+}: {
+  sessions: SessionSummary[]
+  projectNameOf?: (projectId: string) => string | null
+  handlers: SessionRowHandlers
 }) {
-  const [open, setOpen] = useState(
-    sessions.some((s) => s.id === activeSessionId),
+  return (
+    <motion.ul layout className="flex flex-col gap-0.5" transition={RESORT_TRANSITION}>
+      {sessions.map((s) => (
+        <motion.li key={s.id} layoutId={s.id} transition={RESORT_TRANSITION}>
+          <SessionRow
+            session={s}
+            projectName={projectNameOf?.(s.projectId) ?? null}
+            isActive={s.id === handlers.activeSessionId}
+            onSelect={handlers.onSelect}
+            onRename={handlers.onRename}
+            onDelete={handlers.onDelete}
+            onTogglePin={handlers.onTogglePin}
+            onToggleArchive={handlers.onToggleArchive}
+          />
+        </motion.li>
+      ))}
+    </motion.ul>
   )
+}
+
+/** Collapsible global shelf (Archived) — collapsed until summoned. */
+function CollapsibleSessions({
+  label,
+  sessions,
+  projectNameOf,
+  handlers,
+}: {
+  label: string
+  sessions: SessionSummary[]
+  projectNameOf: (projectId: string) => string | null
+  handlers: SessionRowHandlers
+}) {
+  const [open, setOpen] = useState(sessions.some((s) => s.id === handlers.activeSessionId))
 
   // Auto-open when the active session moves into this bucket.
   useEffect(() => {
-    if (sessions.some((s) => s.id === activeSessionId)) setOpen(true)
-  }, [activeSessionId, sessions])
+    if (sessions.some((s) => s.id === handlers.activeSessionId)) setOpen(true)
+  }, [handlers.activeSessionId, sessions])
 
   return (
     <div>
@@ -298,46 +311,196 @@ function CollapsibleSessions({
       </button>
       <AnimatePresence initial={false}>
         {open ? (
-          <motion.ul
+          <motion.div
             key={label}
-            layout
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={RESORT_TRANSITION}
-            className="flex flex-col gap-0.5"
           >
-            {sessions.map((s) => (
-              <motion.li key={s.id} layoutId={s.id} transition={RESORT_TRANSITION}>
-                <SessionRow
-                  session={s}
-                  projectName={projectNameOf(s.projectId)}
-                  isActive={s.id === activeSessionId}
-                  onSelect={onSelect}
-                  onRename={onRename}
-                  onDelete={onDelete}
-                  onTogglePin={onTogglePin}
-                  onToggleArchive={onToggleArchive}
-                />
-              </motion.li>
-            ))}
-          </motion.ul>
+            <SessionList sessions={sessions} projectNameOf={projectNameOf} handlers={handlers} />
+          </motion.div>
         ) : null}
       </AnimatePresence>
     </div>
   )
 }
 
-export interface ProjectGroup {
+/** A project as the sidebar needs it: identity plus live folder status. */
+export interface SidebarProject {
   id: string
   name: string
-  sessions: SessionSummary[]
+  path?: string
+  status?: ProjectStatus
+}
+
+/** Per-project commands surfaced on group hover / in the degraded state. */
+export interface ProjectActions {
+  onNewSessionInProject?: (projectId: string) => void
+  onRevealProject?: (projectId: string) => void
+  onCloseProject?: (projectId: string) => void
+  onRemoveProject?: (projectId: string) => void
+  /** Re-pick the folder of a project whose path went missing. */
+  onLocateProject?: (projectId: string) => void
 }
 
 /**
- * T3-style sidebar body: search box, then Pinned / Active / Earlier sections
- * plus a collapsed Archived shelf. Pinned sessions float to the top of the
- * list regardless of recency; archived ones leave Active/Earlier entirely.
+ * One collapsible sidebar group: an open project (or the trailing Unfiled
+ * bucket) with its sessions nested inside, pinned first. A project whose
+ * folder vanished renders muted with Locate / Close affordances; its sessions
+ * still load and stay selectable.
+ */
+function ProjectGroupSection({
+  name,
+  project,
+  sessions,
+  expanded,
+  onToggle,
+  handlers,
+  actions,
+}: {
+  name: string
+  project: SidebarProject | null
+  sessions: SessionSummary[]
+  expanded: boolean
+  onToggle: () => void
+  handlers: SessionRowHandlers
+  actions: ProjectActions
+}) {
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const missing = project?.status === 'missing'
+
+  return (
+    <section className="group/project" aria-label={name}>
+      <div className="relative flex items-center">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={onToggle}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 pr-2 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+            missing ? 'opacity-60' : ''
+          }`}
+        >
+          <ChevronRight
+            size={11}
+            aria-hidden
+            className={`shrink-0 text-fg-subtle transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
+          />
+          {missing ? (
+            <FolderX size={11} aria-hidden className="shrink-0 text-warning" />
+          ) : null}
+          <span
+            className={`min-w-0 flex-1 truncate text-2xs font-semibold uppercase tracking-[0.14em] ${
+              missing ? 'text-fg-subtle line-through' : 'text-fg-subtle'
+            }`}
+          >
+            {name}
+          </span>
+          <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
+            {sessions.length}
+          </span>
+        </button>
+        {project && !confirmRemove ? (
+          <div className="absolute right-1 hidden items-center gap-0.5 group-hover/project:flex">
+            <button
+              type="button"
+              aria-label={`New session in ${name}`}
+              title="New session here"
+              onClick={() => actions.onNewSessionInProject?.(project.id)}
+              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+            >
+              <Plus size={11} />
+            </button>
+            <button
+              type="button"
+              aria-label={`Reveal ${name}`}
+              title="Reveal in file manager"
+              onClick={() => actions.onRevealProject?.(project.id)}
+              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+            >
+              <FolderOpen size={11} />
+            </button>
+            <button
+              type="button"
+              aria-label={`Close ${name}`}
+              title="Close project (keeps sessions)"
+              onClick={() => actions.onCloseProject?.(project.id)}
+              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+            >
+              <X size={11} />
+            </button>
+            <button
+              type="button"
+              aria-label={`Remove ${name}`}
+              title="Remove project"
+              onClick={() => setConfirmRemove(true)}
+              className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-danger-subtle hover:text-danger"
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {project && confirmRemove ? (
+        <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-2xs text-danger">Remove project?</span>
+          <button
+            type="button"
+            aria-label={`Confirm remove ${name}`}
+            onClick={() => {
+              setConfirmRemove(false)
+              actions.onRemoveProject?.(project.id)
+            }}
+            className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+          >
+            Remove
+          </button>
+          <button
+            type="button"
+            aria-label={`Keep ${name}`}
+            onClick={() => setConfirmRemove(false)}
+            className="shrink-0 text-fg-subtle hover:text-fg"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      ) : null}
+      {project && missing ? (
+        <div className="mx-2 mb-1 flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-2xs text-fg-muted">folder missing</span>
+          <button
+            type="button"
+            onClick={() => actions.onLocateProject?.(project.id)}
+            className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
+          >
+            Locate
+          </button>
+          <button
+            type="button"
+            onClick={() => actions.onCloseProject?.(project.id)}
+            className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
+          >
+            Close
+          </button>
+        </div>
+      ) : null}
+      {expanded ? (
+        sessions.length > 0 ? (
+          <SessionList sessions={sessions} handlers={handlers} />
+        ) : (
+          <p className="px-4 py-1.5 text-2xs text-fg-subtle">No sessions yet.</p>
+        )
+      ) : null}
+    </section>
+  )
+}
+
+/**
+ * Sidebar body: search, an Open-project action, then one collapsible group per
+ * open project with its sessions nested inside (pinned first within the
+ * group), a trailing Unfiled group for ad-hoc sessions, and the global
+ * Archived shelf at the bottom. Searching flattens matches across every
+ * project into one list.
  */
 export function SessionsUnderProjects({
   sessions,
@@ -348,158 +511,106 @@ export function SessionsUnderProjects({
   onDelete,
   onTogglePin,
   onToggleArchive,
-}: {
-  sessions: SessionSummary[]
-  projects: { id: string; name: string }[]
-  activeSessionId: string | null
-  onSelect: (id: string) => void
-  onRename: (id: string, title: string) => void
-  onDelete: (id: string) => void
-  onTogglePin: (id: string, pinned: boolean) => void
-  onToggleArchive: (id: string, archived: boolean) => void
-}) {
+  onOpenProject,
+  ...actions
+}: SessionRowHandlers &
+  ProjectActions & {
+    sessions: SessionSummary[]
+    projects: SidebarProject[]
+    /** Opens the native folder picker; a cancel is a silent no-op. */
+    onOpenProject?: () => void
+  }) {
   const [query, setQuery] = useState('')
   const trimmed = query.trim().toLowerCase()
+  const { isExpanded, toggle } = useProjectExpand()
+  const handlers: SessionRowHandlers = {
+    activeSessionId,
+    onSelect,
+    onRename,
+    onDelete,
+    onTogglePin,
+    onToggleArchive,
+  }
 
   const projectNameOf = useMemo(() => {
     const byId = new Map(projects.map((p) => [p.id, p.name]))
     return (projectId: string): string | null =>
-      projectId === 'adhoc' ? null : (byId.get(projectId) ?? null)
+      projectId === UNFILED_GROUP_ID ? null : (byId.get(projectId) ?? null)
   }, [projects])
 
-  // Pinned floating above everything, newest next — shared with keyboard nav.
-  const sorted = useMemo(() => sidebarOrder(sessions), [sessions])
-  const visible = trimmed
-    ? sorted.filter((s) => !s.archived && s.title.toLowerCase().includes(trimmed))
-    : sorted.filter((s) => !s.archived)
-
-  const cutoff = Date.now() - ACTIVE_WINDOW_MS
-  const pinned = visible.filter((s) => s.pinned)
-  const unpinnedVisible = visible.filter((s) => !s.pinned)
-  const active = unpinnedVisible.filter((s) => s.updatedAt >= cutoff)
-  const earlier = unpinnedVisible.filter((s) => s.updatedAt < cutoff)
-  // Newest-first shelf of everything archived (sidebarOrder excludes them).
-  const archived = useMemo(
+  // Same grouping the keyboard traversal walks (sidebarOrder flattens it).
+  const groups = useMemo(() => sidebarGroups(sessions, projects), [sessions, projects])
+  const matches = useMemo(
     () =>
-      [...sessions]
-        .filter((s) => s.archived)
-        .sort((a, b) => b.updatedAt - a.updatedAt),
+      trimmed
+        ? sidebarOrder(sessions, projects).filter((s) => s.title.toLowerCase().includes(trimmed))
+        : [],
+    [sessions, projects, trimmed],
+  )
+  // Newest-first shelf of everything archived (the groups exclude them).
+  const archived = useMemo(
+    () => [...sessions].filter((s) => s.archived).sort((a, b) => b.updatedAt - a.updatedAt),
     [sessions],
   )
 
-  if (sessions.length === 0) {
-    return (
+  const body =
+    trimmed !== '' ? (
+      matches.length === 0 ? (
+        <p className="px-2 py-6 text-center text-xs text-fg-subtle">
+          No sessions match “{query.trim()}”.
+        </p>
+      ) : (
+        <SessionList sessions={matches} projectNameOf={projectNameOf} handlers={handlers} />
+      )
+    ) : groups.length === 0 && archived.length === 0 ? (
+      <p className="px-2 py-8 text-center text-xs leading-relaxed text-fg-subtle">
+        No sessions yet.
+        <br />
+        Open a project or start one with the + button.
+      </p>
+    ) : (
       <>
-        <SidebarSearch query={query} onQueryChange={setQuery} />
-        <div className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2">
-          <p className="px-2 py-8 text-center text-xs leading-relaxed text-fg-subtle">
-            No sessions yet.
-            <br />
-            Start one with the + button.
-          </p>
-        </div>
+        {groups.map((group) => {
+          const project = projects.find((p) => p.id === group.id) ?? null
+          return (
+            <ProjectGroupSection
+              key={group.id}
+              name={group.name}
+              project={project}
+              sessions={group.sessions}
+              expanded={isExpanded(group.id)}
+              onToggle={() => toggle(group.id)}
+              handlers={handlers}
+              actions={actions}
+            />
+          )
+        })}
+        {archived.length > 0 ? (
+          <CollapsibleSessions
+            label="Archived"
+            sessions={archived}
+            projectNameOf={projectNameOf}
+            handlers={handlers}
+          />
+        ) : null}
       </>
     )
-  }
 
   return (
     <>
       <SidebarSearch query={query} onQueryChange={setQuery} />
+      <div className="px-3 pb-1">
+        <button
+          type="button"
+          onClick={() => onOpenProject?.()}
+          className="flex h-7 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-glass-input text-xs font-medium text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <FolderPlus size={12} aria-hidden />
+          Open project
+        </button>
+      </div>
       <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
-        {visible.length === 0 && archived.length === 0 ? (
-          <p className="px-2 py-6 text-center text-xs text-fg-subtle">
-            No sessions match “{query.trim()}”.
-          </p>
-        ) : trimmed ? (
-          // Searching flattens matches into one list regardless of recency.
-          <ul className="flex flex-col gap-0.5">
-            {visible.map((s) => (
-              <li key={s.id}>
-                <SessionRow
-                  session={s}
-                  projectName={projectNameOf(s.projectId)}
-                  isActive={s.id === activeSessionId}
-                  onSelect={onSelect}
-                  onRename={onRename}
-                  onDelete={onDelete}
-                  onTogglePin={onTogglePin}
-                  onToggleArchive={onToggleArchive}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <>
-            {pinned.length > 0 ? (
-              <>
-                <SectionLabel count={pinned.length}>Pinned</SectionLabel>
-                <ul className="flex flex-col gap-0.5">
-                  {pinned.map((s) => (
-                    <li key={s.id}>
-                      <SessionRow
-                        session={s}
-                        projectName={projectNameOf(s.projectId)}
-                        isActive={s.id === activeSessionId}
-                        onSelect={onSelect}
-                        onRename={onRename}
-                        onDelete={onDelete}
-                        onTogglePin={onTogglePin}
-                        onToggleArchive={onToggleArchive}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-            {active.length > 0 || earlier.length === 0 ? (
-              <>
-                <SectionLabel count={active.length}>Active</SectionLabel>
-                <ul className="flex flex-col gap-0.5">
-                  {(active.length > 0 ? active : unpinnedVisible.slice(0, 8)).map((s) => (
-                    <li key={s.id}>
-                      <SessionRow
-                        session={s}
-                        projectName={projectNameOf(s.projectId)}
-                        isActive={s.id === activeSessionId}
-                        onSelect={onSelect}
-                        onRename={onRename}
-                        onDelete={onDelete}
-                        onTogglePin={onTogglePin}
-                        onToggleArchive={onToggleArchive}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
-            {earlier.length > 0 ? (
-              <CollapsibleSessions
-                label="Earlier"
-                sessions={earlier}
-                projectNameOf={projectNameOf}
-                activeSessionId={activeSessionId}
-                onSelect={onSelect}
-                onRename={onRename}
-                onDelete={onDelete}
-                onTogglePin={onTogglePin}
-                onToggleArchive={onToggleArchive}
-              />
-            ) : null}
-            {archived.length > 0 ? (
-              <CollapsibleSessions
-                label="Archived"
-                sessions={archived}
-                projectNameOf={projectNameOf}
-                activeSessionId={activeSessionId}
-                onSelect={onSelect}
-                onRename={onRename}
-                onDelete={onDelete}
-                onTogglePin={onTogglePin}
-                onToggleArchive={onToggleArchive}
-              />
-            ) : null}
-          </>
-        )}
+        {body}
       </nav>
     </>
   )
@@ -536,7 +647,6 @@ export function SidebarSearch({
 
 export type SidebarNavId =
   | 'session'
-  | 'projects'
   | 'terminal'
   | 'changes'
   | 'settings'
@@ -545,7 +655,6 @@ export type SidebarNavId =
 
 const SIDEBAR_NAV: { id: SidebarNavId; label: string; icon: LucideIcon }[] = [
   { id: 'session', label: 'Sessions', icon: MessageSquare },
-  { id: 'projects', label: 'Projects', icon: FolderGit2 },
   { id: 'changes', label: 'Changes', icon: GitPullRequest },
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
