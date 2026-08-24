@@ -1,64 +1,18 @@
 /*
  * Ari design tokens — the ONLY place raw color/oklch literals may appear
- * (AGENTS.md). Single appearance: comet-style near-black glass. Neutral axis
- * is pure achromatic (chroma 0); accents sit on the indigo 277° axis.
- * Values are sampled from comet's theme.rs (zeron scale) so the app shares
- * that palette's contrast relationships (~17.5:1 primary text on its plane).
+ * (AGENTS.md). Structure:
+ *   :root                    → scheme-independent tokens (geometry, type,
+ *                              layout, motion).
+ *   [data-ari-theme='<id>']  → one complete color palette per theme; the
+ *                              ThemeProvider sets the attribute on <html>.
+ *                              :root also carries the default (Obsidian)
+ *                              palette so pre-hydration HTML paints correctly.
+ * Token NAMES are identical across every theme, so the Tailwind bridge in
+ * apps/desktop/src/renderer/src/styles/index.css needs no per-theme mapping.
+ * Palettes mirror packages/ui/src/themes.ts (asserted by themes.test.ts).
  */
 
 :root {
-  /* surfaces — comet dark(): main panel #060606, shell/sidebar #0d0d0d */
-  --ari-bg: oklch(0.09 0 0);
-  --ari-surface-0: oklch(0.115 0 0);
-  --ari-surface-1: oklch(0.15 0 0);
-  --ari-surface-2: oklch(0.205 0 0);
-  --ari-surface-3: oklch(0.27 0 0);
-
-  /* strokes — white hairlines at low alpha (comet border recipe) */
-  --ari-border: oklch(1 0 0 / 8%);
-  --ari-border-strong: oklch(1 0 0 / 14%);
-  --ari-inner-stroke: oklch(1 0 0 / 4%);
-
-  /* text — neutral-200 / 400 / 500 equivalents */
-  --ari-fg: oklch(0.922 0 0);
-  --ari-fg-muted: oklch(0.708 0 0);
-  --ari-fg-subtle: oklch(0.556 0 0);
-  --ari-fg-on-accent: oklch(0.985 0 0);
-
-  /* accent — comet indigo-400, strong fill indigo-500 */
-  --ari-accent: oklch(0.673 0.182 276.94);
-  --ari-accent-hover: oklch(0.72 0.17 276.94);
-  --ari-accent-active: oklch(0.585 0.233 277.12);
-  --ari-accent-subtle: oklch(0.673 0.182 276.94 / 14%);
-  --ari-accent-ring: oklch(0.673 0.182 276.94 / 45%);
-
-  /* semantic — comet 400-level tones (tuned against near-black) */
-  --ari-success: oklch(0.765 0.177 163.22);
-  --ari-success-subtle: oklch(0.765 0.177 163.22 / 14%);
-  --ari-warning: oklch(0.828 0.189 84.43);
-  --ari-warning-subtle: oklch(0.828 0.189 84.43 / 14%);
-  --ari-danger: oklch(0.704 0.191 22.22);
-  --ari-danger-hover: oklch(0.76 0.18 22.22);
-  --ari-danger-subtle: oklch(0.704 0.191 22.22 / 15%);
-  --ari-info: oklch(0.74 0.12 245);
-  --ari-info-subtle: oklch(0.74 0.12 245 / 14%);
-  /* working/streaming indicator — comet pink-400 */
-  --ari-busy: oklch(0.718 0.202 349.76);
-  --ari-busy-subtle: oklch(0.718 0.202 349.76 / 14%);
-
-  /* glass — translucent chrome over the acrylic/vibrancy window backdrop.
-     Opaque-platform fallbacks live in glass.css (prefers-reduced-transparency). */
-  --ari-glass-scrim: oklch(0.08 0 0 / 76%);
-  --ari-glass-overlay: oklch(0.33 0 0 / 34%);
-  --ari-glass-input: oklch(1 0 0 / 4%);
-  --ari-glass-hover: oklch(0.92 0 0 / 11%);
-  --ari-glass-active: oklch(0.92 0 0 / 16%);
-
-  /* elevation */
-  --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 35%);
-  --ari-shadow-2: 0 4px 16px oklch(0 0 0 / 40%);
-  --ari-shadow-3: 0 12px 40px oklch(0 0 0 / 50%);
-
   /* geometry */
   --ari-radius-sm: 6px;
   --ari-radius-md: 10px;
@@ -87,6 +41,335 @@
   --ari-dur-fast: 140ms;
   --ari-dur-base: 220ms;
   --ari-dur-slow: 260ms;
+}
+
+/* Obsidian — Near-black glass with an indigo accent. Ari’s signature look. (dark, glass-capable) */
+:root,
+[data-ari-theme='obsidian'] {
+  /* surfaces */
+  --ari-bg: oklch(0.09 0 0);
+  --ari-surface-0: oklch(0.115 0 0);
+  --ari-surface-1: oklch(0.15 0 0);
+  --ari-surface-2: oklch(0.205 0 0);
+  --ari-surface-3: oklch(0.27 0 0);
+
+  /* strokes */
+  --ari-border: oklch(1 0 0 / 8%);
+  --ari-border-strong: oklch(1 0 0 / 14%);
+  --ari-inner-stroke: oklch(1 0 0 / 4%);
+
+  /* text */
+  --ari-fg: oklch(0.922 0 0);
+  --ari-fg-muted: oklch(0.708 0 0);
+  --ari-fg-subtle: oklch(0.556 0 0);
+  --ari-fg-on-accent: oklch(0.985 0 0);
+
+  /* accent */
+  --ari-accent: oklch(0.673 0.182 276.94);
+  --ari-accent-hover: oklch(0.72 0.17 276.94);
+  --ari-accent-active: oklch(0.585 0.233 277.12);
+  --ari-accent-subtle: oklch(0.673 0.182 276.94 / 14%);
+  --ari-accent-ring: oklch(0.673 0.182 276.94 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.765 0.177 163.22);
+  --ari-success-subtle: oklch(0.765 0.177 163.22 / 14%);
+  --ari-warning: oklch(0.828 0.189 84.43);
+  --ari-warning-subtle: oklch(0.828 0.189 84.43 / 14%);
+  --ari-danger: oklch(0.704 0.191 22.22);
+  --ari-danger-hover: oklch(0.76 0.18 22.22);
+  --ari-danger-subtle: oklch(0.704 0.191 22.22 / 15%);
+  --ari-info: oklch(0.74 0.12 245);
+  --ari-info-subtle: oklch(0.74 0.12 245 / 14%);
+  --ari-busy: oklch(0.718 0.202 349.76);
+  --ari-busy-subtle: oklch(0.718 0.202 349.76 / 14%);
+
+  /* glass planes (opaque in non-glass themes) */
+  --ari-glass-scrim: oklch(0.08 0 0 / 76%);
+  --ari-glass-overlay: oklch(0.33 0 0 / 34%);
+  --ari-glass-input: oklch(1 0 0 / 4%);
+  --ari-glass-hover: oklch(0.92 0 0 / 11%);
+  --ari-glass-active: oklch(0.92 0 0 / 16%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 35%);
+  --ari-shadow-2: 0 4px 16px oklch(0 0 0 / 40%);
+  --ari-shadow-3: 0 12px 40px oklch(0 0 0 / 50%);
 
   color-scheme: dark;
+}
+
+/* Graphite — Opaque slate greys with a warm amber accent. No blur. (dark, opaque) */
+[data-ari-theme='graphite'] {
+  /* surfaces */
+  --ari-bg: oklch(0.145 0.004 260);
+  --ari-surface-0: oklch(0.185 0.005 260);
+  --ari-surface-1: oklch(0.225 0.006 260);
+  --ari-surface-2: oklch(0.275 0.007 260);
+  --ari-surface-3: oklch(0.335 0.008 260);
+
+  /* strokes */
+  --ari-border: oklch(1 0 0 / 10%);
+  --ari-border-strong: oklch(1 0 0 / 18%);
+  --ari-inner-stroke: oklch(1 0 0 / 5%);
+
+  /* text */
+  --ari-fg: oklch(0.945 0.003 260);
+  --ari-fg-muted: oklch(0.73 0.006 260);
+  --ari-fg-subtle: oklch(0.6 0.008 260);
+  --ari-fg-on-accent: oklch(0.17 0.02 70);
+
+  /* accent */
+  --ari-accent: oklch(0.79 0.152 76);
+  --ari-accent-hover: oklch(0.84 0.14 78);
+  --ari-accent-active: oklch(0.71 0.165 72);
+  --ari-accent-subtle: oklch(0.79 0.152 76 / 16%);
+  --ari-accent-ring: oklch(0.79 0.152 76 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.78 0.16 152);
+  --ari-success-subtle: oklch(0.78 0.16 152 / 15%);
+  --ari-warning: oklch(0.85 0.15 95);
+  --ari-warning-subtle: oklch(0.85 0.15 95 / 15%);
+  --ari-danger: oklch(0.7 0.185 26);
+  --ari-danger-hover: oklch(0.755 0.17 26);
+  --ari-danger-subtle: oklch(0.7 0.185 26 / 16%);
+  --ari-info: oklch(0.76 0.11 235);
+  --ari-info-subtle: oklch(0.76 0.11 235 / 15%);
+  --ari-busy: oklch(0.75 0.15 330);
+  --ari-busy-subtle: oklch(0.75 0.15 330 / 15%);
+
+  /* glass planes (opaque in non-glass themes) */
+  --ari-glass-scrim: oklch(0.185 0.005 260);
+  --ari-glass-overlay: oklch(0.275 0.007 260);
+  --ari-glass-input: oklch(0.225 0.006 260);
+  --ari-glass-hover: oklch(1 0 0 / 7%);
+  --ari-glass-active: oklch(1 0 0 / 12%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 40%);
+  --ari-shadow-2: 0 4px 16px oklch(0 0 0 / 45%);
+  --ari-shadow-3: 0 12px 40px oklch(0 0 0 / 55%);
+
+  color-scheme: dark;
+}
+
+/* Nocturne — Deep indigo night with a cyan accent and frosted chrome. (dark, glass-capable) */
+[data-ari-theme='nocturne'] {
+  /* surfaces */
+  --ari-bg: oklch(0.13 0.032 271);
+  --ari-surface-0: oklch(0.165 0.036 271);
+  --ari-surface-1: oklch(0.205 0.04 270);
+  --ari-surface-2: oklch(0.255 0.044 269);
+  --ari-surface-3: oklch(0.315 0.048 268);
+
+  /* strokes */
+  --ari-border: oklch(0.78 0.06 250 / 16%);
+  --ari-border-strong: oklch(0.82 0.07 250 / 26%);
+  --ari-inner-stroke: oklch(0.9 0.04 250 / 7%);
+
+  /* text */
+  --ari-fg: oklch(0.945 0.012 260);
+  --ari-fg-muted: oklch(0.755 0.028 258);
+  --ari-fg-subtle: oklch(0.63 0.035 258);
+  --ari-fg-on-accent: oklch(0.16 0.04 230);
+
+  /* accent */
+  --ari-accent: oklch(0.79 0.13 205);
+  --ari-accent-hover: oklch(0.845 0.115 203);
+  --ari-accent-active: oklch(0.715 0.14 208);
+  --ari-accent-subtle: oklch(0.79 0.13 205 / 16%);
+  --ari-accent-ring: oklch(0.79 0.13 205 / 48%);
+
+  /* semantic */
+  --ari-success: oklch(0.8 0.15 168);
+  --ari-success-subtle: oklch(0.8 0.15 168 / 15%);
+  --ari-warning: oklch(0.845 0.16 88);
+  --ari-warning-subtle: oklch(0.845 0.16 88 / 15%);
+  --ari-danger: oklch(0.71 0.19 15);
+  --ari-danger-hover: oklch(0.765 0.175 15);
+  --ari-danger-subtle: oklch(0.71 0.19 15 / 16%);
+  --ari-info: oklch(0.78 0.115 255);
+  --ari-info-subtle: oklch(0.78 0.115 255 / 15%);
+  --ari-busy: oklch(0.75 0.17 305);
+  --ari-busy-subtle: oklch(0.75 0.17 305 / 15%);
+
+  /* glass planes (opaque in non-glass themes) */
+  --ari-glass-scrim: oklch(0.13 0.032 271 / 78%);
+  --ari-glass-overlay: oklch(0.32 0.05 268 / 38%);
+  --ari-glass-input: oklch(0.9 0.04 250 / 6%);
+  --ari-glass-hover: oklch(0.92 0.03 250 / 12%);
+  --ari-glass-active: oklch(0.92 0.03 250 / 18%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.05 0.03 270 / 45%);
+  --ari-shadow-2: 0 4px 16px oklch(0.05 0.03 270 / 50%);
+  --ari-shadow-3: 0 12px 40px oklch(0.04 0.03 270 / 60%);
+
+  color-scheme: dark;
+}
+
+/* Verdant — Dark moss surfaces with a lime accent. Opaque and low-glare. (dark, opaque) */
+[data-ari-theme='verdant'] {
+  /* surfaces */
+  --ari-bg: oklch(0.14 0.02 155);
+  --ari-surface-0: oklch(0.175 0.023 155);
+  --ari-surface-1: oklch(0.215 0.026 154);
+  --ari-surface-2: oklch(0.265 0.029 153);
+  --ari-surface-3: oklch(0.325 0.032 152);
+
+  /* strokes */
+  --ari-border: oklch(0.85 0.05 150 / 14%);
+  --ari-border-strong: oklch(0.87 0.06 150 / 24%);
+  --ari-inner-stroke: oklch(0.92 0.03 150 / 6%);
+
+  /* text */
+  --ari-fg: oklch(0.94 0.014 140);
+  --ari-fg-muted: oklch(0.75 0.03 145);
+  --ari-fg-subtle: oklch(0.625 0.035 148);
+  --ari-fg-on-accent: oklch(0.17 0.05 135);
+
+  /* accent */
+  --ari-accent: oklch(0.83 0.19 128);
+  --ari-accent-hover: oklch(0.875 0.17 126);
+  --ari-accent-active: oklch(0.755 0.2 130);
+  --ari-accent-subtle: oklch(0.83 0.19 128 / 16%);
+  --ari-accent-ring: oklch(0.83 0.19 128 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.8 0.16 158);
+  --ari-success-subtle: oklch(0.8 0.16 158 / 15%);
+  --ari-warning: oklch(0.84 0.16 78);
+  --ari-warning-subtle: oklch(0.84 0.16 78 / 15%);
+  --ari-danger: oklch(0.71 0.185 30);
+  --ari-danger-hover: oklch(0.765 0.17 30);
+  --ari-danger-subtle: oklch(0.71 0.185 30 / 16%);
+  --ari-info: oklch(0.79 0.11 215);
+  --ari-info-subtle: oklch(0.79 0.11 215 / 15%);
+  --ari-busy: oklch(0.78 0.15 195);
+  --ari-busy-subtle: oklch(0.78 0.15 195 / 15%);
+
+  /* glass planes (opaque in non-glass themes) */
+  --ari-glass-scrim: oklch(0.175 0.023 155);
+  --ari-glass-overlay: oklch(0.265 0.029 153);
+  --ari-glass-input: oklch(0.215 0.026 154);
+  --ari-glass-hover: oklch(0.92 0.03 150 / 8%);
+  --ari-glass-active: oklch(0.92 0.03 150 / 13%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.05 0.02 150 / 42%);
+  --ari-shadow-2: 0 4px 16px oklch(0.05 0.02 150 / 48%);
+  --ari-shadow-3: 0 12px 40px oklch(0.04 0.02 150 / 58%);
+
+  color-scheme: dark;
+}
+
+/* Porcelain — Cool off-white paper with a soft violet accent. (light, opaque) */
+[data-ari-theme='porcelain'] {
+  /* surfaces */
+  --ari-bg: oklch(0.985 0.003 285);
+  --ari-surface-0: oklch(0.965 0.004 285);
+  --ari-surface-1: oklch(0.94 0.005 285);
+  --ari-surface-2: oklch(0.905 0.007 285);
+  --ari-surface-3: oklch(0.86 0.009 285);
+
+  /* strokes */
+  --ari-border: oklch(0.2 0.02 285 / 12%);
+  --ari-border-strong: oklch(0.2 0.02 285 / 22%);
+  --ari-inner-stroke: oklch(1 0 0 / 70%);
+
+  /* text */
+  --ari-fg: oklch(0.24 0.018 285);
+  --ari-fg-muted: oklch(0.475 0.02 285);
+  --ari-fg-subtle: oklch(0.59 0.018 285);
+  --ari-fg-on-accent: oklch(0.99 0.005 285);
+
+  /* accent */
+  --ari-accent: oklch(0.5 0.2 292);
+  --ari-accent-hover: oklch(0.445 0.21 292);
+  --ari-accent-active: oklch(0.39 0.19 292);
+  --ari-accent-subtle: oklch(0.5 0.2 292 / 12%);
+  --ari-accent-ring: oklch(0.5 0.2 292 / 38%);
+
+  /* semantic */
+  --ari-success: oklch(0.5 0.13 158);
+  --ari-success-subtle: oklch(0.5 0.13 158 / 14%);
+  --ari-warning: oklch(0.55 0.13 70);
+  --ari-warning-subtle: oklch(0.55 0.13 70 / 16%);
+  --ari-danger: oklch(0.5 0.2 25);
+  --ari-danger-hover: oklch(0.44 0.2 25);
+  --ari-danger-subtle: oklch(0.5 0.2 25 / 12%);
+  --ari-info: oklch(0.5 0.14 250);
+  --ari-info-subtle: oklch(0.5 0.14 250 / 13%);
+  --ari-busy: oklch(0.52 0.19 340);
+  --ari-busy-subtle: oklch(0.52 0.19 340 / 13%);
+
+  /* glass planes (opaque in non-glass themes) */
+  --ari-glass-scrim: oklch(0.99 0.003 285 / 82%);
+  --ari-glass-overlay: oklch(1 0 0 / 78%);
+  --ari-glass-input: oklch(1 0 0 / 72%);
+  --ari-glass-hover: oklch(0.28 0.02 285 / 6%);
+  --ari-glass-active: oklch(0.28 0.02 285 / 11%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.3 0.02 285 / 10%);
+  --ari-shadow-2: 0 4px 16px oklch(0.3 0.02 285 / 12%);
+  --ari-shadow-3: 0 12px 40px oklch(0.3 0.02 285 / 16%);
+
+  color-scheme: light;
+}
+
+/* Sandstone — Warm paper tones with a deep teal accent. (light, opaque) */
+[data-ari-theme='sandstone'] {
+  /* surfaces */
+  --ari-bg: oklch(0.975 0.012 84);
+  --ari-surface-0: oklch(0.955 0.015 82);
+  --ari-surface-1: oklch(0.93 0.018 80);
+  --ari-surface-2: oklch(0.895 0.022 78);
+  --ari-surface-3: oklch(0.85 0.026 76);
+
+  /* strokes */
+  --ari-border: oklch(0.28 0.03 70 / 14%);
+  --ari-border-strong: oklch(0.28 0.03 70 / 24%);
+  --ari-inner-stroke: oklch(1 0 0 / 65%);
+
+  /* text */
+  --ari-fg: oklch(0.255 0.025 62);
+  --ari-fg-muted: oklch(0.48 0.03 62);
+  --ari-fg-subtle: oklch(0.59 0.028 62);
+  --ari-fg-on-accent: oklch(0.985 0.01 180);
+
+  /* accent */
+  --ari-accent: oklch(0.5 0.108 196);
+  --ari-accent-hover: oklch(0.44 0.11 196);
+  --ari-accent-active: oklch(0.385 0.1 197);
+  --ari-accent-subtle: oklch(0.5 0.108 196 / 14%);
+  --ari-accent-ring: oklch(0.5 0.108 196 / 38%);
+
+  /* semantic */
+  --ari-success: oklch(0.485 0.13 150);
+  --ari-success-subtle: oklch(0.485 0.13 150 / 15%);
+  --ari-warning: oklch(0.545 0.135 62);
+  --ari-warning-subtle: oklch(0.545 0.135 62 / 17%);
+  --ari-danger: oklch(0.495 0.2 28);
+  --ari-danger-hover: oklch(0.435 0.2 28);
+  --ari-danger-subtle: oklch(0.495 0.2 28 / 13%);
+  --ari-info: oklch(0.505 0.13 240);
+  --ari-info-subtle: oklch(0.505 0.13 240 / 13%);
+  --ari-busy: oklch(0.52 0.17 350);
+  --ari-busy-subtle: oklch(0.52 0.17 350 / 13%);
+
+  /* glass planes (opaque in non-glass themes) */
+  --ari-glass-scrim: oklch(0.98 0.012 84 / 84%);
+  --ari-glass-overlay: oklch(0.995 0.008 84 / 80%);
+  --ari-glass-input: oklch(1 0.004 84 / 74%);
+  --ari-glass-hover: oklch(0.3 0.03 62 / 7%);
+  --ari-glass-active: oklch(0.3 0.03 62 / 12%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.35 0.04 62 / 12%);
+  --ari-shadow-2: 0 4px 16px oklch(0.35 0.04 62 / 14%);
+  --ari-shadow-3: 0 12px 40px oklch(0.35 0.04 62 / 18%);
+
+  color-scheme: light;
 }

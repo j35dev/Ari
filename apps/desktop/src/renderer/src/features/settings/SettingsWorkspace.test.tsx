@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '@ari/contracts/settings'
+import { ThemeProvider } from '@ari/ui/theme-provider'
 import { SettingsWorkspace, SETTINGS_SECTIONS } from './SettingsWorkspace'
 
 const mocks = vi.hoisted(() => ({
@@ -23,10 +24,18 @@ vi.mock('../../lib/rpc', () => ({
 
 const engineSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'comet-glass', reducedMotion: false },
+  appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,
+}
+
+function renderWorkspace(onBack: () => void) {
+  return render(
+    <ThemeProvider>
+      <SettingsWorkspace onBack={onBack} />
+    </ThemeProvider>,
+  )
 }
 
 describe('SettingsWorkspace', () => {
@@ -39,7 +48,7 @@ describe('SettingsWorkspace', () => {
   })
 
   it('uses a sidebar of sections, not a dump of every setting', () => {
-    render(<SettingsWorkspace onBack={() => undefined} />)
+    renderWorkspace(() => undefined)
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Settings sections' })).toBeInTheDocument()
@@ -50,12 +59,12 @@ describe('SettingsWorkspace', () => {
     }
     expect(screen.queryByText('Detected providers')).not.toBeInTheDocument()
     expect(screen.queryByText('Export diagnostics')).not.toBeInTheDocument()
-    expect(screen.getByText('Comet glass')).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'Dark' })).toBeInTheDocument()
   })
 
   it('switches the page from the sidebar', async () => {
     const user = userEvent.setup()
-    render(<SettingsWorkspace onBack={() => undefined} />)
+    renderWorkspace(() => undefined)
 
     await user.click(screen.getByRole('button', { name: 'Keybindings' }))
     expect(screen.getByRole('button', { name: 'Keybindings' })).toHaveAttribute(
@@ -63,13 +72,13 @@ describe('SettingsWorkspace', () => {
       'page',
     )
     expect(screen.getByText(/Every shortcut the workspace responds to/)).toBeInTheDocument()
-    expect(screen.queryByText('Comet glass')).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup', { name: 'Dark' })).not.toBeInTheDocument()
   })
 
   it('returns to the session via Back', async () => {
     const onBack = vi.fn()
     const user = userEvent.setup()
-    render(<SettingsWorkspace onBack={onBack} />)
+    renderWorkspace(onBack)
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(onBack).toHaveBeenCalledOnce()

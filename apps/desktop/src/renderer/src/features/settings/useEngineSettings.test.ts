@@ -11,7 +11,7 @@ vi.mock('../../lib/rpc', () => ({
 
 const baseSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'comet-glass', reducedMotion: false },
+  appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: false },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,
@@ -46,7 +46,7 @@ describe('useEngineSettings', () => {
   it('update calls settings.update with the patch and syncs the local copy', async () => {
     const updated: Settings = {
       ...baseSettings,
-      appearance: { themeId: 'comet-glass', reducedMotion: true },
+      appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: true },
     }
     const { result } = renderHook(() => useEngineSettings())
     await waitFor(() => expect(result.current.settings).toEqual(baseSettings))
@@ -54,11 +54,11 @@ describe('useEngineSettings', () => {
 
     let returned: Settings | undefined
     await act(async () => {
-      returned = await result.current.update({ appearance: { themeId: 'comet-glass', reducedMotion: true } })
+      returned = await result.current.update({ appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: true } })
     })
 
     expect(invoke).toHaveBeenCalledWith('settings.update', {
-      appearance: { themeId: 'comet-glass', reducedMotion: true },
+      appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: true },
     })
     expect(returned).toEqual(updated)
     expect(result.current.settings).toEqual(updated)

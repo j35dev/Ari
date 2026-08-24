@@ -3,7 +3,7 @@ import { commandSchema } from './commands'
 import { driverKindSchema, permissionModeSchema } from './common'
 import type { Project } from './project'
 import type { Settings } from './settings'
-import { settingsUpdateSchema } from './settings'
+import { settingsUpdateSchema, themeIdSchema } from './settings'
 
 /**
  * The RPC surface between renderer and engine. Method names are an allowlist;
@@ -132,6 +132,7 @@ export const rpcParams = {
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
+  'theme.apply': z.object({ themeId: themeIdSchema }),
   'terminal.create': z.object({ id: z.string().min(1), cwd: z.string().min(1) }),
   'terminal.write': z.object({ id: z.string().min(1), data: z.string() }),
   'terminal.resize': z.object({
@@ -264,6 +265,8 @@ export interface RpcResults {
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }
+  /** Native chrome repainted for the given theme (overlay + OS scheme hint). */
+  'theme.apply': { applied: boolean }
   'terminal.create': { created: boolean }
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }

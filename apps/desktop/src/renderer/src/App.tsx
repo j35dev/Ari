@@ -6,6 +6,7 @@ import { ToastProvider } from '@ari/ui/toast'
 import type { RpcResults, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from './lib/rpc'
+import { themePersistence } from './lib/theme-persistence'
 import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
@@ -563,7 +564,7 @@ export function BranchChip({ sessionId }: { sessionId: string | null }) {
 /** Theme, motion, and toast context for the whole renderer tree. */
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider>
+    <ThemeProvider persistence={themePersistence}>
       <MotionProvider>
         <ToastProvider>{children}</ToastProvider>
       </MotionProvider>
