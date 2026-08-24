@@ -10,6 +10,7 @@ import { ThinkingBlock } from './ThinkingBlock'
 import { ToolCallBlock, ToolResultBlock } from './ToolBlocks'
 import { ToolActivityGroup } from './ToolActivityGroup'
 import { TurnDiffCard } from './TurnDiffCard'
+import { MessageRail, type MessageRailEntry } from './MessageRail'
 import type { Message } from '@ari/contracts/message'
 
 const REENGAGE_BAND_PX = 70
@@ -52,6 +53,21 @@ export function TranscriptView({
     [messages, turnDiffs],
   )
 
+  // Message rail (T3 minimap): one entry per user bubble row, with its row
+  // index for jump-scrolling. Hidden until two prompts exist to navigate.
+  const railEntries = useMemo<MessageRailEntry[]>(
+    () =>
+      rows
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.kind === 'markdown' && row.role === 'user')
+        .map(({ row, index }) => ({
+          key: String(index),
+          text: (row.kind === 'markdown' && (row.text ?? '')) || '',
+        })),
+    [rows],
+  )
+  const [activeRailKey, setActiveRailKey] = useState<string | null>(null)
+
   // Regenerate (M19.4) attaches to the newest assistant message only, so the
   // control reads as "redo this answer", not mid-history rewriting.
   const lastAssistantMessageId = useMemo(() => {
@@ -69,6 +85,36 @@ export function TranscriptView({
     overscan: 6,
   })
 
+  // Offsets refresh each render; user rows are few so this is trivial.
+  const railOffsets = useMemo(
+    () =>
+      railEntries.map((entry) => ({
+        key: entry.key,
+        start: virtualizer.getRowStart(Number(entry.key)),
+      })),
+    [railEntries, virtualizer],
+  )
+
+  const updateActiveRailKey = useCallback((): void => {
+    const el = scrollRef.current
+    if (el === null || railOffsets.length < 2) return
+    const anchor = el.scrollTop + el.clientHeight * 0.25
+    let active: string | null = null
+    for (const { key, start } of railOffsets) {
+      if (start <= anchor) active = key
+      else break
+    }
+    setActiveRailKey((prev) => (prev === active ? prev : active))
+  }, [railOffsets])
+
+  const handleRailJump = useCallback(
+    (key: string) => {
+      setAtBottom(false)
+      virtualizer.scrollToOffset(Math.max(0, virtualizer.getRowStart(Number(key)) - 12), 'smooth')
+    },
+    [virtualizer],
+  )
+
   // Stick-to-bottom: follow new content while pinned; expose jump pill otherwise.
   useEffect(() => {
     if (atBottom) {
@@ -81,6 +127,7 @@ export function TranscriptView({
     if (!el) return
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
     setAtBottom(distance <= REENGAGE_BAND_PX)
+    updateActiveRailKey()
   }
 
   const measureElement = useCallback(
@@ -188,6 +235,10 @@ export function TranscriptView({
         >
           Jump to latest ↓
         </button>
+      ) : null}
+
+      {railEntries.length >= 2 ? (
+        <MessageRail entries={railEntries} activeKey={activeRailKey} onJump={handleRailJump} />
       ) : null}
     </div>
   )
