@@ -84,6 +84,13 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
 - [x] M20.7 Sidebar pin/archive shelves wired to engine flags (M18.2 UI gap closed)
 - [x] M20.8 Session nav keys: Mod+N, Mod+1..9 jump, Ctrl+Tab cycle + shared shortcut map
       (removed the phantom "Cycle theme" row — documented but never implemented)
+- [x] M20.9 Message rail minimap: dot per user prompt, hover preview, click-to-jump (t3 parity)
+- [x] M20.10 Prompt Stash (Mod+S): cross-session draft clipboard with reuse menu (t3 parity)
+- [x] M20.11 Approval card polish: command/file headline, collapsible raw request, 1/N pending counter
+- [x] M20.12 LOGIC FIX — engine owns the durable queue: steered prompts are dequeued immediately and
+      can never re-run as a follow-up turn; after a clean settle the engine dispatches the oldest
+      queued message itself (renderer now only mirrors enqueued/dequeued events; previously a
+      steered prompt executed twice and journal queues never drained)
 
 ## M16 — Provider system rework: ACP transport, live catalogs, update awareness
 
