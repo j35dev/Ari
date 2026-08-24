@@ -261,6 +261,22 @@ function Shell() {
                 })
                 .catch(() => undefined)
             }}
+            onTogglePin={(id, pinned) => {
+              void rpc
+                .invoke('command.dispatch', {
+                  command: { type: 'session.update', sessionId: id, pinned },
+                })
+                .then(refreshSessions)
+                .catch(() => undefined)
+            }}
+            onToggleArchive={(id, archived) => {
+              void rpc
+                .invoke('command.dispatch', {
+                  command: { type: 'session.update', sessionId: id, archived },
+                })
+                .then(refreshSessions)
+                .catch(() => undefined)
+            }}
           />
           <SidebarFooter
             active={settingsOpen ? 'settings' : (inspector ?? 'session')}
