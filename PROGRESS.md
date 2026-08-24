@@ -70,6 +70,21 @@ audits � a11y sweeps � keybinding remap layer � driver doc pages � arch-
 
 ---
 
+## M20 — Competitor-research hardening wave (t3code · DSH · comet)
+
+Findings from deep-dives of pingdotgg/t3code, deepseek-ai/deepseek-harness, and
+zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
+
+- [x] M20.1 Handshake window: a CLI producing no output fails legibly with stderr tail (comet #93)
+- [x] M20.2 Live working indicator: WorkingGlyph + zero-rerender elapsed timer in the session strip
+- [x] M20.3 Empty model rounds retry instead of ending the turn silently (DSH EMPTY_RESPONSE semantics)
+- [x] M20.4 Login-shell PATH snapshot + node version-manager probing for GUI launches (comet shell_env)
+- [x] M20.5 Prompt-stall watchdog: totally silent ACP agents fail with guidance (`ARI_ACP_PROMPT_STALL_MS`)
+- [x] M20.6 npm fatal exit decoding: npx adapter deaths surface ENOENT/EACCES guidance (comet #95)
+- [x] M20.7 Sidebar pin/archive shelves wired to engine flags (M18.2 UI gap closed)
+- [x] M20.8 Session nav keys: Mod+N, Mod+1..9 jump, Ctrl+Tab cycle + shared shortcut map
+      (removed the phantom "Cycle theme" row — documented but never implemented)
+
 ## M16 — Provider system rework: ACP transport, live catalogs, update awareness
 
 Driver rework so Ari stays an *interface* over provider harnesses (Agent Client Protocol,
