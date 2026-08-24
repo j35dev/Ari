@@ -6,7 +6,7 @@ const CHASE_DURATION_S = 1.2
 /** Perimeter walk order of the 3x3 matrix; the center cell stays dim. */
 const RING_ORDER = [0, 1, 2, 5, 8, 7, 6, 3]
 const WORD_CYCLE_MS = 2000
-const FLAVOUR_WORDS = ['forging', 'thinking', 'crafting', 'wielding']
+const FLAVOUR_WORDS = ['forging', 'weighing', 'shaping', 'listening']
 
 export function formatElapsed(s: number): string {
   if (s < 60) return `${s}s`

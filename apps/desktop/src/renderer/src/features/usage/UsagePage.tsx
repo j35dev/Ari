@@ -1,31 +1,33 @@
-import { useCallback, useState } from 'react'
-import { Play } from 'lucide-react'
-import { Button } from '@ari/ui/button'
+import { useEffect, useState } from 'react'
 import { rpc } from '../../lib/rpc'
 import { UsageDashboard } from './UsageDashboard'
 
 /**
- * Full-page usage view (M23.14): the per-session dashboard on top, plus the
- * community `ccusage` report (daily cost tables parsed from the local Claude
- * Code JSONL) run out-of-process on demand. Nothing is preinstalled — npx
- * resolves the package on first run, so the first invocation can be slow.
+ * Full-page usage view: Ari's own token/cost dashboard, plus the community
+ * ccusage report which starts automatically on open.
  */
 export function UsagePage() {
   const [output, setOutput] = useState<string | null>(null)
-  const [running, setRunning] = useState(false)
+  const [running, setRunning] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const run = useCallback(async (): Promise<void> => {
-    setRunning(true)
-    setError(null)
-    try {
-      const result = await rpc.invoke('usage.ccusage', { subcommand: 'daily' })
-      setOutput(result.output)
-      if (!result.ok) setError(result.error ?? 'ccusage failed.')
-    } catch {
-      setError('Could not run ccusage.')
-    } finally {
-      setRunning(false)
+  useEffect(() => {
+    let cancelled = false
+    void rpc
+      .invoke('usage.ccusage', { subcommand: 'daily' })
+      .then((result) => {
+        if (cancelled) return
+        setOutput(result.output)
+        if (!result.ok) setError(result.error ?? 'ccusage failed.')
+      })
+      .catch(() => {
+        if (!cancelled) setError('Could not run ccusage.')
+      })
+      .finally(() => {
+        if (!cancelled) setRunning(false)
+      })
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -39,25 +41,13 @@ export function UsagePage() {
       <UsageDashboard />
 
       <section aria-label="ccusage report" className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-medium text-fg">ccusage report</h2>
-            <p className="text-2xs text-fg-subtle">
-              Daily cost breakdown from the local Claude Code logs, via the community ccusage CLI.
-            </p>
-          </div>
-          {running ? (
-            <span role="status" className="text-2xs text-fg-subtle">running…</span>
-          ) : (
-            <Button size="sm" variant="secondary" onClick={() => void run()}>
-              <Play size={12} /> {output === null ? 'Run ccusage' : 'Re-run'}
-            </Button>
-          )}
+        <div>
+          <h2 className="text-sm font-medium text-fg">ccusage</h2>
+          <p className="text-2xs text-fg-subtle">Daily cost from local Claude Code logs.</p>
         </div>
-
         {running && (
           <p role="status" className="text-xs text-fg-muted">
-            Running ccusage… (first run downloads the package, this can take a minute)
+            Loading ccusage…
           </p>
         )}
         {error !== null && (

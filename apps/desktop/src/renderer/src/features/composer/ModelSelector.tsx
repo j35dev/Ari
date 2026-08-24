@@ -89,7 +89,11 @@ export function ModelSelector({
   const optionsFor = useMemo(() => {
     const compute = (kind: DriverKind): SelectorOption[] => {
       if (kind === 'ari-core') return endpointModels
-      return (catalog[kind] ?? modelsFor(kind)).map((model) => ({
+      // Live catalogs only — snapshot dumps every models.dev entry and is
+      // why OpenCode showed 380 models the user does not actually have.
+      const live = catalog[kind]
+      const list = live && live.length > 0 ? live : modelsFor(kind).filter((m) => m.id === 'default')
+      return list.map((model) => ({
         id: `${kind}:${model.id}`,
         label: model.label,
         group: driverLabel(kind),

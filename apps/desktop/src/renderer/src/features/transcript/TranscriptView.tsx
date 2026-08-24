@@ -34,6 +34,7 @@ export function TranscriptView({
   regenerateDisabled = false,
   header,
   onDiffComment,
+  working,
 }: {
   sessionId: string
   messages: Message[]
@@ -50,6 +51,8 @@ export function TranscriptView({
   header?: React.ReactNode
   /** Review-note loop (M21.1): inline diff comments flow to the composer. */
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
+  /** Live working indicator, rendered where the next assistant reply will land. */
+  working?: React.ReactNode
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -224,7 +227,13 @@ export function TranscriptView({
           </div>
         ) : null}
 
-        {!loading && rows.length === 0 ? (
+        {working ? (
+          <div className="mx-auto mt-3 max-w-3xl px-1" aria-live="polite">
+            {working}
+          </div>
+        ) : null}
+
+        {!loading && rows.length === 0 && !working ? (
           <div className="flex h-full items-center justify-center text-sm text-fg-subtle">
             No messages yet — say hello.
           </div>

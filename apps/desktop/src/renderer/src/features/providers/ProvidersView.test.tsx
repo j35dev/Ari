@@ -134,7 +134,7 @@ describe('ProvidersView', () => {
     )
 
     invokeFn.mockResolvedValueOnce({ started: true })
-    await user.click(within(dialog).getByRole('button', { name: 'Run command' }))
+    await user.click(within(dialog).getByRole('button', { name: /run command|install/i }))
     await waitFor(() =>
       expect(invokeFn).toHaveBeenCalledWith('providers.install', {
         kind: 'codex',
