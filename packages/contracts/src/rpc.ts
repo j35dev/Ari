@@ -205,6 +205,7 @@ export const rpcParams = {
       content: z.string(),
     }),
   'plan.get': z.object({ path: z.string().min(1) }),
+  'scripts.list': z.object({ path: z.string().min(1) }),
     'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -289,6 +290,8 @@ export interface RpcResults {
    * Ari Core's `todo_write`). `items: null` when no plan exists.
    */
   'plan.get': { items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] | null; error?: string }
+  /** npm-style scripts declared in the folder's package.json (M21.3). */
+  'scripts.list': { scripts: { name: string; command: string }[]; error?: string }
     'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
