@@ -3,6 +3,7 @@ import { GitBranch, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
+import { useUpdateToasts } from './features/providers/use-update-toasts'
 import type { RpcResults, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
@@ -575,10 +576,19 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider persistence={themePersistence}>
       <MotionProvider>
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          <UpdateToastWatcher />
+          {children}
+        </ToastProvider>
       </MotionProvider>
     </ThemeProvider>
   )
+}
+
+/** Headless: announces provider updates once the toast context exists. */
+function UpdateToastWatcher() {
+  useUpdateToasts()
+  return null
 }
 
 const log = createLogger('app:shell')

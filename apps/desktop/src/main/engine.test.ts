@@ -547,6 +547,13 @@ describe('engine end-to-end with scripted driver', () => {
           p.event.type === 'session.updated' &&
           typeof (p.event as { title?: unknown }).title === 'string',
       )
+    // The publish can land a tick after the store write the poll above observed,
+    // so await the second event instead of assuming it is already visible.
+    for (let i = 0; i < 150; i++) {
+      if (titleEvents().length >= 2) break
+      if (i === 149) throw new Error('title upgrade event never published')
+      await new Promise((r) => setTimeout(r, 20))
+    }
     expect(titleEvents()).toHaveLength(2)
 
     // A later turn never regenerates.

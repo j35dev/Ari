@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { commandSchema } from './commands'
 import { driverKindSchema, permissionModeSchema } from './common'
+import type { DriverKind } from './common'
 import type { Project } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
@@ -75,6 +76,17 @@ export interface TerminalDataFrame {
 export type ProvidersUpdateFrame =
   | { type: 'detections'; detections: RpcResults['providers.detect'] }
   | { type: 'catalog'; at: number }
+  /** One line of live install/upgrade output. */
+  | { type: 'install.progress'; kind: DriverKind; stream: 'stdout' | 'stderr'; text: string }
+  /** Operation finished; `ok` reflects the post-run re-detect, not just exit code. */
+  | {
+      type: 'install.settled'
+      kind: DriverKind
+      operation: 'install' | 'upgrade'
+      ok: boolean
+      reason: string | null
+      truncated: boolean
+    }
 
 /** One model entry in a driver's picker catalog. */
 export const catalogModelSchema = z.object({
@@ -129,6 +141,12 @@ export const rpcParams = {
   'command.dispatch': z.object({ command: commandSchema }),
   'providers.detect': z.undefined(),
   'providers.models': z.undefined(),
+  'providers.plan': z.object({ kind: driverKindSchema }),
+  'providers.install': z.object({
+    kind: driverKindSchema,
+    operation: z.enum(['install', 'upgrade']),
+  }),
+  'providers.cancelInstall': z.object({ kind: driverKindSchema }),
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
@@ -262,6 +280,20 @@ export interface RpcResults {
    * (`'snapshot'`), or static defaults (`'static'`).
    */
   'providers.models': { kind: string; source: 'live' | 'cache' | 'snapshot' | 'static'; models: CatalogModelInfo[] }[]
+  /**
+   * The literal argv Ari would run to install or upgrade a provider CLI, so
+   * the confirm dialog can show the exact command before anything executes.
+   * `null` when the kind has no known install channel.
+   */
+  'providers.plan': {
+    manager: string
+    installCommand: string[]
+    upgradeCommand: string[]
+    display: string
+  } | null
+  /** Accepted = the operation started; rejected when one is already running. */
+  'providers.install': { started: boolean; reason?: string }
+  'providers.cancelInstall': { cancelled: boolean }
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }

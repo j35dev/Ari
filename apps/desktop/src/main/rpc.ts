@@ -35,6 +35,8 @@ import { resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import { catalogSource, modelsFor } from '@ari/providers/catalogs'
 import { createUpdateChecker } from '@ari/providers/updates'
+import { planFor } from '@ari/providers/package-manager'
+import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver } from '@ari/providers/acp'
 import { resolveAcpLaunch } from '@ari/providers/acp/launches'
 import type { AcpLaunch } from '@ari/providers/acp/connection'
@@ -97,6 +99,9 @@ const DETECTION_CACHE_TTL_MS = 30_000
 /** Enriched detections (update info) cached for an hour; refreshed in background. */
 let updateCache: { at: number; value: RpcResults['providers.detect'] } | null = null
 const UPDATE_CACHE_TTL_MS = 60 * 60 * 1000
+
+/** One in-flight install/upgrade per driver kind; the UI gates on this. */
+const installsInFlight = new Map<DriverKind, InstallHandle>()
 
 const updateChecker = createUpdateChecker()
 
@@ -383,6 +388,85 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('command.dispatch', async (params) => engine.dispatch(params.command))
 
   r.register('providers.detect', () => probeAllDetections())
+
+  r.register('providers.plan', async (params) => {
+    const detections = await probeAllDetections()
+    const binaryPath = detections.find((d) => d.kind === params.kind)?.binaryPath ?? null
+    return planFor(params.kind, binaryPath)
+  })
+
+  r.register('providers.install', async (params) => {
+    // Single-flight per kind: a second click while one runs is a no-op, not a
+    // second package-manager process racing the first over the same prefix.
+    if (installsInFlight.has(params.kind)) {
+      return { started: false, reason: 'An operation is already running for this provider.' }
+    }
+    const detections = await probeAllDetections()
+    const binaryPath = detections.find((d) => d.kind === params.kind)?.binaryPath ?? null
+    const plan = planFor(params.kind, binaryPath)
+    if (plan === null) {
+      return { started: false, reason: 'No known install channel for this provider.' }
+    }
+    const argv = params.operation === 'install' ? plan.installCommand : plan.upgradeCommand
+
+    const publish = (frame: ProvidersUpdateFrame): void => {
+      rpcRegistryRef?.publish('providers.updates', frame)
+    }
+    let truncated = false
+    let exitCode: number | null = null
+    let failure: string | null = null
+
+    const handle = runInstall(argv, (event) => {
+      if (event.type === 'progress') {
+        publish({
+          type: 'install.progress',
+          kind: params.kind,
+          stream: event.line.stream,
+          text: event.line.text,
+        })
+        return
+      }
+      if (event.type === 'exit') {
+        truncated = event.truncated
+        exitCode = event.code
+        if (event.timedOut) failure = 'Timed out after 5 minutes.'
+        else if (event.code !== 0) failure = `Exited with code ${String(event.code)}.`
+        return
+      }
+      if (event.type === 'failed') failure = event.reason
+    })
+    installsInFlight.set(params.kind, handle)
+
+    void handle.done
+      .then(async () => {
+        // Verify by re-probing: a zero exit code does not prove the binary is
+        // now resolvable (wrong prefix, PATH not refreshed, partial install).
+        detectionCache = null
+        updateCache = null
+        const after = await probeAllDetections()
+        const nowInstalled = after.find((d) => d.kind === params.kind)?.installed ?? false
+        const ok = failure === null && exitCode === 0 && nowInstalled
+        publish({
+          type: 'install.settled',
+          kind: params.kind,
+          operation: params.operation,
+          ok,
+          reason: ok ? null : (failure ?? 'The CLI is still not detected after the command finished.'),
+          truncated,
+        })
+      })
+      .catch((error: unknown) => log.warn('install settle failed', { error: String(error) }))
+      .finally(() => installsInFlight.delete(params.kind))
+
+    return { started: true }
+  })
+
+  r.register('providers.cancelInstall', async (params) => {
+    const handle = installsInFlight.get(params.kind)
+    if (handle === undefined) return { cancelled: false }
+    await handle.cancel()
+    return { cancelled: true }
+  })
 
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
   r.register('providers.models', () =>
@@ -774,6 +858,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'command.dispatch',
     'providers.detect',
     'providers.models',
+    'providers.plan',
+    'providers.install',
+    'providers.cancelInstall',
     'window.minimize',
     'window.toggleMaximize',
     'window.close',
