@@ -10,6 +10,7 @@
     "./catalogs": "./src/catalogs.ts",
     "./catalog-service": "./src/catalog-service.ts",
     "./updates": "./src/updates.ts",
+    "./package-manager": "./src/package-manager.ts",
     "./registry": "./src/driver-registry.ts",
     "./driver": "./src/driver.ts",
     "./spawn-cli": "./src/spawn-cli.ts",
