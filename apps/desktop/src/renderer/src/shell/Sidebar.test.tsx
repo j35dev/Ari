@@ -201,6 +201,21 @@ describe('SessionsUnderProjects', () => {
     expect(onCloseProject).toHaveBeenCalledWith('proj-1')
   })
 
+  it('opens the same menu from the hover affordance, which is not nested inside the row button', async () => {
+    const onTogglePin = vi.fn()
+    renderSidebar([session('a', 1, 'proj-1')], null, { onTogglePin })
+    const user = userEvent.setup()
+
+    // A control nested inside a <button> is invalid HTML and breaks keyboard
+    // semantics; the affordance must be a sibling of the row button.
+    const affordance = screen.getByRole('button', { name: 'Session actions for Session a' })
+    expect(affordance.parentElement?.tagName).not.toBe('BUTTON')
+
+    await user.click(affordance)
+    await user.click(screen.getByRole('menuitem', { name: 'Pin to top' }))
+    expect(onTogglePin).toHaveBeenCalledWith('a', true)
+  })
+
   it('confirms before removing a project', async () => {
     const onRemoveProject = vi.fn()
     renderSidebar([session('a', 1, 'proj-1')], null, { onRemoveProject })

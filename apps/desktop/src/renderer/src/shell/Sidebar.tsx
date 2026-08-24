@@ -178,12 +178,12 @@ function SessionRow({
   }
 
   return (
-    <div className="group relative">
+    <div className="group relative flex items-center">
       <button
         type="button"
         onClick={() => onSelect(session.id)}
         onContextMenu={(e) => menu.open(session.id, e)}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 pr-7 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           isActive ? 'bg-glass-active text-fg' : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
         }`}
       >
@@ -202,20 +202,17 @@ function SessionRow({
         <span className="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
           {formatRelativeTime(session.updatedAt)}
         </span>
-        {/* Affordance for the right-click menu, which is the only action
-            surface — rows no longer reserve a gutter for icon clusters. */}
-        <span
-          role="button"
-          tabIndex={-1}
-          aria-label={`Session actions for ${session.title}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            menu.open(session.id, e)
-          }}
-          className="shrink-0 rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-fg group-hover:opacity-100"
-        >
-          <MoreHorizontal size={13} aria-hidden />
-        </span>
+      </button>
+      {/* Sibling, not nested: a control inside a <button> is invalid HTML and
+          breaks keyboard semantics. Right-click anywhere on the row opens the
+          same menu; this is just the discoverable affordance. */}
+      <button
+        type="button"
+        aria-label={`Session actions for ${session.title}`}
+        onClick={(e) => menu.open(session.id, e)}
+        className="absolute right-1 flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover:opacity-100"
+      >
+        <MoreHorizontal size={13} aria-hidden />
       </button>
       {menu.openFor === session.id ? (
         <ContextMenu
@@ -400,15 +397,15 @@ function ProjectGroupSection({
 
   return (
     <section className="group/project" aria-label={name}>
-      <div className="flex items-center">
+      <div className="relative flex items-center">
         <button
           type="button"
           aria-expanded={expanded}
           onClick={onToggle}
           onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
           className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-            missing ? 'opacity-60' : ''
-          }`}
+            project ? 'pr-7' : ''
+          } ${missing ? 'opacity-60' : ''}`}
         >
           <ChevronRight
             size={11}
@@ -428,21 +425,17 @@ function ProjectGroupSection({
           <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
             {sessions.length}
           </span>
-          {project ? (
-            <span
-              role="button"
-              tabIndex={-1}
-              aria-label={`Project actions for ${name}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                menu.open(project.id, e)
-              }}
-              className="shrink-0 rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-fg group-hover/project:opacity-100"
-            >
-              <MoreHorizontal size={13} aria-hidden />
-            </span>
-          ) : null}
         </button>
+        {project ? (
+          <button
+            type="button"
+            aria-label={`Project actions for ${name}`}
+            onClick={(e) => menu.open(project.id, e)}
+            className="absolute right-1 flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover/project:opacity-100"
+          >
+            <MoreHorizontal size={13} aria-hidden />
+          </button>
+        ) : null}
       </div>
       {project && menu.openFor === project.id ? (
         <ContextMenu
