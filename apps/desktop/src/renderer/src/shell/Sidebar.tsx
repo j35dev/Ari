@@ -12,6 +12,7 @@ import {
   FolderX,
   Gauge,
   GitPullRequest,
+PanelLeftClose,
   MessageSquare,
   Pencil,
   Pin,
@@ -37,21 +38,40 @@ import { useProjectExpand } from './use-project-expand'
 const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
 
 /** Sidebar top: wordmark + one-click new session (T3 brand row). */
-export function SidebarHeader({ onNewSession }: { onNewSession: () => void }) {
+export function SidebarHeader({
+  onNewSession,
+  onCollapse,
+}: {
+  onNewSession: () => void
+  onCollapse?: () => void
+}) {
   return (
     <div className="flex items-center justify-between px-3 pb-1 pt-3">
       <div className="flex items-baseline gap-1.5">
         <span className="text-sm font-semibold tracking-tight text-fg">Ari</span>
         <span className="text-2xs text-fg-subtle">beta</span>
       </div>
-      <button
-        type="button"
-        aria-label="New session"
-        onClick={onNewSession}
-        className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-      >
-        <Plus size={14} />
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-label="New session"
+          onClick={onNewSession}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <Plus size={14} />
+        </button>
+        {onCollapse !== undefined && (
+          <button
+            type="button"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar (Ctrl+B)"
+            onClick={onCollapse}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            <PanelLeftClose size={14} />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -666,8 +686,10 @@ const SIDEBAR_NAV: { id: SidebarNavId; label: string; icon: LucideIcon }[] = [
 ]
 
 /**
- * T3-style tool strip at the bottom of the sessions sidebar. Settings swaps
- * the sidebar for a section list; the other targets toggle a right inspector.
+ * Labeled tool list at the bottom of the sessions sidebar — icon + text rows
+ * instead of bare icon buttons, so each destination reads at a glance.
+ * Settings swaps the sidebar for a section list; the other targets toggle a
+ * right inspector.
  */
 export function SidebarFooter({
   active,
@@ -679,7 +701,7 @@ export function SidebarFooter({
   return (
     <nav
       aria-label="Workspace"
-      className="flex shrink-0 items-center gap-0.5 border-t border-border px-2 py-1.5"
+      className="flex shrink-0 flex-col gap-0.5 border-t border-border px-2 py-2"
     >
       {SIDEBAR_NAV.map((item) => {
         const Icon = item.icon
@@ -690,15 +712,15 @@ export function SidebarFooter({
             type="button"
             aria-label={item.label}
             aria-pressed={selected}
-            title={item.label}
             onClick={() => onSelect(item.id)}
-            className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+            className={`flex h-7 items-center gap-2.5 rounded-md px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
               selected
                 ? 'bg-accent-subtle text-accent'
                 : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
             }`}
           >
-            <Icon size={15} strokeWidth={1.8} aria-hidden />
+            <Icon size={15} strokeWidth={1.8} aria-hidden className="shrink-0" />
+            <span className="truncate text-xs font-medium">{item.label}</span>
           </button>
         )
       })}

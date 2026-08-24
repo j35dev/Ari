@@ -1,10 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, Search } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, Search } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
 import { modelsFor } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
-import { agentMark, driverLabel, kindFromGroup } from './agent-mark'
+import { agentMark, driverLabel } from './agent-mark'
 
 export interface SelectorOption {
   id: string
@@ -28,9 +28,10 @@ function AgentMark({ kind }: { kind: string }) {
 }
 
 /**
- * Agent-first model picker. The trigger is a letter mark plus the model name;
- * the menu is a searchable, grouped combobox (arrows move, Enter picks, Esc
- * closes). Search stays focused so typing filters without a separate mode.
+ * Provider-first model picker (M23.13). Step one lists installed providers;
+ * step two lists only that provider's models. Search filters the visible
+ * step. Arrows move, Enter picks (or drills in on step one), Esc/Backspace
+ * goes back or closes.
  */
 export function ModelSelector({
   driverKind,
@@ -42,6 +43,7 @@ export function ModelSelector({
   onChange: (next: { driverKind: DriverKind; modelId: string | null }) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [activeKind, setActiveKind] = useState<DriverKind | null>(null)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const [drivers, setDrivers] = useState<{ kind: DriverKind; label: string }[]>([])
@@ -83,66 +85,65 @@ export function ModelSelector({
     ]).finally(() => setLoaded(true))
   }, [])
 
-  const options = useMemo<SelectorOption[]>(() => {
-    const out: SelectorOption[] = []
-    for (const driver of drivers) {
-      if (driver.kind === 'ari-core') {
-        out.push(...endpointModels)
-        continue
-      }
-      for (const model of catalog[driver.kind] ?? modelsFor(driver.kind)) {
-        out.push({
-          id: `${driver.kind}:${model.id}`,
-          label: model.label,
-          group: driver.label,
-          hint: model.contextHint,
-        })
-      }
+  /** Models for one provider — the step-two list. */
+  const optionsFor = useMemo(() => {
+    const compute = (kind: DriverKind): SelectorOption[] => {
+      if (kind === 'ari-core') return endpointModels
+      return (catalog[kind] ?? modelsFor(kind)).map((model) => ({
+        id: `${kind}:${model.id}`,
+        label: model.label,
+        group: driverLabel(kind),
+        hint: model.contextHint,
+      }))
     }
-    return out
-  }, [drivers, endpointModels, catalog])
+    return compute
+  }, [catalog, endpointModels])
 
   const currentId = `${driverKind}:${modelId ?? ''}`
-  const current = options.find((o) => o.id === currentId)
+  const currentKindLabel = driverLabel(driverKind)
 
-  const filtered = useMemo(() => {
+  /** Step-one rows: one per installed provider, showing its active model. */
+  const providers = useMemo(
+    () =>
+      drivers.map((driver) => {
+        const opts = optionsFor(driver.kind)
+        const active = opts.find((o) => o.id === `${driver.kind}:${driver.kind === driverKind ? (modelId ?? '') : ''}`)
+        return {
+          kind: driver.kind,
+          label: driver.label,
+          // Only the CURRENT provider's active model is knowable; others show
+          // their model count so the step doesn't look empty.
+          detail: driver.kind === driverKind ? (active?.label ?? modelId ?? 'CLI default') : `${opts.length} models`,
+        }
+      }),
+    [drivers, optionsFor, driverKind, modelId],
+  )
+
+  /** Step-two rows: the active provider's models, filtered by query. */
+  const models = useMemo(() => {
+    if (activeKind === null) return []
     const q = query.trim().toLowerCase()
-    if (q.length === 0) return options
-    return options.filter(
-      (o) =>
-        o.label.toLowerCase().includes(q) ||
-        o.group.toLowerCase().includes(q) ||
-        (o.hint?.toLowerCase().includes(q) ?? false),
+    const list = optionsFor(activeKind)
+    if (q.length === 0) return list
+    return list.filter(
+      (o) => o.label.toLowerCase().includes(q) || (o.hint?.toLowerCase().includes(q) ?? false),
     )
-  }, [options, query])
+  }, [activeKind, optionsFor, query])
 
-  const grouped = useMemo(() => {
-    const groups: { group: string; options: SelectorOption[] }[] = []
-    const byGroup = new Map<string, SelectorOption[]>()
-    for (const opt of filtered) {
-      let list = byGroup.get(opt.group)
-      if (list === undefined) {
-        list = []
-        byGroup.set(opt.group, list)
-        groups.push({ group: opt.group, options: list })
-      }
-      list.push(opt)
-    }
-    return groups
-  }, [filtered])
+  const visibleCount = activeKind === null ? providers.length : models.length
 
-  const filteredRef = useRef(filtered)
-  filteredRef.current = filtered
+  const filteredRef = useRef(visibleCount)
+  filteredRef.current = visibleCount
   const currentIdRef = useRef(currentId)
   currentIdRef.current = currentId
+  const activeKindRef = useRef(activeKind)
+  activeKindRef.current = activeKind
 
   useEffect(() => {
     if (!open) return
-    const list = filteredRef.current
-    const selected = list.findIndex((o) => o.id === currentIdRef.current)
-    setActiveIndex(selected >= 0 ? selected : 0)
+    setActiveIndex(0)
     requestAnimationFrame(() => searchRef.current?.focus())
-  }, [open, query])
+  }, [open, query, activeKind])
 
   useEffect(() => {
     listRef.current
@@ -153,9 +154,10 @@ export function ModelSelector({
   const close = (): void => {
     setOpen(false)
     setQuery('')
+    setActiveKind(null)
   }
 
-  const pick = (opt: SelectorOption): void => {
+  const pickModel = (opt: SelectorOption): void => {
     const [kind, ...rest] = opt.id.split(':')
     onChange({ driverKind: kind as DriverKind, modelId: rest.join(':') || null })
     close()
@@ -164,12 +166,22 @@ export function ModelSelector({
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
       e.preventDefault()
-      close()
+      if (activeKind !== null) {
+        setActiveKind(null)
+        setQuery('')
+      } else {
+        close()
+      }
+      return
+    }
+    if (e.key === 'Backspace' && query.length === 0 && activeKind !== null) {
+      e.preventDefault()
+      setActiveKind(null)
       return
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActiveIndex((i) => Math.min(Math.max(filtered.length - 1, 0), i + 1))
+      setActiveIndex((i) => Math.min(Math.max(visibleCount - 1, 0), i + 1))
       return
     }
     if (e.key === 'ArrowUp') {
@@ -184,30 +196,41 @@ export function ModelSelector({
     }
     if (e.key === 'End') {
       e.preventDefault()
-      setActiveIndex(Math.max(filtered.length - 1, 0))
+      setActiveIndex(Math.max(visibleCount - 1, 0))
       return
     }
     if (e.key === 'Enter') {
       e.preventDefault()
-      const opt = filtered[activeIndex]
-      if (opt !== undefined) pick(opt)
+      if (activeKind === null) {
+        const provider = providers[activeIndex]
+        if (provider !== undefined) {
+          setActiveKind(provider.kind)
+          setQuery('')
+        }
+        return
+      }
+      const opt = models[activeIndex]
+      if (opt !== undefined) pickModel(opt)
     }
   }
 
-  const triggerKind = current ? kindFromGroup(current.group) : driverKind
-  const triggerLabel = current?.label ?? modelId ?? driverLabel(driverKind)
+  const triggerLabel = useMemo(() => {
+    if (driverKind === 'ari-core') return modelId ?? 'Ari Core'
+    const list = optionsFor(driverKind)
+    return list.find((o) => o.id === currentId)?.label ?? modelId ?? 'CLI default'
+  }, [driverKind, modelId, currentId, optionsFor])
 
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
-        aria-label={`Model: ${driverLabel(triggerKind)} · ${triggerLabel}`}
+        aria-label={`Model: ${currentKindLabel} · ${triggerLabel}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="flex h-7 max-w-52 items-center gap-1.5 rounded-md border border-border bg-surface-1 pe-2 ps-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <AgentMark kind={triggerKind} />
+        <AgentMark kind={driverKind} />
         <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
         <ChevronDown
           size={11}
@@ -222,8 +245,21 @@ export function ModelSelector({
           <div
             role="presentation"
             onKeyDown={onMenuKeyDown}
-            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-lg border border-border shadow-2"
+            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-lg border border-border shadow-2"
           >
+            {activeKind !== null && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveKind(null)
+                  setQuery('')
+                }}
+                className="flex w-full items-center gap-1.5 border-b border-border px-2 py-1.5 text-start text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg"
+              >
+                <ArrowLeft size={12} aria-hidden className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{driverLabel(activeKind)}</span>
+              </button>
+            )}
             <div className="relative border-b border-border">
               <Search
                 size={12}
@@ -234,10 +270,10 @@ export function ModelSelector({
                 ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search agents or models…"
-                aria-label="Search models"
+                placeholder={activeKind === null ? 'Search providers…' : 'Search models…'}
+                aria-label={activeKind === null ? 'Search providers' : 'Search models'}
                 aria-controls={listboxId}
-                aria-activedescendant={filtered.length > 0 ? activeId : undefined}
+                aria-activedescendant={visibleCount > 0 ? activeId : undefined}
                 role="combobox"
                 aria-autocomplete="list"
                 aria-expanded
@@ -250,56 +286,75 @@ export function ModelSelector({
               ref={listRef}
               id={listboxId}
               role="listbox"
-              aria-label="Models"
+              aria-label={activeKind === null ? 'Providers' : 'Models'}
               className="ari-scroll max-h-72 overflow-y-auto p-1"
             >
-              {filtered.length === 0 ? (
+              {visibleCount === 0 ? (
                 <p className="px-2 py-3 text-center text-xs text-fg-subtle">
                   {!loaded
-                    ? 'Loading models…'
-                    : options.length === 0
+                    ? 'Loading…'
+                    : drivers.length === 0
                       ? 'No agents detected yet.'
-                      : `No models match “${query.trim()}”.`}
+                      : activeKind !== null
+                        ? `No models match “${query.trim()}”.`
+                        : 'No providers match.'}
                 </p>
+              ) : activeKind === null ? (
+                providers.map((provider, index) => {
+                  const isActive = index === activeIndex
+                  const isCurrentProvider = provider.kind === driverKind
+                  return (
+                    <button
+                      key={provider.kind}
+                      id={`${listboxId}-opt-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={isCurrentProvider}
+                      data-option-index={index}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => {
+                        setActiveKind(provider.kind)
+                        setQuery('')
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
+                        isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
+                      }`}
+                    >
+                      <AgentMark kind={provider.kind} />
+                      <span className="min-w-0 flex-1 truncate text-xs">{provider.label}</span>
+                      <span className="shrink-0 font-mono text-2xs text-fg-subtle">{provider.detail}</span>
+                      {isCurrentProvider ? (
+                        <Check size={12} className="shrink-0 text-fg" aria-hidden />
+                      ) : null}
+                    </button>
+                  )
+                })
               ) : (
-                grouped.map(({ group, options: groupOptions }) => (
-                  <div key={group} role="group" aria-label={group}>
-                    <p className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-2xs font-medium text-fg-subtle">
-                      <AgentMark kind={kindFromGroup(group)} />
-                      {group}
-                    </p>
-                    {groupOptions.map((opt) => {
-                      const flatIndex = filtered.indexOf(opt)
-                      const isActive = flatIndex === activeIndex
-                      const isSelected = opt.id === currentId
-                      return (
-                        <button
-                          key={opt.id}
-                          id={`${listboxId}-opt-${flatIndex}`}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          data-option-index={flatIndex}
-                          onMouseEnter={() => setActiveIndex(flatIndex)}
-                          onClick={() => pick(opt)}
-                          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-                            isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
-                          }`}
-                        >
-                          <span className="min-w-0 flex-1 truncate text-xs">{opt.label}</span>
-                          {opt.hint ? (
-                            <span className="shrink-0 font-mono text-2xs text-fg-subtle">
-                              {opt.hint}
-                            </span>
-                          ) : null}
-                          {isSelected ? (
-                            <Check size={12} className="shrink-0 text-fg" aria-hidden />
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))
+                models.map((opt, index) => {
+                  const isActive = index === activeIndex
+                  const isSelected = opt.id === currentId
+                  return (
+                    <button
+                      key={opt.id}
+                      id={`${listboxId}-opt-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={isSelected}
+                      data-option-index={index}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => pickModel(opt)}
+                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
+                        isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-xs">{opt.label}</span>
+                      {opt.hint ? (
+                        <span className="shrink-0 font-mono text-2xs text-fg-subtle">{opt.hint}</span>
+                      ) : null}
+                      {isSelected ? <Check size={12} className="shrink-0 text-fg" aria-hidden /> : null}
+                    </button>
+                  )
+                })
               )}
             </div>
           </div>

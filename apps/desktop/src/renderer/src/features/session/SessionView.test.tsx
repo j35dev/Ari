@@ -59,6 +59,13 @@ const SESSION = {
 /** The live event listener registered by the session.events subscription. */
 let sessionListener: ((payload: unknown) => void) | null = null
 
+/** Simulates the main process's replay-then-live protocol on (re)subscribe. */
+function emitReplayDone(): void {
+  act(() => {
+    sessionListener?.({ sessionId: 'sess_1', replayDone: true })
+  })
+}
+
 function emitSessionEvent(event: Record<string, unknown>): void {
   act(() => {
     sessionListener?.({ sessionId: 'sess_1', event })
@@ -89,6 +96,7 @@ describe('SessionView question panel', () => {
     rpcMocks.subscribe.mockImplementation(
       (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
         sessionListener = onEvent
+        emitReplayDone()
         return () => undefined
       },
     )
@@ -193,6 +201,7 @@ describe('SessionView edit and resend', () => {
     rpcMocks.subscribe.mockImplementation(
       (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
         sessionListener = onEvent
+        emitReplayDone()
         return () => undefined
       },
     )
@@ -271,6 +280,7 @@ describe('SessionView regenerate and retry', () => {
     rpcMocks.subscribe.mockImplementation(
       (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
         sessionListener = onEvent
+        emitReplayDone()
         return () => undefined
       },
     )
@@ -441,6 +451,7 @@ describe('SessionView per-turn diff cards', () => {
     rpcMocks.subscribe.mockImplementation(
       (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
         sessionListener = onEvent
+        emitReplayDone()
         return () => undefined
       },
     )
@@ -553,6 +564,7 @@ describe('SessionView context meter', () => {
     rpcMocks.subscribe.mockImplementation(
       (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
         sessionListener = onEvent
+        emitReplayDone()
         return () => undefined
       },
     )
@@ -665,6 +677,98 @@ describe('context meter helpers', () => {
   })
 })
 
+describe('SessionView replay/live dedupe (M23.12)', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        sessionListener = onEvent
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  const userMessage = (seq: number, text: string): Record<string, unknown> => ({
+    seq,
+    at: seq,
+    sessionId: 'sess_1',
+    type: 'user.message.added',
+    message: {
+      id: `m${seq}`,
+      sessionId: 'sess_1',
+      turnId: 'turn_1',
+      role: 'user',
+      parts: [{ type: 'text', text }],
+      createdAt: seq,
+    },
+  })
+
+  function emitFrame(payload: Record<string, unknown>): void {
+    act(() => {
+      sessionListener?.({ sessionId: 'sess_1', ...payload })
+    })
+  }
+
+  it('does not double-render when the replay burst re-delivers live seqs', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    // Mid-turn resubscribe: live events arrive while the journal is read.
+    emitFrame({ event: userMessage(1, 'who are you') })
+    emitFrame({
+      event: {
+        seq: 2, at: 2, sessionId: 'sess_1', type: 'assistant.parts.appended',
+        messageId: 'm2', parts: [{ type: 'text', text: 'I am the agent.' }],
+      },
+    })
+
+    // Replay burst arrives afterwards, covering seq 1-2 again, then the sentinel.
+    emitFrame({ event: userMessage(1, 'who are you'), replay: true })
+    emitFrame({
+      event: {
+        seq: 2, at: 2, sessionId: 'sess_1', type: 'assistant.parts.appended',
+        messageId: 'm2', parts: [{ type: 'text', text: 'I am the agent.' }],
+      },
+      replay: true,
+    })
+    emitFrame({ replayDone: true })
+
+    // Exactly one copy of each message survives.
+    expect(await screen.findByText('who are you')).toBeInTheDocument()
+    expect(screen.getAllByText('who are you')).toHaveLength(1)
+    expect(screen.getAllByText('I am the agent.')).toHaveLength(1)
+  })
+
+  it('holds live frames until the replay sentinel so history stays in order', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    // Live seq 2 lands before the replayed seq 1.
+    emitFrame({ event: userMessage(2, 'second') })
+    emitFrame({ event: userMessage(1, 'first'), replay: true })
+    emitFrame({ replayDone: true })
+
+    const first = await screen.findByText('first')
+    const second = screen.getByText('second')
+    expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
 describe('SessionView queued messages', () => {
   beforeEach(() => {
     invokeMock.mockReset()
@@ -681,6 +785,7 @@ describe('SessionView queued messages', () => {
     rpcMocks.subscribe.mockImplementation(
       (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
         sessionListener = onEvent
+        emitReplayDone()
         return () => undefined
       },
     )

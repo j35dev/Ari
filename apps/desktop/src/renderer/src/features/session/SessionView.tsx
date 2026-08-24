@@ -206,6 +206,14 @@ export function SessionView({
   const fetchedTurnIdsRef = useRef(new Set<string>())
   const queuedDiffTurnIdsRef = useRef(new Set<string>())
   const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
+  // Stream ordering guards (M23.12): the journal replay on (re)subscribe races
+  // live events, so frames are sequenced by journal `seq` — replayed frames
+  // apply immediately, live frames buffer until the replay sentinel, and any
+  // seq already applied is dropped. Without this, returning from Settings
+  // mid-turn renders every message twice.
+  const appliedSeqsRef = useRef<Set<number>>(new Set())
+  const replayDoneRef = useRef(false)
+  const liveBufferRef = useRef<JournalEvent[]>([])
   // Mirrors the engine fold's activeTurnId so locally synthesized assistant
   // messages carry their turn id (drives per-turn diff card placement).
   const activeTurnIdRef = useRef<string | null>(null)
@@ -255,10 +263,42 @@ export function SessionView({
     queuedDiffTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
 
+    appliedSeqsRef.current = new Set()
+    replayDoneRef.current = false
+    liveBufferRef.current = []
+
+    const ingest = (raw: JournalEvent): void => {
+      const seq = typeof raw.seq === 'number' ? raw.seq : null
+      if (seq !== null) {
+        if (appliedSeqsRef.current.has(seq)) return // replay/live overlap
+        appliedSeqsRef.current.add(seq)
+      }
+      applyEvent(raw)
+    }
+
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
       const frame = payload as SessionEventFrame
       if (frame.sessionId !== sessionId) return
-      applyEvent(frame.event as JournalEvent)
+      if (frame.replayDone === true) {
+        replayDoneRef.current = true
+        const buffered = liveBufferRef.current
+        liveBufferRef.current = []
+        for (const event of buffered) ingest(event)
+        return
+      }
+      const event = frame.event as JournalEvent
+      if (frame.replay === true) {
+        // The replay burst is seq-ordered; apply directly.
+        ingest(event)
+        return
+      }
+      // Live frame: hold until the replay burst has drained so history and
+      // live events interleave in journal order, not arrival order.
+      if (!replayDoneRef.current) {
+        liveBufferRef.current.push(event)
+        return
+      }
+      ingest(event)
     })
 
     // Per-turn diff cards (M18.1): after a turn settles, query its checkpoint
