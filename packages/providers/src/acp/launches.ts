@@ -79,7 +79,12 @@ export function resolveAcpLaunch(
       log.debug('acp: npx not found; using legacy driver', { kind })
       return null
     }
-    return { label: `${kind} (ACP adapter ${adapterPkg})`, command: npx, args: ['-y', adapterPkg] }
+    return {
+      label: `${kind} (ACP adapter ${adapterPkg})`,
+      command: npx,
+      args: ['-y', adapterPkg],
+      viaNpx: true,
+    }
   }
 
   const args = NATIVE_ACP_ARGS[kind]
