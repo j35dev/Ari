@@ -116,3 +116,32 @@ export function useSettleNotify(
     [toast],
   )
 }
+
+export interface AttentionNotifyOptions {
+  /** Toast dispatcher override (tests, callers outside ToastProvider). */
+  toast?: (opts: ToastOptions) => void
+  /** What is being waited on, e.g. the tool name or the question prompt. */
+  detail?: string
+}
+
+/**
+ * Fire an "agent needs you" toast for blocking states that would otherwise be
+ * silent while away — pending approvals and questions. Only fires while the
+ * window is hidden; a focused user sees the inline cards already.
+ */
+export function notifyNeedsAttention(
+  title: string,
+  options?: AttentionNotifyOptions,
+): boolean {
+  if (!isWindowHidden()) return false
+  const emit = options?.toast ?? toastDispatcher
+  if (!emit) return false
+  emit({
+    title,
+    description: options?.detail
+      ? `Waiting for you — ${options.detail}`
+      : 'Waiting for your approval.',
+    tone: 'warning',
+  })
+  return true
+}
