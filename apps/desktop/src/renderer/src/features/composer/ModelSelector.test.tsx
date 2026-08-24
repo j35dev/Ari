@@ -45,7 +45,7 @@ describe('ModelSelector', () => {
           return [
             {
               kind: 'claude',
-              source: 'static',
+              source: 'live',
               models: [
                 { id: 'sonnet-4', label: 'Sonnet 4.5', contextHint: '200k' },
                 { id: 'opus-4', label: 'Opus 4' },
@@ -53,7 +53,7 @@ describe('ModelSelector', () => {
             },
             {
               kind: 'codex',
-              source: 'static',
+              source: 'live',
               models: [{ id: 'gpt-5.6', label: 'GPT-5.6' }],
             },
           ]

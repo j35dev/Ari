@@ -393,7 +393,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       const chunks: string[] = []
       let failure: string | null = null
       const handle = runInstall(
-        ['npx', '-y', 'ccusage@latest', sub],
+        ['npx', '-y', 'ccusage@latest', sub, '--json'],
         (event) => {
           if (event.type === 'progress') chunks.push(event.line.text)
           if (event.type === 'failed') failure = event.reason
