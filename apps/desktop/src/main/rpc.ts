@@ -28,6 +28,7 @@ import { HermesDriver } from '@ari/providers/hermes'
 import { detectDriver } from '@ari/providers/detector'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { realDetectEnvironment } from '@ari/providers/types'
+import { resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import { catalogSource, modelsFor } from '@ari/providers/catalogs'
 import { createUpdateChecker } from '@ari/providers/updates'
@@ -98,18 +99,26 @@ const updateChecker = createUpdateChecker()
 
 function probeAllDetections(): Promise<RpcResults['providers.detect']> {
   if (detectionCache === null || Date.now() - detectionCache.at > DETECTION_CACHE_TTL_MS) {
-    const env: DetectEnvironment = realDetectEnvironment()
+    // GUI-launched processes inherit a minimal PATH; the enriched env layers
+    // in login-shell + version-manager dirs so terminal-installed CLIs resolve.
     detectionCache = {
       at: Date.now(),
-      value: Promise.all(
-        [...ALL_CLI_KINDS, 'ari-core' as DriverKind].map(async (kind) => {
-          try {
-            return await detectDriver(kind, env)
-          } catch (error) {
-            log.error('detection crashed', { kind, error: String(error) })
-            return { kind, binaryPath: null, version: null, authStatus: 'unknown' } satisfies Detection
-          }
-        }),
+      value: resolveDetectionEnvironment().then((env: DetectEnvironment) =>
+        Promise.all(
+          [...ALL_CLI_KINDS, 'ari-core' as DriverKind].map(async (kind) => {
+            try {
+              return await detectDriver(kind, env)
+            } catch (error) {
+              log.error('detection crashed', { kind, error: String(error) })
+              return {
+                kind,
+                binaryPath: null,
+                version: null,
+                authStatus: 'unknown',
+              } satisfies Detection
+            }
+          }),
+        ),
       ),
     }
   }
@@ -145,7 +154,6 @@ let rpcRegistryRef: RpcRegistry | null = null
  * background — the RPC surface is fully usable the instant this runs.
  */
 function hydrateDrivers(registry: DriverRegistry): void {
-  const env = realDetectEnvironment()
   const candidates: {
     kind: 'claude' | 'codex' | 'opencode' | 'grok' | 'pi' | 'hermes'
     make: (bin: string) => Driver
@@ -157,25 +165,30 @@ function hydrateDrivers(registry: DriverRegistry): void {
     { kind: 'pi', make: (bin) => new PiDriver(bin) },
     { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
   ]
-  void Promise.all(
-    candidates.map(async (candidate) => {
-      try {
-        const detection = await detectDriver(candidate.kind, env)
-        if (!detection.binaryPath) return
-        const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
-          cliBinaryPath: detection.binaryPath,
-        })
-        registry.register(new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath)))
-        log.info('driver registered', {
-          kind: candidate.kind,
-          version: detection.version,
-          transport: launch === null ? 'cli' : 'acp+fallback',
-        })
-      } catch (error) {
-        log.error('driver detection failed', { kind: candidate.kind, error: String(error) })
-      }
-    }),
-  )
+  void resolveDetectionEnvironment()
+    .then((env) =>
+      Promise.all(
+        candidates.map(async (candidate) => {
+          try {
+            const detection = await detectDriver(candidate.kind, env)
+            if (!detection.binaryPath) return
+            const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
+              cliBinaryPath: detection.binaryPath,
+            })
+            registry.register(
+              new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath)),
+            )
+            log.info('driver registered', {
+              kind: candidate.kind,
+              version: detection.version,
+              transport: launch === null ? 'cli' : 'acp+fallback',
+            })
+          } catch (error) {
+            log.error('driver detection failed', { kind: candidate.kind, error: String(error) })
+          }
+        }),
+      ),
+    )
 }
 
 /**

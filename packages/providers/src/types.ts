@@ -25,6 +25,8 @@ export interface DetectEnvironment {
   homeDir: string
   /** e.g. %LOCALAPPDATA% on Windows; empty string when unset. */
   localAppData?: string
+  /** e.g. %APPDATA% (Roaming) on Windows; empty string when unset. */
+  appData?: string
 }
 
 export function realDetectEnvironment(): DetectEnvironment {
@@ -33,5 +35,6 @@ export function realDetectEnvironment(): DetectEnvironment {
     pathEnv: process.env['PATH'] ?? '',
     homeDir: process.env[(process.platform === 'win32' ? 'USERPROFILE' : 'HOME')] ?? '',
     localAppData: process.env['LOCALAPPDATA'] ?? '',
+    appData: process.env['APPDATA'] ?? '',
   }
 }
