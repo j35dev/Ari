@@ -13,6 +13,7 @@ import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
 import { notifyNeedsAttention, useSettleNotify } from '../moment'
 import { WorkingGlyph } from '../moment'
+import { PlanPanel } from './PlanPanel'
 
 interface PendingApproval {
   approvalId: string
@@ -188,6 +189,9 @@ export function SessionView({
   const [catalogModels, setCatalogModels] = useState<
     { kind: string; models: CatalogModelInfo[] }[]
   >([])
+  // Workspace path + refresh tick driving the plan panel (.ari-todo.json).
+  const [planPath, setPlanPath] = useState<string | null>(null)
+  const [planNonce, setPlanNonce] = useState(0)
   const sessionTitleRef = useRef('Session')
   // Workspace path of the session's project — needed by git.turnDiff. Held in
   // a ref so the stable event applier can read it without re-subscribing.
@@ -294,6 +298,7 @@ export function SessionView({
         const projects = await rpc.invoke('project.list').catch(() => [])
         if (cancelled) return
         projectPathRef.current = projects.find((p) => p.id === m.session.projectId)?.path ?? null
+        setPlanPath(projectPathRef.current)
         const pending = [...queuedDiffTurnIdsRef.current]
         queuedDiffTurnIdsRef.current.clear()
         for (const turnId of pending) fetchTurnDiff(turnId)
@@ -356,6 +361,7 @@ export function SessionView({
             startedAt: null,
           }))
           fetchTurnDiffRef.current(event.turnId)
+          setPlanNonce((n) => n + 1)
           if (event.stopReason === 'error' && event.errorMessage) {
             setTurnError(event.errorMessage)
             notifySettledRef.current({ error: event.errorMessage })
@@ -547,6 +553,7 @@ export function SessionView({
           onEditUserMessage={handleEditMessage}
           onRegenerate={lastUserPrompt !== null ? resendLastPrompt : undefined}
           regenerateDisabled={running}
+          header={<PlanPanel path={planPath} refreshNonce={planNonce} />}
         />
       </div>
       <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">

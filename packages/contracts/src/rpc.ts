@@ -204,6 +204,7 @@ export const rpcParams = {
       path: z.string().min(1),
       content: z.string(),
     }),
+  'plan.get': z.object({ path: z.string().min(1) }),
     'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -283,6 +284,11 @@ export interface RpcResults {
     'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
     'fs.readTextFile': { content: string; truncated: boolean }
     'fs.writeTextFile': { bytesWritten: number }
+  /**
+   * The session workspace's structured plan (`.ari-todo.json` written by
+   * Ari Core's `todo_write`). `items: null` when no plan exists.
+   */
+  'plan.get': { items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] | null; error?: string }
     'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
