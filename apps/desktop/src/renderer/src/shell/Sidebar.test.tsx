@@ -28,6 +28,10 @@ const projects = [
 function renderSidebar(
   sessions: SessionSummary[],
   activeSessionId: string | null = null,
+  handlers: {
+    onTogglePin?: (id: string, pinned: boolean) => void
+    onToggleArchive?: (id: string, archived: boolean) => void
+  } = {},
 ): void {
   render(
     <SessionsUnderProjects
@@ -37,6 +41,8 @@ function renderSidebar(
       onSelect={() => {}}
       onRename={() => {}}
       onDelete={() => {}}
+      onTogglePin={handlers.onTogglePin ?? (() => {})}
+      onToggleArchive={handlers.onToggleArchive ?? (() => {})}
     />,
   )
 }
@@ -98,6 +104,38 @@ describe('SessionsUnderProjects', () => {
   it('shows an empty state when no sessions exist', () => {
     renderSidebar([])
     expect(screen.getByText(/No sessions yet/)).toBeInTheDocument()
+  })
+
+  it('pins a session to the top Pinned shelf and reports the toggle', async () => {
+    const onTogglePin = vi.fn()
+    const pinned = { ...session('p1', 1), pinned: true }
+    renderSidebar([session('a', 2), pinned], null, { onTogglePin })
+
+    expect(screen.getByText('Pinned')).toBeInTheDocument()
+    // Order: the pinned row renders before the Active-section row.
+    const rows = screen.getAllByText(/Session /)
+    expect(rows[0]?.textContent).toBe('Session p1')
+
+    const user = userEvent.setup()
+    await user.click(
+      screen.getAllByRole('button', { name: 'Unpin session' })[0] as HTMLElement,
+    )
+    expect(onTogglePin).toHaveBeenCalledWith('p1', false)
+  })
+
+  it('archives move out of Active into a collapsed Archived shelf', async () => {
+    const onToggleArchive = vi.fn()
+    const archived = { ...session('old', 2), archived: true }
+    renderSidebar([session('live', 1), archived], null, { onToggleArchive })
+
+    expect(screen.queryByText('Session old')).not.toBeInTheDocument()
+    expect(screen.getByText('Session live')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /archived/i }))
+    expect(screen.getByText('Session old')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Unarchive session' }))
+    expect(onToggleArchive).toHaveBeenCalledWith('old', false)
   })
 })
 

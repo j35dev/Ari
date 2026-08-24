@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import {
+  Archive,
+  ArchiveRestore,
   Check,
   ChevronRight,
   Folder,
@@ -9,6 +11,8 @@ import {
   GitPullRequest,
   MessageSquare,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Search,
   Settings,
@@ -65,6 +69,8 @@ function SessionRow({
   onSelect,
   onRename,
   onDelete,
+  onTogglePin,
+  onToggleArchive,
 }: {
   session: SessionSummary
   projectName: string | null
@@ -72,6 +78,8 @@ function SessionRow({
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
+  onTogglePin: (id: string, pinned: boolean) => void
+  onToggleArchive: (id: string, archived: boolean) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(session.title)
@@ -155,7 +163,11 @@ function SessionRow({
           isActive ? 'bg-glass-active text-fg' : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
         }`}
       >
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-accent' : 'bg-transparent group-hover:bg-surface-3'}`} />
+        {session.pinned ? (
+          <Pin size={10} aria-hidden className="shrink-0 text-accent" />
+        ) : (
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-accent' : 'bg-transparent group-hover:bg-surface-3'}`} />
+        )}
         <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
         {projectName ? (
           <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle group-hover:hidden lg:flex">
@@ -170,6 +182,17 @@ function SessionRow({
       <div className="absolute right-1 top-1.5 hidden items-center gap-0.5 group-hover:flex">
         <button
           type="button"
+          aria-label={session.pinned ? 'Unpin session' : 'Pin session'}
+          title={session.pinned ? 'Unpin' : 'Pin'}
+          onClick={() => onTogglePin(session.id, !session.pinned)}
+          className={`flex h-5 w-5 items-center justify-center rounded-sm transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+            session.pinned ? 'text-accent' : 'text-fg-subtle'
+          }`}
+        >
+          {session.pinned ? <PinOff size={11} /> : <Pin size={11} />}
+        </button>
+        <button
+          type="button"
           aria-label="Rename session"
           onClick={() => {
             setDraft(session.title)
@@ -178,6 +201,15 @@ function SessionRow({
           className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
         >
           <Pencil size={11} />
+        </button>
+        <button
+          type="button"
+          aria-label={session.archived ? 'Unarchive session' : 'Archive session'}
+          title={session.archived ? 'Unarchive' : 'Archive'}
+          onClick={() => onToggleArchive(session.id, !session.archived)}
+          className="flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+        >
+          {session.archived ? <ArchiveRestore size={11} /> : <Archive size={11} />}
         </button>
         <button
           type="button"
@@ -213,21 +245,27 @@ function SectionLabel({
   )
 }
 
-/** Collapsible "Earlier" bucket — collapsed until summoned (T3 Settled pattern). */
-function EarlierSection({
+/** Collapsible session bucket (Earlier / Archived) — collapsed until summoned. */
+function CollapsibleSessions({
+  label,
   sessions,
   projectNameOf,
   activeSessionId,
   onSelect,
   onRename,
   onDelete,
+  onTogglePin,
+  onToggleArchive,
 }: {
+  label: string
   sessions: SessionSummary[]
   projectNameOf: (projectId: string) => string | null
   activeSessionId: string | null
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
+  onTogglePin: (id: string, pinned: boolean) => void
+  onToggleArchive: (id: string, archived: boolean) => void
 }) {
   const [open, setOpen] = useState(
     sessions.some((s) => s.id === activeSessionId),
@@ -251,13 +289,16 @@ function EarlierSection({
           className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
         <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-          Earlier
+          {label}
+        </span>
+        <span className="rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
+          {sessions.length}
         </span>
       </button>
       <AnimatePresence initial={false}>
         {open ? (
           <motion.ul
-            key="earlier"
+            key={label}
             layout
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -274,6 +315,8 @@ function EarlierSection({
                   onSelect={onSelect}
                   onRename={onRename}
                   onDelete={onDelete}
+                  onTogglePin={onTogglePin}
+                  onToggleArchive={onToggleArchive}
                 />
               </motion.li>
             ))}
@@ -291,9 +334,9 @@ export interface ProjectGroup {
 }
 
 /**
- * T3-style sidebar body: search box, flat Active section (last 24h), then a
- * collapsible Earlier section. Rows stay flat — no nested project trees —
- * with the owning project shown as a small tag on named-project sessions.
+ * T3-style sidebar body: search box, then Pinned / Active / Earlier sections
+ * plus a collapsed Archived shelf. Pinned sessions float to the top of the
+ * list regardless of recency; archived ones leave Active/Earlier entirely.
  */
 export function SessionsUnderProjects({
   sessions,
@@ -302,6 +345,8 @@ export function SessionsUnderProjects({
   onSelect,
   onRename,
   onDelete,
+  onTogglePin,
+  onToggleArchive,
 }: {
   sessions: SessionSummary[]
   projects: { id: string; name: string }[]
@@ -309,6 +354,8 @@ export function SessionsUnderProjects({
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
+  onTogglePin: (id: string, pinned: boolean) => void
+  onToggleArchive: (id: string, archived: boolean) => void
 }) {
   const [query, setQuery] = useState('')
   const trimmed = query.trim().toLowerCase()
@@ -319,18 +366,26 @@ export function SessionsUnderProjects({
       projectId === 'adhoc' ? null : (byId.get(projectId) ?? null)
   }, [projects])
 
-  // Newest first — the sidebar reads top-down like T3's thread list.
+  // Newest first, pinned floating above everything — the sidebar reads
+  // top-down like T3's thread list.
   const sorted = useMemo(
-    () => [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
+    () =>
+      [...sessions].sort((a, b) => {
+        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+        return b.updatedAt - a.updatedAt
+      }),
     [sessions],
   )
   const visible = trimmed
-    ? sorted.filter((s) => s.title.toLowerCase().includes(trimmed))
-    : sorted
+    ? sorted.filter((s) => !s.archived && s.title.toLowerCase().includes(trimmed))
+    : sorted.filter((s) => !s.archived)
 
   const cutoff = Date.now() - ACTIVE_WINDOW_MS
-  const active = visible.filter((s) => s.updatedAt >= cutoff)
-  const earlier = visible.filter((s) => s.updatedAt < cutoff)
+  const pinned = visible.filter((s) => s.pinned)
+  const unpinnedVisible = visible.filter((s) => !s.pinned)
+  const active = unpinnedVisible.filter((s) => s.updatedAt >= cutoff)
+  const earlier = unpinnedVisible.filter((s) => s.updatedAt < cutoff)
+  const archived = sorted.filter((s) => s.archived)
 
   if (sessions.length === 0) {
     return (
@@ -351,7 +406,7 @@ export function SessionsUnderProjects({
     <>
       <SidebarSearch query={query} onQueryChange={setQuery} />
       <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
-        {visible.length === 0 ? (
+        {visible.length === 0 && archived.length === 0 ? (
           <p className="px-2 py-6 text-center text-xs text-fg-subtle">
             No sessions match “{query.trim()}”.
           </p>
@@ -367,17 +422,19 @@ export function SessionsUnderProjects({
                   onSelect={onSelect}
                   onRename={onRename}
                   onDelete={onDelete}
+                  onTogglePin={onTogglePin}
+                  onToggleArchive={onToggleArchive}
                 />
               </li>
             ))}
           </ul>
         ) : (
           <>
-            {active.length > 0 || earlier.length === 0 ? (
+            {pinned.length > 0 ? (
               <>
-                <SectionLabel count={active.length}>Active</SectionLabel>
+                <SectionLabel count={pinned.length}>Pinned</SectionLabel>
                 <ul className="flex flex-col gap-0.5">
-                  {(active.length > 0 ? active : visible.slice(0, 8)).map((s) => (
+                  {pinned.map((s) => (
                     <li key={s.id}>
                       <SessionRow
                         session={s}
@@ -386,6 +443,29 @@ export function SessionsUnderProjects({
                         onSelect={onSelect}
                         onRename={onRename}
                         onDelete={onDelete}
+                        onTogglePin={onTogglePin}
+                        onToggleArchive={onToggleArchive}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            {active.length > 0 || earlier.length === 0 ? (
+              <>
+                <SectionLabel count={active.length}>Active</SectionLabel>
+                <ul className="flex flex-col gap-0.5">
+                  {(active.length > 0 ? active : unpinnedVisible.slice(0, 8)).map((s) => (
+                    <li key={s.id}>
+                      <SessionRow
+                        session={s}
+                        projectName={projectNameOf(s.projectId)}
+                        isActive={s.id === activeSessionId}
+                        onSelect={onSelect}
+                        onRename={onRename}
+                        onDelete={onDelete}
+                        onTogglePin={onTogglePin}
+                        onToggleArchive={onToggleArchive}
                       />
                     </li>
                   ))}
@@ -393,13 +473,29 @@ export function SessionsUnderProjects({
               </>
             ) : null}
             {earlier.length > 0 ? (
-              <EarlierSection
+              <CollapsibleSessions
+                label="Earlier"
                 sessions={earlier}
                 projectNameOf={projectNameOf}
                 activeSessionId={activeSessionId}
                 onSelect={onSelect}
                 onRename={onRename}
                 onDelete={onDelete}
+                onTogglePin={onTogglePin}
+                onToggleArchive={onToggleArchive}
+              />
+            ) : null}
+            {archived.length > 0 ? (
+              <CollapsibleSessions
+                label="Archived"
+                sessions={archived}
+                projectNameOf={projectNameOf}
+                activeSessionId={activeSessionId}
+                onSelect={onSelect}
+                onRename={onRename}
+                onDelete={onDelete}
+                onTogglePin={onTogglePin}
+                onToggleArchive={onToggleArchive}
               />
             ) : null}
           </>
