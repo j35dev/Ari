@@ -25,6 +25,7 @@ const CHEAT_SHEET_SHORTCUTS: readonly CheatShortcut[] = [
   { id: 'OpenCheatSheet', label: 'Open this cheat sheet', chord: '?' },
   { id: 'SendTurn', label: 'Send message', chord: 'Enter' },
   { id: 'InsertNewline', label: 'New line in composer', chord: 'Shift+Enter' },
+  { id: 'StashPrompt', label: 'Stash the composer draft', chord: 'Mod+S' },
   { id: 'AnswerApproval', label: 'Answer an approval card', keys: ['Y', 'A', 'N'] },
   { id: 'PickQuestionOption', label: 'Pick a question option', keys: ['1–9'] },
 ]

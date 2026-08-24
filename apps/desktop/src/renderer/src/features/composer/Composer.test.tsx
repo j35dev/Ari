@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
 
 describe('Composer', () => {
@@ -46,6 +46,58 @@ describe('Composer', () => {
   it('announces queued messages behind the active turn', () => {
     render(<Composer onSend={vi.fn()} running queued={['a', 'b']} />)
     expect(screen.getByText(/2 queued messages/)).toBeInTheDocument()
+  })
+})
+
+describe('Composer prompt stash', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('Mod+S stashes the draft, clears the field, and the menu restores it', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'remember this prompt')
+    expect(input).toHaveValue('remember this prompt')
+
+    fireEvent.keyDown(input, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(input).toHaveValue(''))
+
+    await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+    await user.click(screen.getByRole('menuitem', { name: /remember this prompt/ }))
+
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(
+      'remember this prompt',
+    ))
+  })
+
+  it('stash entries persist for a fresh composer mount', async () => {
+    const user = userEvent.setup()
+    const first = render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'persistent idea')
+    fireEvent.keyDown(input, { key: 's', ctrlKey: true })
+    first.unmount()
+
+    render(<Composer onSend={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+    expect(screen.getByText('persistent idea')).toBeInTheDocument()
+  })
+
+  it('entries can be removed from the stash menu', async () => {
+    localStorage.setItem(
+      'ari.prompt-stash',
+      JSON.stringify([{ text: 'doomed draft', savedAt: Date.now() }]),
+    )
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: /prompt stash/i }))
+    await user.click(screen.getByRole('button', { name: 'Remove from stash' }))
+
+    expect(screen.queryByText('doomed draft')).not.toBeInTheDocument()
+    expect(localStorage.getItem('ari.prompt-stash')).toBe('[]')
   })
 })
 
