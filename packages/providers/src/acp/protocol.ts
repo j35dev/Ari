@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
 
@@ -37,8 +38,32 @@ export interface AcpToolCallContent {
   newText?: string | null
 }
 
-/** Tool-call payloads ride the same flat shape as every other update. */
-export type AcpToolCallUpdate = AcpSessionUpdate
+const acpContentBlockSchema = z.object({
+  type: z.string().optional(),
+  text: z.string().optional(),
+  data: z.string().optional(),
+  mimeType: z.string().optional(),
+  uri: z.string().optional(),
+  resource: z.object({ uri: z.string().optional(), text: z.string().optional() }).optional(),
+}) satisfies z.ZodType<AcpContentBlock>
+
+// Fail-soft on purpose: a malformed tool item drops out of the projection
+// instead of corrupting the transcript or crashing the fold.
+export const acpToolCallContentSchema = z.object({
+  type: z.string().optional(),
+  content: z
+    .union([acpContentBlockSchema, z.array(acpContentBlockSchema)])
+    .optional(),
+  path: z.string().optional(),
+  oldText: z.string().nullable().optional(),
+  newText: z.string().nullable().optional(),
+}) satisfies z.ZodType<AcpToolCallContent>
+
+/** Tool-call payloads ride the same flat shape as every other update, but
+ * their `content` carries tool-call items rather than plain content blocks. */
+export type AcpToolCallUpdate = Omit<AcpSessionUpdate, 'content'> & {
+  content?: AcpContentBlock | AcpContentBlock[] | AcpToolCallContent[]
+}
 
 export interface AcpConfigOptionValue {
   value?: string
@@ -138,9 +163,7 @@ function textOf(blocks: AcpContentBlock[]): string {
 function resultJsonOf(update: AcpToolCallUpdate): string {
   if (update.rawOutput !== undefined) return JSON.stringify(update.rawOutput)
   const parts: Record<string, unknown>[] = []
-  const items = Array.isArray(update.content)
-    ? (update.content as unknown as AcpToolCallContent[])
-    : []
+  const items = acpToolCallContentSchema.array().catch([]).parse(update.content ?? [])
   for (const item of items) {
     if (item.type === 'diff') {
       parts.push({ diff: { path: item.path ?? '', oldText: item.oldText ?? null, newText: item.newText ?? null } })
