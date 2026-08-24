@@ -195,6 +195,12 @@ export const rpcParams = {
       /** Remote name; defaults to `origin` in the handler. */
       remote: z.string().min(1).optional(),
     }),
+  'git.createPr': z.object({
+    path: z.string().min(1),
+    title: z.string().min(1).max(300),
+    body: z.string().max(8000).optional(),
+    base: z.string().min(1).max(200).optional(),
+  }),
     'fs.list': z.object({ path: z.string().min(1) }),
     'fs.readTextFile': z.object({
       path: z.string().min(1),
@@ -282,6 +288,8 @@ export interface RpcResults {
     'git.add': GitActionResult
     'git.commit': GitActionResult
     'git.push': GitActionResult
+  /** `url` is null when gh succeeded without printing one; error explains failures. */
+  'git.createPr': { ok: boolean; url: string | null; error?: string }
     'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
     'fs.readTextFile': { content: string; truncated: boolean }
     'fs.writeTextFile': { bytesWritten: number }
