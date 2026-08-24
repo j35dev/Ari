@@ -32,6 +32,7 @@ export function TranscriptView({
   onEditUserMessage,
   onRegenerate,
   regenerateDisabled = false,
+  header,
 }: {
   sessionId: string
   messages: Message[]
@@ -44,6 +45,8 @@ export function TranscriptView({
   onRegenerate?: () => void
   /** Disables the regenerate control — true while a turn runs. */
   regenerateDisabled?: boolean
+  /** Surface pinned above the transcript (plan panel); scrolls away with it. */
+  header?: React.ReactNode
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
@@ -136,15 +139,16 @@ export function TranscriptView({
   )
 
   return (
-    <div className="relative h-full">
+    <div className="relative flex h-full min-h-0 flex-col">
       <h2 className="sr-only">Messages</h2>
+      {header}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
         role="log"
         aria-label="Conversation transcript"
         aria-live="polite"
-        className="ari-scroll h-full overflow-y-auto px-4 py-4"
+        className="ari-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
         data-session={sessionId}
       >
         <div
