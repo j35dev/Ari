@@ -3,6 +3,7 @@ import { mapOpencodeLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
+import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:opencode')
 
@@ -44,10 +45,7 @@ export class OpencodeDriver implements Driver {
       interrupt: () => {
         if (!child.killed) child.kill()
       },
-      dispose: () => {
-        if (!child.killed) child.kill()
-        return Promise.resolve()
-      },
+      dispose: () => teardownChild(child),
     })
   }
 }

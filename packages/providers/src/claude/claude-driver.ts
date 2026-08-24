@@ -6,6 +6,7 @@ import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import type { PumpableProcess } from '../process-stream'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
+import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:claude')
 
@@ -152,8 +153,7 @@ export function wireClaudeControl(child: ControlProcessLike): ClaudeControlAdapt
     },
     dispose: () => {
       clearKillFallback()
-      if (!child.killed) child.kill()
-      return Promise.resolve()
+      return teardownChild(child)
     },
   }
 }

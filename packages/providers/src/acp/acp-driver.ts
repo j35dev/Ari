@@ -97,18 +97,40 @@ export async function createAcpAdapter(
     connection.kill()
   }
 
-  const iterator = (async function* generate(): AsyncGenerator<AgentEvent, void, undefined> {
-    // The turn's prompt rides out on first pull; its completion closes the stream.
+  // ACP has no mid-turn injection method, so steering rides out as the next
+  // `session/prompt` the moment the current one reports its stop reason — one
+  // continuous stream from the user's point of view, no queue-then-restart.
+  const steeredTexts: string[] = []
+  const launchPrompt = (text: string): void => {
     void connection
-      .prompt(sessionId, session.prompt)
-      .then((stopReason) => push(stopReasonEvents(stopReason)))
+      .prompt(sessionId, text)
+      .then((stopReason) => {
+        const next = steeredTexts.shift()
+        if (next === undefined || connection.closed) {
+          push(stopReasonEvents(stopReason))
+          return
+        }
+        log.debug('acp steering applied at turn boundary', { sessionId })
+        launchPrompt(next)
+      })
       .catch((error: unknown) => {
         log.debug('acp prompt failed', { error: String(error) })
+        // Texts consumed as steering but never delivered must not vanish.
+        const lost = steeredTexts.splice(0)
         push([
+          ...(lost.length > 0
+            ? ([{ type: 'error', message: `steering lost after transport failure: ${lost.join(' | ')}`, rawJson: null }] satisfies AgentEvent[])
+            : []),
           { type: 'error', message: formatUnknownError(error), rawJson: null },
           { type: 'done' },
         ])
       })
+  }
+
+  const iterator = (async function* generate(): AsyncGenerator<AgentEvent, void, undefined> {
+    // The turn's prompt rides out on first pull; its completion closes the stream
+    // — after any steered follow-ups have been chained onto it.
+    launchPrompt(session.prompt)
 
     while (true) {
       while (queue.length > 0) {
@@ -132,6 +154,9 @@ export async function createAcpAdapter(
   return {
     start: () => ({ [Symbol.asyncIterator]: () => iterator }),
     interrupt: () => connection.cancel(sessionId),
+    steer: (text) => {
+      steeredTexts.push(text)
+    },
     respondApproval: (approvalId, decision) => {
       const pending = pendingPermissions.get(approvalId)
       if (pending === undefined) return

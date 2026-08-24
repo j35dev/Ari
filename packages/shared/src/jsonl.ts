@@ -8,12 +8,14 @@ export function encodeJsonLine(value: unknown): string {
 }
 
 export type ParsedLine<T> =
-  | { kind: 'value'; line: number; value: T }
-  | { kind: 'error'; line: number; message: string }
+  | { kind: 'value'; line: number; value: T; raw: string }
+  | { kind: 'error'; line: number; message: string; raw: string }
 
 /**
  * Parses newline-delimited JSON, tolerating a truncated final line (crash
- * during append). Each line is reported independently so callers can recover.
+ * during append). Each line is reported independently so callers can recover;
+ * `raw` is the trimmed source text so a caller can quarantine a bad line
+ * verbatim rather than re-serializing a guess at it.
  */
 export function parseJsonLines<T = unknown>(input: string): ParsedLine<T>[] {
   const lines = input.split('\n')
@@ -24,12 +26,13 @@ export function parseJsonLines<T = unknown>(input: string): ParsedLine<T>[] {
     const trimmed = raw.trim()
     if (trimmed.length === 0) continue
     try {
-      out.push({ kind: 'value', line: i + 1, value: JSON.parse(trimmed) as T })
+      out.push({ kind: 'value', line: i + 1, value: JSON.parse(trimmed) as T, raw: trimmed })
     } catch (e) {
       out.push({
         kind: 'error',
         line: i + 1,
         message: e instanceof Error ? e.message : String(e),
+        raw: trimmed,
       })
     }
   }
