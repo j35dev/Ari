@@ -1,4 +1,4 @@
-import { open, readdir, stat } from 'node:fs/promises'
+import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, type WebContents } from 'electron'
@@ -623,6 +623,30 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const roots = getProjectStore().list().map((p) => p.path)
     const bytesWritten = await writeTextFile(params, roots)
     return { bytesWritten }
+  })
+
+  // Structured plan surface (research wave M20): reads the `.ari-todo.json`
+  // that Ari Core's todo_write tool maintains in the session workspace.
+  r.register('plan.get', async (params) => {
+    try {
+      const raw = await readFile(join(params.path, '.ari-todo.json'), 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return { items: null }
+      const items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] = []
+      for (const entry of parsed) {
+        const record = entry as { text?: unknown; status?: unknown }
+        if (
+          typeof record?.text === 'string' &&
+          record.text.length > 0 &&
+          (record.status === 'pending' || record.status === 'in_progress' || record.status === 'done')
+        ) {
+          items.push({ text: record.text, status: record.status })
+        }
+      }
+      return { items }
+    } catch {
+      return { items: null }
+    }
   })
 
   r.register('stream.subscribe', (params) => {
