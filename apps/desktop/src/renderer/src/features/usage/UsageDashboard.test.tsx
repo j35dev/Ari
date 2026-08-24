@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UsageSummary } from '@ari/contracts/rpc'
 import { UsageDashboard } from './UsageDashboard'
@@ -76,6 +77,15 @@ describe('UsageDashboard', () => {
     expect(within(quieter).getByText('↑ 3000')).toBeInTheDocument()
     // Share bar scales against the busiest session (3,200 of 12,800 tokens).
     expect(quieter.querySelector('.bg-accent')).toHaveStyle({ width: '25%' })
+  })
+
+  it('opens a session when a row is clicked', async () => {
+    const onOpenSession = vi.fn()
+    invokeFn.mockResolvedValueOnce(DATA_SUMMARY)
+    const user = userEvent.setup()
+    render(<UsageDashboard onOpenSession={onOpenSession} />)
+    await user.click(await screen.findByRole('button', { name: 'Second session' }))
+    expect(onOpenSession).toHaveBeenCalledWith('sess_2')
   })
 
   it('hides the cost column until a row carries a price', async () => {

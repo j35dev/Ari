@@ -179,7 +179,7 @@ function SessionRow({
       <button
         type="button"
         onClick={() => onSelect(session.id)}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-12 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-[96px] text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           isActive ? 'bg-glass-active text-fg' : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
         }`}
       >
@@ -190,7 +190,7 @@ function SessionRow({
         )}
         <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
         {projectName ? (
-          <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle group-hover:hidden lg:flex">
+          <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle lg:flex">
             <FolderGit2 size={10} aria-hidden />
             {projectName}
           </span>
@@ -199,7 +199,9 @@ function SessionRow({
           {formatRelativeTime(session.updatedAt)}
         </span>
       </button>
-      <div className="absolute right-1 top-1.5 hidden items-center gap-0.5 group-hover:flex">
+      {/* Row actions sit in the reserved right gutter (pr-[96px] above), so
+          hovering never paints over the title, project chip, or timestamp. */}
+      <div className="pointer-events-none absolute right-1 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <button
           type="button"
           aria-label={session.pinned ? 'Unpin session' : 'Pin session'}
@@ -385,12 +387,12 @@ function ProjectGroupSection({
 
   return (
     <section className="group/project" aria-label={name}>
-      <div className="relative flex items-center">
+      <div className="flex items-center gap-1">
         <button
           type="button"
           aria-expanded={expanded}
           onClick={onToggle}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 pr-2 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
             missing ? 'opacity-60' : ''
           }`}
         >
@@ -414,7 +416,7 @@ function ProjectGroupSection({
           </span>
         </button>
         {project && !confirmRemove ? (
-          <div className="absolute right-1 hidden items-center gap-0.5 group-hover/project:flex">
+          <div className="flex w-[88px] shrink-0 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover/project:opacity-100 group-focus-within/project:opacity-100">
             <button
               type="button"
               aria-label={`New session in ${name}`}

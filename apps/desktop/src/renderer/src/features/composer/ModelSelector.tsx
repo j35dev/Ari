@@ -69,7 +69,11 @@ export function ModelSelector({
       }),
       rpc.invoke('providers.models').then((rows) => {
         const byKind: CatalogByKind = {}
-        for (const row of rows) byKind[row.kind as DriverKind] = row.models
+        // Live probes only. models.dev cache/snapshot lists every model a
+        // vendor ever shipped, not what this install currently offers.
+        for (const row of rows) {
+          if (row.source === 'live') byKind[row.kind as DriverKind] = row.models
+        }
         setCatalog(byKind)
       }),
       rpc.invoke('endpoints.list').then((endpoints) => {
