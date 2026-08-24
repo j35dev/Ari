@@ -192,6 +192,8 @@ export function SessionView({
   // Workspace path + refresh tick driving the plan panel (.ari-todo.json).
   const [planPath, setPlanPath] = useState<string | null>(null)
   const [planNonce, setPlanNonce] = useState(0)
+  // Review notes (M21.1): inline diff comments attached to the next message.
+  const [reviewNotes, setReviewNotes] = useState<{ path: string; line: number | null; text: string }[]>([])
   const sessionTitleRef = useRef('Session')
   // Workspace path of the session's project — needed by git.turnDiff. Held in
   // a ref so the stable event applier can read it without re-subscribing.
@@ -428,21 +430,38 @@ export function SessionView({
 
   const handleSend = useCallback(
     (text: string) => {
+      // Review notes ride along with the next outgoing message, then clear.
+      let outgoing = text
+      setReviewNotes((notes) => {
+        if (notes.length > 0) {
+          const block = notes
+            .map((n) => `- ${n.path}${n.line !== null ? `:${n.line}` : ''} — ${n.text}`)
+            .join('\n')
+          outgoing = `Review notes on your changes:\n${block}\n\n${text}`
+          return []
+        }
+        return notes
+      })
       if (running) {
         // The engine journals the queue (and dequeues immediately when the
         // transport can steer); the mirrored events update the view here.
         void rpc
-          .invoke('command.dispatch', { command: { type: 'message.enqueue', sessionId, text } })
+          .invoke('command.dispatch', { command: { type: 'message.enqueue', sessionId, text: outgoing } })
           .catch(() => undefined)
         return
       }
       setTurnError(null)
       void rpc
-        .invoke('command.dispatch', { command: { type: 'turn.start', sessionId, text } })
+        .invoke('command.dispatch', { command: { type: 'turn.start', sessionId, text: outgoing } })
         .catch(() => undefined)
     },
     [sessionId, running],
   )
+
+  /** M21.1 review loop: a saved diff line note joins the next message. */
+  const handleDiffComment = useCallback((comment: { path: string; line: number | null; text: string }) => {
+    setReviewNotes((prev) => [...prev, comment])
+  }, [])
 
   const handleStop = useCallback(() => {
     void rpc
@@ -554,6 +573,7 @@ export function SessionView({
           onRegenerate={lastUserPrompt !== null ? resendLastPrompt : undefined}
           regenerateDisabled={running}
           header={<PlanPanel path={planPath} refreshNonce={planNonce} />}
+          onDiffComment={handleDiffComment}
         />
       </div>
       <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
@@ -642,6 +662,32 @@ export function SessionView({
           >
             <X size={12} />
           </button>
+        </div>
+      ) : null}
+      {reviewNotes.length > 0 ? (
+        <div className="mx-4 mb-1 flex flex-wrap items-center gap-1" aria-label="Review notes attached to next message">
+          <span className="text-2xs text-fg-subtle">
+            {reviewNotes.length} note{reviewNotes.length > 1 ? 's' : ''} with your next message:
+          </span>
+          {reviewNotes.map((note, i) => (
+            <span
+              key={`${i}-${note.path}-${note.line ?? 'x'}-${note.text.slice(0, 8)}`}
+              className="flex max-w-64 items-center gap-1 rounded-full border border-accent-subtle bg-accent-subtle px-2 py-0.5 text-2xs text-fg-muted"
+              title={note.text}
+            >
+              <span className="min-w-0 truncate font-mono">
+                {note.path.split(/[\\/]/).pop()}{note.line !== null ? `:${note.line}` : ''}
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove note ${note.text}`}
+                onClick={() => setReviewNotes((prev) => prev.filter((_, idx) => idx !== i))}
+                className="shrink-0 rounded-full text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              >
+                <X size={10} />
+              </button>
+            </span>
+          ))}
         </div>
       ) : null}
       <Composer

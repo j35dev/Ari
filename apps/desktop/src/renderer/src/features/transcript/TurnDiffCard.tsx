@@ -1,13 +1,23 @@
 import { useMemo, useState } from 'react'
 import { ChevronRight, FileDiff } from 'lucide-react'
 import { DiffViewer, parseDiff } from '../diffs'
+import type { DiffComment } from '../diffs'
 
 /**
  * Collapsed-by-default card for one settled turn's git changes. The header
  * summarizes the diff (files, +/− counts) via the shared parser; expanding
- * renders the shared unified diff viewer (M8.6) untouched.
+ * renders the shared unified diff viewer (M8.6). With `onComment` present the
+ * viewer accepts inline line notes that flow back to the composer (M21.1).
  */
-export function TurnDiffCard({ turnId, diffText }: { turnId: string; diffText: string }) {
+export function TurnDiffCard({
+  turnId,
+  diffText,
+  onComment,
+}: {
+  turnId: string
+  diffText: string
+  onComment?: (comment: DiffComment) => void
+}) {
   const [open, setOpen] = useState(false)
   const stats = useMemo(() => {
     const { files } = parseDiff(diffText)
@@ -56,7 +66,7 @@ export function TurnDiffCard({ turnId, diffText }: { turnId: string; diffText: s
         <div className="overflow-hidden">
           {open ? (
             <div className="pt-2">
-              <DiffViewer diffText={diffText} />
+              <DiffViewer diffText={diffText} onLineComment={onComment} />
             </div>
           ) : null}
         </div>
