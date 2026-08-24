@@ -100,10 +100,10 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
 - [x] M22.1 CRITICAL FIX — streamed deltas coalesce into flowing markdown blocks
       (was: one line per ~120ms flush chunk; splitBlocks now merges contiguous
       text/thinking parts with stable keys, tool calls break runs)
-- [x] M22.2 Model picker rebuilt T3-style: provider-chip pill (claude · Sonnet 4.5),
-      searchable grouped menu, keyboard nav (↑↓/Enter/Esc), active checkmark
-- [x] M22.3 Composer plate focus halo (accent border + soft ring) + Enter/Shift+Enter
-      key hints on the control row
+- [x] M22.2 Model picker is agent-first: letter mark + model name, searchable grouped
+      combobox, keyboard nav (arrows/Home/End/Enter/Esc), check for the current model
+- [x] M22.3 Composer plate has no leftover focus halo; send sits on the right of the
+      foot; chips share rounded-md geometry with the send control
 
 ## M21 — Fleet/parallelism wave (Cline Kanban · Conductor · Nimbalyst research)
 

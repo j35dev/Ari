@@ -41,8 +41,8 @@ export interface ComposerProps {
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
   /**
-   * Rendered in the pill's bottom control row (model picker, permission
-   * chip). T3-style: context lives inside the prompt box, not under it.
+   * Context chips inside the plate (agent picker, permission). Lives with
+   * the draft so the next turn's agent is visible without leaving the box.
    */
   leading?: React.ReactNode
   placeholder?: string
@@ -55,13 +55,10 @@ const MIN_HEIGHT = 52
 const MAX_HEIGHT = 260
 
 /**
- * Message composer, T3-style: one rounded plate holding everything — a
- * borderless auto-growing textarea on top, model/permission chips and the
- * send control docked at its foot. Enter sends / Shift+Enter breaks the
- * line. While the caret sits at the end of a ` /command` or ` @path` token,
- * a picker popup lists completions above the input (slash commands from the
- * registry, file paths from `suggestions`). Pasted or dropped images show
- * as removable thumbnails in an attachment strip inside the plate.
+ * Message composer: one glass plate. Draft on top; agent + permission on
+ * the left of the foot, stash + send on the right. Enter sends, Shift+Enter
+ * breaks the line. Slash and @file popovers sit above the field. Pasted or
+ * dropped images land in an attachment strip inside the plate.
  */
 export function Composer({
   onSend,
@@ -273,9 +270,7 @@ export function Composer({
         ) : null}
       </AnimatePresence>
 
-      {/* T3-style prompt box: one plate — field on top, chips + send at its
-          foot. Focus lights the border and adds a soft accent halo. */}
-      <div className="relative rounded-2xl border border-border bg-glass-input shadow-2 transition-all duration-150 focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--ari-accent-subtle)]">
+      <div className="relative rounded-lg border border-border bg-glass-input shadow-2">
         {token?.kind === 'slash' && !dismissed && slashItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <SlashPopup query={token.raw} onSelect={handleSlashSelect} onClose={closePopup} />
@@ -309,78 +304,8 @@ export function Composer({
           aria-label="Message"
           className="block max-h-[260px] w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50"
         />
-        <div className="flex items-center gap-1 px-2.5 pb-2.5 pt-1">
+        <div className="flex items-center gap-1 px-2.5 pb-2 pt-1">
           {leading}
-          <div className="relative">
-            <motion.button
-              key={stashedPulse}
-              type="button"
-              aria-label={`Prompt stash (${stash.length})`}
-              title="Stash this prompt (Mod+S) or reuse a stashed one"
-              onClick={() => setStashOpen((o) => !o)}
-              animate={
-                stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined
-              }
-              transition={{ duration: 0.35, ease: 'easeOut' }}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <Bookmark size={13} />
-            </motion.button>
-            <AnimatePresence>
-              {stashOpen ? (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setStashOpen(false)} />
-                  <motion.div
-                    initial={{ opacity: 0, y: 4, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                    transition={transitions.menuIn}
-                    className="ari-glass-overlay absolute bottom-full left-0 z-40 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border p-1 shadow-2"
-                    role="menu"
-                    aria-label="Stashed prompts"
-                  >
-                    {stash.length === 0 ? (
-                      <p className="px-3 py-4 text-center text-xs text-fg-subtle">
-                        Nothing stashed yet.
-                        <br />
-                        Press Mod+S to save the current draft.
-                      </p>
-                    ) : (
-                      stash.map((entry) => (
-                        <div
-                          key={entry.text}
-                          className="group flex items-start gap-1 rounded-sm"
-                          role="none"
-                        >
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => restoreFromStash(entry)}
-                            className="min-w-0 flex-1 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                          >
-                            <span className="line-clamp-2 block whitespace-pre-wrap break-words text-xs leading-snug text-fg">
-                              {entry.text}
-                            </span>
-                            <span className="mt-0.5 block text-2xs tabular-nums text-fg-subtle">
-                              {new Date(entry.savedAt).toLocaleString()}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Remove from stash"
-                            onClick={() => removeFromStash(entry)}
-                            className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
-                          >
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </motion.div>
-                </>
-              ) : null}
-            </AnimatePresence>
-          </div>
           <button
             type="button"
             aria-label="Send message"
@@ -391,20 +316,84 @@ export function Composer({
           >
             Send
           </button>
-          <SendStopButton running={running} onSend={send} onStop={onStop} canSend={text.trim().length > 0} />
-          <span
-            aria-hidden
-            className="ml-auto hidden select-none items-center gap-1 text-2xs text-fg-subtle md:flex"
-          >
-            <kbd className="rounded-sm border border-border bg-surface-1 px-1 font-mono text-2xs leading-4">
-              ↵
-            </kbd>
-            send
-            <kbd className="rounded-sm border border-border bg-surface-1 px-1 font-mono text-2xs leading-4">
-              ⇧↵
-            </kbd>
-            newline
-          </span>
+          <div className="ms-auto flex items-center gap-1">
+            <div className="relative">
+              <motion.button
+                key={`stash-pulse-${stashedPulse}`}
+                type="button"
+                aria-label={`Prompt stash (${stash.length})`}
+                title="Stash this prompt (Mod+S) or reuse a stashed one"
+                onClick={() => setStashOpen((o) => !o)}
+                animate={
+                  stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined
+                }
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              >
+                <Bookmark size={13} />
+              </motion.button>
+              <AnimatePresence>
+                {stashOpen ? (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setStashOpen(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                      transition={transitions.menuIn}
+                      className="ari-glass-overlay absolute bottom-full right-0 z-40 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border p-1 shadow-2"
+                      role="menu"
+                      aria-label="Stashed prompts"
+                    >
+                      {stash.length === 0 ? (
+                        <p className="px-3 py-4 text-center text-xs text-fg-subtle">
+                          Nothing stashed yet.
+                          <br />
+                          Press Mod+S to save the current draft.
+                        </p>
+                      ) : (
+                        stash.map((entry) => (
+                          <div
+                            key={entry.savedAt}
+                            className="group flex items-start gap-1 rounded-sm"
+                            role="none"
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => restoreFromStash(entry)}
+                              className="min-w-0 flex-1 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                            >
+                              <span className="line-clamp-2 block whitespace-pre-wrap break-words text-xs leading-snug text-fg">
+                                {entry.text}
+                              </span>
+                              <span className="mt-0.5 block text-2xs tabular-nums text-fg-subtle">
+                                {new Date(entry.savedAt).toLocaleString()}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Remove from stash"
+                              onClick={() => removeFromStash(entry)}
+                              className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </motion.div>
+                  </>
+                ) : null}
+              </AnimatePresence>
+            </div>
+            <SendStopButton
+              running={running}
+              onSend={send}
+              onStop={onStop}
+              canSend={text.trim().length > 0}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -426,11 +415,12 @@ function SendStopButton({
     <motion.button
       type="button"
       aria-label={running ? 'Stop' : 'Send'}
+      title={running ? 'Stop' : 'Send'}
       onClick={() => (running ? onStop?.() : onSend())}
       disabled={!running && !canSend}
-      whileTap={{ scale: 0.92 }}
+      whileTap={{ scale: 0.96 }}
       transition={transitions.morph}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         running
           ? 'bg-busy text-fg-on-accent hover:brightness-110'
           : canSend

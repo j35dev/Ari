@@ -3,7 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { ToastProvider } from '@ari/ui/toast'
-import { ContextMeter, SessionView, contextTokensFromHint, formatCompactTokens, type SessionDefaults } from './SessionView'
+import {
+  ContextMeter,
+  PermissionModeChip,
+  SessionView,
+  contextTokensFromHint,
+  formatCompactTokens,
+  type SessionDefaults,
+} from './SessionView'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
@@ -750,5 +757,20 @@ describe('SessionView queued messages', () => {
     await waitFor(() => {
       expect(screen.queryByText(/queued message/)).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('PermissionModeChip', () => {
+  it('opens a listbox and reports the chosen mode', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(<PermissionModeChip mode="ask" onChange={onChange} />)
+
+    await user.click(screen.getByRole('button', { name: 'Permission mode: Ask' }))
+    const listbox = screen.getByRole('listbox', { name: 'Permission mode' })
+    expect(listbox).toBeInTheDocument()
+
+    await user.click(screen.getByRole('option', { name: /Full auto/ }))
+    expect(onChange).toHaveBeenCalledWith('full')
   })
 })

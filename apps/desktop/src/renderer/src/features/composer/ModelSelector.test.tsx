@@ -35,7 +35,7 @@ describe('ModelSelector', () => {
               kind: 'claude',
               source: 'static',
               models: [
-                { id: 'sonnet-4', label: 'Sonnet 4.5' },
+                { id: 'sonnet-4', label: 'Sonnet 4.5', contextHint: '200k' },
                 { id: 'opus-4', label: 'Opus 4' },
               ],
             },
@@ -53,32 +53,31 @@ describe('ModelSelector', () => {
     })
   })
 
-  it('pill shows a provider chip plus the model label', async () => {
+  it('trigger shows a letter mark plus the model label', async () => {
     setup()
-    const pill = await screen.findByRole('button', { name: 'Model selector' })
+    const trigger = await screen.findByRole('button', { name: /model:/i })
     await waitFor(() => {
-      expect(pill).toHaveTextContent('claude')
+      expect(trigger).toHaveTextContent('C')
+      expect(trigger).toHaveTextContent('Sonnet 4.5')
     })
-    expect(pill).toHaveTextContent('Sonnet 4.5')
   })
 
   it('opens a grouped, searchable menu and selects with keyboard', async () => {
     const { onChange } = setup()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: 'Model selector' }))
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
 
     const listbox = screen.getByRole('listbox', { name: 'Models' })
-    expect(within(listbox).getByText('claude')).toBeInTheDocument()
-    expect(within(listbox).getByText('codex')).toBeInTheDocument()
+    expect(within(listbox).getByText('Claude')).toBeInTheDocument()
+    expect(within(listbox).getByText('Codex')).toBeInTheDocument()
+    expect(within(listbox).getByText('200k')).toBeInTheDocument()
 
-    // Search filters across label and provider.
     await user.type(screen.getByLabelText('Search models'), 'gpt')
     expect(within(listbox).getByText('GPT-5.6')).toBeInTheDocument()
     expect(within(listbox).queryByText('Sonnet 4.5')).not.toBeInTheDocument()
 
     await user.clear(screen.getByLabelText('Search models'))
-    await user.keyboard('{ArrowUp>}{ArrowUp}{/ArrowUp}')
-    await user.keyboard('{Enter}')
+    await user.keyboard('{Home}{Enter}')
 
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
@@ -88,7 +87,7 @@ describe('ModelSelector', () => {
   it('marks the active model and picks on click', async () => {
     const { onChange } = setup('codex', 'gpt-5.6')
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: 'Model selector' }))
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
 
     const listbox = screen.getByRole('listbox', { name: 'Models' })
     const active = within(listbox).getByRole('option', { selected: true })
@@ -98,10 +97,18 @@ describe('ModelSelector', () => {
     expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
   })
 
+  it('shows a loading empty state before catalogs resolve', async () => {
+    rpcMocks.invoke.mockImplementation(() => new Promise(() => undefined))
+    setup()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /model:/i }))
+    expect(screen.getByText(/loading models/i)).toBeInTheDocument()
+  })
+
   it('shows a no-match state for nonsense queries', async () => {
     setup()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: 'Model selector' }))
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
     await user.type(screen.getByLabelText('Search models'), 'zzz')
     expect(screen.getByText(/no models match/i)).toBeInTheDocument()
   })

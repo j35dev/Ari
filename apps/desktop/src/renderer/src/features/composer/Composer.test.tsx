@@ -47,6 +47,13 @@ describe('Composer', () => {
     render(<Composer onSend={vi.fn()} running queued={['a', 'b']} />)
     expect(screen.getByText(/2 queued messages/)).toBeInTheDocument()
   })
+
+  it('keeps stash and send as the trailing actions in the foot', () => {
+    render(<Composer onSend={vi.fn()} leading={<span>agent</span>} />)
+    const stash = screen.getByRole('button', { name: /prompt stash/i })
+    const send = screen.getByRole('button', { name: 'Send' })
+    expect(stash.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
 
 describe('Composer prompt stash', () => {
