@@ -431,9 +431,7 @@ function Shell() {
                         ? 'Changes'
                         : inspector === 'files'
                           ? 'Files'
-                          : inspector === 'usage'
-                            ? 'Usage'
-                            : 'Projects'}
+                          : 'Usage'}
                   </span>
                   <div className="flex-1" />
                   <button
@@ -462,16 +460,12 @@ function Shell() {
                       <FileExplorer root={activeProjectPath} />
                     ) : (
                       <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-                        Add a project first — the explorer browses its folder.
+                        Open a project first — the explorer browses its folder.
                       </div>
                     )
-                  ) : inspector === 'usage' ? (
+                  ) : (
                     <ErrorBoundary label="Usage">
                       <UsageDashboard />
-                    </ErrorBoundary>
-                  ) : (
-                    <ErrorBoundary label="Projects">
-                      <ProjectsView onOpenTerminal={() => setInspector('terminal')} />
                     </ErrorBoundary>
                   )}
                 </div>
