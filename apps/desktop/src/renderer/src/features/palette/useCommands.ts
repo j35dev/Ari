@@ -8,6 +8,7 @@ import {
   Images,
   MessageSquare,
   Settings,
+  Swords,
   TerminalSquare,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -41,6 +42,7 @@ export interface CommandsContext {
   onNavigate: (view: NavigableView) => void
   onOpenGallery: () => void
   onOpenSearch: () => void
+  onOpenRace: () => void
 }
 
 /**
@@ -99,6 +101,12 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       run: () => ctx.onOpenSearch(),
     },
     {
+      id: 'race.new',
+      label: 'New A/B provider race',
+      icon: Swords,
+      run: () => ctx.onOpenRace(),
+    },
+    {
       id: 'view.gallery',
       label: 'Browse component gallery',
       icon: Images,
@@ -109,9 +117,9 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
 
 /** Memoized app command list built from the passed context object. */
 export function useCommands(ctx: CommandsContext): PaletteCommand[] {
-  const { onNavigate, onOpenGallery, onOpenSearch } = ctx
+  const { onNavigate, onOpenGallery, onOpenSearch, onOpenRace } = ctx
   return useMemo(
-    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch }),
-    [onNavigate, onOpenGallery, onOpenSearch],
+    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch, onOpenRace }),
+    [onNavigate, onOpenGallery, onOpenSearch, onOpenRace],
   )
 }
