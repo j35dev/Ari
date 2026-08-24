@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
@@ -730,7 +730,7 @@ const PERMISSION_MODES: { value: PermissionMode; label: string; hint: string }[]
 
 const DEFAULT_MODE = PERMISSION_MODES[0] as (typeof PERMISSION_MODES)[number]
 
-/** Inline permission-mode selector (Comet/DSH-style), bottom-left of the composer. */
+/** Permission-mode chip in the composer foot. */
 export function PermissionModeChip({
   mode,
   onChange,
@@ -739,7 +739,34 @@ export function PermissionModeChip({
   onChange: (mode: PermissionMode) => void
 }) {
   const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const current = PERMISSION_MODES.find((m) => m.value === mode) ?? DEFAULT_MODE
+
+  useEffect(() => {
+    if (!open) return
+    const selected =
+      menuRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]') ??
+      menuRef.current?.querySelector<HTMLButtonElement>('button')
+    selected?.focus()
+  }, [open])
+
+  const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    const buttons = Array.from(menuRef.current?.querySelectorAll('button') ?? [])
+    const i = buttons.findIndex((b) => b === document.activeElement)
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setOpen(false)
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (buttons.length === 0) return
+      const delta = e.key === 'ArrowDown' ? 1 : -1
+      const next = buttons[(Math.max(i, 0) + delta + buttons.length) % buttons.length]
+      next?.focus()
+    }
+  }
+
   return (
     <div className="relative">
       <button
@@ -747,36 +774,57 @@ export function PermissionModeChip({
         onClick={() => setOpen((o) => !o)}
         title={`Permission mode: ${current.hint}`}
         aria-label={`Permission mode: ${current.label}`}
-        className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2.5 text-xs text-fg-muted transition-colors hover:text-fg hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span
           aria-hidden
-          className={`h-1.5 w-1.5 rounded-full ${
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
             mode === 'full' ? 'bg-warning' : mode === 'allow-edits' ? 'bg-info' : 'bg-fg-subtle'
           }`}
         />
         <span>{current.label}</span>
+        <ChevronDown
+          size={11}
+          aria-hidden
+          className={`text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ease-[var(--ari-ease-out-expo)] motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+        />
       </button>
       {open ? (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2">
-            {PERMISSION_MODES.map((m) => (
-              <button
-                key={m.value}
-                type="button"
-                onClick={() => {
-                  onChange(m.value)
-                  setOpen(false)
-                }}
-                className={`flex w-full flex-col rounded-sm px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-                  m.value === mode ? 'bg-accent-subtle' : 'hover:bg-surface-2'
-                }`}
-              >
-                <span className="text-xs font-medium text-fg">{m.label}</span>
-                <span className="text-2xs text-fg-subtle">{m.hint}</span>
-              </button>
-            ))}
+          <div
+            ref={menuRef}
+            role="listbox"
+            aria-label="Permission mode"
+            onKeyDown={onMenuKeyDown}
+            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2"
+          >
+            {PERMISSION_MODES.map((m) => {
+              const selected = m.value === mode
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onChange(m.value)
+                    setOpen(false)
+                  }}
+                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium text-fg">{m.label}</span>
+                    <span className="block text-2xs text-fg-subtle">{m.hint}</span>
+                  </span>
+                  {selected ? (
+                    <Check size={12} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                  ) : null}
+                </button>
+              )
+            })}
           </div>
         </>
       ) : null}
