@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { AcpConnection, AcpConnectionError } from './connection'
+import { AcpConnection, AcpConnectionError, acpPromptStallMs } from './connection'
 import type { AcpChildProcess, AcpLaunch } from './connection'
 
 const LAUNCH: AcpLaunch = { label: 'test-agent', command: 'fake', args: [] }
@@ -56,9 +56,13 @@ type AgentHandler = (
   id: number | undefined,
 ) => unknown
 
+/** Sentinel: the scripted agent never replies to this request (wedge sim). */
+export const NO_REPLY = Symbol('no-reply')
+
 /**
  * Scripts the fake agent: every incoming client request is answered through
- * `handler`; returning `undefined` answers with a method-not-found error.
+ * `handler`; returning `undefined` answers with a method-not-found error;
+ * returning `NO_REPLY` sends nothing at all.
  */
 function script(child: FakeChild, handler: AgentHandler): void {
   let buffer = ''
@@ -77,7 +81,9 @@ function script(child: FakeChild, handler: AgentHandler): void {
         }
         if (message.method !== undefined && message.id !== undefined) {
           const result = handler(message.method, message.params, message.id)
-          if (result !== undefined) {
+          if (result === NO_REPLY) {
+            // Total silence — the agent wedge signature.
+          } else if (result !== undefined) {
             child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result })}\n`)
           } else {
             child.stdout.write(
@@ -210,5 +216,60 @@ describe('AcpConnection', () => {
         initializeTimeoutMs: 2000,
       }),
     ).rejects.toThrow(/missing/)
+  })
+
+  it('fails the prompt legibly when the agent goes totally silent mid-turn', async () => {
+    const child = fakeChild()
+    // Answers everything EXCEPT session/prompt, which it never replies to —
+    // the wedge signature.
+    script(child, (method) =>
+      method === 'session/new'
+        ? { sessionId: 'sess_wedge' }
+        : method === 'session/prompt'
+          ? NO_REPLY
+          : { ok: true },
+    )
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const created = await connection.newSession('/w')
+    await expect(
+      connection.prompt(created.sessionId as string, 'hello?', 120),
+    ).rejects.toThrow(/went silent for (120ms|0s).*wedged or waiting for login/s)
+    expect(child.killed).toBe(false)
+    connection.kill()
+  })
+
+  it('inbound traffic proves liveness and disarms the stall watchdog', async () => {
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const created = await connection.newSession('/w')
+    // Stream updates every 40ms while the (delayed) answer is pending.
+    const spam = setInterval(() => {
+      child.stdout.write(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: { sessionId: created.sessionId, update: { sessionUpdate: 'ping' } },
+        })}\n`,
+      )
+    }, 40)
+    try {
+      const stopReason = await connection.prompt(created.sessionId as string, 'work', 120)
+      expect(stopReason).toBe('end_turn')
+    } finally {
+      clearInterval(spam)
+    }
+    connection.kill()
+  })
+})
+
+describe('acpPromptStallMs', () => {
+  it('parses the env knob with sane fallbacks', () => {
+    expect(acpPromptStallMs(undefined)).toBe(120_000)
+    expect(acpPromptStallMs('')).toBe(120_000)
+    expect(acpPromptStallMs('30000')).toBe(30_000)
+    expect(acpPromptStallMs('0')).toBe(0)
+    expect(acpPromptStallMs('nonsense')).toBe(120_000)
+    expect(acpPromptStallMs('-5')).toBe(120_000)
   })
 })
