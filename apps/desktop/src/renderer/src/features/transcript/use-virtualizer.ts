@@ -30,6 +30,8 @@ export interface Virtualizer {
   measureElement(node: HTMLElement | null): void
   scrollToOffset(offset: number, behavior?: ScrollBehavior): void
   scrollToBottom(behavior?: ScrollBehavior): void
+  /** Start offset of any row (measured or estimated), e.g. for jump links. */
+  getRowStart(index: number): number
 }
 
 function computeOffsets(sizes: number[]): number[] {
@@ -155,5 +157,10 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     return items
   }, [count, getScrollElement, overscan, scrollOffset, measureVersion])
 
-  return { getTotalSize, getVirtualItems, measureElement, scrollToOffset, scrollToBottom }
+  const getRowStart = useCallback((index: number): number => {
+    const offsets = computeOffsets(sizesRef.current)
+    return offsets[index] ?? 0
+  }, [])
+
+  return { getTotalSize, getVirtualItems, measureElement, scrollToOffset, scrollToBottom, getRowStart }
 }
