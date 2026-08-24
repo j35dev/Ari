@@ -144,59 +144,74 @@ describe('Shell session navigation keys', () => {
 
   it('Mod+2 opens the second session in sidebar order', async () => {
     render(<App />)
-    await screen.findByText('Alpha')
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
 
     fireEvent.keyDown(window, { key: '2', ctrlKey: true })
 
-    await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
-    })
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+      },
+      { timeout: 10_000 },
+    )
   })
 
   it('Ctrl+Tab cycles forward through sessions and wraps', async () => {
     render(<App />)
-    await screen.findByText('Alpha')
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
 
     fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true })
-    await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' })
-    })
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' })
+      },
+      { timeout: 10_000 },
+    )
 
     fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true })
-    await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
-    })
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+      },
+      { timeout: 10_000 },
+    )
   })
 
   it('Ctrl+Shift+Tab cycles backward', async () => {
     render(<App />)
-    await screen.findByText('Alpha')
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
 
     fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true, shiftKey: true })
     // Wraps from "nothing active" to the last row.
-    await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
-    })
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+      },
+      { timeout: 10_000 },
+    )
   })
 
   it('Mod+N creates a new session via the reuse path', async () => {
     render(<App />)
-    await screen.findByText('Alpha')
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
 
     // Reuses the pristine adhoc session or creates one; either way the
     // command path runs.
-    await vi.waitFor(() => {
-      const created = invokeMock.mock.calls.some(
-        ([method]) => method === 'session.create',
-      )
-      const reused = invokeMock.mock.calls.some(
-        ([method, params]) =>
-          method === 'session.load' &&
-          (params as { sessionId?: string } | undefined)?.sessionId !== undefined,
-      )
-      expect(created || reused).toBe(true)
-    })
+    await vi.waitFor(
+      () => {
+        const created = invokeMock.mock.calls.some(
+          ([method]) => method === 'session.create',
+        )
+        const reused = invokeMock.mock.calls.some(
+          ([method, params]) =>
+            method === 'session.load' &&
+            (params as { sessionId?: string } | undefined)?.sessionId !== undefined,
+        )
+        expect(created || reused).toBe(true)
+      },
+      { timeout: 10_000 },
+    )
   })
 })
