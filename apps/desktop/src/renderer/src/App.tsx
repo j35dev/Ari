@@ -416,7 +416,7 @@ function Shell() {
                     </ErrorBoundary>
                   ) : (
                     <ErrorBoundary label="Projects">
-                      <ProjectsView />
+                      <ProjectsView onOpenTerminal={() => setInspector('terminal')} />
                     </ErrorBoundary>
                   )}
                 </div>

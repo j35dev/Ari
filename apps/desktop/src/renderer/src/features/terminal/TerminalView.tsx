@@ -4,6 +4,10 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Plus, RotateCcw, X } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 import { rpc } from '../../lib/rpc'
+import {
+  subscribeTerminalRequests,
+  type TerminalTabRequest,
+} from './terminal-requests'
 
 function readToken(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -26,6 +30,11 @@ interface TerminalTab {
   id: string
   title: string
 }
+
+/** Per-tab first command (M21.3 run scripts), written once after spawn. */
+const initialCommands = new Map<string, string>()
+/** Per-tab working directories for request-opened tabs. */
+const tabCwds = new Map<string, string>()
 
 /**
  * Multi-terminal pane: a tab strip over independent pty sessions. Tabs stay
@@ -63,6 +72,20 @@ export function TerminalView({ cwd }: { cwd?: string }) {
     setActiveId(id)
   }, [])
 
+  // Run-script requests (M21.3): open a titled tab that executes the command.
+  useEffect(
+    () =>
+      subscribeTerminalRequests((request: TerminalTabRequest) => {
+        const id = makeTerminalId()
+        if (request.command !== undefined) initialCommands.set(id, request.command)
+        setTabs((prev) => [...prev, { id, title: request.title }])
+        setActiveId(id)
+        // The pane reads the cwd per tab; carry it via the request map too.
+        tabCwds.set(id, request.cwd)
+      }),
+    [],
+  )
+
   // Open the first tab automatically once the working directory is known.
   useEffect(() => {
     if (resolvedCwd !== null && tabs.length === 0) addTab()
@@ -70,6 +93,8 @@ export function TerminalView({ cwd }: { cwd?: string }) {
 
   const closeTab = useCallback((id: string) => {
     void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
+    initialCommands.delete(id)
+    tabCwds.delete(id)
     setTabs((prev) => {
       const index = prev.findIndex((t) => t.id === id)
       const next = prev.filter((t) => t.id !== id)
@@ -163,7 +188,12 @@ export function TerminalView({ cwd }: { cwd?: string }) {
         ) : (
           tabs.map((tab) => (
             <div key={tab.id} className={tab.id === activeId ? 'h-full w-full' : 'hidden'}>
-              <TerminalPane terminalId={tab.id} cwd={resolvedCwd} active={tab.id === activeId} />
+              <TerminalPane
+                terminalId={tab.id}
+                cwd={tabCwds.get(tab.id) ?? resolvedCwd}
+                initialCommand={initialCommands.get(tab.id)}
+                active={tab.id === activeId}
+              />
             </div>
           ))
         )}
@@ -176,10 +206,13 @@ export function TerminalView({ cwd }: { cwd?: string }) {
 function TerminalPane({
   terminalId,
   cwd,
+  initialCommand,
   active,
 }: {
   terminalId: string
   cwd: string | null
+  /** First command written into the shell after spawn (run scripts). */
+  initialCommand?: string
   active: boolean
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -219,7 +252,13 @@ function TerminalPane({
 
     // Idempotent in the main process: an existing session is reused and its
     // scrollback replays through the subscription below.
-    void rpc.invoke('terminal.create', { id: terminalId, cwd }).catch(() => undefined)
+    void rpc.invoke('terminal.create', { id: terminalId, cwd }).then(() => {
+      if (initialCommand !== undefined && initialCommand.length > 0) {
+        initialCommands.delete(terminalId)
+        return rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
+      }
+      return undefined
+    }).catch(() => undefined)
 
     const dataSub = rpc.subscribe('terminal.data', { id: terminalId }, (payload) => {
       const frame = payload as { id: string; data: string }
@@ -251,6 +290,8 @@ function TerminalPane({
       inputSub.dispose()
       term.dispose()
     }
+    // initialCommand is consumed once at spawn and then deleted from its
+    // map; excluding it from these deps keeps the pty alive across re-renders.
   }, [terminalId, cwd])
 
   // Focus follows tab activation without re-creating anything.
