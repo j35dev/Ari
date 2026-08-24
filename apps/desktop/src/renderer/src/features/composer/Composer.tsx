@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, Clock, Square } from 'lucide-react'
+import { ArrowUp, Bookmark, Clock, Square, Trash2 } from 'lucide-react'
 import { transitions } from '@ari/ui/motion'
 import { activeTokenAt } from './active-token'
 import type { SlashCommand } from './slash-commands'
@@ -10,6 +10,12 @@ import { SlashPopup } from './SlashPopup'
 import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
+import {
+  loadStash,
+  persistStash,
+  stashPrompt,
+  type StashEntry,
+} from './prompt-stash'
 
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
@@ -72,8 +78,46 @@ export function Composer({
   const [text, setText] = useState('')
   const [caret, setCaret] = useState(0)
   const [dismissed, setDismissed] = useState(false)
+  const [stash, setStash] = useState<StashEntry[]>(() => loadStash())
+  const [stashOpen, setStashOpen] = useState(false)
+  const [stashedPulse, setStashedPulse] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { images, addFiles, removeAt, clear } = useImageAttachments()
+
+  /** Mod+S: stash the current draft (git-stash semantics — the field clears). */
+  const stashDraft = useCallback(() => {
+    if (text.trim().length === 0) return
+    setStash((prev) => {
+      const next = stashPrompt(text, prev)
+      persistStash(next)
+      return next
+    })
+    setText('')
+    setCaret(0)
+    setStashedPulse((p) => p + 1)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }, [text])
+
+  const restoreFromStash = useCallback((entry: StashEntry) => {
+    setStashOpen(false)
+    setText(entry.text)
+    const end = entry.text.length
+    setCaret(end)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(end, end)
+    })
+  }, [])
+
+  const removeFromStash = useCallback((entry: StashEntry) => {
+    setStash((prev) => {
+      const next = prev.filter((e) => e.text !== entry.text)
+      persistStash(next)
+      return next
+    })
+  }, [])
 
   const token = useMemo(() => activeTokenAt(text, caret), [text, caret])
   const tokenKey = token ? `${token.kind}:${token.start}:${token.raw}` : ''
@@ -171,8 +215,12 @@ export function Composer({
         e.preventDefault()
         send()
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        stashDraft()
+      }
     },
-    [send],
+    [send, stashDraft],
   )
 
   const closePopup = useCallback(() => setDismissed(true), [])
@@ -262,6 +310,76 @@ export function Composer({
         />
         <div className="flex items-center gap-1 px-2.5 pb-2.5 pt-1">
           {leading}
+          <div className="relative">
+            <motion.button
+              key={stashedPulse}
+              type="button"
+              aria-label={`Prompt stash (${stash.length})`}
+              title="Stash this prompt (Mod+S) or reuse a stashed one"
+              onClick={() => setStashOpen((o) => !o)}
+              animate={
+                stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined
+              }
+              transition={{ duration: 0.35, ease: 'easeOut' }}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <Bookmark size={13} />
+            </motion.button>
+            <AnimatePresence>
+              {stashOpen ? (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setStashOpen(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                    transition={transitions.menuIn}
+                    className="ari-glass-overlay absolute bottom-full left-0 z-40 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border p-1 shadow-2"
+                    role="menu"
+                    aria-label="Stashed prompts"
+                  >
+                    {stash.length === 0 ? (
+                      <p className="px-3 py-4 text-center text-xs text-fg-subtle">
+                        Nothing stashed yet.
+                        <br />
+                        Press Mod+S to save the current draft.
+                      </p>
+                    ) : (
+                      stash.map((entry) => (
+                        <div
+                          key={entry.text}
+                          className="group flex items-start gap-1 rounded-sm"
+                          role="none"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => restoreFromStash(entry)}
+                            className="min-w-0 flex-1 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                          >
+                            <span className="line-clamp-2 block whitespace-pre-wrap break-words text-xs leading-snug text-fg">
+                              {entry.text}
+                            </span>
+                            <span className="mt-0.5 block text-2xs tabular-nums text-fg-subtle">
+                              {new Date(entry.savedAt).toLocaleString()}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Remove from stash"
+                            onClick={() => removeFromStash(entry)}
+                            className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </motion.div>
+                </>
+              ) : null}
+            </AnimatePresence>
+          </div>
           <button
             type="button"
             aria-label="Send message"
