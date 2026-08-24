@@ -39,6 +39,13 @@ describe('openProjectViaPicker', () => {
     await expect(openProjectViaPicker()).resolves.toBeNull()
     // No project.open call, no thrown error: cancelling changes nothing.
     expect(invokeFn).toHaveBeenCalledTimes(1)
-    expect(invokeFn).toHaveBeenCalledWith('dialog.pickFolder')
+    expect(invokeFn).toHaveBeenCalledWith('dialog.pickFolder', { defaultPath: undefined })
+  })
+
+  it('starts the picker near a known folder so Locate lands close to the dead path', async () => {
+    invokeFn.mockResolvedValue({ path: null })
+
+    await openProjectViaPicker('/code/gone/dead-folder')
+    expect(invokeFn).toHaveBeenCalledWith('dialog.pickFolder', { defaultPath: '/code/gone/dead-folder' })
   })
 })

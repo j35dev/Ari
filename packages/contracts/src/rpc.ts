@@ -146,7 +146,7 @@ export const rpcParams = {
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.close': z.object({ id: z.string().min(1) }),
   'project.remove': z.object({ id: z.string().min(1) }),
-  'dialog.pickFolder': z.undefined(),
+  'dialog.pickFolder': z.object({ defaultPath: z.string().min(1).optional() }),
   'shell.revealPath': z.object({ path: z.string().min(1) }),
   'files.index': z.object({ projectId: z.string().min(1) }),
   'search.content': z

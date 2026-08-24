@@ -19,7 +19,7 @@ import { listScripts } from './scripts-list'
 import { createPullRequest } from './gh-pr'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
-import { ensureProjectWatched, getIndexedFiles } from './watcher-bridge'
+import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
 import { applyThemeToWindow } from './window'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
@@ -469,14 +469,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('project.close', async (params) => getProjectStore().close(params.id))
 
   r.register('project.remove', async (params) => {
-    return { removed: await getProjectStore().remove(params.id) }
+    const project = getProjectStore().get(params.id)
+    const removed = await getProjectStore().remove(params.id)
+    // Stop indexing/watching the folder; a removed project must not keep
+    // consuming fs events for the rest of the process.
+    if (removed && project) void stopWatchingProject(project.path, project.id)
+    return { removed }
   })
 
-  r.register('dialog.pickFolder', async () => {
+  r.register('dialog.pickFolder', async (params) => {
+    const options: Electron.OpenDialogOptions = { properties: ['openDirectory'] }
+    if (params?.defaultPath) options.defaultPath = params.defaultPath
     const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
-    const result = parent
-      ? await dialog.showOpenDialog(parent, { properties: ['openDirectory'] })
-      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
     // Cancel must be a clean no-op, not an error the renderer has to catch.
     if (result.canceled) return { path: null }
     return { path: result.filePaths[0] ?? null }

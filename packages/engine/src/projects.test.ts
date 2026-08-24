@@ -95,4 +95,15 @@ describe('ProjectStore', () => {
     expect(await reloaded.remove(project.id)).toBe(true)
     expect(reloaded.list()).toHaveLength(0)
   })
+
+  it('ignores a second load so a slow disk read cannot clobber mutations', async () => {
+    const store = new ProjectStore({ dir })
+    await store.load()
+    const project = await store.add(existingFolder)
+
+    // Another handler calls load() (e.g. project.list) while the store holds
+    // the unsaved-to-disk mutation above; it must not resurrect old state.
+    await store.load()
+    expect(store.list().map((p) => p.id)).toEqual([project.id])
+  })
 })

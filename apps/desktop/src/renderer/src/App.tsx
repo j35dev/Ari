@@ -5,6 +5,7 @@ import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
 import type { RpcResults, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
 import { themePersistence } from './lib/theme-persistence'
 import { Titlebar } from './shell/Titlebar'
@@ -68,14 +69,14 @@ function Shell() {
     void rpc
       .invoke('app.info')
       .then((info) => setWorkspaceCwd(info.homeDir))
-      .catch(() => undefined)
+      .catch((error: unknown) => log.warn("rpc call failed", error))
   }, [])
 
   const refreshSessions = useCallback((): void => {
     void rpc
       .invoke('session.list')
       .then(setSessions)
-      .catch(() => undefined)
+      .catch((error: unknown) => log.warn("rpc call failed", error))
   }, [])
 
   // Late-bound so the global key handler (registered before createSession
@@ -88,7 +89,7 @@ function Shell() {
     void rpc
       .invoke('project.list')
       .then(setProjects)
-      .catch(() => undefined)
+      .catch((error: unknown) => log.warn("rpc call failed", error))
   }, [])
 
   // First available CLI becomes the default driver at boot; when none is
@@ -108,7 +109,7 @@ function Shell() {
           )
         }
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => log.warn("rpc call failed", error))
   }, [])
 
   const commands = useCommands({
@@ -145,17 +146,24 @@ function Shell() {
     void rpc
       .invoke('project.list')
       .then(setProjects)
-      .catch(() => undefined)
+      .catch((error: unknown) => log.warn("rpc call failed", error))
   }, [])
 
   // Native picker → open; a cancelled picker resolves to null (silent no-op).
-  const openProjectViaDialog = useCallback((): void => {
-    void openProjectViaPicker()
-      .then((project) => {
-        if (project !== null) refreshProjects()
-      })
-      .catch(() => undefined)
-  }, [refreshProjects])
+  // With a project id, the picker starts near that project's folder (Locate).
+  const openProjectViaDialog = useCallback(
+    (projectId?: string): void => {
+      const folder = projectId
+        ? projects.find((p) => p.id === projectId)?.path.replace(/[/\\][^/\\]+$/, '')
+        : undefined
+      void openProjectViaPicker(folder)
+        .then((project) => {
+          if (project !== null) refreshProjects()
+        })
+        .catch((error: unknown) => log.warn("rpc call failed", error))
+    },
+    [refreshProjects, projects],
+  )
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -240,7 +248,7 @@ function Shell() {
           setInspector(null)
           refreshSessions()
         })
-        .catch(() => undefined)
+        .catch((error: unknown) => log.warn("rpc call failed", error))
     },
     [defaults, sessions, refreshSessions],
   )
@@ -314,24 +322,25 @@ function Shell() {
           <SessionsUnderProjects
             sessions={sessions}
             projects={openProjects}
+            knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
             onOpenProject={openProjectViaDialog}
             onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
             onRevealProject={(projectId) => {
               const path = projects.find((p) => p.id === projectId)?.path
               if (path === undefined) return
-              void rpc.invoke('shell.revealPath', { path }).catch(() => undefined)
+              void rpc.invoke('shell.revealPath', { path }).catch((error: unknown) => log.warn("rpc call failed", error))
             }}
             onCloseProject={(projectId) => {
               void rpc
                 .invoke('project.close', { id: projectId })
                 .then(refreshProjects)
-                .catch(() => undefined)
+                .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
             onRemoveProject={(projectId) => {
               void rpc
                 .invoke('project.remove', { id: projectId })
                 .then(refreshProjects)
-                .catch(() => undefined)
+                .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
             onLocateProject={openProjectViaDialog}
             activeSessionId={activeSessionId}
@@ -345,7 +354,7 @@ function Shell() {
                   command: { type: 'session.update', sessionId: id, title },
                 })
                 .then(refreshSessions)
-                .catch(() => undefined)
+                .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
             onDelete={(id) => {
               void rpc
@@ -354,7 +363,7 @@ function Shell() {
                   if (activeSessionId === id) setActiveSessionId(null)
                   refreshSessions()
                 })
-                .catch(() => undefined)
+                .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
             onTogglePin={(id, pinned) => {
               void rpc
@@ -362,7 +371,7 @@ function Shell() {
                   command: { type: 'session.update', sessionId: id, pinned },
                 })
                 .then(refreshSessions)
-                .catch(() => undefined)
+                .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
             onToggleArchive={(id, archived) => {
               void rpc
@@ -370,7 +379,7 @@ function Shell() {
                   command: { type: 'session.update', sessionId: id, archived },
                 })
                 .then(refreshSessions)
-                .catch(() => undefined)
+                .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
           />
           <SidebarFooter
@@ -543,7 +552,7 @@ export function BranchChip({ sessionId }: { sessionId: string | null }) {
           if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
         })
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => log.warn("rpc call failed", error))
     return () => {
       cancelled = true
     }
@@ -571,6 +580,8 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     </ThemeProvider>
   )
 }
+
+const log = createLogger('app:shell')
 
 export function App() {
   const [booted, setBooted] = useState(false)
