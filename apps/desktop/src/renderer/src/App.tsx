@@ -29,6 +29,7 @@ import {
 } from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { WelcomePanel } from './features/welcome'
+import { RaceDialog } from './features/race/RaceDialog'
 import './features/transcript/transcript.css'
 
 type InspectorId = Exclude<SidebarNavId, 'session' | 'settings'>
@@ -51,6 +52,7 @@ function Shell() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [raceOpen, setRaceOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
   const [defaults, setDefaults] = useState<SessionDefaults>({
@@ -125,6 +127,10 @@ function Shell() {
     },
     onOpenSearch: () => {
       setSearchOpen(true)
+      setPaletteOpen(false)
+    },
+    onOpenRace: () => {
+      setRaceOpen(true)
       setPaletteOpen(false)
     },
   })
@@ -242,6 +248,17 @@ function Shell() {
         />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
         <KeyboardCheatSheet />
+        {raceOpen ? (
+          <RaceDialog
+            projects={projects.map((p) => ({ id: p.id, name: p.name }))}
+            onClose={() => setRaceOpen(false)}
+            onLaunched={(aId) => {
+              setRaceOpen(false)
+              setActiveSessionId(aId)
+              refreshSessions()
+            }}
+          />
+        ) : null}
       </div>
     )
   }
