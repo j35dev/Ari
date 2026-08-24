@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitBranch, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
@@ -9,6 +9,7 @@ import { rpc } from './lib/rpc'
 import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
+import { sidebarOrder } from './features/session/session-nav'
 import { TerminalView } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
@@ -74,6 +75,10 @@ function Shell() {
       .catch(() => undefined)
   }, [])
 
+  // Late-bound so the global key handler (registered before createSession
+  // exists) can still trigger new sessions.
+  const createSessionRef = useRef<(() => void) | null>(null)
+
   useEffect(refreshSessions, [])
 
   useEffect(() => {
@@ -124,6 +129,9 @@ function Shell() {
     },
   })
 
+  // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
+  const navOrder = useMemo(() => sidebarOrder(sessions), [sessions])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -133,6 +141,36 @@ function Shell() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setSearchOpen((o) => !o)
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        createSessionRef.current?.()
+      }
+      if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
+        // Mod+1..9 jumps to the nth sidebar row (T3/comet session jumping).
+        const target = navOrder[Number(e.key) - 1]
+        if (target && !paletteOpen && !searchOpen) {
+          e.preventDefault()
+          setActiveSessionId(target.id)
+          setInspector(null)
+        }
+      }
+      if (e.ctrlKey && e.key === 'Tab') {
+        // Ctrl+Tab / Ctrl+Shift+Tab cycle sessions (cross-platform literal).
+        if (navOrder.length > 1 && !paletteOpen && !searchOpen) {
+          e.preventDefault()
+          const index = navOrder.findIndex((s) => s.id === activeSessionId)
+          const delta = e.shiftKey ? -1 : 1
+          const next =
+            index === -1
+              ? // No active session: forward opens the newest, backward the oldest.
+                (delta === 1 ? navOrder[0] : navOrder[navOrder.length - 1])
+              : navOrder[(index + delta + navOrder.length) % navOrder.length]
+          if (next) {
+            setActiveSessionId(next.id)
+            setInspector(null)
+          }
+        }
       }
       if (e.key === 'Escape') {
         if (paletteOpen) {
@@ -144,7 +182,7 @@ function Shell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, settingsOpen])
+  }, [paletteOpen, settingsOpen, navOrder, activeSessionId])
 
   const createSession = useCallback(
     (overrides?: Partial<SessionDefaults>): void => {
@@ -181,6 +219,7 @@ function Shell() {
     },
     [defaults, sessions, refreshSessions],
   )
+  createSessionRef.current = createSession
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeProjectName =

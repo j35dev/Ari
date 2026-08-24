@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import { sidebarOrder } from '../features/session/session-nav'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
 const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
@@ -366,16 +367,8 @@ export function SessionsUnderProjects({
       projectId === 'adhoc' ? null : (byId.get(projectId) ?? null)
   }, [projects])
 
-  // Newest first, pinned floating above everything — the sidebar reads
-  // top-down like T3's thread list.
-  const sorted = useMemo(
-    () =>
-      [...sessions].sort((a, b) => {
-        if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
-        return b.updatedAt - a.updatedAt
-      }),
-    [sessions],
-  )
+  // Pinned floating above everything, newest next — shared with keyboard nav.
+  const sorted = useMemo(() => sidebarOrder(sessions), [sessions])
   const visible = trimmed
     ? sorted.filter((s) => !s.archived && s.title.toLowerCase().includes(trimmed))
     : sorted.filter((s) => !s.archived)
@@ -385,7 +378,14 @@ export function SessionsUnderProjects({
   const unpinnedVisible = visible.filter((s) => !s.pinned)
   const active = unpinnedVisible.filter((s) => s.updatedAt >= cutoff)
   const earlier = unpinnedVisible.filter((s) => s.updatedAt < cutoff)
-  const archived = sorted.filter((s) => s.archived)
+  // Newest-first shelf of everything archived (sidebarOrder excludes them).
+  const archived = useMemo(
+    () =>
+      [...sessions]
+        .filter((s) => s.archived)
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    [sessions],
+  )
 
   if (sessions.length === 0) {
     return (
