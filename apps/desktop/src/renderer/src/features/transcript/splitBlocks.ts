@@ -1,12 +1,7 @@
 import type { Message, MessagePart } from '@ari/contracts/message'
 import type { TranscriptBlock } from './types'
 
-function partToBlock(
-  message: Message,
-  part: MessagePart,
-  partIndex: number,
-  isLastPart: boolean,
-): TranscriptBlock {
+function partToBlock(message: Message, part: MessagePart, partIndex: number): TranscriptBlock {
   const key = `${message.id}#${partIndex}`
   // Assistant text rows carry message metadata so the transcript can render
   // the timestamp + copy footer under the message's final block. Every block
@@ -16,7 +11,7 @@ function partToBlock(
       ? {
           messageId: message.id,
           messageCreatedAt: message.createdAt,
-          isLastOfMessage: isLastPart,
+          isLastOfMessage: false,
           turnId: message.turnId,
         }
       : { turnId: message.turnId }
@@ -50,15 +45,39 @@ function partToBlock(
 
 /**
  * Purely flattens an ordered message list into the flat block list the
- * virtualizer renders. Keys are `msgId#partIndex` and therefore stable while
- * later parts stream into the same message.
+ * virtualizer renders. Contiguous text parts — the engine flushes streamed
+ * deltas every ~120ms as separate parts — coalesce into ONE block per run so
+ * paragraphs flow instead of rendering one fragment per line; the merged
+ * block's key (`msgId#firstPartIndex`) stays stable while it grows.
+ * Thinking parts merge the same way; any tool block breaks the run.
  */
 export function splitBlocks(messages: Message[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = []
   for (const message of messages) {
+    let mergeIndex: number | null = null
+    let mergeKind: 'text' | 'thinking' | null = null
+
     message.parts.forEach((part, partIndex) => {
-      blocks.push(partToBlock(message, part, partIndex, partIndex === message.parts.length - 1))
+      const blockKind =
+        part.type === 'text' ? 'markdown' : part.type === 'thinking' ? 'thinking' : null
+      if (blockKind !== null && mergeKind === blockKind && mergeIndex !== null) {
+        const target = blocks[mergeIndex]
+        if (target !== undefined && target.kind === blockKind) {
+          target.text = (target.text ?? '') + part.text
+          return
+        }
+      }
+      blocks.push(partToBlock(message, part, partIndex))
+      mergeIndex = blocks.length - 1
+      mergeKind = blockKind
     })
+
+    // The message footer attaches to the final markdown block, whichever
+    // part it came from.
+    const last = blocks[blocks.length - 1]
+    if (message.role === 'assistant' && last !== undefined && last.kind === 'markdown') {
+      last.isLastOfMessage = true
+    }
   }
   return blocks
 }
