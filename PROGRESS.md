@@ -95,6 +95,16 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
 - [x] M20.14 Live plan panel: `.ari-todo.json` from todo_write renders as a collapsible checklist
       pinned above the transcript (`plan.get` RPC; refreshes on settle)
 
+## M22 — Output-quality & prompt-box wave (from live screenshot feedback)
+
+- [x] M22.1 CRITICAL FIX — streamed deltas coalesce into flowing markdown blocks
+      (was: one line per ~120ms flush chunk; splitBlocks now merges contiguous
+      text/thinking parts with stable keys, tool calls break runs)
+- [x] M22.2 Model picker rebuilt T3-style: provider-chip pill (claude · Sonnet 4.5),
+      searchable grouped menu, keyboard nav (↑↓/Enter/Esc), active checkmark
+- [x] M22.3 Composer plate focus halo (accent border + soft ring) + Enter/Shift+Enter
+      key hints on the control row
+
 ## M21 — Fleet/parallelism wave (Cline Kanban · Conductor · Nimbalyst research)
 
 - [x] M21.1 Diff-line comments that attach to the composer as feedback for the session's next turn
