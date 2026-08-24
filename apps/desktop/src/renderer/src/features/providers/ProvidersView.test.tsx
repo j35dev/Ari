@@ -100,7 +100,7 @@ describe('ProvidersView', () => {
   })
 
   it('explains unknown auth status via tooltip', async () => {
-    invokeFn.mockResolvedValueOnce(DETECTIONS)
+    invokeFn.mockResolvedValue(DETECTIONS)
     const user = userEvent.setup()
     render(<ProvidersView />)
 
@@ -109,6 +109,67 @@ describe('ProvidersView', () => {
 
     const tooltip = await screen.findByRole('tooltip')
     expect(tooltip).toHaveTextContent('Ari could not verify - the CLI manages its own login')
+  })
+
+  it('gates install behind a confirm dialog showing the literal command', async () => {
+    // providers.detect (boot) + providers.plan (on Install click).
+    invokeFn.mockResolvedValueOnce(DETECTIONS)
+    invokeFn.mockResolvedValueOnce({
+      manager: 'npm',
+      installCommand: ['npm', 'install', '-g', '@openai/codex'],
+      upgradeCommand: ['npm', 'install', '-g', '@openai/codex@latest'],
+      display: 'npm install -g @openai/codex@latest',
+    })
+    const user = userEvent.setup()
+    render(<ProvidersView />)
+
+    await screen.findByText('Codex')
+    await user.click(within(cardFor('Codex')).getByRole('button', { name: 'Install' }))
+
+    // Nothing runs until confirm: only detect + plan have been invoked.
+    expect(invokeFn).not.toHaveBeenCalledWith('providers.install', expect.anything())
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByLabelText('Command to run')).toHaveTextContent(
+      'npm install -g @openai/codex',
+    )
+
+    invokeFn.mockResolvedValueOnce({ started: true })
+    await user.click(within(dialog).getByRole('button', { name: 'Run command' }))
+    await waitFor(() =>
+      expect(invokeFn).toHaveBeenCalledWith('providers.install', {
+        kind: 'codex',
+        operation: 'install',
+      }),
+    )
+    // Dialog closes once confirmed.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('offers Update only when an update is available, and Install only when missing', async () => {
+    invokeFn.mockResolvedValueOnce([
+      ...DETECTIONS,
+      {
+        kind: 'pi',
+        installed: true,
+        binaryPath: '/usr/local/bin/pi',
+        version: '0.9.0',
+        authStatus: 'authenticated',
+        latestVersion: '1.0.0',
+        updateAvailable: true,
+      },
+    ])
+    render(<ProvidersView />)
+
+    await screen.findByText('Pi')
+    // Up to date + installed → neither action applies.
+    expect(within(cardFor('Claude')).queryByRole('button', { name: 'Update' })).toBeNull()
+    expect(within(cardFor('Claude')).queryByRole('button', { name: 'Install' })).toBeNull()
+    // Missing → Install, never Update.
+    expect(within(cardFor('Codex')).getByRole('button', { name: 'Install' })).toBeInTheDocument()
+    expect(within(cardFor('Codex')).queryByRole('button', { name: 'Update' })).toBeNull()
+    // Update available → Update, plus the visible hint.
+    expect(within(cardFor('Pi')).getByRole('button', { name: 'Update' })).toBeInTheDocument()
+    expect(within(cardFor('Pi')).getByText(/update available/)).toHaveClass('text-warning')
   })
 
   it('re-scan refetches providers.detect and shows progress while scanning', async () => {
