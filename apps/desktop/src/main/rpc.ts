@@ -1,7 +1,7 @@
 import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app, BrowserWindow, ipcMain, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
@@ -440,12 +440,39 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const project = await getProjectStore().add(params.path, params.name)
     // Warm the watcher + mentions file index in the background; the index
     // walk is awaited lazily on the first `files.index` call instead.
-    if (project) void ensureProjectWatched(project)
-    return project ? { id: project.id, name: project.name, path: project.path } : null
+    if (project.status === 'ok') void ensureProjectWatched(project)
+    return project
   })
+
+  // Opening is add + mark-open: the store canonicalizes the path so the same
+  // folder never yields two sidebar groups.
+  r.register('project.open', async (params) => {
+    const project = await getProjectStore().open(params.path, params.name)
+    if (project.status === 'ok') void ensureProjectWatched(project)
+    return project
+  })
+
+  // Non-destructive: the project and its sessions survive, it just leaves the
+  // sidebar. `project.remove` is the destructive counterpart.
+  r.register('project.close', async (params) => getProjectStore().close(params.id))
 
   r.register('project.remove', async (params) => {
     return { removed: await getProjectStore().remove(params.id) }
+  })
+
+  r.register('dialog.pickFolder', async () => {
+    const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
+    const result = parent
+      ? await dialog.showOpenDialog(parent, { properties: ['openDirectory'] })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    // Cancel must be a clean no-op, not an error the renderer has to catch.
+    if (result.canceled) return { path: null }
+    return { path: result.filePaths[0] ?? null }
+  })
+
+  r.register('shell.revealPath', (params) => {
+    shell.showItemInFolder(params.path)
+    return { revealed: true }
   })
 
   r.register('files.index', async (params) => {
@@ -739,7 +766,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'terminal.kill',
     'project.list',
     'project.add',
+    'project.open',
+    'project.close',
     'project.remove',
+    'dialog.pickFolder',
+    'shell.revealPath',
     'files.index',
     'search.content',
     'endpoints.list',
