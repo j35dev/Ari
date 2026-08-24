@@ -80,8 +80,13 @@ interface ActiveTurn {
   interrupt: () => void
   /** Forwards approval decisions into the live adapter (M16.8). */
   respondApproval: (approvalId: string, decision: AdapterApprovalDecision) => void
-  /** Forwards mid-turn steering text into the live adapter (M17.1). */
-  steer: (text: string) => void
+  /**
+   * Forwards mid-turn steering text into the live adapter (M17.1). Returns
+   * true when the adapter consumed the text as steering (providers with a
+   * writable control channel) — those messages must not re-run as a follow-up
+   * turn; false when the transport cannot steer and the text stays queued.
+   */
+  steer: (text: string) => boolean
 }
 
 /**
@@ -92,6 +97,14 @@ interface ActiveTurn {
 export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
+  /**
+   * Texts consumed as mid-turn steering, per session. Consulted when the
+   * turn settles so an already-steered message is never re-run as a
+   * follow-up turn — the journal's dequeued event may still be in flight
+   * when settle reads its queue snapshot (single-process synchronous ledger,
+   * immune to append-ordering races).
+   */
+  readonly #steeredTexts = new Map<string, Set<string>>()
   /** Sessions whose first non-error settle already ran title generation. */
   readonly #titleSettled = new Set<string>()
 
@@ -144,9 +157,20 @@ export class Engine {
 
     if (command.type === 'message.enqueue') {
       // A user message arriving behind a running turn steers that turn in
-      // providers with a writable control channel (claude stdin, ACP);
-      // transports without one simply queue it for the next turn.
-      this.#activeTurns.get(command.sessionId)?.steer(command.text)
+      // providers with a writable control channel (claude stdin, ACP) — the
+      // text is consumed mid-turn, so it is dequeued immediately and must
+      // never re-run as a follow-up turn. Transports without steering keep
+      // the message queued; settle dispatches it as the next turn.
+      const steered = this.#activeTurns.get(command.sessionId)?.steer(command.text) ?? false
+      if (steered) {
+        let consumed = this.#steeredTexts.get(command.sessionId)
+        if (consumed === undefined) {
+          consumed = new Set()
+          this.#steeredTexts.set(command.sessionId, consumed)
+        }
+        consumed.add(command.text)
+        await this.#append(command.sessionId, { type: 'message.dequeued', text: command.text })
+      }
     }
 
     if (command.type === 'checkpoint.revert') {
@@ -302,7 +326,9 @@ export class Engine {
         adapter.respondApproval?.(approvalId, decision)
       },
       steer: (text) => {
-        adapter.steer?.(text)
+        if (adapter.steer === undefined) return false
+        adapter.steer(text)
+        return true
       },
     })
 
@@ -464,6 +490,31 @@ export class Engine {
       errorMessage,
     })
     if (stopReason !== 'error') this.#onFirstSettle(sessionId)
+
+    // Durable queue continuation (comet command-plane pattern): after a
+    // clean settle, the engine itself dispatches the oldest queued message
+    // as the next turn — through the normal command path so user.message,
+    // turn.started, and title events all fold exactly like a manual send.
+    // Error/interrupted settles hold the queue so the user can inspect
+    // before continuing (M15.10 semantics). Texts already consumed as
+    // steering are skipped: settle's queue snapshot may predate their
+    // journal dequeue.
+    const steered = this.#steeredTexts.get(sessionId)
+    this.#steeredTexts.delete(sessionId)
+    if (stopReason === 'completed') {
+      const next = model.queuedMessages.find((text) => steered === undefined || !steered.has(text))
+      if (next !== undefined) {
+        await this.#append(sessionId, { type: 'message.dequeued', text: next })
+        void this.dispatch({
+          type: 'turn.start',
+          sessionId,
+          text: next,
+          attachmentPaths: [],
+        }).catch((e) => {
+          log.error('queued-turn dispatch failed', { error: String(e) })
+        })
+      }
+    }
   }
 
   /**

@@ -803,3 +803,132 @@ describe('M19.3 session worktrees', () => {
   }, 10000)
 })
 
+
+
+describe('Engine durable queue continuation', () => {
+  it('dequeues a steered message immediately so it never re-runs as a turn', async () => {
+    // Ref cell: TS control-flow analysis would otherwise narrow a plain
+    // `let` to null at the call site even though the generator assigns it.
+    const releaseRef: { current: (() => void) | null } = { current: null }
+    const steerableDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'status', status: 'running' as const }
+              await new Promise<void>((resolve) => {
+                releaseRef.current = resolve
+              })
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          steer: () => undefined,
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(steerableDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_steer_drain'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    await new Promise((r) => setTimeout(r, 50))
+
+    const enqueued = await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId,
+      text: 'steer away',
+    })
+    expect(enqueued.accepted).toBe(true)
+
+    // The steering-capable transport consumed the text; the journal must
+    // reflect that the queue is empty again.
+    const model = await store.load(sessionId)
+    expect(model.queuedMessages).toEqual([])
+
+    releaseRef.current?.()
+  }, 10000)
+
+  it('after a clean settle the engine runs the oldest queued message itself', async () => {
+    const startedPrompts: string[] = []
+    let runCount = 0
+    const releaseRef: { current: (() => void) | null } = { current: null }
+    const plainDriver: Driver = {
+      // seedSession() seeds a `claude` session — kinds must match.
+      kind: 'claude',
+      create: (session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              runCount++
+              startedPrompts.push(session.prompt)
+              if (runCount === 1) {
+                yield { type: 'status', status: 'running' as const }
+                await new Promise<void>((resolve) => {
+                  releaseRef.current = resolve
+                })
+                yield { type: 'done' }
+              } else {
+                yield { type: 'text-delta', text: 'continued turn output' }
+                yield { type: 'done' }
+              }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(plainDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_queue_cont'
+    await seedSession(store, sessionId)
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'first prompt' } as Command)
+    await new Promise((r) => setTimeout(r, 50))
+
+    const queued = await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId,
+      text: 'queued follow-up',
+    })
+    expect(queued.accepted).toBe(true)
+
+    releaseRef.current?.()
+
+    // The continuation runs and settles on its own.
+    for (let i = 0; i < 150; i++) {
+      const after = await store.load(sessionId)
+      if (runCount >= 2 && after.activeTurnId === null) break
+      if (i === 149) throw new Error('continuation never ran or never settled')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const model = await store.load(sessionId)
+    expect(model.queuedMessages).toEqual([])
+    expect(startedPrompts).toContain('queued follow-up')
+    const userTexts = published
+      .map((p) => p.event)
+      .filter(
+        (e): e is JournalEvent & { type: 'user.message.added'; message: { parts: { type: string; text?: string }[] } } =>
+          e.type === 'user.message.added',
+      )
+    expect(
+      userTexts.some((e) =>
+        e.message.parts.some((part) => part.type === 'text' && part.text === 'queued follow-up'),
+      ),
+    ).toBe(true)
+  }, 15000)
+})
