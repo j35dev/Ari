@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { realDetectEnvironment } from './types'
-import type { AuthStatus, DetectEnvironment, Detection } from './types'
+import type { AuthProbe, DetectEnvironment, Detection } from './types'
 import { needsWindowsShell, buildCmdSpawnArgs } from './spawn-cli'
 
 const log = createLogger('providers:detector')
@@ -114,41 +114,86 @@ function probeVersion(binaryPath: string, timeoutMs = 5000): Promise<string | nu
   })
 }
 
+/** Reads one env var from the injected map, treating '' as unset. */
+function envVar(env: DetectEnvironment, name: string): string | null {
+  const raw = env.vars?.[name]
+  return raw != null && raw.length > 0 ? raw : null
+}
+
+const authenticated: AuthProbe = { status: 'authenticated' }
+const unauthenticated: AuthProbe = { status: 'unauthenticated' }
+
+function unknownAuth(reason: string): AuthProbe {
+  return { status: 'unknown', reason }
+}
+
 /**
- * Read-only auth probes against each CLI's own credential store (PLAN §4.1).
- * Ari never mutates these files and never performs OAuth itself.
+ * Credential-store locations per kind. Existence only — Ari never opens these
+ * files, never writes them, and never logs their contents.
  */
-export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthStatus {
+function authCandidates(kind: DriverKind, env: DetectEnvironment): string[] {
   switch (kind) {
-    case 'claude': {
-      const credFile = join(env.homeDir, '.claude', '.credentials.json')
-      const legacyFile = join(env.homeDir, '.claude.json')
-      if (existsSync(credFile) || existsSync(legacyFile)) return 'authenticated'
-      return 'unknown'
-    }
-    case 'codex': {
+    case 'claude':
+      return [join(env.homeDir, '.claude', '.credentials.json'), join(env.homeDir, '.claude.json')]
+    case 'codex':
       // Codex auths either via auth.json (ChatGPT/OpenAI login) or via a
-      // config.toml provider block (custom routers/API keys). Presence of
-      // either means the CLI is usable; only neither means unauthenticated.
-      const authFile = join(env.homeDir, '.codex', 'auth.json')
-      const configFile = join(env.homeDir, '.codex', 'config.toml')
-      if (existsSync(authFile) || existsSync(configFile)) return 'authenticated'
-      return 'unauthenticated'
+      // config.toml provider block (custom routers/API keys).
+      return [join(env.homeDir, '.codex', 'auth.json'), join(env.homeDir, '.codex', 'config.toml')]
+    case 'opencode':
+      return env.platform === 'win32' && env.localAppData
+        ? [join(env.localAppData, 'opencode', 'auth.json')]
+        : [
+            join(env.homeDir, '.local', 'share', 'opencode', 'auth.json'),
+            join(env.homeDir, '.config', 'opencode', 'auth.json'),
+          ]
+    case 'grok':
+      return [join(env.homeDir, '.grok', 'auth.json'), join(env.homeDir, '.grok', 'config.toml')]
+    case 'pi': {
+      // PI_CODING_AGENT_DIR relocates the whole agent dir, auth.json included.
+      const agentDir = envVar(env, 'PI_CODING_AGENT_DIR') ?? join(env.homeDir, '.pi', 'agent')
+      return [join(agentDir, 'auth.json')]
     }
-    case 'opencode': {
-      const candidates =
-        env.platform === 'win32' && env.localAppData
-          ? [join(env.localAppData, 'opencode', 'auth.json')]
-          : [
-              join(env.homeDir, '.local', 'share', 'opencode', 'auth.json'),
-              join(env.homeDir, '.config', 'opencode', 'auth.json'),
-            ]
-      if (candidates.some((c) => existsSync(c))) return 'authenticated'
-      return 'unknown'
+    case 'hermes': {
+      const home = envVar(env, 'HERMES_HOME')
+      if (home) return [join(home, 'auth.json')]
+      return env.platform === 'win32' && env.localAppData
+        ? [join(env.localAppData, 'hermes', 'auth.json')]
+        : [join(env.homeDir, '.hermes', 'auth.json')]
     }
     default:
-      // grok / pi / hermes config layouts are confirmed during driver M-tasks.
-      return 'unknown'
+      return []
+  }
+}
+
+/**
+ * Read-only auth probes against each CLI's own credential store (PLAN §4.1).
+ * Ari never mutates these files and never performs OAuth itself. An `unknown`
+ * verdict always carries a reason — it means "Ari cannot tell", not "logged
+ * out", so a missing store is never reported as `unauthenticated` unless the
+ * CLI has no other way to authenticate.
+ */
+export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthProbe {
+  if (kind === 'ari-core') return authenticated
+  if (kind === 'grok' && envVar(env, 'XAI_API_KEY') !== null) return authenticated
+  const candidates = authCandidates(kind, env)
+  if (candidates.some((c) => existsSync(c))) return authenticated
+  switch (kind) {
+    case 'codex':
+      // Codex has no alternative credential source: neither file present means
+      // `codex login` has genuinely never run.
+      return unauthenticated
+    case 'claude':
+      return unknownAuth('No ~/.claude credentials file; Claude Code may be using a subscription session or ANTHROPIC_API_KEY.')
+    case 'opencode':
+      return unknownAuth('No opencode auth.json found; opencode can also read provider keys from the environment.')
+    case 'grok':
+      return unknownAuth('No ~/.grok/auth.json or config.toml and XAI_API_KEY is unset.')
+    case 'pi':
+      return unknownAuth('No auth.json under the pi agent dir (override with PI_CODING_AGENT_DIR).')
+    case 'hermes':
+      return unknownAuth('No hermes auth.json in the platform config dir (override with HERMES_HOME).')
+    default:
+      return unknownAuth('Ari has no credential-store layout for this CLI.')
   }
 }
 
@@ -157,15 +202,37 @@ export async function detectDriver(
   env: DetectEnvironment = realDetectEnvironment(),
 ): Promise<Detection> {
   if (kind === 'ari-core') {
-    return { kind, binaryPath: null, version: null, authStatus: 'authenticated' }
+    return {
+      kind,
+      installed: true,
+      binaryPath: null,
+      version: null,
+      authStatus: 'authenticated',
+    }
   }
   const binaryPath = findBinary(kind, env)
   if (!binaryPath) {
-    return { kind, binaryPath: null, version: null, authStatus: 'unauthenticated' }
+    // Install state and auth state are independent axes: with no binary there
+    // is nothing to be logged out of, so the auth verdict is honestly unknown.
+    return {
+      kind,
+      installed: false,
+      binaryPath: null,
+      version: null,
+      authStatus: 'unknown',
+      authReason: 'Not installed - Ari cannot check credentials until the CLI is present.',
+    }
   }
   const version = await probeVersion(binaryPath)
-  const authStatus = readAuthStatus(kind, env)
-  return { kind, binaryPath, version, authStatus }
+  const probe = readAuthStatus(kind, env)
+  return {
+    kind,
+    installed: true,
+    binaryPath,
+    version,
+    authStatus: probe.status,
+    ...(probe.reason === undefined ? {} : { authReason: probe.reason }),
+  }
 }
 
 export async function detectAll(

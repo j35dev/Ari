@@ -14,6 +14,7 @@ function jsonFetcher(body: unknown): FetchLike {
 
 const detection = (kind: keyof typeof NPM_PACKAGES | 'grok', version: string | null): Detection => ({
   kind: kind,
+  installed: true,
   binaryPath: `/usr/bin/${kind}`,
   version,
   authStatus: 'authenticated',
@@ -102,7 +103,7 @@ describe('createUpdateChecker', () => {
     const checker = createUpdateChecker({ fetchImpl: fetchImpl as never })
     const enriched = first(
       await checker.enrich([
-        { kind: 'claude', binaryPath: null, version: null, authStatus: 'unauthenticated' },
+        { kind: 'claude', installed: false, binaryPath: null, version: null, authStatus: 'unknown' },
       ]),
     )
     expect(fetchImpl).not.toHaveBeenCalled()

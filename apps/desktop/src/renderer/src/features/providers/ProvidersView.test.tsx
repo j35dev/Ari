@@ -14,6 +14,7 @@ vi.mock('../../lib/rpc', () => ({
 
 interface DetectionFixture {
   kind: string
+  installed: boolean
   binaryPath: string | null
   version: string | null
   authStatus: string
@@ -22,18 +23,20 @@ interface DetectionFixture {
 const DETECTIONS: DetectionFixture[] = [
   {
     kind: 'claude',
+    installed: true,
     binaryPath: 'C:\\bin\\claude.exe',
     version: '2.1.0 (Claude Code)',
     authStatus: 'authenticated',
   },
-  { kind: 'codex', binaryPath: null, version: null, authStatus: 'unauthenticated' },
+  { kind: 'codex', installed: false, binaryPath: null, version: null, authStatus: 'unknown' },
   {
     kind: 'opencode',
+    installed: true,
     binaryPath: '/usr/local/bin/opencode',
     version: '0.4.2',
     authStatus: 'unknown',
   },
-  { kind: 'ari-core', binaryPath: null, version: null, authStatus: 'authenticated' },
+  { kind: 'ari-core', installed: true, binaryPath: null, version: null, authStatus: 'authenticated' },
 ]
 
 function cardFor(title: string): HTMLElement {
@@ -81,10 +84,10 @@ describe('ProvidersView', () => {
 
     const codexCard = cardFor('Codex')
     expect(within(codexCard).getByText('not installed')).toHaveClass('text-danger')
-    expect(within(codexCard).getByText('unauthenticated')).toHaveClass(
-      'bg-warning-subtle',
-      'text-warning',
-    )
+    // A missing binary is never reported as logged out: install and auth are
+    // independent axes, so the auth verdict stays honestly unknown.
+    expect(within(codexCard).queryByText('unauthenticated')).toBeNull()
+    expect(within(codexCard).getByText('unknown')).toHaveClass('bg-surface-2', 'text-fg-muted')
 
     const coreCard = cardFor('Ari Core (built-in)')
     expect(within(coreCard).getByText('authenticated')).toHaveClass(
@@ -102,7 +105,7 @@ describe('ProvidersView', () => {
     render(<ProvidersView />)
 
     await screen.findByText('Opencode')
-    await user.hover(screen.getByText('unknown'))
+    await user.hover(within(cardFor('Opencode')).getByText('unknown'))
 
     const tooltip = await screen.findByRole('tooltip')
     expect(tooltip).toHaveTextContent('Ari could not verify - the CLI manages its own login')
@@ -122,7 +125,15 @@ describe('ProvidersView', () => {
     expect(rescanButton).toBeDisabled()
     expect(rescanButton.querySelector('.animate-spin')).not.toBeNull()
 
-    resolveRescan([{ kind: 'grok', binaryPath: '/usr/bin/grok', version: '1.0.0', authStatus: 'unknown' }])
+    resolveRescan([
+      {
+        kind: 'grok',
+        installed: true,
+        binaryPath: '/usr/bin/grok',
+        version: '1.0.0',
+        authStatus: 'unknown',
+      },
+    ])
     expect(await screen.findByText('Grok')).toBeInTheDocument()
     expect(invokeFn).toHaveBeenCalledTimes(2)
     expect(invokeFn).toHaveBeenNthCalledWith(2, 'providers.detect')

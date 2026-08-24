@@ -71,6 +71,7 @@ describe('RaceDialog', () => {
       if (method === 'providers.detect') {
         return ['claude', 'codex'].map((kind) => ({
           kind,
+          installed: true,
           binaryPath: `${kind}-bin`,
           version: '1.0.0',
           authStatus: 'authenticated',
@@ -113,6 +114,7 @@ function installDetect(installed: string[]): void {
     if (method === 'providers.detect') {
       return installed.map((kind) => ({
         kind,
+        installed: true,
         binaryPath: `${kind}-bin`,
         version: '1.0.0',
         authStatus: 'authenticated',

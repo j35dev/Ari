@@ -26,8 +26,20 @@ describe('ModelSelector', () => {
       switch (method) {
         case 'providers.detect':
           return [
-            { kind: 'claude', binaryPath: 'c', version: '1', authStatus: 'authenticated' },
-            { kind: 'codex', binaryPath: 'x', version: '1', authStatus: 'authenticated' },
+            {
+              kind: 'claude',
+              installed: true,
+              binaryPath: 'c',
+              version: '1',
+              authStatus: 'authenticated',
+            },
+            {
+              kind: 'codex',
+              installed: true,
+              binaryPath: 'x',
+              version: '1',
+              authStatus: 'authenticated',
+            },
           ]
         case 'providers.models':
           return [
