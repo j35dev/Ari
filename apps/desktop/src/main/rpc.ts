@@ -385,6 +385,28 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
 
+  // Full ccusage report (the community Claude Code analyzer) run out-of-process.
+  // argv only; npx resolves/downloads the package so nothing is preinstalled.
+  r.register('usage.ccusage', (params) => {
+    const sub = params.subcommand ?? 'daily'
+    return new Promise<RpcResults['usage.ccusage']>((resolvePromise) => {
+      const chunks: string[] = []
+      let failure: string | null = null
+      const handle = runInstall(
+        ['npx', '-y', 'ccusage@latest', sub],
+        (event) => {
+          if (event.type === 'progress') chunks.push(event.line.text)
+          if (event.type === 'failed') failure = event.reason
+        },
+        { timeoutMs: 90_000, outputTailBytes: 64 * 1024 },
+      )
+      void handle.done.then(() => {
+        const output = chunks.join('\n')
+        resolvePromise({ ok: failure === null, output, error: failure })
+      })
+    })
+  })
+
   r.register('command.dispatch', async (params) => engine.dispatch(params.command))
 
   r.register('providers.detect', () => probeAllDetections())
@@ -806,15 +828,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       name: params.name,
       params: params.params,
     })
-    // Replay the journal so late subscribers get full history first.
+    // Replay the journal so late subscribers get full history first. Frames
+    // are tagged `replay` and terminated by a `replayDone` sentinel so the
+    // renderer can order the burst against live events that arrive while the
+    // journal is being read — otherwise a mid-turn resubscribe (e.g. returning
+    // from Settings) delivers the same seq twice and the transcript doubles.
     if (params.name === 'session.events') {
       const sessionId = params.params['sessionId']
       if (typeof sessionId === 'string') {
-        void engine.replaySession(sessionId).then((events) => {
-          for (const event of events) {
-            rpcRegistry.publish('session.events', { sessionId, event } satisfies SessionEventFrame)
-          }
-        })
+        void engine
+          .replaySession(sessionId)
+          .then((events) => {
+            for (const event of events) {
+              rpcRegistry.publish('session.events', { sessionId, event, replay: true } satisfies SessionEventFrame)
+            }
+            rpcRegistry.publish('session.events', { sessionId, replayDone: true } satisfies SessionEventFrame)
+          })
+          .catch((error: unknown) => log.warn('journal replay failed', { sessionId, error: String(error) }))
       }
     }
     if (params.name === 'terminal.data') {
@@ -855,6 +885,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'session.load',
     'session.destroy',
     'usage.summary',
+    'usage.ccusage',
     'command.dispatch',
     'providers.detect',
     'providers.models',

@@ -60,7 +60,12 @@ export type StreamName = (typeof streamNames)[number]
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
   sessionId: string
-  event: unknown
+  /** Absent only on the `replayDone` sentinel frame. */
+  event?: unknown
+  /** True while this frame is part of the journal replay on (re)subscribe. */
+  replay?: boolean
+  /** Sentinel: the replay burst for this session is complete. */
+  replayDone?: boolean
 }
 
 /** Payload delivered on the terminal.data stream. */
@@ -138,6 +143,7 @@ export const rpcParams = {
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
   'usage.summary': z.undefined(),
+  'usage.ccusage': z.object({ subcommand: z.enum(['daily', 'monthly', 'blocks']).optional() }),
   'command.dispatch': z.object({ command: commandSchema }),
   'providers.detect': z.undefined(),
   'providers.models': z.undefined(),
@@ -259,6 +265,12 @@ export interface RpcResults {
   'session.load': unknown
   'session.destroy': { destroyed: boolean }
   'usage.summary': UsageSummary
+  /**
+   * Output of `npx ccusage` (the community Claude Code usage analyzer) run
+   * out-of-process. `ok` false carries the failure reason; `output` holds the
+   * tail-capped report text.
+   */
+  'usage.ccusage': { ok: boolean; output: string; error: string | null }
   'command.dispatch': { accepted: boolean }
   'providers.detect': {
     kind: string
