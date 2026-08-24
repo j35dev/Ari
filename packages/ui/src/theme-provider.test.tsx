@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ThemeProvider, useTheme } from './theme-provider'
+import { ThemeProvider, applyCachedTheme, useTheme } from './theme-provider'
 import type { ThemePersistence } from './theme-provider'
 
 /** Media-query stub: every listed query matches, everything else does not. */
@@ -131,7 +131,60 @@ describe('ThemeProvider', () => {
     expect(localStorage.getItem('ari.theme')).toContain('verdant')
   })
 
+  it('never saves the cached default over the durable copy before it loads', async () => {
+    const saved: unknown[] = []
+    let release: (value: { mode: 'verdant'; glass: false }) => void = () => undefined
+    const pending = new Promise<{ mode: 'verdant'; glass: false }>((resolve) => {
+      release = resolve
+    })
+    const persistence: ThemePersistence = {
+      load: () => pending,
+      save: (prefs) => {
+        saved.push(prefs)
+        return Promise.resolve()
+      },
+    }
+    render(
+      <ThemeProvider persistence={persistence}>
+        <Probe />
+      </ThemeProvider>,
+    )
+    // The cache says 'system'; saving that now would erase the stored verdant.
+    expect(saved).toEqual([])
+    release({ mode: 'verdant', glass: false })
+    await waitFor(() => expect(root()['ariTheme']).toBe('verdant'))
+    expect(saved).toEqual([{ mode: 'verdant', glass: false, themeId: 'verdant' }])
+  })
+
   it('throws when useTheme is called outside the provider', () => {
     expect(() => render(<Probe />)).toThrow(/within ThemeProvider/)
+  })
+})
+
+describe('applyCachedTheme', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    delete document.documentElement.dataset['ariTheme']
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('paints the cached theme before React mounts', () => {
+    localStorage.setItem('ari.theme', JSON.stringify({ mode: 'porcelain', glass: true }))
+    stubMatchMedia([])
+    applyCachedTheme()
+    // Porcelain is light and opaque, so no glass regardless of the opt-in.
+    expect(root()['ariTheme']).toBe('porcelain')
+    expect(root()['ariScheme']).toBe('light')
+    expect(root()['ariGlass']).toBe('off')
+  })
+
+  it('falls back to the system theme with no cache', () => {
+    stubMatchMedia(['prefers-color-scheme: dark'])
+    applyCachedTheme()
+    expect(root()['ariTheme']).toBe('obsidian')
+    expect(root()['ariGlass']).toBe('on')
   })
 })
