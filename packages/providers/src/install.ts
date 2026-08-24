@@ -91,7 +91,7 @@ export function runInstall(
     windowsHide: true,
     ...(wrapped.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     ...(cwd !== undefined ? { cwd } : {}),
-    ...(env !== undefined ? { env: { ...process.env, ...env } } : {}),
+    env: sanitizeNpmEnv({ ...process.env, ...env }),
   })
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
@@ -142,6 +142,17 @@ export function runInstall(
 function stringify(error: unknown): string {
   if (error instanceof Error) return error.message
   return typeof error === 'string' ? error : JSON.stringify(error)
+}
+
+/** Drop parent-process npm_config_* so a pnpm/Electron host does not leak unknown npm configs into the install. */
+function sanitizeNpmEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const next: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue
+    if (/^npm_config_/i.test(key)) continue
+    next[key] = value
+  }
+  return next
 }
 
 /** A bounded ring of the most recent N bytes, with overflow tracking. */
