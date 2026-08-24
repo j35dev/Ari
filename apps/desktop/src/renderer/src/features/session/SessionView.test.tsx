@@ -657,3 +657,98 @@ describe('context meter helpers', () => {
     expect(container.querySelector('[aria-hidden]')).not.toBeNull()
   })
 })
+
+describe('SessionView queued messages', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        sessionListener = onEvent
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  function startTurn(): void {
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'turn.started',
+      turnId: 'turn_1',
+    })
+  }
+
+  it('mirrors the queue from enqueued/dequeued events and never self-dispatches', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    await user.type(screen.getByLabelText('Message'), 'second prompt{Enter}')
+    expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+      command: { type: 'message.enqueue', sessionId: 'sess_1', text: 'second prompt' },
+    })
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'second prompt',
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+
+    // Settle must NOT dispatch a follow-up turn � the engine owns continuation.
+    invokeMock.mockClear()
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'usage.recorded',
+      inputTokens: 1,
+      outputTokens: 1,
+    })
+    emitSessionEvent({
+      seq: 4,
+      at: 4,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+    await waitFor(() => {
+      expect(
+        invokeMock.mock.calls.some(([method]) => method === 'command.dispatch'),
+      ).toBe(false)
+    })
+
+    // Engine dequeues the next message; a fresh turn begins.
+    emitSessionEvent({
+      seq: 5,
+      at: 5,
+      sessionId: 'sess_1',
+      type: 'message.dequeued',
+      text: 'second prompt',
+    })
+    await waitFor(() => {
+      expect(screen.queryByText(/queued message/)).not.toBeInTheDocument()
+    })
+  })
+})

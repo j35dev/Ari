@@ -359,24 +359,24 @@ export function SessionView({
           if (event.stopReason === 'error' && event.errorMessage) {
             setTurnError(event.errorMessage)
             notifySettledRef.current({ error: event.errorMessage })
-            // Held, not dropped: queued messages stay visible in the composer
-            // so the user can retry after fixing the cause.
-            return
+          } else {
+            notifySettledRef.current()
           }
-          notifySettledRef.current()
-          setQueued((prev) => {
-            const [next, ...rest] = prev
-            if (next) {
-              void rpc
-                .invoke('command.dispatch', {
-                  command: { type: 'turn.start', sessionId: event.sessionId, text: next },
-                })
-                .catch(() => undefined)
-            }
-            return rest
-          })
+          // Queue continuation is the engine's job now: after a clean settle
+          // it dequeues the oldest message and runs it as the next turn.
+          // The renderer only mirrors the queue as enqueued/dequeued events
+          // arrive, so a steered-away message disappears here immediately.
           break
         }
+        case 'message.enqueued':
+          setQueued((prev) => [...prev, event.text])
+          break
+        case 'message.dequeued':
+          setQueued((prev) => {
+            const idx = prev.indexOf(event.text)
+            return idx < 0 ? prev : [...prev.slice(0, idx), ...prev.slice(idx + 1)]
+          })
+          break
         case 'approval.requested':
           setApprovals((prev) => [
             ...prev.filter((a) => a.approvalId !== event.approvalId),
@@ -416,7 +416,8 @@ export function SessionView({
   const handleSend = useCallback(
     (text: string) => {
       if (running) {
-        setQueued((prev) => [...prev, text])
+        // The engine journals the queue (and dequeues immediately when the
+        // transport can steer); the mirrored events update the view here.
         void rpc
           .invoke('command.dispatch', { command: { type: 'message.enqueue', sessionId, text } })
           .catch(() => undefined)
