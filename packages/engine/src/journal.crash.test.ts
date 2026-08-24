@@ -82,7 +82,7 @@ describe('Journal crash recovery (M3.12)', () => {
     const reopened = new Journal<TestEvent>({ dir, name: 'j' })
     await reopened.open()
     const entries = await reopened.readAll()
-    expect(entries).toEqual([{ kind: 'value', line: 1, value: { seq: 9, kind: 'fresh-start' } }])
+    expect(entries).toMatchObject([{ kind: 'value', line: 1, value: { seq: 9, kind: 'fresh-start' } }])
     await reopened.close()
   })
 

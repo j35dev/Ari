@@ -11,6 +11,7 @@ import { createAppServerProbe, type AppServerProbe } from './appserver-probe'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
+import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:codex')
 
@@ -111,10 +112,7 @@ export class CodexDriver implements Driver {
       interrupt: () => {
         if (!child.killed) child.kill()
       },
-      dispose: () => {
-        if (!child.killed) child.kill()
-        return Promise.resolve()
-      },
+      dispose: () => teardownChild(child),
     }
   }
 }

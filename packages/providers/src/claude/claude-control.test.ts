@@ -135,14 +135,17 @@ describe('claude interrupt fallback', () => {
     expect(child.killed).toBe(true)
   })
 
-  it('dispose kills the process and clears any pending fallback timer', () => {
+  it('dispose kills the process and clears any pending fallback timer', async () => {
     vi.useFakeTimers()
     const { child, adapter } = harness()
 
     adapter.interrupt()
-    void adapter.dispose()
+    const disposed = adapter.dispose()
 
-    vi.advanceTimersByTime(10_000)
+    // Dispose now runs the shared teardown ladder (EOF grace → SIGTERM), so
+    // the kill lands inside a timer continuation rather than synchronously.
+    await vi.advanceTimersByTimeAsync(10_000)
+    await expect(disposed).resolves.toBeUndefined()
     expect(child.killed).toBe(true)
   })
 })

@@ -205,6 +205,27 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('delivers steering as a chained follow-up prompt inside the same stream', async () => {
+    const child = fakeChild()
+    const prompts: string[] = []
+    script(child, (method, params) => {
+      if (method === 'session/prompt') {
+        prompts.push((params as { prompt: { text: string }[] }).prompt[0]?.text ?? '')
+        return { stopReason: 'end_turn' }
+      }
+      return standardAgent()(method, params, undefined)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    // Steering arrives while the first prompt is in flight (it resolves on a
+    // later tick, so this genuinely races the stop reason).
+    adapter.steer?.('actually focus on the tests')
+    const types = await collectTypes(adapter)
+
+    expect(types[types.length - 1]).toBe('done')
+    expect(prompts).toEqual(['say hi', 'actually focus on the tests'])
+    await adapter.dispose()
+  }, 15000)
+
   it('bridges permission requests into approval events and back', async () => {
     const child = fakeChild()
     script(child, (method, _params, id) => {

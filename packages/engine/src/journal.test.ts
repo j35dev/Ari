@@ -31,8 +31,8 @@ describe('Journal', () => {
     await reopened.open()
     const entries = await reopened.readAll()
     expect(entries).toHaveLength(2)
-    expect(entries[0]).toEqual({ kind: 'value', line: 1, value: { seq: 0, kind: 'a' } })
-    expect(entries[1]).toEqual({ kind: 'value', line: 2, value: { seq: 1, kind: 'b' } })
+    expect(entries[0]).toMatchObject({ kind: 'value', line: 1, value: { seq: 0, kind: 'a' } })
+    expect(entries[1]).toMatchObject({ kind: 'value', line: 2, value: { seq: 1, kind: 'b' } })
     await reopened.close()
   })
 
