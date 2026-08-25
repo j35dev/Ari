@@ -140,6 +140,57 @@ describe('ModelSelector', () => {
     expect(screen.getByRole('listbox', { name: 'Providers' })).toBeInTheDocument()
   })
 
+  it('maps an endpoint pick to the ari-core driver with its ep: handle', async () => {
+    rpcMocks.invoke.mockImplementation(async (method: string) => {
+      if (method === 'providers.detect') {
+        return [
+          {
+            kind: 'ari-core',
+            installed: true,
+            binaryPath: null,
+            version: '1',
+            authStatus: 'authenticated',
+          },
+        ]
+      }
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') {
+        return [{ id: 'end_1', name: 'My Relay', model: 'relay-large' }]
+      }
+      throw new Error(`unexpected ${String(method)}`)
+    })
+    const onChange = vi.fn()
+    const user = userEvent.setup()
+    render(<ModelSelector driverKind='ari-core' modelId={null} onChange={onChange} />)
+
+    await user.click(screen.getByRole('button', { name: /model:/i }))
+    const providers = screen.getByRole('listbox', { name: 'Providers' })
+    await user.click(within(providers).getByText('Ari Core'))
+
+    const models = screen.getByRole('listbox', { name: 'Models' })
+    await user.click(within(models).getByText('My Relay'))
+
+    // The old behaviour sent driverKind 'ep' (splitting 'ep:end_1'), which
+    // failed session.create validation the moment a custom endpoint existed.
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'ari-core', modelId: 'ep:end_1' })
+  })
+
+  it('shows the endpoint name, not its raw ep: handle, on the trigger', async () => {
+    rpcMocks.invoke.mockImplementation(async (method: string) => {
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') {
+        return [{ id: 'end_1', name: 'My Relay', model: 'relay-large' }]
+      }
+      throw new Error(`unexpected ${String(method)}`)
+    })
+    render(<ModelSelector driverKind='ari-core' modelId='ep:end_1' onChange={vi.fn()} />)
+
+    const trigger = await screen.findByRole('button', { name: /model:/i })
+    expect(trigger).toHaveTextContent('My Relay')
+    expect(trigger).not.toHaveTextContent('ep:end_1')
+  })
+
   it('shows a loading empty state before catalogs resolve', async () => {
     rpcMocks.invoke.mockImplementation(() => new Promise(() => undefined))
     setup()
