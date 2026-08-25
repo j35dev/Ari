@@ -59,7 +59,7 @@ interface PaneInfo {
   command?: string
 }
 
-/** First-use title dedupe: "pwsh", "pwsh 2", … */
+/** First-use title dedupe: "Ari Terminal", "Ari Terminal 2", … */
 function uniqueTitle(base: string, panes: Record<string, PaneInfo>): string {
   const taken = new Set(Object.values(panes).map((p) => p.title))
   if (!taken.has(base)) return base

@@ -55,8 +55,9 @@ describe('TerminalWorkspace', () => {
     await waitFor(() => {
       expect(paneTitles()).toHaveLength(1)
     })
-    expect(paneTitles()[0]).toMatch(/terminal pane$/)
-    expect(screen.getByText(/pane$/)).toBeInTheDocument()
+    // The default shell pane carries the product name, not the platform binary.
+    expect(paneTitles()[0]).toBe('Ari Terminal terminal pane')
+    expect(screen.getByText('1 pane')).toBeInTheDocument()
   })
 
   it('falls back to the home dir when no cwd prop is given and surfaces failures', async () => {
@@ -119,6 +120,7 @@ describe('TerminalWorkspace', () => {
     await user.click(screen.getByRole('button', { name: 'New pane' }))
 
     const menu = await screen.findByRole('menu', { name: 'New pane' })
+    expect(menu).toHaveTextContent('Ari Terminal')
     expect(menu).toHaveTextContent('Claude Code (claude)')
     // codex has no binary on this machine — it must not be offered.
     expect(menu).not.toHaveTextContent('Codex CLI')
