@@ -36,7 +36,9 @@ function str(value: unknown): string {
 function parseDay(raw: unknown): CcusageDay | null {
   if (raw === null || typeof raw !== 'object') return null
   const row = raw as Record<string, unknown>
-  const date = str(row['date'])
+  // ccusage v3 renamed `date` to `period`; accept both so upgrades never
+  // silently empty the dashboard again.
+  const date = str(row['date']) || str(row['period'])
   if (date.length === 0) return null
   const modelsUsed = Array.isArray(row['modelsUsed'])
     ? row['modelsUsed'].filter((m): m is string => typeof m === 'string')
@@ -52,7 +54,8 @@ function parseDay(raw: unknown): CcusageDay | null {
             modelName,
             inputTokens: num(m['inputTokens']),
             outputTokens: num(m['outputTokens']),
-            totalCost: num(m['totalCost']),
+            // v3 renamed breakdown `totalCost` to `cost`.
+            totalCost: num(m['totalCost'] ?? m['cost']),
           },
         ]
       })

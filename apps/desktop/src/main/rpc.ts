@@ -387,8 +387,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.
   // argv only; npx resolves/downloads the package so nothing is preinstalled.
+  // Cached: npx cold-starts take tens of seconds and usage data is minutes-stale
+  // by nature, so repeated page visits reuse the last report.
+  let ccusageCache: { at: number; result: RpcResults['usage.ccusage'] } | null = null
+  const CCUSAGE_CACHE_TTL_MS = 10 * 60 * 1000
   r.register('usage.ccusage', (params) => {
     const sub = params.subcommand ?? 'daily'
+    if (sub === 'daily' && ccusageCache !== null && Date.now() - ccusageCache.at < CCUSAGE_CACHE_TTL_MS) {
+      return Promise.resolve(ccusageCache.result)
+    }
     return new Promise<RpcResults['usage.ccusage']>((resolvePromise) => {
       const chunks: string[] = []
       let failure: string | null = null
@@ -401,8 +408,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         { timeoutMs: 90_000, outputTailBytes: 64 * 1024 },
       )
       void handle.done.then(() => {
-        const output = chunks.join('\n')
-        resolvePromise({ ok: failure === null, output, error: failure })
+        const result: RpcResults['usage.ccusage'] = { ok: failure === null, output: chunks.join('\n'), error: failure }
+        if (sub === 'daily' && result.ok) ccusageCache = { at: Date.now(), result }
+        resolvePromise(result)
       })
     })
   })

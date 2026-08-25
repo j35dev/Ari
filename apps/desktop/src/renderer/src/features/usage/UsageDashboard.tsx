@@ -61,10 +61,7 @@ export function UsageDashboard({ onOpenSession }: { onOpenSession?: (sessionId: 
 
   if (summary.rows.length === 0) {
     return (
-      <section
-        aria-label="Usage"
-        className="flex h-full flex-col items-center justify-center px-6 text-center"
-      >
+      <section aria-label="Usage" className="rounded-md border border-border bg-surface-1 px-6 py-5 text-center">
         <p className="text-xs leading-relaxed text-fg-subtle">
           No usage recorded yet.
           <br />
@@ -81,7 +78,7 @@ export function UsageDashboard({ onOpenSession }: { onOpenSession?: (sessionId: 
   )
 
   return (
-    <section aria-label="Usage" className="ari-scroll flex h-full flex-col gap-4 overflow-y-auto p-4">
+    <section aria-label="Usage" className="flex flex-col gap-4">
       <div className={`grid gap-3 ${showCost ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <StatCard label="Input tokens" value={formatTokens(summary.totals.inputTokens)} />
         <StatCard label="Output tokens" value={formatTokens(summary.totals.outputTokens)} />
