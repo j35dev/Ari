@@ -15,8 +15,7 @@ const INTERRUPT_KILL_FALLBACK_MS = 2000
 
 /**
  * Decision vocabulary accepted by the stdin control layer. `always-allow`
- * degrades to a one-shot approve because plain-text directives cannot
- * persist allowlist entries.
+ * persists a session-scoped allow rule for the tool; `allow` is one-shot.
  */
 export type ApprovalDecision = 'allow' | 'always-allow' | 'deny'
 
@@ -55,8 +54,8 @@ function permissionModeFlag(mode: PermissionMode): string {
 }
 
 /**
- * Mid-session steering and approval responses ride in as plain user turns —
- * the one stream-json input shape every claude CLI version accepts.
+ * Stream-json input user frame — the initial turn prompt and mid-session
+ * steering messages ride stdin in this shape.
  */
 export function buildUserFrame(text: string): unknown {
   return { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }
@@ -126,7 +125,7 @@ export interface ClaudeControlAdapter extends ProviderAdapter {
   send(frame: unknown): void
   /** Steers a running turn by appending a user message. */
   steer(text: string): void
-  /** Answers a pending permission prompt with a directive user turn. */
+  /** Answers a pending can_use_tool permission prompt via control_response. */
   respondApproval(approvalId: string, decision: ApprovalDecision): void
 }
 
