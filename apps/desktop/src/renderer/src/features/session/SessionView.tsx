@@ -11,7 +11,7 @@ import { Composer, type ComposerSeed } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
-import { notifyNeedsAttention, useSettleNotify } from '../moment'
+import { friendlyErrorText, notifyNeedsAttention, useSettleNotify } from '../moment'
 import { WorkingGlyph } from '../moment'
 import { PlanPanel } from './PlanPanel'
 
@@ -410,7 +410,7 @@ export function SessionView({
           fetchTurnDiffRef.current(event.turnId)
           setPlanNonce((n) => n + 1)
           if (event.stopReason === 'error' && event.errorMessage) {
-            setTurnError(event.errorMessage)
+            setTurnError(friendlyErrorText(event.errorMessage))
             notifySettledRef.current({ error: event.errorMessage })
           } else {
             notifySettledRef.current()

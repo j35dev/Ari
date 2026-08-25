@@ -2,6 +2,7 @@ export { BootSplash } from './BootSplash'
 export type { BootSplashProps } from './BootSplash'
 export {
   currentVisibility,
+  friendlyErrorText,
   installVisibilityGuard,
   notifyNeedsAttention,
   notifySettled,

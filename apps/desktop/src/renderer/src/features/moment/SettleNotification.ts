@@ -58,18 +58,25 @@ export interface SettleNotifyOptions {
 
 const MAX_ERROR_LENGTH = 220
 
+/** Drops the leaked `SomeError: ` class-name prefix; users want causes, not classes. */
+export function friendlyErrorText(error: string): string {
+  return error.replace(/^\s*[A-Za-z][A-Za-z0-9]*Error:\s*/, '')
+}
+
 function describeError(error: string): string {
-  const flat = error.replace(/\s+/g, ' ').trim()
+  const flat = friendlyErrorText(error).replace(/\s+/g, ' ').trim()
   return flat.length > MAX_ERROR_LENGTH ? `${flat.slice(0, MAX_ERROR_LENGTH - 1)}…` : flat
 }
 
 /**
- * Fire a settle toast. Success settles notify only when the window is hidden;
- * error settles always notify. Returns whether a notification was emitted.
+ * Error settles always notify... unless the window is focused: the session
+ * view already renders an inline, actionable alert for the failing turn, and
+ * a toast repeating it is noise. Hidden-window failures still toast because
+ * nothing inline is visible.
  */
 export function notifySettled(title: string, options?: SettleNotifyOptions): boolean {
   const isError = Boolean(options?.error)
-  if (!isError && !isWindowHidden()) return false
+  if (!isWindowHidden()) return false
   const emit = options?.toast ?? toastDispatcher
   if (!emit) {
     log.warn('settle notification dropped: no toast dispatcher registered', { title })
