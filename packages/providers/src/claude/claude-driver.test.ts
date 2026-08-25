@@ -12,11 +12,12 @@ describe('buildClaudeArgs', () => {
     resumeOf: null,
   }
 
-  it('uses bidirectional stream-json with stdio permission prompts (no -p; prompt rides stdin)', () => {
+  it('uses bidirectional stream-json with stdio permission prompts and partial messages (no -p; prompt rides stdin)', () => {
     const args = buildClaudeArgs(base)
     expect(args).toContain('--output-format')
     expect(args).toContain('stream-json')
     expect(args).toContain('--verbose')
+    expect(args).toContain('--include-partial-messages')
     expect(args.indexOf('--input-format')).toBeGreaterThan(-1)
     expect(args[args.indexOf('--input-format') + 1]).toBe('stream-json')
     expect(args.indexOf('--permission-prompt-tool')).toBeGreaterThan(-1)

@@ -4,7 +4,11 @@ import { formatUnknownError } from '@ari/shared/result'
 /**
  * Maps Claude Code `--output-format stream-json` lines onto normalized
  * AgentEvents. Pure and total: malformed lines surface as error events, never
- * throws. See __fixtures__ for real recorded shapes.
+ * throws. See __fixtures__ for real recorded shapes. Runs with
+ * `--include-partial-messages`, so realtime deltas arrive as stream_event
+ * lines and the trailing finalized assistant message's text/thinking blocks
+ * are skipped to avoid duplicates; tool_use still maps from the finalized
+ * message where its input JSON is complete.
  */
 
 interface ContentBlock {
@@ -26,6 +30,12 @@ export interface ControlRequestBody {
   input?: unknown
 }
 
+interface StreamDelta {
+  type?: string
+  text?: string
+  thinking?: string
+}
+
 interface NativeLine {
   type?: string
   subtype?: string
@@ -35,6 +45,7 @@ interface NativeLine {
   error?: string
   is_error?: boolean
   message?: { content?: ContentBlock[]; usage?: Record<string, unknown> }
+  event?: { type?: string; delta?: StreamDelta }
   usage?: Record<string, unknown>
   total_cost_usd?: number
   result?: string
@@ -81,13 +92,22 @@ export function mapClaudeLine(line: string): AgentEvent[] {
       break
     }
 
+    case 'stream_event': {
+      // --include-partial-messages: realtime deltas. The finalized assistant
+      // lines still follow, so whole-message text/thinking blocks there are
+      // skipped to avoid duplicates (same strategy as the grok driver).
+      const delta = parsed.event?.delta
+      if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+        events.push({ type: 'text-delta', text: delta.text })
+      } else if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+        events.push({ type: 'thinking-delta', text: delta.thinking })
+      }
+      break
+    }
+
     case 'assistant': {
       for (const block of parsed.message?.content ?? []) {
-        if (block.type === 'text' && block.text) {
-          events.push({ type: 'text-delta', text: block.text })
-        } else if (block.type === 'thinking' && block.thinking) {
-          events.push({ type: 'thinking-delta', text: block.thinking })
-        } else if (block.type === 'tool_use' && block.id && block.name) {
+        if (block.type === 'tool_use' && block.id && block.name) {
           events.push({
             type: 'tool-started',
             callId: block.id,
