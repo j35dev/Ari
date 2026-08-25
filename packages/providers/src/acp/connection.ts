@@ -405,6 +405,17 @@ export class AcpConnection {
   }
 
   /**
+   * Resumes a persisted agent session by id (only call when initialize
+   * advertised `agentCapabilities.loadSession`). The spec's response body is
+   * empty; the agent re-attaches the given id and replays prior history as
+   * session/update notifications, so allow a generous timeout.
+   */
+  async loadSession(sessionId: string, cwd: string): Promise<AcpNewSessionResult> {
+    const result = await this.#request('session/load', { sessionId, cwd, mcpServers: [] }, 60_000)
+    return { ...((result ?? {}) as AcpNewSessionResult), sessionId }
+  }
+
+  /**
    * Sends one user text prompt; resolves with the turn's stopReason. A
    * totally silent agent fails after `stallSilenceMs` (default from
    * {@link acpPromptStallMs}) instead of hanging the turn forever.
