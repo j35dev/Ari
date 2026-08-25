@@ -77,8 +77,8 @@ export function ModelSelector({
       }),
       rpc.invoke('providers.models').then((rows) => {
         const byKind: CatalogByKind = {}
-        // Every source is usable now that the snapshot is filtered to what each
-        // CLI currently serves (catalogs.ts CURRENT_MODEL_PREFIXES). Taking
+        // Every source is usable now that the snapshot fallback is curated to
+        // what each CLI currently serves (catalogs.ts CURRENT_MODEL_IDS). Taking
         // only `live` left the picker empty whenever no ACP probe had landed.
         for (const row of rows) byKind[row.kind as DriverKind] = row.models
         setCatalog(byKind)

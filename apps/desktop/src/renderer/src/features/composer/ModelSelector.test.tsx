@@ -11,11 +11,17 @@ const rpcMocks = vi.hoisted(() => ({
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
 
-function setup(driverKind: DriverKind = 'claude', modelId: string | null = 'sonnet-4'): {
+function setup(
+  driverKind: DriverKind = 'claude',
+  modelId: string | null = 'sonnet-4',
+  lockedTo: DriverKind | null = null,
+): {
   onChange: ReturnType<typeof vi.fn>
 } {
   const onChange = vi.fn()
-  render(<ModelSelector driverKind={driverKind} modelId={modelId} onChange={onChange} />)
+  render(
+    <ModelSelector driverKind={driverKind} modelId={modelId} onChange={onChange} lockedTo={lockedTo} />,
+  )
   return { onChange }
 }
 
@@ -206,5 +212,22 @@ describe('ModelSelector', () => {
     await user.click(within(screen.getByRole('listbox', { name: 'Providers' })).getByText('Claude'))
     await user.type(screen.getByLabelText('Search models'), 'zzz')
     expect(screen.getByText(/no models match/i)).toBeInTheDocument()
+  })
+
+  it('lockedTo skips the provider step and explains the lock', async () => {
+    const { onChange } = setup('claude', 'sonnet-4', 'claude')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+    // Straight to the session provider's models; no provider list, no back.
+    const listbox = screen.getByRole('listbox', { name: 'Models' })
+    expect(within(listbox).getByText('Sonnet 4.5')).toBeInTheDocument()
+    expect(screen.queryByRole('listbox', { name: 'Providers' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Codex')).not.toBeInTheDocument()
+    expect(screen.getByText(/start a new session to use another agent/i)).toBeInTheDocument()
+
+    // Picking the still-offered model keeps working and stays on the driver.
+    await user.click(within(listbox).getByText('Opus 4'))
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'opus-4' })
   })
 })
