@@ -81,7 +81,8 @@ describe('modelsFor fallback chain', () => {
     // claude-4-5-20250929 next to gpt-5.6 is what the filter exists to stop.
     const codex = modelsFor('codex').map((m) => m.id)
     expect(codex.length).toBeLessThan(39)
-    expect(codex).toContain('gpt-5.6')
+    // Codex's own visible catalog (bundled models.json, visibility=list).
+    expect([...codex].sort()).toEqual(['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra'])
     expect(codex.some((id) => id.startsWith('gpt-4'))).toBe(false)
     expect(codex.some((id) => id.startsWith('o1') || id.startsWith('o3'))).toBe(false)
 

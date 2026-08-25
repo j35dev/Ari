@@ -72,28 +72,30 @@ export function catalogSource(kind: DriverKind): CatalogSource {
 
 /**
  * models.dev lists every model a vendor ever shipped; each CLI only serves a
- * handful. These prefixes keep the picker to what the harness actually
- * accepts today, ordered newest-first by the snapshot itself.
+ * handful. These exact ids (cross-checked against each harness's own catalog:
+ * Codex's bundled models.json visible set, claude-code-acp's supportedModels
+ * response) keep the picker to what the harness actually accepts today.
  *
- * simplification: prefix matching, not a per-CLI capability probe. A live ACP
+ * simplification: static curation, not a per-CLI capability probe. A live ACP
  * probe (source `live`) always wins over this, so the ceiling only applies to
- * the snapshot fallback. Upgrade path: ask each CLI for its model list.
+ * the snapshot fallback. Upgrade path: none needed while probes cover the
+ * major harnesses; re-curate when vendors ship new models.
  */
-const CURRENT_MODEL_PREFIXES: Partial<Record<DriverKind, string[]>> = {
+const CURRENT_MODEL_IDS: Partial<Record<DriverKind, string[]>> = {
   claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-6'],
-  codex: ['gpt-5.6', 'gpt-5.5', 'gpt-5.4', 'gpt-5.3-codex'],
-  grok: ['grok-4.6', 'grok-4.5', 'grok-build'],
+  codex: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
+  grok: ['grok-4.6', 'grok-4.5', 'grok-build-0.1'],
 }
 
 function snapshotFor(kind: DriverKind): CatalogModel[] | null {
   const providerId = SNAPSHOT_PROVIDER[kind]
   const models = providerId !== undefined ? (SNAPSHOT.providers[providerId] ?? null) : null
   if (models === null || models.length === 0) return null
-  const prefixes = CURRENT_MODEL_PREFIXES[kind]
-  if (prefixes === undefined) return models
-  const current = models.filter((model) => prefixes.some((prefix) => model.id.startsWith(prefix)))
-  // Never return an empty list because a prefix went stale: a picker with the
-  // full vendor catalog beats a picker with nothing in it.
+  const currentIds = CURRENT_MODEL_IDS[kind]
+  if (currentIds === undefined) return models
+  const current = models.filter((model) => currentIds.includes(model.id))
+  // Never return an empty list because a curated id went stale: a picker with
+  // the full vendor catalog beats a picker with nothing in it.
   return current.length > 0 ? current : models
 }
 
