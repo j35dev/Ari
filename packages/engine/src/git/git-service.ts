@@ -98,9 +98,11 @@ export class GitService {
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   }
 
-  /** True when `cwd` sits inside a git work tree. */
+  /** True when `cwd` sits inside a git work tree. Quiet: a "no" is an answer, not a failure. */
   async isRepo(cwd: string): Promise<Result<boolean, GitError>> {
-    const run = await this.#run(cwd, ['rev-parse', '--is-inside-work-tree'])
+    const run = await this.#run(cwd, ['rev-parse', '--is-inside-work-tree'], DEFAULT_MAX_BYTES, {
+      quiet: true,
+    })
     if (run.ok) return ok(run.value.stdout.trim() === 'true')
     if (run.error.code === 'git_missing') return run
     return ok(false)
@@ -162,6 +164,11 @@ export class GitService {
   async diffForRef(cwd: string, gitRef: string): Promise<Result<string, GitError>> {
     const safe = assertSafeRev(gitRef)
     if (!safe.ok) return safe
+    // Sessions on non-repo workspaces never have checkpoints; answer empty
+    // instead of spraying git usage text into the log on every turn view.
+    const inside = await this.isRepo(cwd)
+    if (!inside.ok) return inside
+    if (!inside.value) return ok('')
     const run = await this.#run(cwd, ['diff', gitRef], DIFF_MAX_BYTES)
     if (!run.ok) {
       if (run.error.code === 'output_overflow') {
@@ -295,6 +302,7 @@ export class GitService {
     cwd: string,
     args: string[],
     maxBytes: number = DEFAULT_MAX_BYTES,
+    opts: { quiet?: boolean } = {},
   ): Promise<Result<{ stdout: string }, GitError>> {
     try {
       const { stdout } = await execFileP(this.#gitPath, args, {
@@ -307,7 +315,14 @@ export class GitService {
       })
       return ok({ stdout })
     } catch (e) {
-      log.warn('git command failed', { args: args.join(' '), error: String(e) })
+      if (opts.quiet !== true) {
+        // execFile errors embed git's full stderr (a `diff` misuse dumps the
+        // entire usage page); log one actionable line, not the flood.
+        log.warn('git command failed', {
+          args: args.join(' '),
+          detail: stderrFirstLine(e),
+        })
+      }
       return err(toGitError(e, this.#gitPath, this.#timeoutMs))
     }
   }
