@@ -520,13 +520,7 @@ function Shell() {
             <div className="min-h-0 flex-1">
               {fullPage === 'usage' ? (
                 <ErrorBoundary label="Usage">
-                  <UsagePage
-                    onOpenSession={(sessionId) => {
-                      setActiveSessionId(sessionId)
-                      setFullPage(null)
-                      setInspector(null)
-                    }}
-                  />
+                  <UsagePage />
                 </ErrorBoundary>
               ) : fullPage === 'terminal' ? (
                 <ErrorBoundary label="Terminal">

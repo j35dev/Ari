@@ -1,1 +1,1 @@
-export { UsageDashboard } from './UsageDashboard'
+export { UsagePage } from './UsagePage'

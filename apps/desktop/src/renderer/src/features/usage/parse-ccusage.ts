@@ -116,10 +116,10 @@ export interface ModelShare {
   share: number
 }
 
-/** Roll modelBreakdowns across days into a cost-ranked list. */
-export function modelShares(report: CcusageReport): ModelShare[] {
+/** Roll model breakdowns across days into a cost-ranked list. */
+export function modelShares(days: CcusageDay[]): ModelShare[] {
   const byModel = new Map<string, { cost: number; tokens: number }>()
-  for (const day of report.daily) {
+  for (const day of days) {
     for (const model of day.modelBreakdowns) {
       const prev = byModel.get(model.modelName) ?? { cost: 0, tokens: 0 }
       prev.cost += model.totalCost
@@ -157,4 +157,71 @@ export function formatRange(days: CcusageDay[]): string {
   const last = days[days.length - 1]?.date
   if (first === undefined || last === undefined) return ''
   return first === last ? first : `${first} to ${last}`
+}
+
+/** Report granularity for the usage window. */
+export type Granularity = 'daily' | 'weekly' | 'monthly'
+
+/**
+ * Normalize a ccusage row date to `YYYY-MM-DD`. Older ccusage emitted
+ * `YYYYMMDD`; current emits dashed ISO. Null when unparseable.
+ */
+export function normalizeDate(raw: string): string | null {
+  const dashed = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : /^\d{8}$/.test(raw)
+    ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`
+    : null
+  if (dashed === null) return null
+  return Number.isNaN(Date.parse(dashed)) ? null : dashed
+}
+
+/** ISO `YYYY-MM-DD` for a date, in local time. */
+export function isoDate(date: Date): string {
+  const y = String(date.getFullYear()).padStart(4, '0')
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+/** Days on/after `since` (`YYYY-MM-DD`); null since keeps everything. */
+export function daysSince(days: CcusageDay[], since: string | null): CcusageDay[] {
+  if (since === null) return days
+  return days.filter((day) => {
+    const date = normalizeDate(day.date)
+    return date !== null && date >= since
+  })
+}
+
+/** One aggregated bar in the usage chart. */
+export interface DayBucket {
+  key: string
+  label: string
+  days: CcusageDay[]
+}
+
+/** Monday of the week containing `date`, as `YYYY-MM-DD`. */
+function weekStart(date: string): string {
+  const d = new Date(`${date}T00:00:00`)
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return isoDate(d)
+}
+
+/**
+ * Roll daily rows up to the report granularity. Weekly buckets start on
+ * Monday; monthly buckets are calendar months. Derived client-side from the
+ * daily report so switching granularity never re-runs the ccusage process.
+ */
+export function bucketDays(days: CcusageDay[], granularity: Granularity): DayBucket[] {
+  if (granularity === 'daily') {
+    return days.map((day) => ({ key: day.date, label: normalizeDate(day.date) ?? day.date, days: [day] }))
+  }
+  const buckets = new Map<string, DayBucket>()
+  for (const day of days) {
+    const date = normalizeDate(day.date)
+    if (date === null) continue
+    const key = granularity === 'weekly' ? weekStart(date) : date.slice(0, 7)
+    const bucket = buckets.get(key) ?? { key, label: key, days: [] }
+    bucket.days.push(day)
+    buckets.set(key, bucket)
+  }
+  return [...buckets.values()]
 }
