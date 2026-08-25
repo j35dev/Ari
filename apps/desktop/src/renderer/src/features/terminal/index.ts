@@ -1,2 +1,3 @@
 export { TerminalA11y } from './TerminalA11y'
-export { TerminalView } from './TerminalView'
+export { TerminalPane } from './TerminalPane'
+export { TerminalWorkspace } from './TerminalWorkspace'

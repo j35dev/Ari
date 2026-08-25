@@ -13,7 +13,7 @@ import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { sidebarOrder } from './features/session/session-nav'
-import { TerminalView } from './features/terminal'
+import { TerminalWorkspace } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
@@ -35,7 +35,7 @@ import { WelcomePanel } from './features/welcome'
 import { RaceDialog } from './features/race/RaceDialog'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings'>
+type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'terminal'>
 
 /** Full project registry rows; ids feed lookups, paths feed git/fs panes. */
 type ProjectRow = RpcResults['project.list'][number]
@@ -48,9 +48,9 @@ export interface SessionDefaults {
 
 function Shell() {
   const [inspector, setInspector] = useState<InspectorId | null>(null)
-  // Usage and Changes get the full page, not a 520px inspector pane — they're
-  // reading surfaces, not tools. Files and Terminal stay inspectors.
-  const [fullPage, setFullPage] = useState<'usage' | 'changes' | null>(null)
+  // Usage, Changes and the terminal workspace get the full page, not a 520px
+  // inspector pane — they're rooms, not tools. Files stays an inspector.
+  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'terminal' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -143,6 +143,9 @@ function Shell() {
         setSettingsOpen(true)
       } else if (view === 'sessions') {
         setInspector(null)
+      } else if (view === 'terminal') {
+        setInspector(null)
+        setFullPage('terminal')
       } else {
         setInspector(view)
       }
@@ -292,7 +295,7 @@ function Shell() {
       setFullPage(null)
       return
     }
-    if (id === 'usage' || id === 'changes') {
+    if (id === 'usage' || id === 'changes' || id === 'terminal') {
       setInspector(null)
       setFullPage((prev) => (prev === id ? null : id))
       return
@@ -492,6 +495,10 @@ function Shell() {
                     }}
                   />
                 </ErrorBoundary>
+              ) : fullPage === 'terminal' ? (
+                <ErrorBoundary label="Terminal">
+                  <TerminalWorkspace cwd={(activeProjectPath ?? workspaceCwd) || undefined} />
+                </ErrorBoundary>
               ) : (
                 <ErrorBoundary label="Changes">
                   <ChangesView
@@ -527,13 +534,7 @@ function Shell() {
             {inspector ? (
               <aside className="flex w-[min(520px,46vw)] shrink-0 flex-col border-l border-border">
                 <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-                  <span className="text-xs font-medium text-fg">
-                    {inspector === 'terminal'
-                      ? 'Terminal'
-                      : inspector === 'changes'
-                        ? 'Changes'
-                        : 'Files'}
-                  </span>
+                  <span className="text-xs font-medium text-fg">Changes</span>
                   <div className="flex-1" />
                   <button
                     type="button"
@@ -552,18 +553,12 @@ function Shell() {
                         projectId={activeSession?.projectId ?? null}
                       />
                     </ErrorBoundary>
-                  ) : inspector === 'files' ? (
-                    activeProjectPath ? (
-                      <FileExplorer root={activeProjectPath} />
-                    ) : (
-                      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-                        Open a project first — the explorer browses its folder.
-                      </div>
-                    )
+                  ) : activeProjectPath ? (
+                    <FileExplorer root={activeProjectPath} />
                   ) : (
-                    <ErrorBoundary label="Terminal">
-                      <TerminalView cwd={workspaceCwd || undefined} />
-                    </ErrorBoundary>
+                    <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
+                      Open a project first — the explorer browses its folder.
+                    </div>
                   )}
                 </div>
               </aside>
