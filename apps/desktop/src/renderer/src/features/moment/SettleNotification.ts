@@ -75,7 +75,6 @@ function describeError(error: string): string {
  * nothing inline is visible.
  */
 export function notifySettled(title: string, options?: SettleNotifyOptions): boolean {
-  const isError = Boolean(options?.error)
   if (!isWindowHidden()) return false
   const emit = options?.toast ?? toastDispatcher
   if (!emit) {

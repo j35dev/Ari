@@ -581,6 +581,10 @@ export function SessionView({
 
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
+      // A session that already ran turns stays on its harness: the provider
+      // thread (resume id) belongs to that CLI, and switching would fork the
+      // context silently. The picker is locked too; this guards other paths.
+      if (telemetry.turnCount > 0 && next.driverKind !== defaults.driverKind) return
       onDefaultsChange({ ...defaults, ...next })
       void rpc
         .invoke('command.dispatch', {
@@ -593,7 +597,7 @@ export function SessionView({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange],
+    [sessionId, onDefaultsChange, telemetry.turnCount, defaults],
   )
 
   const changePermissionMode = useCallback(
@@ -754,6 +758,7 @@ export function SessionView({
               driverKind={defaults.driverKind}
               modelId={defaults.modelId}
               onChange={changeModel}
+              lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
             />
             <EffortChip />
             <PermissionModeChip mode={defaults.permissionMode} onChange={changePermissionMode} />
