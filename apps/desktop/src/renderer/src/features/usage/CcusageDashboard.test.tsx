@@ -44,9 +44,10 @@ const REPORT: CcusageReport = {
 }
 
 describe('CcusageDashboard', () => {
-  it('renders the hero cost, date range, and totals instead of raw log text', () => {
-    render(<CcusageDashboard report={REPORT} />)
+  it('renders the window cost, range, and totals from the filtered days', () => {
+    render(<CcusageDashboard report={REPORT} granularity='daily' since={null} />)
 
+    // Window totals come from the day rows, not the unfiltered report totals.
     expect(screen.getByText('$391')).toBeInTheDocument()
     expect(screen.getByText('2026-08-11 to 2026-08-25')).toBeInTheDocument()
     expect(screen.getByText('2 days · API estimate')).toBeInTheDocument()
@@ -55,19 +56,47 @@ describe('CcusageDashboard', () => {
     expect(screen.getByText('11.6K')).toBeInTheDocument()
   })
 
-  it('renders a cost chart and a cost-ranked model breakdown', () => {
-    render(<CcusageDashboard report={REPORT} />)
+  it('renders one bar per day and a cost-ranked model breakdown', () => {
+    render(<CcusageDashboard report={REPORT} granularity='daily' since={null} />)
 
-    expect(screen.getByRole('img', { name: 'Daily cost chart' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'daily cost chart' })).toBeInTheDocument()
+    // Two daily buckets, each carrying its date as a hover title.
+    expect(screen.getByTitle('2026-08-11 · $1.50')).toBeInTheDocument()
+    expect(screen.getByTitle('2026-08-25 · $389')).toBeInTheDocument()
+
     const rows = screen.getAllByRole('row').slice(1)
     expect(rows[0]).toHaveTextContent('gpt-5.6-sol')
     expect(rows[0]).toHaveTextContent('97.6%')
     expect(rows[1]).toHaveTextContent('claude-opus-5')
   })
 
-  it('omits the breakdown when no model data is present', () => {
-    render(<CcusageDashboard report={{ daily: [], totals: REPORT.totals }} />)
+  it('buckets by month when granularity is monthly', () => {
+    render(<CcusageDashboard report={REPORT} granularity='monthly' since={null} />)
+
+    expect(screen.getByRole('img', { name: 'monthly cost chart' })).toBeInTheDocument()
+    // Both days collapse into 2026-08, so the axis labels are month keys.
+    expect(screen.getAllByText('2026-08')).toHaveLength(2)
+    expect(screen.queryByTitle('2026-08-25 · $389')).not.toBeInTheDocument()
+  })
+
+  it('drops days before the window start', () => {
+    render(<CcusageDashboard report={REPORT} granularity='daily' since='2026-08-20' />)
+
+    // Range line and chart axis both collapse onto the one surviving day.
+    expect(screen.getAllByText('2026-08-25').length).toBeGreaterThan(0)
+    expect(screen.getByText('1 day · API estimate')).toBeInTheDocument()
+
+    // Only the 08-25 breakdown rows survive the filter.
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('gpt-5.6-sol')
+    expect(rows[1]).toHaveTextContent('claude-opus-5')
+  })
+
+  it('shows an empty window instead of a chart when nothing matches', () => {
+    render(<CcusageDashboard report={REPORT} granularity='daily' since='2026-09-01' />)
+    expect(screen.getByText('No usage in this window')).toBeInTheDocument()
+    expect(screen.getByText('No recorded usage')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByText('All recorded days')).toBeInTheDocument()
   })
 })

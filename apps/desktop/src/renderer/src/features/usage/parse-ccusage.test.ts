@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { formatRange, formatTokens, formatUsd, modelShares, parseCcusageJson } from './parse-ccusage'
+import {
+  bucketDays,
+  daysSince,
+  formatRange,
+  formatTokens,
+  formatUsd,
+  isoDate,
+  modelShares,
+  normalizeDate,
+  parseCcusageJson,
+  type CcusageDay,
+} from './parse-ccusage'
 
 const SAMPLE = JSON.stringify({
   daily: [
@@ -62,7 +73,7 @@ describe('modelShares', () => {
   it('ranks models by cost with a share of the total', () => {
     const report = parseCcusageJson(SAMPLE)
     if (report === null) throw new Error('expected parse')
-    const shares = modelShares(report)
+    const shares = modelShares(report.daily)
     expect(shares[0]?.modelName).toBe('gpt-5.6-sol')
     expect(shares[0]?.cost).toBe(8.5)
     expect(shares[0]?.share).toBeCloseTo(0.85, 2)
@@ -77,5 +88,54 @@ describe('formatters', () => {
     expect(formatTokens(153_000_000)).toBe('153.0M')
     const report = parseCcusageJson(SAMPLE)
     expect(formatRange(report?.daily ?? [])).toBe('2026-08-11 to 2026-08-25')
+  })
+})
+
+describe('window helpers', () => {
+  const day = (date: string, totalCost = 1): CcusageDay => ({
+    date,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    totalTokens: 0,
+    totalCost,
+    modelsUsed: [],
+    modelBreakdowns: [],
+  })
+
+  it('normalizes dashed and legacy compact dates, rejecting junk', () => {
+    expect(normalizeDate('2026-08-11')).toBe('2026-08-11')
+    expect(normalizeDate('20260811')).toBe('2026-08-11')
+    expect(normalizeDate('nope')).toBeNull()
+    expect(normalizeDate('2026-13-99')).toBeNull()
+  })
+
+  it('keeps days on or after the window start; null keeps all', () => {
+    const days = [day('2026-08-10'), day('2026-08-11'), day('2026-08-25')]
+    expect(daysSince(days, null)).toHaveLength(3)
+    expect(daysSince(days, '2026-08-11').map((d) => d.date)).toEqual(['2026-08-11', '2026-08-25'])
+  })
+
+  it('buckets daily rows one-to-one with normalized labels', () => {
+    const buckets = bucketDays([day('20260811')], 'daily')
+    expect(buckets).toHaveLength(1)
+    expect(buckets[0]?.label).toBe('2026-08-11')
+  })
+
+  it('buckets weeks from Monday and months by calendar key', () => {
+    // 2026-08-11 is a Tuesday; its week starts Monday 2026-08-10.
+    const days = [day('2026-08-10'), day('2026-08-11'), day('2026-08-17'), day('2026-09-01')]
+    const weeks = bucketDays(days, 'weekly')
+    expect(weeks.map((b) => b.key)).toEqual(['2026-08-10', '2026-08-17', '2026-08-31'])
+    expect(weeks[0]?.days).toHaveLength(2)
+
+    const months = bucketDays(days, 'monthly')
+    expect(months.map((b) => b.key)).toEqual(['2026-08', '2026-09'])
+    expect(months[0]?.days).toHaveLength(3)
+  })
+
+  it('computes local ISO dates', () => {
+    expect(isoDate(new Date(2026, 7, 5))).toBe('2026-08-05')
   })
 })
