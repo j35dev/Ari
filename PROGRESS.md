@@ -411,6 +411,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M23.18 Sidebar right-click menus and resize: per-row hover icon clusters replaced by a portal `ContextMenu` (right-click or the ⋯ affordance) for both sessions and projects, so rows are just title + chip + time; sidebar is drag-resizable (200-520px, persisted, double-click resets, arrow keys nudge); selecting a session leaves the Usage/Changes full page instead of staying on it; snapshot catalogs filtered to the models each CLI currently serves via `CURRENT_MODEL_PREFIXES` (the picker had gone empty when only `live` sources were accepted)
 - [x] M23.19 Live sidebar feed: Shell subscribes to `session.events` (debounced refetch on user.message.added / session.updated / turn.settled; streaming deltas excluded), so a session is renamed in place the moment its first prompt starts and pristine-session reuse stops matching it — new sessions can be created again without switching away
 
+## M24 - Terminal workspace
+
+- [x] M24.1 Terminal becomes a full-page pane workspace (herdr-style) instead of the 520px inspector: binary split tree (`terminal-layout.ts` pure ops — split/close/setRatio with 0.15-0.85 clamps), any pane splits right/down, dividers drag via pointer capture and nudge with arrow keys (role=separator + aria valuemin/max/now), every pane stays mounted so background pty output keeps flowing; pane launcher offers the plain shell plus installed agent CLIs (Claude Code `claude`, Codex CLI `codex` — undetected CLIs are not offered, per `providers.detect`); panes root at the active session's project folder (home-dir fallback); run-script requests (M21.3) land as panes via the existing pub/sub; closing every pane lands on an intentional empty state (no auto-respawn); TerminalView replaced by TerminalWorkspace + extracted TerminalPane
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
