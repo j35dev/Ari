@@ -55,7 +55,10 @@ function acpProbeKinds(): DriverKind[] {
   if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
     return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
   }
-  return ['opencode', 'hermes']
+  // Claude and Codex both ship ACP adapters that advertise their real model
+  // lists via configOptions — probing them is what keeps the picker honest;
+  // the bundled snapshot is only a first-paint fallback.
+  return ['claude', 'codex', 'opencode', 'hermes']
 }
 
 /**
