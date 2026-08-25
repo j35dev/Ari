@@ -2,23 +2,26 @@ import { describe, expect, it } from 'vitest'
 import type { AdapterSession } from '../driver'
 import { buildClaudeArgs } from './claude-driver'
 
-const base: AdapterSession = {
-  sessionId: 'sess_1',
-  workspacePath: 'D:\\proj',
-  prompt: 'do the thing',
-  modelId: null,
-  permissionMode: 'ask',
-  resumeOf: null,
-}
-
 describe('buildClaudeArgs', () => {
-  it('uses stream-json output and verbose for parsing', () => {
+  const base: AdapterSession = {
+    sessionId: 'sess_1',
+    workspacePath: 'D:\\proj',
+    prompt: 'do the thing',
+    modelId: null,
+    permissionMode: 'ask',
+    resumeOf: null,
+  }
+
+  it('uses bidirectional stream-json with stdio permission prompts (no -p; prompt rides stdin)', () => {
     const args = buildClaudeArgs(base)
     expect(args).toContain('--output-format')
     expect(args).toContain('stream-json')
     expect(args).toContain('--verbose')
-    expect(args[0]).toBe('-p')
-    expect(args[1]).toBe('do the thing')
+    expect(args.indexOf('--input-format')).toBeGreaterThan(-1)
+    expect(args[args.indexOf('--input-format') + 1]).toBe('stream-json')
+    expect(args.indexOf('--permission-prompt-tool')).toBeGreaterThan(-1)
+    expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
+    expect(args).not.toContain('-p')
   })
 
   it('maps permission modes to claude flags', () => {

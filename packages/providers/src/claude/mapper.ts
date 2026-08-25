@@ -19,9 +19,18 @@ interface ContentBlock {
   is_error?: boolean
 }
 
+/** `request` body of a control_request line; only the fields we act on. */
+export interface ControlRequestBody {
+  subtype?: string
+  tool_name?: string
+  input?: unknown
+}
+
 interface NativeLine {
   type?: string
   subtype?: string
+  request_id?: string
+  request?: ControlRequestBody
   session_id?: string
   error?: string
   is_error?: boolean
@@ -95,6 +104,24 @@ export function mapClaudeLine(line: string): AgentEvent[] {
             isError: block.is_error === true,
           })
         }
+      }
+      break
+    }
+
+    case 'control_request': {
+      // With --permission-prompt-tool stdio the CLI asks the host to approve
+      // each gated tool call. request_id doubles as Ari's approvalId.
+      if (
+        parsed.request?.subtype === 'can_use_tool' &&
+        typeof parsed.request_id === 'string' &&
+        parsed.request_id.length > 0
+      ) {
+        events.push({
+          type: 'approval-requested',
+          approvalId: parsed.request_id,
+          toolName: parsed.request.tool_name ?? 'unknown',
+          summaryJson: JSON.stringify(parsed.request.input ?? {}),
+        })
       }
       break
     }

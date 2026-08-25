@@ -3,7 +3,13 @@ import { PassThrough } from 'node:stream'
 import type { Readable, Writable } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClaudeControlAdapter, ControlProcessLike } from './claude-driver'
-import { buildInterruptFrame, buildUserFrame, wireClaudeControl } from './claude-driver'
+import {
+  buildApprovalResponseFrame,
+  buildInterruptFrame,
+  buildUnsupportedControlResponse,
+  buildUserFrame,
+  wireClaudeControl,
+} from './claude-driver'
 
 class FakeChild extends EventEmitter implements ControlProcessLike {
   stdin: Writable
@@ -29,9 +35,23 @@ class FakeChild extends EventEmitter implements ControlProcessLike {
   }
 }
 
-function harness(): { child: FakeChild; adapter: ClaudeControlAdapter } {
+function harness(options?: { initialPrompt?: unknown }): {
+  child: FakeChild
+  adapter: ClaudeControlAdapter
+} {
   const child = new FakeChild()
-  return { child, adapter: wireClaudeControl(child) }
+  return { child, adapter: wireClaudeControl(child, options) }
+}
+
+/** Pulls once so the event pump attaches its stdout/stderr listeners. */
+function startPump(adapter: ClaudeControlAdapter): void {
+  const iterator = adapter.start()[Symbol.asyncIterator]()
+  void iterator.next()
+}
+
+/** Writes one frame into the fake child's stdout as a JSONL line. */
+function emitStdout(child: FakeChild, frame: unknown): void {
+  ;(child.stdout as PassThrough).write(`${JSON.stringify(frame)}\n`)
 }
 
 afterEach(() => {
@@ -39,6 +59,13 @@ afterEach(() => {
 })
 
 describe('claude stdin control frames', () => {
+  it('writes the initial prompt as the first stream-json user frame', () => {
+    const frame = buildUserFrame('do the thing')
+    const { child } = harness({ initialPrompt: frame })
+
+    expect(child.lines).toEqual([`${JSON.stringify(frame)}\n`])
+  })
+
   it('writes raw frames to stdin as newline-terminated JSON lines', () => {
     const { child, adapter } = harness()
 
@@ -67,18 +94,59 @@ describe('claude stdin control frames', () => {
     expect(child.lines.join('')).toMatchSnapshot()
   })
 
-  it('respondApproval wraps allow/deny directives in the same user-turn shape (conservative stand-in for version-specific permission schemas)', () => {
+  it('respondApproval answers can_use_tool requests with real control_response frames', () => {
     const { child, adapter } = harness()
 
-    adapter.respondApproval('toolu_01', 'allow')
-    adapter.respondApproval('toolu_02', 'deny')
-    adapter.respondApproval('toolu_03', 'always-allow')
+    // A can_use_tool request arrives on stdout; its tool name is remembered.
+    startPump(adapter)
+    emitStdout(child, {
+      type: 'control_request',
+      request_id: 'req_1',
+      request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'ls' } },
+    })
+    // Give the pump a tick to consume the line before answering.
+    return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
+      adapter.respondApproval('req_1', 'allow')
+      expect(child.lines.at(-1)).toEqual(`${JSON.stringify(buildApprovalResponseFrame('req_1', 'allow'))}\n`)
 
-    expect(child.lines.map((line) => JSON.parse(line) as unknown)).toEqual([
-      buildUserFrame('Approve tool use toolu_01.'),
-      buildUserFrame('Deny tool use toolu_02.'),
-      buildUserFrame('Always approve tool use toolu_03.'),
-    ])
+      // always-allow upgrades to a session-scoped allow rule for the seen tool.
+      emitStdout(child, {
+        type: 'control_request',
+        request_id: 'req_2',
+        request: { subtype: 'can_use_tool', tool_name: 'Edit', input: {} },
+      })
+      return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
+        adapter.respondApproval('req_2', 'always-allow')
+        const frame = JSON.parse(child.lines.at(-1) ?? '{}') as {
+          response: { response: { updatedPermissions?: { rules: { toolName: string }[] }[] } }
+        }
+        expect(frame.response.response.updatedPermissions?.[0]?.rules[0]?.toolName).toBe('Edit')
+      })
+    })
+  })
+
+  it('respondApproval still answers (plain allow) when no matching request was seen', () => {
+    const { child, adapter } = harness()
+
+    adapter.respondApproval('ghost', 'allow')
+    expect(child.lines).toEqual([`${JSON.stringify(buildApprovalResponseFrame('ghost', 'allow'))}\n`])
+  })
+
+  it('answers unsupported control subtypes with an error control_response so the CLI cannot stall', () => {
+    const { child, adapter } = harness()
+
+    startPump(adapter)
+    emitStdout(child, {
+      type: 'control_request',
+      request_id: 'req_9',
+      request: { subtype: 'mystery' },
+    })
+
+    return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
+      expect(child.lines.at(-1)).toEqual(
+        `${JSON.stringify(buildUnsupportedControlResponse('req_9', 'mystery'))}\n`,
+      )
+    })
   })
 })
 
