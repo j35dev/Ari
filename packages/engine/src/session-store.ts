@@ -152,6 +152,15 @@ export class SessionStore {
   readonly #diagnostics = new Map<string, ReplayDiagnostics>()
   /** Raw lines already quarantined this process, so replays never duplicate. */
   readonly #quarantined = new Map<string, Set<string>>()
+  /**
+   * In-memory read model per session. `append` is on the realtime path (every
+   * streamed delta flush lands here), so it folds the event into the cached
+   * model instead of replaying the whole journal from disk each time.
+   * simplification: single-writer assumption — another process appending to a
+   * journal while it is open here would go unseen until closeJournal/destroy
+   * drops the cache; the upgrade path is a cheap byte-size staleness check.
+   */
+  readonly #models = new Map<string, SessionReadModel>()
 
   constructor(options: SessionStoreOptions) {
     this.#rootDir = options.rootDir
@@ -175,11 +184,20 @@ export class SessionStore {
     if (!journal) return
     await journal.close()
     this.#journals.delete(sessionId)
+    // The journal may be reopened after outside writes; never trust a model
+    // folded across that boundary.
+    this.#models.delete(sessionId)
+  }
+
+  /** Cached read model when fresh in this process; otherwise a full replay. */
+  async #modelFor(sessionId: string): Promise<SessionReadModel> {
+    const cached = this.#models.get(sessionId)
+    return cached ?? this.load(sessionId)
   }
 
   /** Next sequence number for a session (max known seq + 1). */
   async nextSeq(sessionId: string): Promise<number> {
-    const model = await this.load(sessionId)
+    const model = await this.#modelFor(sessionId)
     return model.lastSeq + 1
   }
 
@@ -195,7 +213,7 @@ export class SessionStore {
     event: UnstampedEvent & { seq?: number; at?: number },
   ): Promise<JournalEvent> {
     const journal = await this.openJournal(sessionId)
-    const model = await this.load(sessionId)
+    const model = await this.#modelFor(sessionId)
     const stamped = {
       ...event,
       seq: event.seq ?? model.lastSeq + 1,
@@ -210,6 +228,7 @@ export class SessionStore {
     await this.#writeIndex(sessionId, entry)
     await journal.append(stamped)
     this.#indexCache.set(sessionId, entry)
+    this.#models.set(sessionId, post)
     return stamped
   }
 
@@ -225,6 +244,7 @@ export class SessionStore {
     const { model, rejected } = replayEntries(entries)
     this.#diagnostics.set(sessionId, diagnosticsOf(rejected))
     if (rejected.length > 0) await this.#quarantine(sessionId, rejected)
+    this.#models.set(sessionId, model)
     return model
   }
 
