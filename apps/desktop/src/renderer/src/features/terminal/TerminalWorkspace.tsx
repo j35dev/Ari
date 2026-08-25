@@ -34,12 +34,6 @@ function makePaneId(): string {
   return `term_${++paneSeq}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-function defaultShellLabel(): string {
-  if (navigator.userAgent.toLowerCase().includes('windows')) return 'pwsh'
-  if (navigator.userAgent.toLowerCase().includes('mac')) return 'zsh'
-  return 'sh'
-}
-
 /** Launchable pane presets: a plain shell plus the installed coding CLIs. */
 interface PanePreset {
   id: string
@@ -50,8 +44,11 @@ interface PanePreset {
   kind?: Detection['kind']
 }
 
+/** The plain-shell preset, for split buttons and the first-open pane. */
+const SHELL_PRESET: PanePreset = { id: 'shell', label: 'Ari Terminal' }
+
 const PRESETS: PanePreset[] = [
-  { id: 'shell', label: defaultShellLabel() },
+  SHELL_PRESET,
   { id: 'claude', label: 'Claude Code', command: 'claude', kind: 'claude' },
   { id: 'codex', label: 'Codex CLI', command: 'codex', kind: 'codex' },
 ]
@@ -151,7 +148,7 @@ export function TerminalWorkspace({ cwd }: { cwd?: string }) {
   useEffect(() => {
     if (autoOpened.current || resolvedCwd === null || root !== null) return
     autoOpened.current = true
-    addPaneRef.current?.({ title: defaultShellLabel(), cwd: resolvedCwd }, 'row')
+    addPaneRef.current?.({ title: SHELL_PRESET.label, cwd: resolvedCwd }, 'row')
   }, [resolvedCwd, root])
 
   const spawnPreset = useCallback(
@@ -220,13 +217,13 @@ export function TerminalWorkspace({ cwd }: { cwd?: string }) {
           label="Split pane right"
           icon={<SquareSplitHorizontal size={13} aria-hidden />}
           disabled={activePaneId === null}
-          onClick={() => spawnPreset({ id: 'shell', label: defaultShellLabel() }, 'row')}
+          onClick={() => spawnPreset(SHELL_PRESET, 'row')}
         />
         <ToolbarButton
           label="Split pane down"
           icon={<SquareSplitVertical size={13} aria-hidden />}
           disabled={activePaneId === null}
-          onClick={() => spawnPreset({ id: 'shell', label: defaultShellLabel() }, 'col')}
+          onClick={() => spawnPreset(SHELL_PRESET, 'col')}
         />
         <ToolbarButton
           label="New pane"
@@ -260,7 +257,7 @@ export function TerminalWorkspace({ cwd }: { cwd?: string }) {
             <p className="text-xs text-fg-subtle">No terminal panes open.</p>
             <button
               type="button"
-              onClick={() => spawnPreset({ id: 'shell', label: defaultShellLabel() })}
+              onClick={() => spawnPreset(SHELL_PRESET)}
               className="flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
             >
               <Plus size={12} /> New terminal
