@@ -8,7 +8,7 @@
 - **Task / risk:** high-frequency; wrong agent or permission mode wastes a turn and possibly the worktree. Empty, loading, no-match, and disabled send must be honest.
 - **Content:** model labels vary (`Sonnet 4.5` vs `Anthropic Claude Haiku Latest`); 2–7 agents; optional context-window hint; permission is three short labels.
 - **Platform:** desktop window, pointer + keyboard, popover must not trap the session chrome.
-- **Constraints:** reuse `@ari/ui` tokens, Geist, lucide, existing `Popover`/`Input` patterns; no new icon pack; no T3 clone.
+- **Constraints:** reuse `@ari/ui` tokens, Geist, lucide, existing `Popover`/`Input` patterns; no new icon pack. (2026-08-25: the user explicitly asked for a T3-style picker — the earlier "no T3 clone" constraint is superseded for the picker only.)
 
 ## Evidence
 
@@ -19,6 +19,10 @@
 ## Thesis
 
 One glass plate. Identity is a **mono letter mark** (C Claude, X Codex, O OpenCode, A Ari Core) plus the model name — not an all-caps vendor chip and not a logo rail. Context (agent, permission) sits left; prompt actions (stash, send) sit right. Send is a rounded-md square, not a circle, so it shares geometry with the chips. No leftover `focus-within` halo after clicking a chip; keyboard rings stay on `:focus-visible`.
+
+## Picker (2026-08-25 revision)
+
+Two-pane popover: provider rail left (vendor logo where official art exists — Anthropic, OpenAI — letter chip otherwise, name, model count), active provider's models right — no drill-in step. Search cuts across all providers into grouped flat results. Keyboard: ↑↓ move, ←→ switch provider, Enter picks, Esc closes. `lockedTo` hides the rail and pins the pane.
 
 ## Semantic reuse
 
@@ -32,7 +36,7 @@ One glass plate. Identity is a **mono letter mark** (C Claude, X Codex, O OpenCo
 
 - No emoji, no hover lift, no `transition: all`, no tint-on-tint selected rows (check mark + `surface-2` active).
 - Rounded-md chips stay because they share geometry with send, not as a marketing badge row.
-- Letter mark belongs because Ari’s job is *which agent*, and letters stay readable at 20px without vendor logos.
+- Letter mark belongs because Ari’s job is *which agent*, and letters stay readable at 20px. (2026-08-25: the picker now uses vendor logos where official art exists — Anthropic, OpenAI — with the letter chip as fallback; see Picker above.)
 
 ## States
 

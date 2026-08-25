@@ -71,79 +71,107 @@ describe('ModelSelector', () => {
     })
   })
 
-  it('trigger shows a letter mark plus the model label', async () => {
+  it('trigger shows a provider logo plus the model label', async () => {
     setup()
     const trigger = await screen.findByRole('button', { name: /model:/i })
     await waitFor(() => {
-      expect(trigger).toHaveTextContent('C')
+      // Claude carries the vendored Anthropic logo (an svg), not a letter chip.
+      expect(trigger.querySelector('svg')).not.toBeNull()
       expect(trigger).toHaveTextContent('Sonnet 4.5')
     })
   })
 
-  it('opens on the provider list, drills in, and selects with keyboard', async () => {
-    const { onChange } = setup()
+  it('opens straight onto the current provider with its active model checked', async () => {
+    setup()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
 
-    // Step one: providers only, never a mixed model dump.
-    const providers = screen.getByRole('listbox', { name: 'Providers' })
-    expect(within(providers).getByText('Claude')).toBeInTheDocument()
-    expect(within(providers).getByText('Codex')).toBeInTheDocument()
+    // Rail: every installed provider with its model count.
+    const rail = screen.getByRole('presentation', { name: 'Providers' })
+    expect(within(rail).getByText('Claude')).toBeInTheDocument()
+    expect(within(rail).getByText('Codex')).toBeInTheDocument()
 
-    // The current provider is marked and shows its active model in its row.
-    expect(within(providers).getByRole('option', { selected: true })).toHaveTextContent('Claude')
-    expect(within(providers).getByText('Sonnet 4.5')).toBeInTheDocument()
-    // …but no models are selectable at this step — only providers are options.
-    expect(within(providers).queryByRole('option', { name: 'Sonnet 4.5' })).not.toBeInTheDocument()
-
-    // Enter drills into the highlighted provider (Claude is first).
-    await user.keyboard('{Enter}')
+    // Pane: the current provider's models are visible immediately — no drill-in.
     const models = screen.getByRole('listbox', { name: 'Models' })
     expect(within(models).getByText('Sonnet 4.5')).toBeInTheDocument()
     expect(within(models).getByText('Opus 4')).toBeInTheDocument()
     expect(within(models).queryByText('GPT-5.6')).not.toBeInTheDocument()
+    expect(within(models).getByRole('option', { selected: true })).toHaveTextContent('Sonnet 4.5')
+  })
 
-    // Search filters within the provider.
-    await user.type(screen.getByLabelText('Search models'), 'opus')
-    expect(within(models).getByText('Opus 4')).toBeInTheDocument()
+  it('swaps the pane from the rail and picks across providers with clicks', async () => {
+    const { onChange } = setup()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+    await user.click(within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Codex'))
+    const models = screen.getByRole('listbox', { name: 'Models' })
+    expect(within(models).getByText('GPT-5.6')).toBeInTheDocument()
     expect(within(models).queryByText('Sonnet 4.5')).not.toBeInTheDocument()
 
+    await user.click(within(models).getByText('GPT-5.6'))
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'codex', modelId: 'gpt-5.6' })
+  })
+
+  it('picks with Enter and moves between providers with Left/Right', async () => {
+    const { onChange } = setup()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+    // Enter picks the highlighted model of the open pane directly.
+    await user.keyboard('{Enter}')
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
+
+    // Reopen: ArrowRight moves to the next provider, Enter picks its first model.
+    await user.click(screen.getByRole('button', { name: /model:/i }))
+    await user.keyboard('{ArrowRight}{Enter}')
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'codex', modelId: 'gpt-5.6' })
+
+    // ArrowLeft wraps back to Claude, still on its first model.
+    await user.click(screen.getByRole('button', { name: /model:/i }))
+    await user.keyboard('{ArrowLeft}{Enter}')
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
+  })
+
+  it('search cuts across all providers into grouped results', async () => {
+    const { onChange } = setup('codex', 'gpt-5.6')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+    await user.type(screen.getByLabelText('Search models'), 'op')
+    let results = screen.getByRole('listbox', { name: 'Search results' })
+    expect(within(results).getByText('Opus 4')).toBeInTheDocument()
+    expect(within(results).queryByText('Sonnet 4.5')).not.toBeInTheDocument()
+    expect(within(results).queryByText('GPT-5.6')).not.toBeInTheDocument()
+
+    // ArrowLeft/Right move the text caret while searching — they must not
+    // clear the query or jump the provider rail.
+    await user.keyboard('{ArrowRight}{ArrowLeft}')
+    results = screen.getByRole('listbox', { name: 'Search results' })
+    expect(within(results).getByText('Opus 4')).toBeInTheDocument()
+
+    // A different query surfaces another provider under its own group header.
+    await user.clear(screen.getByLabelText('Search models'))
+    await user.type(screen.getByLabelText('Search models'), 'gpt')
+    results = screen.getByRole('listbox', { name: 'Search results' })
+    expect(within(results).getByText('GPT-5.6')).toBeInTheDocument()
+    expect(within(results).getByText('Codex · 1')).toBeInTheDocument()
+    expect(within(results).queryByText('Opus 4')).not.toBeInTheDocument()
+
+    await user.clear(screen.getByLabelText('Search models'))
+    await user.type(screen.getByLabelText('Search models'), 'op')
     await user.keyboard('{Home}{Enter}')
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'opus-4' })
     })
   })
 
-  it('marks the active model and picks on click, across providers', async () => {
-    const { onChange } = setup('codex', 'gpt-5.6')
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /model:/i }))
-
-    const providers = screen.getByRole('listbox', { name: 'Providers' })
-    expect(within(providers).getByRole('option', { selected: true })).toHaveTextContent('Codex')
-
-    await user.click(within(providers).getByText('Claude'))
-    const models = screen.getByRole('listbox', { name: 'Models' })
-    await user.click(within(models).getByText('Sonnet 4.5'))
-    expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
-  })
-
-  it('goes back with the header button and Esc', async () => {
+  it('shows a no-match state for nonsense queries', async () => {
     setup()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
-
-    await user.click(within(screen.getByRole('listbox', { name: 'Providers' })).getByText('Codex'))
-    expect(screen.getByRole('listbox', { name: 'Models' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Codex' }))
-    expect(screen.getByRole('listbox', { name: 'Providers' })).toBeInTheDocument()
-
-    await user.keyboard('{Enter}')
-    expect(screen.getByRole('listbox', { name: 'Models' })).toBeInTheDocument()
-    await user.keyboard('{Escape}')
-    // Esc on step two goes back to providers, not straight out of the menu.
-    expect(screen.getByRole('listbox', { name: 'Providers' })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Search models'), 'zzz')
+    expect(screen.getByText(/no models match/i)).toBeInTheDocument()
   })
 
   it('maps an endpoint pick to the ari-core driver with its ep: handle', async () => {
@@ -170,10 +198,7 @@ describe('ModelSelector', () => {
     render(<ModelSelector driverKind='ari-core' modelId={null} onChange={onChange} />)
 
     await user.click(screen.getByRole('button', { name: /model:/i }))
-    const providers = screen.getByRole('listbox', { name: 'Providers' })
-    await user.click(within(providers).getByText('Ari Core'))
-
-    const models = screen.getByRole('listbox', { name: 'Models' })
+    const models = await screen.findByRole('listbox', { name: 'Models' })
     await user.click(within(models).getByText('My Relay'))
 
     // The old behaviour sent driverKind 'ep' (splitting 'ep:end_1'), which
@@ -205,24 +230,15 @@ describe('ModelSelector', () => {
     expect(screen.getByText(/loading/i)).toBeInTheDocument()
   })
 
-  it('shows a no-match state for nonsense queries inside a provider', async () => {
-    setup()
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /model:/i }))
-    await user.click(within(screen.getByRole('listbox', { name: 'Providers' })).getByText('Claude'))
-    await user.type(screen.getByLabelText('Search models'), 'zzz')
-    expect(screen.getByText(/no models match/i)).toBeInTheDocument()
-  })
-
-  it('lockedTo skips the provider step and explains the lock', async () => {
+  it('lockedTo hides the rail and explains the lock', async () => {
     const { onChange } = setup('claude', 'sonnet-4', 'claude')
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /model:/i }))
 
-    // Straight to the session provider's models; no provider list, no back.
+    // Only the session provider's models; no rail, no other providers.
     const listbox = screen.getByRole('listbox', { name: 'Models' })
     expect(within(listbox).getByText('Sonnet 4.5')).toBeInTheDocument()
-    expect(screen.queryByRole('listbox', { name: 'Providers' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('presentation', { name: 'Providers' })).not.toBeInTheDocument()
     expect(screen.queryByText('Codex')).not.toBeInTheDocument()
     expect(screen.getByText(/start a new session to use another agent/i)).toBeInTheDocument()
 
