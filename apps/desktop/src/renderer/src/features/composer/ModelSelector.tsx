@@ -1,10 +1,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, ChevronDown, Search } from 'lucide-react'
+import { Check, ChevronDown, Search } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
 import { modelsFor } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
-import { agentMark, driverLabel } from './agent-mark'
+import { driverLabel } from './agent-mark'
+import { ProviderLogo } from './provider-logo'
 
 export interface SelectorOption {
   id: string
@@ -16,27 +17,32 @@ export interface SelectorOption {
 /** Live catalogs by kind; absent kinds fall back to the bundled snapshot. */
 type CatalogByKind = Partial<Record<DriverKind, CatalogModelInfo[]>>
 
-function AgentMark({ kind }: { kind: string }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-surface-3 font-mono text-2xs font-medium leading-none text-fg-muted"
-    >
-      {agentMark(kind)}
-    </span>
-  )
+/** One left-rail entry: an installed provider and how many models it serves. */
+interface ProviderRow {
+  kind: DriverKind
+  label: string
+  count: number
+}
+
+/** Cross-provider search hits, grouped under their provider header. */
+interface ResultGroup {
+  kind: DriverKind
+  label: string
+  /** Index of the group's first option in the flat keyboard order. */
+  start: number
+  options: SelectorOption[]
 }
 
 /**
- * Provider-first model picker (M23.13). Step one lists installed providers;
- * step two lists only that provider's models. Search filters the visible
- * step. Arrows move, Enter picks (or drills in on step one), Esc/Backspace
- * goes back or closes.
+ * Two-pane model picker: a provider rail on the left, the active provider's
+ * models on the right — no drill-in step, every model is one click away.
+ * Search cuts across all providers into one grouped flat list. Arrows move
+ * the selection, Left/Right switch provider, Enter picks, Esc closes.
  *
- * `lockedTo` pins the picker to one provider (step one is skipped): a session
- * that already ran turns must stay on its harness, or the provider-side
- * resume thread and the transcript's context story break. New sessions can
- * still pick any provider.
+ * `lockedTo` hides the rail and pins the pane to one provider (a session that
+ * already ran turns must stay on its harness, or the provider-side resume
+ * thread and the transcript's context story break). New sessions can still
+ * pick any provider.
  */
 export function ModelSelector({
   driverKind,
@@ -96,7 +102,7 @@ export function ModelSelector({
     ]).finally(() => setLoaded(true))
   }, [])
 
-  /** Models for one provider — the step-two list. */
+  /** Models for one provider — the right-hand pane. */
   const optionsFor = useMemo(() => {
     const compute = (kind: DriverKind): SelectorOption[] => {
       if (kind === 'ari-core') return endpointModels
@@ -117,48 +123,59 @@ export function ModelSelector({
   const currentId = `${driverKind}:${modelId ?? ''}`
   const currentKindLabel = driverLabel(driverKind)
 
-  /** Step-one rows: one per installed provider, showing its active model. */
-  const providers = useMemo(
-    () =>
-      drivers.map((driver) => {
-        const opts = optionsFor(driver.kind)
-        const active = opts.find((o) => o.id === `${driver.kind}:${driver.kind === driverKind ? (modelId ?? '') : ''}`)
-        return {
-          kind: driver.kind,
-          label: driver.label,
-          // Only the CURRENT provider's active model is knowable; others show
-          // their model count so the step doesn't look empty.
-          detail: driver.kind === driverKind ? (active?.label ?? modelId ?? 'CLI default') : `${opts.length} models`,
-        }
-      }),
-    [drivers, optionsFor, driverKind, modelId],
+  const providers = useMemo<ProviderRow[]>(
+    () => drivers.map((driver) => ({ ...driver, count: optionsFor(driver.kind).length })),
+    [drivers, optionsFor],
   )
 
-  /** Step-two rows: the active provider's models, filtered by query. */
-  const models = useMemo(() => {
-    if (activeKind === null) return []
+  const searching = query.trim().length > 0
+
+  /** Pane rows: every model of the active provider, in catalog order. */
+  const paneModels = useMemo(
+    () => (activeKind === null ? [] : optionsFor(activeKind)),
+    [activeKind, optionsFor],
+  )
+
+  /** Search rows: matching models from every provider, grouped, flat order. */
+  const results = useMemo<ResultGroup[]>(() => {
     const q = query.trim().toLowerCase()
-    const list = optionsFor(activeKind)
-    if (q.length === 0) return list
-    return list.filter(
-      (o) => o.label.toLowerCase().includes(q) || (o.hint?.toLowerCase().includes(q) ?? false),
-    )
-  }, [activeKind, optionsFor, query])
+    if (q.length === 0) return []
+    const groups: ResultGroup[] = []
+    let start = 0
+    for (const provider of providers) {
+      const options = optionsFor(provider.kind).filter(
+        (o) => o.label.toLowerCase().includes(q) || (o.hint?.toLowerCase().includes(q) ?? false),
+      )
+      if (options.length > 0) {
+        groups.push({ kind: provider.kind, label: provider.label, start, options })
+        start += options.length
+      }
+    }
+    return groups
+  }, [providers, optionsFor, query])
 
-  const visibleCount = activeKind === null ? providers.length : models.length
+  /** Flat keyboard order: pane rows normally, grouped hits while searching. */
+  const flatOptions = useMemo(
+    () => (searching ? results.flatMap((g) => g.options) : paneModels),
+    [searching, results, paneModels],
+  )
+  const visibleCount = flatOptions.length
 
-  const filteredRef = useRef(visibleCount)
-  filteredRef.current = visibleCount
-  const currentIdRef = useRef(currentId)
-  currentIdRef.current = currentId
-  const activeKindRef = useRef(activeKind)
-  activeKindRef.current = activeKind
+  /** Provider the pane opens on: the session's current one (or the lock). */
+  const defaultKind = useMemo<DriverKind | null>(() => {
+    if (drivers.length === 0) return null
+    const wanted = lockedTo ?? driverKind
+    return drivers.some((d) => d.kind === wanted) ? wanted : (drivers[0]?.kind ?? null)
+  }, [drivers, lockedTo, driverKind])
 
   useEffect(() => {
     if (!open) return
+    if (activeKind === null && defaultKind !== null) setActiveKind(defaultKind)
     setActiveIndex(0)
-    requestAnimationFrame(() => searchRef.current?.focus())
-  }, [open, query, activeKind])
+    // Focus synchronously: a deferred (rAF) focus let keystrokes land on
+    // <body> when they were dispatched between commit and the frame callback.
+    searchRef.current?.focus()
+  }, [open, query, activeKind, defaultKind])
 
   useEffect(() => {
     listRef.current
@@ -186,20 +203,32 @@ export function ModelSelector({
     close()
   }
 
+  const switchProvider = (step: 1 | -1): void => {
+    if (lockedTo !== null || providers.length === 0) return
+    const at = Math.max(0, providers.findIndex((p) => p.kind === activeKind))
+    const next = providers[(at + step + providers.length) % providers.length]
+    if (next !== undefined) {
+      setActiveKind(next.kind)
+      setQuery('')
+    }
+  }
+
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (activeKind !== null) {
-        setActiveKind(null)
-        setQuery('')
-      } else {
-        close()
-      }
+      close()
       return
     }
-    if (e.key === 'Backspace' && query.length === 0 && activeKind !== null) {
+    if (e.key === 'ArrowLeft') {
+      if (searching) return // caret movement in the query wins over rail switching
       e.preventDefault()
-      if (lockedTo === null) setActiveKind(null)
+      switchProvider(-1)
+      return
+    }
+    if (e.key === 'ArrowRight') {
+      if (searching) return
+      e.preventDefault()
+      switchProvider(1)
       return
     }
     if (e.key === 'ArrowDown') {
@@ -224,15 +253,7 @@ export function ModelSelector({
     }
     if (e.key === 'Enter') {
       e.preventDefault()
-      if (activeKind === null) {
-        const provider = providers[activeIndex]
-        if (provider !== undefined) {
-          setActiveKind(provider.kind)
-          setQuery('')
-        }
-        return
-      }
-      const opt = models[activeIndex]
+      const opt = flatOptions[activeIndex]
       if (opt !== undefined) pickModel(opt)
     }
   }
@@ -247,6 +268,47 @@ export function ModelSelector({
     return list.find((o) => o.id === currentId)?.label ?? modelId ?? 'CLI default'
   }, [driverKind, modelId, currentId, optionsFor, endpointModels])
 
+  const rowClasses = (isActive: boolean): string =>
+    `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
+      isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
+    }`
+
+  const optionRow = (opt: SelectorOption, index: number, markKind: string | null) => {
+    const isSelected = opt.id === currentId
+    return (
+      <button
+        key={opt.id}
+        id={`${listboxId}-opt-${index}`}
+        type="button"
+        role="option"
+        aria-selected={isSelected}
+        data-option-index={index}
+        onMouseEnter={() => setActiveIndex(index)}
+        onClick={() => pickModel(opt)}
+        className={rowClasses(index === activeIndex)}
+      >
+        {markKind !== null ? <ProviderLogo kind={markKind} /> : null}
+        <span className="min-w-0 flex-1 truncate text-xs">{opt.label}</span>
+        {opt.hint ? (
+          <span className="shrink-0 font-mono text-2xs text-fg-subtle">{opt.hint}</span>
+        ) : null}
+        {isSelected ? <Check size={12} className="shrink-0 text-fg" aria-hidden /> : null}
+      </button>
+    )
+  }
+
+  const emptyState = (
+    <p className="px-2 py-3 text-center text-xs text-fg-subtle">
+      {!loaded
+        ? 'Loading…'
+        : drivers.length === 0
+          ? 'No agents detected yet.'
+          : searching
+            ? `No models match “${query.trim()}”.`
+            : 'No models available.'}
+    </p>
+  )
+
   return (
     <div className="relative">
       <button
@@ -257,14 +319,14 @@ export function ModelSelector({
             return
           }
           setOpen(true)
-          if (lockedTo !== null) setActiveKind(lockedTo)
+          setActiveKind(lockedTo ?? defaultKind)
         }}
         aria-label={`Model: ${currentKindLabel} · ${triggerLabel}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="flex h-7 max-w-52 items-center gap-1.5 rounded-md border border-border bg-surface-1 pe-2 ps-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <AgentMark kind={driverKind} />
+        <ProviderLogo kind={driverKind} />
         <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
         <ChevronDown
           size={11}
@@ -279,21 +341,8 @@ export function ModelSelector({
           <div
             role="presentation"
             onKeyDown={onMenuKeyDown}
-            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-lg border border-border shadow-2"
+            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 flex w-[25rem] flex-col overflow-hidden rounded-lg border border-border shadow-2"
           >
-            {activeKind !== null && lockedTo === null && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveKind(null)
-                  setQuery('')
-                }}
-                className="flex w-full items-center gap-1.5 border-b border-border px-2 py-1.5 text-start text-xs text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg"
-              >
-                <ArrowLeft size={12} aria-hidden className="shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{driverLabel(activeKind)}</span>
-              </button>
-            )}
             <div className="relative border-b border-border">
               <Search
                 size={12}
@@ -304,8 +353,8 @@ export function ModelSelector({
                 ref={searchRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={activeKind === null ? 'Search providers…' : 'Search models…'}
-                aria-label={activeKind === null ? 'Search providers' : 'Search models'}
+                placeholder="Search models…"
+                aria-label="Search models"
                 aria-controls={listboxId}
                 aria-activedescendant={visibleCount > 0 ? activeId : undefined}
                 role="combobox"
@@ -316,81 +365,74 @@ export function ModelSelector({
                 className="h-8 w-full bg-transparent pe-2 ps-7 text-xs text-fg placeholder:text-fg-subtle focus:outline-none"
               />
             </div>
-            <div
-              ref={listRef}
-              id={listboxId}
-              role="listbox"
-              aria-label={activeKind === null ? 'Providers' : 'Models'}
-              className="ari-scroll max-h-72 overflow-y-auto p-1"
-            >
-              {visibleCount === 0 ? (
-                <p className="px-2 py-3 text-center text-xs text-fg-subtle">
-                  {!loaded
-                    ? 'Loading…'
-                    : drivers.length === 0
-                      ? 'No agents detected yet.'
-                      : activeKind !== null
-                        ? `No models match “${query.trim()}”.`
-                        : 'No providers match.'}
-                </p>
-              ) : activeKind === null ? (
-                providers.map((provider, index) => {
-                  const isActive = index === activeIndex
-                  const isCurrentProvider = provider.kind === driverKind
-                  return (
-                    <button
-                      key={provider.kind}
-                      id={`${listboxId}-opt-${index}`}
-                      type="button"
-                      role="option"
-                      aria-selected={isCurrentProvider}
-                      data-option-index={index}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => {
-                        setActiveKind(provider.kind)
-                        setQuery('')
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-                        isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
-                      }`}
-                    >
-                      <AgentMark kind={provider.kind} />
-                      <span className="min-w-0 flex-1 truncate text-xs">{provider.label}</span>
-                      <span className="shrink-0 font-mono text-2xs text-fg-subtle">{provider.detail}</span>
-                      {isCurrentProvider ? (
-                        <Check size={12} className="shrink-0 text-fg" aria-hidden />
-                      ) : null}
-                    </button>
-                  )
-                })
-              ) : (
-                models.map((opt, index) => {
-                  const isActive = index === activeIndex
-                  const isSelected = opt.id === currentId
-                  return (
-                    <button
-                      key={opt.id}
-                      id={`${listboxId}-opt-${index}`}
-                      type="button"
-                      role="option"
-                      aria-selected={isSelected}
-                      data-option-index={index}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => pickModel(opt)}
-                      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-                        isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
-                      }`}
-                    >
-                      <span className="min-w-0 flex-1 truncate text-xs">{opt.label}</span>
-                      {opt.hint ? (
-                        <span className="shrink-0 font-mono text-2xs text-fg-subtle">{opt.hint}</span>
-                      ) : null}
-                      {isSelected ? <Check size={12} className="shrink-0 text-fg" aria-hidden /> : null}
-                    </button>
-                  )
-                })
-              )}
-            </div>
+
+            {searching ? (
+              <div
+                ref={listRef}
+                id={listboxId}
+                role="listbox"
+                aria-label="Search results"
+                className="ari-scroll max-h-80 overflow-y-auto p-1"
+              >
+                {visibleCount === 0
+                  ? emptyState
+                  : results.map((group) => (
+                      <div key={group.kind} role="presentation">
+                        <p className="px-2 pb-0.5 pt-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+                          {group.label} · {group.options.length}
+                        </p>
+                        {group.options.map((opt, i) => optionRow(opt, group.start + i, group.kind))}
+                      </div>
+                    ))}
+              </div>
+            ) : (
+              <div className="flex min-h-0">
+                {lockedTo === null && providers.length > 0 ? (
+                  <div
+                    role="presentation"
+                    aria-label="Providers"
+                    className="w-28 shrink-0 border-e border-border p-1"
+                  >
+                    {providers.map((provider) => (
+                      <button
+                        key={provider.kind}
+                        type="button"
+                        aria-current={provider.kind === activeKind}
+                        onClick={() => {
+                          setActiveKind(provider.kind)
+                          setQuery('')
+                        }}
+                        className={`flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
+                          provider.kind === activeKind
+                            ? 'bg-surface-2 text-fg'
+                            : 'text-fg-muted hover:text-fg'
+                        }`}
+                      >
+                        <ProviderLogo kind={provider.kind} />
+                        <span className="min-w-0 flex-1 truncate text-left text-xs">
+                          {provider.label}
+                        </span>
+                        <span className="shrink-0 font-mono text-2xs text-fg-subtle">
+                          {provider.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <div
+                  ref={listRef}
+                  id={listboxId}
+                  role="listbox"
+                  aria-label="Models"
+                  className="ari-scroll max-h-80 min-w-0 flex-1 overflow-y-auto p-1"
+                >
+                  {visibleCount === 0
+                    ? emptyState
+                    : paneModels.map((opt, index) => optionRow(opt, index, null))}
+                </div>
+              </div>
+            )}
+
             {lockedTo !== null ? (
               <p className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
                 This session runs on {driverLabel(lockedTo)}. Start a new session to use another agent.
