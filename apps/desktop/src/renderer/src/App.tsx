@@ -4,7 +4,7 @@ import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
-import type { RpcResults, SessionSummary } from '@ari/contracts/rpc'
+import type { RpcResults, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
@@ -109,6 +109,39 @@ function Shell() {
   const createSessionRef = useRef<(() => void) | null>(null)
 
   useEffect(refreshSessions, [])
+
+  // Live sidebar: the engine names a session on its first prompt and bumps
+  // message counts as turns run. Without this feed the list only refreshed
+  // on explicit actions, so rows kept stale titles and pristine-session
+  // reuse kept matching a session that had already started chatting.
+  useEffect(() => {
+    let pending: ReturnType<typeof setTimeout> | null = null
+    const unsubscribe = rpc.subscribe('session.events', {}, (payload) => {
+      // The contract types frames loosely (`event?: unknown`); only the
+      // journal event's discriminant is needed here.
+      const event = (payload as Partial<SessionEventFrame> | null)?.event as
+        | { type?: string }
+        | undefined
+      if (
+        !event ||
+        (event.type !== 'user.message.added' &&
+          event.type !== 'session.updated' &&
+          event.type !== 'turn.settled')
+      ) {
+        // Streaming deltas and per-turn noise must not refetch the list.
+        return
+      }
+      if (pending !== null) return // coalescing; the scheduled fetch sees this too
+      pending = setTimeout(() => {
+        pending = null
+        refreshSessions()
+      }, 250)
+    })
+    return () => {
+      if (pending !== null) clearTimeout(pending)
+      unsubscribe()
+    }
+  }, [refreshSessions])
 
   useEffect(() => {
     void rpc
