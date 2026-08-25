@@ -32,15 +32,23 @@ function AgentMark({ kind }: { kind: string }) {
  * step two lists only that provider's models. Search filters the visible
  * step. Arrows move, Enter picks (or drills in on step one), Esc/Backspace
  * goes back or closes.
+ *
+ * `lockedTo` pins the picker to one provider (step one is skipped): a session
+ * that already ran turns must stay on its harness, or the provider-side
+ * resume thread and the transcript's context story break. New sessions can
+ * still pick any provider.
  */
 export function ModelSelector({
   driverKind,
   modelId,
   onChange,
+  lockedTo = null,
 }: {
   driverKind: DriverKind
   modelId: string | null
   onChange: (next: { driverKind: DriverKind; modelId: string | null }) => void
+  /** When set, only this provider's models are selectable. */
+  lockedTo?: DriverKind | null
 }) {
   const [open, setOpen] = useState(false)
   const [activeKind, setActiveKind] = useState<DriverKind | null>(null)
@@ -191,7 +199,7 @@ export function ModelSelector({
     }
     if (e.key === 'Backspace' && query.length === 0 && activeKind !== null) {
       e.preventDefault()
-      setActiveKind(null)
+      if (lockedTo === null) setActiveKind(null)
       return
     }
     if (e.key === 'ArrowDown') {
@@ -243,7 +251,14 @@ export function ModelSelector({
     <div className="relative">
       <button
         type="button"
-        onClick={() => (open ? close() : setOpen(true))}
+        onClick={() => {
+          if (open) {
+            close()
+            return
+          }
+          setOpen(true)
+          if (lockedTo !== null) setActiveKind(lockedTo)
+        }}
         aria-label={`Model: ${currentKindLabel} · ${triggerLabel}`}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -266,7 +281,7 @@ export function ModelSelector({
             onKeyDown={onMenuKeyDown}
             className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-lg border border-border shadow-2"
           >
-            {activeKind !== null && (
+            {activeKind !== null && lockedTo === null && (
               <button
                 type="button"
                 onClick={() => {
@@ -376,6 +391,11 @@ export function ModelSelector({
                 })
               )}
             </div>
+            {lockedTo !== null ? (
+              <p className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
+                This session runs on {driverLabel(lockedTo)}. Start a new session to use another agent.
+              </p>
+            ) : null}
           </div>
         </>
       ) : null}
