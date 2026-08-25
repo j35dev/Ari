@@ -165,6 +165,14 @@ export function ModelSelector({
   }
 
   const pickModel = (opt: SelectorOption): void => {
+    // Endpoint options carry `ep:<endpointId>`; they ride the ari-core driver,
+    // never a CLI kind — splitting on ':' would send driverKind 'ep' and fail
+    // session.create validation (seen after adding a custom endpoint).
+    if (opt.id.startsWith('ep:')) {
+      onChange({ driverKind: 'ari-core', modelId: opt.id })
+      close()
+      return
+    }
     const [kind, ...rest] = opt.id.split(':')
     onChange({ driverKind: kind as DriverKind, modelId: rest.join(':') || null })
     close()
@@ -222,10 +230,14 @@ export function ModelSelector({
   }
 
   const triggerLabel = useMemo(() => {
-    if (driverKind === 'ari-core') return modelId ?? 'Ari Core'
+    if (driverKind === 'ari-core') {
+      // Show the endpoint's name, not its raw `ep:<id>` handle.
+      const endpoint = endpointModels.find((e) => e.id === modelId)
+      return endpoint?.label ?? modelId ?? 'Ari Core'
+    }
     const list = optionsFor(driverKind)
     return list.find((o) => o.id === currentId)?.label ?? modelId ?? 'CLI default'
-  }, [driverKind, modelId, currentId, optionsFor])
+  }, [driverKind, modelId, currentId, optionsFor, endpointModels])
 
   return (
     <div className="relative">
