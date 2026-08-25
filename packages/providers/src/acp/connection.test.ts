@@ -152,6 +152,25 @@ describe('AcpConnection', () => {
     connection.kill()
   })
 
+  it('loadSession sends the resume frame and echoes the session id even with an empty body', async () => {
+    // Spec: session/load's response body is null; the agent re-attaches the id.
+    const child = fakeChild()
+    script(child, (method) => {
+      if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+      if (method === 'session/load') return null
+      return undefined
+    })
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+
+    const resumed = await connection.loadSession('sess_old', '/next')
+    expect(resumed.sessionId).toBe('sess_old')
+    const load = child.sent.find((m) => m['method'] === 'session/load') as
+      | { params?: Record<string, unknown> }
+      | undefined
+    expect(load?.params).toEqual({ sessionId: 'sess_old', cwd: '/next', mcpServers: [] })
+    connection.kill()
+  })
+
   it('routes session/update notifications to the hook', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)

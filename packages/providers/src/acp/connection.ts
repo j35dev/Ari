@@ -290,7 +290,18 @@ export class AcpConnection {
       if (pending.stallTimer !== null) clearInterval(pending.stallTimer)
       const error = message['error'] as { code?: number; message?: string } | undefined
       if (error !== undefined && error !== null) {
-        pending.reject(new AcpConnectionError(error.message ?? 'agent error', error.code ?? null))
+        // Auth walls can arrive on any method (session/prompt after token
+        // expiry, not just session/new) — always swap in the actionable copy.
+        if (error.code === AUTH_REQUIRED_ERROR) {
+          pending.reject(
+            new AcpConnectionError(
+              `${this.launch.label} is not authenticated yet — run its login flow once in a terminal, then retry`,
+              AUTH_REQUIRED_ERROR,
+            ),
+          )
+        } else {
+          pending.reject(new AcpConnectionError(error.message ?? 'agent error', error.code ?? null))
+        }
       } else {
         pending.resolve(message['result'])
       }

@@ -56,24 +56,34 @@ describe('notifySettled', () => {
     })
   })
 
-  it('always fires for error settles, even while visible', () => {
+  it('fires error toasts only while hidden — a focused window already shows the inline alert', () => {
     stubVisibility('visible')
     const toast = vi.fn()
 
     const fired = notifySettled('Docs review', { toast, error: 'spawn EINVAL' })
 
+    expect(fired).toBe(false)
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it('still toasts failures while hidden, with class-name noise stripped', () => {
+    stubVisibility('hidden')
+    const toast = vi.fn()
+
+    const fired = notifySettled('Docs review', { toast, error: 'AcpConnectionError: Authentication required' })
+
     expect(fired).toBe(true)
     expect(toast).toHaveBeenCalledOnce()
     expect(toast).toHaveBeenCalledWith({
       title: 'Docs review',
-      description: 'Turn failed — spawn EINVAL',
+      description: 'Turn failed — Authentication required',
       tone: 'danger',
       durationMs: 8000,
     })
   })
 
   it('flattens and truncates long error messages', () => {
-    stubVisibility('visible')
+    stubVisibility('hidden')
     const toast = vi.fn()
     const long = Array.from({ length: 60 }, () => 'word \n').join('')
 
