@@ -298,6 +298,72 @@ describe('createAcpAdapter', () => {
     })
     await expect(createAcpAdapter(LAUNCH, SESSION, () => child)).rejects.toThrow(/not authenticated/)
   }, 15000)
+
+  it('resumes via session/load when the agent advertises loadSession', async () => {
+    const child = fakeChild()
+    script(child, (method) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+      }
+      if (method === 'session/load') return null // spec: empty body
+      if (method === 'session/prompt') return { stopReason: 'end_turn' }
+      if (method === 'session/new') throw new Error('must not create a fresh session')
+      return undefined
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+
+    const load = child.sent.find((m) => m['method'] === 'session/load') as
+      | { params?: { sessionId?: string; cwd?: string } }
+      | undefined
+    expect(load?.params).toEqual({ sessionId: 'sess_old', cwd: '/w', mcpServers: [] })
+
+    // The resumed id is published so Ari can keep resuming on later turns.
+    const first = adapter.start()[Symbol.asyncIterator]()
+    const firstEvent = await first.next()
+    expect(firstEvent.value).toEqual({ type: 'session-ref', ref: 'sess_old' })
+    await adapter.dispose()
+  }, 15000)
+
+  it('falls back to a fresh session when session/load fails', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+      }
+      if (method === 'session/load') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32602, message: 'unknown session' } })}\n`,
+        )
+        return undefined
+      }
+      if (method === 'session/new') return { sessionId: 'sess_fresh' }
+      if (method === 'session/prompt') return { stopReason: 'end_turn' }
+      return undefined
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_gone' }, () => child)
+
+    expect(child.sent.some((m) => m['method'] === 'session/load')).toBe(true)
+    expect(child.sent.some((m) => m['method'] === 'session/new')).toBe(true)
+    const first = adapter.start()[Symbol.asyncIterator]()
+    expect((await first.next()).value).toEqual({ type: 'session-ref', ref: 'sess_fresh' })
+    await adapter.dispose()
+  }, 15000)
+
+  it('skips resume when the agent does not advertise loadSession', async () => {
+    const child = fakeChild()
+    let sawLoad = false
+    script(child, (method) => {
+      if (method === 'initialize') return { protocolVersion: 1 }
+      if (method === 'session/load') sawLoad = true
+      if (method === 'session/new') return { sessionId: 'sess_new' }
+      if (method === 'session/prompt') return { stopReason: 'end_turn' }
+      return undefined
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+
+    expect(sawLoad).toBe(false)
+    await adapter.dispose()
+  }, 15000)
 })
 
 describe('AcpDriver', () => {

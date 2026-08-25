@@ -13,6 +13,7 @@ describe('claude mapper', () => {
     const events = mapClaudeStream(fixture('success-session.jsonl'))
     const types = events.map((e) => e.type)
     expect(types).toEqual([
+      'session-ref',
       'thinking-delta',
       'text-delta',
       'tool-started',
@@ -22,7 +23,14 @@ describe('claude mapper', () => {
       'done',
     ])
 
-    const toolStart = events[2]
+    const ref = events[0]
+    if (ref?.type === 'session-ref') {
+      expect(ref.ref).toBe('b3d1c2a4-1111-4c7e-9a21-5f5e8d9c0a01')
+    } else {
+      throw new Error('expected session-ref')
+    }
+
+    const toolStart = events[3]
     if (toolStart?.type === 'tool-started') {
       expect(toolStart.callId).toBe('toolu_01')
       expect(toolStart.name).toBe('Bash')
@@ -34,7 +42,7 @@ describe('claude mapper', () => {
       throw new Error('expected tool-started')
     }
 
-    const toolDone = events[3]
+    const toolDone = events[4]
     if (toolDone?.type === 'tool-completed') {
       expect(toolDone.callId).toBe('toolu_01')
       expect(toolDone.isError).toBe(false)
@@ -43,7 +51,7 @@ describe('claude mapper', () => {
       throw new Error('expected tool-completed')
     }
 
-    const usage = events[5]
+    const usage = events[6]
     if (usage?.type === 'usage') {
       expect(usage.inputTokens).toBe(450)
       expect(usage.outputTokens).toBe(120)
@@ -71,9 +79,14 @@ describe('claude mapper', () => {
     }
   })
 
-  it('ignores system/init lines without emitting transcript noise', () => {
+  it('surfaces the init session id as a provider ref without transcript noise', () => {
     const [init] = fixture('success-session.jsonl')
-    expect(mapClaudeLine(init ?? '')).toEqual([])
+    const events = mapClaudeLine(init ?? '')
+    if (events[0]?.type === 'session-ref') {
+      expect(events[0].ref).toBe('b3d1c2a4-1111-4c7e-9a21-5f5e8d9c0a01')
+    } else {
+      throw new Error('expected session-ref')
+    }
   })
 
   it('maps tool errors with isError=true', () => {

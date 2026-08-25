@@ -6,7 +6,7 @@ import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { AcpConnection, AcpConnectionError } from './connection'
 import type { AcpChildProcess, AcpLaunch } from './connection'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
-import type { AcpConfigOption, AcpRequestPermission } from './protocol'
+import type { AcpConfigOption, AcpNewSessionResult, AcpRequestPermission } from './protocol'
 
 const log = createLogger('providers:acp')
 
@@ -82,11 +82,42 @@ export async function createAcpAdapter(
   connection.onRequestPermission = onRequestPermission
   connection.onSessionUpdate = (notification) => push(folder.fold(notification))
 
-  const created = await connection.newSession(session.workspacePath).catch((error: unknown) => {
+  /**
+   * Resumes the agent's persisted session when possible (agent advertises
+   * `loadSession` and Ari knows a prior session id) so multi-turn context
+   * survives Ari's spawn-per-turn model; otherwise opens a fresh one. A load
+   * failure degrades to a fresh session rather than failing the turn.
+   */
+  const openSession = async (): Promise<AcpNewSessionResult> => {
+    const resumeId = session.resumeOf
+    if (
+      typeof resumeId === 'string' &&
+      resumeId.length > 0 &&
+      connection.initialize.agentCapabilities?.loadSession === true
+    ) {
+      try {
+        return await connection.loadSession(resumeId, session.workspacePath)
+      } catch (error) {
+        log.warn('acp: session/load failed; starting a fresh session', {
+          resumeId,
+          error: String(error instanceof Error ? error.message : error),
+        })
+      }
+    }
+    return connection.newSession(session.workspacePath)
+  }
+
+  let created: AcpNewSessionResult
+  try {
+    created = await openSession()
+  } catch (error) {
     connection.kill()
-    throw new Error(formatAcpSetupError(error))
-  })
+    throw new Error(formatAcpSetupError(error), { cause: error })
+  }
   const sessionId = created.sessionId as string
+  // Publish the agent's session id so Ari can resume it via session/load on
+  // the next turn instead of losing all context.
+  push([{ type: 'session-ref', ref: sessionId }])
 
   await applyModel(connection, sessionId, created.configOptions ?? [], session.modelId)
   await applyPermissionMode(connection, sessionId, created.configOptions ?? [], created.modes?.availableModes ?? [], session.permissionMode)

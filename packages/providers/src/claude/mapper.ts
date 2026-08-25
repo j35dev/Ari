@@ -72,9 +72,14 @@ export function mapClaudeLine(line: string): AgentEvent[] {
   }
 
   switch (parsed.type) {
-    case 'system':
-      // init carries session metadata; nothing to surface in the transcript.
+    case 'system': {
+      // system/init carries the CLI's own session id; surfacing it as the
+      // provider ref lets later turns --resume instead of losing context.
+      if (typeof parsed.session_id === 'string' && parsed.session_id.length > 0) {
+        events.push({ type: 'session-ref', ref: parsed.session_id })
+      }
       break
+    }
 
     case 'assistant': {
       for (const block of parsed.message?.content ?? []) {
