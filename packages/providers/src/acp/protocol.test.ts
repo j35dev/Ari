@@ -81,6 +81,34 @@ describe('AcpUpdateFolder', () => {
       folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '' } } }),
     ).toEqual([])
   })
+
+  it('surfaces agent error updates instead of swallowing them', () => {
+    const folder = new AcpUpdateFolder()
+    const events = folder.fold({
+      sessionId: 'sess_1',
+      update: {
+        sessionUpdate: 'error',
+        content: [{ type: 'text', text: 'quota exhausted' }],
+      },
+    })
+    if (events[0]?.type === 'error') {
+      expect(events[0].message).toBe('quota exhausted')
+      expect(JSON.parse(events[0].rawJson ?? '{}')).toMatchObject({ sessionUpdate: 'error' })
+    } else {
+      throw new Error('expected error event')
+    }
+  })
+
+  it('gives agent error updates without content a legible fallback message', () => {
+    const folder = new AcpUpdateFolder()
+    const events = folder.fold({ sessionId: 'sess_1', update: { sessionUpdate: 'error' } })
+    if (events[0]?.type === 'error') {
+      expect(events[0].message).toContain('sess_1')
+      expect(events[0].message).toContain('unspecified error')
+    } else {
+      throw new Error('expected error event')
+    }
+  })
 })
 
 describe('stopReasonEvents', () => {
