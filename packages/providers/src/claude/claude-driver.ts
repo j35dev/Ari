@@ -33,6 +33,7 @@ export function buildClaudeArgs(session: AdapterSession): string[] {
     '--verbose',
     '--input-format',
     'stream-json',
+    '--include-partial-messages',
     '--permission-prompt-tool',
     'stdio',
   ]
