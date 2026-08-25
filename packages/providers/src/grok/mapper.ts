@@ -37,6 +37,7 @@ interface GrokStreamEvent {
 interface NativeLine {
   type?: string
   subtype?: string
+  session_id?: string
   is_error?: boolean
   errors?: unknown
   total_cost_usd?: unknown
@@ -150,8 +151,12 @@ export function mapGrokLine(line: string): AgentEvent[] {
   }
 
   switch (parsed.type) {
-    case 'system':
-      return []
+    case 'system': {
+      // init carries the CLI's session id; surfacing it lets later turns
+      // --resume instead of silently starting a fresh conversation.
+      const sid = parsed.session_id
+      return typeof sid === 'string' && sid.length > 0 ? [{ type: 'session-ref', ref: sid }] : []
+    }
 
     case 'stream_event':
       return mapStreamEvent(parsed.event)
