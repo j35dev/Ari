@@ -214,6 +214,19 @@ export class AcpUpdateFolder {
         this.#started.add(callId)
         return [...started, toCompleted(callId, update)]
       }
+      case 'error': {
+        // Agent-reported fatal errors ride session/update like everything
+        // else; swallowing them made failures look like silent stalls.
+        const text = textOf(asBlocks(update.content))
+        return [
+          {
+            type: 'error',
+            message:
+              text.length > 0 ? text : `${notification.sessionId ?? 'agent'} reported an unspecified error`,
+            rawJson: JSON.stringify(update),
+          },
+        ]
+      }
       case 'usage_update': {
         const used = typeof update.used === 'number' && update.used >= 0 ? Math.floor(update.used) : 0
         const costUsd = update.cost?.currency === 'USD' && typeof update.cost.amount === 'number'
@@ -222,8 +235,8 @@ export class AcpUpdateFolder {
         return [{ type: 'usage', inputTokens: used, outputTokens: 0, costUsd }]
       }
       default:
-        // user_message_chunk / plan / mode / config / info / commands updates
-        // have no transcript surface in Ari v1.
+        // user_message_chunk / plan / mode / config / commands updates have
+        // no transcript surface yet (plan needs a dedicated event + UI).
         return []
     }
   }
