@@ -142,6 +142,12 @@ suite('GitService', () => {
     expect(result).toEqual({ ok: true, value: null })
   })
 
+  it('answers turn diffs with an empty string outside a repo instead of failing', async () => {
+    const plain = await makeDir('ari-plain-')
+    const result = await service.diffForRef(plain, 'refs/ari/sess-x/turn-01')
+    expect(result).toEqual({ ok: true, value: '' })
+  })
+
   it('revert restores tracked state at the checkpoint and keeps untracked files', async () => {
     const dir = await initRepo()
     const cp = await service.captureCheckpoint(dir, 'sess-r', 'turn-01')
