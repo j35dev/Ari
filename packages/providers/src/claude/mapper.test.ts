@@ -93,4 +93,29 @@ describe('claude mapper', () => {
       throw new Error('expected tool-completed')
     }
   })
+
+  it('maps can_use_tool control requests to approval-requested events', () => {
+    const line = JSON.stringify({
+      type: 'control_request',
+      request_id: 'req_7',
+      request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'rm -rf /tmp/x' } },
+    })
+    const events = mapClaudeLine(line)
+    if (events[0]?.type === 'approval-requested') {
+      expect(events[0].approvalId).toBe('req_7')
+      expect(events[0].toolName).toBe('Bash')
+      expect(JSON.parse(events[0].summaryJson)).toEqual({ command: 'rm -rf /tmp/x' })
+    } else {
+      throw new Error('expected approval-requested')
+    }
+  })
+
+  it('ignores non-can_use_tool control requests without emitting noise', () => {
+    const line = JSON.stringify({
+      type: 'control_request',
+      request_id: 'req_8',
+      request: { subtype: 'mystery' },
+    })
+    expect(mapClaudeLine(line)).toEqual([])
+  })
 })

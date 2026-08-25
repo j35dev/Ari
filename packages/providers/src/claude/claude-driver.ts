@@ -21,11 +21,22 @@ const INTERRUPT_KILL_FALLBACK_MS = 2000
 export type ApprovalDecision = 'allow' | 'always-allow' | 'deny'
 
 /**
- * Builds the argv for a one-shot `claude` turn. Kept pure for tests; flag
- * drift is caught by fixture tests plus the diagnostics card (M4.15).
+ * Builds the argv for a `claude` turn driven over bidirectional stream-json.
+ * The prompt itself rides stdin as the first user frame (see
+ * {@linkcode buildUserFrame}); approvals arrive as can_use_tool control
+ * requests because of `--permission-prompt-tool stdio`. Kept pure for tests;
+ * flag drift is caught by fixture tests plus the diagnostics card (M4.15).
  */
 export function buildClaudeArgs(session: AdapterSession): string[] {
-  const args = ['-p', session.prompt, '--output-format', 'stream-json', '--verbose']
+  const args = [
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--input-format',
+    'stream-json',
+    '--permission-prompt-tool',
+    'stdio',
+  ]
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--resume', session.resumeOf)
   args.push('--permission-mode', permissionModeFlag(session.permissionMode))
@@ -56,17 +67,44 @@ export function buildInterruptFrame(requestId = 'int-1'): unknown {
   return { type: 'control_request', request_id: requestId, request: { subtype: 'interrupt' } }
 }
 
+/**
+ * Builds the control_response answering a can_use_tool control request.
+ * `always-allow` persists an allow rule for the tool for the rest of the CLI
+ * session (`destination: 'session'`); plain `allow` is one-shot.
+ */
 export function buildApprovalResponseFrame(
-  approvalId: string,
+  requestId: string,
   decision: ApprovalDecision,
+  toolName?: string,
 ): unknown {
-  const directive =
-    decision === 'deny'
-      ? `Deny tool use ${approvalId}.`
-      : decision === 'always-allow'
-        ? `Always approve tool use ${approvalId}.`
-        : `Approve tool use ${approvalId}.`
-  return buildUserFrame(directive)
+  if (decision === 'deny') {
+    return {
+      type: 'control_response',
+      response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message: 'Denied by user in Ari.' } },
+    }
+  }
+  const allow: Record<string, unknown> = { behavior: 'allow' }
+  if (decision === 'always-allow' && toolName !== undefined && toolName !== 'unknown') {
+    allow['updatedPermissions'] = [
+      { type: 'addRules', rules: [{ toolName }], behavior: 'allow', destination: 'session' },
+    ]
+  }
+  return {
+    type: 'control_response',
+    response: { subtype: 'success', request_id: requestId, response: allow },
+  }
+}
+
+/** Error control_response for control requests Ari does not handle; without it the CLI would wait forever. */
+export function buildUnsupportedControlResponse(requestId: string, subtype: string | undefined): unknown {
+  return {
+    type: 'control_response',
+    response: {
+      subtype: 'error',
+      request_id: requestId,
+      error: { message: `Ari does not support control request subtype ${subtype ?? '<none>'}` },
+    },
+  }
 }
 
 /**
@@ -94,11 +132,18 @@ export interface ClaudeControlAdapter extends ProviderAdapter {
 
 /**
  * Wires a spawned `claude` stream-json process into an adapter with stdin
- * control: steering frames, approval responses, and interrupt with a timed
- * kill fallback for CLIs that never honor the control frame.
+ * control: the initial prompt frame, steering frames, can_use_tool approval
+ * responses over the real control protocol, error answers for unsupported
+ * control requests, and interrupt with a timed kill fallback for CLIs that
+ * never honor the control frame.
  */
-export function wireClaudeControl(child: ControlProcessLike): ClaudeControlAdapter {
+export function wireClaudeControl(
+  child: ControlProcessLike,
+  options: { initialPrompt?: unknown } = {},
+): ClaudeControlAdapter {
   let killFallback: ReturnType<typeof setTimeout> | null = null
+  /** request_id → tool name of live can_use_tool prompts, for always-allow rules. */
+  const pendingPermissions = new Map<string, string>()
 
   const clearKillFallback = (): void => {
     if (killFallback !== null) {
@@ -123,10 +168,39 @@ export function wireClaudeControl(child: ControlProcessLike): ClaudeControlAdapt
     return true
   }
 
-  const iterator = streamProcessEvents(child, mapClaudeLine, {
+  /** Answers control requests Ari cannot serve so the CLI never stalls on them. */
+  const answerUnhandledControl = (line: string): void => {
+    let parsed: {
+      type?: string
+      request_id?: string
+      request?: { subtype?: string; tool_name?: string }
+    }
+    try {
+      parsed = JSON.parse(line) as typeof parsed
+    } catch {
+      return
+    }
+    if (parsed.type !== 'control_request' || typeof parsed.request_id !== 'string') return
+    if (parsed.request?.subtype === 'can_use_tool') {
+      pendingPermissions.set(parsed.request_id, parsed.request.tool_name ?? 'unknown')
+      return
+    }
+    writeLine(buildUnsupportedControlResponse(parsed.request_id, parsed.request?.subtype))
+  }
+
+  const iterator = streamProcessEvents(child, (line: string) => {
+    answerUnhandledControl(line)
+    return mapClaudeLine(line)
+  }, {
     label: 'claude',
     stderrLog: (text) => log.debug('claude stderr', { text: text.slice(0, 500) }),
   })[Symbol.asyncIterator]()
+
+  // The turn's prompt rides stdin as the first stream-json user frame now that
+  // --input-format stream-json replaced the one-shot -p argv form.
+  if (options.initialPrompt !== undefined) {
+    writeLine(options.initialPrompt)
+  }
 
   return {
     start: () => ({ [Symbol.asyncIterator]: () => iterator }),
@@ -137,7 +211,8 @@ export function wireClaudeControl(child: ControlProcessLike): ClaudeControlAdapt
       writeLine(buildUserFrame(text))
     },
     respondApproval: (approvalId, decision) => {
-      writeLine(buildApprovalResponseFrame(approvalId, decision))
+      writeLine(buildApprovalResponseFrame(approvalId, decision, pendingPermissions.get(approvalId)))
+      pendingPermissions.delete(approvalId)
     },
     interrupt: () => {
       if (child.killed || killFallback !== null) return
@@ -171,6 +246,6 @@ export class ClaudeDriver implements Driver {
     })
     log.debug('claude spawned', { pid: child.pid })
 
-    return Promise.resolve(wireClaudeControl(child))
+    return Promise.resolve(wireClaudeControl(child, { initialPrompt: buildUserFrame(session.prompt) }))
   }
 }
