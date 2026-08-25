@@ -257,4 +257,33 @@ describe('SessionStore', () => {
     expect(list[0]?.pinned).toBe(true)
     expect(list[0]?.archived).toBe(false)
   })
+
+  it('folds appends into the cached read model instead of replaying per event', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.load(session.id) // one authoritative warm-up replay
+
+    const j = await store.openJournal(session.id)
+    const spy = vi.spyOn(j, 'readAll')
+
+    // A streamed turn appends dozens of events; none may re-read the journal.
+    for (let i = 0; i < 25; i++) {
+      await store.append(session.id, { type: 'turn.started', turnId: `turn_${i}` })
+    }
+    expect(spy).not.toHaveBeenCalled()
+
+    // The cached model stays coherent: sequence continues and state folds.
+    // (`load` remains an authoritative replay by contract — that's its job.)
+    const model = await store.load(session.id)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(model.lastSeq).toBe(25)
+
+    // closeJournal drops the cache so a reopened journal replays fresh.
+    await store.closeJournal(session.id)
+    const reopened = await store.openJournal(session.id)
+    const spy2 = vi.spyOn(reopened, 'readAll')
+    await store.append(session.id, { type: 'turn.settled', turnId: 'turn_0', stopReason: 'completed', errorMessage: null })
+    expect(spy2).toHaveBeenCalledTimes(1) // cache was dropped: one fresh replay
+    expect(await store.nextSeq(session.id)).toBe(27) // then folds in memory
+    expect(spy2).toHaveBeenCalledTimes(1)
+  })
 })
