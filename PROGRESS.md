@@ -52,7 +52,7 @@ commit as the work. Claim format: `- [ ] M1.4 Button primitive (claimed @ feat/m
 - 7 providers auto-detected (claude/codex/opencode/grok/pi/hermes + Ari Core), health probes, deduped registry
 - Live engine: journals, decider, turns, approvals flow, per-turn git checkpoints + revert command
 - Transcript: virtualized, GFM+Shiki, tool/thinking cards, copy + usage footers, stick-to-bottom spring
-- Composer: morph button, queue, drafts, slash popup, @file mentions, image attachment primitives
+- Composer: morph button, queue, drafts, slash popup, `@file` mentions, image attachment primitives
 - Terminal pane (pty+xterm), changes rail (git status + unified diff viewer), projects manager
 - Command palette (Ctrl+K), 6 themes, boot splash, settle notifications, tray
 - Packaging: electron-builder config for NSIS/DMG/AppImage/deb, generated icon, `Ari.exe` smoke-tested
@@ -270,7 +270,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M6.1 Auto-grow textarea (76–260px) + IME safety
 - [x] M6.2 Send→Steer→Stop morph button (180ms crossfade + width tween)
 - [x] M6.3 Queue-while-running (pending messages list, reorder, cancel)
-- [x] M6.4 @file fuzzy mentions fed by watcher index (composer picker wired via `suggestions` prop; feed served by the iles.index RPC, landed with M9.6)
+- [x] M6.4 `@file` fuzzy mentions fed by watcher index (composer picker wired via `suggestions` prop; feed served by the iles.index RPC, landed with M9.6)
 - [x] M6.5 Slash command registry + palette-style popup
 - [x] M6.6 Image paste/drop attachments (primitives: useImageAttachments hook + AttachmentStrip with object-URL lifecycle; paste/drop wiring into Composer follows)
 - [x] M6.7 Drafts per session (persist, restore)

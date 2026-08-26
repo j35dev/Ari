@@ -218,7 +218,7 @@ the shared diff viewer.
 
 Sessions sidebar (grouped by project, attention-sorted, unseen dots, archive/search) ·
 New Session canvas (project+provider+model+mode pickers) · Transcript · Composer
-(auto-grow, queue while running, @file mentions, slash commands, image paste, drafts) ·
+(auto-grow, queue while running, `@file` mentions, slash commands, image paste, drafts) ·
 Approval center (inline cards + global badge) · Question panel · Diff/Changes pane
 (per-turn & whole-thread, file collapse, hunk nav, revert) · Terminal tabs · File explorer
 · Git panel (status/branch/stage-lite) · Command palette (fuzzy, actions+nav) · Settings:
