@@ -34,7 +34,10 @@ if (!gotLock) {
     }, SPLASH_FALLBACK_MS)
 
     mainWindow = createMainWindow()
-    mainWindow.webContents.once('did-finish-load', () => {
+    // Hand over on the first painted frame, not on load completion: the main
+    // window shows itself on ready-to-show beneath the always-on-top splash,
+    // so the splash's outro dissolves directly into the ADE with no gap.
+    mainWindow.once('ready-to-show', () => {
       clearTimeout(splashFallback)
       splash = finishSplash(splash)
       startAutoUpdater()

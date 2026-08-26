@@ -55,7 +55,11 @@ async function initRepo(): Promise<string> {
 }
 
 suite('GitService', () => {
-  it('detects repos vs plain directories', async () => {
+  // Every test here shells out to real git; under a fully parallel verify the
+  // machine saturates and 5s (vitest default) is not enough for even `init`.
+  const GIT_TIMEOUT = 30_000
+
+  it('detects repos vs plain directories', { timeout: GIT_TIMEOUT }, async () => {
     const repo = await initRepo()
     const plain = await makeDir('ari-plain-')
 

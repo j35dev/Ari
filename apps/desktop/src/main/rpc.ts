@@ -47,18 +47,19 @@ const log = createLogger('desktop:rpc')
 
 /**
  * Kinds whose ACP server is probed for the agent's own model list. Native
- * ACP servers are cheap to ask; npx adapters would download packages in the
- * background, so they only run when explicitly requested.
+ * ACP servers are cheap to ask. npx adapters would download packages in the
+ * background, so pi probes with `--no-install` — it only answers when the
+ * adapter is already cached from normal use; everything fails soft.
  */
 function acpProbeKinds(): DriverKind[] {
   if (process.env['ARI_ACP'] === '0') return []
   if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
     return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
   }
-  // Claude and Codex both ship ACP adapters that advertise their real model
-  // lists via configOptions — probing them is what keeps the picker honest;
-  // the bundled snapshot is only a first-paint fallback.
-  return ['claude', 'codex', 'opencode', 'hermes']
+  // Every kind with a real ACP transport: the probe reads the agent's own
+  // model list (session config options), which is what keeps the picker
+  // honest; the curated snapshot is only a first-paint fallback.
+  return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
 }
 
 /**
@@ -73,7 +74,12 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
   const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath })
   if (launch === null) return null
   const { AcpConnection } = await import('@ari/providers/acp/connection')
-  const connection = await AcpConnection.connect({ launch, cwd: homedir(), initializeTimeoutMs: 20_000 })
+  // npx launches must not pull packages just to enumerate models: with
+  // --no-install the probe only answers when the adapter is already cached.
+  const launchForProbe = launch.viaNpx
+    ? { ...launch, args: ['--no-install', ...launch.args] }
+    : launch
+  const connection = await AcpConnection.connect({ launch: launchForProbe, cwd: homedir(), initializeTimeoutMs: 20_000 })
   try {
     const created = await connection.newSession(homedir())
     const modelOption = (created.configOptions ?? []).find((o) => o.category === 'model' && o.type === 'select')

@@ -54,10 +54,18 @@ const SNAPSHOT = snapshot as {
  */
 const dynamic = new Map<DriverKind, { source: CatalogSource; models: CatalogModel[] }>()
 
-/** Installs a freshly-fetched catalog for a kind, replacing any previous one. */
+/**
+ * Installs a freshly-fetched catalog for a kind, replacing any previous one.
+ * Registry-derived sources ('cache') get the same current-model curation as
+ * the snapshot — models.dev lists every model a vendor ever shipped, and an
+ * unfiltered cache would flood the picker with models the CLI no longer
+ * serves. 'live' data is the harness's own word and is never second-guessed.
+ */
 export function setDynamicModels(kind: DriverKind, source: CatalogSource, models: CatalogModel[]): void {
   if (models.length === 0) return
-  dynamic.set(kind, { source, models })
+  const effective = source === 'live' ? models : (curateToCurrentModels(kind, models) ?? models)
+  if (effective.length === 0) return
+  dynamic.set(kind, { source, models: effective })
 }
 
 /** Removes any dynamic overlay for a kind (tests, invalidation). */
@@ -91,12 +99,19 @@ function snapshotFor(kind: DriverKind): CatalogModel[] | null {
   const providerId = SNAPSHOT_PROVIDER[kind]
   const models = providerId !== undefined ? (SNAPSHOT.providers[providerId] ?? null) : null
   if (models === null || models.length === 0) return null
+  return curateToCurrentModels(kind, models) ?? models
+}
+
+/**
+ * Narrows a vendor catalog to the ids each CLI serves today; null when there
+ * is no curation for the kind or the curation went stale against this data
+ * (a full vendor catalog beats an empty picker).
+ */
+function curateToCurrentModels(kind: DriverKind, models: CatalogModel[]): CatalogModel[] | null {
   const currentIds = CURRENT_MODEL_IDS[kind]
-  if (currentIds === undefined) return models
+  if (currentIds === undefined) return null
   const current = models.filter((model) => currentIds.includes(model.id))
-  // Never return an empty list because a curated id went stale: a picker with
-  // the full vendor catalog beats a picker with nothing in it.
-  return current.length > 0 ? current : models
+  return current.length > 0 ? current : null
 }
 
 /**

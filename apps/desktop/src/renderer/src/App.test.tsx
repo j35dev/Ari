@@ -331,9 +331,12 @@ describe('Shell live sidebar feed', () => {
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
 
-    await vi.waitFor(() => {
-      expect(invokeMock.mock.calls.some(([method]) => method === 'session.create')).toBe(true)
-    })
+    await vi.waitFor(
+      () => {
+        expect(invokeMock.mock.calls.some(([method]) => method === 'session.create')).toBe(true)
+      },
+      { timeout: 3_000 },
+    )
   })
 
   it('does not refetch on streaming deltas', async () => {

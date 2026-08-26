@@ -1,14 +1,14 @@
 import { createRequire } from 'node:module'
 import { app } from 'electron'
 import { createLogger } from '@ari/shared/logger'
+import type { AppUpdater } from 'electron-updater'
 
 const log = createLogger('desktop:updater')
 
 // electron-updater is CommonJS; the main bundle is ESM, so resolve it through
 // require instead of a named import (which throws at runtime in Electron).
-const { autoUpdater } = createRequire(import.meta.url)('electron-updater') as {
-  autoUpdater: import('electron-updater').AppUpdater
-}
+const nodeRequire = createRequire(import.meta.url)
+const { autoUpdater } = nodeRequire('electron-updater') as { autoUpdater: AppUpdater }
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 const FIRST_CHECK_DELAY_MS = 8_000
@@ -25,9 +25,7 @@ export function startAutoUpdater(): void {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.on('update-downloaded', () => {
-    log.info('update downloaded; installs on next restart', {
-      version: autoUpdater.currentVersion.version,
-    })
+    log.info('update downloaded; installs on next restart')
   })
   const check = (): void => {
     void autoUpdater.checkForUpdates().catch((cause: unknown) => {

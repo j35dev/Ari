@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
@@ -69,7 +69,10 @@ export function ModelSelector({
   const listboxId = useId()
   const activeId = `${listboxId}-opt-${activeIndex}`
 
-  useEffect(() => {
+  /** Drivers + model catalogs; cheap enough to re-run on every picker open so
+   * late-landing ACP probes (which spawn the agent CLI) show up without a
+   * restart. */
+  const loadCatalogs = useCallback(() => {
     void Promise.allSettled([
       rpc.invoke('providers.detect').then((detections) => {
         setDrivers(
@@ -83,9 +86,8 @@ export function ModelSelector({
       }),
       rpc.invoke('providers.models').then((rows) => {
         const byKind: CatalogByKind = {}
-        // Every source is usable now that the snapshot fallback is curated to
-        // what each CLI currently serves (catalogs.ts CURRENT_MODEL_IDS). Taking
-        // only `live` left the picker empty whenever no ACP probe had landed.
+        // Every source is usable: snapshot/cache are curated to what each CLI
+        // currently serves and `live` rows are the harness's own model list.
         for (const row of rows) byKind[row.kind as DriverKind] = row.models
         setCatalog(byKind)
       }),
@@ -101,6 +103,10 @@ export function ModelSelector({
       }),
     ]).finally(() => setLoaded(true))
   }, [])
+
+  useEffect(() => {
+    loadCatalogs()
+  }, [loadCatalogs])
 
   /** Models for one provider — the right-hand pane. */
   const optionsFor = useMemo(() => {
@@ -320,6 +326,7 @@ export function ModelSelector({
           }
           setOpen(true)
           setActiveKind(lockedTo ?? defaultKind)
+          loadCatalogs()
         }}
         aria-label={`Model: ${currentKindLabel} · ${triggerLabel}`}
         aria-haspopup="listbox"
