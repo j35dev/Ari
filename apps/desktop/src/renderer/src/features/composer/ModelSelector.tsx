@@ -324,7 +324,7 @@ export function ModelSelector({
         aria-label={`Model: ${currentKindLabel} · ${triggerLabel}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 max-w-52 items-center gap-1.5 rounded-md border border-border bg-surface-1 pe-2 ps-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 w-full max-w-52 items-center gap-1.5 rounded-md border border-border bg-surface-1 pe-2 ps-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <ProviderLogo kind={driverKind} />
         <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
