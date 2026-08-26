@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { FileExplorer } from './FileExplorer'
+import { FILE_MIME } from '../composer/drag-file'
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -139,5 +140,32 @@ describe('FileExplorer', () => {
       }),
     )
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('fs.list', { path: ROOT }))
+  })
+
+  it('file rows drag with a workspace-relative mention payload', async () => {
+    render(<FileExplorer root={ROOT} />)
+    await screen.findByRole('treeitem', { name: /^README\.md/ })
+
+    const setData = vi.fn()
+    fireEvent.dragStart(screen.getByRole('button', { name: /README\.md/ }), {
+      dataTransfer: { setData, effectAllowed: '' },
+    })
+
+    expect(setData).toHaveBeenCalledWith(FILE_MIME, 'README.md')
+  })
+
+  it('nested file rows carry their path below the root', async () => {
+    const user = userEvent.setup()
+    render(<FileExplorer root={ROOT} />)
+    await screen.findByRole('treeitem', { name: /^README\.md/ })
+    await user.click(screen.getByRole('button', { name: 'src' }))
+    await screen.findByRole('treeitem', { name: /^main\.ts/ })
+
+    const setData = vi.fn()
+    fireEvent.dragStart(screen.getByRole('button', { name: /main\.ts/ }), {
+      dataTransfer: { setData, effectAllowed: '' },
+    })
+
+    expect(setData).toHaveBeenCalledWith(FILE_MIME, 'src\\main.ts')
   })
 })

@@ -3,6 +3,7 @@ import type { RpcResults } from '@ari/contracts/rpc'
 import { IconButton } from '@ari/ui/icon-button'
 import { ChevronRight, FileText, Folder, FolderOpen, RotateCw } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
+import { setDragFilePath } from '../composer/drag-file'
 import { FileEditor } from './FileEditor'
 
 /** One listing row as returned by the `fs.list` RPC. */
@@ -16,6 +17,16 @@ function joinPath(dir: string, name: string): string {
   if (endsWithSep) return `${dir}${name}`
   const sep = dir.includes('\\') ? '\\' : '/'
   return `${dir}${sep}${name}`
+}
+
+/** Strips the workspace root prefix so dragged paths match @mention paths. */
+export function relativeToRoot(root: string, path: string): string {
+  const trimmedRoot = root.replace(/[\\/]+$/, '')
+  if (path.startsWith(trimmedRoot)) {
+    const rest = path.slice(trimmedRoot.length).replace(/^[\\/]+/, '')
+    if (rest.length > 0) return rest
+  }
+  return path
 }
 
 function formatSize(bytes: number): string {
@@ -34,6 +45,8 @@ interface ExplorerRowProps {
   selected: string | null
   onToggleDir: (path: string) => void
   onSelectFile: (path: string) => void
+  /** Stamps file rows as draggable mention sources (files only). */
+  onDragStartFile: (event: React.DragEvent<HTMLButtonElement>, path: string) => void
 }
 
 function ExplorerRow({
@@ -45,6 +58,7 @@ function ExplorerRow({
   selected,
   onToggleDir,
   onSelectFile,
+  onDragStartFile,
 }: ExplorerRowProps) {
   const isDir = entry.type === 'dir'
   const isExpanded = isDir && expanded.has(path)
@@ -59,6 +73,9 @@ function ExplorerRow({
     >
       <button
         type="button"
+        draggable={!isDir}
+        onDragStart={isDir ? undefined : (event) => onDragStartFile(event, path)}
+        title={isDir ? undefined : 'Drag into the prompt to reference this file'}
         onClick={() => (isDir ? onToggleDir(path) : onSelectFile(path))}
         className={`flex w-full items-center gap-1 rounded-sm py-0.5 pr-2 text-left text-xs font-mono transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${
           isSelected ? 'bg-surface-2 text-fg' : 'text-fg-muted'
@@ -113,6 +130,7 @@ function ExplorerRow({
                 selected={selected}
                 onToggleDir={onToggleDir}
                 onSelectFile={onSelectFile}
+                onDragStartFile={onDragStartFile}
               />
             ))
           )}
@@ -197,6 +215,14 @@ export function FileExplorer({ root }: { root: string }) {
     setEditingPath(path)
   }, [])
 
+  /** File rows drag as mention sources carrying the workspace-relative path. */
+  const dragFile = useCallback(
+    (event: React.DragEvent<HTMLButtonElement>, path: string): void => {
+      setDragFilePath(event, relativeToRoot(root, path))
+    },
+    [root],
+  )
+
   const rootEntries = entries[root]
 
   return (
@@ -236,6 +262,7 @@ export function FileExplorer({ root }: { root: string }) {
                 selected={selected}
                 onToggleDir={toggleDir}
                 onSelectFile={openFile}
+                onDragStartFile={dragFile}
               />
             ))}
           </ul>

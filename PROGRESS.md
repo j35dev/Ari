@@ -414,6 +414,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 ## M24 - Terminal workspace
 
 - [x] M24.1 Terminal becomes a full-page pane workspace (herdr-style) instead of the 520px inspector: binary split tree (`terminal-layout.ts` pure ops — split/close/setRatio with 0.15-0.85 clamps), any pane splits right/down, dividers drag via pointer capture and nudge with arrow keys (role=separator + aria valuemin/max/now), every pane stays mounted so background pty output keeps flowing; pane launcher offers the plain shell plus installed agent CLIs (Claude Code `claude`, Codex CLI `codex` — undetected CLIs are not offered, per `providers.detect`); panes root at the active session's project folder (home-dir fallback); run-script requests (M21.3) land as panes via the existing pub/sub; closing every pane lands on an intentional empty state (no auto-respawn); TerminalView replaced by TerminalWorkspace + extracted TerminalPane
+- [x] M24.2 Drag a file from the explorer or changes list into the prompt box to reference it as `@<path>`: pane rows stamp a private `application/x-ari-file-path` payload (`composer/drag-file.ts`) carrying the workspace-relative path (explorer rows strip the root; changes chips are already repo-relative), the composer's drop handler inserts it at the caret using the same `@path ` format as the mention popup, and OS file drags (`Files` type) keep landing on the image-attachment path; drag-only affordance is keyboard-redundant via the existing @ popup
 
 ## Stretch backlog (post-V1, unplanned)
 
