@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "Ari — an open, local-first agent development environment for Windows, macOS and Linux.",
+  "homepage": "https://github.com/tahacore/Ari",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
