@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
+import { FILE_MIME } from './drag-file'
 
 describe('Composer', () => {
   it('sends trimmed text on click and clears the field', async () => {
@@ -309,5 +310,41 @@ describe('Composer mention popup', () => {
     render(<Composer onSend={vi.fn()} suggestions={many} />)
     await user.type(screen.getByLabelText('Message'), '@')
     expect(screen.getAllByRole('option')).toHaveLength(8)
+  })
+})
+
+describe('Composer file drag-drop', () => {
+  /** DataTransfer stand-in for an in-app pane-row drag (see drag-file.ts). */
+  function fileDrag(path: string) {
+    return {
+      types: [FILE_MIME],
+      files: [],
+      getData: (type: string) => (type === FILE_MIME ? path : ''),
+    }
+  }
+
+  it('inserts a dragged pane file as a mention at the caret', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'see ')
+
+    fireEvent.dragOver(input, { dataTransfer: fileDrag('src/app.ts') })
+    fireEvent.drop(input, { dataTransfer: fileDrag('src/app.ts') })
+
+    expect(input).toHaveValue('see @src/app.ts ')
+  })
+
+  it('keeps OS file drops on the image attachment path', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    const file = new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })
+
+    fireEvent.drop(input, {
+      dataTransfer: { types: ['Files'], files: [file], getData: () => '' },
+    })
+
+    expect(screen.getByRole('list', { name: 'Attached images' })).toBeInTheDocument()
+    expect(input).toHaveValue('')
   })
 })

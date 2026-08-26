@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { ToastProvider } from '@ari/ui/toast'
 import { ChangesView } from './ChangesView'
+import { FILE_MIME } from '../composer/drag-file'
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -54,5 +55,28 @@ describe('ChangesView', () => {
 
     await screen.findByRole('button', { name: 'Revert turn t1' })
     expect(invokeMock).toHaveBeenCalledWith('git.status', { path: 'C:\\repos\\demo' })
+  })
+
+  it('changed-file chips drag as mention sources with their repo-relative path', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list')
+        return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
+      if (method === 'git.status')
+        return {
+          isRepo: true,
+          branch: 'main',
+          files: [{ path: 'index.html', staged: false, kind: 'M' }],
+        }
+      if (method === 'git.diffWorktree') return { diffText: '' }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    render(<ToastProvider><ChangesView /></ToastProvider>)
+
+    const chip = await screen.findByText('index.html')
+    const setData = vi.fn()
+    fireEvent.dragStart(chip, { dataTransfer: { setData, effectAllowed: '' } })
+
+    expect(chip).toHaveAttribute('draggable', 'true')
+    expect(setData).toHaveBeenCalledWith(FILE_MIME, 'index.html')
   })
 })
