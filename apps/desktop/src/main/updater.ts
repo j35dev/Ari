@@ -1,8 +1,14 @@
+import { createRequire } from 'node:module'
 import { app } from 'electron'
-import { autoUpdater } from 'electron-updater'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('desktop:updater')
+
+// electron-updater is CommonJS; the main bundle is ESM, so resolve it through
+// require instead of a named import (which throws at runtime in Electron).
+const { autoUpdater } = createRequire(import.meta.url)('electron-updater') as {
+  autoUpdater: import('electron-updater').AppUpdater
+}
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 const FIRST_CHECK_DELAY_MS = 8_000
