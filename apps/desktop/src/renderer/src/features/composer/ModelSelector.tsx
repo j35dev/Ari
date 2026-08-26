@@ -310,7 +310,7 @@ export function ModelSelector({
   )
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         type="button"
         onClick={() => {
