@@ -789,7 +789,7 @@ export function EffortChip() {
         aria-label={`Effort: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span>{current.label}</span>
         <ChevronDown size={11} aria-hidden className={`text-fg-subtle ${open ? 'rotate-180' : ''}`} />
@@ -875,7 +875,7 @@ export function PermissionModeChip({
         aria-label={`Permission mode: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span
           aria-hidden

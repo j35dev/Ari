@@ -348,3 +348,24 @@ describe('Composer file drag-drop', () => {
     expect(input).toHaveValue('')
   })
 })
+
+describe('Composer mention highlight', () => {
+  it('renders a highlighted mark behind the field for each reference', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'see @src/app.ts ok')
+
+    const mark = screen.getByText('@src/app.ts')
+    expect(mark.tagName).toBe('MARK')
+    expect(mark).toHaveClass('bg-accent-subtle')
+  })
+
+  it('does not highlight mid-word @ text', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+    await user.type(screen.getByLabelText('Message'), 'mail bob@example.com now')
+
+    expect(document.querySelector('mark')).toBeNull()
+  })
+})
