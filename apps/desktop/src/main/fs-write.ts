@@ -19,9 +19,10 @@ function isInside(target: string, root: string): boolean {
  * Canonicalizes the write target through symlinks and requires it to land
  * inside one of the registered project folders; anything else is refused.
  *
- * An existing target resolves via its own realpath; a new file resolves via
- * its parent directory's realpath (the final segment cannot be a symlink
- * yet). Fail-closed: no resolvable location means no write.
+ * An existing target resolves via its own realpath. An unresolvable final
+ * segment is refused when it exists at all (a dangling symlink's target is
+ * unknowable); only a genuinely absent file falls back to its parent
+ * directory's realpath. Fail-closed: no resolvable location means no write.
  */
 async function jailedTarget(resolved: string, roots: readonly string[]): Promise<string> {
   if (roots.length === 0) throw new Error('no registered project folders')
