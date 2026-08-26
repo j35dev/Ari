@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw, FileText, GitBranch, GitPullRequest } from 'lucide-react'
 import { DiffViewer } from '../diffs'
 import { rpc } from '../../lib/rpc'
+import { setDragFilePath } from '../composer/drag-file'
 import { CheckpointList } from './CheckpointList'
 
 interface StatusState {
@@ -99,7 +100,10 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
               {status.files.map((f) => (
                 <li
                   key={`${f.path}:${String(f.staged)}`}
-                  className="rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 font-mono text-2xs text-fg-muted"
+                  draggable
+                  title="Drag into the prompt to reference this file"
+                  onDragStart={(event) => setDragFilePath(event, f.path)}
+                  className="cursor-grab rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 font-mono text-2xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg active:cursor-grabbing"
                 >
                   {f.staged ? '• ' : ''}
                   {f.path}

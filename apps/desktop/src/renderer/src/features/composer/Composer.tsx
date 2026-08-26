@@ -10,6 +10,7 @@ import { SlashPopup } from './SlashPopup'
 import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
+import { FILE_MIME, readDragFilePath } from './drag-file'
 import {
   loadStash,
   persistStash,
@@ -194,16 +195,28 @@ export function Composer({
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLTextAreaElement>) => {
+      // In-app file drags (explorer/changes rows) become @file mentions.
+      const path = readDragFilePath(e)
+      if (path !== null) {
+        e.preventDefault()
+        const insert = `@${path} `
+        const nextCaret = caret + insert.length
+        setText((prev) => prev.slice(0, caret) + insert + prev.slice(caret))
+        setCaret(nextCaret)
+        refocus(nextCaret)
+        return
+      }
       if (e.dataTransfer.files.length > 0) {
         e.preventDefault()
         addFiles(e.dataTransfer.files)
       }
     },
-    [addFiles],
+    [addFiles, caret, refocus],
   )
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
-    if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+    const types = e.dataTransfer.types
+    if (types.includes('Files') || types.includes(FILE_MIME)) e.preventDefault()
   }, [])
 
   const handleKeyDown = useCallback(
