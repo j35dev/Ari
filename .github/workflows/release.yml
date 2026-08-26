@@ -1,0 +1,59 @@
+# Release builds (M14): one job per OS, artifacts attached to the pushed tag's
+# GitHub Release. Windows can also be built locally; macOS and Linux
+# installers can only be produced on their own platforms, hence the matrix.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+          - os: macos-latest
+            args: --mac
+          - os: ubuntu-latest
+            args: --linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bundles
+        run: pnpm --filter @ari/desktop build
+
+      - name: Rebuild native deps for Electron
+        run: npx electron-builder install-app-deps
+        working-directory: apps/desktop
+
+      - name: Package
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        working-directory: apps/desktop
+
+      - name: Attach installers to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
+          fail_on_unmatched_files: false
