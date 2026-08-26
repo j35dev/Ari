@@ -1,4 +1,4 @@
-import { open, realpath, rename, rm } from 'node:fs/promises'
+import { lstat, open, realpath, rename, rm } from 'node:fs/promises'
 import * as path from 'node:path'
 
 /** Hard ceiling for a single `fs.writeTextFile` payload. */
@@ -25,9 +25,16 @@ function isInside(target: string, root: string): boolean {
  */
 async function jailedTarget(resolved: string, roots: readonly string[]): Promise<string> {
   if (roots.length === 0) throw new Error('no registered project folders')
-  const real =
-    (await realpath(resolved).catch(() => null)) ??
-    (await realpath(path.dirname(resolved)).catch(() => null))
+  let real = await realpath(resolved).catch(() => null)
+  if (real === null) {
+    // The final segment does not resolve. If it exists at all it is a dangling
+    // symlink (or similar) whose true target is unknowable — writing through
+    // it would land wherever the link points, outside any jail. Fail closed.
+    if ((await lstat(resolved).catch(() => null)) !== null) {
+      throw new Error(`path escapes registered project folders: ${resolved}`)
+    }
+    real = await realpath(path.dirname(resolved)).catch(() => null)
+  }
   if (real === null) throw new Error('parent directory does not exist')
   for (const root of roots) {
     const rootReal = await realpath(root).catch(() => path.resolve(root))

@@ -148,12 +148,12 @@ export function Composer({
   }, [])
 
   const refocus = useCallback((caretIndex: number) => {
-    requestAnimationFrame(() => {
-      const el = textareaRef.current
-      if (!el) return
-      el.focus()
-      el.setSelectionRange(caretIndex, caretIndex)
-    })
+    // Synchronous on purpose: a rAF here fired between keystrokes under load
+    // (yanking the caret mid-typing) and made focus assertions flaky.
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(caretIndex, caretIndex)
   }, [])
 
   const resize = useCallback(() => {
@@ -176,12 +176,11 @@ export function Composer({
     setText(seed.text)
     const end = seed.text.length
     setCaret(end)
-    requestAnimationFrame(() => {
-      const el = textareaRef.current
-      if (!el) return
-      el.focus()
-      el.setSelectionRange(end, end)
-    })
+    // Synchronous focus + caret: deferring via rAF raced user input under
+    // load (the caret yank landed between keystrokes and ate characters).
+    const el = textareaRef.current
+    el?.focus()
+    el?.setSelectionRange(end, end)
   }, [seed])
 
   const send = useCallback(() => {

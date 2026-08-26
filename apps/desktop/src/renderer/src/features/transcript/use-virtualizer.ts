@@ -104,7 +104,14 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
 
   const scrollToOffset = useCallback(
     (offset: number, behavior?: ScrollBehavior): void => {
-      getScrollElement()?.scrollTo({ top: offset, left: 0, behavior })
+      const element = getScrollElement()
+      // jsdom (test environment) has no Element.scrollTo; scrollTop is the
+      // equivalent everywhere that matters.
+      if (typeof element?.scrollTo === 'function') {
+        element.scrollTo({ top: offset, left: 0, behavior })
+      } else if (element) {
+        element.scrollTop = offset
+      }
     },
     [getScrollElement],
   )
