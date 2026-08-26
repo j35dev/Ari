@@ -9,6 +9,11 @@ executableName: ari
 icon: build/icon.png
 directories:
   output: ../../dist
+# The startup splash ships as a loose resource (not through the renderer
+# bundle) so it can paint before anything else loads.
+extraResources:
+  - from: resources/splash
+    to: splash
 files:
   - out/**
   - package.json
@@ -31,14 +36,23 @@ mac:
     - target: dmg
       arch:
         - universal
+    # electron-updater on macOS consumes the zip, not the dmg.
+    - target: zip
+      arch:
+        - universal
   category: public.app-category.developer-tools
-  artifactName: Ari-${version}-universal.dmg
+  artifactName: Ari-${version}-universal.${ext}
 linux:
   target:
     - AppImage
     - deb
+  # Derives from the package name otherwise, yielding an unwritable
+  # dist/@ari/... path for the deb.
+  artifactName: Ari-${version}.${ext}
   category: Development
   maintainer: dev@ari.local
-# Auto-updates are disabled by default (publish: null); electron-updater
-# scaffolding lands in M14.6 and stays opt-in.
-publish: null
+# Auto-updates check GitHub releases (see src/main/updater.ts).
+publish:
+  provider: github
+  owner: tahacore
+  repo: Ari

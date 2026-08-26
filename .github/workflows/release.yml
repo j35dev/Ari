@@ -56,6 +56,9 @@ jobs:
           files: |
             dist/*.exe
             dist/*.dmg
+            dist/*.zip
             dist/*.AppImage
             dist/*.deb
+            dist/*.blockmap
+            dist/latest*.yml
           fail_on_unmatched_files: false
