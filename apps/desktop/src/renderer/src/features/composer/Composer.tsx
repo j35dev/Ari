@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, Bookmark, Clock, Square, Trash2 } from 'lucide-react'
 import { transitions } from '@ari/ui/motion'
@@ -11,6 +11,7 @@ import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
 import { FILE_MIME, readDragFilePath } from './drag-file'
+import { mentionRanges } from './mention-ranges'
 import {
   loadStash,
   persistStash,
@@ -80,7 +81,15 @@ export function Composer({
   const [stashOpen, setStashOpen] = useState(false)
   const [stashedPulse, setStashedPulse] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
   const { images, addFiles, removeAt, clear } = useImageAttachments()
+
+  /** Keeps the mention highlight glued to the textarea's scroll position. */
+  const syncOverlayScroll = useCallback(() => {
+    const overlay = overlayRef.current
+    const textarea = textareaRef.current
+    if (overlay && textarea) overlay.scrollTop = textarea.scrollTop
+  }, [])
 
   /** Mod+S: stash the current draft (git-stash semantics — the field clears). */
   const stashDraft = useCallback(() => {
@@ -153,7 +162,8 @@ export function Composer({
     el.style.height = 'auto'
     el.style.height = `${Math.min(Math.max(el.scrollHeight, MIN_HEIGHT), MAX_HEIGHT)}px`
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden'
-  }, [])
+    syncOverlayScroll()
+  }, [syncOverlayScroll])
 
   useEffect(resize, [text, resize])
 
@@ -299,6 +309,7 @@ export function Composer({
             <AttachmentStrip images={images} onRemove={removeAt} />
           </div>
         )}
+        <MentionOverlay ref={overlayRef} text={text} />
         <textarea
           ref={textareaRef}
           value={text}
@@ -311,6 +322,7 @@ export function Composer({
           onPaste={handlePaste}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
+          onScroll={syncOverlayScroll}
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
@@ -412,6 +424,46 @@ export function Composer({
     </div>
   )
 }
+
+/**
+ * Mirror of the textarea's text with `@path` mentions highlighted, painted
+ * underneath the transparent textarea (highlight-within-textarea pattern).
+ * Must keep the textarea's exact typography, padding and wrapping so the two
+ * layers stay aligned character-for-character; scroll is synced by the
+ * textarea's onScroll/resize.
+ */
+const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function MentionOverlay(
+  { text },
+  ref,
+) {
+  const ranges = mentionRanges(text)
+  if (ranges.length === 0) return null
+  const parts: React.ReactNode[] = []
+  let cursor = 0
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      parts.push(<span key={cursor}>{text.slice(cursor, range.start)}</span>)
+    }
+    parts.push(
+      <mark key={range.start} className="rounded-sm bg-accent-subtle text-fg">
+        {text.slice(range.start, range.end)}
+      </mark>,
+    )
+    cursor = range.end
+  }
+  if (cursor < text.length) {
+    parts.push(<span key={cursor}>{text.slice(cursor)}</span>)
+  }
+  return (
+    <div
+      ref={ref}
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3.5 text-sm leading-relaxed text-fg"
+    >
+      {parts}
+    </div>
+  )
+})
 
 function SendStopButton({
   running,
