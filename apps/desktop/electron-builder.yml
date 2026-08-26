@@ -3,6 +3,9 @@
 $schema: https://raw.githubusercontent.com/electron-userland/electron-builder/master/scheme.json
 appId: com.ari.desktop
 productName: Ari
+# The Linux executable name is derived from the package name (@ari/desktop)
+# unless set here; '@' is not a legal character in AppImage/deb paths.
+executableName: ari
 icon: build/icon.png
 directories:
   output: ../../dist
