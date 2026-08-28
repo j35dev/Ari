@@ -101,7 +101,7 @@ export function TranscriptView({
         key: entry.key,
         start: virtualizer.getRowStart(Number(entry.key)),
       })),
-    [railEntries, virtualizer],
+    [railEntries, virtualizer, virtualizer.getVersion()],
   )
 
   const updateActiveRailKey = useCallback((): void => {
@@ -129,7 +129,7 @@ export function TranscriptView({
     if (atBottom) {
       virtualizer.scrollToBottom('auto')
     }
-  }, [rows.length, atBottom, virtualizer])
+  }, [rows, atBottom, virtualizer])
 
   const handleScroll = (): void => {
     const el = scrollRef.current
