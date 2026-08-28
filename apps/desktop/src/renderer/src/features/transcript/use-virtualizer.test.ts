@@ -103,4 +103,16 @@ describe('useVirtualizer', () => {
     api.scrollToBottom('smooth')
     expect(target).toMatchObject({ top: 200, behavior: 'smooth' })
   })
+
+  it('bumps version when a measurement changes', () => {
+    const { api } = renderHarness(3, 500)
+    expect(api.getVersion()).toBe(0)
+    const node = document.createElement('div')
+    node.dataset['index'] = '1'
+    node.getBoundingClientRect = () => ({ height: 120 }) as DOMRect
+    act(() => {
+      api.measureElement(node)
+    })
+    expect(api.getVersion()).toBeGreaterThan(0)
+  })
 })
