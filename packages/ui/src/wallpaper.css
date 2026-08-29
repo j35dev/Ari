@@ -38,26 +38,26 @@
 }
 
 /* The scene. Negative z-index paints it above the canvas background but below
-   every in-flow element, so the plate above blurs it. */
+   every in-flow element, so the plate above blurs it.
+
+   The image URL arrives as `--ari-wallpaper-image`, set on <html> by the
+   ThemeProvider from the wallpapers registry. It is deliberately NOT a
+   `url('./assets/...')` literal here: this file reaches the app through
+   `@import '@ari/ui/wallpaper.css'`, and Tailwind inlines that import before
+   Vite can rebase or hash the reference, so a relative URL survives the
+   production build verbatim and points at a path that does not exist (it only
+   worked in dev, where the dev server resolves it against this file). The
+   registry's imported asset URL is hashed correctly in every mode. */
 [data-ari-wallpaper] body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
+  background-image: var(--ari-wallpaper-image);
   background-repeat: no-repeat;
   background-size: cover;
   background-position: center;
-}
-
-[data-ari-wallpaper='anime-city'] body::before {
-  background-image: url('./assets/wallpapers/anime-city.jpg');
-}
-[data-ari-wallpaper='moon-landscape'] body::before {
-  background-image: url('./assets/wallpapers/moon-landscape.jpg');
-}
-[data-ari-wallpaper='moon-landscape-2'] body::before {
-  background-image: url('./assets/wallpapers/moon-landscape-2.jpg');
 }
 
 /* The single plate: one continuous frosted surface for the whole window. */
