@@ -170,6 +170,41 @@ describe('ThemeProvider', () => {
     await waitFor(() => expect(root()['ariWallpaper']).toBeUndefined())
   })
 
+  it('supplies the scene URL as a custom property, so the bundle resolves it', async () => {
+    const style = () => document.documentElement.style
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    )
+    const user = userEvent.setup()
+    await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
+    expect(style().getPropertyValue('--ari-wallpaper-image')).toBe('')
+
+    // The CSS cannot carry `url('./assets/…')` itself: that path survives the
+    // production build unhashed. The value here comes from the bundled import.
+    await user.click(screen.getByText('wallpaper on'))
+    await waitFor(() => {
+      expect(style().getPropertyValue('--ari-wallpaper-image')).toMatch(/^url\(".+"\)$/)
+    })
+    expect(style().getPropertyValue('--ari-wallpaper-image')).toContain('anime-city')
+
+    await user.click(screen.getByText('wallpaper off'))
+    await waitFor(() => expect(style().getPropertyValue('--ari-wallpaper-image')).toBe(''))
+  })
+
+  it('paints the cached scene URL before React mounts', () => {
+    localStorage.setItem(
+      'ari.theme',
+      JSON.stringify({ mode: 'obsidian', glass: true, wallpaper: 'moon-landscape' }),
+    )
+    stubMatchMedia(['prefers-color-scheme: dark'])
+    applyCachedTheme()
+    expect(document.documentElement.style.getPropertyValue('--ari-wallpaper-image')).toContain(
+      'moon-landscape',
+    )
+  })
+
   it('ignores a retired look field in the durable copy and the cache', async () => {
     const persistence: ThemePersistence = {
       load: () =>
