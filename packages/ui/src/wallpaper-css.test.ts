@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { wallpapers } from './wallpapers'
 
 /**
  * wallpaper.css is the whole feature — jsdom cannot evaluate `backdrop-filter`
  * or `color-mix`, so these assertions guard its structure instead: one plate,
- * nothing nested re-tinting it, every scene wired, and no raw colors.
+ * nothing nested re-tinting it, the scene driven by a JS-supplied URL, and no
+ * raw colors.
  */
 const css = readFileSync(resolve(process.cwd(), 'src/wallpaper.css'), 'utf8')
 
@@ -23,11 +23,13 @@ describe('wallpaper.css', () => {
     expect(css).toMatch(/\.bg-bg \{[^}]*background-color: transparent/)
   })
 
-  it('wires every bundled scene to its asset', () => {
-    for (const wallpaper of wallpapers) {
-      expect(css).toContain(`[data-ari-wallpaper='${wallpaper.id}'] body::before`)
-      expect(css).toContain(`url('./assets/wallpapers/${wallpaper.id}.jpg')`)
-    }
+  it('takes the scene URL from the provider, never a relative asset path', () => {
+    expect(css).toMatch(/body::before \{[^}]*background-image: var\(--ari-wallpaper-image\)/)
+    // A `url('./assets/...')` literal here survives the production build
+    // unrebased and unhashed — it only ever resolved in dev. This is the
+    // regression guard for that: the bundle must not carry asset paths from
+    // this file at all.
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/url\(\s*['"]?\.\//)
   })
 
   it('has no visibility-look variants left (one uniform look)', () => {

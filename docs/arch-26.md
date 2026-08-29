@@ -71,8 +71,28 @@ recompressed with ffmpeg), imported by `packages/ui/src/wallpapers.ts` so Vite
 emits them into `out/renderer/assets` (shipped by electron-builder's `out/**`
 glob; CSP `img-src 'self'` already covers them). `wallpapers.test.ts` enforces
 a per-file size budget, and `wallpaper-css.test.ts` guards the CSS structure
-(one plate, neutralizers present, every scene wired, no raw colors, no leftover
-look variants) since jsdom cannot evaluate `backdrop-filter` or `color-mix`.
+(one plate, neutralizers present, no raw colors, no leftover look variants)
+since jsdom cannot evaluate `backdrop-filter` or `color-mix`.
+
+### Why the scene URL comes from JavaScript
+
+`wallpaper.css` must not contain `url('./assets/…')`. It reaches the app through
+`@import '@ari/ui/wallpaper.css'`, and Tailwind inlines that import before Vite
+can rebase or hash the reference, so the literal path survived the production
+build verbatim while the real files were emitted with content hashes. Dev worked
+(the dev server resolves the path against the CSS file); packaged builds asked
+for `assets/assets/wallpapers/…`, which does not exist — the wallpaper silently
+did nothing while the picker thumbnails, which come from the JS import, rendered
+fine. The provider now sets `--ari-wallpaper-image` from the registry's imported
+URL (`new URL(…, import.meta.url)`, absolute at runtime) and the CSS reads that
+variable. `wallpaper-css.test.ts` fails if a relative `url()` reappears.
+
+The same trap had already eaten the fonts: `@import '@ari/ui/fonts.css'` meant
+zero woff2 files were emitted, so packaged apps fell back to system fonts. Fonts
+now load as a JS module (`@ari/ui/fonts`), which keeps them in Vite's asset
+graph. Rule of thumb for this repo: assets referenced from a CSS file that
+travels through `@import` will not survive the build — reference them from
+TypeScript.
 
 ## Picker
 
