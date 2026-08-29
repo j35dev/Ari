@@ -1,0 +1,297 @@
+/*
+ * "Ari awakens" launch animation (M27.1), ported from the standalone splash
+ * window into the app window so startup is one surface instead of two.
+ *
+ * Keyframes and stacked gradients live here rather than in Tailwind utilities:
+ * this is one long choreographed sequence (bloom → spark → arc → horizon →
+ * A → star → wordmark → caption → outro veil), and the timeline reads far
+ * better as CSS than as a wall of arbitrary-value classes.
+ *
+ * Colors come from the theme-independent launch palette in @ari/ui/tokens.css
+ * (`--ari-awaken-*`); no literals here.
+ */
+
+/* Boot canvas: painted from the renderer entry point before React mounts, so
+   the very first frame of the window is already the launch canvas rather than
+   the themed app background. Removed when the splash finishes. */
+[data-ari-booting] body {
+  background: var(--ari-awaken-bg);
+}
+
+.ari-awaken {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(55% 45% at 50% 45%, rgba(233, 139, 36, 0.065), transparent 70%),
+    radial-gradient(35% 35% at 50% 52%, rgba(255, 255, 255, 0.018), transparent 72%),
+    var(--ari-awaken-bg);
+}
+
+.ari-awaken-grain {
+  position: absolute;
+  inset: -25%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.8'/%3E%3C/svg%3E");
+}
+
+.ari-awaken-bloom {
+  position: absolute;
+  left: 50%;
+  top: 49%;
+  z-index: 0;
+  width: min(72vw, 920px);
+  height: min(72vw, 920px);
+  transform: translate(-50%, -50%) scale(0.76);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(233, 139, 36, 0.11),
+    rgba(233, 139, 36, 0.025) 32%,
+    transparent 71%
+  );
+  filter: blur(16px);
+  opacity: 0;
+  animation: ari-awaken-bloom 1.8s cubic-bezier(0.2, 0.75, 0.2, 1) 0.05s forwards;
+}
+
+.ari-awaken-spark-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  animation: ari-awaken-spark-travel 1.55s cubic-bezier(0.2, 0.82, 0.18, 1) forwards;
+}
+
+.ari-awaken-spark {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: scale(0.12);
+  filter: drop-shadow(0 0 10px rgba(233, 139, 36, 0.25));
+  animation: ari-awaken-spark-pop 0.7s cubic-bezier(0.18, 1.35, 0.3, 1) 0.15s forwards;
+}
+
+.ari-awaken-logo {
+  position: absolute;
+  left: 50%;
+  top: 48.5%;
+  z-index: 4;
+  width: min(47vw, 500px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%) scale(0.86);
+  opacity: 0;
+  animation: ari-awaken-logo-rise 1.15s cubic-bezier(0.18, 0.82, 0.18, 1) 0.63s forwards;
+}
+
+.ari-awaken-logo svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ari-awaken-arc {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: ari-awaken-draw-arc 1.35s cubic-bezier(0.2, 0.78, 0.18, 1) 0.64s forwards;
+}
+
+.ari-awaken-horizon {
+  stroke-dasharray: 1100;
+  stroke-dashoffset: 1100;
+  animation: ari-awaken-draw-horizon 1.08s cubic-bezier(0.2, 0.82, 0.18, 1) 1.08s forwards;
+}
+
+.ari-awaken-a {
+  opacity: 0;
+  transform-origin: center;
+  transform: translateY(17px) scale(0.965);
+  animation: ari-awaken-a-reveal 0.9s cubic-bezier(0.18, 0.86, 0.18, 1) 1.26s forwards;
+}
+
+.ari-awaken-star {
+  opacity: 0;
+  transform-origin: center;
+  animation: ari-awaken-star-reveal 0.66s cubic-bezier(0.18, 1.42, 0.3, 1) 1.66s forwards;
+}
+
+.ari-awaken-wordmark {
+  opacity: 0;
+  transform: translateY(9px);
+  animation: ari-awaken-wordmark-reveal 0.72s cubic-bezier(0.18, 0.82, 0.2, 1) 1.93s forwards;
+}
+
+.ari-awaken-caption {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + min(29vw, 300px));
+  z-index: 6;
+  transform: translateX(-50%);
+  text-align: center;
+  white-space: nowrap;
+  font-size: 9px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ari-awaken-muted);
+  opacity: 0;
+  animation: ari-awaken-caption 0.6s cubic-bezier(0.18, 0.82, 0.18, 1) 2.1s forwards;
+}
+
+/* Outro: the logo swells and dissolves while a veil wipes up over the canvas,
+   revealing the app that mounted underneath. */
+.ari-awaken-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--ari-awaken-bg);
+  opacity: 0;
+  transform: scaleY(0);
+  transform-origin: 50% 100%;
+}
+
+.ari-awaken[data-outro='on'] .ari-awaken-veil {
+  opacity: 1;
+  transform: scaleY(1);
+  transition:
+    transform 0.5s cubic-bezier(0.22, 0.9, 0.22, 1),
+    opacity 0.16s ease;
+}
+
+.ari-awaken[data-outro='on'] .ari-awaken-logo {
+  animation: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1.09);
+  transition:
+    transform 0.42s cubic-bezier(0.18, 0.85, 0.18, 1),
+    opacity 0.34s ease;
+}
+
+@keyframes ari-awaken-bloom {
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes ari-awaken-spark-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.12);
+  }
+  28% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  58% {
+    opacity: 1;
+    transform: scale(0.82);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes ari-awaken-spark-travel {
+  0% {
+    transform: translate(-50%, -50%) translate(0, 0);
+  }
+  55% {
+    transform: translate(-50%, -50%) translate(82px, -106px);
+  }
+  100% {
+    transform: translate(-50%, -50%) translate(132px, -51px);
+  }
+}
+@keyframes ari-awaken-logo-rise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes ari-awaken-draw-arc {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes ari-awaken-draw-horizon {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes ari-awaken-a-reveal {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes ari-awaken-star-reveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.12) rotate(-18deg);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.12) rotate(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes ari-awaken-wordmark-reveal {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ari-awaken-caption {
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+/* Reduced motion: the brand still shows, it just arrives already assembled. */
+@media (prefers-reduced-motion: reduce) {
+  .ari-awaken *,
+  .ari-awaken {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition: none !important;
+  }
+  .ari-awaken-logo,
+  .ari-awaken-bloom {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  .ari-awaken-caption {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+  .ari-awaken-arc,
+  .ari-awaken-horizon {
+    stroke-dashoffset: 0;
+  }
+  .ari-awaken-a,
+  .ari-awaken-star,
+  .ari-awaken-wordmark {
+    opacity: 1;
+    transform: none;
+  }
+  .ari-awaken[data-outro='on'] .ari-awaken-veil {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
