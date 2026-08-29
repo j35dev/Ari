@@ -3,12 +3,17 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProvidersView } from './ProvidersView'
 
-const { invokeFn } = vi.hoisted(() => ({ invokeFn: vi.fn() }))
+const { invokeFn, subscribeFn } = vi.hoisted(() => ({
+  invokeFn: vi.fn(),
+  subscribeFn: vi.fn<(name: string, params: unknown, cb: (payload: unknown) => void) => () => void>(
+    () => () => undefined,
+  ),
+}))
 
 vi.mock('../../lib/rpc', () => ({
   rpc: {
     invoke: invokeFn,
-    subscribe: vi.fn(() => () => undefined),
+    subscribe: subscribeFn,
   },
 }))
 
@@ -48,6 +53,8 @@ function cardFor(title: string): HTMLElement {
 describe('ProvidersView', () => {
   beforeEach(() => {
     invokeFn.mockReset()
+    subscribeFn.mockReset()
+    subscribeFn.mockImplementation(() => () => undefined)
   })
 
   it('renders a card per detected provider with version, path, and auth badge', async () => {
@@ -111,38 +118,52 @@ describe('ProvidersView', () => {
     expect(tooltip).toHaveTextContent('Ari could not verify - the CLI manages its own login')
   })
 
-  it('gates install behind a confirm dialog showing the literal command', async () => {
-    // providers.detect (boot) + providers.plan (on Install click).
+  it('installs immediately without a command dump', async () => {
     invokeFn.mockResolvedValueOnce(DETECTIONS)
-    invokeFn.mockResolvedValueOnce({
-      manager: 'npm',
-      installCommand: ['npm', 'install', '-g', '@openai/codex'],
-      upgradeCommand: ['npm', 'install', '-g', '@openai/codex@latest'],
-      display: 'npm install -g @openai/codex@latest',
-    })
+    invokeFn.mockResolvedValueOnce({ started: true })
     const user = userEvent.setup()
     render(<ProvidersView />)
 
     await screen.findByText('Codex')
     await user.click(within(cardFor('Codex')).getByRole('button', { name: 'Install' }))
 
-    // Nothing runs until confirm: only detect + plan have been invoked.
-    expect(invokeFn).not.toHaveBeenCalledWith('providers.install', expect.anything())
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByLabelText('Command to run')).toHaveTextContent(
-      'npm install -g @openai/codex',
-    )
-
-    invokeFn.mockResolvedValueOnce({ started: true })
-    await user.click(within(dialog).getByRole('button', { name: /run command|install/i }))
     await waitFor(() =>
       expect(invokeFn).toHaveBeenCalledWith('providers.install', {
         kind: 'codex',
         operation: 'install',
       }),
     )
-    // Dialog closes once confirmed.
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Command to run')).not.toBeInTheDocument()
+    expect(await screen.findByText('Installing…')).toBeInTheDocument()
+  })
+
+  it('runs Update immediately and does not dump package-manager logs', async () => {
+    invokeFn.mockResolvedValueOnce([
+      {
+        kind: 'pi',
+        installed: true,
+        binaryPath: '/usr/local/bin/pi',
+        version: '0.9.0',
+        authStatus: 'authenticated',
+        latestVersion: '1.0.0',
+        updateAvailable: true,
+      },
+    ])
+    invokeFn.mockResolvedValueOnce({ started: true })
+    const user = userEvent.setup()
+    render(<ProvidersView />)
+
+    await screen.findByText('Pi')
+    await user.click(within(cardFor('Pi')).getByRole('button', { name: 'Update' }))
+    await waitFor(() =>
+      expect(invokeFn).toHaveBeenCalledWith('providers.install', {
+        kind: 'pi',
+        operation: 'upgrade',
+      }),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(await screen.findByText('Updating…')).toBeInTheDocument()
   })
 
   it('offers Update only when an update is available, and Install only when missing', async () => {
@@ -201,5 +222,44 @@ describe('ProvidersView', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Re-scan' })).toBeEnabled()
     })
+  })
+
+  it('auto-syncs the version from a detections stream frame after an update', async () => {
+    let onFrame: ((payload: unknown) => void) | undefined
+    subscribeFn.mockImplementation((_name: string, _params: unknown, cb: (payload: unknown) => void) => {
+      onFrame = cb
+      return () => undefined
+    })
+    invokeFn.mockResolvedValueOnce([
+      {
+        kind: 'claude',
+        installed: true,
+        binaryPath: '/usr/bin/claude',
+        version: '2.1.0 (Claude Code)',
+        authStatus: 'authenticated',
+        latestVersion: '2.2.0',
+        updateAvailable: true,
+      },
+    ])
+    render(<ProvidersView />)
+    await screen.findByText('2.1.0 (Claude Code)')
+    expect(onFrame).toBeDefined()
+    onFrame?.({
+      type: 'detections',
+      detections: [
+        {
+          kind: 'claude',
+          installed: true,
+          binaryPath: '/usr/bin/claude',
+          version: '2.2.0 (Claude Code)',
+          authStatus: 'authenticated',
+          latestVersion: '2.2.0',
+          updateAvailable: false,
+        },
+      ],
+    })
+    expect(await screen.findByText('2.2.0 (Claude Code)')).toBeInTheDocument()
+    expect(screen.getByText('Up to date.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Update' })).toBeNull()
   })
 })

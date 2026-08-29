@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   compareSemver,
   createUpdateChecker,
+  evaluateInstallSettle,
   parseVersionToken,
 } from './updates'
 import type { FetchLike ,
@@ -108,5 +109,70 @@ describe('createUpdateChecker', () => {
     )
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(enriched.updateAvailable).toBeUndefined()
+  })
+})
+
+describe('evaluateInstallSettle', () => {
+  const installed = { installed: true, version: '1.0.0' }
+  const missing = { installed: false, version: null }
+
+  it('rejects a non-zero exit even when the binary is still present', () => {
+    expect(
+      evaluateInstallSettle({
+        operation: 'upgrade',
+        exitCode: 1,
+        failure: null,
+        before: installed,
+        after: installed,
+      }),
+    ).toEqual({ ok: false, reason: 'Exited with code 1.' })
+  })
+
+  it('rejects an install that finished without a detectable binary', () => {
+    expect(
+      evaluateInstallSettle({
+        operation: 'install',
+        exitCode: 0,
+        failure: null,
+        before: missing,
+        after: missing,
+      }),
+    ).toEqual({ ok: false, reason: 'The CLI is still not detected after the command finished.' })
+  })
+
+  it('accepts an install once the CLI is resolvable', () => {
+    expect(
+      evaluateInstallSettle({
+        operation: 'install',
+        exitCode: 0,
+        failure: null,
+        before: missing,
+        after: installed,
+      }),
+    ).toEqual({ ok: true, reason: null })
+  })
+
+  it('accepts an upgrade that reaches the registry latest', () => {
+    expect(
+      evaluateInstallSettle({
+        operation: 'upgrade',
+        exitCode: 0,
+        failure: null,
+        before: { installed: true, version: '1.0.0' },
+        after: { installed: true, version: '2.0.0', latestVersion: '2.0.0' },
+      }),
+    ).toEqual({ ok: true, reason: null })
+  })
+
+  it('rejects an upgrade that exits 0 but leaves the same version (skipped scripts)', () => {
+    expect(
+      evaluateInstallSettle({
+        operation: 'upgrade',
+        exitCode: 0,
+        failure: null,
+        before: { installed: true, version: '1.0.0' },
+        after: { installed: true, version: '1.0.0', latestVersion: '2.0.0' },
+      }).ok,
+    ).toBe(false)
   })
 })

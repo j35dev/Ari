@@ -147,6 +147,18 @@ function readPathFromShell(
 }
 
 /**
+ * Child-process env with the detection PATH overlaid. GUI-launched Electron
+ * often lacks npm/pnpm global bins; install/upgrade must use the same PATH
+ * detection already searched (T3 Windows update fix).
+ */
+export function processEnvWithPath(
+  pathEnv: string,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return { ...base, PATH: pathEnv }
+}
+
+/**
  * Detection environment enriched for GUI launches: process PATH first (explicit
  * overrides win), then login-shell snapshot entries, then node version-manager
  * dirs. Deduped, order-stable.

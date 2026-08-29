@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { fadeUpVariants } from '@ari/ui/motion'
+import { transitions } from '@ari/ui/motion'
 
 export type ToastTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info'
 
@@ -15,8 +15,11 @@ export interface ToastOptions {
   title: string
   description?: string
   tone?: ToastTone
+  /** Auto-dismiss delay. `0` keeps the toast until dismiss or a later update. */
   durationMs?: number
   action?: ToastAction
+  /** When false, clicking the action leaves the toast in place so it can be updated. Default true. */
+  dismissOnAction?: boolean
 }
 
 interface ToastRecord {
@@ -26,6 +29,8 @@ interface ToastRecord {
   tone: ToastTone
   durationMs: number
   action?: ToastAction
+  dismissOnAction: boolean
+  generation: number
 }
 
 /** Tone accent bar color; neutral borrows the accent-subtle token. */
@@ -38,15 +43,18 @@ const TONE_ACCENT_CLASSES: Record<ToastTone, string> = {
 }
 
 const TOAST_VARIANTS: Variants = {
-  ...fadeUpVariants,
-  exit: { opacity: 0, y: 4, transition: { duration: 0.12, ease: 'easeIn' } },
+  hidden: { opacity: 0, y: -6 },
+  visible: { opacity: 1, y: 0, transition: transitions.fadeUp },
+  exit: { opacity: 0, y: -4, transition: { duration: 0.12, ease: 'easeIn' } },
 }
 
 const MAX_VISIBLE_TOASTS = 5
 const DEFAULT_DURATION_MS = 4000
 
 interface ToastContextValue {
-  toast: (opts: ToastOptions) => void
+  toast: (opts: ToastOptions) => number
+  update: (id: number, opts: Partial<ToastOptions>) => boolean
+  dismiss: (id: number) => void
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null)
@@ -59,36 +67,67 @@ export function useToast(): ToastContextValue {
 }
 
 /**
- * Bottom-right toast viewport with a max-5 queue (oldest dropped first).
- * Toasts auto-dismiss after {@link ToastOptions.durationMs}, pause while
- * hovered, and support an inline action plus manual dismiss.
+ * Top-right toast viewport (below the titlebar) with a max-5 queue (oldest
+ * dropped first). Toasts auto-dismiss after {@link ToastOptions.durationMs}
+ * unless that is `0` (sticky), pause while hovered, and support an inline
+ * action plus manual dismiss.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastRecord[]>([])
+  const toastsRef = useRef<ToastRecord[]>([])
   const nextIdRef = useRef(0)
 
   const dismiss = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
+    toastsRef.current = toastsRef.current.filter((t) => t.id !== id)
+    setToasts(toastsRef.current)
   }, [])
 
-  const toast = useCallback((opts: ToastOptions) => {
+  const toast = useCallback((opts: ToastOptions): number => {
+    const id = ++nextIdRef.current
     const record: ToastRecord = {
-      id: ++nextIdRef.current,
+      id,
       title: opts.title,
       description: opts.description,
       tone: opts.tone ?? 'neutral',
       durationMs: opts.durationMs ?? DEFAULT_DURATION_MS,
       action: opts.action,
+      dismissOnAction: opts.dismissOnAction ?? true,
+      generation: 0,
     }
-    setToasts((prev) => [...prev, record].slice(-MAX_VISIBLE_TOASTS))
+    toastsRef.current = [...toastsRef.current, record].slice(-MAX_VISIBLE_TOASTS)
+    setToasts(toastsRef.current)
+    return id
   }, [])
 
-  const value = useMemo(() => ({ toast }), [toast])
+  const update = useCallback((id: number, opts: Partial<ToastOptions>): boolean => {
+    const current = toastsRef.current
+    if (!current.some((record) => record.id === id)) return false
+    toastsRef.current = current.map((record) => {
+      if (record.id !== id) return record
+      return {
+        ...record,
+        title: opts.title ?? record.title,
+        description: 'description' in opts ? opts.description : record.description,
+        tone: opts.tone ?? record.tone,
+        durationMs: opts.durationMs ?? record.durationMs,
+        action: 'action' in opts ? opts.action : record.action,
+        dismissOnAction: opts.dismissOnAction ?? record.dismissOnAction,
+        generation: record.generation + 1,
+      }
+    })
+    setToasts(toastsRef.current)
+    return true
+  }, [])
+
+  const value = useMemo(() => ({ toast, update, dismiss }), [toast, update, dismiss])
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+      <div
+        data-toast-viewport
+        className="fixed top-12 right-4 z-50 flex flex-col gap-2"
+      >
         <AnimatePresence initial={false}>
           {toasts.map((t) => (
             <ToastCard key={t.id} record={t} onDismiss={dismiss} />
@@ -107,33 +146,41 @@ function ToastCard({
   onDismiss: (id: number) => void
 }) {
   const dismiss = useCallback(() => onDismiss(record.id), [onDismiss, record.id])
+  const sticky = record.durationMs === 0
 
   // Auto-dismiss timer that pauses while hovered: track remaining time so the
-  // deadline survives pause/resume cycles.
+  // deadline survives pause/resume cycles. `durationMs: 0` is sticky.
   const remainingRef = useRef(record.durationMs)
   const startedAtRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const armTimer = useCallback(() => {
+    if (sticky) return
     startedAtRef.current = Date.now()
     clearTimeout(timerRef.current)
     timerRef.current = setTimeout(dismiss, remainingRef.current)
-  }, [dismiss])
+  }, [dismiss, sticky])
 
   const pauseTimer = useCallback(() => {
+    if (sticky) return
     clearTimeout(timerRef.current)
     remainingRef.current -= Date.now() - startedAtRef.current
-  }, [])
+  }, [sticky])
 
   useEffect(() => {
+    remainingRef.current = record.durationMs
+    if (sticky) {
+      clearTimeout(timerRef.current)
+      return () => clearTimeout(timerRef.current)
+    }
     armTimer()
     return () => clearTimeout(timerRef.current)
-  }, [armTimer])
+  }, [armTimer, record.durationMs, record.generation, sticky])
 
   const handleAction = useCallback(() => {
     record.action?.onClick()
-    dismiss()
-  }, [record.action, dismiss])
+    if (record.dismissOnAction) dismiss()
+  }, [record.action, record.dismissOnAction, dismiss])
 
   return (
     <motion.div
