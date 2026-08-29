@@ -1,32 +1,35 @@
 /*
- * Wallpaper compositing — a bundled scene painted under the themed UI.
- *
- * Composite model (bottom to top inside the window):
- *   1. canvas — body's opaque `--ari-bg` (propagated), also the pre-paint color
- *   2. body::before — the wallpaper image, `position: fixed; z-index: -1`
- *   3. body::after — the scrim: a veil of the theme's own background color,
- *      strength and blur set by the visibility look (below)
- *   4. the app — in-flow content always paints above the two negative-z layers
+ * Wallpaper compositing — a bundled scene shown through the app's own glass.
  *
  * `<html>` carries `data-ari-wallpaper="<id>"` only while a wallpaper is
  * active (the ThemeProvider removes it for 'none'), so every rule here is
- * opt-in and the plain theme path is untouched. `data-ari-wallpaper-look`
- * ('balanced' | 'vivid', default 'balanced') picks the recipe.
+ * opt-in and the plain theme path is untouched.
  *
- * Theme colors are never hardcoded: every veil derives from `--ari-bg` and
- * the glass plane tokens derive from the surface ramp via `color-mix`, so all
- * six palettes tint their wallpaper automatically. These declarations load
- * after tokens.css/glass.css and are unlayered, so they win cascade ties.
+ * Composite model: the scene is painted once as a fixed layer behind
+ * everything (`body::before`, `z-index: -1`, above the propagated canvas
+ * background), and the window's whole content area sits on ONE continuous
+ * glass plate — `.ari-glass-pane`, carrying the exact recipe the sidebar and
+ * titlebar use (`--ari-glass-scrim` + the same blur/saturate). So the entire
+ * app reads like the sidebar does over a wallpaper: translucent, lightly
+ * tinted, with no pane darker or blurrier than its neighbor.
  *
- * The existing glass machinery is left intact: `data-ari-glass` still means
- * "blur allowed", so under `prefers-reduced-transparency` the planes here stay
- * translucent (a wallpaper is an explicit opt-in to seeing one) but unblurred.
+ * One plate, not many, is deliberate: separately-plated columns stack tints
+ * where they meet and show a backdrop-filter fringe along the seam. With a
+ * single plate, structure comes from hairline borders instead, and nothing
+ * inside re-tints — `.ari-glass` chrome and `.bg-bg` pane fills go
+ * transparent within the plate.
+ *
+ * Theme colors are never hardcoded: the tint derives from the surface ramp via
+ * `color-mix`, so all six palettes tint their wallpaper automatically. These
+ * declarations load after tokens.css/glass.css and are unlayered, so they win
+ * cascade ties.
+ *
+ * Floating surfaces (popovers, dialogs, palette) keep their own
+ * `.ari-glass-overlay` material so they still read as above the plate, and
+ * input plates keep `.ari-glass-input`.
  */
 
 [data-ari-wallpaper] {
-  /* Frosted veil over the scene (theme background at partial strength). */
-  --wallpaper-scrim-balanced: color-mix(in oklab, var(--ari-bg) 38%, transparent);
-  --wallpaper-scrim-vivid: color-mix(in oklab, var(--ari-bg) 26%, transparent);
   /* Glass planes rest on the wallpaper instead of the desktop, so they take
      theme-derived translucency in every theme, not just glass-capable ones. */
   --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 72%, transparent);
@@ -34,52 +37,17 @@
   --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 85%, transparent);
 }
 
-/* The two fixed layers. Negative z-index paints them above the canvas
-   background but below every in-flow element; tree order puts the image
-   under the scrim. */
-[data-ari-wallpaper] body::before,
-[data-ari-wallpaper] body::after {
+/* The scene. Negative z-index paints it above the canvas background but below
+   every in-flow element, so the plate above blurs it. */
+[data-ari-wallpaper] body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-}
-
-[data-ari-wallpaper] body::before {
   background-repeat: no-repeat;
   background-size: cover;
   background-position: center;
-}
-
-[data-ari-wallpaper] body::after {
-  background: var(--wallpaper-scrim-balanced);
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-
-[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] body::after {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: var(--wallpaper-scrim-vivid);
-}
-
-/* Vivid: the scene is crisp and barely veiled, so the main pane carries the
-   sidebar's exact glass look — the same `.ari-glass` recipe when the glass
-   capability is on (matching the chrome), and the same translucent surface
-   color when it is off — so text keeps the sidebar's readability while the
-   pane reads as part of the chrome rather than a heavier separate material.
-   Children are lifted above the plate so they paint over the blur. */
-[data-ari-wallpaper][data-ari-wallpaper-look='vivid'][data-ari-glass='on'] main.bg-bg {
-  background: var(--ari-glass-scrim);
-  -webkit-backdrop-filter: blur(28px) saturate(1.35);
-  backdrop-filter: blur(28px) saturate(1.35);
-}
-[data-ari-wallpaper][data-ari-wallpaper-look='vivid'][data-ari-glass='off'] main.bg-bg {
-  background: var(--ari-surface-0);
-}
-[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] main.bg-bg > * {
-  position: relative;
 }
 
 [data-ari-wallpaper='anime-city'] body::before {
@@ -92,40 +60,33 @@
   background-image: url('./assets/wallpapers/moon-landscape-2.jpg');
 }
 
-/* Glass-off baseline: the chrome planes still go translucent over a wallpaper
-   (glass.css's opaque substrate would hide it). Glass-on needs no class
-   override — it already paints these same derived variables. */
-[data-ari-wallpaper] .ari-glass {
+/* The single plate: one continuous frosted surface for the whole window. */
+[data-ari-wallpaper] .ari-glass-pane {
   background: var(--ari-glass-scrim);
-}
-[data-ari-wallpaper] .ari-glass-overlay {
-  background: var(--ari-glass-overlay);
-}
-[data-ari-wallpaper] .ari-glass-input {
-  background: var(--ari-glass-input);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  backdrop-filter: blur(28px) saturate(1.35);
 }
 
-/* The main pane paints `bg-bg` to cover the window backdrop; over a wallpaper
-   it must let the composite show through. Unlayered rules beat Tailwind's
-   @layer utilities, so no specificity games are needed. */
-[data-ari-wallpaper] main.bg-bg {
+/* Nothing inside the plate re-tints it: structural chrome and pane fills go
+   transparent so sidebar, titlebar, and every content pane share one tone.
+   Borders and content surfaces (bg-surface-*) are untouched, so structure
+   still reads. */
+[data-ari-wallpaper] .ari-glass-pane .ari-glass,
+[data-ari-wallpaper] .ari-glass-pane .bg-bg {
   background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-/* Reduced transparency: keep the scene visible (explicit opt-in) but drop the
-   frosted blur and raise the veils so contrast never depends on blur. This
-   block must come after the look recipes — the scrim redefinitions win the
-   equal-specificity tie by source order. */
+/* Reduced transparency: keep the scene visible (it is an explicit opt-in) but
+   drop the blur and raise the tint so contrast never depends on blur. */
 @media (prefers-reduced-transparency: reduce) {
   [data-ari-wallpaper] {
-    --wallpaper-scrim-balanced: color-mix(in oklab, var(--ari-bg) 84%, transparent);
-    --wallpaper-scrim-vivid: color-mix(in oklab, var(--ari-bg) 78%, transparent);
-    --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 90%, transparent);
-    --ari-glass-overlay: color-mix(in oklab, var(--ari-surface-2) 92%, transparent);
-    --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 94%, transparent);
+    --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 92%, transparent);
+    --ari-glass-overlay: color-mix(in oklab, var(--ari-surface-2) 94%, transparent);
+    --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 95%, transparent);
   }
-  [data-ari-wallpaper] body::after,
-  [data-ari-wallpaper][data-ari-wallpaper-look='vivid'][data-ari-glass='on'] main.bg-bg {
+  [data-ari-wallpaper] .ari-glass-pane {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

@@ -29,13 +29,11 @@ function Probe() {
     setGlass,
     wallpaper,
     setWallpaper,
-    wallpaperLook,
-    setWallpaperLook,
   } = useTheme()
   return (
     <div>
       <output data-testid="state">
-        {`${themeId}|${mode}|${resolvedScheme}|${glassEnabled}|${wallpaper}|${wallpaperLook}`}
+        {`${themeId}|${mode}|${resolvedScheme}|${glassEnabled}|${wallpaper}`}
       </output>
       <button onClick={() => setTheme('porcelain')}>light</button>
       <button onClick={() => setTheme('nocturne')}>nocturne</button>
@@ -43,8 +41,6 @@ function Probe() {
       <button onClick={() => setGlass(false)}>glass off</button>
       <button onClick={() => setWallpaper('anime-city')}>wallpaper on</button>
       <button onClick={() => setWallpaper('none')}>wallpaper off</button>
-      <button onClick={() => setWallpaperLook('vivid')}>look vivid</button>
-      <button onClick={() => setWallpaperLook('balanced')}>look balanced</button>
     </div>
   )
 }
@@ -70,7 +66,7 @@ describe('ThemeProvider', () => {
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
     expect(root()['ariScheme']).toBe('dark')
     expect(root()['ariGlass']).toBe('on')
-    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|true|none|balanced')
+    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|true|none')
   })
 
   it('picks the light theme when the OS prefers light', async () => {
@@ -96,7 +92,7 @@ describe('ThemeProvider', () => {
     await user.click(screen.getByText('light'))
     await waitFor(() => expect(root()['ariTheme']).toBe('porcelain'))
     expect(root()['ariScheme']).toBe('light')
-    expect(screen.getByTestId('state')).toHaveTextContent('porcelain|porcelain|light|false|none|balanced')
+    expect(screen.getByTestId('state')).toHaveTextContent('porcelain|porcelain|light|false|none')
 
     await user.click(screen.getByText('system'))
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
@@ -124,7 +120,7 @@ describe('ThemeProvider', () => {
     )
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
     expect(root()['ariGlass']).toBe('off')
-    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|false|none|balanced')
+    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|false|none')
   })
 
   it('round-trips preferences through the injected persistence', async () => {
@@ -147,7 +143,6 @@ describe('ThemeProvider', () => {
         mode: 'verdant',
         glass: false,
         wallpaper: 'anime-city',
-        wallpaperLook: 'balanced',
         themeId: 'verdant',
       }),
     )
@@ -164,54 +159,41 @@ describe('ThemeProvider', () => {
     const user = userEvent.setup()
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
     expect(root()['ariWallpaper']).toBeUndefined()
-    expect(root()['ariWallpaperLook']).toBeUndefined()
 
     await user.click(screen.getByText('wallpaper on'))
     await waitFor(() => expect(root()['ariWallpaper']).toBe('anime-city'))
     expect(screen.getByTestId('state')).toHaveTextContent('|anime-city')
-    // The default look rides along so CSS can key its recipe off it.
-    expect(root()['ariWallpaperLook']).toBe('balanced')
-
-    await user.click(screen.getByText('look vivid'))
-    await waitFor(() => expect(root()['ariWallpaperLook']).toBe('vivid'))
+    // One uniform look: no companion attribute to key variants off.
+    expect(root()['ariWallpaperLook']).toBeUndefined()
 
     await user.click(screen.getByText('wallpaper off'))
-    await waitFor(() => {
-      expect(root()['ariWallpaper']).toBeUndefined()
-      expect(root()['ariWallpaperLook']).toBeUndefined()
-    })
+    await waitFor(() => expect(root()['ariWallpaper']).toBeUndefined())
   })
 
-  it('adopts a durable look and invalidates a stale cache value', async () => {
-    const saved: unknown[] = []
+  it('ignores a retired look field in the durable copy and the cache', async () => {
     const persistence: ThemePersistence = {
-      load: () => Promise.resolve({ mode: 'verdant', glass: false, wallpaperLook: 'vivid' }),
-      save: (prefs) => {
-        saved.push(prefs)
-        return Promise.resolve()
-      },
+      load: () =>
+        Promise.resolve({ mode: 'verdant', glass: false, wallpaperLook: 'vivid' } as never),
+      save: () => Promise.resolve(),
     }
     const { unmount } = render(
       <ThemeProvider persistence={persistence}>
         <Probe />
       </ThemeProvider>,
     )
-    // The durable copy wins over the cache during hydration. The look
-    // attribute itself only appears once a wallpaper is active, so adoption
-    // is asserted on the preference state.
-    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('|none|vivid'))
+    await waitFor(() => expect(root()['ariTheme']).toBe('verdant'))
+    expect(root()['ariWallpaperLook']).toBeUndefined()
     unmount()
     localStorage.clear()
 
-    // Next boot: a bogus cached look must not stick.
     localStorage.setItem(
       'ari.theme',
-      JSON.stringify({ mode: 'verdant', glass: false, wallpaper: 'anime-city', wallpaperLook: 'ultra' }),
+      JSON.stringify({ mode: 'verdant', glass: false, wallpaper: 'anime-city', wallpaperLook: 'vivid' }),
     )
     applyCachedTheme()
-    // The scene attribute survives; the bogus look falls back to the default.
+    // The scene still paints pre-hydration; the stale look is simply ignored.
     expect(root()['ariWallpaper']).toBe('anime-city')
-    expect(root()['ariWallpaperLook']).toBe('balanced')
+    expect(root()['ariWallpaperLook']).toBeUndefined()
   })
 
   it('never saves the cached default over the durable copy before it loads', async () => {
@@ -237,7 +219,7 @@ describe('ThemeProvider', () => {
     release({ mode: 'verdant', glass: false })
     await waitFor(() => expect(root()['ariTheme']).toBe('verdant'))
     expect(saved).toEqual([
-      { mode: 'verdant', glass: false, wallpaper: 'none', wallpaperLook: 'balanced', themeId: 'verdant' },
+      { mode: 'verdant', glass: false, wallpaper: 'none', themeId: 'verdant' },
     ])
   })
 

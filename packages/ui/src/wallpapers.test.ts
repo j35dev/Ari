@@ -1,14 +1,7 @@
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import {
-  isWallpaperId,
-  isWallpaperLook,
-  isWallpaperSetting,
-  wallpaperIds,
-  wallpaperLooks,
-  wallpapers,
-} from './wallpapers'
+import { isWallpaperId, isWallpaperSetting, wallpaperIds, wallpapers } from './wallpapers'
 
 /** Disk size ceiling for a bundled scene — keeps the installer lean. */
 const WALLPAPER_BUDGET_BYTES = 1_500_000
@@ -39,17 +32,5 @@ describe('wallpaper registry', () => {
     expect(isWallpaperSetting('moon-landscape')).toBe(true)
     expect(isWallpaperSetting(42)).toBe(false)
     expect(isWallpaperSetting(undefined)).toBe(false)
-  })
-
-  it('offers exactly the two visibility looks the CSS implements', () => {
-    expect(wallpaperLooks.map((look) => look.id)).toEqual(['balanced', 'vivid'])
-    for (const look of wallpaperLooks) {
-      expect(look.label.length).toBeGreaterThan(0)
-      expect(look.scrim).toMatch(/^--wallpaper-scrim-/)
-    }
-    expect(isWallpaperLook('balanced')).toBe(true)
-    expect(isWallpaperLook('vivid')).toBe(true)
-    expect(isWallpaperLook('subtle')).toBe(false)
-    expect(isWallpaperLook('extreme')).toBe(false)
   })
 })
