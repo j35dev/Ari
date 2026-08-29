@@ -7,20 +7,18 @@ type Detection = RpcResults['providers.detect'][number]
 
 export interface InstallState {
   operation: 'install' | 'upgrade'
-  /** Live output lines, newest last; capped by the runner's tail. */
-  lines: { stream: 'stdout' | 'stderr'; text: string }[]
   /** Set once the settle frame arrives; null while still running. */
   outcome: { ok: boolean; reason: string | null; truncated: boolean } | null
 }
 
 export type InstallStates = Partial<Record<DriverKind, InstallState>>
 
-/** Auto-clears a finished install's output pane after this long. */
-const SETTLED_DISPLAY_MS = 12_000
+/** Auto-clears a finished install's status after this long. */
+const SETTLED_DISPLAY_MS = 8_000
 
 /**
  * Streams `providers.updates` frames into per-kind install state and exposes
- * the plan/run/cancel actions behind the confirm gate.
+ * the plan/run/cancel actions.
  *
  * `onDetections` fires whenever the main process publishes a fresh detection
  * round (including the mandatory post-install re-probe), so the caller's
@@ -43,36 +41,27 @@ export function useProviderInstalls(onDetections: (detections: Detection[]) => v
         detectionsRef.current(frame.detections)
         return
       }
-      if (frame.type === 'install.progress') {
-        setInstalls((current) => {
-          const state = current[frame.kind]
-          if (state === undefined) return current
-          return {
-            ...current,
-            [frame.kind]: {
-              ...state,
-              lines: [...state.lines.slice(-200), { stream: frame.stream, text: frame.text }],
-            },
-          }
-        })
+      if (frame.type === 'install.started') {
+        setInstalls((current) => ({
+          ...current,
+          [frame.kind]: { operation: frame.operation, outcome: null },
+        }))
         return
       }
       if (frame.type === 'install.settled') {
         setInstalls((current) => ({
           ...current,
-          [frame.kind]: current[frame.kind] === undefined
-            ? current[frame.kind]
-            : {
-                ...current[frame.kind] as InstallState,
-                outcome: { ok: frame.ok, reason: frame.reason, truncated: frame.truncated },
-              },
+          [frame.kind]: {
+            operation: frame.operation,
+            outcome: { ok: frame.ok, reason: frame.reason, truncated: frame.truncated },
+          },
         }))
       }
     })
     return unsubscribe
   }, [])
 
-  // Settled panes fade out so a finished install doesn't clutter forever.
+  // Settled status fades out so a finished install doesn't clutter forever.
   useEffect(() => {
     const settled = Object.entries(installs).filter(([, state]) => state?.outcome != null)
     if (settled.length === 0) return
@@ -96,17 +85,14 @@ export function useProviderInstalls(onDetections: (detections: Detection[]) => v
   const start = useCallback(async (kind: DriverKind, operation: 'install' | 'upgrade') => {
     setInstalls((current) => ({
       ...current,
-      [kind]: { operation, lines: [], outcome: null },
+      [kind]: { operation, outcome: null },
     }))
     const result = await rpc.invoke('providers.install', { kind, operation })
     if (!result.started) {
-      // Rejected (already running / no channel): drop the placeholder pane and
-      // surface the reason through the same outcome shape the card renders.
       setInstalls((current) => ({
         ...current,
         [kind]: {
           operation,
-          lines: [],
           outcome: { ok: false, reason: result.reason ?? 'Could not start.', truncated: false },
         },
       }))

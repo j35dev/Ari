@@ -31,10 +31,10 @@ import { PiDriver } from '@ari/providers/pi'
 import { HermesDriver } from '@ari/providers/hermes'
 import { detectDriver } from '@ari/providers/detector'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
-import { resolveDetectionEnvironment } from '@ari/providers/shell-env'
+import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import { catalogSource, modelsFor } from '@ari/providers/catalogs'
-import { createUpdateChecker } from '@ari/providers/updates'
+import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver } from '@ari/providers/acp'
@@ -108,13 +108,33 @@ const DETECTION_CACHE_TTL_MS = 30_000
 /** Enriched detections (update info) cached for an hour; refreshed in background. */
 let updateCache: { at: number; value: RpcResults['providers.detect'] } | null = null
 const UPDATE_CACHE_TTL_MS = 60 * 60 * 1000
+/** Bumped to drop in-flight enrichments that raced an install/re-scan. */
+let enrichGeneration = 0
+let enrichInFlight: Promise<RpcResults['providers.detect']> | null = null
 
 /** One in-flight install/upgrade per driver kind; the UI gates on this. */
 const installsInFlight = new Map<DriverKind, InstallHandle>()
 
 const updateChecker = createUpdateChecker()
 
-function probeAllDetections(): Promise<RpcResults['providers.detect']> {
+function mergeUpdateFields(
+  raw: RpcResults['providers.detect'],
+  enriched: RpcResults['providers.detect'],
+): RpcResults['providers.detect'] {
+  const byKind = new Map(enriched.map((detection) => [detection.kind, detection]))
+  return raw.map((detection) => {
+    const match = byKind.get(detection.kind)
+    if (match === undefined) return detection
+    return {
+      ...detection,
+      latestVersion: match.latestVersion,
+      updateAvailable: match.updateAvailable,
+    }
+  })
+}
+
+function rawDetections(force = false): Promise<RpcResults['providers.detect']> {
+  if (force) detectionCache = null
   if (detectionCache === null || Date.now() - detectionCache.at > DETECTION_CACHE_TTL_MS) {
     // GUI-launched processes inherit a minimal PATH; the enriched env layers
     // in login-shell + version-manager dirs so terminal-installed CLIs resolve.
@@ -141,23 +161,69 @@ function probeAllDetections(): Promise<RpcResults['providers.detect']> {
       ),
     }
   }
-  // Serve the fast offline round immediately; enrich with update info once
-  // the registry answers and publish the fresh set to stream subscribers.
-  void detectionCache.value
-    .then(async (detections) => {
-      if (updateCache !== null && Date.now() - updateCache.at < UPDATE_CACHE_TTL_MS) {
-        return updateCache.value
-      }
-      const enriched = await updateChecker.enrich(detections as Detection[])
+  return detectionCache.value
+}
+
+function publishDetections(detections: RpcResults['providers.detect']): void {
+  rpcRegistryRef?.publish('providers.updates', {
+    type: 'detections',
+    detections,
+  } satisfies ProvidersUpdateFrame)
+}
+
+function startEnrichment(detections: RpcResults['providers.detect']): Promise<RpcResults['providers.detect']> {
+  const generation = ++enrichGeneration
+  const promise = updateChecker
+    .enrich(detections as Detection[])
+    .then((enriched) => {
+      if (generation !== enrichGeneration) return enriched
       updateCache = { at: Date.now(), value: enriched }
-      rpcRegistryRef?.publish('providers.updates', {
-        type: 'detections',
-        detections: enriched,
-      } satisfies ProvidersUpdateFrame)
+      publishDetections(enriched)
       return enriched
     })
-    .catch((error: unknown) => log.debug('update enrichment failed', { error: String(error) }))
-  return detectionCache.value
+    .catch((error: unknown) => {
+      log.debug('update enrichment failed', { error: String(error) })
+      if (generation === enrichGeneration) publishDetections(detections)
+      return detections
+    })
+  enrichInFlight = promise
+  void promise.finally(() => {
+    if (enrichInFlight === promise) enrichInFlight = null
+  })
+  return promise
+}
+
+function probeAllDetections(): Promise<RpcResults['providers.detect']> {
+  const pending = rawDetections()
+  void pending
+    .then((detections) => {
+      if (updateCache !== null && Date.now() - updateCache.at < UPDATE_CACHE_TTL_MS) return
+      void startEnrichment(detections)
+    })
+    .catch((error: unknown) => log.debug('detection failed', { error: String(error) }))
+  return pending.then((detections) => {
+    if (updateCache !== null && Date.now() - updateCache.at < UPDATE_CACHE_TTL_MS) {
+      return mergeUpdateFields(detections, updateCache.value)
+    }
+    return detections
+  })
+}
+
+/** Force a re-probe + enrichment and publish the result (post-install auto-sync). */
+async function refreshDetections(): Promise<RpcResults['providers.detect']> {
+  updateCache = null
+  enrichGeneration += 1
+  const detections = await rawDetections(true)
+  return startEnrichment(detections)
+}
+
+async function detectionsForClient(): Promise<RpcResults['providers.detect']> {
+  const detections = await probeAllDetections()
+  if (updateCache !== null && Date.now() - updateCache.at < UPDATE_CACHE_TTL_MS) {
+    return mergeUpdateFields(detections, updateCache.value)
+  }
+  if (enrichInFlight !== null) return enrichInFlight
+  return detections
 }
 
 /**
@@ -165,6 +231,7 @@ function probeAllDetections(): Promise<RpcResults['providers.detect']> {
  * threading the registry through every helper; set during registerRpc.
  */
 let rpcRegistryRef: RpcRegistry | null = null
+let driverRegistryRef: DriverRegistry | null = null
 
 /**
  * Registers each installed CLI driver as its detection resolves, preferring
@@ -272,6 +339,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // added as background detection completes. Nothing waits on that to answer.
   const driverRegistry = new DriverRegistry()
   driverRegistry.register(new AriCoreDriver(getEndpointStore()))
+  driverRegistryRef = driverRegistry
   hydrateDrivers(driverRegistry)
 
   // Model catalogs: bundled snapshot serves the first paint; a background
@@ -426,7 +494,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('command.dispatch', async (params) => engine.dispatch(params.command))
 
-  r.register('providers.detect', () => probeAllDetections())
+  r.register('providers.detect', () => detectionsForClient())
 
   r.register('providers.plan', async (params) => {
     const detections = await probeAllDetections()
@@ -441,12 +509,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return { started: false, reason: 'An operation is already running for this provider.' }
     }
     const detections = await probeAllDetections()
-    const binaryPath = detections.find((d) => d.kind === params.kind)?.binaryPath ?? null
+    const before = detections.find((d) => d.kind === params.kind)
+    const binaryPath = before?.binaryPath ?? null
     const plan = planFor(params.kind, binaryPath)
     if (plan === null) {
       return { started: false, reason: 'No known install channel for this provider.' }
     }
     const argv = params.operation === 'install' ? plan.installCommand : plan.upgradeCommand
+    const detectEnv = await resolveDetectionEnvironment()
 
     const publish = (frame: ProvidersUpdateFrame): void => {
       rpcRegistryRef?.publish('providers.updates', frame)
@@ -473,25 +543,32 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         return
       }
       if (event.type === 'failed') failure = event.reason
-    })
+    }, { env: processEnvWithPath(detectEnv.pathEnv) })
     installsInFlight.set(params.kind, handle)
+    publish({ type: 'install.started', kind: params.kind, operation: params.operation })
 
     void handle.done
       .then(async () => {
-        // Verify by re-probing: a zero exit code does not prove the binary is
-        // now resolvable (wrong prefix, PATH not refreshed, partial install).
-        detectionCache = null
-        updateCache = null
-        const after = await probeAllDetections()
-        const nowInstalled = after.find((d) => d.kind === params.kind)?.installed ?? false
-        const ok = failure === null && exitCode === 0 && nowInstalled
+        // Re-probe + enrich and publish so Settings auto-syncs the new version.
+        // A zero exit code is not enough (npm can skip scripts and still "succeed").
+        const afterList = await refreshDetections()
+        const after = afterList.find((d) => d.kind === params.kind)
+        const outcome = evaluateInstallSettle({
+          operation: params.operation,
+          exitCode,
+          failure,
+          before,
+          after,
+        })
+        if (outcome.ok && driverRegistryRef !== null) hydrateDrivers(driverRegistryRef)
         publish({
           type: 'install.settled',
           kind: params.kind,
           operation: params.operation,
-          ok,
-          reason: ok ? null : (failure ?? 'The CLI is still not detected after the command finished.'),
+          ok: outcome.ok,
+          reason: outcome.reason,
           truncated,
+          version: after?.version ?? null,
         })
       })
       .catch((error: unknown) => log.warn('install settle failed', { error: String(error) }))

@@ -60,7 +60,13 @@ export function inferManager(binaryPath: string | null, kind: DriverKind): Packa
 function globalCommands(manager: PackageManager, pkg: string): { install: string[]; upgrade: string[] } | null {
   switch (manager) {
     case 'npm':
-      return { install: ['npm', 'install', '-g', pkg], upgrade: ['npm', 'install', '-g', `${pkg}@latest`] }
+      // npm 10+ can skip lifecycle scripts by default and still exit 0, which
+      // leaves CLIs like Claude Code on a stub binary. Allow this package's
+      // scripts so the postinstall actually lands (T3 parity).
+      return {
+        install: ['npm', 'install', '-g', `--allow-scripts=${pkg}`, pkg],
+        upgrade: ['npm', 'install', '-g', `--allow-scripts=${pkg}`, `${pkg}@latest`],
+      }
     case 'pnpm':
       return { install: ['pnpm', 'add', '-g', pkg], upgrade: ['pnpm', 'add', '-g', `${pkg}@latest`] }
     case 'bun':
