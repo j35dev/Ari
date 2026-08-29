@@ -65,12 +65,6 @@ export function isWallpaperSetting(value: unknown): value is WallpaperSetting {
  */
 export const wallpaperLooks = [
   {
-    id: 'subtle',
-    label: 'Subtle',
-    description: 'Heavily frosted — the scene is a soft, dim wash.',
-    scrim: '--wallpaper-scrim-subtle',
-  },
-  {
     id: 'balanced',
     label: 'Balanced',
     description: 'Mildly frosted; scene clearly visible behind glass.',
@@ -79,7 +73,7 @@ export const wallpaperLooks = [
   {
     id: 'vivid',
     label: 'Vivid',
-    description: 'Crisp image; frosted plates only behind reading surfaces.',
+    description: 'Crisp image; the main pane wears the sidebar’s glass.',
     scrim: '--wallpaper-scrim-vivid',
   },
 ] as const

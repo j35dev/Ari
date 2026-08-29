@@ -498,7 +498,7 @@ function Shell() {
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-bg">
+        <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border">
           <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
             {!sidebarOpen ? (
               <button

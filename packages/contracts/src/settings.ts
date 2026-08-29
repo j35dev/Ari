@@ -29,11 +29,11 @@ export const wallpaperSchema = z.union([z.literal('none'), wallpaperIdSchema])
 export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 
 /**
- * How strongly the scene shows through: 'subtle' (heavy frosted veil, default
- * look before M26.2), 'balanced' (mild blur + light veil), 'vivid' (crisp
- * image, veil only under text-bearing panels).
+ * How strongly the scene shows through: 'balanced' (mild blur + light veil,
+ * the default) or 'vivid' (crisp image; the main pane wears the sidebar's
+ * glass plate instead of a whole-window scrim).
  */
-export const wallpaperLookSchema = z.enum(['subtle', 'balanced', 'vivid'])
+export const wallpaperLookSchema = z.enum(['balanced', 'vivid'])
 export type WallpaperLook = z.infer<typeof wallpaperLookSchema>
 
 const defaultAppearance = {
@@ -64,7 +64,12 @@ export const settingsSchema = z.object({
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
       /** How strongly the scene shows through; only meaningful with one set. */
-      wallpaperLook: wallpaperLookSchema.default(defaultAppearance.wallpaperLook),
+      wallpaperLook: z.preprocess(
+        // M26.2 briefly shipped 'subtle'; unknown/retired looks fall back
+        // rather than failing the whole settings parse.
+        (v) => (wallpaperLookSchema.safeParse(v).success ? v : defaultAppearance.wallpaperLook),
+        wallpaperLookSchema,
+      ).default(defaultAppearance.wallpaperLook),
     })
     .default(defaultAppearance),
   sessions: z

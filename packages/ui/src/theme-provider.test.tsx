@@ -44,7 +44,7 @@ function Probe() {
       <button onClick={() => setWallpaper('anime-city')}>wallpaper on</button>
       <button onClick={() => setWallpaper('none')}>wallpaper off</button>
       <button onClick={() => setWallpaperLook('vivid')}>look vivid</button>
-      <button onClick={() => setWallpaperLook('subtle')}>look subtle</button>
+      <button onClick={() => setWallpaperLook('balanced')}>look balanced</button>
     </div>
   )
 }
@@ -185,7 +185,7 @@ describe('ThemeProvider', () => {
   it('adopts a durable look and invalidates a stale cache value', async () => {
     const saved: unknown[] = []
     const persistence: ThemePersistence = {
-      load: () => Promise.resolve({ mode: 'verdant', glass: false, wallpaperLook: 'subtle' }),
+      load: () => Promise.resolve({ mode: 'verdant', glass: false, wallpaperLook: 'vivid' }),
       save: (prefs) => {
         saved.push(prefs)
         return Promise.resolve()
@@ -199,7 +199,7 @@ describe('ThemeProvider', () => {
     // The durable copy wins over the cache during hydration. The look
     // attribute itself only appears once a wallpaper is active, so adoption
     // is asserted on the preference state.
-    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('|none|subtle'))
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('|none|vivid'))
     unmount()
     localStorage.clear()
 

@@ -21,22 +21,25 @@ same way:
 Because body's background propagates to the canvas, the negative-z layers sit
 above it and below everything else; tree order puts the image under the scrim.
 
-## Visibility looks (M26.2)
+## Visibility looks (M26.2, M26.4)
 
-`data-ari-wallpaper-look` ('subtle' | 'balanced' | 'vivid', default
-'balanced') keys three scrim recipes, defined as custom properties so the
-media-query block can re-derive them in one place:
+`data-ari-wallpaper-look` ('balanced' | 'vivid', default 'balanced') keys two
+scrim recipes, defined as custom properties so the media-query block can
+re-derive them in one place:
 
-- **subtle** — the original M26.1 feel: 72% veil, blur(22px). Text contrast
-  never depends on anything else; the scene is a dim wash.
 - **balanced** (default) — blur(14px) over a 38% veil: the scene stays
   recognizable behind the UI.
-- **vivid** — no global blur, 26% veil: the scene is crisp. The main pane
-  (`main.bg-bg`) then wears the same frosted plate as the sidebar — the
-  `.ari-glass` recipe (`--ari-glass-scrim` + blur(28px) saturate(1.35)) — so
-  the reading area is visually continuous with the chrome and text keeps the
-  sidebar's readability over any scene. Its children are lifted above the
-  plate via `position: relative`.
+- **vivid** — no whole-window blur, 26% veil: the scene is crisp. The main
+  pane (`main.bg-bg`) then mirrors the sidebar's actual material, split on
+  the glass capability: with `data-ari-glass='on'` it wears the `.ari-glass`
+  recipe (`--ari-glass-scrim` + blur(28px) saturate(1.35)) so pane and chrome
+  read as one continuous plate; with glass off it paints the opaque
+  `--ari-surface-0`, matching the sidebar's glass-off substrate. Children are
+  lifted above the plate via `position: relative`.
+
+(M26.2 additionally shipped a 'subtle' heavy-frost look; it was retired in
+M26.4 and the settings schema preprocess-maps it back to 'balanced', mirroring
+the themeId legacy migration, so persisted settings never fail parsing.)
 
 Veil colors always derive from `--ari-bg` via `color-mix`, so all six palettes
 tint their wallpaper automatically; the look changes *how much* scene shows,
