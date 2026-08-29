@@ -9,11 +9,6 @@ executableName: ari
 icon: build/icon.png
 directories:
   output: ../../dist
-# The startup splash ships as a loose resource (not through the renderer
-# bundle) so it can paint before anything else loads.
-extraResources:
-  - from: resources/splash
-    to: splash
 files:
   - out/**
   - package.json
