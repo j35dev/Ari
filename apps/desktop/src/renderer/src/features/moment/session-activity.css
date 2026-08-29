@@ -1,0 +1,41 @@
+/* Compact forging-matrix + pause hold for sidebar session rows.
+   Paint-only; tokens only. Reduced-motion freezes the chase. */
+
+@keyframes ari-forge-cell {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ari-pause-hold {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.ari-forge-cell {
+  animation: ari-forge-cell 1.2s linear infinite;
+}
+
+.ari-pause-hold {
+  animation: ari-pause-hold 1.8s var(--ari-ease-out-expo) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-forge-cell {
+    animation: none;
+    opacity: 0.85;
+  }
+  .ari-pause-hold {
+    animation: none;
+    opacity: 0.9;
+  }
+}

@@ -420,6 +420,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M24.5 Startup splash + auto-update: the "Ari awakens" dark splash (frameless 760x560, Web Audio signature via autoplay-policy switch) ships as an extraResource and owns the screen while drivers detect and the renderer loads; the main window signals `finishAriSplash()` on did-finish-load and the outro closes it, with a 12s fallback so startup can never hang behind it; electron-updater checks GitHub releases on startup and every 6h in packaged builds only, downloads in the background and installs on quit (mac auto-update needs signed builds); release workflow now also uploads zips/blockmaps/latest*.yml; linux deb fixed via explicit `linux.artifactName` (the `@ari/...` default path was unwritable by fpm)
 - [x] M24.6 Model pickers read the harness's own word + splash handover: ACP model probes now cover every transport (grok native, pi via npx `--no-install` so probing never downloads), the registry 'cache' source gets the same current-model curation as the snapshot (models.dev's full vendor catalog was flooding the picker), and the model selector refetches on open so late-landing probes appear without a restart; provider logos vendored for OpenCode/Pi/Hermes (simple-icons CC0; grok keeps the letter mark — no official art); splash hands over on the window's first painted frame (ready-to-show) so the outro dissolves into the ADE instead of closing before it; two load-sensitive test timeouts raised to match real git/roundtrip latency
 
+## M25 — Sidebar activity marks
+
+- [x] M25.1 Session rows (and project group headers) show live working / paused / done marks from `session.events`: compact forging-matrix chase in the busy token while a turn runs, warning pause bars while waiting for approval or input, success lock-in on settle (danger X on error). Live-only overlay — a crash cannot leave a row spinning. `prefers-reduced-motion` freezes the chase.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support

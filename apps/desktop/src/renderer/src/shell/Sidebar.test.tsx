@@ -2,6 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import type { SessionActivity } from '../features/session/session-activity'
 import {
   formatRelativeTime,
   SessionsUnderProjects,
@@ -36,6 +37,7 @@ type Handlers = Partial<{
   onCloseProject: (id: string) => void
   onRemoveProject: (id: string) => void
   onLocateProject: (id: string) => void
+  activityOf: (id: string) => SessionActivity | undefined
 }>
 
 function renderSidebar(
@@ -276,6 +278,27 @@ describe('SessionsUnderProjects', () => {
     await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Session old') })
     await user.click(screen.getByRole('menuitem', { name: 'Unarchive' }))
     expect(onToggleArchive).toHaveBeenCalledWith('old', false)
+  })
+
+  it('shows working / paused / done marks on the live session and its project', () => {
+    const now = Date.now()
+    const activityOf = (id: string): SessionActivity | undefined => {
+      if (id === 'a') return { phase: 'working', startedAt: now }
+      if (id === 'b') return { phase: 'paused', startedAt: now, pauseReason: 'approval' }
+      if (id === 'c') return { phase: 'done', startedAt: null, settledAt: now }
+      return undefined
+    }
+    renderSidebar(
+      [session('a', 1, 'proj-1'), session('b', 2, 'proj-1'), session('c', 1, 'proj-2')],
+      null,
+      { activityOf },
+    )
+
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    const sketch = screen.getByRole('region', { name: 'Sketch' })
+    expect(within(ari).getAllByRole('status', { name: 'Working' }).length).toBeGreaterThanOrEqual(1)
+    expect(within(ari).getByRole('status', { name: 'Waiting for you' })).toBeInTheDocument()
+    expect(within(sketch).getAllByRole('status', { name: 'Turn complete' }).length).toBeGreaterThanOrEqual(1)
   })
 })
 
