@@ -1,6 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { applyCachedTheme } from '@ari/ui/theme-provider'
+// Fonts arrive as a JS module, not through a CSS `@import`: Tailwind inlines
+// CSS imports before Vite can rebase their `url()` references, which left the
+// vendored woff2 files unbundled in production builds.
+import '@ari/ui/fonts'
 import { App } from './App'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import './styles/index.css'
