@@ -101,27 +101,25 @@ describe('contracts', () => {
       appearance: { wallpaper: 'none' },
     })
     expect(settingsUpdateSchema.safeParse({ appearance: { wallpaper: 'aurora' } }).success).toBe(false)
+    // The visibility-look field was retired in M26.5 (one uniform glass look);
+    // zod strips it rather than rejecting, so a stale caller can't write it.
     expect(settingsUpdateSchema.parse({ appearance: { wallpaperLook: 'vivid' } })).toEqual({
-      appearance: { wallpaperLook: 'vivid' },
+      appearance: {},
     })
-    expect(settingsUpdateSchema.safeParse({ appearance: { wallpaperLook: 'subtle' } }).success).toBe(false)
-    expect(settingsUpdateSchema.safeParse({ appearance: { wallpaperLook: 'extreme' } }).success).toBe(false)
   })
 
   it('defaults the wallpaper to none when settings predate the field', () => {
     const parsed = settingsSchema.parse({ version: 1 })
     expect(parsed.appearance.wallpaper).toBe('none')
-    expect(parsed.appearance.wallpaperLook).toBe('balanced')
   })
 
-  it('maps retired wallpaper looks onto the default instead of failing', () => {
-    // M26.2 briefly shipped 'subtle'.
+  it('drops the retired wallpaperLook field from stored settings', () => {
     const parsed = settingsSchema.parse({
       version: 1,
-      appearance: { wallpaper: 'anime-city', wallpaperLook: 'subtle' },
+      appearance: { wallpaper: 'anime-city', wallpaperLook: 'vivid' },
     })
     expect(parsed.appearance.wallpaper).toBe('anime-city')
-    expect(parsed.appearance.wallpaperLook).toBe('balanced')
+    expect(parsed.appearance).not.toHaveProperty('wallpaperLook')
   })
 
   it('validates fs.writeTextFile params and rejects malformed payloads', () => {

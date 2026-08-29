@@ -21,7 +21,6 @@ const engineSettings: Settings = {
     glass: true,
     reducedMotion: false,
     wallpaper: 'none',
-    wallpaperLook: 'balanced',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },

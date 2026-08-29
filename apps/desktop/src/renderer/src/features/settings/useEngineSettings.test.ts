@@ -17,7 +17,6 @@ const baseSettings: Settings = {
     glass: true,
     reducedMotion: false,
     wallpaper: 'none',
-    wallpaperLook: 'balanced',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
@@ -59,7 +58,6 @@ describe('useEngineSettings', () => {
         glass: true,
         reducedMotion: true,
         wallpaper: 'none',
-        wallpaperLook: 'balanced',
       },
     }
     const { result } = renderHook(() => useEngineSettings())

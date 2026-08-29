@@ -22,7 +22,6 @@ const engineSettings: Settings = {
     glass: true,
     reducedMotion: false,
     wallpaper: 'none',
-    wallpaperLook: 'balanced',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
@@ -113,34 +112,15 @@ describe('AppearanceSettings', () => {
     })
   })
 
-  it('offers the visibility control only while a wallpaper is active', async () => {
+  it('offers no visibility control — one uniform glass look per wallpaper', async () => {
     renderPage()
     const user = userEvent.setup()
-
-    // Hidden with no wallpaper…
-    expect(
-      screen.queryByRole('group', { name: 'Wallpaper visibility' }),
-    ).not.toBeInTheDocument()
-
-    // …shown once one is picked, with the three looks as segments.
     await user.click(screen.getByRole('radio', { name: /Anime City/ }))
-    await screen.findByRole('group', { name: 'Wallpaper visibility' })
-    for (const label of ['Balanced', 'Vivid']) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
-    }
-
-    // Picking a look updates the html attribute the CSS keys off.
-    await user.click(screen.getByRole('button', { name: 'Vivid' }))
     await waitFor(() => {
-      expect(document.documentElement.dataset['ariWallpaperLook']).toBe('vivid')
+      expect(document.documentElement.dataset['ariWallpaper']).toBe('anime-city')
     })
-
-    await user.click(screen.getByRole('radio', { name: /^None/ }))
-    await waitFor(() => {
-      expect(
-        screen.queryByRole('group', { name: 'Wallpaper visibility' }),
-      ).not.toBeInTheDocument()
-    })
+    expect(screen.queryByRole('group', { name: 'Wallpaper visibility' })).not.toBeInTheDocument()
+    expect(document.documentElement.dataset['ariWallpaperLook']).toBeUndefined()
   })
 
   it('reflects the engine-backed reduced-motion value and toggles via update', async () => {
@@ -152,7 +132,6 @@ describe('AppearanceSettings', () => {
         glass: true,
         reducedMotion: true,
         wallpaper: 'none',
-        wallpaperLook: 'balanced',
       },
     }
     renderPage()
