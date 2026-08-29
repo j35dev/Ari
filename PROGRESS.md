@@ -425,6 +425,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 - [x] M25.1 Session rows (and project group headers) show live working / paused / done marks from `session.events`: compact forging-matrix chase in the busy token while a turn runs, warning pause bars while waiting for approval or input, success lock-in on settle (danger X on error). Live-only overlay — a crash cannot leave a row spinning. `prefers-reduced-motion` freezes the chase.
 
+## M26 — Wallpaper compositing
+
+- [x] M26.1 Three bundled wallpapers (anime city + two moon scenes, recompressed to ~0.5MB each) selectable in Appearance and composited under the themed UI: `data-ari-wallpaper` on `<html>` drives a pure-CSS layer stack (fixed image → theme-derived frosted scrim via `color-mix` on `--ari-bg` → content), glass planes go translucent in every theme through re-derived `--ari-glass-*` tokens while `data-ari-glass`/reduced-transparency semantics stay untouched, `appearance.wallpaper` persists through the ThemeProvider pipeline with cross-package id pinning and an asset size-budget test (`docs/arch-26.md`).
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support

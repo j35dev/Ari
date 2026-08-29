@@ -2,11 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import { defaultThemeId, isThemeId, systemTheme, themes } from './themes'
 import type { Theme, ThemeId } from './themes'
+import { isWallpaperSetting } from './wallpapers'
+import type { WallpaperSetting } from './wallpapers'
 
 /**
- * Theme engine. Owns the active theme, the `system` follow mode, and the glass
- * opt-in, and reflects all three onto `<html>` as `data-ari-theme`,
- * `data-ari-scheme` and `data-ari-glass` — the hooks tokens.css and glass.css
+ * Theme engine. Owns the active theme, the `system` follow mode, the glass
+ * opt-in, and the wallpaper selection, and reflects all four onto `<html>` as
+ * `data-ari-theme`, `data-ari-scheme`, `data-ari-glass` and
+ * `data-ari-wallpaper` — the hooks tokens.css, glass.css and wallpaper.css
  * key off, so no component needs to know which theme is active.
  *
  * Persistence is injected (`persistence` prop) because @ari/ui must not depend
@@ -22,6 +25,8 @@ export interface ThemePreferences {
   mode: ThemeMode
   /** Glass opt-in; only glass-capable themes act on it. */
   glass: boolean
+  /** Bundled background scene composited under the themed UI. */
+  wallpaper: WallpaperSetting
 }
 
 /** Adapter onto durable storage (the engine settings store in the app). */
@@ -45,6 +50,9 @@ export interface ThemeContextValue {
   /** The raw opt-in, independent of theme capability / reduced transparency. */
   glassPreference: boolean
   setGlass: (enabled: boolean) => void
+  /** Active wallpaper selection ('none' = plain theme background). */
+  wallpaper: WallpaperSetting
+  setWallpaper: (wallpaper: WallpaperSetting) => void
 }
 
 const STORAGE_KEY = 'ari.theme'
@@ -65,17 +73,22 @@ function readCache(): ThemePreferences {
     if (raw) {
       const parsed: unknown = JSON.parse(raw)
       if (parsed && typeof parsed === 'object') {
-        const { mode, glass } = parsed as { mode?: unknown; glass?: unknown }
+        const { mode, glass, wallpaper } = parsed as {
+          mode?: unknown
+          glass?: unknown
+          wallpaper?: unknown
+        }
         return {
           mode: mode === 'system' || isThemeId(mode) ? mode : 'system',
           glass: typeof glass === 'boolean' ? glass : true,
+          wallpaper: isWallpaperSetting(wallpaper) ? wallpaper : 'none',
         }
       }
     }
   } catch {
     // storage unavailable or corrupt — defaults apply
   }
-  return { mode: 'system', glass: true }
+  return { mode: 'system', glass: true, wallpaper: 'none' }
 }
 
 function writeCache(prefs: ThemePreferences): void {
@@ -84,6 +97,16 @@ function writeCache(prefs: ThemePreferences): void {
   } catch {
     // non-fatal: preferences simply won't survive a reload
   }
+}
+
+/**
+ * Reflects the wallpaper selection onto `<html>` for wallpaper.css. The
+ * attribute is present only while a scene is active, so every wallpaper rule
+ * is opt-in and 'none' restores the plain theme exactly.
+ */
+function applyWallpaperAttr(root: HTMLElement, wallpaper: WallpaperSetting): void {
+  if (wallpaper === 'none') delete root.dataset['ariWallpaper']
+  else root.dataset['ariWallpaper'] = wallpaper
 }
 
 /**
@@ -101,6 +124,7 @@ export function applyCachedTheme(): void {
   root.dataset['ariScheme'] = theme.scheme
   const glass = theme.glass && prefs.glass && !matches('(prefers-reduced-transparency: reduce)')
   root.dataset['ariGlass'] = glass ? 'on' : 'off'
+  applyWallpaperAttr(root, prefs.wallpaper)
 }
 
 /** Subscribes to a media query, returning its current match state. */
@@ -146,6 +170,7 @@ export function ThemeProvider({
           setPrefs((current) => ({
             mode: stored.mode === 'system' || isThemeId(stored.mode) ? stored.mode : current.mode,
             glass: typeof stored.glass === 'boolean' ? stored.glass : current.glass,
+            wallpaper: isWallpaperSetting(stored.wallpaper) ? stored.wallpaper : current.wallpaper,
           }))
         }
         setHydrated(true)
@@ -170,7 +195,8 @@ export function ThemeProvider({
     root.dataset['ariTheme'] = theme.id
     root.dataset['ariScheme'] = theme.scheme
     root.dataset['ariGlass'] = glassEnabled ? 'on' : 'off'
-  }, [theme.id, theme.scheme, glassEnabled])
+    applyWallpaperAttr(root, prefs.wallpaper)
+  }, [theme.id, theme.scheme, glassEnabled, prefs.wallpaper])
 
   useEffect(() => {
     writeCache(prefs)
@@ -185,6 +211,9 @@ export function ThemeProvider({
   const setGlass = useCallback((glass: boolean) => {
     setPrefs((current) => ({ ...current, glass }))
   }, [])
+  const setWallpaper = useCallback((wallpaper: WallpaperSetting) => {
+    setPrefs((current) => ({ ...current, wallpaper }))
+  }, [])
 
   const value = useMemo<ThemeContextValue>(
     () => ({
@@ -197,8 +226,10 @@ export function ThemeProvider({
       glassEnabled,
       glassPreference: prefs.glass,
       setGlass,
+      wallpaper: prefs.wallpaper,
+      setWallpaper,
     }),
-    [theme, setTheme, prefs.mode, setMode, glassEnabled, prefs.glass, setGlass],
+    [theme, setTheme, prefs.mode, setMode, glassEnabled, prefs.glass, setGlass, prefs.wallpaper, setWallpaper],
   )
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>

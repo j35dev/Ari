@@ -11,7 +11,13 @@ vi.mock('../../lib/rpc', () => ({
 
 const baseSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: false },
+  appearance: {
+    themeId: 'obsidian',
+    mode: 'system',
+    glass: true,
+    reducedMotion: false,
+    wallpaper: 'none',
+  },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,
@@ -46,7 +52,13 @@ describe('useEngineSettings', () => {
   it('update calls settings.update with the patch and syncs the local copy', async () => {
     const updated: Settings = {
       ...baseSettings,
-      appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: true },
+      appearance: {
+        themeId: 'obsidian',
+        mode: 'system',
+        glass: true,
+        reducedMotion: true,
+        wallpaper: 'none',
+      },
     }
     const { result } = renderHook(() => useEngineSettings())
     await waitFor(() => expect(result.current.settings).toEqual(baseSettings))

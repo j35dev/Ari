@@ -4,6 +4,8 @@ import { Switch } from '@ari/ui/switch'
 import { useTheme } from '@ari/ui/theme-provider'
 import { themeChipRoles, themeList } from '@ari/ui/themes'
 import type { Theme, ThemeId } from '@ari/ui/themes'
+import { wallpapers } from '@ari/ui/wallpapers'
+import type { Wallpaper } from '@ari/ui/wallpapers'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
 import { useEngineSettings } from './useEngineSettings'
@@ -89,15 +91,72 @@ function ThemeGroup({
   )
 }
 
+/** 16:9 preview of a bundled scene; 'none' renders the plain theme backdrop. */
+function WallpaperThumb({ wallpaper, theme }: { wallpaper: Wallpaper | null; theme: Theme }) {
+  if (wallpaper) {
+    return (
+      <img
+        src={wallpaper.src}
+        alt=""
+        aria-hidden="true"
+        className="h-14 w-24 shrink-0 rounded border border-border object-cover"
+      />
+    )
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="h-14 w-24 shrink-0 rounded border border-border"
+      style={{ background: theme.colors.bg }}
+    />
+  )
+}
+
+function WallpaperGroup({
+  theme,
+  selected,
+  onSelect,
+}: {
+  theme: Theme
+  selected: string
+  onSelect: (wallpaper: 'none' | Wallpaper['id']) => void
+}) {
+  return (
+    <section className="mt-4" aria-label="Wallpaper">
+      <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">Wallpaper</h3>
+      <div role="radiogroup" aria-label="Wallpaper" className="grid gap-2">
+        <ThemeCard
+          label="None"
+          description="Solid theme background — the scene layers under every palette."
+          selected={selected === 'none'}
+          chips={<WallpaperThumb wallpaper={null} theme={theme} />}
+          onSelect={() => onSelect('none')}
+        />
+        {wallpapers.map((wallpaper) => (
+          <ThemeCard
+            key={wallpaper.id}
+            label={wallpaper.label}
+            description={`${wallpaper.description} Softly scrimmed; text and theme stay in front.`}
+            selected={selected === wallpaper.id}
+            chips={<WallpaperThumb wallpaper={wallpaper} theme={theme} />}
+            onSelect={() => onSelect(wallpaper.id)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
 /**
  * Appearance settings: theme picker (Light/Dark groups plus "Follow system"),
- * the glass opt-in for glass-capable themes, and reduced motion. Theme state
- * lives in the ThemeProvider, which persists through the engine settings store;
- * reduced motion is written here directly.
+ * the wallpaper picker, the glass opt-in for glass-capable themes, and reduced
+ * motion. Theme and wallpaper state live in the ThemeProvider, which persists
+ * through the engine settings store; reduced motion is written here directly.
  */
 export function AppearanceSettings() {
   const { settings, update } = useEngineSettings()
-  const { mode, setMode, theme, glassPreference, glassEnabled, setGlass } = useTheme()
+  const { mode, setMode, theme, glassPreference, glassEnabled, setGlass, wallpaper, setWallpaper } =
+    useTheme()
   const reducedMotion = settings?.appearance.reducedMotion ?? false
 
   const handleReducedMotionChange = (checked: boolean) => {
@@ -130,6 +189,8 @@ export function AppearanceSettings() {
 
       <ThemeGroup title="Dark" themes={dark} selectedMode={mode} onSelect={setMode} />
       <ThemeGroup title="Light" themes={light} selectedMode={mode} onSelect={setMode} />
+
+      <WallpaperGroup theme={theme} selected={wallpaper} onSelect={setWallpaper} />
 
       <div className="mt-4">
         {theme.glass ? (
