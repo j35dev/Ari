@@ -18,3 +18,8 @@ desktop.ini
 fixtures/tmp/
 recordings/
 .polariumcode/
+
+# Per-session engine worktrees and fleet task worktrees: full checkouts of this
+# repo living inside it.
+.ari/
+.worktrees/
