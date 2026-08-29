@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { themeIdSchema } from '@ari/contracts/settings'
+import { themeIdSchema, wallpaperIdSchema } from '@ari/contracts/settings'
 import { themeIds, themes } from '@ari/ui/themes'
+import { wallpaperIds } from '@ari/ui/wallpapers'
 import { themeWindowChrome } from './window'
 
 // The two lists are hand-maintained in packages that must not import each
@@ -9,6 +10,10 @@ import { themeWindowChrome } from './window'
 describe('theme registries agree across packages', () => {
   it('contracts accepts exactly the themes the UI defines', () => {
     expect([...themeIdSchema.options].sort()).toEqual([...themeIds].sort())
+  })
+
+  it('contracts accepts exactly the wallpapers the UI defines', () => {
+    expect([...wallpaperIdSchema.options].sort()).toEqual([...wallpaperIds].sort())
   })
 })
 

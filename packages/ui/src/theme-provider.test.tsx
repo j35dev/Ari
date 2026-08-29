@@ -19,14 +19,17 @@ function stubMatchMedia(matching: string[]): void {
 }
 
 function Probe() {
-  const { themeId, mode, resolvedScheme, glassEnabled, setTheme, setMode, setGlass } = useTheme()
+  const { themeId, mode, resolvedScheme, glassEnabled, setTheme, setMode, setGlass, wallpaper, setWallpaper } =
+    useTheme()
   return (
     <div>
-      <output data-testid="state">{`${themeId}|${mode}|${resolvedScheme}|${glassEnabled}`}</output>
+      <output data-testid="state">{`${themeId}|${mode}|${resolvedScheme}|${glassEnabled}|${wallpaper}`}</output>
       <button onClick={() => setTheme('porcelain')}>light</button>
       <button onClick={() => setTheme('nocturne')}>nocturne</button>
       <button onClick={() => setMode('system')}>system</button>
       <button onClick={() => setGlass(false)}>glass off</button>
+      <button onClick={() => setWallpaper('anime-city')}>wallpaper on</button>
+      <button onClick={() => setWallpaper('none')}>wallpaper off</button>
     </div>
   )
 }
@@ -52,7 +55,7 @@ describe('ThemeProvider', () => {
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
     expect(root()['ariScheme']).toBe('dark')
     expect(root()['ariGlass']).toBe('on')
-    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|true')
+    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|true|none')
   })
 
   it('picks the light theme when the OS prefers light', async () => {
@@ -78,7 +81,7 @@ describe('ThemeProvider', () => {
     await user.click(screen.getByText('light'))
     await waitFor(() => expect(root()['ariTheme']).toBe('porcelain'))
     expect(root()['ariScheme']).toBe('light')
-    expect(screen.getByTestId('state')).toHaveTextContent('porcelain|porcelain|light|false')
+    expect(screen.getByTestId('state')).toHaveTextContent('porcelain|porcelain|light|false|none')
 
     await user.click(screen.getByText('system'))
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
@@ -106,13 +109,13 @@ describe('ThemeProvider', () => {
     )
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
     expect(root()['ariGlass']).toBe('off')
-    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|false')
+    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|false|none')
   })
 
   it('round-trips preferences through the injected persistence', async () => {
     const saved: unknown[] = []
     const persistence: ThemePersistence = {
-      load: () => Promise.resolve({ mode: 'verdant', glass: false }),
+      load: () => Promise.resolve({ mode: 'verdant', glass: false, wallpaper: 'anime-city' }),
       save: (prefs) => {
         saved.push(prefs)
         return Promise.resolve()
@@ -125,10 +128,33 @@ describe('ThemeProvider', () => {
     )
     await waitFor(() => expect(root()['ariTheme']).toBe('verdant'))
     await waitFor(() =>
-      expect(saved).toContainEqual({ mode: 'verdant', glass: false, themeId: 'verdant' }),
+      expect(saved).toContainEqual({
+        mode: 'verdant',
+        glass: false,
+        wallpaper: 'anime-city',
+        themeId: 'verdant',
+      }),
     )
     // localStorage keeps a pre-hydration cache so the next boot paints instantly.
     expect(localStorage.getItem('ari.theme')).toContain('verdant')
+  })
+
+  it('reflects the wallpaper selection as an html attribute and clears it for none', async () => {
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    )
+    const user = userEvent.setup()
+    await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
+    expect(root()['ariWallpaper']).toBeUndefined()
+
+    await user.click(screen.getByText('wallpaper on'))
+    await waitFor(() => expect(root()['ariWallpaper']).toBe('anime-city'))
+    expect(screen.getByTestId('state')).toHaveTextContent('|anime-city')
+
+    await user.click(screen.getByText('wallpaper off'))
+    await waitFor(() => expect(root()['ariWallpaper']).toBeUndefined())
   })
 
   it('never saves the cached default over the durable copy before it loads', async () => {
@@ -153,7 +179,7 @@ describe('ThemeProvider', () => {
     expect(saved).toEqual([])
     release({ mode: 'verdant', glass: false })
     await waitFor(() => expect(root()['ariTheme']).toBe('verdant'))
-    expect(saved).toEqual([{ mode: 'verdant', glass: false, themeId: 'verdant' }])
+    expect(saved).toEqual([{ mode: 'verdant', glass: false, wallpaper: 'none', themeId: 'verdant' }])
   })
 
   it('throws when useTheme is called outside the provider', () => {
@@ -179,6 +205,26 @@ describe('applyCachedTheme', () => {
     expect(root()['ariTheme']).toBe('porcelain')
     expect(root()['ariScheme']).toBe('light')
     expect(root()['ariGlass']).toBe('off')
+  })
+
+  it('paints the cached wallpaper attribute before React mounts', () => {
+    localStorage.setItem(
+      'ari.theme',
+      JSON.stringify({ mode: 'nocturne', glass: true, wallpaper: 'moon-landscape' }),
+    )
+    stubMatchMedia(['prefers-color-scheme: dark'])
+    applyCachedTheme()
+    expect(root()['ariWallpaper']).toBe('moon-landscape')
+  })
+
+  it('drops a stale wallpaper cache value and leaves no attribute', () => {
+    localStorage.setItem(
+      'ari.theme',
+      JSON.stringify({ mode: 'obsidian', glass: true, wallpaper: 'aurora-borealis' }),
+    )
+    stubMatchMedia(['prefers-color-scheme: dark'])
+    applyCachedTheme()
+    expect(root()['ariWallpaper']).toBeUndefined()
   })
 
   it('falls back to the system theme with no cache', () => {

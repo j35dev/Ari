@@ -25,6 +25,11 @@ export const SETTINGS_SEARCH_INDEX = [
   },
   {
     section: 'settings-appearance',
+    label: 'Wallpaper',
+    keywords: 'background scene anime city moon galaxy backdrop image appearance',
+  },
+  {
+    section: 'settings-appearance',
     label: 'Reduce motion',
     keywords: 'animation accessibility movement transitions',
   },

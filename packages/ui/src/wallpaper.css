@@ -1,0 +1,103 @@
+/*
+ * Wallpaper compositing — a bundled scene painted under the themed UI.
+ *
+ * Composite model (bottom to top inside the window):
+ *   1. canvas — body's opaque `--ari-bg` (propagated), also the pre-paint color
+ *   2. body::before — the wallpaper image, `position: fixed; z-index: -1`
+ *   3. body::after — the scrim: the theme's own background color at partial
+ *      strength plus a backdrop blur, so the scene reads as a soft, theme-tinted
+ *      field and foreground text keeps full contrast
+ *   4. the app — in-flow content always paints above the two negative-z layers
+ *
+ * `<html>` carries `data-ari-wallpaper="<id>"` only while a wallpaper is
+ * active (the ThemeProvider removes it for 'none'), so every rule here is
+ * opt-in and the plain theme path is untouched.
+ *
+ * Theme colors are never hardcoded: the scrim derives from `--ari-bg` and the
+ * glass plane tokens derive from the surface ramp via `color-mix`, so all six
+ * palettes tint their wallpaper automatically. These declarations load after
+ * tokens.css/glass.css and are unlayered, so they win the cascade ties.
+ *
+ * The existing glass machinery is left intact: `data-ari-glass` still means
+ * "blur allowed", so under `prefers-reduced-transparency` the planes here stay
+ * translucent (a wallpaper is an explicit opt-in to seeing one) but unblurred.
+ */
+
+[data-ari-wallpaper] {
+  /* Frosted veil between the scene and the UI. */
+  --ari-wallpaper-scrim: color-mix(in oklab, var(--ari-bg) 62%, transparent);
+  /* Glass planes rest on the wallpaper instead of the desktop, so they take
+     theme-derived translucency in every theme, not just glass-capable ones. */
+  --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 72%, transparent);
+  --ari-glass-overlay: color-mix(in oklab, var(--ari-surface-2) 82%, transparent);
+  --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 85%, transparent);
+}
+
+/* The two fixed layers. Negative z-index paints them above the canvas
+   background but below every in-flow element; tree order puts the image
+   under the scrim. */
+[data-ari-wallpaper] body::before,
+[data-ari-wallpaper] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+[data-ari-wallpaper] body::before {
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+}
+
+[data-ari-wallpaper] body::after {
+  background: var(--ari-wallpaper-scrim);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+
+[data-ari-wallpaper='anime-city'] body::before {
+  background-image: url('./assets/wallpapers/anime-city.jpg');
+}
+[data-ari-wallpaper='moon-landscape'] body::before {
+  background-image: url('./assets/wallpapers/moon-landscape.jpg');
+}
+[data-ari-wallpaper='moon-landscape-2'] body::before {
+  background-image: url('./assets/wallpapers/moon-landscape-2.jpg');
+}
+
+/* Glass-off baseline: the chrome planes still go translucent over a wallpaper
+   (glass.css's opaque substrate would hide it). Glass-on needs no class
+   override — it already paints these same derived variables. */
+[data-ari-wallpaper] .ari-glass {
+  background: var(--ari-glass-scrim);
+}
+[data-ari-wallpaper] .ari-glass-overlay {
+  background: var(--ari-glass-overlay);
+}
+[data-ari-wallpaper] .ari-glass-input {
+  background: var(--ari-glass-input);
+}
+
+/* The main pane paints `bg-bg` to cover the window backdrop; over a wallpaper
+   it must let the composite show through. Unlayered rules beat Tailwind's
+   @layer utilities, so no specificity games are needed. */
+[data-ari-wallpaper] main.bg-bg {
+  background-color: transparent;
+}
+
+/* Reduced transparency: keep the scene visible (explicit opt-in) but drop the
+   frosted blur and raise the veils so contrast never depends on blur. */
+@media (prefers-reduced-transparency: reduce) {
+  [data-ari-wallpaper] {
+    --ari-wallpaper-scrim: color-mix(in oklab, var(--ari-bg) 86%, transparent);
+    --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 90%, transparent);
+    --ari-glass-overlay: color-mix(in oklab, var(--ari-surface-2) 92%, transparent);
+    --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 94%, transparent);
+  }
+  [data-ari-wallpaper] body::after {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
