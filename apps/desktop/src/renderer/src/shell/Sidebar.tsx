@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import { SessionActivityMark } from '../features/moment'
+import { peakActivity, type SessionActivity } from '../features/session/session-activity'
 import {
   sidebarGroups,
   sidebarOrder,
@@ -88,6 +90,7 @@ function SessionRow({
   session,
   projectName,
   isActive,
+  activity,
   onSelect,
   onRename,
   onDelete,
@@ -97,6 +100,7 @@ function SessionRow({
   session: SessionSummary
   projectName: string | null
   isActive: boolean
+  activity?: SessionActivity
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
@@ -184,14 +188,24 @@ function SessionRow({
         onClick={() => onSelect(session.id)}
         onContextMenu={(e) => menu.open(session.id, e)}
         className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 pr-7 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-          isActive ? 'bg-glass-active text-fg' : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
+          isActive
+            ? 'bg-glass-active text-fg'
+            : activity !== undefined
+              ? 'text-fg hover:bg-glass-hover'
+              : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
         }`}
       >
-        {session.pinned ? (
-          <Pin size={10} aria-hidden className="shrink-0 text-accent" />
-        ) : (
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-accent' : 'bg-transparent group-hover:bg-surface-3'}`} />
-        )}
+        <span className="flex size-2.5 shrink-0 items-center justify-center">
+          {activity !== undefined ? (
+            <SessionActivityMark activity={activity} />
+          ) : session.pinned ? (
+            <Pin size={10} aria-hidden className="text-accent" />
+          ) : (
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-accent' : 'bg-transparent group-hover:bg-surface-3'}`}
+            />
+          )}
+        </span>
         <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
         {projectName ? (
           <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle lg:flex">
@@ -263,6 +277,8 @@ interface SessionRowHandlers {
   onDelete: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
+  /** Live working/paused/done overlay; omit in tests that only cover listing. */
+  activityOf?: (sessionId: string) => SessionActivity | undefined
 }
 
 /** FLIP-animated session list; shared by groups, the archived shelf and search. */
@@ -283,6 +299,7 @@ function SessionList({
             session={s}
             projectName={projectNameOf?.(s.projectId) ?? null}
             isActive={s.id === handlers.activeSessionId}
+            activity={handlers.activityOf?.(s.id)}
             onSelect={handlers.onSelect}
             onRename={handlers.onRename}
             onDelete={handlers.onDelete}
@@ -394,6 +411,7 @@ function ProjectGroupSection({
   const [confirmRemove, setConfirmRemove] = useState(false)
   const menu = useContextMenu()
   const missing = project?.status === 'missing'
+  const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
 
   return (
     <section className="group/project" aria-label={name}>
@@ -422,6 +440,7 @@ function ProjectGroupSection({
           >
             {name}
           </span>
+          {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
           <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
             {sessions.length}
           </span>
@@ -541,6 +560,7 @@ export function SessionsUnderProjects({
   onDelete,
   onTogglePin,
   onToggleArchive,
+  activityOf,
   onOpenProject,
   knownProjectNames,
   ...actions
@@ -563,6 +583,7 @@ export function SessionsUnderProjects({
     onDelete,
     onTogglePin,
     onToggleArchive,
+    activityOf,
   }
 
   const projectNameOf = useMemo(() => {

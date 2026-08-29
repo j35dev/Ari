@@ -24,6 +24,7 @@ import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
 import { BootSplash } from './features/moment'
+import { useSessionActivity } from './features/session/use-session-activity'
 import {
   SidebarHeader,
   SessionsUnderProjects,
@@ -54,6 +55,7 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const { activityOf } = useSessionActivity()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -435,6 +437,7 @@ function Shell() {
             }}
             onLocateProject={openProjectViaDialog}
             activeSessionId={activeSessionId}
+            activityOf={activityOf}
             onSelect={(id) => {
               setActiveSessionId(id)
               setInspector(null)
