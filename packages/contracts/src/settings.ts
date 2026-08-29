@@ -28,12 +28,21 @@ export type WallpaperIdSetting = z.infer<typeof wallpaperIdSchema>
 export const wallpaperSchema = z.union([z.literal('none'), wallpaperIdSchema])
 export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 
+/**
+ * How strongly the scene shows through: 'subtle' (heavy frosted veil, default
+ * look before M26.2), 'balanced' (mild blur + light veil), 'vivid' (crisp
+ * image, veil only under text-bearing panels).
+ */
+export const wallpaperLookSchema = z.enum(['subtle', 'balanced', 'vivid'])
+export type WallpaperLook = z.infer<typeof wallpaperLookSchema>
+
 const defaultAppearance = {
   themeId: 'obsidian',
   mode: 'system',
   glass: true,
   reducedMotion: false,
   wallpaper: 'none',
+  wallpaperLook: 'balanced',
 } as const
 
 /** Persisted application settings. Versioned for forward migration. */
@@ -54,6 +63,8 @@ export const settingsSchema = z.object({
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
+      /** How strongly the scene shows through; only meaningful with one set. */
+      wallpaperLook: wallpaperLookSchema.default(defaultAppearance.wallpaperLook),
     })
     .default(defaultAppearance),
   sessions: z
@@ -95,6 +106,7 @@ export const settingsUpdateSchema = z.object({
       glass: z.boolean(),
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
+      wallpaperLook: wallpaperLookSchema,
     })
     .partial()
     .optional(),

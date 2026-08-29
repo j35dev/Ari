@@ -4,19 +4,19 @@
  * Composite model (bottom to top inside the window):
  *   1. canvas — body's opaque `--ari-bg` (propagated), also the pre-paint color
  *   2. body::before — the wallpaper image, `position: fixed; z-index: -1`
- *   3. body::after — the scrim: the theme's own background color at partial
- *      strength plus a backdrop blur, so the scene reads as a soft, theme-tinted
- *      field and foreground text keeps full contrast
+ *   3. body::after — the scrim: a veil of the theme's own background color,
+ *      strength and blur set by the visibility look (below)
  *   4. the app — in-flow content always paints above the two negative-z layers
  *
  * `<html>` carries `data-ari-wallpaper="<id>"` only while a wallpaper is
  * active (the ThemeProvider removes it for 'none'), so every rule here is
- * opt-in and the plain theme path is untouched.
+ * opt-in and the plain theme path is untouched. `data-ari-wallpaper-look`
+ * ('subtle' | 'balanced' | 'vivid', default 'balanced') picks the recipe.
  *
- * Theme colors are never hardcoded: the scrim derives from `--ari-bg` and the
- * glass plane tokens derive from the surface ramp via `color-mix`, so all six
- * palettes tint their wallpaper automatically. These declarations load after
- * tokens.css/glass.css and are unlayered, so they win the cascade ties.
+ * Theme colors are never hardcoded: every veil derives from `--ari-bg` and
+ * the glass plane tokens derive from the surface ramp via `color-mix`, so all
+ * six palettes tint their wallpaper automatically. These declarations load
+ * after tokens.css/glass.css and are unlayered, so they win cascade ties.
  *
  * The existing glass machinery is left intact: `data-ari-glass` still means
  * "blur allowed", so under `prefers-reduced-transparency` the planes here stay
@@ -24,8 +24,10 @@
  */
 
 [data-ari-wallpaper] {
-  /* Frosted veil between the scene and the UI. */
-  --ari-wallpaper-scrim: color-mix(in oklab, var(--ari-bg) 62%, transparent);
+  /* Frosted veil over the scene (theme background at partial strength). */
+  --wallpaper-scrim-subtle: color-mix(in oklab, var(--ari-bg) 72%, transparent);
+  --wallpaper-scrim-balanced: color-mix(in oklab, var(--ari-bg) 38%, transparent);
+  --wallpaper-scrim-vivid: color-mix(in oklab, var(--ari-bg) 26%, transparent);
   /* Glass planes rest on the wallpaper instead of the desktop, so they take
      theme-derived translucency in every theme, not just glass-capable ones. */
   --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 72%, transparent);
@@ -52,9 +54,40 @@
 }
 
 [data-ari-wallpaper] body::after {
-  background: var(--ari-wallpaper-scrim);
-  -webkit-backdrop-filter: blur(20px) saturate(1.2);
-  backdrop-filter: blur(20px) saturate(1.2);
+  background: var(--wallpaper-scrim-balanced);
+}
+
+/* Subtle: the M26.1 look — heavy frost so text contrast never depends on
+   anything else. Balanced: a mild frost; the scene stays recognizable. */
+[data-ari-wallpaper] body::after {
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+[data-ari-wallpaper][data-ari-wallpaper-look='subtle'] body::after {
+  -webkit-backdrop-filter: blur(22px) saturate(1.2);
+  backdrop-filter: blur(22px) saturate(1.2);
+  background: var(--wallpaper-scrim-subtle);
+}
+[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] body::after {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--wallpaper-scrim-vivid);
+}
+
+/* Vivid: the scene is crisp and barely veiled, so surfaces that carry reading
+   text frost themselves. `.ari-reading-frost` is the opt-in hook the app puts
+   on the transcript column and composer; overlays/popovers already blur via
+   glass.css. */
+[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] .ari-reading-frost::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--wallpaper-scrim-balanced);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
 }
 
 [data-ari-wallpaper='anime-city'] body::before {
@@ -88,15 +121,20 @@
 }
 
 /* Reduced transparency: keep the scene visible (explicit opt-in) but drop the
-   frosted blur and raise the veils so contrast never depends on blur. */
+   frosted blur and raise the veils so contrast never depends on blur. This
+   block must come after the look recipes — the scrim redefinitions win the
+   equal-specificity tie by source order. */
 @media (prefers-reduced-transparency: reduce) {
   [data-ari-wallpaper] {
-    --ari-wallpaper-scrim: color-mix(in oklab, var(--ari-bg) 86%, transparent);
+    --wallpaper-scrim-subtle: color-mix(in oklab, var(--ari-bg) 90%, transparent);
+    --wallpaper-scrim-balanced: color-mix(in oklab, var(--ari-bg) 84%, transparent);
+    --wallpaper-scrim-vivid: color-mix(in oklab, var(--ari-bg) 78%, transparent);
     --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 90%, transparent);
     --ari-glass-overlay: color-mix(in oklab, var(--ari-surface-2) 92%, transparent);
     --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 94%, transparent);
   }
-  [data-ari-wallpaper] body::after {
+  [data-ari-wallpaper] body::after,
+  [data-ari-wallpaper][data-ari-wallpaper-look='vivid'] .ari-reading-frost::before {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

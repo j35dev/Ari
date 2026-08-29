@@ -101,6 +101,10 @@ describe('contracts', () => {
       appearance: { wallpaper: 'none' },
     })
     expect(settingsUpdateSchema.safeParse({ appearance: { wallpaper: 'aurora' } }).success).toBe(false)
+    expect(settingsUpdateSchema.parse({ appearance: { wallpaperLook: 'vivid' } })).toEqual({
+      appearance: { wallpaperLook: 'vivid' },
+    })
+    expect(settingsUpdateSchema.safeParse({ appearance: { wallpaperLook: 'extreme' } }).success).toBe(false)
   })
 
   it('defaults the wallpaper to none when settings predate the field', () => {

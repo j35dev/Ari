@@ -1,11 +1,12 @@
 import { Check, Monitor } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
+import { SegmentedControl } from '@ari/ui/segmented-control'
 import { Switch } from '@ari/ui/switch'
 import { useTheme } from '@ari/ui/theme-provider'
 import { themeChipRoles, themeList } from '@ari/ui/themes'
 import type { Theme, ThemeId } from '@ari/ui/themes'
-import { wallpapers } from '@ari/ui/wallpapers'
-import type { Wallpaper } from '@ari/ui/wallpapers'
+import { wallpaperLooks, wallpapers } from '@ari/ui/wallpapers'
+import type { Wallpaper, WallpaperLookId } from '@ari/ui/wallpapers'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
 import { useEngineSettings } from './useEngineSettings'
@@ -155,8 +156,18 @@ function WallpaperGroup({
  */
 export function AppearanceSettings() {
   const { settings, update } = useEngineSettings()
-  const { mode, setMode, theme, glassPreference, glassEnabled, setGlass, wallpaper, setWallpaper } =
-    useTheme()
+  const {
+    mode,
+    setMode,
+    theme,
+    glassPreference,
+    glassEnabled,
+    setGlass,
+    wallpaper,
+    setWallpaper,
+    wallpaperLook,
+    setWallpaperLook,
+  } = useTheme()
   const reducedMotion = settings?.appearance.reducedMotion ?? false
 
   const handleReducedMotionChange = (checked: boolean) => {
@@ -191,6 +202,25 @@ export function AppearanceSettings() {
       <ThemeGroup title="Light" themes={light} selectedMode={mode} onSelect={setMode} />
 
       <WallpaperGroup theme={theme} selected={wallpaper} onSelect={setWallpaper} />
+
+      {wallpaper !== 'none' ? (
+        <SettingsRow
+          label="Wallpaper visibility"
+          hint={
+            wallpaperLooks.find((look) => look.id === wallpaperLook)?.description ??
+            wallpaperLooks[1].description
+          }
+        >
+          <SegmentedControl
+            size="sm"
+            role="group"
+            aria-label="Wallpaper visibility"
+            options={wallpaperLooks.map((look) => ({ value: look.id, label: look.label }))}
+            value={wallpaperLook}
+            onChange={(value) => setWallpaperLook(value as WallpaperLookId)}
+          />
+        </SettingsRow>
+      ) : null}
 
       <div className="mt-4">
         {theme.glass ? (

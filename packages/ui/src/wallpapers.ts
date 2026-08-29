@@ -57,3 +57,36 @@ export function isWallpaperId(value: unknown): value is WallpaperId {
 export function isWallpaperSetting(value: unknown): value is WallpaperSetting {
   return value === 'none' || isWallpaperId(value)
 }
+
+/**
+ * How strongly the scene shows through, per `wallpaperLookSchema` in
+ * @ari/contracts. The values are the CSS custom properties wallpaper.css
+ * derives each look from; labels/descriptions feed the picker control.
+ */
+export const wallpaperLooks = [
+  {
+    id: 'subtle',
+    label: 'Subtle',
+    description: 'Heavily frosted — the scene is a soft, dim wash.',
+    scrim: '--wallpaper-scrim-subtle',
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    description: 'Mildly frosted; scene clearly visible behind glass.',
+    scrim: '--wallpaper-scrim-balanced',
+  },
+  {
+    id: 'vivid',
+    label: 'Vivid',
+    description: 'Crisp image; frosted plates only behind reading surfaces.',
+    scrim: '--wallpaper-scrim-vivid',
+  },
+] as const
+
+export type WallpaperLookId = (typeof wallpaperLooks)[number]['id']
+
+export function isWallpaperLook(value: unknown): value is WallpaperLookId {
+  return typeof value === 'string' && wallpaperLooks.some((look) => look.id === value)
+}
+
