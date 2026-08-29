@@ -327,7 +327,14 @@ describe('Shell live sidebar feed', () => {
         },
       })
     }
-    await vi.waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2), { timeout: 3_000 })
+    // Wait for the refetch to be *committed*, not merely requested: the
+    // reuse check reads session state, so waiting on the call count alone
+    // races the render and Mod+N can still see the stale pristine row. The
+    // second summary carries the new title, so its row proves the commit.
+    await vi.waitFor(() => expect(screen.getByText('Fixed the build')).toBeInTheDocument(), {
+      timeout: 3_000,
+    })
+    expect(listCalls).toBeGreaterThanOrEqual(2)
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
 
