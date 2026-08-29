@@ -16,7 +16,13 @@ vi.mock('./useEngineSettings', () => ({
 
 const engineSettings: Settings = {
   version: 1,
-  appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: false },
+  appearance: {
+    themeId: 'obsidian',
+    mode: 'system',
+    glass: true,
+    reducedMotion: false,
+    wallpaper: 'none',
+  },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   permissions: { allowlist: [] },
   window: null,
@@ -84,10 +90,49 @@ describe('AppearanceSettings', () => {
     })
   })
 
+  it('lists every bundled wallpaper and applies the selection to the html attribute', async () => {
+    renderPage()
+    expect(screen.getByRole('radiogroup', { name: 'Wallpaper' })).toBeInTheDocument()
+    for (const label of ['None', 'Anime City', 'Moon Landscape', 'Moon Landscape II']) {
+      // "Moon Landscape" is a strict prefix of "Moon Landscape II" — exclude it.
+      const pattern = label === 'Moon Landscape' ? /Moon Landscape(?! II)/ : new RegExp(label)
+      expect(screen.getByRole('radio', { name: pattern })).toBeInTheDocument()
+    }
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('radio', { name: /Anime City/ }))
+    await waitFor(() => {
+      expect(document.documentElement.dataset['ariWallpaper']).toBe('anime-city')
+    })
+    expect(screen.getByRole('radio', { name: /Anime City/ })).toHaveAttribute('aria-checked', 'true')
+
+    await user.click(screen.getByRole('radio', { name: /^None/ }))
+    await waitFor(() => {
+      expect(document.documentElement.dataset['ariWallpaper']).toBeUndefined()
+    })
+  })
+
+  it('offers no visibility control — one uniform glass look per wallpaper', async () => {
+    renderPage()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('radio', { name: /Anime City/ }))
+    await waitFor(() => {
+      expect(document.documentElement.dataset['ariWallpaper']).toBe('anime-city')
+    })
+    expect(screen.queryByRole('group', { name: 'Wallpaper visibility' })).not.toBeInTheDocument()
+    expect(document.documentElement.dataset['ariWallpaperLook']).toBeUndefined()
+  })
+
   it('reflects the engine-backed reduced-motion value and toggles via update', async () => {
     mocks.holder.settings = {
       ...engineSettings,
-      appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: true },
+      appearance: {
+        themeId: 'obsidian',
+        mode: 'system',
+        glass: true,
+        reducedMotion: true,
+        wallpaper: 'none',
+      },
     }
     renderPage()
     const toggle = screen.getByRole('switch', { name: 'Reduce motion' })
