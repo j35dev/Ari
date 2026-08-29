@@ -3,7 +3,19 @@ import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier'
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/out/**', '**/node_modules/**', '**/coverage/**'] },
+  // `.ari/worktrees/<sessionId>` and `.worktrees/<task>` hold whole checkouts of
+  // this repo — a session worktree or a fleet worktree. Without these, `eslint .`
+  // walks into a second copy of every source file the moment a session runs.
+  {
+    ignores: [
+      '**/dist/**',
+      '**/out/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      '.ari/**',
+      '.worktrees/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
