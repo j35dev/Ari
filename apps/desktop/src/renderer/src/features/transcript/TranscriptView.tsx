@@ -145,7 +145,7 @@ export function TranscriptView({
   )
 
   return (
-    <div className="ari-reading-frost relative flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <h2 className="sr-only">Messages</h2>
       {header}
       <div

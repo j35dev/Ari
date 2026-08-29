@@ -74,20 +74,18 @@
   background: var(--wallpaper-scrim-vivid);
 }
 
-/* Vivid: the scene is crisp and barely veiled, so surfaces that carry reading
-   text frost themselves. `.ari-reading-frost` is the opt-in hook the app puts
-   on the transcript column and composer; overlays/popovers already blur via
-   glass.css. */
-[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] .ari-reading-frost::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  background: var(--wallpaper-scrim-balanced);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
-  backdrop-filter: blur(16px) saturate(1.2);
+/* Vivid: the scene is crisp and barely veiled, so the main pane carries the
+   same frosted plate as the sidebar — `.ari-glass`'s recipe (translucent
+   surface + heavy blur) — which keeps it visually continuous with the chrome
+   while text stays readable over any scene. The pane must be positioned so
+   its plate paints above the fixed wallpaper layers but below its content. */
+[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] main.bg-bg {
+  background: var(--ari-glass-scrim);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  backdrop-filter: blur(28px) saturate(1.35);
+}
+[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] main.bg-bg > * {
+  position: relative;
 }
 
 [data-ari-wallpaper='anime-city'] body::before {
@@ -134,7 +132,7 @@
     --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 94%, transparent);
   }
   [data-ari-wallpaper] body::after,
-  [data-ari-wallpaper][data-ari-wallpaper-look='vivid'] .ari-reading-frost::before {
+  [data-ari-wallpaper][data-ari-wallpaper-look='vivid'] main.bg-bg {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

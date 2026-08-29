@@ -31,11 +31,12 @@ media-query block can re-derive them in one place:
   never depends on anything else; the scene is a dim wash.
 - **balanced** (default) — blur(14px) over a 38% veil: the scene stays
   recognizable behind the UI.
-- **vivid** — no global blur, 26% veil: the scene is crisp. Reading surfaces
-  frost themselves instead: `.ari-reading-frost` (on the transcript column)
-  gets its own `::before` plate with blur(16px) and the balanced veil, scoped
-  to the element (`position: absolute`, `z-index: -1` inside the element's
-  stacking context) rather than fixed over the viewport.
+- **vivid** — no global blur, 26% veil: the scene is crisp. The main pane
+  (`main.bg-bg`) then wears the same frosted plate as the sidebar — the
+  `.ari-glass` recipe (`--ari-glass-scrim` + blur(28px) saturate(1.35)) — so
+  the reading area is visually continuous with the chrome and text keeps the
+  sidebar's readability over any scene. Its children are lifted above the
+  plate via `position: relative`.
 
 Veil colors always derive from `--ari-bg` via `color-mix`, so all six palettes
 tint their wallpaper automatically; the look changes *how much* scene shows,
