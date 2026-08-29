@@ -425,6 +425,11 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 - [x] M25.1 Session rows (and project group headers) show live working / paused / done marks from `session.events`: compact forging-matrix chase in the busy token while a turn runs, warning pause bars while waiting for approval or input, success lock-in on settle (danger X on error). Live-only overlay — a crash cannot leave a row spinning. `prefers-reduced-motion` freezes the chase.
 
+## M26 — Transcript legibility
+
+- [ ] M26.1 Desktop wallpapers (claimed @ feat/m26.1-wallpapers)
+- [x] M26.2 A working turn reads as one line, not a scroll of machinery: reasoning now folds into the adjacent tool run instead of breaking it, so a turn that used to render forty alternating `thinking` / `Ran 1 command` rows renders one activity row summarising it ("Ran 8 commands · Read 3 files"), and any run carrying tool traffic is a group from its first in-flight call so the row never changes shape mid-stream. While a call is outstanding the same row names it ("Reading src/tokens.css") so it doubles as the live progress readout. Expanding gives one line per step in wire order — verb, target, state — and each step opens to its own arguments and result; nothing renders raw JSON until asked. `toolLabels.ts` recovers a real tool name and target from every provider shape, including the ACP `{ title, input }` envelope that used to surface as `tool title=… input={…}`.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support

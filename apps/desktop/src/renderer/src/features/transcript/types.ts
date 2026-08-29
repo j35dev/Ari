@@ -33,11 +33,16 @@ export interface TranscriptBlock {
   turnId?: string | null
 }
 
-/** A run of consecutive tool blocks collapsed into one activity row. */
+/**
+ * A run of consecutive work blocks — tool calls, their results, and the
+ * reasoning interleaved between them — collapsed into one activity row.
+ */
 export interface ToolGroupRow {
   kind: 'tool-group'
   /** Stable key spanning first→last member block. */
   key: string
+  /** Every member block in wire order; drives the expanded step list. */
+  blocks: TranscriptBlock[]
   calls: TranscriptBlock[]
   resultsByCallId: Map<string, TranscriptBlock>
 }
