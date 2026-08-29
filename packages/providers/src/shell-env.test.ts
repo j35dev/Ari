@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
-import { loginShellPath, resolveDetectionEnvironment, versionManagerDirs } from './shell-env'
+import {
+  loginShellPath,
+  processEnvWithPath,
+  resolveDetectionEnvironment,
+  versionManagerDirs,
+} from './shell-env'
 import type { DetectEnvironment } from './types'
 
 afterEach(() => {
@@ -99,5 +104,13 @@ describe('resolveDetectionEnvironment', () => {
     for (const part of ['/a', '/b', '/c']) {
       expect(entries).toContain(part)
     }
+  })
+})
+
+describe('processEnvWithPath', () => {
+  it('overlays PATH onto a copy of the base env', () => {
+    const next = processEnvWithPath('/custom/bin', { HOME: '/home/t', PATH: '/usr/bin' })
+    expect(next.PATH).toBe('/custom/bin')
+    expect(next.HOME).toBe('/home/t')
   })
 })

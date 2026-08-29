@@ -172,4 +172,56 @@ describe('Toast', () => {
       expect(screen.getByText(`T${i}`)).toBeInTheDocument()
     }
   })
+
+  it('anchors the viewport at the top right below the titlebar', async () => {
+    const user = userEvent.setup()
+    render(
+      <ToastProvider>
+        <Probe opts={{ title: 'Placed' }} />
+      </ToastProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'show' }))
+    const viewport = document.querySelector('[data-toast-viewport]')
+    expect(viewport).not.toBeNull()
+    expect(viewport).toHaveClass('fixed', 'top-12', 'right-4')
+    expect(viewport).not.toHaveClass('bottom-4')
+  })
+
+  it('keeps a durationMs of 0 until dismissed', async () => {
+    const user = userEvent.setup()
+    render(
+      <ToastProvider>
+        <Probe opts={{ title: 'Sticky', durationMs: 0 }} />
+      </ToastProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'show' }))
+    await new Promise((r) => setTimeout(r, 250))
+    expect(screen.getByText('Sticky')).toBeInTheDocument()
+  })
+
+  it('update() mutates an existing toast in place', async () => {
+    function UpdateProbe() {
+      const { toast, update } = useToast()
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            const id = toast({ title: 'Updating…', durationMs: 0 })
+            update(id, { title: 'Up to date', tone: 'success', durationMs: 60_000 })
+          }}
+        >
+          show
+        </button>
+      )
+    }
+    const user = userEvent.setup()
+    render(
+      <ToastProvider>
+        <UpdateProbe />
+      </ToastProvider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'show' }))
+    expect(await screen.findByText('Up to date')).toBeInTheDocument()
+    expect(screen.queryByText('Updating…')).not.toBeInTheDocument()
+  })
 })
