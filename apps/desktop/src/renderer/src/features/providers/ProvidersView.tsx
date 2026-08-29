@@ -4,7 +4,6 @@ import type { RpcResults } from '@ari/contracts/rpc'
 import { Badge } from '@ari/ui/badge'
 import type { BadgeTone } from '@ari/ui/badge'
 import { Button } from '@ari/ui/button'
-import { Dialog } from '@ari/ui/dialog'
 import { Spinner } from '@ari/ui/spinner'
 import { Tooltip } from '@ari/ui/tooltip'
 import { RefreshCw } from 'lucide-react'
@@ -32,12 +31,6 @@ function authBadgeFor(authStatus: string): { label: string; tone: BadgeTone } {
 
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-interface PendingAction {
-  kind: DriverKind
-  operation: 'install' | 'upgrade'
-  display: string
 }
 
 interface ProviderCardProps {
@@ -86,7 +79,12 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
       )}
 
       {detection.updateAvailable === true && !isRunning && !isCore && (
-        <p className="text-2xs text-warning">update available{detection.latestVersion != null ? ` → ${detection.latestVersion}` : ''}</p>
+        <p className="text-2xs text-warning">
+          update available{detection.latestVersion != null ? ` → ${detection.latestVersion}` : ''}
+        </p>
+      )}
+      {detection.installed && detection.updateAvailable === false && !isRunning && !isCore && (
+        <p className="text-2xs text-fg-subtle">Up to date.</p>
       )}
 
       {!isCore && (
@@ -94,11 +92,18 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
           {detection.installed ? (
             <>
               {detection.updateAvailable === true && (
-                <Button size="sm" onClick={() => onUpdate(detection)}>Update</Button>
+                <Button size="sm" onClick={() => onUpdate(detection)} disabled={isRunning}>
+                  Update
+                </Button>
               )}
             </>
           ) : (
-            <Button size="sm" variant="secondary" onClick={() => onInstall(detection)}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onInstall(detection)}
+              disabled={isRunning}
+            >
               Install
             </Button>
           )}
@@ -120,10 +125,14 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
         </p>
       )}
 
-
       {running?.outcome != null && !running.outcome.ok && (
         <p role="alert" className="text-xs text-danger">
           {running.outcome.reason}
+        </p>
+      )}
+      {running?.outcome?.ok === true && (
+        <p className="text-xs text-success">
+          {running.operation === 'install' ? 'Installed.' : 'Updated.'}
         </p>
       )}
     </li>
@@ -131,16 +140,14 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
 }
 
 /**
- * Providers settings page (M12.2 / M23.2): detection grid with per-CLI
- * version, install state and auth badges; one-click install/update behind a
- * confirm dialog that shows the literal command before anything runs.
+ * Providers settings page: detection grid with per-CLI version, install state
+ * and auth badges. Install and Update run immediately — no command dump.
  */
 export function ProvidersView() {
   const [detections, setDetections] = useState<Detection[] | null>(null)
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pending, setPending] = useState<PendingAction | null>(null)
-  const { installs, planFor, start, cancel } = useProviderInstalls(setDetections)
+  const { installs, start, cancel } = useProviderInstalls(setDetections)
 
   const scan = useCallback(async (): Promise<void> => {
     setScanning(true)
@@ -158,26 +165,12 @@ export function ProvidersView() {
     void scan()
   }, [scan])
 
-  /** Fresh installs still confirm the command; updates just run. */
   const beginAction = async (detection: Detection, operation: 'install' | 'upgrade'): Promise<void> => {
+    setError(null)
     try {
-      const plan = await planFor(detection.kind as DriverKind)
-      if (plan === null) {
-        setError(`No known install channel for ${capitalize(detection.kind)}. Install it manually and re-scan.`)
-        return
-      }
-      setError(null)
-      if (operation === 'upgrade') {
-        await start(detection.kind as DriverKind, 'upgrade')
-        return
-      }
-      setPending({
-        kind: detection.kind as DriverKind,
-        operation,
-        display: plan.installCommand.join(' '),
-      })
+      await start(detection.kind as DriverKind, operation)
     } catch {
-      setError('Could not plan the operation.')
+      setError('Could not start the operation.')
     }
   }
 
@@ -210,49 +203,13 @@ export function ProvidersView() {
               detection={detection}
               running={installs[detection.kind as DriverKind]}
               onInstall={(d) => void beginAction(d, 'install')}
-              onUpdate={(d) => void beginAction(d, d.installed && d.updateAvailable === true ? 'upgrade' : 'install')}
+              onUpdate={(d) => void beginAction(d, 'upgrade')}
               onRecheck={() => void scan()}
               onCancel={(kind) => void cancel(kind)}
             />
           ))}
         </ul>
       )}
-
-      <Dialog open={pending !== null} onOpenChange={(open) => { if (!open) setPending(null) }}>
-        {pending !== null && (
-          <DialogContent pending={pending} onConfirm={() => {
-            void start(pending.kind, pending.operation)
-            setPending(null)
-          }} />
-        )}
-      </Dialog>
     </section>
-  )
-}
-
-function DialogContent({ pending, onConfirm }: { pending: PendingAction; onConfirm: () => void }) {
-  return (
-    <Dialog.Content size="md">
-      <Dialog.Title>
-        {pending.operation === 'install' ? 'Install provider' : 'Update provider'}
-      </Dialog.Title>
-      <Dialog.Description>
-        Ari will run this exact command. Nothing runs until you confirm.
-      </Dialog.Description>
-      <pre
-        aria-label="Command to run"
-        className="overflow-x-auto rounded bg-surface-0 p-2 font-mono text-xs text-fg"
-      >
-        {pending.display}
-      </pre>
-      <div className="mt-3 flex justify-end gap-2">
-        <Dialog.Close>
-          <Button size="sm" variant="ghost">Cancel</Button>
-        </Dialog.Close>
-        <Button size="sm" onClick={onConfirm}>
-          Run command
-        </Button>
-      </div>
-    </Dialog.Content>
   )
 }

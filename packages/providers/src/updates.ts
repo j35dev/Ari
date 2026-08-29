@@ -67,6 +67,59 @@ export interface UpdateCheckerOptions {
   timeoutMs?: number
 }
 
+export interface InstallSettleInput {
+  operation: 'install' | 'upgrade'
+  exitCode: number | null
+  failure: string | null
+  before: Pick<Detection, 'installed' | 'version'> | undefined
+  after: Pick<Detection, 'installed' | 'version' | 'latestVersion'> | undefined
+}
+
+/**
+ * Verdict after an install/upgrade process exits. A zero exit code is not
+ * enough: npm can skip lifecycle scripts and still report success, leaving
+ * the same binary on disk. Upgrades must move the detected version (or reach
+ * latest); installs must make the CLI resolvable.
+ */
+export function evaluateInstallSettle(input: InstallSettleInput): { ok: boolean; reason: string | null } {
+  if (input.failure) return { ok: false, reason: input.failure }
+  if (input.exitCode !== 0) {
+    return {
+      ok: false,
+      reason:
+        input.exitCode === null
+          ? 'The command did not exit cleanly.'
+          : `Exited with code ${String(input.exitCode)}.`,
+    }
+  }
+  const after = input.after
+  if (after === undefined || after.installed !== true) {
+    return { ok: false, reason: 'The CLI is still not detected after the command finished.' }
+  }
+  if (input.operation === 'install') return { ok: true, reason: null }
+
+  const beforeVersion = parseVersionToken(input.before?.version)
+  const afterVersion = parseVersionToken(after.version)
+  const latest = after.latestVersion ?? null
+  if (afterVersion !== null && latest !== null && compareSemver(afterVersion, latest) >= 0) {
+    return { ok: true, reason: null }
+  }
+  if (
+    beforeVersion !== null &&
+    afterVersion !== null &&
+    compareSemver(beforeVersion, afterVersion) < 0
+  ) {
+    return { ok: true, reason: null }
+  }
+  if (beforeVersion !== null && afterVersion !== null && beforeVersion === afterVersion) {
+    return {
+      ok: false,
+      reason: `Still on ${afterVersion} after the update. The package manager may have skipped install scripts.`,
+    }
+  }
+  return { ok: true, reason: null }
+}
+
 /**
  * Creates the update checker used by the desktop shell. Registry lookups are
  * strictly fail-soft: any network or parse problem leaves a detection's

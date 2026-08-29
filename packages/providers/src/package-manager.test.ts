@@ -35,8 +35,20 @@ describe('inferManager', () => {
 describe('planFor', () => {
   it('builds argv arrays, never shell strings', () => {
     const plan = planFor('codex', 'C:\\Users\\u\\AppData\\Roaming\\npm\\codex.cmd')
-    expect(plan?.installCommand).toEqual(['npm', 'install', '-g', '@openai/codex'])
-    expect(plan?.upgradeCommand).toEqual(['npm', 'install', '-g', '@openai/codex@latest'])
+    expect(plan?.installCommand).toEqual([
+      'npm',
+      'install',
+      '-g',
+      '--allow-scripts=@openai/codex',
+      '@openai/codex',
+    ])
+    expect(plan?.upgradeCommand).toEqual([
+      'npm',
+      'install',
+      '-g',
+      '--allow-scripts=@openai/codex',
+      '@openai/codex@latest',
+    ])
     expect(plan?.installCommand.every((part) => !part.includes('&&'))).toBe(true)
   })
 
