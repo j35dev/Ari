@@ -23,7 +23,7 @@ import { FileExplorer } from './features/files/FileExplorer'
 import { CommandPalette } from './features/palette/CommandPalette'
 import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
-import { BootSplash } from './features/moment'
+import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
 import {
   SidebarHeader,
@@ -705,27 +705,36 @@ function UpdateToastWatcher() {
 
 const log = createLogger('app:shell')
 
+/**
+ * Startup: the launch animation is the window's own first frame, so the
+ * splash overlays the shell rather than living in a second window. The shell
+ * mounts underneath as soon as the engine answers, and the splash's outro
+ * wipes away to reveal it already painted.
+ */
 export function App() {
   const [booted, setBooted] = useState(false)
+  const [launched, setLaunched] = useState(false)
 
   useEffect(() => {
     void rpc
       .invoke('ping')
       .then(() => setBooted(true))
       .catch(() => setBooted(true))
+    // A wedged engine must not hide the UI behind the splash forever; the
+    // splash lifts at the same ceiling, so the shell is what's underneath.
+    const ceiling = setTimeout(() => setBooted(true), AWAKEN_MAX_MS)
+    return () => clearTimeout(ceiling)
   }, [])
 
-  if (!booted) {
-    return (
-      <AppProviders>
-        <BootSplash ready={false} />
-      </AppProviders>
-    )
-  }
+  const finishLaunch = useCallback(() => {
+    setLaunched(true)
+    delete document.documentElement.dataset['ariBooting']
+  }, [])
 
   return (
     <AppProviders>
-      <Shell />
+      {booted ? <Shell /> : null}
+      {launched ? null : <AwakenSplash ready={booted} onDone={finishLaunch} />}
     </AppProviders>
   )
 }

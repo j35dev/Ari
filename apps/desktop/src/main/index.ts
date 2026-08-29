@@ -1,12 +1,11 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { registerRpc } from './rpc'
-import { createSplashWindow, finishSplash, SPLASH_FALLBACK_MS } from './splash'
 import { createTray, type TrayHandle } from './tray'
 import { updateTrayStatus } from './tray-status'
 import { startAutoUpdater } from './updater'
 import { createMainWindow } from './window'
 
-// The splash's synthesized signature sound is Web Audio; without this switch
+// The launch animation's signature sound is Web Audio; without this switch
 // Chromium blocks it until the first user gesture.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
@@ -26,20 +25,11 @@ if (!gotLock) {
 
   void app.whenReady().then(() => {
     if (mainWindow) return
-    // The splash owns the screen while drivers detect and the renderer loads;
-    // the main window is created immediately but stays hidden until ready.
-    let splash: BrowserWindow | null = createSplashWindow()
-    const splashFallback = setTimeout(() => {
-      splash = finishSplash(splash)
-    }, SPLASH_FALLBACK_MS)
-
+    // One window owns the whole startup: it stays hidden until the renderer has
+    // painted its first frame, which is the launch animation itself, so there
+    // is never a separate splash surface to hand over from.
     mainWindow = createMainWindow()
-    // Hand over on the first painted frame, not on load completion: the main
-    // window shows itself on ready-to-show beneath the always-on-top splash,
-    // so the splash's outro dissolves directly into the ADE with no gap.
     mainWindow.once('ready-to-show', () => {
-      clearTimeout(splashFallback)
-      splash = finishSplash(splash)
       startAutoUpdater()
     })
     tray = createTray(() => {

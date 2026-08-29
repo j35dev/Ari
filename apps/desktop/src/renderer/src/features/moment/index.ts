@@ -1,5 +1,5 @@
-export { BootSplash } from './BootSplash'
-export type { BootSplashProps } from './BootSplash'
+export { AwakenSplash, AWAKEN_MAX_MS, AWAKEN_MIN_MS, AWAKEN_OUTRO_MS } from './AwakenSplash'
+export type { AwakenSplashProps } from './AwakenSplash'
 export {
   currentVisibility,
   friendlyErrorText,
