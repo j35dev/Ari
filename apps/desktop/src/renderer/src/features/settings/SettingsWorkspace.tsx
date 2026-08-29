@@ -115,7 +115,7 @@ export function SettingsWorkspace({
         </div>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col bg-bg">
+      <section className="flex min-w-0 flex-1 flex-col border-l border-border bg-bg">
         <header className="flex h-[46px] shrink-0 items-center gap-1.5 border-b border-border px-4 text-xs">
           <span className="text-fg-muted">Settings</span>
           <span className="text-fg-subtle">/</span>
