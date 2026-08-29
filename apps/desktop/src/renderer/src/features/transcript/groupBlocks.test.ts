@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatToolSummary, groupBlocks, summarizeToolRun } from './groupBlocks'
+import { activityHeadline, formatToolSummary, groupBlocks, summarizeToolRun } from './groupBlocks'
 import { splitBlocks } from './splitBlocks'
 import type { Message } from '@ari/contracts/message'
 import type { TranscriptBlock } from './types'
@@ -27,14 +27,14 @@ function assistantMessage(parts: Message['parts']): Message {
 }
 
 describe('groupBlocks', () => {
-  it('keeps lone tool blocks as plain rows', () => {
+  it('wraps a lone in-flight tool call in an activity row so it never changes shape', () => {
     const rows = groupBlocks(
       splitBlocks([
         assistantMessage([{ type: 'tool-call', callId: 'c1', name: 'Bash', argsJson: '{}' }]),
       ]),
     )
     expect(rows).toHaveLength(1)
-    expect(rows[0]?.kind).toBe('tool-call')
+    expect(rows[0]?.kind).toBe('tool-group')
   })
 
   it('collapses a consecutive run into one tool-group with stable span key', () => {
@@ -57,20 +57,46 @@ describe('groupBlocks', () => {
     expect(row.resultsByCallId.get('c1')?.kind).toBe('tool-result')
   })
 
-  it('splits runs around markdown and thinking rows', () => {
+  it('folds interleaved thinking into the run and breaks only on assistant prose', () => {
     const rows = groupBlocks(
       splitBlocks([
         assistantMessage([
           { type: 'tool-call', callId: 'c1', name: 'Bash', argsJson: '{}' },
           { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
-          { type: 'text', text: 'Now thinking…' },
+          { type: 'text', text: 'Here is the plan.' },
           { type: 'thinking', text: 'hmm' },
           { type: 'tool-call', callId: 'c2', name: 'Edit', argsJson: '{}' },
           { type: 'tool-result', callId: 'c2', resultJson: '"ok"', isError: false },
+          { type: 'thinking', text: 'checking' },
+          { type: 'tool-call', callId: 'c3', name: 'Bash', argsJson: '{}' },
+          { type: 'tool-result', callId: 'c3', resultJson: '"ok"', isError: false },
         ]),
       ]),
     )
-    expect(rows.map((r) => r.kind)).toEqual(['tool-group', 'markdown', 'thinking', 'tool-group'])
+    expect(rows.map((r) => r.kind)).toEqual(['tool-group', 'markdown', 'tool-group'])
+    const second = rows[2]
+    if (second?.kind !== 'tool-group') throw new Error('expected a tool group')
+    expect(second.blocks.map((b) => b.kind)).toEqual([
+      'thinking',
+      'tool-call',
+      'tool-result',
+      'thinking',
+      'tool-call',
+      'tool-result',
+    ])
+    expect(second.calls).toHaveLength(2)
+  })
+
+  it('leaves a thinking block with no tool traffic as its own row', () => {
+    const rows = groupBlocks(
+      splitBlocks([
+        assistantMessage([
+          { type: 'thinking', text: 'hmm' },
+          { type: 'text', text: 'done' },
+        ]),
+      ]),
+    )
+    expect(rows.map((r) => r.kind)).toEqual(['thinking', 'markdown'])
   })
 
   it('carries the owning message role on blocks', () => {
@@ -183,5 +209,60 @@ describe('summarizeToolRun + formatToolSummary', () => {
     const { calls, resultsByCallId } = callsOf(['Edit'], 1)
     expect(formatToolSummary(summarizeToolRun(calls, resultsByCallId))).toBe('Edited 1 file')
     expect(formatToolSummary(summarizeToolRun([], new Map()))).toBe('')
+  })
+})
+
+describe('activityHeadline', () => {
+  function call(callId: string, name: string, argsJson: string): TranscriptBlock {
+    return { key: `k-${callId}`, kind: 'tool-call', callId, name, argsJson }
+  }
+  function result(callId: string, isError = false): TranscriptBlock {
+    return { key: `r-${callId}`, kind: 'tool-result', callId, resultJson: '"ok"', isError }
+  }
+  function group(blocks: TranscriptBlock[]) {
+    const calls = blocks.filter((b) => b.kind === 'tool-call')
+    const resultsByCallId = new Map<string, TranscriptBlock>()
+    for (const block of blocks) {
+      if (block.kind === 'tool-result' && block.callId) resultsByCallId.set(block.callId, block)
+    }
+    return { blocks, calls, resultsByCallId }
+  }
+
+  it('names the in-flight call in the present tense', () => {
+    const headline = activityHeadline(
+      group([
+        call('c1', 'Bash', '{"command":"pnpm verify"}'),
+        result('c1'),
+        call('c2', 'Read', '{"file_path":"D:/Projects/Ari/packages/ui/src/tokens.css"}'),
+      ]),
+    )
+    expect(headline).toBe('Reading src/tokens.css')
+  })
+
+  it('falls back to the settled tally once every call has answered', () => {
+    const headline = activityHeadline(
+      group([
+        call('c1', 'Bash', '{"command":"git status"}'),
+        result('c1'),
+        call('c2', 'Read', '{"file_path":"a/b.ts"}'),
+        result('c2'),
+      ]),
+    )
+    expect(headline).toBe('Ran 1 command · Read 1 file')
+  })
+
+  it('reads as Thinking while reasoning trails a finished run', () => {
+    const blocks = [
+      call('c1', 'Bash', '{"command":"git status"}'),
+      result('c1'),
+      { key: 'k-t', kind: 'thinking', text: 'weighing options' } satisfies TranscriptBlock,
+    ]
+    expect(activityHeadline(group(blocks))).toBe('Thinking')
+  })
+
+  it('degrades to a call count when no verb bucket matched', () => {
+    expect(activityHeadline({ blocks: [], calls: [], resultsByCallId: new Map() })).toBe(
+      '0 tool calls',
+    )
   })
 })

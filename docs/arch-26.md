@@ -1,7 +1,6 @@
-# M26 — Wallpaper compositing architecture notes
+# M26.1 — Wallpaper compositing architecture notes
 
-Bundled background scenes shown through the app's own glass. Tasks M26.1
-(scenes, plate, persistence) through M26.5 (single uniform look).
+Bundled background scenes shown through the app's own glass.
 
 ## Composite model
 
@@ -52,8 +51,8 @@ so it wins cascade ties.
 `prefers-reduced-transparency: reduce` raises every tint and drops the plate's
 blur, so contrast never depends on blur.
 
-There is deliberately no visibility/intensity setting: M26.2–M26.4 shipped
-Subtle/Balanced/Vivid presets and live testing showed the choice was really
+There is deliberately no visibility/intensity setting: iterations during live
+testing shipped Subtle/Balanced/Vivid presets and the choice turned out to be
 "make the whole app look like the sidebar", which is now the only behavior.
 `appearance.wallpaperLook` is gone from contracts; zod strips the stale key
 from persisted settings, and the provider ignores it in both the durable copy
