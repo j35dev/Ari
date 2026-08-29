@@ -7,10 +7,26 @@
  *                              ThemeProvider sets the attribute on <html>.
  *                              :root also carries the default (Obsidian)
  *                              palette so pre-hydration HTML paints correctly.
+ *   html                     → the launch-moment palette (see below).
  * Token NAMES are identical across every theme, so the Tailwind bridge in
  * apps/desktop/src/renderer/src/styles/index.css needs no per-theme mapping.
  * Palettes mirror packages/ui/src/themes.ts (asserted by themes.test.ts).
  */
+
+/*
+ * Launch moment ("Ari awakens"). Deliberately theme-independent: the startup
+ * animation is brand, identical under all six palettes, so these are not
+ * theme tokens and take no part in the registry mirror. They sit on `html`
+ * rather than in the bare `:root` block both to keep that block color-free and
+ * because the boot canvas must paint before React mounts (`[data-ari-booting]`,
+ * see features/moment/awaken-splash.css).
+ */
+html {
+  --ari-awaken-bg: #070709;
+  --ari-awaken-ink: #f3f0e8;
+  --ari-awaken-gold: #e98b24;
+  --ari-awaken-muted: rgba(243, 240, 232, 0.46);
+}
 
 :root {
   /* geometry */
