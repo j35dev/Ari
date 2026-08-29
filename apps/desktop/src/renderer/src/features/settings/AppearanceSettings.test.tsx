@@ -125,7 +125,7 @@ describe('AppearanceSettings', () => {
     // …shown once one is picked, with the three looks as segments.
     await user.click(screen.getByRole('radio', { name: /Anime City/ }))
     await screen.findByRole('group', { name: 'Wallpaper visibility' })
-    for (const label of ['Subtle', 'Balanced', 'Vivid']) {
+    for (const label of ['Balanced', 'Vivid']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
 

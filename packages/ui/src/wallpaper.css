@@ -11,7 +11,7 @@
  * `<html>` carries `data-ari-wallpaper="<id>"` only while a wallpaper is
  * active (the ThemeProvider removes it for 'none'), so every rule here is
  * opt-in and the plain theme path is untouched. `data-ari-wallpaper-look`
- * ('subtle' | 'balanced' | 'vivid', default 'balanced') picks the recipe.
+ * ('balanced' | 'vivid', default 'balanced') picks the recipe.
  *
  * Theme colors are never hardcoded: every veil derives from `--ari-bg` and
  * the glass plane tokens derive from the surface ramp via `color-mix`, so all
@@ -25,7 +25,6 @@
 
 [data-ari-wallpaper] {
   /* Frosted veil over the scene (theme background at partial strength). */
-  --wallpaper-scrim-subtle: color-mix(in oklab, var(--ari-bg) 72%, transparent);
   --wallpaper-scrim-balanced: color-mix(in oklab, var(--ari-bg) 38%, transparent);
   --wallpaper-scrim-vivid: color-mix(in oklab, var(--ari-bg) 26%, transparent);
   /* Glass planes rest on the wallpaper instead of the desktop, so they take
@@ -55,19 +54,10 @@
 
 [data-ari-wallpaper] body::after {
   background: var(--wallpaper-scrim-balanced);
-}
-
-/* Subtle: the M26.1 look — heavy frost so text contrast never depends on
-   anything else. Balanced: a mild frost; the scene stays recognizable. */
-[data-ari-wallpaper] body::after {
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   backdrop-filter: blur(14px) saturate(1.15);
 }
-[data-ari-wallpaper][data-ari-wallpaper-look='subtle'] body::after {
-  -webkit-backdrop-filter: blur(22px) saturate(1.2);
-  backdrop-filter: blur(22px) saturate(1.2);
-  background: var(--wallpaper-scrim-subtle);
-}
+
 [data-ari-wallpaper][data-ari-wallpaper-look='vivid'] body::after {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -75,14 +65,18 @@
 }
 
 /* Vivid: the scene is crisp and barely veiled, so the main pane carries the
-   same frosted plate as the sidebar — `.ari-glass`'s recipe (translucent
-   surface + heavy blur) — which keeps it visually continuous with the chrome
-   while text stays readable over any scene. The pane must be positioned so
-   its plate paints above the fixed wallpaper layers but below its content. */
-[data-ari-wallpaper][data-ari-wallpaper-look='vivid'] main.bg-bg {
+   sidebar's exact glass look — the same `.ari-glass` recipe when the glass
+   capability is on (matching the chrome), and the same translucent surface
+   color when it is off — so text keeps the sidebar's readability while the
+   pane reads as part of the chrome rather than a heavier separate material.
+   Children are lifted above the plate so they paint over the blur. */
+[data-ari-wallpaper][data-ari-wallpaper-look='vivid'][data-ari-glass='on'] main.bg-bg {
   background: var(--ari-glass-scrim);
   -webkit-backdrop-filter: blur(28px) saturate(1.35);
   backdrop-filter: blur(28px) saturate(1.35);
+}
+[data-ari-wallpaper][data-ari-wallpaper-look='vivid'][data-ari-glass='off'] main.bg-bg {
+  background: var(--ari-surface-0);
 }
 [data-ari-wallpaper][data-ari-wallpaper-look='vivid'] main.bg-bg > * {
   position: relative;
@@ -124,7 +118,6 @@
    equal-specificity tie by source order. */
 @media (prefers-reduced-transparency: reduce) {
   [data-ari-wallpaper] {
-    --wallpaper-scrim-subtle: color-mix(in oklab, var(--ari-bg) 90%, transparent);
     --wallpaper-scrim-balanced: color-mix(in oklab, var(--ari-bg) 84%, transparent);
     --wallpaper-scrim-vivid: color-mix(in oklab, var(--ari-bg) 78%, transparent);
     --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 90%, transparent);
@@ -132,7 +125,7 @@
     --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 94%, transparent);
   }
   [data-ari-wallpaper] body::after,
-  [data-ari-wallpaper][data-ari-wallpaper-look='vivid'] main.bg-bg {
+  [data-ari-wallpaper][data-ari-wallpaper-look='vivid'][data-ari-glass='on'] main.bg-bg {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

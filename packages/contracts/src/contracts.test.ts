@@ -104,12 +104,24 @@ describe('contracts', () => {
     expect(settingsUpdateSchema.parse({ appearance: { wallpaperLook: 'vivid' } })).toEqual({
       appearance: { wallpaperLook: 'vivid' },
     })
+    expect(settingsUpdateSchema.safeParse({ appearance: { wallpaperLook: 'subtle' } }).success).toBe(false)
     expect(settingsUpdateSchema.safeParse({ appearance: { wallpaperLook: 'extreme' } }).success).toBe(false)
   })
 
   it('defaults the wallpaper to none when settings predate the field', () => {
     const parsed = settingsSchema.parse({ version: 1 })
     expect(parsed.appearance.wallpaper).toBe('none')
+    expect(parsed.appearance.wallpaperLook).toBe('balanced')
+  })
+
+  it('maps retired wallpaper looks onto the default instead of failing', () => {
+    // M26.2 briefly shipped 'subtle'.
+    const parsed = settingsSchema.parse({
+      version: 1,
+      appearance: { wallpaper: 'anime-city', wallpaperLook: 'subtle' },
+    })
+    expect(parsed.appearance.wallpaper).toBe('anime-city')
+    expect(parsed.appearance.wallpaperLook).toBe('balanced')
   })
 
   it('validates fs.writeTextFile params and rejects malformed payloads', () => {
