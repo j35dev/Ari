@@ -1,5 +1,10 @@
+/* Fonts are NOT imported here. Tailwind inlines CSS `@import`s before Vite can
+   rebase or hash their `url()` references, so the vendored woff2 files were
+   left unresolved (and unbundled) in production builds — packaged apps fell
+   back to system fonts. They load from main.tsx via `@ari/ui/fonts`, a JS
+   module, which goes through Vite's asset pipeline. Same reason wallpaper.css
+   takes its image URL from the provider rather than a relative `url()`. */
 @import 'tailwindcss';
-@import '@ari/ui/fonts.css';
 @import '@ari/ui/tokens.css';
 @import '@ari/ui/glass.css';
 @import '@ari/ui/wallpaper.css';

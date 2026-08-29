@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import { defaultThemeId, isThemeId, systemTheme, themes } from './themes'
 import type { Theme, ThemeId } from './themes'
-import { isWallpaperSetting } from './wallpapers'
+import { isWallpaperSetting, wallpapers } from './wallpapers'
 import type { WallpaperSetting } from './wallpapers'
 
 /**
@@ -100,13 +100,25 @@ function writeCache(prefs: ThemePreferences): void {
 }
 
 /**
- * Reflects the wallpaper selection onto `<html>` for wallpaper.css. The
- * attribute is present only while a scene is active, so every wallpaper rule
- * is opt-in and 'none' restores the plain theme exactly.
+ * Reflects the wallpaper selection onto `<html>` for wallpaper.css: the
+ * attribute gates every wallpaper rule (absent for 'none', so the plain theme
+ * is restored exactly), and `--ari-wallpaper-image` carries the scene's URL.
+ *
+ * The URL comes from the registry's bundled import rather than a `url()`
+ * literal in the CSS: that file is `@import`ed, so its relative asset paths
+ * survive the production build unrebased and unhashed, which broke the
+ * packaged app while working in dev (see wallpaper.css).
  */
 function applyWallpaperAttr(root: HTMLElement, wallpaper: WallpaperSetting): void {
-  if (wallpaper === 'none') delete root.dataset['ariWallpaper']
-  else root.dataset['ariWallpaper'] = wallpaper
+  if (wallpaper === 'none') {
+    delete root.dataset['ariWallpaper']
+    root.style.removeProperty('--ari-wallpaper-image')
+    return
+  }
+  root.dataset['ariWallpaper'] = wallpaper
+  const src = wallpapers.find((w) => w.id === wallpaper)?.src
+  if (src === undefined) root.style.removeProperty('--ari-wallpaper-image')
+  else root.style.setProperty('--ari-wallpaper-image', `url("${src}")`)
 }
 
 /**
