@@ -1,14 +1,25 @@
-import type { TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
+import { classifyToolCall, describeToolCall } from './toolLabels'
+import type { ToolGroupRow, TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
 
 export type { TranscriptRow } from './types'
 
-function isToolBlock(block: TranscriptBlock): boolean {
-  return block.kind === 'tool-call' || block.kind === 'tool-result'
+/**
+ * Blocks that belong to a collapsed activity run: the tool traffic itself plus
+ * the reasoning threaded between calls. Folding thinking in is what keeps a
+ * long turn from rendering as dozens of alternating `thinking` / `Ran 1
+ * command` rows — only assistant prose and user messages break a run.
+ */
+function isActivityBlock(block: TranscriptBlock): boolean {
+  return block.kind === 'tool-call' || block.kind === 'tool-result' || block.kind === 'thinking'
+}
+
+function hasToolTraffic(run: TranscriptBlock[]): boolean {
+  return run.some((b) => b.kind === 'tool-call' || b.kind === 'tool-result')
 }
 
 /** The turn a row belongs to, or null for rows outside any turn. */
 function rowTurnId(row: TranscriptRow): string | null {
-  if (row.kind === 'tool-group') return row.calls[0]?.turnId ?? null
+  if (row.kind === 'tool-group') return row.blocks[0]?.turnId ?? null
   if (row.kind === 'turn-diff') return row.turnId
   return row.turnId ?? null
 }
@@ -53,11 +64,14 @@ export function insertTurnDiffRows(
 }
 
 /**
- * Collapses consecutive tool-call/tool-result blocks into single activity
- * rows (Zeron-style "Ran 3 commands · edited 1 file"), leaving markdown and
- * thinking rows untouched. Group keys span first→last member so they stay
- * stable while more parts stream into the run. When `turnDiffs` carries an
- * entry for a settled turn, a collapsed diff card is appended after that
+ * Collapses each run of consecutive work blocks — tool calls, results, and the
+ * reasoning between them — into a single activity row ("Ran 3 commands ·
+ * Edited 1 file"), leaving assistant prose and user bubbles as their own rows.
+ * A run carrying any tool traffic always becomes a group, even a single
+ * in-flight call, so the row does not change shape as results stream in; a
+ * lone thinking block stays a plain thinking row. Group keys span first→last
+ * member so they stay stable while more parts arrive. When `turnDiffs` carries
+ * an entry for a settled turn, a collapsed diff card is appended after that
  * turn's final row.
  */
 export function groupBlocks(
@@ -71,9 +85,13 @@ export function groupBlocks(
     if (run.length === 0) return
     const first = run[0]
     const last = run[run.length - 1]
-    if (run.length === 1 && first) {
-      rows.push(first)
-    } else if (first && last) {
+    if (first === undefined || last === undefined) {
+      run = []
+      return
+    }
+    if (!hasToolTraffic(run)) {
+      rows.push(...run)
+    } else {
       const calls = run.filter((b) => b.kind === 'tool-call')
       const resultsByCallId = new Map<string, TranscriptBlock>()
       for (const block of run) {
@@ -84,6 +102,7 @@ export function groupBlocks(
       rows.push({
         kind: 'tool-group',
         key: `${first.key}..${last.key}`,
+        blocks: run,
         calls,
         resultsByCallId,
       })
@@ -92,7 +111,7 @@ export function groupBlocks(
   }
 
   for (const block of blocks) {
-    if (isToolBlock(block)) {
+    if (isActivityBlock(block)) {
       run.push(block)
     } else {
       flush()
@@ -105,21 +124,6 @@ export function groupBlocks(
   }
   return rows
 }
-
-const EDIT_VERBS = new Set([
-  'edit',
-  'multiedit',
-  'write',
-  'write_file',
-  'search_replace',
-  'apply_patch',
-  'notebookedit',
-  'create_file',
-])
-
-const READ_VERBS = new Set(['read', 'read_file', 'glob', 'ls', 'list_dir', 'view'])
-
-const SEARCH_VERBS = new Set(['grep', 'search', 'find', 'websearch', 'webfetch', 'web_fetch'])
 
 export interface ToolActivitySummary {
   ran: number
@@ -147,11 +151,19 @@ export function summarizeToolRun(
     pending: 0,
   }
   for (const call of calls) {
-    const name = (call.name ?? '').toLowerCase()
-    if (EDIT_VERBS.has(name)) summary.edited += 1
-    else if (READ_VERBS.has(name)) summary.read += 1
-    else if (SEARCH_VERBS.has(name)) summary.searched += 1
-    else summary.ran += 1
+    switch (classifyToolCall(call)) {
+      case 'edit':
+        summary.edited += 1
+        break
+      case 'read':
+        summary.read += 1
+        break
+      case 'search':
+        summary.searched += 1
+        break
+      default:
+        summary.ran += 1
+    }
 
     const result = call.callId ? resultsByCallId.get(call.callId) : undefined
     if (!result) summary.pending += 1
@@ -169,4 +181,28 @@ export function formatToolSummary(summary: ToolActivitySummary): string {
   if (summary.searched > 0)
     parts.push(`Searched ×${summary.searched}`)
   return parts.join(' · ')
+}
+
+/**
+ * Single-line headline for a collapsed activity row. While a call is in flight
+ * it names that call ("Running git status") so the row doubles as the live
+ * progress readout; once every call has answered it falls back to the settled
+ * tally ("Ran 3 commands · Read 2 files"). Reasoning trailing a finished run
+ * reads as "Thinking".
+ */
+export function activityHeadline(row: Pick<ToolGroupRow, 'blocks' | 'calls' | 'resultsByCallId'>): string {
+  const summary = summarizeToolRun(row.calls, row.resultsByCallId)
+  if (summary.pending > 0) {
+    for (let i = row.calls.length - 1; i >= 0; i--) {
+      const call = row.calls[i]
+      if (call === undefined) continue
+      if (call.callId && row.resultsByCallId.has(call.callId)) continue
+      const { verb, target } = describeToolCall(call, true)
+      return target.length > 0 ? `${verb} ${target}` : verb
+    }
+  }
+  if (row.blocks[row.blocks.length - 1]?.kind === 'thinking') return 'Thinking'
+  const settled = formatToolSummary(summary)
+  if (settled.length > 0) return settled
+  return `${row.calls.length} tool call${row.calls.length === 1 ? '' : 's'}`
 }
