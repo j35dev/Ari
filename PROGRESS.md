@@ -428,6 +428,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 ## M26 — Wallpaper compositing
 
 - [x] M26.1 Three bundled wallpapers (anime city + two moon scenes, recompressed to ~0.5MB each) selectable in Appearance and composited under the themed UI: `data-ari-wallpaper` on `<html>` drives a pure-CSS layer stack (fixed image → theme-derived frosted scrim via `color-mix` on `--ari-bg` → content), glass planes go translucent in every theme through re-derived `--ari-glass-*` tokens while `data-ari-glass`/reduced-transparency semantics stay untouched, `appearance.wallpaper` persists through the ThemeProvider pipeline with cross-package id pinning and an asset size-budget test (`docs/arch-26.md`).
+- [x] M26.2 Wallpaper visibility presets: Subtle / Balanced / Vivid segmented control (shown only while a scene is active) persisted as `appearance.wallpaperLook` and keyed off `data-ari-wallpaper-look` — subtle keeps the heavy frost, balanced defaults to blur(14px) over a 38% veil, vivid drops the global blur for a crisp scene and frosts only reading surfaces via the `.ari-reading-frost` hook on the transcript column; `prefers-reduced-transparency` re-derives all three veils blur-free.
 
 ## Stretch backlog (post-V1, unplanned)
 

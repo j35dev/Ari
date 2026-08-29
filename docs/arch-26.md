@@ -1,6 +1,7 @@
 # M26 — Wallpaper compositing architecture notes
 
-Bundled background scenes composited under the themed UI. Task M26.1.
+Bundled background scenes composited under the themed UI. Tasks M26.1 (scenes,
+scrim, glass planes) and M26.2 (visibility look presets).
 
 ## Composite model
 
@@ -13,28 +14,45 @@ same way:
 1. canvas — body's opaque `--ari-bg` (also the pre-paint fallback)
 2. `body::before` — the wallpaper image, `position: fixed; z-index: -1`,
    `cover/center`
-3. `body::after` — the scrim: `color-mix(in oklab, var(--ari-bg) 62%, transparent)`
-   plus `backdrop-filter: blur(20px) saturate(1.2)`, i.e. a frosted veil of the
-   theme's own background color
+3. `body::after` — the scrim: a veil of the theme's own background color whose
+   strength/blur the visibility look selects (below)
 4. the app — in-flow content always paints above the two negative-z layers
 
 Because body's background propagates to the canvas, the negative-z layers sit
 above it and below everything else; tree order puts the image under the scrim.
-Chat text therefore never sits on raw wallpaper — it sits on the frosted scrim.
+
+## Visibility looks (M26.2)
+
+`data-ari-wallpaper-look` ('subtle' | 'balanced' | 'vivid', default
+'balanced') keys three scrim recipes, defined as custom properties so the
+media-query block can re-derive them in one place:
+
+- **subtle** — the original M26.1 feel: 72% veil, blur(22px). Text contrast
+  never depends on anything else; the scene is a dim wash.
+- **balanced** (default) — blur(14px) over a 38% veil: the scene stays
+  recognizable behind the UI.
+- **vivid** — no global blur, 26% veil: the scene is crisp. Reading surfaces
+  frost themselves instead: `.ari-reading-frost` (on the transcript column)
+  gets its own `::before` plate with blur(16px) and the balanced veil, scoped
+  to the element (`position: absolute`, `z-index: -1` inside the element's
+  stacking context) rather than fixed over the viewport.
+
+Veil colors always derive from `--ari-bg` via `color-mix`, so all six palettes
+tint their wallpaper automatically; the look changes *how much* scene shows,
+never *whose* color is in front.
 
 ## Theme interaction
 
-No theme palette changed. The scrim derives from `--ari-bg` and the glass plane
-tokens (`--ari-glass-scrim/overlay/input`) are re-derived from the surface ramp
-via `color-mix` under `[data-ari-wallpaper]`, so all six palettes tint their
-wallpaper automatically and non-glass themes get translucent chrome planes too.
-`wallpaper.css` imports after `tokens.css`/`glass.css` and is unlayered, so it
-wins cascade ties at equal specificity.
+No theme palette changed. The glass plane tokens
+(`--ari-glass-scrim/overlay/input`) are re-derived from the surface ramp via
+`color-mix` under `[data-ari-wallpaper]`, so all six palettes get translucent
+chrome planes. `wallpaper.css` imports after `tokens.css`/`glass.css` and is
+unlayered, so it wins cascade ties at equal specificity.
 
 `data-ari-glass` semantics are untouched: it still means "blur allowed". With
 glass off (or `prefers-reduced-transparency: reduce`), wallpaper planes stay
 translucent — a wallpaper is an explicit opt-in to seeing one — but unblurred,
-with scrim/veil alphas raised under the media query.
+with all look veils raised under the media query.
 
 Deliberately opaque over the wallpaper (legibility surfaces): the terminal
 workspace, file explorer, settings pane, error boundaries, gallery, and the
@@ -44,11 +62,13 @@ main.bg-bg`), which is what lets the composite show behind the transcript.
 
 ## Persistence and registry
 
-`appearance.wallpaper` in `@ari/contracts/settings.ts` (`'none' | wallpaperId`,
-default `'none'`), carried through the existing ThemeProvider preference
-pipeline: localStorage pre-hydration cache, engine `settings.update`, hydration
-gate. The id union exists twice by design (contracts stays UI-free);
-`window.test.ts` pins both unions equal, as it does for themes.
+`appearance.wallpaper` + `appearance.wallpaperLook` in
+`@ari/contracts/settings.ts` (defaults `'none'` / `'balanced'`), carried
+through the existing ThemeProvider preference pipeline: localStorage
+pre-hydration cache, engine `settings.update`, hydration gate. The id unions
+exist twice by design (contracts stays UI-free); `window.test.ts` pins the
+wallpaper union equal, as it does for themes. `applyCachedTheme` drops a stale
+look value and omits the attribute when no scene is active.
 
 Assets live in `packages/ui/src/assets/wallpapers/*.jpg` (2560px, ~0.4–0.6 MB each,
 recompressed with ffmpeg), imported by `packages/ui/src/wallpapers.ts` so Vite
@@ -59,6 +79,7 @@ a per-file size budget.
 ## Picker
 
 Appearance settings gains a Wallpaper radiogroup (None + each scene) using the
-theme card pattern with 16:9 thumbnails; selection flows through
-`useTheme().setWallpaper` so persistence and the html attribute stay in sync.
-Settings search indexes the section.
+theme card pattern with 16:9 thumbnails, plus a Wallpaper visibility
+segmented control (Subtle/Balanced/Vivid) that only renders while a scene is
+active; both flow through `useTheme` setters so persistence and the html
+attributes stay in sync. Settings search indexes the section.
