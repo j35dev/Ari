@@ -6,10 +6,12 @@
   "exports": {
     "./tokens.css": "./src/tokens.css",
     "./glass.css": "./src/glass.css",
+    "./wallpaper.css": "./src/wallpaper.css",
     "./fonts.css": "./src/fonts.css",
     "./scroll-area.css": "./src/scroll-area.css",
     "./theme-provider": "./src/theme-provider.tsx",
     "./themes": "./src/themes.ts",
+    "./wallpapers": "./src/wallpapers.ts",
     "./color": "./src/color.ts",
     "./motion": "./src/motion/index.ts",
     "./motion-provider": "./src/motion/MotionProvider.tsx",

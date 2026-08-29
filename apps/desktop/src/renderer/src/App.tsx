@@ -351,7 +351,7 @@ function Shell() {
 
   if (settingsOpen) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="ari-glass-pane flex h-full flex-col">
         <Titlebar projectLabel="" />
         <SettingsWorkspace
           section={settingsSection}
@@ -377,7 +377,7 @@ function Shell() {
 
   if (galleryOpen) {
     return (
-      <div className="flex h-full flex-col bg-bg">
+      <div className="ari-glass-pane flex h-full flex-col bg-bg">
         <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center gap-2 pl-3">
           <span className="text-fg text-xs font-semibold tracking-[0.18em]">ARI</span>
           <span className="text-fg-subtle text-xs">/</span>
@@ -399,7 +399,7 @@ function Shell() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="ari-glass-pane flex h-full flex-col">
       <Titlebar
         projectLabel={activeProjectName}
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
@@ -498,7 +498,7 @@ function Shell() {
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-bg">
+        <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border">
           <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
             {!sidebarOpen ? (
               <button

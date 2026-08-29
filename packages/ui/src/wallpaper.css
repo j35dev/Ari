@@ -1,0 +1,93 @@
+/*
+ * Wallpaper compositing — a bundled scene shown through the app's own glass.
+ *
+ * `<html>` carries `data-ari-wallpaper="<id>"` only while a wallpaper is
+ * active (the ThemeProvider removes it for 'none'), so every rule here is
+ * opt-in and the plain theme path is untouched.
+ *
+ * Composite model: the scene is painted once as a fixed layer behind
+ * everything (`body::before`, `z-index: -1`, above the propagated canvas
+ * background), and the window's whole content area sits on ONE continuous
+ * glass plate — `.ari-glass-pane`, carrying the exact recipe the sidebar and
+ * titlebar use (`--ari-glass-scrim` + the same blur/saturate). So the entire
+ * app reads like the sidebar does over a wallpaper: translucent, lightly
+ * tinted, with no pane darker or blurrier than its neighbor.
+ *
+ * One plate, not many, is deliberate: separately-plated columns stack tints
+ * where they meet and show a backdrop-filter fringe along the seam. With a
+ * single plate, structure comes from hairline borders instead, and nothing
+ * inside re-tints — `.ari-glass` chrome and `.bg-bg` pane fills go
+ * transparent within the plate.
+ *
+ * Theme colors are never hardcoded: the tint derives from the surface ramp via
+ * `color-mix`, so all six palettes tint their wallpaper automatically. These
+ * declarations load after tokens.css/glass.css and are unlayered, so they win
+ * cascade ties.
+ *
+ * Floating surfaces (popovers, dialogs, palette) keep their own
+ * `.ari-glass-overlay` material so they still read as above the plate, and
+ * input plates keep `.ari-glass-input`.
+ */
+
+[data-ari-wallpaper] {
+  /* Glass planes rest on the wallpaper instead of the desktop, so they take
+     theme-derived translucency in every theme, not just glass-capable ones. */
+  --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 72%, transparent);
+  --ari-glass-overlay: color-mix(in oklab, var(--ari-surface-2) 82%, transparent);
+  --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 85%, transparent);
+}
+
+/* The scene. Negative z-index paints it above the canvas background but below
+   every in-flow element, so the plate above blurs it. */
+[data-ari-wallpaper] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+}
+
+[data-ari-wallpaper='anime-city'] body::before {
+  background-image: url('./assets/wallpapers/anime-city.jpg');
+}
+[data-ari-wallpaper='moon-landscape'] body::before {
+  background-image: url('./assets/wallpapers/moon-landscape.jpg');
+}
+[data-ari-wallpaper='moon-landscape-2'] body::before {
+  background-image: url('./assets/wallpapers/moon-landscape-2.jpg');
+}
+
+/* The single plate: one continuous frosted surface for the whole window. */
+[data-ari-wallpaper] .ari-glass-pane {
+  background: var(--ari-glass-scrim);
+  -webkit-backdrop-filter: blur(28px) saturate(1.35);
+  backdrop-filter: blur(28px) saturate(1.35);
+}
+
+/* Nothing inside the plate re-tints it: structural chrome and pane fills go
+   transparent so sidebar, titlebar, and every content pane share one tone.
+   Borders and content surfaces (bg-surface-*) are untouched, so structure
+   still reads. */
+[data-ari-wallpaper] .ari-glass-pane .ari-glass,
+[data-ari-wallpaper] .ari-glass-pane .bg-bg {
+  background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Reduced transparency: keep the scene visible (it is an explicit opt-in) but
+   drop the blur and raise the tint so contrast never depends on blur. */
+@media (prefers-reduced-transparency: reduce) {
+  [data-ari-wallpaper] {
+    --ari-glass-scrim: color-mix(in oklab, var(--ari-surface-0) 92%, transparent);
+    --ari-glass-overlay: color-mix(in oklab, var(--ari-surface-2) 94%, transparent);
+    --ari-glass-input: color-mix(in oklab, var(--ari-surface-1) 95%, transparent);
+  }
+  [data-ari-wallpaper] .ari-glass-pane {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

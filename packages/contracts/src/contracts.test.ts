@@ -5,7 +5,7 @@ import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
 import { rpcParams, SEARCH_CONTENT_MAX_RESULTS, usageSummarySchema } from './rpc'
 import { sessionSchema } from './session'
-import { settingsUpdateSchema } from './settings'
+import { settingsSchema, settingsUpdateSchema } from './settings'
 
 const baseSession = {
   id: 'sess_1',
@@ -91,6 +91,35 @@ describe('contracts', () => {
     ).toBe(true)
     expect(settingsUpdateSchema.safeParse({ permissions: { allowlist: 'git status' } }).success).toBe(false)
     expect(settingsUpdateSchema.safeParse({ window: { x: 'a' } }).success).toBe(false)
+  })
+
+  it('accepts wallpaper selections in appearance patches, rejects unknown scenes', () => {
+    expect(settingsUpdateSchema.parse({ appearance: { wallpaper: 'anime-city' } })).toEqual({
+      appearance: { wallpaper: 'anime-city' },
+    })
+    expect(settingsUpdateSchema.parse({ appearance: { wallpaper: 'none' } })).toEqual({
+      appearance: { wallpaper: 'none' },
+    })
+    expect(settingsUpdateSchema.safeParse({ appearance: { wallpaper: 'aurora' } }).success).toBe(false)
+    // The visibility-look field was retired in M26.5 (one uniform glass look);
+    // zod strips it rather than rejecting, so a stale caller can't write it.
+    expect(settingsUpdateSchema.parse({ appearance: { wallpaperLook: 'vivid' } })).toEqual({
+      appearance: {},
+    })
+  })
+
+  it('defaults the wallpaper to none when settings predate the field', () => {
+    const parsed = settingsSchema.parse({ version: 1 })
+    expect(parsed.appearance.wallpaper).toBe('none')
+  })
+
+  it('drops the retired wallpaperLook field from stored settings', () => {
+    const parsed = settingsSchema.parse({
+      version: 1,
+      appearance: { wallpaper: 'anime-city', wallpaperLook: 'vivid' },
+    })
+    expect(parsed.appearance.wallpaper).toBe('anime-city')
+    expect(parsed.appearance).not.toHaveProperty('wallpaperLook')
   })
 
   it('validates fs.writeTextFile params and rejects malformed payloads', () => {

@@ -20,11 +20,20 @@ export type ThemeIdSetting = z.infer<typeof themeIdSchema>
 export const themeModeSchema = z.union([z.literal('system'), themeIdSchema])
 export type ThemeMode = z.infer<typeof themeModeSchema>
 
+/** Bundled wallpaper identifiers (the paintable scenes; 'none' handled below). */
+export const wallpaperIdSchema = z.enum(['anime-city', 'moon-landscape', 'moon-landscape-2'])
+export type WallpaperIdSetting = z.infer<typeof wallpaperIdSchema>
+
+/** A wallpaper selection: a bundled scene, or 'none' for the plain theme. */
+export const wallpaperSchema = z.union([z.literal('none'), wallpaperIdSchema])
+export type WallpaperSetting = z.infer<typeof wallpaperSchema>
+
 const defaultAppearance = {
   themeId: 'obsidian',
   mode: 'system',
   glass: true,
   reducedMotion: false,
+  wallpaper: 'none',
 } as const
 
 /** Persisted application settings. Versioned for forward migration. */
@@ -43,6 +52,8 @@ export const settingsSchema = z.object({
       /** Opt-in translucent chrome; only honored by glass-capable themes. */
       glass: z.boolean().default(defaultAppearance.glass),
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
+      /** Bundled background scene composited under the themed UI, or 'none'. */
+      wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
     })
     .default(defaultAppearance),
   sessions: z
@@ -83,6 +94,7 @@ export const settingsUpdateSchema = z.object({
       mode: themeModeSchema,
       glass: z.boolean(),
       reducedMotion: z.boolean(),
+      wallpaper: wallpaperSchema,
     })
     .partial()
     .optional(),
