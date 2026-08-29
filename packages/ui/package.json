@@ -7,7 +7,7 @@
     "./tokens.css": "./src/tokens.css",
     "./glass.css": "./src/glass.css",
     "./wallpaper.css": "./src/wallpaper.css",
-    "./fonts.css": "./src/fonts.css",
+    "./fonts": "./src/fonts.ts",
     "./scroll-area.css": "./src/scroll-area.css",
     "./theme-provider": "./src/theme-provider.tsx",
     "./themes": "./src/themes.ts",
