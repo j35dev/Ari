@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Folder, Gauge, GitPullRequest, Settings, TerminalSquare } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import type { SidebarNavId } from './Sidebar'
@@ -11,9 +11,23 @@ const TITLEBAR_TOOLS: { id: Exclude<SidebarNavId, 'session'>; label: string; ico
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
+type TitlebarPlatform = 'win32' | 'darwin' | 'linux' | 'other'
+
+/** hiddenInset traffic lights occupy ~70px on the leading edge (PLAN §8). */
+const MACOS_TRAFFIC_LIGHT_PAD = 'pl-[76px]'
+
+function detectPlatform(): TitlebarPlatform {
+  const ua = navigator.userAgent.toLowerCase()
+  if (ua.includes('windows')) return 'win32'
+  if (ua.includes('mac')) return 'darwin'
+  if (ua.includes('linux') || ua.includes('x11')) return 'linux'
+  return 'other'
+}
+
 /**
  * Custom titlebar: drag strip plus compact workspace tools. Tools live here
- * so the session sidebar stays a session list, not a second nav.
+ * so the session sidebar stays a session list, not a second nav. Branding
+ * stays in SidebarHeader — macOS hiddenInset traffic lights occupy this corner.
  */
 export function Titlebar({
   projectLabel,
@@ -24,29 +38,18 @@ export function Titlebar({
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
 }) {
-  const [platform, setPlatform] = useState<'win32' | 'darwin' | 'linux' | 'other'>('other')
+  const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
-
-  useEffect(() => {
-    const ua = navigator.userAgent.toLowerCase()
-    if (ua.includes('windows')) setPlatform('win32')
-    else if (ua.includes('mac')) setPlatform('darwin')
-    else if (ua.includes('linux') || ua.includes('x11')) setPlatform('linux')
-  }, [])
 
   return (
     <header
       className="ari-glass flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
-      <div className="flex items-center gap-2 pl-3">
-        <span className="text-fg text-xs font-semibold tracking-[0.18em]">ARI</span>
-        {projectLabel ? (
-          <>
-            <span className="text-fg-subtle text-xs">/</span>
-            <span className="text-fg-muted text-xs">{projectLabel}</span>
-          </>
-        ) : null}
+      <div
+        className={`flex items-center gap-2 ${platform === 'darwin' ? MACOS_TRAFFIC_LIGHT_PAD : 'pl-3'}`}
+      >
+        {projectLabel ? <span className="text-fg-muted text-xs">{projectLabel}</span> : null}
       </div>
 
       <div className="flex-1" />
