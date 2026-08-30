@@ -7,6 +7,8 @@ authenticated on your machine — Claude Code, Codex, OpenCode, Grok, Pi, Hermes
 built-in harness (**Ari Core**) that turns any OpenAI/Anthropic/Ollama-compatible endpoint
 into a full coding agent. No accounts. No OAuth flows. No cloud middleman: sessions,
 journals and checkpoints live on your disk.
+<img width="1597" height="990" alt="Screenshot 2026-08-30 062458" src="https://github.com/user-attachments/assets/90b250d0-7530-4e78-b20c-56299873064d" />
+
 
 > Status: **pre-alpha, under active construction.** See [PLAN.md](./PLAN.md) for the build
 > plan and [PROGRESS.md](./PROGRESS.md) for live, task-by-task progress.
