@@ -101,20 +101,51 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
 
   const bump = useCallback(() => setMeasureVersion((v) => v + 1), [])
 
+  /**
+   * Applies fresh row heights, keeping the viewport anchored to whatever the
+   * reader is looking at. A row that sits entirely above the scroll position and
+   * then changes height pushes every later row down by that delta; without a
+   * matching `scrollTop` correction the transcript slides under the reader's
+   * eyes. That is what made scrolling back through a long conversation feel like
+   * it stuck and fought at every block boundary: rows enter the window at the
+   * 64px estimate, get measured for real, and shove the content away again.
+   */
+  const applyMeasurements = useCallback(
+    (updates: { index: number; size: number }[]): void => {
+      const sizes = sizesRef.current
+      // Read the pre-change layout before any size is written.
+      const offsets = getOffsets()
+      const element = stableGetScroll()
+      const scrollTop = element?.scrollTop ?? scrollOffsetRef.current
+      let changed = false
+      let deltaAbove = 0
+      for (const { index, size } of updates) {
+        if (index < 0 || index >= sizes.length) continue
+        const previous = sizes[index] ?? 0
+        if (Math.abs(size - previous) <= 0.5) continue
+        if ((offsets[index] ?? 0) + previous <= scrollTop) deltaAbove += size - previous
+        sizes[index] = size
+        changed = true
+      }
+      if (!changed) return
+      sizesVersionRef.current++
+      if (deltaAbove !== 0 && element) {
+        const corrected = Math.max(0, scrollTop + deltaAbove)
+        element.scrollTop = corrected
+        scrollOffsetRef.current = corrected
+      }
+      bump()
+    },
+    [bump, getOffsets, stableGetScroll],
+  )
+
   const measureNode = useCallback(
     (node: HTMLElement): void => {
       const index = Number(node.dataset['index'] ?? -1)
-      const sizes = sizesRef.current
-      if (index < 0 || index >= sizes.length) return
-      const measured = node.getBoundingClientRect().height
-      const previous = sizes[index] ?? 0
-      if (Math.abs(measured - previous) > 0.5) {
-        sizes[index] = measured
-        sizesVersionRef.current++
-        bump()
-      }
+      if (index < 0) return
+      applyMeasurements([{ index, size: node.getBoundingClientRect().height }])
     },
-    [bump],
+    [applyMeasurements],
   )
 
   // One ResizeObserver re-measures rows as their content height changes. A
@@ -122,27 +153,22 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
   // viewport is recomputed even when row heights don't shift.
   const handleResize = useCallback(
     (entries: ResizeObserverEntry[]): void => {
-      const sizes = sizesRef.current
-      let changed = false
+      const updates: { index: number; size: number }[] = []
       let containerTouched = false
       for (const entry of entries) {
         const el = entry.target as HTMLElement
         const index = Number(el.dataset['index'] ?? -1)
-        if (index < 0 || index >= sizes.length) {
+        if (index < 0 || index >= sizesRef.current.length) {
           containerTouched = true
           continue
         }
-        const measured = el.getBoundingClientRect().height
-        const previous = sizes[index] ?? 0
-        if (Math.abs(measured - previous) > 0.5) {
-          sizes[index] = measured
-          changed = true
-        }
+        updates.push({ index, size: el.getBoundingClientRect().height })
       }
-      if (changed) sizesVersionRef.current++
-      if (changed || containerTouched) bump()
+      const version = sizesVersionRef.current
+      applyMeasurements(updates)
+      if (containerTouched && sizesVersionRef.current === version) bump()
     },
-    [bump],
+    [applyMeasurements, bump],
   )
 
   // Attach the scroll listener and row-height observer once.
@@ -199,18 +225,21 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     [stableGetScroll],
   )
 
-  const scrollToBottom = useCallback(
-    (behavior?: ScrollBehavior): void => {
-      const offsets = getOffsets()
-      scrollToOffset(offsets[offsets.length - 1] ?? 0, behavior)
-    },
-    [getOffsets, scrollToOffset],
-  )
-
   const getTotalSize = useCallback((): number => {
     const offsets = getOffsets()
     return offsets[offsets.length - 1] ?? 0
   }, [getOffsets])
+
+  const scrollToBottom = useCallback(
+    (behavior?: ScrollBehavior): void => {
+      const element = stableGetScroll()
+      // The container also holds unmeasured chrome (padding, the live working
+      // indicator), so its real scroll extent can exceed the measured rows.
+      const extent = element !== null ? element.scrollHeight - element.clientHeight : 0
+      scrollToOffset(Math.max(getTotalSize(), extent, 0), behavior)
+    },
+    [getTotalSize, scrollToOffset, stableGetScroll],
+  )
 
   const getRowStart = useCallback(
     (index: number): number => {
