@@ -114,6 +114,37 @@ describe('useVirtualizer', () => {
     expect(target).toMatchObject({ top: 200, behavior: 'smooth' })
   })
 
+  /**
+   * Regression: the window was driven off React scroll state, which lags the
+   * DOM. After stick-to-bottom (or overflow-anchor) moved scrollTop, a render
+   * with stale state windowed the first rows while the viewport was at the
+   * bottom of a tall spacer — the transcript flashed empty and jumping to
+   * the top, and wheel scrolling never stuck.
+   */
+  it('windows from the live scrollTop even before React state catches up', () => {
+    const { api, scrollEl } = renderHarness(100, 500)
+    scrollEl.scrollTop = 2000
+    const items = api.getVirtualItems()
+    const first = items[0]?.index ?? -1
+    // 2000px / 50px rows = index 40, minus 1 row of overscan.
+    expect(first).toBeGreaterThanOrEqual(38)
+    expect(first).toBeLessThanOrEqual(40)
+    expect(items.at(-1)?.index).toBeGreaterThan(45)
+  })
+
+  it('scrollToBottom uses the painted scroll max rather than past-the-end total size', () => {
+    const { api, scrollEl } = renderHarness(4, 100)
+    Object.defineProperty(scrollEl, 'scrollHeight', { configurable: true, value: 180 })
+    let target: ScrollToOptions | null = null
+    scrollEl.scrollTo = ((options?: ScrollToOptions) => {
+      target = options ?? null
+    }) as typeof scrollEl.scrollTo
+    api.scrollToBottom('smooth')
+    // 180 - 100 viewport = 80; requesting getTotalSize() (200) overscrolls
+    // and fights Chromium overflow anchoring.
+    expect(target).toMatchObject({ top: 80, behavior: 'smooth' })
+  })
+
   it('bumps version when a measurement changes', () => {
     const { api } = renderHarness(3, 500)
     expect(api.getVersion()).toBe(0)
