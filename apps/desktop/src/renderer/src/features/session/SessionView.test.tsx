@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
+import { useState } from 'react'
 import { ToastProvider } from '@ari/ui/toast'
 import {
   ContextMeter,
@@ -877,5 +878,77 @@ describe('PermissionModeChip', () => {
 
     await user.click(screen.getByRole('option', { name: /Full auto/ }))
     expect(onChange).toHaveBeenCalledWith('full')
+  })
+})
+
+/**
+ * Regression: changing the permission mode used to publish a defaults object
+ * captured before the last model pick, so the model chip snapped back to the
+ * detected CLI default the moment the user switched modes.
+ */
+describe('SessionView mode change preserves the picked model', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        sessionListener = onEvent
+        emitReplayDone()
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  it('keeps driverKind and modelId when the mode chip changes', async () => {
+    /** Mirrors App.tsx: the parent owns `defaults` and feeds them straight back. */
+    function Host() {
+      const [defaults, setDefaults] = useState<SessionDefaults>(DEFAULTS)
+      return (
+        <ToastProvider>
+          <button
+            type="button"
+            onClick={() =>
+              setDefaults((prev) => ({ ...prev, driverKind: 'opencode', modelId: 'gpt-5' }))
+            }
+          >
+            pick model
+          </button>
+          <span data-testid="defaults">
+            {`${defaults.driverKind}|${defaults.modelId ?? 'none'}|${defaults.permissionMode}`}
+          </span>
+          <SessionView sessionId="sess_1" defaults={defaults} onDefaultsChange={setDefaults} />
+        </ToastProvider>
+      )
+    }
+
+    const user = userEvent.setup()
+    render(<Host />)
+    await screen.findByLabelText('Message')
+    // session.load pushes the persisted defaults up on mount; let that settle.
+    await waitFor(() => {
+      expect(screen.getByTestId('defaults').textContent).toBe('ari-core|none|ask')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'pick model' }))
+    expect(screen.getByTestId('defaults').textContent).toBe('opencode|gpt-5|ask')
+
+    await user.click(screen.getByRole('button', { name: 'Permission mode: Ask' }))
+    await user.click(screen.getByRole('option', { name: /Full auto/ }))
+
+    expect(screen.getByTestId('defaults').textContent).toBe('opencode|gpt-5|full')
   })
 })
