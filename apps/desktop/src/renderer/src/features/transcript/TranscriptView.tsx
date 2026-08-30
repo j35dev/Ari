@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { useVirtualizer } from './use-virtualizer'
@@ -81,6 +81,7 @@ export function TranscriptView({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [atBottom, setAtBottom] = useState(true)
+  const atBottomRef = useRef(true)
 
   const rows = useMemo(
     () => groupBlocks(splitBlocks(messages), turnDiffs),
@@ -143,27 +144,38 @@ export function TranscriptView({
 
   const handleRailJump = useCallback(
     (key: string) => {
+      atBottomRef.current = false
       setAtBottom(false)
       virtualizer.scrollToOffset(Math.max(0, virtualizer.getRowStart(Number(key)) - 12), 'smooth')
     },
     [virtualizer],
   )
 
+  const hasWorking = Boolean(working)
+
   // Stick-to-bottom: follow new content while pinned; expose jump pill otherwise.
   // `getVersion()` keeps the follow honest while heights settle after the row
   // list stops changing — code fences finish highlighting well after their block
-  // last appended, and without it the transcript quietly fell off the bottom.
-  useEffect(() => {
-    if (atBottom) {
-      virtualizer.scrollToBottom('auto')
-    }
-  }, [rows, atBottom, virtualizer, virtualizer.getVersion()])
+  // last appended. The ref is updated synchronously in `handleScroll` so a
+  // measurement bump cannot yank the reader back after they have scrolled up.
+  // Skip when already at the painted max so measure → scroll → ResizeObserver
+  // cannot loop (that loop flashed the transcript empty and ate wheel input).
+  useLayoutEffect(() => {
+    if (!atBottomRef.current) return
+    const el = scrollRef.current
+    if (!el) return
+    const max = Math.max(0, el.scrollHeight - el.clientHeight)
+    if (Math.abs(el.scrollTop - max) <= 1) return
+    virtualizer.scrollToBottom('auto')
+  }, [rows, atBottom, hasWorking, virtualizer, virtualizer.getVersion()])
 
   const handleScroll = (): void => {
     const el = scrollRef.current
     if (!el) return
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-    setAtBottom(distance <= REENGAGE_BAND_PX)
+    const pinned = distance <= REENGAGE_BAND_PX
+    atBottomRef.current = pinned
+    setAtBottom(pinned)
     updateActiveRailKey()
   }
 
@@ -184,6 +196,7 @@ export function TranscriptView({
         aria-live="polite"
         className="ari-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
         data-session={sessionId}
+        style={{ overflowAnchor: 'none' }}
       >
         <div
           style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
@@ -272,6 +285,7 @@ export function TranscriptView({
         <button
           type="button"
           onClick={() => {
+            atBottomRef.current = true
             setAtBottom(true)
             virtualizer.scrollToBottom('smooth')
           }}

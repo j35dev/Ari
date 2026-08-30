@@ -59,14 +59,20 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
   const scrollOffsetRef = useRef(scrollOffset)
   const measureVersionRef = useRef(measureVersion)
   const sizesVersionRef = useRef(0)
+  const lastClientHeightRef = useRef(0)
   const offsetsCacheRef = useRef<{ version: number; count: number; offsets: number[] } | null>(null)
 
   countRef.current = count
   overscanRef.current = overscan
   estimateRef.current = estimateSize
   scrollGetterRef.current = getScrollElement
-  scrollOffsetRef.current = scrollOffset
   measureVersionRef.current = measureVersion
+  // Prefer the live DOM offset. Writing React state back onto the ref here
+  // was clobbering a fresher scrollTop (stick-to-bottom / overflow-anchor)
+  // and windowing the first rows into a viewport that had already jumped
+  // to the bottom of the spacer — the transcript flashed empty.
+  const liveElement = scrollGetterRef.current()
+  scrollOffsetRef.current = liveElement ? liveElement.scrollTop : scrollOffset
 
   if (sizesRef.current.length !== count) {
     const next = new Array<number>(count)
@@ -166,9 +172,18 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
       }
       const version = sizesVersionRef.current
       applyMeasurements(updates)
-      if (containerTouched && sizesVersionRef.current === version) bump()
+      // Only bump on a real viewport-height change. Observing the scroller
+      // and bumping on every notification retriggered stick-to-bottom in a
+      // tight loop (measure → scroll → notify → measure).
+      if (containerTouched && sizesVersionRef.current === version) {
+        const height = stableGetScroll()?.clientHeight ?? 0
+        if (height !== lastClientHeightRef.current) {
+          lastClientHeightRef.current = height
+          bump()
+        }
+      }
     },
-    [applyMeasurements, bump],
+    [applyMeasurements, bump, stableGetScroll],
   )
 
   // Attach the scroll listener and row-height observer once.
@@ -233,10 +248,15 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
   const scrollToBottom = useCallback(
     (behavior?: ScrollBehavior): void => {
       const element = stableGetScroll()
-      // The container also holds unmeasured chrome (padding, the live working
-      // indicator), so its real scroll extent can exceed the measured rows.
-      const extent = element !== null ? element.scrollHeight - element.clientHeight : 0
-      scrollToOffset(Math.max(getTotalSize(), extent, 0), behavior)
+      if (element && element.scrollHeight > element.clientHeight) {
+        // Painted layout is authoritative. Requesting getTotalSize() (the
+        // spacer) overshoots max scrollTop and fights Chromium overflow
+        // anchoring — the scroller bounces between 0, mid, and the bottom.
+        scrollToOffset(Math.max(0, element.scrollHeight - element.clientHeight), behavior)
+        return
+      }
+      // jsdom (and the first frame before layout) has no useful scrollHeight.
+      scrollToOffset(getTotalSize(), behavior)
     },
     [getTotalSize, scrollToOffset, stableGetScroll],
   )
@@ -254,8 +274,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     const n = sizes.length
     if (n === 0) return []
     const offsets = getOffsets()
-    const viewport = stableGetScroll()?.clientHeight ?? 0
-    const scroll = scrollOffsetRef.current
+    const element = stableGetScroll()
+    const viewport = element?.clientHeight ?? 0
+    const scroll = element?.scrollTop ?? scrollOffsetRef.current
 
     // Binary search: first row whose bottom edge is below scrollTop.
     let firstVisible = 0
