@@ -11,9 +11,34 @@ import { ToolCallBlock, ToolResultBlock } from './ToolBlocks'
 import { ToolActivityGroup } from './ToolActivityGroup'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
+import type { TranscriptRow } from './types'
 import type { Message } from '@ari/contracts/message'
 
 const REENGAGE_BAND_PX = 70
+
+/** Rough characters per rendered line at the transcript's 48rem measure. */
+const CHARS_PER_LINE = 90
+const LINE_HEIGHT_PX = 22
+
+/**
+ * Pre-measurement height guess per row kind. Collapsed rows (tool activity,
+ * diff cards) are a fixed size; prose scales with its text. A closer estimate
+ * means smaller corrections when the real height arrives, which is what keeps
+ * scrolling through unmeasured history smooth rather than jumpy.
+ */
+function estimateRowSize(row: TranscriptRow | undefined): number {
+  if (row === undefined) return 64
+  if (row.kind === 'tool-group' || row.kind === 'turn-diff') return 40
+  if (row.kind === 'tool-call' || row.kind === 'tool-result') return 48
+  const text = row.text ?? ''
+  if (text.length === 0) return 32
+  let lines = 0
+  for (const paragraph of text.split('\n')) {
+    lines += Math.max(1, Math.ceil(paragraph.length / CHARS_PER_LINE))
+  }
+  // Blocks are padded top and bottom; thinking rows render collapsed.
+  return row.kind === 'thinking' ? 36 : lines * LINE_HEIGHT_PX + 16
+}
 
 /** Placeholder row widths for the initial-load skeleton (M13.3: no spinners >300ms). */
 const LOADING_ROW_WIDTHS = ['92%', '78%', '85%', '64%'] as const
@@ -89,7 +114,7 @@ export function TranscriptView({
 
   const virtualizer = useVirtualizer({
     count: rows.length,
-    estimateSize: () => 64,
+    estimateSize: (index) => estimateRowSize(rows[index]),
     getScrollElement: () => scrollRef.current,
     overscan: 6,
   })
@@ -125,11 +150,14 @@ export function TranscriptView({
   )
 
   // Stick-to-bottom: follow new content while pinned; expose jump pill otherwise.
+  // `getVersion()` keeps the follow honest while heights settle after the row
+  // list stops changing — code fences finish highlighting well after their block
+  // last appended, and without it the transcript quietly fell off the bottom.
   useEffect(() => {
     if (atBottom) {
       virtualizer.scrollToBottom('auto')
     }
-  }, [rows, atBottom, virtualizer])
+  }, [rows, atBottom, virtualizer, virtualizer.getVersion()])
 
   const handleScroll = (): void => {
     const el = scrollRef.current

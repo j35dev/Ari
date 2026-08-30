@@ -9,6 +9,16 @@ afterEach(cleanup)
 function stubScrollElement(height: number): HTMLDivElement {
   const el = document.createElement('div')
   Object.defineProperty(el, 'clientHeight', { configurable: true, value: height })
+  // jsdom does no layout, so its scrollTop setter is a no-op; back it with a
+  // field so anchoring corrections are observable.
+  let scrollTop = 0
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value
+    },
+  })
   return el
 }
 
@@ -114,5 +124,46 @@ describe('useVirtualizer', () => {
       api.measureElement(node)
     })
     expect(api.getVersion()).toBeGreaterThan(0)
+  })
+
+  /**
+   * Regression: rows entered the window at their estimate, were measured for
+   * real, and shoved everything below them down — so scrolling back through a
+   * long transcript stuck and jumped at every block boundary.
+   */
+  it('anchors the viewport when a row above the fold is re-measured', () => {
+    const { api, scrollEl } = renderHarness(20, 200, 50)
+    scrollEl.scrollTop = 300
+    const node = document.createElement('div')
+    node.dataset['index'] = '2' // occupies 100..150, entirely above the fold
+    node.getBoundingClientRect = () => ({ height: 250 }) as DOMRect
+    act(() => {
+      api.measureElement(node)
+    })
+    expect(scrollEl.scrollTop).toBe(500)
+  })
+
+  it('leaves the scroll position alone when the re-measured row is on screen', () => {
+    const { api, scrollEl } = renderHarness(20, 200, 50)
+    scrollEl.scrollTop = 300
+    const node = document.createElement('div')
+    node.dataset['index'] = '8' // occupies 400..450, below the fold
+    node.getBoundingClientRect = () => ({ height: 250 }) as DOMRect
+    act(() => {
+      api.measureElement(node)
+    })
+    expect(scrollEl.scrollTop).toBe(300)
+  })
+
+  it('shrinking a row above the fold pulls the viewport back up', () => {
+    const { api, scrollEl } = renderHarness(20, 200, 50)
+    scrollEl.scrollTop = 300
+    const node = document.createElement('div')
+    node.dataset['index'] = '1'
+    node.getBoundingClientRect = () => ({ height: 20 }) as DOMRect
+    act(() => {
+      api.measureElement(node)
+    })
+    expect(scrollEl.scrollTop).toBe(270)
   })
 })
