@@ -86,9 +86,12 @@ export async function createAcpAdapter(
    * Resumes the agent's persisted session when possible (agent advertises
    * `loadSession` and Ari knows a prior session id) so multi-turn context
    * survives Ari's spawn-per-turn model; otherwise opens a fresh one. A load
-   * failure degrades to a fresh session rather than failing the turn.
+   * failure degrades to a fresh session rather than failing the turn. The
+   * `resumed` flag tells {@link resolveSelectors} whether an absent mode/model
+   * selector means "the agent has none" or "session/load answered with the
+   * empty body the spec allows".
    */
-  const openSession = async (): Promise<AcpNewSessionResult> => {
+  const openSession = async (): Promise<{ created: AcpNewSessionResult; resumed: boolean }> => {
     const resumeId = session.resumeOf
     if (
       typeof resumeId === 'string' &&
@@ -96,7 +99,7 @@ export async function createAcpAdapter(
       connection.initialize.agentCapabilities?.loadSession === true
     ) {
       try {
-        return await connection.loadSession(resumeId, session.workspacePath)
+        return { created: await connection.loadSession(resumeId, session.workspacePath), resumed: true }
       } catch (error) {
         log.warn('acp: session/load failed; starting a fresh session', {
           resumeId,
@@ -104,12 +107,15 @@ export async function createAcpAdapter(
         })
       }
     }
-    return connection.newSession(session.workspacePath)
+    return { created: await connection.newSession(session.workspacePath), resumed: false }
   }
 
   let created: AcpNewSessionResult
+  let resumed: boolean
   try {
-    created = await openSession()
+    const opened = await openSession()
+    created = opened.created
+    resumed = opened.resumed
   } catch (error) {
     connection.kill()
     throw new Error(formatAcpSetupError(error), { cause: error })
@@ -119,8 +125,15 @@ export async function createAcpAdapter(
   // the next turn instead of losing all context.
   push([{ type: 'session-ref', ref: sessionId }])
 
-  await applyModel(connection, sessionId, created.configOptions ?? [], session.modelId)
-  await applyPermissionMode(connection, sessionId, created.configOptions ?? [], created.modes?.availableModes ?? [], session.permissionMode)
+  const selectors = resolveSelectors(launch.label, created, resumed)
+  await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+  await applyPermissionMode(
+    connection,
+    sessionId,
+    selectors.configOptions,
+    selectors.availableModes,
+    session.permissionMode,
+  )
 
   const finish = (): void => {
     for (const pending of pendingPermissions.values()) pending.resolve({ outcome: { outcome: 'cancelled' } })
@@ -237,6 +250,54 @@ function optionFor(
   return undefined
 }
 
+/** The mode/model selectors an agent advertises for a session. */
+interface AcpSelectors {
+  configOptions: AcpConfigOption[]
+  availableModes: { id?: string; name?: string }[]
+}
+
+/**
+ * Selector vocabulary learned per agent, keyed by launch label.
+ *
+ * `session/load` is specified to answer with an empty body, so a resumed
+ * session usually advertises no mode selector at all — and Ari spawns a fresh
+ * agent process per turn. Without this cache the second turn of a session can
+ * never move the agent's mode, which is how a session started in Ask mode left
+ * opencode parked in `plan` and answering every later prompt with "exit plan
+ * mode first" — an instruction Ari's UI has no way to follow. The vocabulary is
+ * a property of the agent, not of one session, so any earlier `session/new` in
+ * this run supplies it. Only consulted for resumed sessions: a fresh
+ * `session/new` that advertises nothing genuinely supports nothing, and pushing
+ * an unsupported request at it would just burn the call's timeout.
+ */
+const LEARNED_SELECTORS = new Map<string, AcpSelectors>()
+
+/** Prefers what this open advertised; a resume falls back to the learned vocabulary. */
+function resolveSelectors(
+  label: string,
+  created: AcpNewSessionResult,
+  resumed: boolean,
+): AcpSelectors {
+  const configOptions = created.configOptions ?? []
+  const availableModes = created.modes?.availableModes ?? []
+  if (configOptions.length > 0 || availableModes.length > 0) {
+    const learned = LEARNED_SELECTORS.get(label)
+    const merged: AcpSelectors = {
+      configOptions: configOptions.length > 0 ? configOptions : (learned?.configOptions ?? []),
+      availableModes: availableModes.length > 0 ? availableModes : (learned?.availableModes ?? []),
+    }
+    LEARNED_SELECTORS.set(label, merged)
+    return merged
+  }
+  if (!resumed) return { configOptions: [], availableModes: [] }
+  return LEARNED_SELECTORS.get(label) ?? { configOptions: [], availableModes: [] }
+}
+
+/** Test seam: drops the learned vocabulary so cases cannot leak into each other. */
+export function __resetLearnedAcpSelectors(): void {
+  LEARNED_SELECTORS.clear()
+}
+
 async function applyModel(
   connection: AcpConnection,
   sessionId: string,
@@ -259,8 +320,9 @@ async function applyModel(
 }
 /**
  * Maps Ari permission modes onto whatever mode selector the agent exposes
- * (config options preferred, legacy modes fallback). Heuristic per PLAN §4:
- * unmatched agents keep their default instead of guessing wrong.
+ * (config options preferred, legacy `session/set_mode` fallback). Sends nothing
+ * when {@link pickAgentMode} finds no safe target, so an unrecognized agent
+ * keeps its own default rather than being guessed into the wrong mode.
  */
 async function applyPermissionMode(
   connection: AcpConnection,
@@ -269,33 +331,76 @@ async function applyPermissionMode(
   availableModes: { id?: string; name?: string }[],
   mode: PermissionMode,
 ): Promise<void> {
-  const wanted = MODE_PATTERNS[mode]
   const option = findOption(configOptions, 'mode')
-  if (option !== null && option.options !== undefined) {
-    const match = option.options.find((v) => matchesAny(v.value, wanted))
-    if (match?.value !== undefined && option.id !== undefined) {
-      try {
-        await connection.setConfigOption(sessionId, option.id, match.value)
-      } catch (error) {
-        log.debug('acp: set_config_option(mode) failed', { error: String(error) })
-      }
+  if (option !== null && option.options !== undefined && option.id !== undefined) {
+    const chosen = pickAgentMode(option.options.map((v) => v.value), mode)
+    if (chosen === null) return
+    try {
+      await connection.setConfigOption(sessionId, option.id, chosen)
+    } catch (error) {
+      log.debug('acp: set_config_option(mode) failed', { error: String(error) })
     }
     return
   }
-  const legacy = availableModes.find((m) => matchesAny(m.id, wanted))
-  if (legacy?.id !== undefined) {
-    try {
-      await connection.setMode(sessionId, legacy.id)
-    } catch (error) {
-      log.debug('acp: set_mode failed', { error: String(error) })
-    }
+  const chosen = pickAgentMode(availableModes.map((m) => m.id), mode)
+  if (chosen === null) return
+  try {
+    await connection.setMode(sessionId, chosen)
+  } catch (error) {
+    log.debug('acp: set_mode failed', { error: String(error) })
   }
 }
 
-const MODE_PATTERNS: Record<PermissionMode, RegExp[]> = {
-  ask: [/\bask\b/i, /\bdefault\b/i, /\bnormal\b/i, /\bstandard\b/i, /\bplan\b/i],
-  'allow-edits': [/accept.?edits?/i, /\bedit(s|ing)?\b/i, /\bworkspace\b/i],
-  full: [/bypass/i, /yolo/i, /\bfull\b/i, /\bauto\b/i, /danger/i, /^code$/i],
+/** Modes that make an agent refuse to write; a build mode must never land here. */
+const PLANNING_PATTERNS = [/\bplan(ning)?\b/i, /read.?only/i, /\bchat\b/i, /\bask\b/i]
+
+const ASK_PATTERNS = [
+  /\bask\b/i,
+  /\bdefault\b/i,
+  /\bnormal\b/i,
+  /\bstandard\b/i,
+  /\bplan(ning)?\b/i,
+]
+// `build` is opencode's write-capable mode; `code` is the same idea elsewhere.
+const EDIT_PATTERNS = [
+  /accept.?edits?/i,
+  /\bedit(s|ing)?\b/i,
+  /\bworkspace\b/i,
+  /\bbuild\b/i,
+  /^code$/i,
+]
+const FULL_PATTERNS = [/bypass/i, /yolo/i, /\bfull\b/i, /\bauto\b/i, /danger/i]
+
+/** Preference chain per Ari mode: first vocabulary that matches wins. */
+const MODE_PREFERENCE: Record<PermissionMode, RegExp[][]> = {
+  ask: [ASK_PATTERNS],
+  'allow-edits': [EDIT_PATTERNS, FULL_PATTERNS],
+  full: [FULL_PATTERNS, EDIT_PATTERNS],
+}
+
+/**
+ * Resolves an Ari permission mode against the mode vocabulary an agent
+ * advertises, in candidate order. Returns null when nothing safe matches, which
+ * the caller reads as "leave the agent alone".
+ *
+ * The two build modes take a last-resort escape hatch that `ask` deliberately
+ * does not: any advertised mode that is not a planning/read-only mode. Agents
+ * whose write mode Ari cannot name (opencode's `build` before it was listed
+ * here) would otherwise be stranded in the planning mode a previous Ask-mode
+ * turn selected, with no way out from inside Ari. Guessing in the other
+ * direction would silently escalate permissions, so `ask` never falls back.
+ */
+export function pickAgentMode(
+  candidates: (string | undefined)[],
+  mode: PermissionMode,
+): string | null {
+  const values = candidates.filter((v): v is string => typeof v === 'string' && v.length > 0)
+  for (const patterns of MODE_PREFERENCE[mode]) {
+    const match = values.find((v) => matchesAny(v, patterns))
+    if (match !== undefined) return match
+  }
+  if (mode === 'ask') return null
+  return values.find((v) => !matchesAny(v, PLANNING_PATTERNS)) ?? null
 }
 
 function matchesAny(value: string | boolean | undefined, patterns: RegExp[]): boolean {
