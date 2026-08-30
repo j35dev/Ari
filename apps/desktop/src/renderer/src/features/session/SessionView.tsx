@@ -602,6 +602,9 @@ export function SessionView({
 
   const changePermissionMode = useCallback(
     (permissionMode: PermissionMode) => {
+      // `defaults` must stay in the dep list: omitting it retained a closure
+      // over the pre-model-change defaults, so switching modes wrote the stale
+      // driverKind/modelId back and the model chip snapped to the CLI default.
       onDefaultsChange({ ...defaults, permissionMode })
       void rpc
         .invoke('command.dispatch', {
@@ -609,7 +612,7 @@ export function SessionView({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange],
+    [sessionId, onDefaultsChange, defaults],
   )
 
   return (
