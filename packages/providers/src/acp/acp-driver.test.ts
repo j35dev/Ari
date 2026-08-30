@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
-import { describe, expect, it, vi } from 'vitest'
-import { createAcpAdapter, AcpDriver } from './acp-driver'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createAcpAdapter, AcpDriver, pickAgentMode, __resetLearnedAcpSelectors } from './acp-driver'
 import type { AcpLaunch } from './connection'
 import type { AdapterSession, ProviderAdapter } from '../driver'
 
@@ -131,6 +131,24 @@ const CONFIG_OPTIONS_AGENT: AgentHandler = (method, params, id) => {
   return standardAgent()(method, params, id)
 }
 
+/** opencode's vocabulary: two modes, neither of them named like Ari's. */
+const LEGACY_MODES_AGENT: AgentHandler = (method, params, id) => {
+  if (method === 'session/new') {
+    return {
+      sessionId: 'sess_acp_1',
+      modes: {
+        currentModeId: 'build',
+        availableModes: [
+          { id: 'build', name: 'Build' },
+          { id: 'plan', name: 'Plan' },
+        ],
+      },
+    }
+  }
+  if (method === 'session/set_mode') return {}
+  return standardAgent()(method, params, id)
+}
+
 async function collectTypes(adapter: ProviderAdapter): Promise<string[]> {
   const types: string[] = []
   const iterator = adapter.start()[Symbol.asyncIterator]()
@@ -142,7 +160,18 @@ async function collectTypes(adapter: ProviderAdapter): Promise<string[]> {
   return types
 }
 
+/** Mode ids sent through `session/set_mode` on a connection. */
+function modeCalls(child: FakeChild): (string | undefined)[] {
+  return child.sent
+    .filter((m) => m['method'] === 'session/set_mode')
+    .map((m) => (m['params'] as { modeId?: string }).modeId)
+}
+
 describe('createAcpAdapter', () => {
+  beforeEach(() => {
+    __resetLearnedAcpSelectors()
+  })
+
   it('applies the requested model and permission mode via config options', async () => {
     const child = fakeChild()
     script(child, CONFIG_OPTIONS_AGENT)
@@ -364,6 +393,102 @@ describe('createAcpAdapter', () => {
     expect(sawLoad).toBe(false)
     await adapter.dispose()
   }, 15000)
+
+  it('leaves an agent that advertises no selectors untouched on a fresh session', async () => {
+    const child = fakeChild()
+    script(child, standardAgent())
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'full' },
+      () => child,
+    )
+    expect(modeCalls(child)).toEqual([])
+    expect(child.sent.some((m) => m['method'] === 'session/set_config_option')).toBe(false)
+    await adapter.dispose()
+  }, 15000)
+
+  it('moves a plan-capable agent into its write mode for the build modes', async () => {
+    for (const mode of ['allow-edits', 'full'] as const) {
+      __resetLearnedAcpSelectors()
+      const child = fakeChild()
+      script(child, LEGACY_MODES_AGENT)
+      const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: mode }, () => child)
+      expect(modeCalls(child)).toEqual(['build'])
+      await adapter.dispose()
+    }
+  }, 20000)
+
+  it('selects the planning mode for ask', async () => {
+    const child = fakeChild()
+    script(child, LEGACY_MODES_AGENT)
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: 'ask' }, () => child)
+    expect(modeCalls(child)).toEqual(['plan'])
+    await adapter.dispose()
+  }, 15000)
+
+  /**
+   * The reported bug: turn 1 in Ask mode put opencode in `plan`, turn 2 resumed
+   * that session, `session/load` answered with the spec's empty body, and the
+   * switch to a build mode was never delivered — so the agent kept refusing to
+   * write and asked the user to exit plan mode by hand.
+   */
+  it('re-applies the mode on a resumed session whose load body is empty', async () => {
+    const first = fakeChild()
+    script(first, LEGACY_MODES_AGENT)
+    const askTurn = await createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: 'ask' }, () => first)
+    expect(modeCalls(first)).toEqual(['plan'])
+    await askTurn.dispose()
+
+    const second = fakeChild()
+    script(second, (method, params, id) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+      }
+      if (method === 'session/load') return null // spec: empty body
+      if (method === 'session/new') throw new Error('must not create a fresh session')
+      return LEGACY_MODES_AGENT(method, params, id)
+    })
+    const buildTurn = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'full', resumeOf: 'sess_acp_1' },
+      () => second,
+    )
+
+    expect(modeCalls(second)).toEqual(['build'])
+    await buildTurn.dispose()
+  }, 20000)
+})
+
+describe('pickAgentMode', () => {
+  it("maps Ari's modes onto claude-code's vocabulary", () => {
+    const modes = ['default', 'acceptEdits', 'bypassPermissions', 'plan']
+    expect(pickAgentMode(modes, 'ask')).toBe('default')
+    expect(pickAgentMode(modes, 'allow-edits')).toBe('acceptEdits')
+    expect(pickAgentMode(modes, 'full')).toBe('bypassPermissions')
+  })
+
+  it("maps Ari's modes onto opencode's build/plan pair", () => {
+    const modes = ['build', 'plan']
+    expect(pickAgentMode(modes, 'ask')).toBe('plan')
+    expect(pickAgentMode(modes, 'allow-edits')).toBe('build')
+    expect(pickAgentMode(modes, 'full')).toBe('build')
+  })
+
+  it('falls back to any non-planning mode for the build modes', () => {
+    const modes = ['plan', 'somethingUnnamed']
+    expect(pickAgentMode(modes, 'allow-edits')).toBe('somethingUnnamed')
+    expect(pickAgentMode(modes, 'full')).toBe('somethingUnnamed')
+  })
+
+  it('never guesses for ask, so an unknown agent keeps its default', () => {
+    expect(pickAgentMode(['somethingUnnamed'], 'ask')).toBeNull()
+    expect(pickAgentMode([], 'full')).toBeNull()
+    expect(pickAgentMode([undefined, ''], 'allow-edits')).toBeNull()
+  })
+
+  it('refuses to answer a build mode with a read-only mode', () => {
+    expect(pickAgentMode(['plan', 'readOnly', 'chat'], 'full')).toBeNull()
+  })
 })
 
 describe('AcpDriver', () => {

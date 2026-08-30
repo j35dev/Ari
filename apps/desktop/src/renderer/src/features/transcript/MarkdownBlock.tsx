@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { highlightCode } from './highlight'
 import { renderMarkdown } from './markdown'
 
@@ -11,8 +11,12 @@ function shikiInner(html: string): string {
  * Renders one markdown block, then swaps fenced `language-*` code elements to
  * Shiki-highlighted content. Falls back to the plain markdown rendering when a
  * language is unknown or highlighting fails.
+ *
+ * Memoized on `text`: a streaming turn re-renders the whole transcript every
+ * flush, and every settled block above the live one would otherwise re-run the
+ * markdown pipeline's effects for no visible change.
  */
-export function MarkdownBlock({ text }: { text: string }) {
+export const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
   const [html, setHtml] = useState(() => renderMarkdown(text))
   const ref = useRef<HTMLDivElement>(null)
 
@@ -47,4 +51,4 @@ export function MarkdownBlock({ text }: { text: string }) {
   }, [html])
 
   return <div ref={ref} className="ari-md" dangerouslySetInnerHTML={{ __html: html }} />
-}
+})
