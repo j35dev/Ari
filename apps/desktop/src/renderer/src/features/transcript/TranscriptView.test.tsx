@@ -49,6 +49,14 @@ describe('TranscriptView loading state', () => {
     expect(container.querySelectorAll('.ari-pulse')).toHaveLength(0)
     expect(container.querySelector('[data-index]')).not.toBeNull()
   })
+
+  it('disables browser overflow anchoring on the transcript scroller', () => {
+    const { container } = render(
+      createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }),
+    )
+    const scroller = container.querySelector('[aria-label="Conversation transcript"]')
+    expect(scroller).toHaveStyle({ overflowAnchor: 'none' })
+  })
 })
 
 describe('TranscriptView message actions', () => {
