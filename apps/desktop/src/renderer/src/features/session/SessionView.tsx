@@ -6,6 +6,7 @@ import type { Session } from '@ari/contracts/session'
 import type { CatalogModelInfo, SessionEventFrame } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
+import { useToast } from '@ari/ui/toast'
 import { TranscriptView } from '../transcript'
 import { Composer, type ComposerSeed } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
@@ -188,6 +189,7 @@ export function SessionView({
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
+  const { toast } = useToast()
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, string>>({})
@@ -477,6 +479,25 @@ export function SessionView({
     [],
   )
 
+  // Command dispatches used to fail silently (.catch(() => undefined)); a
+  // rejected dispatch — e.g. the decider declining while a turn is active —
+  // now toasts so sending never looks like a no-op.
+  const dispatch = useCallback(
+    (command: Record<string, unknown>, failureTitle: string): void => {
+      void rpc
+        .invoke('command.dispatch', { command })
+        .catch((err: unknown) => {
+          toast({
+            title: failureTitle,
+            description: err instanceof Error ? err.message : String(err),
+            tone: 'danger',
+            durationMs: 6000,
+          })
+        })
+    },
+    [toast],
+  )
+
   const handleSend = useCallback(
     (text: string) => {
       // Review notes ride along with the next outgoing message, then clear.
@@ -494,17 +515,16 @@ export function SessionView({
       if (running) {
         // The engine journals the queue (and dequeues immediately when the
         // transport can steer); the mirrored events update the view here.
-        void rpc
-          .invoke('command.dispatch', { command: { type: 'message.enqueue', sessionId, text: outgoing } })
-          .catch(() => undefined)
+        dispatch(
+          { type: 'message.enqueue', sessionId, text: outgoing },
+          'Couldn’t queue message',
+        )
         return
       }
       setTurnError(null)
-      void rpc
-        .invoke('command.dispatch', { command: { type: 'turn.start', sessionId, text: outgoing } })
-        .catch(() => undefined)
+      dispatch({ type: 'turn.start', sessionId, text: outgoing }, 'Couldn’t send message')
     },
-    [sessionId, running],
+    [sessionId, running, dispatch],
   )
 
   /** M21.1 review loop: a saved diff line note joins the next message. */
@@ -513,10 +533,8 @@ export function SessionView({
   }, [])
 
   const handleStop = useCallback(() => {
-    void rpc
-      .invoke('command.dispatch', { command: { type: 'turn.interrupt', sessionId } })
-      .catch(() => undefined)
-  }, [sessionId])
+    dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
+  }, [sessionId, dispatch])
 
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
