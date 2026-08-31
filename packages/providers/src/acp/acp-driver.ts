@@ -3,15 +3,22 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
-import { AcpConnection, AcpConnectionError } from './connection'
+import { AcpAuthRequiredError, AcpConnection, AcpConnectionError } from './connection'
 import type { AcpChildProcess, AcpLaunch } from './connection'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
-import type { AcpConfigOption, AcpNewSessionResult, AcpRequestPermission } from './protocol'
+import type { AcpConfigOption, AcpNewSessionResult, AcpRequestPermission, AcpTerminalLogin } from './protocol'
 
 const log = createLogger('providers:acp')
 
 /** Approval vocabulary shared with `approval.respond` commands. */
 export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow'
+
+/**
+ * Reports that the agent refused for want of a login, with whatever logins it
+ * advertised. Called at most once per turn, on the handshake or mid-turn, so a
+ * host can offer sign-in without parsing error text.
+ */
+export type AcpAuthRequiredHandler = (wall: { label: string; logins: AcpTerminalLogin[] }) => void
 
 export interface AcpAdapter extends ProviderAdapter {
   /** Answers a pending `session/request_permission` originated approval. */
@@ -31,6 +38,7 @@ export async function createAcpAdapter(
   launch: AcpLaunch,
   session: AdapterSession,
   spawn?: (childLaunch: AcpLaunch, cwd: string) => AcpChildProcess,
+  onAuthRequired?: AcpAuthRequiredHandler,
 ): Promise<AcpAdapter> {
   const pendingPermissions = new Map<
     string,
@@ -68,6 +76,19 @@ export async function createAcpAdapter(
     })
   }
 
+  /**
+   * Keeps an auth wall recognizable through the setup-failure wrapping, and
+   * reports it once so the host can offer the agent's own logins instead of
+   * leaving the user to guess at an expired session.
+   */
+  const setupFailure = (error: unknown): Error => {
+    if (error instanceof AcpAuthRequiredError) {
+      onAuthRequired?.({ label: launch.label, logins: error.logins })
+      return new AcpAuthRequiredError(formatAcpSetupError(error), error.logins)
+    }
+    return new Error(formatAcpSetupError(error), { cause: error })
+  }
+
   let connection: AcpConnection
   try {
     connection = await AcpConnection.connect({
@@ -76,7 +97,7 @@ export async function createAcpAdapter(
       ...(spawn !== undefined ? { spawn } : {}),
     })
   } catch (error) {
-    throw new Error(formatAcpSetupError(error), { cause: error })
+    throw setupFailure(error)
   }
 
   connection.onRequestPermission = onRequestPermission
@@ -118,7 +139,7 @@ export async function createAcpAdapter(
     resumed = opened.resumed
   } catch (error) {
     connection.kill()
-    throw new Error(formatAcpSetupError(error), { cause: error })
+    throw setupFailure(error)
   }
   const sessionId = created.sessionId as string
   // Publish the agent's session id so Ari can resume it via session/load on
@@ -159,6 +180,11 @@ export async function createAcpAdapter(
       })
       .catch((error: unknown) => {
         log.debug('acp prompt failed', { error: String(error) })
+        // A token can expire mid-turn, so the sign-in path has to be reachable
+        // from here too — not just from the handshake.
+        if (error instanceof AcpAuthRequiredError) {
+          onAuthRequired?.({ label: launch.label, logins: error.logins })
+        }
         // Texts consumed as steering but never delivered must not vanish.
         const lost = steeredTexts.splice(0)
         push([
@@ -415,11 +441,22 @@ function findOption(
 }
 
 /**
+ * Whether an ACP setup failure is worth retrying on the legacy CLI driver.
+ * Auth walls are not: both transports read the same credential store, so the
+ * retry cannot succeed and only replaces an actionable "sign in again" with
+ * whichever timeout the unauthenticated CLI happens to hit first.
+ */
+export function shouldFallBack(error: unknown): boolean {
+  return !(error instanceof AcpAuthRequiredError)
+}
+
+/**
  * Driver that prefers the ACP transport and transparently falls back to the
  * legacy one-shot CLI driver whenever ACP is disabled, unresolvable, or its
  * connect/session handshake fails. Registration-time wiring lives in
  * {@link resolveAcpLaunch}; the fallback keeps every provider usable even
- * while adapters drift.
+ * while adapters drift — except for the auth walls {@link shouldFallBack}
+ * excludes, which propagate as {@link AcpAuthRequiredError}.
  */
 export class AcpDriver implements Driver {
   readonly kind: DriverKind
@@ -428,6 +465,8 @@ export class AcpDriver implements Driver {
     kind: DriverKind,
     private readonly launch: AcpLaunch | null,
     private readonly fallback: Driver | null,
+    /** Notified whenever the agent refuses for want of a login. */
+    private readonly onAuthRequired: AcpAuthRequiredHandler | null = null,
   ) {
     this.kind = kind
   }
@@ -435,10 +474,16 @@ export class AcpDriver implements Driver {
   async create(session: AdapterSession): Promise<ProviderAdapter> {
     if (this.launch !== null) {
       try {
-        const adapter = await createAcpAdapter(this.launch, session)
+        const adapter = await createAcpAdapter(
+          this.launch,
+          session,
+          undefined,
+          this.onAuthRequired ?? undefined,
+        )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
         return adapter
       } catch (error) {
+        if (!shouldFallBack(error)) throw error
         log.warn('ACP transport failed; using legacy CLI driver', {
           kind: this.kind,
           error: String(error instanceof Error ? error.message : error),

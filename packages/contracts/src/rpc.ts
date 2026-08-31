@@ -76,11 +76,14 @@ export interface TerminalDataFrame {
 
 /**
  * Payload delivered on the providers.updates stream: fresh detection rounds
- * (with update availability) and catalog refresh notifications.
+ * (with update availability), catalog refresh notifications, and one-shot
+ * sign-in signals.
  */
 export type ProvidersUpdateFrame =
   | { type: 'detections'; detections: RpcResults['providers.detect'] }
   | { type: 'catalog'; at: number }
+  /** A provider refused a turn for want of a login; sign in to unblock it. */
+  | { type: 'auth.required'; kind: DriverKind; label: string; logins: ProviderLoginMethod[] }
   /** Install/upgrade accepted; Settings and toasts can show a spinner immediately. */
   | { type: 'install.started'; kind: DriverKind; operation: 'install' | 'upgrade' }
   /** One line of live install/upgrade output. */
@@ -96,6 +99,21 @@ export type ProvidersUpdateFrame =
       /** First line of `--version` after the mandatory re-probe. */
       version?: string | null
     }
+
+/**
+ * One login a provider told Ari it can run. The command is the agent's own
+ * CLI performing its own OAuth; Ari only spawns it in a terminal — it never
+ * sees, stores, or forwards a credential.
+ */
+export const providerLoginMethodSchema = z.object({
+  methodId: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  command: z.string().min(1),
+  args: z.array(z.string()),
+})
+export type ProviderLoginMethod = z.infer<typeof providerLoginMethodSchema>
+export const providerLoginMethodsSchema = z.array(providerLoginMethodSchema)
 
 /** One model entry in a driver's picker catalog. */
 export const catalogModelSchema = z.object({
@@ -157,6 +175,8 @@ export const rpcParams = {
     operation: z.enum(['install', 'upgrade']),
   }),
   'providers.cancelInstall': z.object({ kind: driverKindSchema }),
+  'providers.authProbe': z.object({ kind: driverKindSchema }),
+  'providers.login': z.object({ kind: driverKindSchema }),
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
@@ -310,6 +330,22 @@ export interface RpcResults {
   /** Accepted = the operation started; rejected when one is already running. */
   'providers.install': { started: boolean; reason?: string }
   'providers.cancelInstall': { cancelled: boolean }
+  /**
+   * Preflight: opens a throwaway ACP connection to answer whether the agent is
+   * already signed in, reusing whatever harness exists before any login is
+   * offered. `ready` means the existing harness already works; `auth-required`
+   * carries the logins the agent advertises (empty when it offers none).
+   */
+  'providers.authProbe':
+    | { status: 'ready'; label: string; version?: string | null }
+    | { status: 'auth-required'; label: string; logins: ProviderLoginMethod[] }
+    | { status: 'unknown'; reason: string }
+  /**
+   * The logins Ari can offer for a provider, resolved from the agent's own
+   * `authMethods`. Returns the same exact command/args the terminal pane will
+   * run, so a confirm dialog and the actual launch can never drift.
+   */
+  'providers.login': { label: string; logins: ProviderLoginMethod[] }
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }

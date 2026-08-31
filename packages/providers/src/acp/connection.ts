@@ -5,12 +5,14 @@ import { spawnCli } from '../spawn-cli'
 import {
   AUTH_REQUIRED_ERROR,
   describeAcpFailure,
+  terminalLoginsFrom,
 } from './protocol'
 import type {
   AcpInitializeResult,
   AcpNewSessionResult,
   AcpRequestPermission,
   AcpSessionNotification,
+  AcpTerminalLogin,
 } from './protocol'
 
 const log = createLogger('providers:acp')
@@ -57,6 +59,21 @@ export class AcpConnectionError extends Error {
     super(message)
     this.name = 'AcpConnectionError'
     this.code = code
+  }
+}
+
+/**
+ * The agent refused a request until its own login runs (`authRequired`,
+ * -32000). Carries the logins the agent advertised at initialize so the caller
+ * can offer them instead of telling the user to go find a terminal. `logins`
+ * is empty when the agent offered nothing Ari can launch.
+ */
+export class AcpAuthRequiredError extends AcpConnectionError {
+  readonly logins: AcpTerminalLogin[]
+  constructor(message: string, logins: AcpTerminalLogin[]) {
+    super(message, AUTH_REQUIRED_ERROR)
+    this.name = 'AcpAuthRequiredError'
+    this.logins = logins
   }
 }
 
@@ -126,6 +143,25 @@ export class AcpConnection {
 
   get closed(): boolean {
     return this.#closed
+  }
+
+  /** Logins the agent advertised at initialize that Ari can launch itself. */
+  get terminalLogins(): AcpTerminalLogin[] {
+    return terminalLoginsFrom(this.initialize)
+  }
+
+  /**
+   * Wraps an `authRequired` refusal with the agent's own login options. Auth
+   * walls arrive on any method — `session/prompt` after a token expires as
+   * readily as `session/new` — so every rejection path funnels through here.
+   */
+  #authRequired(): AcpAuthRequiredError {
+    const logins = this.terminalLogins
+    const message =
+      logins.length > 0
+        ? `${this.launch.label} needs you to sign in again`
+        : `${this.launch.label} is not authenticated yet — run its login flow once in a terminal, then retry`
+    return new AcpAuthRequiredError(message, logins)
   }
 
   /**
@@ -198,6 +234,13 @@ export class AcpConnection {
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
             auth: { terminal: false },
+            // Ari does not implement ACP's `terminal/*` methods, so it cannot
+            // host the agent's login itself. The `terminal-auth` extension is
+            // the metadata-only alternative: the agent answers with the exact
+            // argv for each login, which Ari runs in its own terminal pane.
+            // Without this flag agents advertise no auth methods at all and an
+            // expired session can only ever fail.
+            _meta: { 'terminal-auth': true },
           },
         },
         options.initializeTimeoutMs ?? 45_000,
@@ -207,10 +250,16 @@ export class AcpConnection {
     } catch (error) {
       connection.kill()
       const message = error instanceof Error ? error.message : String(error)
-      throw new AcpConnectionError(
+      const detail =
         `${launch.label} initialization failed: ${message}` +
-          explainExitCode(connection.#exitCode, launch.viaNpx === true) +
-          connection.#tailReport(),
+        explainExitCode(connection.#exitCode, launch.viaNpx === true) +
+        connection.#tailReport()
+      // An auth wall on the handshake itself predates any authMethods, so
+      // there is nothing to offer — but the kind must survive so callers still
+      // route it to the sign-in path rather than a generic transport failure.
+      if (error instanceof AcpAuthRequiredError) throw new AcpAuthRequiredError(detail, error.logins)
+      throw new AcpConnectionError(
+        detail,
         error instanceof AcpConnectionError ? error.code : null,
       )
     }
@@ -290,15 +339,8 @@ export class AcpConnection {
       if (pending.stallTimer !== null) clearInterval(pending.stallTimer)
       const error = message['error'] as { code?: number; message?: string } | undefined
       if (error !== undefined && error !== null) {
-        // Auth walls can arrive on any method (session/prompt after token
-        // expiry, not just session/new) — always swap in the actionable copy.
         if (error.code === AUTH_REQUIRED_ERROR) {
-          pending.reject(
-            new AcpConnectionError(
-              `${this.launch.label} is not authenticated yet — run its login flow once in a terminal, then retry`,
-              AUTH_REQUIRED_ERROR,
-            ),
-          )
+          pending.reject(this.#authRequired())
         } else {
           pending.reject(new AcpConnectionError(error.message ?? 'agent error', error.code ?? null))
         }
@@ -396,18 +438,7 @@ export class AcpConnection {
 
   /** Creates a session bound to `cwd`; throws descriptive errors on auth walls. */
   async newSession(cwd: string): Promise<AcpNewSessionResult> {
-    let result: unknown
-    try {
-      result = await this.#request('session/new', { cwd, mcpServers: [] }, 30_000)
-    } catch (error) {
-      if (error instanceof AcpConnectionError && error.code === AUTH_REQUIRED_ERROR) {
-        throw new AcpConnectionError(
-          `${this.launch.label} is not authenticated yet — run its login flow once in a terminal, then retry`,
-          AUTH_REQUIRED_ERROR,
-        )
-      }
-      throw error
-    }
+    const result = await this.#request('session/new', { cwd, mcpServers: [] }, 30_000)
     const created = (result ?? {}) as AcpNewSessionResult
     if (typeof created.sessionId !== 'string') {
       throw new AcpConnectionError(`${this.launch.label} returned no sessionId`)

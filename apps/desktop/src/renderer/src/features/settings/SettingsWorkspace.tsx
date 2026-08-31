@@ -32,6 +32,12 @@ export interface SettingsWorkspaceProps {
   section?: SettingsSectionId
   onSectionChange?: (section: SettingsSectionId) => void
   onBack: () => void
+  /**
+   * Leaves settings for the Terminal pane. Provider sign-in runs the agent's
+   * own login command in a terminal tab, which is no use if the user is left
+   * staring at Settings; without this the tab is queued until they navigate.
+   */
+  onOpenTerminal?: () => void
 }
 
 function isSettingsSection(value: string): value is SettingsSectionId {
@@ -51,6 +57,7 @@ export function SettingsWorkspace({
   section: controlledSection,
   onSectionChange,
   onBack,
+  onOpenTerminal,
 }: SettingsWorkspaceProps) {
   const [internal, setInternal] = useState<SettingsSectionId>('appearance')
   const section = controlledSection ?? internal
@@ -125,7 +132,7 @@ export function SettingsWorkspace({
           {section === 'appearance' ? <AppearanceSettings /> : null}
           {section === 'providers' ? (
             <div id="settings-providers" className="mx-auto max-w-2xl p-8">
-              <ProvidersView />
+              <ProvidersView onOpenTerminal={onOpenTerminal} />
             </div>
           ) : null}
           {section === 'endpoints' ? (

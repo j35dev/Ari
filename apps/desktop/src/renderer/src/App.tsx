@@ -357,6 +357,11 @@ function Shell() {
           section={settingsSection}
           onSectionChange={setSettingsSection}
           onBack={() => setSettingsOpen(false)}
+          onOpenTerminal={() => {
+            setSettingsOpen(false)
+            setInspector(null)
+            setFullPage('terminal')
+          }}
         />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
         <KeyboardCheatSheet />

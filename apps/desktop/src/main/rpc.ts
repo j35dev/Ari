@@ -40,6 +40,14 @@ import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver } from '@ari/providers/acp'
 import { resolveAcpLaunch } from '@ari/providers/acp/launches'
 import type { AcpLaunch } from '@ari/providers/acp/connection'
+import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
+import {
+  ProviderAuthState,
+  probeProviderAuth,
+  resolveProviderLogins,
+  toLoginMethods,
+} from './provider-auth'
+import type { AuthProbeConnection, AuthProbeDeps } from './provider-auth'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 
@@ -104,6 +112,31 @@ const ALL_CLI_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi'
 /** Short cache so mount-time detect calls from several views share one probe round. */
 let detectionCache: { at: number; value: Promise<RpcResults['providers.detect']> } | null = null
 const DETECTION_CACHE_TTL_MS = 30_000
+
+/** Live auth walls + preflight verdicts per provider (M29.3). */
+const providerAuth = new ProviderAuthState()
+
+/**
+ * Preflight seam for {@link probeProviderAuth}. The handshake reuses the
+ * adapter the user already has: npx launches get `--no-install`, so checking a
+ * login never downloads a package. An adapter that has never been fetched
+ * fails here and is reported as `unknown` — not as a logged-out user.
+ */
+const authProbeDeps: AuthProbeDeps = {
+  detections: () => probeAllDetections(),
+  connect: async (kind, binaryPath): Promise<AuthProbeConnection | null> => {
+    const launch = resolveAcpLaunch(kind, { cliBinaryPath: binaryPath })
+    if (launch === null) return null
+    const { AcpConnection } = await import('@ari/providers/acp/connection')
+    const launchForProbe = launch.viaNpx ? { ...launch, args: ['--no-install', ...launch.args] } : launch
+    return AcpConnection.connect({
+      launch: launchForProbe,
+      cwd: homedir(),
+      initializeTimeoutMs: 20_000,
+    })
+  },
+  cwd: () => homedir(),
+}
 
 /** Enriched detections (update info) cached for an hour; refreshed in background. */
 let updateCache: { at: number; value: RpcResults['providers.detect'] } | null = null
@@ -234,6 +267,22 @@ let rpcRegistryRef: RpcRegistry | null = null
 let driverRegistryRef: DriverRegistry | null = null
 
 /**
+ * Records a provider's live auth wall and tells the renderer, so a refused
+ * turn can offer the agent's own sign-in instead of only reporting failure.
+ * The wall outranks any cached preflight verdict.
+ */
+function publishAuthWall(kind: DriverKind, wall: { label: string; logins: AcpTerminalLogin[] }): void {
+  providerAuth.recordWall(kind, wall.label, wall.logins)
+  log.info('provider needs a login', { kind, logins: wall.logins.map((l) => l.methodId) })
+  rpcRegistryRef?.publish('providers.updates', {
+    type: 'auth.required',
+    kind,
+    label: wall.label,
+    logins: toLoginMethods(wall.logins),
+  } satisfies ProvidersUpdateFrame)
+}
+
+/**
  * Registers each installed CLI driver as its detection resolves, preferring
  * the ACP transport (M16) with the legacy one-shot CLI driver as automatic
  * fallback inside {@link AcpDriver}. Detection is concurrent and runs in the
@@ -262,7 +311,9 @@ function hydrateDrivers(registry: DriverRegistry): void {
               cliBinaryPath: detection.binaryPath,
             })
             registry.register(
-              new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath)),
+              new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath), (wall) =>
+                publishAuthWall(candidate.kind, wall),
+              ),
             )
             log.info('driver registered', {
               kind: candidate.kind,
@@ -582,6 +633,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (handle === undefined) return { cancelled: false }
     await handle.cancel()
     return { cancelled: true }
+  })
+
+  // Preflight: reuse whatever harness the user already has before offering to
+  // change anything. Only a live refusal from the agent yields 'auth-required'.
+  r.register('providers.authProbe', (params) =>
+    probeProviderAuth(params.kind, authProbeDeps, providerAuth),
+  )
+
+  // The agent's own login commands, so the UI can render real buttons. Clearing
+  // the remembered wall means the next probe re-tests instead of replaying it.
+  r.register('providers.login', async (params) => {
+    const resolved = await resolveProviderLogins(params.kind, authProbeDeps, providerAuth)
+    providerAuth.clear(params.kind)
+    return resolved
   })
 
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
@@ -986,6 +1051,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'providers.plan',
     'providers.install',
     'providers.cancelInstall',
+    'providers.authProbe',
+    'providers.login',
     'window.minimize',
     'window.toggleMaximize',
     'window.close',

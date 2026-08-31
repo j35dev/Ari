@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { findNpxCommand, resolveAcpLaunch } from './launches'
+import { acpAdapterSpec, findNpxCommand, resolveAcpLaunch } from './launches'
 import type { DetectEnvironment } from '../types'
 
 const ENV: DetectEnvironment = {
@@ -12,13 +12,16 @@ const ENV: DetectEnvironment = {
 }
 
 describe('resolveAcpLaunch', () => {
-  it('launches npx adapters for kinds that need one', async () => {
+  it('launches npx adapters at a pinned version for kinds that need one', async () => {
     const npxPath = await makeFakeNpx()
     const env: DetectEnvironment = { ...ENV, pathEnv: dirname(npxPath) }
     const launch = resolveAcpLaunch('claude', { cliBinaryPath: join(dirname(npxPath), 'claude') }, env)
     expect(launch).not.toBeNull()
     expect(launch?.command).toContain('npx')
-    expect(launch?.args).toEqual(['-y', '@agentclientprotocol/claude-agent-acp'])
+    // Pinned, not bare: two users on one Ari build must run the same adapter.
+    expect(launch?.args).toEqual(['-y', acpAdapterSpec('claude')])
+    expect(launch?.args[1]).toMatch(/^@agentclientprotocol\/claude-agent-acp@\d+\.\d+\.\d+$/)
+    expect(launch?.label).toContain(acpAdapterSpec('claude') as string)
   })
 
   it('launches native ACP servers with their own binary', () => {
@@ -49,6 +52,34 @@ describe('resolveAcpLaunch', () => {
 
   it('returns null for kinds without an ACP transport story (ari-core)', () => {
     expect(resolveAcpLaunch('ari-core', { cliBinaryPath: '/x' }, ENV)).toBeNull()
+  })
+})
+
+describe('acpAdapterSpec', () => {
+  it('pins every npx adapter to an exact version', () => {
+    for (const kind of ['claude', 'codex', 'pi'] as const) {
+      expect(acpAdapterSpec(kind, {})).toMatch(/@\d+\.\d+\.\d+$/)
+    }
+  })
+
+  it('answers null for kinds that need no adapter', () => {
+    expect(acpAdapterSpec('opencode', {})).toBeNull()
+    expect(acpAdapterSpec('ari-core', {})).toBeNull()
+  })
+
+  it('reads a bare override as a version and a qualified one as a whole spec', () => {
+    expect(acpAdapterSpec('claude', { ARI_ACP_ADAPTER_CLAUDE: '0.71.0' })).toBe(
+      '@agentclientprotocol/claude-agent-acp@0.71.0',
+    )
+    expect(acpAdapterSpec('claude', { ARI_ACP_ADAPTER_CLAUDE: 'latest' })).toBe(
+      '@agentclientprotocol/claude-agent-acp@latest',
+    )
+    expect(acpAdapterSpec('pi', { ARI_ACP_ADAPTER_PI: 'my-fork/pi-acp' })).toBe('my-fork/pi-acp')
+    expect(acpAdapterSpec('pi', { ARI_ACP_ADAPTER_PI: 'pi-acp@0.0.34' })).toBe('pi-acp@0.0.34')
+  })
+
+  it('ignores a blank override rather than building a dangling spec', () => {
+    expect(acpAdapterSpec('pi', { ARI_ACP_ADAPTER_PI: '   ' })).toBe(acpAdapterSpec('pi', {}))
   })
 })
 

@@ -443,6 +443,19 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M28.4 Engine-injected `⚠` failure text renders as a styled in-transcript error note instead of plain markdown
 - [x] M28.5 Turn error banner extracts to `TurnErrorBanner` with a raw-details disclosure and a `turnError.ts` classifier adding actionable headlines/hints (auth, rate limit, spawn, timeout)
 - [x] M28.6 Silent `command.dispatch` failures surface as danger toasts instead of vanishing
+## M29 — Provider sign-in without a terminal (claimed @ feat/m29.1-acp-login)
+
+Why: ACP auth walls were reaching users as "the CLI may be wedged or waiting for login" and a
+demand to go re-run OAuth in a terminal they don't use. Ari had opted out of the login handshake
+the adapters already implement. Ari still never handles a credential — the agent's own CLI does
+its own OAuth and writes its own store; Ari only learns the command and offers to run it.
+
+- [x] M29.1 Ari negotiates ACP's login handshake instead of opting out of it: `initialize` now advertises `_meta['terminal-auth']`, which is what makes an agent answer with `authMethods` at all — with the capability withheld the Claude adapter returns an empty list, so an expired session could only ever be refused. `terminalLoginsFrom` projects those methods onto the ones Ari can launch (each carries the exact `command` + `args` the agent wants run, so a button and the launch can never drift), and `authRequired` (-32000) on any method — handshake or mid-turn token expiry — now rejects with a typed `AcpAuthRequiredError` carrying them.
+- [x] M29.2 ACP auth walls no longer fall back to the legacy CLI driver: `AcpDriver.create` caught every setup failure and silently retried the one-shot CLI, which reads the same credential store, so the retry could never sign anyone in — it only replaced an actionable message with the unauthenticated CLI's own timeout. `shouldFallBack` keeps the fallback for genuine adapter drift and excludes auth walls, which now reach the host with the agent's login list attached.
+- [x] M29.3 `providers.authProbe` / `providers.login` RPCs: preflight reuses whatever harness already exists (cached detection, then a throwaway ACP handshake) and only reports `auth-required` when the existing session genuinely fails; `auth.required` rides the `providers.updates` stream.
+- [x] M29.4 One-click sign-in surface: the agent's own login methods render as buttons that open a terminal pane running its command, then re-probe. Lands in Providers/Welcome first — the session turn-error banner is owned by M28.5's `TurnErrorBanner` extraction, so the sign-in affordance plugs into that component rather than racing it.
+- [x] M29.5 Pin the ACP adapter versions: `launches.ts` requests `npx -y <pkg>` unpinned, so every user resolves whatever published that day and `terminal-auth` (an adapter `_meta` extension, not standard ACP) can change underneath us.
+- [x] M29.6 Surface `detection.authReason` and downgrade a provider to `unauthenticated` after a live auth wall — today the detector writes good explanations that render nowhere, and the badge can read "authenticated" while every turn fails.
 
 ## Stretch backlog (post-V1, unplanned)
 
