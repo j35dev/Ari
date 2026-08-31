@@ -441,7 +441,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M28.2 Tool result bodies get a copy button and a show-more toggle when clipped; JSON results highlight via Shiki, non-JSON output renders as plain terminal text
 - [x] M28.3 Dead per-part tool renderer (`ToolBlocks.tsx`) removed along with its unreachable TranscriptView branches (kills the stale always-pulsing "running" dot)
 - [x] M28.4 Engine-injected `⚠` failure text renders as a styled in-transcript error note instead of plain markdown
-- [ ] M28.5 Turn error banner extracts to `TurnErrorBanner` with a raw-details disclosure and a `turnError.ts` classifier adding actionable headlines/hints (auth, rate limit, spawn, timeout)
+- [x] M28.5 Turn error banner extracts to `TurnErrorBanner` with a raw-details disclosure and a `turnError.ts` classifier adding actionable headlines/hints (auth, rate limit, spawn, timeout)
 - [ ] M28.6 Silent `command.dispatch` failures surface as danger toasts instead of vanishing
 
 ## Stretch backlog (post-V1, unplanned)
