@@ -8,6 +8,9 @@ import { Spinner } from '@ari/ui/spinner'
 import { Tooltip } from '@ari/ui/tooltip'
 import { RefreshCw } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
+import { ProviderSignIn } from './ProviderSignIn'
+import { useProviderAuth } from './use-provider-auth'
+import type { ProviderAuthEntry } from './use-provider-auth'
 import { useProviderInstalls } from './use-provider-installs'
 
 type Detection = RpcResults['providers.detect'][number]
@@ -29,6 +32,22 @@ function authBadgeFor(authStatus: string): { label: string; tone: BadgeTone } {
   return AUTH_BADGES[authStatus] ?? UNKNOWN_AUTH_BADGE
 }
 
+/**
+ * The badge the user should believe. The detector infers a verdict from a
+ * credential file existing, which can read `authenticated` while every turn is
+ * refused; a live wall or a preflight is direct evidence and overrides it.
+ */
+function resolveAuthBadge(
+  detection: Detection,
+  observed: ProviderAuthEntry | undefined,
+): { label: string; tone: BadgeTone } {
+  if (observed?.result.status === 'auth-required') {
+    return { label: 'sign-in needed', tone: 'warning' }
+  }
+  if (observed?.result.status === 'ready') return AUTH_BADGES['authenticated'] as { label: string; tone: BadgeTone }
+  return authBadgeFor(detection.authStatus)
+}
+
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
@@ -36,16 +55,35 @@ function capitalize(value: string): string {
 interface ProviderCardProps {
   detection: Detection
   running: ReturnType<typeof useProviderInstalls>['installs'][DriverKind]
+  auth: ProviderAuthEntry | undefined
+  checkingAuth: boolean
   onInstall: (detection: Detection) => void
   onUpdate: (detection: Detection) => void
   onRecheck: () => void
+  onCheckAuth: (kind: DriverKind) => void
+  onAuthResolved: (kind: DriverKind) => void
   onCancel: (kind: DriverKind) => void
+  onOpenTerminal?: () => void
 }
 
-function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCancel }: ProviderCardProps) {
+function ProviderCard({
+  detection,
+  running,
+  auth,
+  checkingAuth,
+  onInstall,
+  onUpdate,
+  onRecheck,
+  onCheckAuth,
+  onAuthResolved,
+  onCancel,
+  onOpenTerminal,
+}: ProviderCardProps) {
   const isCore = detection.kind === 'ari-core'
-  const auth = authBadgeFor(isCore ? 'authenticated' : detection.authStatus)
-  const badge = <Badge tone={auth.tone}>{auth.label}</Badge>
+  const authBadge = isCore
+    ? authBadgeFor('authenticated')
+    : resolveAuthBadge(detection, auth)
+  const badge = <Badge tone={authBadge.tone}>{authBadge.label}</Badge>
   const isRunning = running != null && running.outcome === null
 
   return (
@@ -87,6 +125,20 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
         <p className="text-2xs text-fg-subtle">Up to date.</p>
       )}
 
+      {/* The detector's own explanation, which used to be computed and never shown. */}
+      {!isCore && detection.authStatus === 'unknown' && detection.authReason != null && auth == null && (
+        <p className="text-2xs text-fg-subtle">{detection.authReason}</p>
+      )}
+
+      {!isCore && auth != null && (
+        <ProviderSignIn
+          kind={detection.kind as DriverKind}
+          result={auth.result}
+          onOpenTerminal={onOpenTerminal}
+          onDone={() => onAuthResolved(detection.kind as DriverKind)}
+        />
+      )}
+
       {!isCore && (
         <div className="flex items-center gap-2">
           {detection.installed ? (
@@ -116,6 +168,16 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
               Re-check
             </Button>
           )}
+          {detection.installed && !isRunning && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={checkingAuth}
+              onClick={() => onCheckAuth(detection.kind as DriverKind)}
+            >
+              {checkingAuth ? <Spinner className="h-3 w-3" /> : null} Check sign-in
+            </Button>
+          )}
         </div>
       )}
 
@@ -142,12 +204,15 @@ function ProviderCard({ detection, running, onInstall, onUpdate, onRecheck, onCa
 /**
  * Providers settings page: detection grid with per-CLI version, install state
  * and auth badges. Install and Update run immediately — no command dump.
+ * Sign-in is offered per provider, but only for one that actually refused a
+ * turn or that the user explicitly asked Ari to check.
  */
-export function ProvidersView() {
+export function ProvidersView({ onOpenTerminal }: { onOpenTerminal?: () => void } = {}) {
   const [detections, setDetections] = useState<Detection[] | null>(null)
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { installs, start, cancel } = useProviderInstalls(setDetections)
+  const { auth, checking, check, dismiss } = useProviderAuth()
 
   const scan = useCallback(async (): Promise<void> => {
     setScanning(true)
@@ -202,10 +267,15 @@ export function ProvidersView() {
               key={detection.kind}
               detection={detection}
               running={installs[detection.kind as DriverKind]}
+              auth={auth[detection.kind as DriverKind]}
+              checkingAuth={checking[detection.kind as DriverKind] === true}
               onInstall={(d) => void beginAction(d, 'install')}
               onUpdate={(d) => void beginAction(d, 'upgrade')}
               onRecheck={() => void scan()}
+              onCheckAuth={(kind) => void check(kind)}
+              onAuthResolved={dismiss}
               onCancel={(kind) => void cancel(kind)}
+              onOpenTerminal={onOpenTerminal}
             />
           ))}
         </ul>

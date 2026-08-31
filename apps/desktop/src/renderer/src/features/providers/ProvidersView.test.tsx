@@ -50,6 +50,25 @@ function cardFor(title: string): HTMLElement {
   return card
 }
 
+/**
+ * The view holds more than one `providers.updates` subscription (installs and
+ * sign-in state), and the real registry delivers each frame to all of them.
+ * Returns a publish function that does the same.
+ */
+function captureSubscribers(): (payload: unknown) => void {
+  const listeners: ((payload: unknown) => void)[] = []
+  subscribeFn.mockImplementation((_name: string, _params: unknown, cb: (payload: unknown) => void) => {
+    listeners.push(cb)
+    return () => {
+      const at = listeners.indexOf(cb)
+      if (at !== -1) listeners.splice(at, 1)
+    }
+  })
+  return (payload) => {
+    for (const listener of [...listeners]) listener(payload)
+  }
+}
+
 describe('ProvidersView', () => {
   beforeEach(() => {
     invokeFn.mockReset()
@@ -225,11 +244,7 @@ describe('ProvidersView', () => {
   })
 
   it('auto-syncs the version from a detections stream frame after an update', async () => {
-    let onFrame: ((payload: unknown) => void) | undefined
-    subscribeFn.mockImplementation((_name: string, _params: unknown, cb: (payload: unknown) => void) => {
-      onFrame = cb
-      return () => undefined
-    })
+    const publish = captureSubscribers()
     invokeFn.mockResolvedValueOnce([
       {
         kind: 'claude',
@@ -243,8 +258,7 @@ describe('ProvidersView', () => {
     ])
     render(<ProvidersView />)
     await screen.findByText('2.1.0 (Claude Code)')
-    expect(onFrame).toBeDefined()
-    onFrame?.({
+    publish({
       type: 'detections',
       detections: [
         {
@@ -261,5 +275,93 @@ describe('ProvidersView', () => {
     expect(await screen.findByText('2.2.0 (Claude Code)')).toBeInTheDocument()
     expect(screen.getByText('Up to date.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Update' })).toBeNull()
+  })
+
+  it('offers no sign-in until a provider actually needs one', async () => {
+    invokeFn.mockResolvedValueOnce(DETECTIONS)
+    render(<ProvidersView />)
+    await screen.findByText('Claude')
+
+    // A preflight spawns a real adapter, so opening Settings must not run one.
+    expect(invokeFn).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('provider-signin-claude')).toBeNull()
+  })
+
+  it('shows the agent-advertised logins when a turn is refused, and opens the terminal', async () => {
+    const publish = captureSubscribers()
+    invokeFn.mockResolvedValueOnce(DETECTIONS)
+    const onOpenTerminal = vi.fn()
+    render(<ProvidersView onOpenTerminal={onOpenTerminal} />)
+    await screen.findByText('Claude')
+
+    publish({
+      type: 'auth.required',
+      kind: 'claude',
+      label: 'claude (ACP adapter @agentclientprotocol/claude-agent-acp@0.70.0)',
+      logins: [
+        {
+          methodId: 'claude-ai-login',
+          name: 'Claude Subscription',
+          description: 'Use Claude subscription',
+          command: '/usr/bin/node',
+          args: ['acp.js', '--cli', 'auth', 'login', '--claudeai'],
+        },
+      ],
+    })
+
+    const prompt = await screen.findByTestId('provider-signin-claude')
+    expect(within(prompt).getByRole('alert')).toHaveTextContent(/needs you to sign in again/)
+
+    // The detector called this provider authenticated; the live refusal wins.
+    expect(within(cardFor('Claude')).getByText('sign-in needed')).toBeInTheDocument()
+
+    invokeFn.mockResolvedValueOnce({ platform: 'linux', homeDir: '/home/u', cwd: '/w', version: '0.2.0' })
+    await userEvent.click(within(prompt).getByRole('button', { name: /Claude Subscription/ }))
+
+    await waitFor(() => {
+      expect(onOpenTerminal).toHaveBeenCalledOnce()
+    })
+    expect(invokeFn).toHaveBeenCalledWith('app.info')
+  })
+
+  it('explains itself instead of showing a dead button when the agent offers no runnable login', async () => {
+    const publish = captureSubscribers()
+    invokeFn.mockResolvedValueOnce(DETECTIONS)
+    render(<ProvidersView />)
+    await screen.findByText('Claude')
+
+    publish({ type: 'auth.required', kind: 'claude', label: 'claude', logins: [] })
+
+    const prompt = await screen.findByTestId('provider-signin-claude')
+    expect(within(prompt).getByText(/Run its login once in a terminal/)).toBeInTheDocument()
+    expect(within(prompt).queryByRole('button')).toBeNull()
+  })
+
+  it('reports the preflight verdict for a provider the user asks about', async () => {
+    invokeFn.mockResolvedValueOnce(DETECTIONS)
+    render(<ProvidersView />)
+    await screen.findByText('Claude')
+    const card = cardFor('Claude')
+
+    invokeFn.mockResolvedValueOnce({ status: 'ready', label: 'claude', version: '2.1.0' })
+    await userEvent.click(within(card).getByRole('button', { name: /Check sign-in/ }))
+
+    expect(await within(card).findByText(/Signed in/)).toBeInTheDocument()
+    expect(invokeFn).toHaveBeenCalledWith('providers.authProbe', { kind: 'claude' })
+  })
+
+  it('surfaces the detector reason for an unverifiable provider instead of hiding it', async () => {
+    invokeFn.mockResolvedValueOnce([
+      {
+        kind: 'opencode',
+        installed: true,
+        binaryPath: '/usr/local/bin/opencode',
+        version: '0.4.2',
+        authStatus: 'unknown',
+        authReason: 'No opencode auth.json found; opencode can also read provider keys from the environment.',
+      },
+    ])
+    render(<ProvidersView />)
+    expect(await screen.findByText(/No opencode auth.json found/)).toBeInTheDocument()
   })
 })
