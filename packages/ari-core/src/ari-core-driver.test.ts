@@ -95,7 +95,7 @@ describe('ari core driver flavor routing', () => {
               yield {
                 type: 'tool-started',
                 callId: 'c1',
-                name: 'read_file',
+                name: 'read',
                 argsJson: '{"path":"note.txt"}',
               }
             } else {
@@ -119,7 +119,7 @@ describe('ari core driver flavor routing', () => {
       expect(second?.system).toContain('Ari Core')
       expect(second?.messages).toEqual([
         { role: 'user', content: 'read the note' },
-        { role: 'assistant', content: '[tool call read_file] {"path":"note.txt"}' },
+        { role: 'assistant', content: '[tool call read] {"path":"note.txt"}' },
         { role: 'user', content: '[tool result c1]\n"note body"' },
       ])
     } finally {
@@ -188,7 +188,7 @@ describe('ari core driver flavor routing', () => {
               yield {
                 type: 'tool-started',
                 callId: 'c1',
-                name: 'read_file',
+                name: 'read',
                 argsJson: '{"path":"note.txt"}',
               }
             } else {
