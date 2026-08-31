@@ -1,11 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { highlightCode } from './highlight'
+import { highlightCode, shikiInner } from './highlight'
 import { renderMarkdown } from './markdown'
-
-/** Extracts the highlighted spans from Shiki's `<pre>` wrapper for injection into an existing code element. */
-function shikiInner(html: string): string {
-  return /<code[^>]*>([\s\S]*?)<\/code>/.exec(html)?.[1] ?? html
-}
 
 /**
  * Renders one markdown block, then swaps fenced `language-*` code elements to

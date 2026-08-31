@@ -435,6 +435,15 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 - [x] M27.1 Startup is one surface: the "Ari awakens" animation is now the app window's own first frame instead of a separate 760×560 always-on-top splash window, so launch no longer shows a small centered animation followed by the app appearing at a different size. The main process creates only the app window; `main.tsx` flags `data-ari-booting` before React mounts so the first painted frame is already the launch canvas, `ready-to-show` reveals the window with the animation running at full app size, the shell mounts *underneath* once `ping` answers, and the outro (logo swell + veil wipe) wipes away to a fully painted app. A 2.8s floor keeps a fast boot from truncating the sequence, a 12s ceiling preserves the old guarantee that startup can never hang behind it (App forces boot at the same deadline so the reveal is never a blank window), and handover is once-only. `src/main/splash.ts`, `resources/splash/`, the `extraResources` entry, and the redundant `BootSplash` letters screen are deleted; the signature sound moves to `awaken-sound.ts` (Web Audio, no asset) and the launch palette to theme-independent `--ari-awaken-*` tokens (`docs/arch-27.md`).
 
+## M28 — Tool cards & error UX
+
+- [x] M28.1 Tool steps brand as Ari tools: expanded step cards carry an "Ari Run / Ari Edit / Ari Read / Ari Search" identity beside the provider's raw tool name, and arguments render per kind — Shiki-highlighted command for runs, Before/After panels for edits, labeled fields for reads and searches — with pretty JSON only as fallback
+- [ ] M28.2 Tool result bodies get a copy button and a show-more toggle when clipped; JSON results highlight via Shiki, non-JSON output renders as plain terminal text
+- [ ] M28.3 Dead per-part tool renderer (`ToolBlocks.tsx`) removed along with its unreachable TranscriptView branches (kills the stale always-pulsing "running" dot)
+- [ ] M28.4 Engine-injected `⚠` failure text renders as a styled in-transcript error note instead of plain markdown
+- [ ] M28.5 Turn error banner extracts to `TurnErrorBanner` with a raw-details disclosure and a `turnError.ts` classifier adding actionable headlines/hints (auth, rate limit, spawn, timeout)
+- [ ] M28.6 Silent `command.dispatch` failures surface as danger toasts instead of vanishing
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
