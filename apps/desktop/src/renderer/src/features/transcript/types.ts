@@ -1,7 +1,7 @@
 import type { Message } from '@ari/contracts/message'
 
 /** The visual row kinds the transcript renders. */
-export type TranscriptBlockKind = 'markdown' | 'thinking' | 'tool-call' | 'tool-result'
+export type TranscriptBlockKind = 'markdown' | 'thinking' | 'tool-call' | 'tool-result' | 'error-note'
 
 /** Rows the virtualizer renders: plain blocks, collapsed tool runs, turn diffs. */
 export type TranscriptRow = TranscriptBlock | ToolGroupRow | TurnDiffRow
