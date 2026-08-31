@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { CopyButton } from './CopyButton'
+import { CodeBlock } from './CodeBlock'
 import { DiffViewer } from '../diffs'
-import { highlightCode, shikiInner } from './highlight'
 import {
   ariToolName,
   classifyToolCall,
@@ -25,30 +25,6 @@ const FILTER_KEYS = ['path', 'include', 'glob', 'file_pattern'] as const
 
 /** Cap for Before/After panels so a huge rewrite cannot flood the card. */
 const MAX_PANEL_CHARS = 4000
-
-/** Renders plain mono first, then swaps to Shiki-highlighted spans. */
-function HighlightedCode({ code, lang }: { code: string; lang: string }) {
-  const [html, setHtml] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void highlightCode(code, lang).then((result) => {
-      if (!cancelled) setHtml(result)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [code, lang])
-
-  if (html === null) {
-    return <pre className="whitespace-pre-wrap break-all font-mono text-2xs text-fg-muted">{code}</pre>
-  }
-  return (
-    <pre className="whitespace-pre-wrap break-all font-mono text-2xs">
-      <code dangerouslySetInnerHTML={{ __html: shikiInner(html) }} />
-    </pre>
-  )
-}
 
 /** A labeled value row: uppercase field name, mono body. */
 function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
@@ -106,7 +82,11 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
     return (
       <Field label="command">
         <div className="rounded-sm bg-surface-0 p-1.5">
-          <HighlightedCode code={command} lang="shellscript" />
+          <CodeBlock
+            code={command}
+            lang="shellscript"
+            className="whitespace-pre-wrap break-all font-mono text-2xs"
+          />
         </div>
       </Field>
     )
