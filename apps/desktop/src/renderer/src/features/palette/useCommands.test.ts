@@ -6,7 +6,6 @@ const ctx = {
   onNavigate: vi.fn(),
   onOpenGallery: vi.fn(),
   onOpenSearch: vi.fn(),
-  onOpenRace: vi.fn(),
 }
 
 describe('buildAppCommands', () => {
