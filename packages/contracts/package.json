@@ -12,6 +12,7 @@
     "./events": "./src/events.ts",
     "./rpc": "./src/rpc.ts",
     "./settings": "./src/settings.ts",
+    "./endpoint": "./src/endpoint.ts",
     "./project": "./src/project.ts"
   },
   "scripts": {

@@ -810,6 +810,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       baseUrl: params.baseUrl,
       flavor: params.flavor,
       model: params.model,
+      // undefined keeps the stored list; a provided list replaces it.
+      ...(params.models !== undefined ? { models: params.models } : {}),
       headers: params.headers,
       // undefined keeps the stored key; null clears it (store semantics).
       apiKey: params.apiKey === undefined ? undefined : params.apiKey || null,
@@ -821,6 +823,61 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const store = getEndpointStore()
     await store.load()
     return { removed: await store.remove(params.id) }
+  })
+
+  // Discovery runs in the main process for the same reason `endpoints.test`
+  // does: the sandboxed renderer cannot reach arbitrary origins. When `id`
+  // names a saved endpoint we reuse its stored key and persist the merged
+  // list, so the picker updates without a second round trip.
+  r.register('endpoints.discoverModels', async (params) => {
+    const { discoverModels } = await import('@ari/ari-core/model-discovery')
+    const store = getEndpointStore()
+    await store.load()
+    const apiKey = params.id !== undefined ? store.apiKeyFor(params.id) : null
+    const result = await discoverModels({
+      baseUrl: params.baseUrl,
+      flavor: params.flavor,
+      apiKey: params.apiKey ?? apiKey,
+    })
+    if (params.id === undefined || result.models.length === 0) {
+      return { models: result.models, error: result.error, saved: false }
+    }
+    const updated = await store.setModels(
+      params.id,
+      result.models.map((model) => ({
+        id: model.id,
+        label: model.label,
+        contextWindow: model.contextWindow,
+        source: 'discovered' as const,
+      })),
+    )
+    return { models: result.models, error: result.error, saved: updated !== null }
+  })
+
+  r.register('endpoints.setModels', async (params) => {
+    const store = getEndpointStore()
+    await store.load()
+    const updated = await store.setModels(params.id, params.models)
+    if (updated === null) return null
+    // A requested default only takes effect when the endpoint actually serves
+    // it; otherwise setModels' own choice stands.
+    if (
+      params.defaultModel !== undefined &&
+      params.defaultModel !== updated.model &&
+      updated.models.some((m) => m.id === params.defaultModel)
+    ) {
+      const repointed = await store.upsert({
+        id: updated.id,
+        name: updated.name,
+        baseUrl: updated.baseUrl,
+        flavor: updated.flavor,
+        model: params.defaultModel,
+        models: updated.models,
+        headers: updated.headers,
+      })
+      return { models: repointed.models, defaultModel: repointed.model }
+    }
+    return { models: updated.models, defaultModel: updated.model }
   })
 
   // Connection probe runs in the main process: the renderer is blocked from
@@ -1090,6 +1147,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'endpoints.upsert',
     'endpoints.remove',
     'endpoints.test',
+    'endpoints.discoverModels',
+    'endpoints.setModels',
     'settings.get',
     'settings.update',
     'git.status',
