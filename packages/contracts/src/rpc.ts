@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { commandSchema } from './commands'
 import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
+import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
+import type { DiscoveredModel, EndpointModel } from './endpoint'
 import type { Project } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
@@ -228,8 +230,10 @@ export const rpcParams = {
     id: z.string(),
     name: z.string().min(1),
     baseUrl: z.string().url(),
-    flavor: z.enum(['openai-chat', 'anthropic-messages', 'ollama']),
+    flavor: endpointFlavorSchema,
     model: z.string().min(1),
+    /** Omitted = keep the stored list; provided = replace it wholesale. */
+    models: z.array(endpointModelSchema).optional(),
     // Omitted on update = keep the stored key; null clears it.
     apiKey: z.string().nullable().optional(),
     headers: z.record(z.string(), z.string()).default({}),
@@ -237,8 +241,26 @@ export const rpcParams = {
   'endpoints.remove': z.object({ id: z.string().min(1) }),
   'endpoints.test': z.object({
     baseUrl: z.string().url(),
-    flavor: z.enum(['openai-chat', 'anthropic-messages', 'ollama']),
+    flavor: endpointFlavorSchema,
     apiKey: z.string().nullable().default(null),
+  }),
+  /**
+   * Queries an endpoint's own model listing. `id` refreshes a saved endpoint
+   * (reusing its stored key) and persists the merged list; without it the
+   * probe is transient, for the add-endpoint form.
+   */
+  'endpoints.discoverModels': z.object({
+    id: z.string().min(1).optional(),
+    baseUrl: z.string().url(),
+    flavor: endpointFlavorSchema,
+    apiKey: z.string().nullable().default(null),
+  }),
+  /** Replaces an endpoint's model list (manual adds and removals). */
+  'endpoints.setModels': z.object({
+    id: z.string().min(1),
+    models: z.array(endpointModelSchema),
+    /** Optional new default model; must exist in `models`. */
+    defaultModel: z.string().min(1).optional(),
   }),
   'settings.get': z.undefined(),
   'settings.update': settingsUpdateSchema,
@@ -405,12 +427,22 @@ export interface RpcResults {
     name: string
     baseUrl: string
     flavor: string
+    /** Default model used when a session does not name one explicitly. */
     model: string
+    /** Every model this endpoint serves; always contains `model`. */
+    models: EndpointModel[]
     apiKeyCipher: string | null
   }[]
   'endpoints.upsert': { id: string; name: string }
   'endpoints.remove': { removed: boolean }
   'endpoints.test': { ok: boolean; latencyMs: number; message: string }
+  /** `error` is null on success; `saved` is true when the list was persisted. */
+  'endpoints.discoverModels': {
+    models: DiscoveredModel[]
+    error: string | null
+    saved: boolean
+  }
+  'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
   'settings.update': Settings
     'git.status': {
