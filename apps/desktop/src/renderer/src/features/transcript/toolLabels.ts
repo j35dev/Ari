@@ -56,6 +56,19 @@ export function classifyTool(name: string | undefined): ToolKind {
   return 'run'
 }
 
+/** User-facing Ari identity per bucket — the transcript brands every step as an Ari tool. */
+const ARI_TOOL_NAME: Record<ToolKind, string> = {
+  run: 'Ari Run',
+  edit: 'Ari Edit',
+  read: 'Ari Read',
+  search: 'Ari Search',
+}
+
+/** Brand name for a bucket ("Ari Run"); pairs with {@link classifyTool}. */
+export function ariToolName(kind: ToolKind): string {
+  return ARI_TOOL_NAME[kind]
+}
+
 /** Past-tense verb for a settled step ("Read src/app.ts"). */
 const PAST_VERB: Record<ToolKind, string> = {
   run: 'Ran',
@@ -159,6 +172,41 @@ function parseArgs(argsJson: string | undefined): unknown {
   } catch {
     return argsJson
   }
+}
+
+/** A parsed call's arguments: the outer record plus the unwrapped payload. */
+export interface ParsedToolArgs {
+  /** Outermost args record, exactly as the provider sent it. */
+  args: Record<string, unknown>
+  /** Innermost payload record after unwrapping ACP-style envelopes. */
+  payload: Record<string, unknown>
+}
+
+/**
+ * Parses a call's `argsJson` into records for structured views. Returns null
+ * when the payload is missing or not an object; ACP-style `{ title, input }`
+ * envelopes expose their `input` as the payload.
+ */
+export function parseToolArgs(argsJson: string | undefined): ParsedToolArgs | null {
+  const args = asRecord(parseArgs(argsJson))
+  if (args === null) return null
+  for (const key of NESTED_ARG_KEYS) {
+    const nested = asRecord(args[key])
+    if (nested !== null) return { args, payload: nested }
+  }
+  return { args, payload: args }
+}
+
+/** First non-empty string among `keys`, or null when none is present. */
+export function stringArg(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return null
 }
 
 /** Extracts the most meaningful single-line argument preview from a call. */

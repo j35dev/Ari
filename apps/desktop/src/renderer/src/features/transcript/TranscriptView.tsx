@@ -7,7 +7,7 @@ import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
 import { MessageFooter } from './MessageFooter'
 import { ThinkingBlock } from './ThinkingBlock'
-import { ToolCallBlock, ToolResultBlock } from './ToolBlocks'
+import { ErrorNote } from './ErrorNote'
 import { ToolActivityGroup } from './ToolActivityGroup'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
@@ -248,13 +248,11 @@ export function TranscriptView({
                       ) : null}
                     </div>
                   )
+                ) : row.kind === 'error-note' ? (
+                  <ErrorNote text={row.text ?? ''} />
                 ) : row.kind === 'thinking' ? (
                   <ThinkingBlock text={row.text ?? ''} />
-                ) : row.kind === 'tool-call' ? (
-                  <ToolCallBlock block={row} />
-                ) : (
-                  <ToolResultBlock block={row} />
-                )}
+                ) : null}
               </div>
             )
           })}

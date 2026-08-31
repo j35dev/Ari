@@ -33,6 +33,15 @@ function defaultColor(): 'light' | 'dark' {
 }
 
 /**
+ * Extracts the highlighted spans from Shiki's `<pre>` wrapper for injection
+ * into an existing code element, letting callers keep their own surface
+ * styling instead of Shiki's theme background.
+ */
+export function shikiInner(html: string): string {
+  return /<code[^>]*>([\s\S]*?)<\/code>/.exec(html)?.[1] ?? html
+}
+
+/**
  * Highlights `code` tagged as `lang`, returning full Shiki `<pre>` markup.
  * Returns null when the language is unknown or highlighting fails; callers fall
  * back to plain rendering. Results are memoized per (lang, code), capped at 200

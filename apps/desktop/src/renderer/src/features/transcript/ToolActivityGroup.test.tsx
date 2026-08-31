@@ -83,12 +83,15 @@ describe('ToolActivityGroup expanded state', () => {
 
   it('opens a single step to its arguments and result', async () => {
     const user = userEvent.setup()
-    render(<ToolActivityGroup row={row(RUN)} />)
+    const { container } = render(<ToolActivityGroup row={row(RUN)} />)
 
     await user.click(screen.getByRole('button', { expanded: false }))
     await user.click(screen.getByRole('button', { name: 'Ran git status --short' }))
 
-    expect(screen.getByText(/"command": "git status --short"/)).toBeInTheDocument()
+    // The step brands itself as an Ari tool and shows the command, not raw JSON.
+    expect(await screen.findByText('Ari Run')).toBeInTheDocument()
+    expect(container.textContent).toContain('git status --short')
+    expect(screen.queryByText(/"command": "git status --short"/)).not.toBeInTheDocument()
     expect(screen.getByText('"done"')).toBeInTheDocument()
   })
 

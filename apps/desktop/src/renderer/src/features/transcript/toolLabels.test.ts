@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ariToolName,
   classifyTool,
   classifyToolCall,
   describeToolCall,
   effectiveToolName,
+  parseToolArgs,
   shortenPath,
   thoughtPreview,
   toolTarget,
@@ -29,6 +31,30 @@ describe('classifyTool', () => {
   it('treats anything unrecognised or missing as a command run', () => {
     expect(classifyTool('sparkle')).toBe('run')
     expect(classifyTool(undefined)).toBe('run')
+  })
+})
+
+describe('ariToolName', () => {
+  it('brands every bucket as an Ari tool', () => {
+    expect(ariToolName('run')).toBe('Ari Run')
+    expect(ariToolName('edit')).toBe('Ari Edit')
+    expect(ariToolName('read')).toBe('Ari Read')
+    expect(ariToolName('search')).toBe('Ari Search')
+  })
+})
+
+describe('parseToolArgs', () => {
+  it('unwraps ACP envelopes and exposes both records', () => {
+    const parsed = parseToolArgs('{"title":"run_terminal_command","input":{"command":"ls"}}')
+    expect(parsed?.args).toEqual({ title: 'run_terminal_command', input: { command: 'ls' } })
+    expect(parsed?.payload).toEqual({ command: 'ls' })
+  })
+
+  it('returns null for missing or non-object payloads', () => {
+    expect(parseToolArgs(undefined)).toBeNull()
+    expect(parseToolArgs('')).toBeNull()
+    expect(parseToolArgs('"just a string"')).toBeNull()
+    expect(parseToolArgs('not json')).toBeNull()
   })
 })
 
