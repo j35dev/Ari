@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     "./endpoints": "./src/endpoints.ts",
+    "./model-discovery": "./src/model-discovery.ts",
+    "./system-prompt": "./src/system-prompt.ts",
     "./openai": "./src/protocols/openai-chat.ts",
     "./anthropic-messages": "./src/protocols/anthropic-messages.ts",
     "./ollama": "./src/protocols/ollama.ts",
