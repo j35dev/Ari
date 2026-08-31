@@ -4,7 +4,7 @@ import type { PermissionMode } from '@ari/contracts/common'
 export type ApprovalDecision = 'allow' | 'deny' | 'always-allow'
 
 /** Tools whose execution a permission mode can gate (exec / mutating tools). */
-export const MODE_GUARDED_TOOLS = new Set(['bash', 'write_file', 'edit_file'])
+export const MODE_GUARDED_TOOLS = new Set(['bash', 'write', 'edit'])
 
 export interface PermissionDecision {
   allowed: boolean

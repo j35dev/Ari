@@ -52,15 +52,15 @@ describe('matchesAllowlist candidate derivation', () => {
     expect(matchesAllowlist('bash', '{"command":"rm -rf /"}', rules('bash', 'git *'))).toBe(false)
   })
 
-  it('derives the path for write_file / edit_file / read_file', () => {
+  it('derives the path for write / edit / read', () => {
     expect(
-      matchesAllowlist('write_file', '{"path":"docs/readme.md"}', rules('write_file', 'docs/**')),
+      matchesAllowlist('write', '{"path":"docs/readme.md"}', rules('write', 'docs/**')),
     ).toBe(true)
     expect(
-      matchesAllowlist('edit_file', '{"path":"src/x.ts"}', rules('edit_file', '**/*.ts')),
+      matchesAllowlist('edit', '{"path":"src/x.ts"}', rules('edit', '**/*.ts')),
     ).toBe(true)
     expect(
-      matchesAllowlist('read_file', '{"path":"secrets.env"}', rules('read_file', '*.md')),
+      matchesAllowlist('read', '{"path":"secrets.env"}', rules('read', '*.md')),
     ).toBe(false)
   })
 
@@ -70,7 +70,7 @@ describe('matchesAllowlist candidate derivation', () => {
   })
 
   it('ignores rules scoped to other tools', () => {
-    expect(matchesAllowlist('bash', '{"command":"ls"}', rules('write_file', '*'))).toBe(false)
+    expect(matchesAllowlist('bash', '{"command":"ls"}', rules('write', '*'))).toBe(false)
   })
 
   it('handles malformed JSON args safely without throwing', () => {
@@ -103,17 +103,17 @@ describe('tool-level allowlist enforcement', () => {
   it('allows a guarded tool when a rule matches', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-allow-'))
     try {
-      const writer = findTool('write_file')
+      const writer = findTool('write')
       expect(writer).toBeDefined()
       const result = await writer?.execute(
         { path: 'out/notes.md', content: 'hello' },
         {
           workspacePath: dir,
           permissionMode: 'full',
-          allowlist: [{ tool: 'write_file', pattern: 'out/**' }],
+          allowlist: [{ tool: 'write', pattern: 'out/**' }],
         },
       )
-      expect(result).toContain('wrote')
+      expect(result).toContain('Wrote')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -123,7 +123,7 @@ describe('tool-level allowlist enforcement', () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-allow-'))
     try {
       const bash = findTool('bash')
-      const editor = findTool('edit_file')
+      const editor = findTool('edit')
       await writeFile(join(dir, 'seed.txt'), 'alpha', 'utf8')
       await expect(
         bash?.execute(
@@ -136,7 +136,7 @@ describe('tool-level allowlist enforcement', () => {
           { path: 'seed.txt', oldString: 'alpha', newString: 'beta' },
           { workspacePath: dir, permissionMode: 'full' },
         ),
-      ).resolves.toBe('edited')
+      ).resolves.toContain('Applied 1 edit')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -146,7 +146,7 @@ describe('tool-level allowlist enforcement', () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-allow-'))
     try {
       const bash = findTool('bash')
-      const writer = findTool('write_file')
+      const writer = findTool('write')
       // Absent mode is ask (fail-closed): exec and writes are gated.
       await expect(
         bash?.execute({ command: 'echo gated' }, { workspacePath: dir, allowlist: [] }),
@@ -158,7 +158,7 @@ describe('tool-level allowlist enforcement', () => {
         ),
       ).rejects.toThrow("blocked by permission mode 'ask'")
       // Reads stay available in every mode.
-      const reader = findTool('read_file')
+      const reader = findTool('read')
       await writeFile(join(dir, 'open.txt'), 'visible', 'utf8')
       await expect(
         reader?.execute({ path: 'open.txt' }, { workspacePath: dir, permissionMode: 'ask' }),
@@ -171,12 +171,12 @@ describe('tool-level allowlist enforcement', () => {
   it('does not gate unguarded tools even with rules present', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-allow-'))
     try {
-      const reader = findTool('read_file')
+      const reader = findTool('read')
       await writeFile(join(dir, 'open.txt'), 'visible', 'utf8')
       await expect(
         reader?.execute({ path: 'open.txt' }, {
           workspacePath: dir,
-          allowlist: [{ tool: 'read_file', pattern: 'never/**' }],
+          allowlist: [{ tool: 'read', pattern: 'never/**' }],
         }),
       ).resolves.toBe('visible')
     } finally {

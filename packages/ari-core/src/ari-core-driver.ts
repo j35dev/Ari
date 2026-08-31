@@ -22,17 +22,10 @@ import type { McpServerConfig } from './mcp-servers'
 import { McpConnection } from './mcp'
 import { mountMcpTools, type MountedMcpServer } from './mcp-tools'
 import type { Tool } from './tools'
+import { buildSystemPrompt } from './system-prompt'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('ari-core:driver')
-
-const SYSTEM_PROMPT = [
-  'You are Ari Core, a coding agent embedded in the Ari desktop app.',
-  'You work inside the user workspace and have tools for reading, writing,',
-  'editing, searching files and running shell commands.',
-  'Prefer precise edits over rewrites; verify with the shell when possible;',
-  'keep answers tight.',
-].join(' ')
 
 /** Protocol client overrides; tests inject fakes, production uses the real streamers. */
 export interface AriCoreDriverClients {
@@ -97,6 +90,7 @@ function renderAsTextTurns(messages: ChatMessage[]): RenderedTurn[] {
 
 function anthropicRequest(
   endpoint: Endpoint,
+  model: string,
   apiKey: string | null,
   messages: ChatMessage[],
   signal?: AbortSignal,
@@ -110,7 +104,7 @@ function anthropicRequest(
   return {
     baseUrl: endpoint.baseUrl,
     apiKey,
-    model: endpoint.model,
+    model,
     ...(system ? { system } : {}),
     messages: rest.map((turn) =>
       turn.role === 'assistant'
@@ -124,6 +118,7 @@ function anthropicRequest(
 
 function ollamaRequest(
   endpoint: Endpoint,
+  model: string,
   apiKey: string | null,
   messages: ChatMessage[],
   signal?: AbortSignal,
@@ -131,7 +126,7 @@ function ollamaRequest(
   return {
     baseUrl: endpoint.baseUrl,
     apiKey,
-    model: endpoint.model,
+    model,
     messages: renderAsTextTurns(messages),
     headers: endpoint.headers,
     signal,
@@ -173,10 +168,22 @@ export class AriCoreDriver implements Driver {
   }
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    // The UI namespaces endpoint models as `ep:<id>` in the shared selector;
-    // the driver owns stripping that prefix so every caller is safe.
+    // The UI namespaces endpoint models as `ep:<endpointId>:<model>` in the
+    // shared selector (legacy `ep:<endpointId>` falls back to the endpoint's
+    // default model); the driver owns stripping that prefix so every caller
+    // is safe. Model ids may contain colons (e.g. `llama3.1:8b`), so the
+    // split is on the first colon after the endpoint id.
     const raw = session.modelId ?? ''
-    const endpointId = raw.startsWith('ep:') ? raw.slice(3) : raw
+    let endpointId = raw.startsWith('ep:') ? raw.slice(3) : raw
+    let modelOverride: string | null = null
+    if (raw.startsWith('ep:')) {
+      const rest = raw.slice(3)
+      const sep = rest.indexOf(':')
+      if (sep !== -1) {
+        endpointId = rest.slice(0, sep)
+        modelOverride = rest.slice(sep + 1)
+      }
+    }
     const apiKey = this.#endpoints.apiKeyFor(endpointId)
     const endpoint = this.#endpoints.list().find((e) => e.id === endpointId)
     const clients = this.#clients
@@ -227,23 +234,24 @@ export class AriCoreDriver implements Driver {
         return
       }
 
+      const model = modelOverride ?? endpoint.model
       const round = (messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<AgentEvent> => {
         // Context guardrail runs before every round; a no-op while small.
         const effective = trimMessages(messages, contextCharLimit)
         switch (endpoint.flavor) {
           case 'anthropic-messages':
             return (clients.anthropic ?? streamChatAnthropic)(
-              anthropicRequest(endpoint, apiKey, effective, signal),
+              anthropicRequest(endpoint, model, apiKey, effective, signal),
             )
           case 'ollama':
             return (clients.ollama ?? streamChatOllama)(
-              ollamaRequest(endpoint, apiKey, effective, signal),
+              ollamaRequest(endpoint, model, apiKey, effective, signal),
             )
           case 'openai-chat':
             return (clients.openai ?? streamChatCompletion)({
               baseUrl: endpoint.baseUrl,
               apiKey,
-              model: endpoint.model,
+              model,
               messages: effective,
               headers: endpoint.headers,
               signal,
@@ -275,7 +283,7 @@ export class AriCoreDriver implements Driver {
       try {
         yield* runAgentLoop({
           round,
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt: await buildSystemPrompt({ workspacePath: session.workspacePath }),
           userPrompt: session.prompt,
           workspacePath: session.workspacePath,
           permissionMode: session.permissionMode,
