@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { AcpConnection, AcpConnectionError, acpPromptStallMs } from './connection'
+import { AcpAuthRequiredError, AcpConnection, AcpConnectionError, acpPromptStallMs } from './connection'
 import type { AcpChildProcess, AcpLaunch } from './connection'
 
 const LAUNCH: AcpLaunch = { label: 'test-agent', command: 'fake', args: [] }
@@ -283,6 +283,70 @@ describe('AcpConnection', () => {
     await expect(connectionPromise).rejects.toThrow(
       /initialization failed.*exit 254.*npx failed before the agent started/s,
     )
+  })
+
+  it('advertises the terminal-auth capability so agents offer their logins', async () => {
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const initialize = child.sent[0] as {
+      params?: { clientCapabilities?: { _meta?: Record<string, unknown> } }
+    }
+    expect(initialize.params?.clientCapabilities?._meta).toEqual({ 'terminal-auth': true })
+    connection.kill()
+  })
+
+  it('rejects auth walls with the logins the agent advertised', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          authMethods: [
+            {
+              id: 'claude-ai-login',
+              name: 'Claude Subscription',
+              type: 'terminal',
+              _meta: { 'terminal-auth': { command: 'node', args: ['acp.js', '--cli', 'auth', 'login'] } },
+            },
+          ],
+        }
+      }
+      if (method === 'session/new') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: 'authRequired' } })}\n`,
+        )
+        return undefined
+      }
+      return undefined
+    })
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    expect(connection.terminalLogins.map((l) => l.methodId)).toEqual(['claude-ai-login'])
+
+    const failure = await connection.newSession('/w').catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(AcpAuthRequiredError)
+    const authError = failure as AcpAuthRequiredError
+    expect(authError.code).toBe(-32000)
+    expect(authError.message).toBe('test-agent needs you to sign in again')
+    expect(authError.logins[0]?.command).toBe('node')
+    connection.kill()
+  })
+
+  it('tells the user to log in manually when the agent offers no runnable login', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'initialize') return { protocolVersion: 1 }
+      if (method === 'session/new') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: 'authRequired' } })}\n`,
+        )
+        return undefined
+      }
+      return undefined
+    })
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    await expect(connection.newSession('/w')).rejects.toThrow(/not authenticated yet — run its login flow/)
+    connection.kill()
   })
 
   it('inbound traffic proves liveness and disarms the stall watchdog', async () => {

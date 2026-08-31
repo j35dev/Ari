@@ -136,11 +136,74 @@ export interface AcpNewSessionResult {
   } | null
 }
 
+/**
+ * One entry of `initialize.authMethods`. `type: 'terminal'` methods are run by
+ * the client, not the agent; the `terminal-auth` `_meta` block spells out the
+ * exact argv so a client without ACP's `terminal/*` methods can still launch
+ * the login in a pty of its own.
+ */
+export interface AcpAuthMethod {
+  id?: string
+  name?: string
+  description?: string
+  type?: string
+  _meta?: {
+    'terminal-auth'?: {
+      command?: string
+      args?: string[]
+      label?: string
+    }
+  }
+}
+
 export interface AcpInitializeResult {
   protocolVersion?: number
   agentInfo?: { name?: string; version?: string }
   agentCapabilities?: { loadSession?: boolean; sessionCapabilities?: Record<string, unknown> }
-  authMethods?: { id?: string; name?: string }[]
+  authMethods?: AcpAuthMethod[]
+}
+
+/**
+ * A login Ari can actually run: an auth method that carried a complete
+ * `terminal-auth` argv. Ari never handles the credentials themselves — the
+ * agent's own CLI performs the login and writes its own credential store.
+ */
+export interface AcpTerminalLogin {
+  /** `authMethods[].id`, e.g. `claude-ai-login`. */
+  methodId: string
+  /** Button label, e.g. "Claude Subscription". */
+  name: string
+  /** One-line explanation from the agent, e.g. "Use Claude subscription". */
+  description: string
+  command: string
+  args: string[]
+}
+
+/**
+ * Projects `initialize.authMethods` onto the subset Ari can launch. Methods
+ * without a runnable `terminal-auth` argv are dropped: offering a button that
+ * cannot do anything is worse than offering none.
+ */
+export function terminalLoginsFrom(result: AcpInitializeResult | null | undefined): AcpTerminalLogin[] {
+  const logins: AcpTerminalLogin[] = []
+  for (const method of result?.authMethods ?? []) {
+    const terminal = method._meta?.['terminal-auth']
+    const command = terminal?.command
+    if (typeof method.id !== 'string' || method.id.length === 0) continue
+    if (typeof command !== 'string' || command.length === 0) continue
+    const args = (terminal?.args ?? []).filter((arg): arg is string => typeof arg === 'string')
+    logins.push({
+      methodId: method.id,
+      name:
+        typeof method.name === 'string' && method.name.trim().length > 0
+          ? method.name.trim()
+          : (terminal?.label ?? method.id),
+      description: typeof method.description === 'string' ? method.description.trim() : '',
+      command,
+      args,
+    })
+  }
+  return logins
 }
 
 function asBlocks(content: AcpContentBlock | AcpContentBlock[] | undefined): AcpContentBlock[] {

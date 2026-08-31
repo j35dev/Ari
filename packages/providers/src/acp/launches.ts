@@ -27,6 +27,43 @@ const NPM_ADAPTERS: Partial<Record<DriverKind, string>> = {
   pi: 'pi-acp',
 }
 
+/**
+ * Exact adapter versions. Unpinned `npx -y <pkg>` resolved whatever published
+ * that day, which made ACP failures unreproducible between two users on the
+ * same Ari build and let protocol details Ari depends on — `terminal-auth` is
+ * an adapter `_meta` extension, not standard ACP — change underneath a release.
+ * Every bump is a deliberate commit, verified against the login handshake.
+ *
+ * Override per kind with `ARI_ACP_ADAPTER_<KIND>` (a version, a full spec, or
+ * `latest`) to test a new adapter without a rebuild.
+ */
+const ACP_ADAPTER_VERSIONS: Partial<Record<DriverKind, string>> = {
+  claude: '0.70.0',
+  codex: '1.7.0',
+  pi: '0.0.33',
+}
+
+/**
+ * The npx spec for a kind's adapter: the pinned `pkg@version`, or whatever
+ * `ARI_ACP_ADAPTER_<KIND>` names. A bare override value is read as a version
+ * (`0.71.0`, `latest`); one containing `/` or a trailing `@` part is taken as a
+ * complete spec so a fork or tarball URL can be dropped in whole.
+ */
+export function acpAdapterSpec(
+  kind: DriverKind,
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const pkg = NPM_ADAPTERS[kind]
+  if (pkg === undefined) return null
+  const override = env[`ARI_ACP_ADAPTER_${kind.toUpperCase()}`]?.trim()
+  if (override !== undefined && override.length > 0) {
+    const isFullSpec = override.includes('/') || override.lastIndexOf('@') > 0
+    return isFullSpec ? override : `${pkg}@${override}`
+  }
+  const version = ACP_ADAPTER_VERSIONS[kind]
+  return version === undefined ? pkg : `${pkg}@${version}`
+}
+
 /** Kinds whose own binary speaks ACP given these arguments. */
 const NATIVE_ACP_ARGS: Partial<Record<DriverKind, string[]>> = {
   opencode: ['acp'],
@@ -79,10 +116,11 @@ export function resolveAcpLaunch(
       log.debug('acp: npx not found; using legacy driver', { kind })
       return null
     }
+    const spec = acpAdapterSpec(kind) ?? adapterPkg
     return {
-      label: `${kind} (ACP adapter ${adapterPkg})`,
+      label: `${kind} (ACP adapter ${spec})`,
       command: npx,
-      args: ['-y', adapterPkg],
+      args: ['-y', spec],
       viaNpx: true,
     }
   }
