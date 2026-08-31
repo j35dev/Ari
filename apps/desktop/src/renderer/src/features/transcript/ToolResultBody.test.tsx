@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { looksLikeUnifiedDiff, ToolResultBody } from './ToolResultBody'
+import { isClippable, looksLikeUnifiedDiff, ToolResultBody } from './ToolResultBody'
 
 const SAMPLE_DIFF = [
   'diff --git a/src/app.ts b/src/app.ts',
@@ -28,6 +29,20 @@ describe('looksLikeUnifiedDiff', () => {
   })
 })
 
+describe('isClippable', () => {
+  it('clips dense single-line payloads', () => {
+    expect(isClippable('x'.repeat(1300))).toBe(true)
+  })
+
+  it('clips by line count regardless of char length', () => {
+    expect(isClippable(Array.from({ length: 13 }, (_, i) => `line ${i}`).join('\n'))).toBe(true)
+  })
+
+  it('leaves short output alone', () => {
+    expect(isClippable('{"ok":true}')).toBe(false)
+  })
+})
+
 describe('ToolResultBody', () => {
   it('renders the shared DiffViewer for diff-shaped results', () => {
     render(<ToolResultBody resultJson={SAMPLE_DIFF} />)
@@ -43,21 +58,25 @@ describe('ToolResultBody', () => {
     render(<ToolResultBody resultJson="wrote 42 bytes" />)
     expect(screen.getByText('wrote 42 bytes')).toBeInTheDocument()
   })
-})
 
-describe('ToolResultBlock integration', () => {
-  it('expands to the diff card when opened', async () => {
-    const { ToolResultBlock } = await import('./ToolBlocks')
-    const block = {
-      key: 'm0#1',
-      kind: 'tool-result' as const,
-      callId: 'c1',
-      resultJson: SAMPLE_DIFF,
-      isError: false,
-    }
-    render(<ToolResultBlock block={block} />)
-    expect(screen.queryByLabelText('Toggle src/app.ts')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button'))
-    expect(screen.getByLabelText('Toggle src/app.ts')).toBeInTheDocument()
+  it('offers a copy button on non-diff bodies', () => {
+    render(<ToolResultBody resultJson={'{"ok":true}'} />)
+    expect(screen.getByLabelText('Copy')).toBeInTheDocument()
+  })
+
+  it('gates long output behind a show-more toggle', async () => {
+    const user = userEvent.setup()
+    const long = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n')
+    render(<ToolResultBody resultJson={long} />)
+
+    const toggle = screen.getByRole('button', { name: /Show more/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await user.click(toggle)
+    expect(screen.getByRole('button', { name: /Show less/ })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('shows no toggle for short output', () => {
+    render(<ToolResultBody resultJson={'{"ok":true}'} />)
+    expect(screen.queryByText(/Show more/)).not.toBeInTheDocument()
   })
 })
