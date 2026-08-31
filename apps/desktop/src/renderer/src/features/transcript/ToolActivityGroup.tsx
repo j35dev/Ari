@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronRight, FilePen, FileText, Search, Terminal, type LucideIcon } from 'lucide-react'
+import { ToolCallDetails } from './ToolCallDetails'
 import { ToolResultBody } from './ToolResultBody'
 import { ThinkingBlock } from './ThinkingBlock'
 import { activityHeadline, summarizeToolRun } from './groupBlocks'
@@ -11,15 +12,6 @@ const KIND_ICON: Record<ToolKind, LucideIcon> = {
   edit: FilePen,
   read: FileText,
   search: Search,
-}
-
-/** Pretty-prints a call's arguments, falling back to the raw payload. */
-function prettyArgs(argsJson: string): string {
-  try {
-    return JSON.stringify(JSON.parse(argsJson) as unknown, null, 2)
-  } catch {
-    return argsJson
-  }
 }
 
 /**
@@ -133,11 +125,7 @@ function ToolStep({
             failed ? 'border-danger' : 'border-border'
           }`}
         >
-          {call.argsJson ? (
-            <pre className="max-h-40 overflow-auto p-2 font-mono text-2xs text-fg-muted">
-              {prettyArgs(call.argsJson)}
-            </pre>
-          ) : null}
+          {call.argsJson ? <ToolCallDetails call={call} /> : null}
           {result?.resultJson ? <ToolResultBody resultJson={result.resultJson} /> : null}
         </div>
       ) : null}
