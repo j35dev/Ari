@@ -41,7 +41,7 @@ const defaultDiscoveryFetch: DiscoveryFetch = async (url, init) => {
     ok: response.ok,
     status: response.status,
     statusText: response.statusText,
-    json: () => response.json() as Promise<unknown>,
+    json: () => response.json(),
   }
 }
 
