@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { AcpUpdateFolder, stopReasonEvents } from './protocol'
+import { AcpUpdateFolder, stopReasonEvents, terminalLoginsFrom } from './protocol'
 import type { AcpSessionNotification } from './protocol'
 
 function fixtureLines(name: string): AcpSessionNotification[] {
@@ -128,5 +128,56 @@ describe('stopReasonEvents', () => {
 
   it('degrades unknown reasons to a plain done', () => {
     expect(stopReasonEvents('something_new')).toEqual([{ type: 'done' }])
+  })
+})
+
+describe('terminalLoginsFrom', () => {
+  it('keeps only auth methods carrying a runnable terminal-auth argv', () => {
+    const logins = terminalLoginsFrom({
+      authMethods: [
+        {
+          id: 'claude-ai-login',
+          name: 'Claude Subscription',
+          description: 'Use Claude subscription ',
+          type: 'terminal',
+          _meta: {
+            'terminal-auth': {
+              command: '/usr/bin/node',
+              args: ['adapter.js', '--cli', 'auth', 'login', '--claudeai'],
+              label: 'Claude Login',
+            },
+          },
+        },
+        // Advertised but unrunnable: no argv for Ari to launch.
+        { id: 'gateway', name: 'Custom model gateway' },
+      ],
+    })
+
+    expect(logins).toEqual([
+      {
+        methodId: 'claude-ai-login',
+        name: 'Claude Subscription',
+        description: 'Use Claude subscription',
+        command: '/usr/bin/node',
+        args: ['adapter.js', '--cli', 'auth', 'login', '--claudeai'],
+      },
+    ])
+  })
+
+  it('falls back to the terminal-auth label, then the id, for a nameless method', () => {
+    const [labelled, bare] = terminalLoginsFrom({
+      authMethods: [
+        { id: 'console-login', _meta: { 'terminal-auth': { command: 'node', label: 'Console Login' } } },
+        { id: 'other-login', name: '   ', _meta: { 'terminal-auth': { command: 'node' } } },
+      ],
+    })
+    expect(labelled?.name).toBe('Console Login')
+    expect(labelled?.args).toEqual([])
+    expect(bare?.name).toBe('other-login')
+  })
+
+  it('answers empty for agents that advertise no auth at all', () => {
+    expect(terminalLoginsFrom({})).toEqual([])
+    expect(terminalLoginsFrom(null)).toEqual([])
   })
 })
