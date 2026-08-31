@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import type { EndpointFlavor, EndpointModel } from '@ari/contracts/endpoint'
 import { Badge } from '@ari/ui/badge'
 import type { BadgeTone } from '@ari/ui/badge'
 import { Button } from '@ari/ui/button'
@@ -8,11 +9,11 @@ import { IconButton } from '@ari/ui/icon-button'
 import { Input } from '@ari/ui/input'
 import { Select } from '@ari/ui/select'
 import type { SelectOption } from '@ari/ui/select'
-import { Eye, EyeOff, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, Eye, EyeOff, Pencil, Trash2 } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
+import { ModelListEditor, type FetchState } from './ModelListEditor'
 
-/** API dialect spoken by an endpoint; drives auth headers and wire format. */
-export type EndpointFlavor = 'openai-chat' | 'anthropic-messages' | 'ollama'
+export type { EndpointFlavor }
 
 const FLAVORS: readonly EndpointFlavor[] = ['openai-chat', 'anthropic-messages', 'ollama']
 
@@ -24,7 +25,9 @@ export interface StoredEndpoint {
   name: string
   baseUrl: string
   flavor: EndpointFlavor
+  /** Default model used when a session does not name one explicitly. */
   model: string
+  models: EndpointModel[]
   hasKey: boolean
 }
 
@@ -48,16 +51,18 @@ interface FormState {
   name: string
   baseUrl: string
   flavor: EndpointFlavor
-  model: string
   apiKey: string
+  models: EndpointModel[]
+  defaultModel: string
 }
 
 const EMPTY_FORM: FormState = {
   name: '',
   baseUrl: '',
   flavor: 'openai-chat',
-  model: '',
   apiKey: '',
+  models: [],
+  defaultModel: '',
 }
 
 function createId(): string {
@@ -71,6 +76,21 @@ function createId(): string {
 function parseFlavor(value: unknown): EndpointFlavor | null {
   if (typeof value !== 'string') return null
   return FLAVOR_SET.has(value) ? (value as EndpointFlavor) : null
+}
+
+/** Parses one stored model row, tolerating configs written before `models`. */
+function parseModel(value: unknown): EndpointModel | null {
+  if (typeof value !== 'object' || value === null) return null
+  const record = value as Record<string, unknown>
+  const id = record['id']
+  if (typeof id !== 'string' || id === '') return null
+  const contextWindow = record['contextWindow']
+  return {
+    id,
+    label: typeof record['label'] === 'string' && record['label'] !== '' ? record['label'] : id,
+    contextWindow: typeof contextWindow === 'number' ? contextWindow : null,
+    source: record['source'] === 'discovered' ? 'discovered' : 'manual',
+  }
 }
 
 function parseStored(value: unknown): StoredEndpoint | null {
@@ -90,12 +110,19 @@ function parseStored(value: unknown): StoredEndpoint | null {
   ) {
     return null
   }
+  const rawModels = Array.isArray(record['models']) ? record['models'] : []
+  const models = rawModels.map(parseModel).filter((m): m is EndpointModel => m !== null)
   return {
     id,
     name,
     baseUrl,
     flavor,
     model,
+    // The engine guarantees the default is present; be defensive anyway so a
+    // hand-edited config still renders one selectable model.
+    models: models.some((m) => m.id === model)
+      ? models
+      : [{ id: model, label: model, contextWindow: null, source: 'manual' }, ...models],
     hasKey: record['apiKeyCipher'] != null,
   }
 }
@@ -112,12 +139,28 @@ function isHttpUrl(value: string): boolean {
 interface EndpointCardProps {
   endpoint: StoredEndpoint
   testState: TestState | undefined
+  fetchState: FetchState | undefined
+  expanded: boolean
+  onToggleModels: (id: string) => void
+  onModelsChange: (id: string, next: { models: EndpointModel[]; defaultModel: string }) => void
+  onFetchModels: (endpoint: StoredEndpoint) => void
   onTest: (endpoint: StoredEndpoint) => void
   onEdit: (endpoint: StoredEndpoint) => void
   onDelete: (id: string) => void
 }
 
-function EndpointCard({ endpoint, testState, onTest, onEdit, onDelete }: EndpointCardProps) {
+function EndpointCard({
+  endpoint,
+  testState,
+  fetchState,
+  expanded,
+  onToggleModels,
+  onModelsChange,
+  onFetchModels,
+  onTest,
+  onEdit,
+  onDelete,
+}: EndpointCardProps) {
   const badge = FLAVOR_BADGES[endpoint.flavor]
   return (
     <li className="rounded-md border border-border bg-surface-1 p-3">
@@ -129,11 +172,25 @@ function EndpointCard({ endpoint, testState, onTest, onEdit, onDelete }: Endpoin
           </div>
           <p className="mt-0.5 truncate font-mono text-xs text-fg-muted">{endpoint.baseUrl}</p>
           <p className="mt-0.5 truncate font-mono text-xs text-fg-subtle">
+            {endpoint.models.length} model{endpoint.models.length === 1 ? '' : 's'} · default{' '}
             {endpoint.model}
             {endpoint.hasKey ? ' · key saved' : ''}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? 'Hide' : 'Manage'} models for ${endpoint.name}`}
+            onClick={() => onToggleModels(endpoint.id)}
+          >
+            Models
+            <ChevronDown
+              className={`ms-1 h-3 w-3 transition-transform duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
+              aria-hidden
+            />
+          </Button>
           <Button
             size="sm"
             variant="secondary"
@@ -180,6 +237,19 @@ function EndpointCard({ endpoint, testState, onTest, onEdit, onDelete }: Endpoin
           )}
         </p>
       )}
+      {expanded && (
+        <div className="mt-3 border-t border-border pt-3">
+          <ModelListEditor
+            models={endpoint.models}
+            defaultModel={endpoint.model}
+            onChange={(next) => onModelsChange(endpoint.id, next)}
+            onFetch={() => onFetchModels(endpoint)}
+            fetchState={fetchState}
+            idPrefix={`ep-${endpoint.id}`}
+            scopeLabel={endpoint.name}
+          />
+        </div>
+      )}
     </li>
   )
 }
@@ -187,7 +257,11 @@ function EndpointCard({ endpoint, testState, onTest, onEdit, onDelete }: Endpoin
 /**
  * Settings surface for Ari Core model endpoints. Persistence lives in the
  * engine's encrypted endpoint store over IPC — keys never sit in localStorage
- * and never render back. Connection probes run in the main process.
+ * and never render back. Connection probes and model discovery run in the main
+ * process, since the sandboxed renderer cannot reach arbitrary origins.
+ *
+ * Each endpoint holds a list of models: fetched from the endpoint's own
+ * listing API, or added by hand, with one marked as the endpoint default.
  */
 export function EndpointsManager() {
   const [endpoints, setEndpoints] = useState<StoredEndpoint[]>([])
@@ -196,6 +270,8 @@ export function EndpointsManager() {
   const [showApiKey, setShowApiKey] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [testStates, setTestStates] = useState<Record<string, TestState>>({})
+  const [fetchStates, setFetchStates] = useState<Record<string, FetchState>>({})
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const refresh = useCallback(async (): Promise<void> => {
     const stored = await rpc.invoke('endpoints.list')
@@ -206,7 +282,7 @@ export function EndpointsManager() {
     void refresh().catch(() => undefined)
   }, [refresh])
 
-  const updateField = (field: keyof FormState, value: string) => {
+  const updateField = (field: 'name' | 'baseUrl' | 'apiKey' | 'flavor', value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
@@ -215,19 +291,23 @@ export function EndpointsManager() {
     setEditingId(null)
     setShowApiKey(false)
     setFormError(null)
+    setFetchStates((prev) => {
+      const { form: _dropped, ...rest } = prev
+      return rest
+    })
   }
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const name = form.name.trim()
     const baseUrl = form.baseUrl.trim()
-    const model = form.model.trim()
     if (name === '' || !isHttpUrl(baseUrl)) {
       setFormError('Name and a valid http(s) base URL are required.')
       return
     }
-    if (model === '') {
-      setFormError('A model id is required (e.g. gpt-4o-mini).')
+    const defaultModel = form.defaultModel !== '' ? form.defaultModel : (form.models[0]?.id ?? '')
+    if (defaultModel === '') {
+      setFormError('Add at least one model — fetch them from the endpoint or type an id.')
       return
     }
     try {
@@ -236,9 +316,11 @@ export function EndpointsManager() {
         name,
         baseUrl,
         flavor: form.flavor,
-        model,
+        model: defaultModel,
+        models: form.models,
         // Blank key on edit keeps the stored one; blank on create clears.
-        apiKey: form.apiKey.trim() === '' ? (editingId != null ? undefined : null) : form.apiKey.trim(),
+        apiKey:
+          form.apiKey.trim() === '' ? (editingId != null ? undefined : null) : form.apiKey.trim(),
         headers: {},
       })
       await refresh().catch(() => undefined)
@@ -257,6 +339,7 @@ export function EndpointsManager() {
         const { [id]: _removed, ...rest } = prev
         return rest
       })
+      if (expandedId === id) setExpandedId(null)
       await refresh().catch(() => undefined)
       if (editingId === id) resetForm()
     }
@@ -267,8 +350,9 @@ export function EndpointsManager() {
       name: endpoint.name,
       baseUrl: endpoint.baseUrl,
       flavor: endpoint.flavor,
-      model: endpoint.model,
       apiKey: '',
+      models: endpoint.models,
+      defaultModel: endpoint.model,
     })
     setEditingId(endpoint.id)
     setShowApiKey(false)
@@ -303,7 +387,92 @@ export function EndpointsManager() {
     [],
   )
 
+  /**
+   * Asks an endpoint for its model list. With an `id` the engine persists the
+   * merged list (keeping manual entries) and we re-read it; without one the
+   * models land in the add-endpoint form unsaved.
+   */
+  const fetchModels = useCallback(
+    async (input: { stateKey: string; id?: string; baseUrl: string; flavor: EndpointFlavor }) => {
+      setFetchStates((prev) => ({ ...prev, [input.stateKey]: { phase: 'fetching' } }))
+      try {
+        const result = await rpc.invoke('endpoints.discoverModels', {
+          ...(input.id !== undefined ? { id: input.id } : {}),
+          baseUrl: input.baseUrl,
+          flavor: input.flavor,
+          apiKey: null,
+        })
+        setFetchStates((prev) => ({
+          ...prev,
+          [input.stateKey]: {
+            phase: 'done',
+            found: result.models.length,
+            error: result.error,
+          },
+        }))
+        if (result.models.length === 0) return
+        if (input.id !== undefined) {
+          await refresh().catch(() => undefined)
+          return
+        }
+        const discovered: EndpointModel[] = result.models.map((model) => ({
+          id: model.id,
+          label: model.label,
+          contextWindow: model.contextWindow,
+          source: 'discovered',
+        }))
+        setForm((prev) => {
+          // Merge over what is already listed so a re-fetch is idempotent and
+          // never drops a model the user typed in first.
+          const byId = new Map(discovered.map((m) => [m.id, m]))
+          for (const kept of prev.models) if (!byId.has(kept.id)) byId.set(kept.id, kept)
+          const models = [...byId.values()]
+          return {
+            ...prev,
+            models,
+            defaultModel: prev.defaultModel !== '' ? prev.defaultModel : (models[0]?.id ?? ''),
+          }
+        })
+      } catch (e) {
+        setFetchStates((prev) => ({
+          ...prev,
+          [input.stateKey]: {
+            phase: 'done',
+            found: 0,
+            error: e instanceof Error ? e.message : String(e),
+          },
+        }))
+      }
+    },
+    [refresh],
+  )
+
+  /** Persists a model-list edit made directly on a saved endpoint's card. */
+  const saveEndpointModels = useCallback(
+    async (id: string, next: { models: EndpointModel[]; defaultModel: string }) => {
+      // Optimistic: the card is the source of truth the user is looking at.
+      setEndpoints((prev) =>
+        prev.map((e) =>
+          e.id === id
+            ? { ...e, models: next.models, model: next.defaultModel || e.model }
+            : e,
+        ),
+      )
+      try {
+        await rpc.invoke('endpoints.setModels', {
+          id,
+          models: next.models,
+          ...(next.defaultModel !== '' ? { defaultModel: next.defaultModel } : {}),
+        })
+      } finally {
+        await refresh().catch(() => undefined)
+      }
+    },
+    [refresh],
+  )
+
   const testKeyFor = (baseUrl: string, flavor: EndpointFlavor): string => `${baseUrl}|${flavor}`
+  const formBaseUrl = form.baseUrl.trim()
 
   return (
     <section aria-label="Model endpoints" className="flex flex-col gap-4">
@@ -321,7 +490,19 @@ export function EndpointsManager() {
                 key={endpoint.id}
                 endpoint={endpoint}
                 testState={testStates[testKeyFor(endpoint.baseUrl, endpoint.flavor)]}
-                onTest={(endpoint) => void runTest(endpoint)}
+                fetchState={fetchStates[endpoint.id]}
+                expanded={expandedId === endpoint.id}
+                onToggleModels={(id) => setExpandedId((prev) => (prev === id ? null : id))}
+                onModelsChange={(id, next) => void saveEndpointModels(id, next)}
+                onFetchModels={(target) =>
+                  void fetchModels({
+                    stateKey: target.id,
+                    id: target.id,
+                    baseUrl: target.baseUrl,
+                    flavor: target.flavor,
+                  })
+                }
+                onTest={(target) => void runTest(target)}
                 onEdit={startEdit}
                 onDelete={(id) => void handleDelete(id)}
               />
@@ -370,17 +551,6 @@ export function EndpointsManager() {
             />
           )}
         </Field>
-        <Field label="Model">
-          {(controlProps) => (
-            <Input
-              {...controlProps}
-              value={form.model}
-              onChange={(event) => updateField('model', event.target.value)}
-              placeholder="gpt-4o-mini"
-              autoComplete="off"
-            />
-          )}
-        </Field>
         <Field
           label="API key"
           hint={
@@ -411,6 +581,32 @@ export function EndpointsManager() {
             />
           )}
         </Field>
+        <div className="border-t border-border pt-3">
+          <ModelListEditor
+            models={form.models}
+            defaultModel={form.defaultModel}
+            onChange={(next) =>
+              setForm((prev) => ({
+                ...prev,
+                models: next.models,
+                defaultModel: next.defaultModel,
+              }))
+            }
+            onFetch={
+              isHttpUrl(formBaseUrl)
+                ? () =>
+                    void fetchModels({
+                      stateKey: 'form',
+                      baseUrl: formBaseUrl,
+                      flavor: form.flavor,
+                    })
+                : null
+            }
+            fetchState={fetchStates['form']}
+            idPrefix="form"
+            scopeLabel={editingId != null ? 'this endpoint' : 'the new endpoint'}
+          />
+        </div>
         {formError != null && (
           <p role="alert" className="text-xs text-danger">
             {formError}
@@ -420,14 +616,12 @@ export function EndpointsManager() {
           <Button type="submit" variant="primary" size="sm">
             {editingId != null ? 'Save changes' : 'Add endpoint'}
           </Button>
-          {isHttpUrl(form.baseUrl.trim()) && (
+          {isHttpUrl(formBaseUrl) && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() =>
-                void runTest({ baseUrl: form.baseUrl.trim(), flavor: form.flavor })
-              }
+              onClick={() => void runTest({ baseUrl: formBaseUrl, flavor: form.flavor })}
             >
               Test connection
             </Button>
