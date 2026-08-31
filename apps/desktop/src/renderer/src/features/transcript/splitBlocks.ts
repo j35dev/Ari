@@ -1,6 +1,13 @@
 import type { Message, MessagePart } from '@ari/contracts/message'
 import type { TranscriptBlock } from './types'
 
+/**
+ * Marker the engine injects before provider failure text when it appends the
+ * error to the streaming assistant message (engine `#runTurn`). Blocks whose
+ * text opens with it render as styled error notes instead of markdown.
+ */
+const ERROR_MARKER = /^\s*⚠\s?/
+
 function partToBlock(message: Message, part: MessagePart, partIndex: number): TranscriptBlock {
   const key = `${message.id}#${partIndex}`
   // Assistant text rows carry message metadata so the transcript can render
@@ -16,8 +23,18 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
         }
       : { turnId: message.turnId }
   switch (part.type) {
-    case 'text':
+    case 'text': {
+      if (message.role === 'assistant' && ERROR_MARKER.test(part.text)) {
+        return {
+          key,
+          kind: 'error-note',
+          role: message.role,
+          text: part.text.replace(ERROR_MARKER, ''),
+          ...meta,
+        }
+      }
       return { key, kind: 'markdown', role: message.role, text: part.text, ...meta }
+    }
     case 'thinking':
       return { key, kind: 'thinking', role: message.role, text: part.text, ...meta }
     case 'tool-call':
@@ -58,7 +75,14 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
     let mergeKind: 'markdown' | 'thinking' | null = null
 
     message.parts.forEach((part, partIndex) => {
-      if (part.type === 'text' && mergeKind === 'markdown' && mergeIndex !== null) {
+      // An error note is its own block: the marker check lives in partToBlock,
+      // but the merge must not swallow the part before it gets there.
+      if (
+        part.type === 'text' &&
+        mergeKind === 'markdown' &&
+        mergeIndex !== null &&
+        !ERROR_MARKER.test(part.text)
+      ) {
         const target = blocks[mergeIndex]
         if (target !== undefined && target.kind === 'markdown') {
           target.text = (target.text ?? '') + part.text
@@ -77,10 +101,14 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
       mergeKind = part.type === 'text' ? 'markdown' : part.type === 'thinking' ? 'thinking' : null
     })
 
-    // The message footer attaches to the final markdown block, whichever
-    // part it came from.
+    // The message footer attaches to the final markdown or error-note block,
+    // whichever part came last.
     const last = blocks[blocks.length - 1]
-    if (message.role === 'assistant' && last !== undefined && last.kind === 'markdown') {
+    if (
+      message.role === 'assistant' &&
+      last !== undefined &&
+      (last.kind === 'markdown' || last.kind === 'error-note')
+    ) {
       last.isLastOfMessage = true
     }
   }
