@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, ChevronDown, X } from 'lucide-react'
+import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
@@ -11,9 +11,10 @@ import { Composer, type ComposerSeed } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
-import { friendlyErrorText, notifyNeedsAttention, useSettleNotify } from '../moment'
+import { notifyNeedsAttention, useSettleNotify } from '../moment'
 import { WorkingGlyph } from '../moment'
 import { PlanPanel } from './PlanPanel'
+import { TurnErrorBanner } from './TurnErrorBanner'
 
 interface PendingApproval {
   approvalId: string
@@ -410,7 +411,8 @@ export function SessionView({
           fetchTurnDiffRef.current(event.turnId)
           setPlanNonce((n) => n + 1)
           if (event.stopReason === 'error' && event.errorMessage) {
-            setTurnError(friendlyErrorText(event.errorMessage))
+            // Raw text is kept: the banner's Details disclosure shows it verbatim.
+            setTurnError(event.errorMessage)
             notifySettledRef.current({ error: event.errorMessage })
           } else {
             notifySettledRef.current()
@@ -692,35 +694,13 @@ export function SessionView({
         </div>
       ) : null}
       {turnError ? (
-        <div
-          role="alert"
-          className="mx-3 mb-1 flex items-start gap-2 rounded-md border border-danger-subtle bg-danger-subtle px-3 py-2"
-        >
-          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-danger" />
-          <p className="min-w-0 flex-1 break-words text-xs leading-relaxed text-fg-muted">
-            <span className="font-medium text-danger">Turn failed.</span> {turnError}
-          </p>
-          {lastUserPrompt !== null ? (
-            <button
-              type="button"
-              onClick={resendLastPrompt}
-              disabled={running}
-              aria-label="Retry last message"
-              title="Resend the last message"
-              className="shrink-0 rounded-sm border border-danger px-2 py-0.5 text-2xs font-medium text-danger transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50"
-            >
-              Retry
-            </button>
-          ) : null}
-          <button
-            type="button"
-            aria-label="Dismiss error"
-            onClick={() => setTurnError(null)}
-            className="shrink-0 rounded-sm p-0.5 text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <X size={12} />
-          </button>
-        </div>
+        <TurnErrorBanner
+          message={turnError}
+          canRetry={lastUserPrompt !== null}
+          retryDisabled={running}
+          onRetry={resendLastPrompt}
+          onDismiss={() => setTurnError(null)}
+        />
       ) : null}
       {reviewNotes.length > 0 ? (
         <div className="mx-4 mb-1 flex flex-wrap items-center gap-1" aria-label="Review notes attached to next message">
