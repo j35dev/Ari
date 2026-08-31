@@ -38,12 +38,12 @@ describe('todo_write tool', () => {
     }
   })
 
-  it('roundtrips through read_file with the same content', async () => {
+  it('roundtrips through read with the same content', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-todo-'))
     try {
       const items = [{ text: 'only step', status: 'pending' }]
       await todoWriteTool.execute({ items }, { workspacePath: dir })
-      const reader = findTool('read_file')
+      const reader = findTool('read')
       expect(reader).toBeDefined()
       const content = await reader?.execute({ path: TODO_FILENAME }, { workspacePath: dir })
       expect(JSON.parse(content ?? '')).toEqual(items)
