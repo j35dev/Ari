@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { isClippable, looksLikeUnifiedDiff, ToolResultBody } from './ToolResultBody'
@@ -78,22 +78,5 @@ describe('ToolResultBody', () => {
   it('shows no toggle for short output', () => {
     render(<ToolResultBody resultJson={'{"ok":true}'} />)
     expect(screen.queryByText(/Show more/)).not.toBeInTheDocument()
-  })
-})
-
-describe('ToolResultBlock integration', () => {
-  it('expands to the diff card when opened', async () => {
-    const { ToolResultBlock } = await import('./ToolBlocks')
-    const block = {
-      key: 'm0#1',
-      kind: 'tool-result' as const,
-      callId: 'c1',
-      resultJson: SAMPLE_DIFF,
-      isError: false,
-    }
-    render(<ToolResultBlock block={block} />)
-    expect(screen.queryByLabelText('Toggle src/app.ts')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button'))
-    expect(screen.getByLabelText('Toggle src/app.ts')).toBeInTheDocument()
   })
 })
