@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createAcpAdapter, AcpDriver, pickAgentMode, __resetLearnedAcpSelectors } from './acp-driver'
+import { createAcpAdapter, AcpDriver, pickAgentMode, shouldFallBack, __resetLearnedAcpSelectors } from './acp-driver'
+import { AcpAuthRequiredError, AcpConnectionError } from './connection'
 import type { AcpLaunch } from './connection'
 import type { AdapterSession, ProviderAdapter } from '../driver'
 
@@ -328,6 +329,69 @@ describe('createAcpAdapter', () => {
     await expect(createAcpAdapter(LAUNCH, SESSION, () => child)).rejects.toThrow(/not authenticated/)
   }, 15000)
 
+  it('reports the agent-advertised logins for an auth wall on the handshake', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          authMethods: [
+            {
+              id: 'claude-ai-login',
+              name: 'Claude Subscription',
+              _meta: { 'terminal-auth': { command: 'node', args: ['acp.js', '--cli', 'auth', 'login'] } },
+            },
+          ],
+        }
+      }
+      if (method === 'session/new') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: 'authRequired' } })}\n`,
+        )
+        return undefined
+      }
+      return undefined
+    })
+    const walls: { label: string; logins: { methodId: string }[] }[] = []
+    const failure = await createAcpAdapter(LAUNCH, SESSION, () => child, (wall) =>
+      walls.push(wall),
+    ).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AcpAuthRequiredError)
+    expect(walls).toHaveLength(1)
+    expect(walls[0]?.label).toBe('test-agent')
+    expect(walls[0]?.logins.map((l) => l.methodId)).toEqual(['claude-ai-login'])
+  }, 15000)
+
+  it('reports an auth wall that lands mid-turn, after the session opened', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          authMethods: [{ id: 'console-login', _meta: { 'terminal-auth': { command: 'node' } } }],
+        }
+      }
+      if (method === 'session/new') return { sessionId: 'sess_expiring' }
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: 'authRequired' } })}\n`,
+        )
+        return undefined
+      }
+      return undefined
+    })
+    const walls: { logins: { methodId: string }[] }[] = []
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, (wall) => walls.push(wall))
+
+    const events: string[] = []
+    for await (const event of adapter.start()) events.push(event.type)
+
+    expect(events).toContain('error')
+    expect(walls[0]?.logins.map((l) => l.methodId)).toEqual(['console-login'])
+    await adapter.dispose()
+  }, 15000)
+
   it('resumes via session/load when the agent advertises loadSession', async () => {
     const child = fakeChild()
     script(child, (method) => {
@@ -522,6 +586,17 @@ describe('AcpDriver', () => {
   it('throws when neither transport exists', async () => {
     const driver = new AcpDriver('pi', null, null)
     await expect(driver.create(SESSION)).rejects.toThrow(/no transport available/)
+  })
+})
+
+describe('shouldFallBack', () => {
+  it('retries ordinary transport failures on the legacy CLI', () => {
+    expect(shouldFallBack(new AcpConnectionError('broken exited mid-request'))).toBe(true)
+    expect(shouldFallBack(new Error('ENOENT'))).toBe(true)
+  })
+
+  it('refuses to retry an auth wall — both transports share one credential store', () => {
+    expect(shouldFallBack(new AcpAuthRequiredError('sign in again', []))).toBe(false)
   })
 })
 
