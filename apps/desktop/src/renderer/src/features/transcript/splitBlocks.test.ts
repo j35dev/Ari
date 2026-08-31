@@ -110,4 +110,36 @@ describe('splitBlocks', () => {
     expect(blocks).toHaveLength(1)
     expect(blocks[0]?.isLastOfMessage).toBe(true)
   })
+
+  it('turns the engine-injected ⚠ failure text into an error-note block', () => {
+    const blocks = splitBlocks([
+      msg('m1', [
+        { type: 'text', text: 'partial answer' },
+        { type: 'text', text: '\n\n⚠ claude exited with code 1' },
+      ]),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['markdown', 'error-note'])
+    expect(blocks[1]).toMatchObject({ text: 'claude exited with code 1' })
+    // The failure note trails the message, so the footer lands on it.
+    expect(blocks[1]?.isLastOfMessage).toBe(true)
+  })
+
+  it('does not error-note user messages or assistant prose containing ⚠ mid-text', () => {
+    const blocks = splitBlocks([
+      msg('u1', [{ type: 'text', text: '⚠ fix this' }], 'user'),
+      msg('a1', [{ type: 'text', text: 'about ⚠ symbols' }]),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['markdown', 'markdown'])
+  })
+
+  it('breaks the markdown merge run at an error note', () => {
+    const blocks = splitBlocks([
+      msg('m1', [
+        { type: 'text', text: '\n\n⚠ boom' },
+        { type: 'text', text: 'more prose' },
+      ]),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['error-note', 'markdown'])
+    expect(blocks[1]).toMatchObject({ text: 'more prose' })
+  })
 })
