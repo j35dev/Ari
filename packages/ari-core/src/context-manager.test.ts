@@ -29,7 +29,7 @@ function tool(callId: string, result: string): ChatMessage {
 function loopHistory(rounds: number, resultChars: number): ChatMessage[] {
   const messages: ChatMessage[] = [system, user]
   for (let round = 0; round < rounds; round++) {
-    messages.push(assistantWithCalls(`c${round}`, 'read_file'))
+    messages.push(assistantWithCalls(`c${round}`, 'read'))
     messages.push(tool(`c${round}_0`, 'r'.repeat(resultChars)))
   }
   messages.push(assistant('final answer'))
@@ -76,14 +76,14 @@ describe('trimMessages', () => {
     const big: ChatMessage[] = [
       system,
       user,
-      assistantWithCalls('k', 'read_file', 'read_file'),
+      assistantWithCalls('k', 'read', 'read'),
       tool('k_0', 'a'.repeat(300)),
       tool('k_1', 'b'.repeat(300)),
       assistant('midpoint'),
     ]
     const trimmed = trimMessages(big, 60)
     expect(trimmed.filter((m) => m.content === TRIMMED_TOOL_RESULTS_PLACEHOLDER)).toHaveLength(1)
-    expect(trimmed).not.toContainEqual(assistantWithCalls('k', 'read_file', 'read_file'))
+    expect(trimmed).not.toContainEqual(assistantWithCalls('k', 'read', 'read'))
     expect(trimmed).toContainEqual(assistant('midpoint'))
   })
 

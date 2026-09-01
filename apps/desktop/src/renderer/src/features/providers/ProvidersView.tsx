@@ -183,7 +183,7 @@ function ProviderCard({
 
       {isCore && (
         <p className="text-xs text-fg-muted">
-          Runs on your own endpoints — manage them in the Endpoints section below.
+          Runs on your own endpoints — manage them in the Endpoints settings section.
         </p>
       )}
 

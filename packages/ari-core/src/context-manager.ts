@@ -15,6 +15,56 @@ export const TRIMMED_TOOL_RESULTS_PLACEHOLDER = '[earlier tool results trimmed]'
  */
 export const CONTEXT_WINDOW_CHARS = 120_000
 
+/**
+ * Fraction of the budget that must be in use before compaction is worth a
+ * model call. Below it, trimming alone is cheaper and loses nothing that
+ * matters yet.
+ */
+export const COMPACTION_TRIGGER_RATIO = 0.75
+
+/**
+ * Share of the context budget kept verbatim through a compaction, so the work
+ * in progress survives in full detail and only older spans are summarized. It
+ * scales with the budget rather than being a fixed size: a harness configured
+ * with a small window would otherwise never find anything old enough to
+ * summarize.
+ */
+export const KEEP_RECENT_RATIO = 0.35
+
+/** Keep window for the default budget, and the default for {@link splitForCompaction}. */
+export const KEEP_RECENT_CHARS = Math.floor(CONTEXT_WINDOW_CHARS * KEEP_RECENT_RATIO)
+
+/** Marks a message holding a compaction summary rather than real history. */
+export const SUMMARY_PREFIX = '[summary of earlier conversation]'
+
+/** The structured shape a compaction summary is asked to take. */
+export const SUMMARY_INSTRUCTIONS = `Summarize the conversation so far so another engineer can continue the work with no other context. Use exactly this structure, omitting sections that have no content:
+
+## Goal
+[what the user is trying to accomplish]
+
+## Constraints & Preferences
+- [requirements the user stated]
+
+## Progress
+### Done
+- [completed work]
+### In Progress
+- [current work]
+### Blocked
+- [blockers, if any]
+
+## Key Decisions
+- **[decision]**: [rationale]
+
+## Next Steps
+1. [what should happen next]
+
+## Critical Context
+- [file paths, identifiers, values, and command output needed to continue]
+
+Be specific: name files and symbols rather than describing them. Do not invent progress that did not happen.`
+
 function sizeOf(messages: ChatMessage[]): number {
   return messages.reduce((sum, m) => sum + m.content.length, 0)
 }
@@ -116,4 +166,93 @@ export function trimMessages(messages: ChatMessage[], maxChars: number): ChatMes
   }
   if (droppedRun.length > 0) out.push(...compressDropped(droppedRun))
   return out
+}
+
+/** True when the conversation is large enough that summarizing earns its call. */
+export function needsCompaction(messages: ChatMessage[], maxChars: number): boolean {
+  return sizeOf(messages) > maxChars * COMPACTION_TRIGGER_RATIO
+}
+
+export interface CompactionSplit {
+  /** Leading system prompts, always preserved verbatim. */
+  systems: ChatMessage[]
+  /** Older history to summarize; empty when nothing is old enough. */
+  older: ChatMessage[]
+  /** Newest history kept verbatim. */
+  recent: ChatMessage[]
+}
+
+/**
+ * Splits a conversation at a turn boundary: everything before the cut is
+ * summarizable, everything after is kept verbatim. The cut walks backwards
+ * from the newest message until `keepRecentChars` is used up, then moves to
+ * the next user message so a tool call is never separated from its results
+ * and the kept span always starts a turn.
+ */
+export function splitForCompaction(
+  messages: ChatMessage[],
+  keepRecentChars = KEEP_RECENT_CHARS,
+): CompactionSplit {
+  let headEnd = 0
+  while (headEnd < messages.length && messages[headEnd]?.role === 'system') headEnd++
+  const systems = messages.slice(0, headEnd)
+  const history = messages.slice(headEnd)
+
+  // Walk backwards, taking messages while they fit. The newest message is
+  // always taken, so a single oversized turn still forms the kept span rather
+  // than collapsing the cut to zero.
+  let used = 0
+  let cut = history.length
+  for (let index = history.length - 1; index >= 0; index--) {
+    const message = history[index]
+    if (!message) continue
+    const size = message.content.length
+    if (cut < history.length && used + size > keepRecentChars) break
+    used += size
+    cut = index
+  }
+  // Land the cut on a user message: that starts a turn, and it guarantees the
+  // kept span never opens with an orphaned tool result.
+  while (cut < history.length && history[cut]?.role !== 'user') cut++
+  // Nothing to summarize if the whole history is inside the keep window, or if
+  // no turn boundary was found ahead of the cut.
+  if (cut <= 0 || cut >= history.length) {
+    return { systems, older: [], recent: history }
+  }
+  return { systems, older: history.slice(0, cut), recent: history.slice(cut) }
+}
+
+/**
+ * Renders messages as a transcript for summarization. Roles are labelled so
+ * the model reads it as material to summarize rather than a conversation to
+ * continue, and tool results are capped so one large read cannot dominate the
+ * summarization request.
+ */
+export function serializeForSummary(messages: ChatMessage[], maxToolResultChars = 2000): string {
+  const lines: string[] = []
+  for (const message of messages) {
+    if (message.role === 'tool') {
+      const body =
+        message.content.length > maxToolResultChars
+          ? `${message.content.slice(0, maxToolResultChars)}… [${message.content.length - maxToolResultChars} chars truncated]`
+          : message.content
+      lines.push(`[Tool result]: ${body}`)
+      continue
+    }
+    if (message.role === 'assistant') {
+      if (message.content.length > 0) lines.push(`[Assistant]: ${message.content}`)
+      if (message.toolCalls?.length) {
+        const calls = message.toolCalls.map((c) => `${c.name}(${c.argsJson})`).join('; ')
+        lines.push(`[Assistant tool calls]: ${calls}`)
+      }
+      continue
+    }
+    lines.push(`[${message.role === 'user' ? 'User' : 'System'}]: ${message.content}`)
+  }
+  return lines.join('\n')
+}
+
+/** Wraps summary text as the message that stands in for the summarized span. */
+export function summaryMessage(summary: string): ChatMessage {
+  return { role: 'user', content: `${SUMMARY_PREFIX}\n\n${summary}` }
 }
