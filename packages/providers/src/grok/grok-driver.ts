@@ -22,6 +22,7 @@ export function buildGrokArgs(session: AdapterSession): string[] {
     '--include-partial-messages',
   ]
   if (session.modelId) args.push('--model', session.modelId)
+  if (session.effort) args.push('--effort', session.effort)
   args.push(...permissionFlags(session.permissionMode))
   if (session.resumeOf) args.push('--resume', session.resumeOf)
   return args

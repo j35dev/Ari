@@ -2,16 +2,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
 import {
   catalogSource,
+  clearDynamicEfforts,
   clearDynamicModels,
+  effortsFor,
   MODEL_CATALOGS,
   modelsFor,
+  setDynamicEfforts,
   setDynamicModels,
 } from './catalogs'
 
 const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
 
 afterEach(() => {
-  for (const kind of ALL_KINDS) clearDynamicModels(kind)
+  for (const kind of ALL_KINDS) {
+    clearDynamicModels(kind)
+    clearDynamicEfforts(kind)
+  }
 })
 
 describe('MODEL_CATALOGS', () => {
@@ -93,5 +99,29 @@ describe('modelsFor fallback chain', () => {
     const grok = modelsFor('grok').map((m) => m.id)
     expect(grok).toContain('grok-4.6')
     expect(grok.some((id) => id.startsWith('grok-4.20'))).toBe(false)
+  })
+})
+
+describe('effortsFor', () => {
+  it('ships Grok and Ari Core vocabularies before any probe', () => {
+    expect(effortsFor('grok').options.map((o) => o.id)).toEqual([
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+    expect(effortsFor('ari-core').options.map((o) => o.id)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(effortsFor('hermes').options).toEqual([])
+  })
+
+  it('lets a live probe replace the fallback', () => {
+    setDynamicEfforts('grok', {
+      currentId: 'low',
+      options: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }],
+    })
+    expect(effortsFor('grok').options.map((o) => o.id)).toEqual(['low', 'high'])
+    setDynamicEfforts('grok', { currentId: null, options: [] })
+    expect(effortsFor('grok').options.map((o) => o.id)).toContain('xhigh')
   })
 })

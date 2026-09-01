@@ -32,6 +32,8 @@ export interface ChatRequest {
   tools?: ChatTool[]
   headers?: Record<string, string>
   signal?: AbortSignal
+  /** OpenAI / xAI reasoning depth; omitted when the session left the default. */
+  reasoningEffort?: string | null
 }
 
 export type SseFetch = (
@@ -116,6 +118,12 @@ export async function* streamChatCompletion(
         })),
         stream: true,
         stream_options: { include_usage: true },
+        ...(request.reasoningEffort
+          ? {
+              reasoning_effort: request.reasoningEffort,
+              reasoning: { effort: request.reasoningEffort },
+            }
+          : {}),
         ...(request.tools && request.tools.length > 0
           ? {
               tools: request.tools.map((tool) => ({

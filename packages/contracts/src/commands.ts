@@ -53,6 +53,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     driverKind: driverKindSchema.optional(),
     modelId: z.string().nullable().optional(),
     permissionMode: permissionModeSchema.optional(),
+    effort: z.string().min(1).nullable().optional(),
     title: z.string().min(1).optional(),
     archived: z.boolean().optional(),
     pinned: z.boolean().optional(),

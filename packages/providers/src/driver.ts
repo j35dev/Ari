@@ -10,6 +10,11 @@ export interface AdapterSession {
   prompt: string
   modelId: string | null
   permissionMode: PermissionMode
+  /**
+   * Thought/reasoning level id advertised by the harness, when the user
+   * picked one. Absent/null leaves the agent's own default.
+   */
+  effort?: string | null
   /** Provider-native session id to resume, when continuing a thread. */
   resumeOf: string | null
 }
@@ -29,6 +34,11 @@ export interface ProviderAdapter {
    * cannot accept steering.
    */
   steer?(text: string): void
+  /**
+   * Answers a pending `input-requested` question. Optional: one-shot CLIs
+   * without an input channel cannot act on the answer.
+   */
+  respondInput?(inputId: string, value: string): void
 }
 
 /** Decision vocabulary shared with the `approval.respond` command contract. */

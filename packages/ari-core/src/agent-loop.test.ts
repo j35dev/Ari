@@ -460,4 +460,50 @@ describe('permission modes', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('parks ask_user_question until requestInput resolves and feeds the answer back', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-ask-'))
+    try {
+      const round = await roundFrom([
+        [
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              {
+                id: 'c1',
+                name: 'ask_user_question',
+                argsJson: JSON.stringify({
+                  questions: [
+                    {
+                      question: 'Ship it?',
+                      options: [{ label: 'Yes' }, { label: 'No' }],
+                    },
+                  ],
+                }),
+              },
+            ],
+          },
+        ],
+        [{ role: 'assistant', content: 'Shipping.' }],
+      ])
+      const events: AgentEvent[] = []
+      for await (const event of runAgentLoop({
+        round,
+        systemPrompt: 's',
+        userPrompt: 'ask me',
+        workspacePath: dir,
+        requestInput: async () => JSON.stringify({ answers: { '0': 'Yes' } }),
+      })) {
+        events.push(event)
+      }
+      const question = events.find((e) => e.type === 'input-requested')
+      expect(question).toMatchObject({ type: 'input-requested', prompt: 'Ship it?' })
+      const completed = events.find((e) => e.type === 'tool-completed')
+      expect(completed?.type === 'tool-completed' && completed.isError).toBe(false)
+      expect(completed?.type === 'tool-completed' && completed.resultJson).toContain('Ship it?: Yes')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

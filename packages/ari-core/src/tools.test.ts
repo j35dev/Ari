@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ToolContext } from './tools'
-import { findTool } from './tools'
+import { findTool, parseAskUserToolArgs } from './tools'
 
 async function workspace(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), 'ari-tools-'))
@@ -223,6 +223,43 @@ describe('bash tool', () => {
       const result = await findTool('bash')?.execute({ command: spew }, READ_CTX(dir))
       expect(result).toContain('line3000')
       expect(result).toContain('output truncated')
+    } finally {
+      await cleanup()
+    }
+  })
+})
+
+describe('ask_user_question tool', () => {
+  it('projects questions onto the questionnaire payload', () => {
+    const parsed = parseAskUserToolArgs({
+      questions: [
+        {
+          question: 'Which approach?',
+          options: [{ label: 'Rewrite' }, { label: 'Patch' }],
+        },
+      ],
+    })
+    expect(parsed.prompt).toBe('Which approach?')
+    expect(JSON.parse(parsed.choicesJson)).toMatchObject({
+      kind: 'questionnaire',
+      questions: [{ question: 'Which approach?' }],
+    })
+  })
+
+  it('parks on requestInput and returns the chosen answer', async () => {
+    const { dir, cleanup } = await workspace()
+    try {
+      const result = await findTool('ask_user_question')?.execute(
+        { questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] },
+        {
+          ...READ_CTX(dir),
+          requestInput: async (request) => {
+            expect(request.prompt).toBe('Ship it?')
+            return JSON.stringify({ answers: { '0': 'Yes' } })
+          },
+        },
+      )
+      expect(result).toBe('Ship it?: Yes')
     } finally {
       await cleanup()
     }

@@ -93,6 +93,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     driverKind: driverKindSchemaOptional,
     modelId: z.string().nullable().optional(),
     permissionMode: permissionModeSchemaOptional,
+    effort: z.string().min(1).nullable().optional(),
     title: z.string().min(1).optional(),
     archived: z.boolean().optional(),
     pinned: z.boolean().optional(),

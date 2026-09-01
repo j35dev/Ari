@@ -22,6 +22,11 @@ export const sessionSchema = z.object({
   driverKind: driverKindSchema,
   modelId: z.string().nullable(),
   permissionMode: permissionModeSchema,
+  /**
+   * Thought/reasoning level id from the harness (ACP thought_level / effort).
+   * Absent on pre-M34 journals; null means "leave the agent's default".
+   */
+  effort: z.string().min(1).nullable().optional(),
   status: sessionStatusSchema,
   /**
    * Sidebar flags (M18.2). Optional on the wire for pre-M18.2 journals;

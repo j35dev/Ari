@@ -32,6 +32,7 @@ export const sessionCreateParamsSchema = z.object({
   driverKind: driverKindSchema,
   modelId: z.string().nullable(),
   permissionMode: permissionModeSchema,
+  effort: z.string().min(1).nullable().optional(),
 })
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 
@@ -382,7 +383,13 @@ export interface RpcResults {
    * (`source: 'live'`), a cached refresh (`'cache'`), the bundled snapshot
    * (`'snapshot'`), or static defaults (`'static'`).
    */
-  'providers.models': { kind: string; source: 'live' | 'cache' | 'snapshot' | 'static'; models: CatalogModelInfo[] }[]
+  'providers.models': {
+    kind: string
+    source: 'live' | 'cache' | 'snapshot' | 'static'
+    models: CatalogModelInfo[]
+    /** Thought/reasoning levels the harness advertised; empty when it has none. */
+    efforts: { id: string; label: string; description?: string; current?: boolean }[]
+  }[]
   /**
    * The literal argv Ari would run to install or upgrade a provider CLI, so
    * the confirm dialog can show the exact command before anything executes.
