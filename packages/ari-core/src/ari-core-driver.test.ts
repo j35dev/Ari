@@ -67,6 +67,8 @@ describe('ari core driver flavor routing', () => {
       expect(systemMessage?.role).toBe('system')
       expect(typeof systemMessage?.content).toBe('string')
       expect(requests[0]?.messages?.at(-1)).toEqual({ role: 'user', content: 'hello' })
+      expect(requests[0]?.tools?.some((t) => t.name === 'read')).toBe(true)
+      expect(requests[0]?.tools?.some((t) => t.name === 'bash')).toBe(true)
       expect(events.at(-1)).toEqual({ type: 'done' })
       expect(events.some((e) => e.type === 'text-delta')).toBe(true)
     } finally {

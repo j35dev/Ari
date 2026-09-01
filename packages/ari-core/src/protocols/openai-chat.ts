@@ -1,4 +1,5 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import { containsDsml, parseDsmlToolCalls } from './dsml'
 
 /**
  * OpenAI-compatible chat-completions streaming client. Works with any
@@ -14,11 +15,20 @@ export interface ChatMessage {
   toolCalls?: { id: string; name: string; argsJson: string }[]
 }
 
+/** One function advertised to an OpenAI-compat endpoint. */
+export interface ChatTool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
 export interface ChatRequest {
   baseUrl: string
   apiKey: string | null
   model: string
   messages: ChatMessage[]
+  /** Function schemas. Absent or empty means the request advertises none. */
+  tools?: ChatTool[]
   headers?: Record<string, string>
   signal?: AbortSignal
 }
@@ -103,6 +113,19 @@ export async function* streamChatCompletion(
         })),
         stream: true,
         stream_options: { include_usage: true },
+        ...(request.tools && request.tools.length > 0
+          ? {
+              tools: request.tools.map((tool) => ({
+                type: 'function',
+                function: {
+                  name: tool.name,
+                  description: tool.description,
+                  parameters: tool.parameters,
+                },
+              })),
+              tool_choice: 'auto',
+            }
+          : {}),
       }),
       signal: request.signal,
     })
@@ -125,6 +148,12 @@ export async function* streamChatCompletion(
   const pendingTools = new Map<number, { id: string; name: string; args: string }>()
   let inputTokens = 0
   let outputTokens = 0
+  let sawNativeTool = false
+  // DSML can arrive split across deltas (`<|` then `DSML|…`). Hold only a
+  // suffix that could still become a DSML open tag so ordinary text still
+  // streams, then recover the markup as tool-started if no native tool_calls.
+  let held = ''
+  let dsmlMode = false
 
   for await (const raw of response.body) {
     const data = raw.startsWith('data:') ? raw.slice(5).trim() : raw.trim()
@@ -138,7 +167,23 @@ export async function* streamChatCompletion(
     }
     const choice = chunk.choices?.[0]
     const delta = choice?.delta
-    if (delta?.content) yield { type: 'text-delta', text: delta.content }
+    if (delta?.content) {
+      held += delta.content
+      if (!dsmlMode) {
+        const at = held.search(/<\s*\|\s*DSML\s*\|/i)
+        if (at === -1) {
+          const keep = trailingDsmlPrefixLen(held)
+          const flush = held.slice(0, held.length - keep)
+          held = held.slice(held.length - keep)
+          if (flush.length > 0) yield { type: 'text-delta', text: flush }
+        } else {
+          const before = held.slice(0, at)
+          if (before.length > 0) yield { type: 'text-delta', text: before }
+          held = held.slice(at)
+          dsmlMode = true
+        }
+      }
+    }
     if (delta?.reasoning_content) yield { type: 'thinking-delta', text: delta.reasoning_content }
     for (const call of delta?.tool_calls ?? []) {
       const entry = pendingTools.get(call.index) ?? { id: '', name: '', args: '' }
@@ -150,6 +195,7 @@ export async function* streamChatCompletion(
       // agent loop re-parses strictly anyway.
       if (entry.name && looksComplete(entry.args)) {
         pendingTools.delete(call.index)
+        sawNativeTool = true
         yield {
           type: 'tool-started',
           callId: entry.id || `call_${call.index}`,
@@ -166,12 +212,27 @@ export async function* streamChatCompletion(
 
   // Flush any tools whose argument stream never looked complete.
   for (const [index, entry] of pendingTools) {
+    sawNativeTool = true
     yield {
       type: 'tool-started',
       callId: entry.id || `call_${index}`,
       name: entry.name,
       argsJson: entry.args,
     }
+  }
+
+  if (!sawNativeTool && (dsmlMode || containsDsml(held))) {
+    const recovered = parseDsmlToolCalls(held)
+    for (const [i, call] of recovered.entries()) {
+      yield {
+        type: 'tool-started',
+        callId: `dsml_${i}`,
+        name: call.name,
+        argsJson: JSON.stringify(call.args),
+      }
+    }
+  } else if (!dsmlMode && held.length > 0) {
+    yield { type: 'text-delta', text: held }
   }
 
   yield { type: 'usage', inputTokens, outputTokens, costUsd: null }
@@ -185,4 +246,13 @@ function looksComplete(args: string): boolean {
   } catch {
     return false
   }
+}
+
+/** Longest suffix of `text` that could still grow into a `<|DSML|` open tag. */
+function trailingDsmlPrefixLen(text: string): number {
+  const max = Math.min(text.length, 16)
+  for (let n = max; n > 0; n--) {
+    if (/^<\s*(?:\|\s*(?:D(?:S(?:M(?:L(?:\s*\|?)?)?)?)?)?)?$/i.test(text.slice(-n))) return n
+  }
+  return 0
 }
