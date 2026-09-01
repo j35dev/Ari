@@ -33,6 +33,7 @@ type Handlers = Partial<{
   onToggleArchive: (id: string, archived: boolean) => void
   onOpenProject: () => void
   onNewSessionInProject: (id: string) => void
+  onImportSessions: (id: string) => void
   onRevealProject: (id: string) => void
   onCloseProject: (id: string) => void
   onRemoveProject: (id: string) => void
@@ -176,10 +177,12 @@ describe('SessionsUnderProjects', () => {
 
   it('exposes per-project actions through the right-click menu', async () => {
     const onNewSessionInProject = vi.fn()
+    const onImportSessions = vi.fn()
     const onRevealProject = vi.fn()
     const onCloseProject = vi.fn()
     renderSidebar([session('a', 1, 'proj-1')], null, {
       onNewSessionInProject,
+      onImportSessions,
       onRevealProject,
       onCloseProject,
     })
@@ -189,18 +192,43 @@ describe('SessionsUnderProjects', () => {
     expect(screen.queryByRole('button', { name: 'New session in Ari' })).not.toBeInTheDocument()
 
     const openMenu = async (): Promise<HTMLElement> => {
-      await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Ari1' }) })
+      await user.pointer({
+        keys: '[MouseRight]',
+        target: screen.getByRole('button', { name: 'Ari1' }),
+      })
       return screen.getByRole('menu', { name: 'Project actions for Ari' })
     }
 
     await user.click(within(await openMenu()).getByRole('menuitem', { name: 'New session here' }))
     expect(onNewSessionInProject).toHaveBeenCalledWith('proj-1')
 
-    await user.click(within(await openMenu()).getByRole('menuitem', { name: 'Reveal in file manager' }))
+    await user.click(within(await openMenu()).getByRole('menuitem', { name: 'Import' }))
+    expect(onImportSessions).toHaveBeenCalledWith('proj-1')
+
+    await user.click(
+      within(await openMenu()).getByRole('menuitem', { name: 'Reveal in file manager' }),
+    )
     expect(onRevealProject).toHaveBeenCalledWith('proj-1')
 
     await user.click(within(await openMenu()).getByRole('menuitem', { name: 'Close project' }))
     expect(onCloseProject).toHaveBeenCalledWith('proj-1')
+  })
+
+  it('keeps Import discoverable but disabled for a missing project', async () => {
+    const onImportSessions = vi.fn()
+    renderSidebar([], null, { onImportSessions }, [
+      { id: 'gone', name: 'Ghost', path: '/nope', status: 'missing' },
+    ])
+    const user = userEvent.setup()
+
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Ghost0' }),
+    })
+    const importItem = screen.getByRole('menuitem', { name: /Import: Locate this project/ })
+    expect(importItem).toHaveAttribute('aria-disabled', 'true')
+    await user.click(importItem)
+    expect(onImportSessions).not.toHaveBeenCalled()
   })
 
   it('opens the same menu from the hover affordance, which is not nested inside the row button', async () => {
@@ -223,7 +251,10 @@ describe('SessionsUnderProjects', () => {
     renderSidebar([session('a', 1, 'proj-1')], null, { onRemoveProject })
     const user = userEvent.setup()
 
-    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Ari1' }) })
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Ari1' }),
+    })
     await user.click(screen.getByRole('menuitem', { name: 'Remove project' }))
     expect(onRemoveProject).not.toHaveBeenCalled()
     expect(screen.getByText('Remove project?')).toBeInTheDocument()
@@ -298,7 +329,9 @@ describe('SessionsUnderProjects', () => {
     const sketch = screen.getByRole('region', { name: 'Sketch' })
     expect(within(ari).getAllByRole('status', { name: 'Working' }).length).toBeGreaterThanOrEqual(1)
     expect(within(ari).getByRole('status', { name: 'Waiting for you' })).toBeInTheDocument()
-    expect(within(sketch).getAllByRole('status', { name: 'Turn complete' }).length).toBeGreaterThanOrEqual(1)
+    expect(
+      within(sketch).getAllByRole('status', { name: 'Turn complete' }).length,
+    ).toBeGreaterThanOrEqual(1)
   })
 })
 

@@ -173,10 +173,10 @@ export const rpcParams = {
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
-  /** Sessions another agent already has on disk; `cwd` scopes to one project. */
-  'sessions.importable': z.object({ cwd: z.string().min(1).optional() }),
+  /** Sessions another agent already has on disk; `projectId` scopes to one registered project. */
+  'sessions.importable': z.object({ projectId: z.string().min(1).optional() }),
   'sessions.import': z.object({
-    path: z.string().min(1),
+    candidateId: z.string().min(1),
     /** Defaults to the project whose folder matches the session's own cwd. */
     projectId: z.string().min(1).optional(),
   }),
@@ -343,7 +343,7 @@ export interface RpcResults {
   'sessions.importable': {
     kind: 'pi'
     id: string
-    path: string
+    candidateId: string
     cwd: string
     title: string
     startedAt: number

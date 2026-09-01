@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -256,15 +256,15 @@ suite('GitService', () => {
       const list = await service.listWorktrees(dir)
       expect(list.ok).toBe(true)
       if (!list.ok) return
-      const entry = list.value.find((w) => w.path.replace(/\\/g, '/') === wt.replace(/\\/g, '/'))
+      const canonicalWt = (await realpath(wt)).replace(/\\/g, '/')
+      const canonicalDir = (await realpath(dir)).replace(/\\/g, '/')
+      const entry = list.value.find((w) => w.path.replace(/\\/g, '/') === canonicalWt)
       expect(entry?.branch).toBe('refs/heads/ari/sess-rt')
       expect(entry?.head).toMatch(/^[0-9a-f]{40}$/)
       expect(entry?.bare).toBe(false)
       expect(entry?.detached).toBe(false)
       // The main checkout row is always present too.
-      expect(list.value.some((w) => w.path.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))).toBe(
-        true,
-      )
+      expect(list.value.some((w) => w.path.replace(/\\/g, '/') === canonicalDir)).toBe(true)
 
       const removed = await service.removeWorktree(dir, wt)
       expect(removed).toEqual({ ok: true, value: undefined })
