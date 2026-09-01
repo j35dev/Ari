@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { findTool } from './tools'
@@ -23,6 +23,24 @@ async function writeFakeRg(dir: string, body: string): Promise<string> {
 }
 
 describe('grep tool', () => {
+  it('JS glob *.ts matches nested files the way ripgrep does', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-grep-glob-'))
+    try {
+      await mkdir(join(dir, 'src'), { recursive: true })
+      await writeFile(join(dir, 'src', 'app.ts'), 'export const answer = 41\n', 'utf8')
+      await writeFile(join(dir, 'readme.md'), 'answer = 41', 'utf8')
+      const tool = findTool('grep')
+      const result = await tool?.execute(
+        { pattern: 'answer = \\d+', glob: '*.ts' },
+        { workspacePath: dir, rgPath: null },
+      )
+      expect(result).toContain('src/app.ts:1:')
+      expect(result).not.toContain('readme.md')
+    } finally {
+      await cleanup(dir)
+    }
+  })
+
   it('falls back to the JS walk when ripgrep is unavailable', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-grep-js-'))
     try {
