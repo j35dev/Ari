@@ -15,24 +15,30 @@ import {
   type AnthropicChatRequest,
 } from './protocols/anthropic-messages'
 import { streamChatOllama, type OllamaChatRequest } from './protocols/ollama'
-import { CONTEXT_WINDOW_CHARS, trimMessages } from './context-manager'
+import {
+  CONTEXT_WINDOW_CHARS,
+  KEEP_RECENT_RATIO,
+  needsCompaction,
+  serializeForSummary,
+  splitForCompaction,
+  summaryMessage,
+  SUMMARY_INSTRUCTIONS,
+  trimMessages,
+} from './context-manager'
 import type { AllowRule } from './allowlist'
 import type { Endpoint, EndpointStore } from './endpoints'
 import type { McpServerConfig } from './mcp-servers'
 import { McpConnection } from './mcp'
 import { mountMcpTools, type MountedMcpServer } from './mcp-tools'
-import type { Tool } from './tools'
+import { BUILT_IN_TOOLS, type Tool } from './tools'
+import { buildSystemPrompt } from './system-prompt'
+import {
+  MemoryConversationStore,
+  type ConversationStore,
+} from './conversation-store'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('ari-core:driver')
-
-const SYSTEM_PROMPT = [
-  'You are Ari Core, a coding agent embedded in the Ari desktop app.',
-  'You work inside the user workspace and have tools for reading, writing,',
-  'editing, searching files and running shell commands.',
-  'Prefer precise edits over rewrites; verify with the shell when possible;',
-  'keep answers tight.',
-].join(' ')
 
 /** Protocol client overrides; tests inject fakes, production uses the real streamers. */
 export interface AriCoreDriverClients {
@@ -59,6 +65,18 @@ export interface AriCoreDriverOptions {
   mcpServers?: McpServerConfig[]
   /** Connection seam for tests; production connects over real stdio. */
   mcpConnect?: (server: McpServerConfig) => Promise<McpConnection>
+  /**
+   * Conversation memory across turns of one session. Defaults to an
+   * in-process store; the desktop layer passes a disk-backed one so a
+   * session's history survives a restart.
+   */
+  conversations?: ConversationStore
+  /**
+   * Summarize older history instead of dropping it once the context budget is
+   * mostly used. Costs one extra model call when it triggers; disable to keep
+   * the plain trimming behaviour. Default true.
+   */
+  compaction?: boolean
 }
 
 interface RenderedTurn {
@@ -97,6 +115,7 @@ function renderAsTextTurns(messages: ChatMessage[]): RenderedTurn[] {
 
 function anthropicRequest(
   endpoint: Endpoint,
+  model: string,
   apiKey: string | null,
   messages: ChatMessage[],
   signal?: AbortSignal,
@@ -110,7 +129,7 @@ function anthropicRequest(
   return {
     baseUrl: endpoint.baseUrl,
     apiKey,
-    model: endpoint.model,
+    model,
     ...(system ? { system } : {}),
     messages: rest.map((turn) =>
       turn.role === 'assistant'
@@ -124,6 +143,7 @@ function anthropicRequest(
 
 function ollamaRequest(
   endpoint: Endpoint,
+  model: string,
   apiKey: string | null,
   messages: ChatMessage[],
   signal?: AbortSignal,
@@ -131,7 +151,7 @@ function ollamaRequest(
   return {
     baseUrl: endpoint.baseUrl,
     apiKey,
-    model: endpoint.model,
+    model,
     messages: renderAsTextTurns(messages),
     headers: endpoint.headers,
     signal,
@@ -152,6 +172,10 @@ function ollamaRequest(
  * Enabled MCP servers are mounted per turn: each one spawns over stdio,
  * lists its tools as `mcp_<server>_<tool>`, and joins the loop's toolset.
  * Failures fail soft — a dead server is logged and omitted for the turn.
+ *
+ * Conversation memory is the driver's own concern: CLI drivers resume a
+ * provider-side thread through `resumeOf`, but Ari Core has none, so it
+ * replays the session's stored transcript ahead of each new prompt.
  */
 export class AriCoreDriver implements Driver {
   readonly kind = 'ari-core' as const
@@ -162,6 +186,8 @@ export class AriCoreDriver implements Driver {
   readonly #allowlist: AllowRule[] | undefined
   readonly #mcpServers: McpServerConfig[]
   readonly #mcpConnectOverride?: (server: McpServerConfig) => Promise<McpConnection>
+  readonly #conversations: ConversationStore
+  readonly #compaction: boolean
 
   constructor(endpoints: EndpointStore, options: AriCoreDriverOptions = {}) {
     this.#endpoints = endpoints
@@ -170,18 +196,34 @@ export class AriCoreDriver implements Driver {
     this.#allowlist = options.allowlist
     this.#mcpServers = options.mcpServers ?? []
     this.#mcpConnectOverride = options.mcpConnect
+    this.#conversations = options.conversations ?? new MemoryConversationStore()
+    this.#compaction = options.compaction ?? true
   }
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    // The UI namespaces endpoint models as `ep:<id>` in the shared selector;
-    // the driver owns stripping that prefix so every caller is safe.
+    // The UI namespaces endpoint models as `ep:<endpointId>:<model>` in the
+    // shared selector (legacy `ep:<endpointId>` falls back to the endpoint's
+    // default model); the driver owns stripping that prefix so every caller
+    // is safe. Model ids may contain colons (e.g. `llama3.1:8b`), so the
+    // split is on the first colon after the endpoint id.
     const raw = session.modelId ?? ''
-    const endpointId = raw.startsWith('ep:') ? raw.slice(3) : raw
+    let endpointId = raw.startsWith('ep:') ? raw.slice(3) : raw
+    let modelOverride: string | null = null
+    if (raw.startsWith('ep:')) {
+      const rest = raw.slice(3)
+      const sep = rest.indexOf(':')
+      if (sep !== -1) {
+        endpointId = rest.slice(0, sep)
+        modelOverride = rest.slice(sep + 1)
+      }
+    }
     const apiKey = this.#endpoints.apiKeyFor(endpointId)
     const endpoint = this.#endpoints.list().find((e) => e.id === endpointId)
     const clients = this.#clients
     const contextCharLimit = this.#contextCharLimit
     const allowlist = this.#allowlist
+    const conversations = this.#conversations
+    const compaction = this.#compaction
     const mcpServers = this.#mcpServers.filter((s) => !s.disabled)
     const mcpConnect =
       this.#mcpConnectOverride ??
@@ -227,33 +269,13 @@ export class AriCoreDriver implements Driver {
         return
       }
 
-      const round = (messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<AgentEvent> => {
-        // Context guardrail runs before every round; a no-op while small.
-        const effective = trimMessages(messages, contextCharLimit)
-        switch (endpoint.flavor) {
-          case 'anthropic-messages':
-            return (clients.anthropic ?? streamChatAnthropic)(
-              anthropicRequest(endpoint, apiKey, effective, signal),
-            )
-          case 'ollama':
-            return (clients.ollama ?? streamChatOllama)(
-              ollamaRequest(endpoint, apiKey, effective, signal),
-            )
-          case 'openai-chat':
-            return (clients.openai ?? streamChatCompletion)({
-              baseUrl: endpoint.baseUrl,
-              apiKey,
-              model: endpoint.model,
-              messages: effective,
-              headers: endpoint.headers,
-              signal,
-            })
-        }
-      }
+      const model = modelOverride ?? endpoint.model
 
       // Mount enabled MCP servers for this turn: connect (fail-soft), list
       // tools, and hand the merged toolset to the loop. A dead or slow
-      // server is logged and omitted; the turn always runs.
+      // server is logged and omitted; the turn always runs. The advertised
+      // schemas go on the OpenAI-compat request so the model emits native
+      // tool_calls instead of dumping markup into the transcript.
       let extraTools: Tool[] = []
       if (mcpServers.length > 0) {
         const mounted: MountedMcpServer[] = []
@@ -271,20 +293,125 @@ export class AriCoreDriver implements Driver {
         }
         extraTools = await mountMcpTools(mounted)
       }
+      const advertised = [...BUILT_IN_TOOLS, ...extraTools].map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }))
+
+      const round = (messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<AgentEvent> => {
+        // Context guardrail runs before every round; a no-op while small. It is
+        // the floor under compaction, not a replacement for it: trimming drops
+        // history, compaction summarizes it first.
+        const effective = trimMessages(messages, contextCharLimit)
+        switch (endpoint.flavor) {
+          case 'anthropic-messages':
+            return (clients.anthropic ?? streamChatAnthropic)(
+              anthropicRequest(endpoint, model, apiKey, effective, signal),
+            )
+          case 'ollama':
+            return (clients.ollama ?? streamChatOllama)(
+              ollamaRequest(endpoint, model, apiKey, effective, signal),
+            )
+          case 'openai-chat':
+            return (clients.openai ?? streamChatCompletion)({
+              baseUrl: endpoint.baseUrl,
+              apiKey,
+              model,
+              messages: effective,
+              tools: advertised,
+              headers: endpoint.headers,
+              signal,
+            })
+        }
+      }
+
+      // Replay this session's earlier turns so the model keeps its memory;
+      // the stored transcript is trimmed to the same budget as a request so a
+      // long session cannot grow it without bound.
+      const history = trimMessages(await conversations.load(session.sessionId), contextCharLimit)
+      let latest: ChatMessage[] = history
+      const persist = (): Promise<void> =>
+        conversations
+          .save(session.sessionId, trimMessages(latest, contextCharLimit))
+          .catch((error: unknown) => {
+            // Losing memory is worse than a noisy log, but never fatal to a turn.
+            log.warn('failed to persist ari-core conversation', {
+              sessionId: session.sessionId,
+              error: String(error),
+            })
+          })
+
+      /**
+       * Summarizes an older span through the session's own model. Usage from
+       * this call is not folded into the turn's totals, so cost under-reports
+       * slightly when a session compacts.
+       */
+      const summarize = async (older: ChatMessage[]): Promise<string> => {
+        let text = ''
+        for await (const event of round(
+          [
+            { role: 'system', content: SUMMARY_INSTRUCTIONS },
+            { role: 'user', content: serializeForSummary(older) },
+          ],
+          abort.signal,
+        )) {
+          if (event.type === 'text-delta') text += event.text
+        }
+        return text.trim()
+      }
+
+      /**
+       * Replaces the summarizable span with one summary message, keeping the
+       * newest turns verbatim. Failure falls through to plain trimming: a
+       * degraded context is better than a failed turn.
+       */
+      const compact = async (messages: ChatMessage[]): Promise<ChatMessage[]> => {
+        if (!needsCompaction(messages, contextCharLimit)) return messages
+        const { systems, older, recent } = splitForCompaction(
+          messages,
+          Math.max(1, Math.floor(contextCharLimit * KEEP_RECENT_RATIO)),
+        )
+        if (older.length === 0) return messages
+        try {
+          const summary = await summarize(older)
+          if (summary.length === 0) return messages
+          log.info('compacted ari-core context', {
+            sessionId: session.sessionId,
+            summarized: older.length,
+            kept: recent.length,
+          })
+          return [...systems, summaryMessage(summary), ...recent]
+        } catch (error) {
+          log.warn('compaction failed; falling back to trimming', {
+            sessionId: session.sessionId,
+            error: String(error),
+          })
+          return messages
+        }
+      }
 
       try {
         yield* runAgentLoop({
           round,
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt: await buildSystemPrompt({ workspacePath: session.workspacePath }),
           userPrompt: session.prompt,
           workspacePath: session.workspacePath,
           permissionMode: session.permissionMode,
+          history,
+          onTranscript: (messages) => {
+            latest = messages
+          },
+          ...(compaction ? { compact } : {}),
           requestApproval,
           ...(allowlist ? { allowlist } : {}),
           ...(extraTools.length > 0 ? { extraTools } : {}),
           signal: abort.signal,
         })
       } finally {
+        // Persist whatever the turn produced, including a partial transcript
+        // after an interrupt — the next turn should see what already happened.
+        await persist()
         await disposeMcpConnections()
       }
     }

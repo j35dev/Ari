@@ -55,6 +55,7 @@ import {
 } from './provider-config'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
+import { FileConversationStore } from '@ari/ari-core/conversation-store'
 
 const log = createLogger('desktop:rpc')
 
@@ -394,7 +395,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // The registry exists immediately with Ari Core attached; CLI drivers are
   // added as background detection completes. Nothing waits on that to answer.
   const driverRegistry = new DriverRegistry()
-  driverRegistry.register(new AriCoreDriver(getEndpointStore()))
+  driverRegistry.register(
+    new AriCoreDriver(getEndpointStore(), {
+      // Ari Core owns its transcript (it has no provider-side thread to
+      // resume), so conversation memory is persisted per session on disk.
+      conversations: new FileConversationStore(
+        join(app.getPath('userData'), 'ari-core', 'conversations'),
+      ),
+    }),
+  )
   driverRegistryRef = driverRegistry
   hydrateDrivers(driverRegistry)
 
@@ -810,6 +819,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       baseUrl: params.baseUrl,
       flavor: params.flavor,
       model: params.model,
+      // undefined keeps the stored list; a provided list replaces it.
+      ...(params.models !== undefined ? { models: params.models } : {}),
       headers: params.headers,
       // undefined keeps the stored key; null clears it (store semantics).
       apiKey: params.apiKey === undefined ? undefined : params.apiKey || null,
@@ -823,21 +834,80 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { removed: await store.remove(params.id) }
   })
 
+  // Discovery runs in the main process for the same reason `endpoints.test`
+  // does: the sandboxed renderer cannot reach arbitrary origins. An `id` names
+  // a saved endpoint, so its stored key is reused when the caller did not send
+  // one; `persist` decides whether the merged list is written back.
+  r.register('endpoints.discoverModels', async (params) => {
+    const { discoverModels } = await import('@ari/ari-core/model-discovery')
+    const store = getEndpointStore()
+    await store.load()
+    const storedKey = params.id !== undefined ? store.apiKeyFor(params.id) : null
+    const result = await discoverModels({
+      baseUrl: params.baseUrl,
+      flavor: params.flavor,
+      apiKey: params.apiKey ?? storedKey,
+    })
+    if (params.id === undefined || !params.persist || result.models.length === 0) {
+      return { models: result.models, error: result.error, saved: false }
+    }
+    const updated = await store.setModels(
+      params.id,
+      result.models.map((model) => ({
+        id: model.id,
+        label: model.label,
+        contextWindow: model.contextWindow,
+        source: 'discovered' as const,
+      })),
+    )
+    return { models: result.models, error: result.error, saved: updated !== null }
+  })
+
+  r.register('endpoints.setModels', async (params) => {
+    const store = getEndpointStore()
+    await store.load()
+    const updated = await store.setModels(params.id, params.models)
+    if (updated === null) return null
+    // A requested default only takes effect when the endpoint actually serves
+    // it; otherwise setModels' own choice stands.
+    if (
+      params.defaultModel !== undefined &&
+      params.defaultModel !== updated.model &&
+      updated.models.some((m) => m.id === params.defaultModel)
+    ) {
+      const repointed = await store.upsert({
+        id: updated.id,
+        name: updated.name,
+        baseUrl: updated.baseUrl,
+        flavor: updated.flavor,
+        model: params.defaultModel,
+        models: updated.models,
+        headers: updated.headers,
+      })
+      return { models: repointed.models, defaultModel: repointed.model }
+    }
+    return { models: updated.models, defaultModel: updated.model }
+  })
+
   // Connection probe runs in the main process: the renderer is blocked from
   // cross-origin fetches by CORS, which would report every endpoint broken.
+  // It hits the same listing path discovery uses, so a reachable endpoint here
+  // means a fetchable model list there.
   r.register('endpoints.test', async (params) => {
+    const { modelsPathFor } = await import('@ari/ari-core/model-discovery')
+    const store = getEndpointStore()
+    await store.load()
+    // A saved endpoint's key lives encrypted in the store; a key typed into the
+    // settings form arrives on the call. Without either, a keyed provider would
+    // report itself broken.
+    const apiKey = params.apiKey ?? (params.id !== undefined ? store.apiKeyFor(params.id) : null)
     const base = params.baseUrl.replace(/\/+$/, '')
-    const url =
-      params.flavor === 'anthropic-messages'
-        ? `${base}/v1/models`
-        : params.flavor === 'ollama'
-          ? `${base}/api/tags`
-          : `${base}/models`
+    const url = `${base}${modelsPathFor(params.flavor)}`
     const headers: Record<string, string> =
       params.flavor === 'anthropic-messages'
-        ? { 'x-api-key': params.apiKey ?? '', 'anthropic-version': '2023-06-01' }
-        : params.flavor === 'openai-chat' && params.apiKey
-          ? { Authorization: `Bearer ${params.apiKey}` }
+        ? { 'x-api-key': apiKey ?? '', 'anthropic-version': '2023-06-01' }
+        : apiKey
+          ? { Authorization: `Bearer ${apiKey}` }
           : {}
     const startedAt = Date.now()
     try {
@@ -1090,6 +1160,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'endpoints.upsert',
     'endpoints.remove',
     'endpoints.test',
+    'endpoints.discoverModels',
+    'endpoints.setModels',
     'settings.get',
     'settings.update',
     'git.status',
