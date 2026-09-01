@@ -27,6 +27,7 @@ const GUIDELINES: readonly string[] = [
   'Use edit for precise changes; keep each oldText minimal but unique in the file.',
   'After changes, verify with bash (tests, typechecks, builds) when feasible.',
   'Be concise in responses; show file paths clearly when working with files.',
+  'The user-visible reply is the answer only. Do not narrate internal planning in the message body.',
 ]
 
 /** Instruction files discovered at the workspace root, in priority order. */
