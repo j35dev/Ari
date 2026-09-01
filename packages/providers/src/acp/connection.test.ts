@@ -7,6 +7,8 @@ const LAUNCH: AcpLaunch = { label: 'test-agent', command: 'fake', args: [] }
 
 interface FakeChild extends AcpChildProcess {
   readonly sent: Record<string, unknown>[]
+  /** Signals the connection escalated to, in order. */
+  readonly signals: NodeJS.Signals[]
   stdin: PassThrough
   stdout: PassThrough
   stderr: PassThrough
@@ -26,11 +28,13 @@ function fakeChild(): FakeChild {
     stderr,
     killed: false,
     sent: [],
+    signals: [],
     emitClose(code) {
       for (const listener of [...exitListeners]) listener(code)
       stdout.end()
     },
-    kill() {
+    kill(signal) {
+      if (signal !== undefined) child.signals.push(signal)
       if (child.killed) return true
       child.killed = true
       stdin.end()
@@ -371,6 +375,41 @@ describe('AcpConnection', () => {
       clearInterval(spam)
     }
     connection.kill()
+  })
+})
+
+describe('AcpConnection.shutdown', () => {
+  it('ends the transport and settles on the agent exiting by itself', async () => {
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    // A cooperative stdio agent exits when its input closes.
+    child.stdin.on('end', () => {
+      if (!child.killed) child.kill()
+    })
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    await connection.shutdown()
+    expect(connection.closed).toBe(true)
+    expect(child.signals).toEqual([])
+  })
+
+  it('escalates to SIGTERM when the agent ignores the EOF', async () => {
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    await connection.shutdown()
+    expect(child.signals).toEqual(['SIGTERM'])
+    expect(child.killed).toBe(true)
+  }, 10000)
+
+  it('is a no-op on an already-closed connection', async () => {
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    connection.kill()
+    await connection.waitClosed()
+    child.signals.length = 0
+    await connection.shutdown()
+    expect(child.signals).toEqual([])
   })
 })
 
