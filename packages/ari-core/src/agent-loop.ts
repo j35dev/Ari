@@ -26,6 +26,13 @@ export interface AgentLoopOptions {
    */
   onTranscript?: (messages: ChatMessage[]) => void
   /**
+   * Called with the full message list before every model round. Returning a
+   * shorter list replaces the loop's own history, which is how compaction
+   * lands: the summary survives, the summarized span does not. Returning the
+   * same array is a no-op. The system prompt is always element 0.
+   */
+  compact?: (messages: ChatMessage[]) => Promise<ChatMessage[]>
+  /**
    * Session permission mode (`ask` | `allow-edits` | `full`). Bash and file
    * writes are gated by it; an absent mode is treated as `ask` (fail-closed).
    */
@@ -67,6 +74,35 @@ interface PendingToolCall {
   callId: string
   name: string
   argsJson: string
+}
+
+/** One settled tool call, already shaped for the transcript. */
+interface ToolOutcome {
+  resultJson: string
+  isError: boolean
+}
+
+/**
+ * A tool may run alongside the other read-only calls of its batch when it
+ * declares itself side-effect free. Guarded names never qualify, so an
+ * extension cannot bypass approval by claiming to be read-only.
+ */
+function isConcurrencySafe(tool: Tool): boolean {
+  return tool.readOnly === true && !MODE_GUARDED_TOOLS.has(tool.name)
+}
+
+/** Runs a tool, folding a thrown error into the result the model will see. */
+async function executeTool(
+  tool: Tool,
+  argsJson: string,
+  ctx: ToolContext,
+): Promise<ToolOutcome> {
+  try {
+    const args = JSON.parse(argsJson || '{}') as Record<string, unknown>
+    return { resultJson: JSON.stringify(await tool.execute(args, ctx)), isError: false }
+  } catch (e) {
+    return { resultJson: JSON.stringify(String(e)), isError: true }
+  }
 }
 
 /**
@@ -111,6 +147,17 @@ export async function* runAgentLoop(
       yield { type: 'error', message: 'aborted', rawJson: null }
       yield { type: 'done' }
       return
+    }
+
+    // Compaction runs between rounds, where the message list is consistent —
+    // never mid-round, which could separate a tool call from its results.
+    if (options.compact) {
+      const compacted = await options.compact(messages)
+      if (compacted !== messages) {
+        messages.length = 0
+        messages.push(...compacted)
+        publishTranscript()
+      }
     }
 
     // Empty-response guard: a round with no content and no tool calls is
@@ -201,11 +248,30 @@ export async function* runAgentLoop(
     messages.push({ role: 'assistant', content: assistantText, toolCalls: assistantToolCalls })
     publishTranscript()
 
+    // Read-only builtins cannot conflict with each other and never need
+    // approval, so a fan-out (four reads, a grep and a glob) runs concurrently
+    // instead of paying one round-trip each. Mutating and external tools stay
+    // strictly ordered: their order is the model's intent, and two writes to
+    // one file must not race. Results are still yielded in call order, so the
+    // transcript and the message list are identical either way.
+    const inFlight = new Map<string, Promise<ToolOutcome>>()
+    for (const call of pending) {
+      const tool = toolset.get(call.name)
+      if (tool && isConcurrencySafe(tool)) {
+        inFlight.set(call.callId, executeTool(tool, call.argsJson, ctx))
+      }
+    }
+
     for (const call of pending) {
       const tool = toolset.get(call.name)
       let resultJson: string
       let isError = false
-      if (!tool) {
+      const concurrent = inFlight.get(call.callId)
+      if (concurrent) {
+        const outcome = await concurrent
+        resultJson = outcome.resultJson
+        isError = outcome.isError
+      } else if (!tool) {
         isError = true
         resultJson = JSON.stringify(`unknown tool: ${call.name}`)
       } else {
