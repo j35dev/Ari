@@ -4,6 +4,7 @@ import { Badge } from '@ari/ui/badge'
 import { Button } from '@ari/ui/button'
 import { IconButton } from '@ari/ui/icon-button'
 import { Input } from '@ari/ui/input'
+import { Select } from '@ari/ui/select'
 import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 
 /** State of a model-discovery request against one endpoint. */
@@ -19,8 +20,6 @@ export interface ModelListEditorProps {
   /** Asks the endpoint what it serves; absent while the base URL is invalid. */
   onFetch: (() => void) | null
   fetchState: FetchState | undefined
-  /** Disambiguates the default-model radio group across mounted editors. */
-  idPrefix: string
   /**
    * Endpoint this editor belongs to, woven into every control's accessible
    * name — the settings page mounts one editor per card plus one in the form.
@@ -35,10 +34,10 @@ function contextHint(model: EndpointModel): string | null {
 }
 
 /**
- * Editor for the set of models one endpoint serves. Models arrive two ways:
- * fetched from the endpoint's own listing API, or typed in by hand — and the
- * two are kept distinguishable so a refresh never deletes a manual entry.
- * Exactly one model is the endpoint's default.
+ * Editor for the set of models one endpoint serves. A fetch imports every
+ * model the listing API returns — there is no pick-step. Unwanted entries are
+ * removed afterwards. Manual ids stay distinguishable so a refresh never
+ * deletes them. Exactly one model is the endpoint's default.
  */
 export function ModelListEditor({
   models,
@@ -46,7 +45,6 @@ export function ModelListEditor({
   onChange,
   onFetch,
   fetchState,
-  idPrefix,
   scopeLabel,
 }: ModelListEditorProps) {
   const [draft, setDraft] = useState('')
@@ -105,7 +103,7 @@ export function ModelListEditor({
             <span className="text-danger">Could not fetch models: {fetchState.error}</span>
           ) : (
             <span className="text-success">
-              Found {fetchState.found} model{fetchState.found === 1 ? '' : 's'}.
+              Added {fetchState.found} model{fetchState.found === 1 ? '' : 's'}.
             </span>
           )}
         </p>
@@ -116,25 +114,24 @@ export function ModelListEditor({
           No models yet — fetch them from the endpoint or add a model id by hand.
         </p>
       ) : (
-        <ul className="flex flex-col gap-1">
-          {models.map((model) => (
-            <li key={model.id} className="flex items-center gap-2">
-              <label
-                htmlFor={`${idPrefix}-${model.id}`}
-                className="flex min-w-0 flex-1 cursor-pointer select-none items-center gap-2"
-              >
-                <input
-                  type="radio"
-                  name={`${idPrefix}-default-model`}
-                  id={`${idPrefix}-${model.id}`}
-                  checked={model.id === defaultModel}
-                  onChange={() => onChange({ models, defaultModel: model.id })}
-                  className="peer sr-only"
-                />
-                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-border-strong bg-surface-1 transition-colors peer-checked:border-accent peer-checked:bg-accent peer-checked:[&>span]:opacity-100 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">
-                  <span className="h-1.5 w-1.5 rounded-full bg-fg-on-accent opacity-0" />
-                </span>
-                <span className="truncate font-mono text-xs text-fg">{model.id}</span>
+        <>
+          {models.length > 1 && (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-fg">Default for {scopeLabel}</span>
+              <Select
+                value={defaultModel}
+                onValueChange={(value) => onChange({ models, defaultModel: value })}
+                options={models.map((model) => ({ value: model.id, label: model.id }))}
+              />
+            </label>
+          )}
+          <ul
+            aria-label={`Models on ${scopeLabel}`}
+            className="ari-scroll flex max-h-52 flex-col gap-1 overflow-y-auto pr-1"
+          >
+            {models.map((model) => (
+              <li key={model.id} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{model.id}</span>
                 {model.label !== model.id && (
                   <span className="truncate text-2xs text-fg-muted">{model.label}</span>
                 )}
@@ -144,17 +141,20 @@ export function ModelListEditor({
                   </span>
                 )}
                 {model.source === 'manual' && <Badge tone="neutral">manual</Badge>}
-              </label>
-              <IconButton
-                size="sm"
-                variant="ghost"
-                icon={<Trash2 className="h-3 w-3" />}
-                aria-label={`Remove model ${model.id} from ${scopeLabel}`}
-                onClick={() => remove(model.id)}
-              />
-            </li>
-          ))}
-        </ul>
+                {model.id === defaultModel && models.length > 1 && (
+                  <Badge tone="accent">default</Badge>
+                )}
+                <IconButton
+                  size="sm"
+                  variant="ghost"
+                  icon={<Trash2 className="h-3 w-3" />}
+                  aria-label={`Remove model ${model.id} from ${scopeLabel}`}
+                  onClick={() => remove(model.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
       <div className="flex items-center gap-1.5">
@@ -186,8 +186,8 @@ export function ModelListEditor({
 
       {models.length > 0 && (
         <p className="text-2xs text-fg-subtle">
-          The selected model is used when a session does not pick one. All models here appear in
-          the session model picker.
+          Fetch adds every model the endpoint serves. Remove any you do not want — they all appear
+          in the session picker. The default is used when a session does not pick one.
         </p>
       )}
     </div>

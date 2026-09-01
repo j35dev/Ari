@@ -208,8 +208,13 @@ describe('EndpointsManager', () => {
     await user.type(screen.getByLabelText('API key'), 'sk-typed')
     await user.click(screen.getByRole('button', { name: /fetch models for the new endpoint/i }))
 
-    expect(await screen.findByText('gpt-4o-mini')).toBeInTheDocument()
-    expect(screen.getByText('128k ctx')).toBeInTheDocument()
+    const imported = await screen.findByRole('list', { name: 'Models on the new endpoint' })
+    expect(imported).toHaveTextContent('gpt-4o-mini')
+    expect(imported).toHaveTextContent('gpt-4o')
+    expect(imported).toHaveTextContent('128k ctx')
+    expect(screen.getByText(/Added 2 models/)).toBeInTheDocument()
+    // Fetch imports the whole catalog — there is no pick-which-to-add step.
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
     // The typed key has to ride along — it is not saved yet, and without it a
     // keyed provider answers 401. The probe stays transient: persist is false
     // and nothing is written until the form is submitted.
@@ -320,7 +325,8 @@ describe('EndpointsManager', () => {
     await screen.findByText('Local llama')
 
     await user.click(screen.getByRole('button', { name: /manage models for local llama/i }))
-    await user.click(screen.getByRole('radio', { name: /qwen3/ }))
+    await user.click(screen.getByLabelText(/default for local llama/i))
+    await user.click(screen.getByRole('option', { name: 'qwen3' }))
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
@@ -328,6 +334,16 @@ describe('EndpointsManager', () => {
         expect.objectContaining({ id: 'ep-1', defaultModel: 'qwen3' }),
       )
     })
+  })
+
+  it('keeps the add form above saved endpoints', async () => {
+    mockList()
+    render(<EndpointsManager />)
+    const formHeading = await screen.findByRole('heading', { name: 'Add endpoint' })
+    const savedHeading = screen.getByRole('heading', { name: 'Saved endpoints' })
+    expect(
+      formHeading.compareDocumentPosition(savedHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
   })
 
   it('removing the default model hands the role to the next one', async () => {
