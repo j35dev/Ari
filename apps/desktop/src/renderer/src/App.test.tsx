@@ -201,9 +201,7 @@ describe('Shell session navigation keys', () => {
     // command path runs.
     await vi.waitFor(
       () => {
-        const created = invokeMock.mock.calls.some(
-          ([method]) => method === 'session.create',
-        )
+        const created = invokeMock.mock.calls.some(([method]) => method === 'session.create')
         const reused = invokeMock.mock.calls.some(
           ([method, params]) =>
             method === 'session.load' &&
@@ -213,6 +211,68 @@ describe('Shell session navigation keys', () => {
       },
       { timeout: 10_000 },
     )
+  })
+})
+
+describe('Project session import flow', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    rpcMocks.subscribe.mockReset()
+    rpcMocks.subscribe.mockImplementation(() => () => undefined)
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: '/Users/tester' }
+        case 'session.list':
+          return []
+        case 'project.list':
+          return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
+        case 'providers.detect':
+        case 'providers.models':
+        case 'endpoints.list':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        case 'sessions.importable':
+          return [
+            {
+              kind: 'pi',
+              id: 'pi-1',
+              candidateId: 'candidate-one',
+              cwd: '/projects/ari',
+              title: 'Imported chat',
+              startedAt: 1,
+              updatedAt: 2,
+              messageCount: 1,
+              imported: false,
+            },
+          ]
+        case 'sessions.import':
+          return { ok: true, sessionId: 'sess-imported', title: 'Imported chat', messageCount: 1 }
+        case 'session.load':
+          return { session: null, activeTurnId: null }
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+  })
+
+  it('opens the project import modal and selects the imported Ari chat', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const project = await screen.findByRole('button', { name: 'Ari0' }, { timeout: 10_000 })
+
+    await user.pointer({ keys: '[MouseRight]', target: project })
+    await user.click(screen.getByRole('menuitem', { name: 'Import' }))
+    await user.click(screen.getByRole('button', { name: /Pi/ }))
+    await user.click(await screen.findByRole('button', { name: 'Import Imported chat' }))
+
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-imported' })
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 
@@ -305,10 +365,9 @@ describe('Shell live sidebar feed', () => {
 
     // Debounced refetch pulls the engine's fresh summary; the row updates
     // without any explicit user action.
-    await vi.waitFor(
-      () => expect(screen.getByText('Fixed the build')).toBeInTheDocument(),
-      { timeout: 3_000 },
-    )
+    await vi.waitFor(() => expect(screen.getByText('Fixed the build')).toBeInTheDocument(), {
+      timeout: 3_000,
+    })
   })
 
   it('stops offering a chatty session as pristine, so Mod+N creates a new one', async () => {

@@ -17,7 +17,9 @@ const ENV: DetectEnvironment = {
 describe('piSessionsDir', () => {
   it('prefers the session-dir override, then the agent dir, then the default', () => {
     expect(piSessionsDir({ ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: '/s' } })).toBe('/s')
-    expect(piSessionsDir({ ...ENV, vars: { PI_CODING_AGENT_DIR: '/a' } })).toBe(join('/a', 'sessions'))
+    expect(piSessionsDir({ ...ENV, vars: { PI_CODING_AGENT_DIR: '/a' } })).toBe(
+      join('/a', 'sessions'),
+    )
     expect(piSessionsDir(ENV)).toBe(join('/home/tester', '.pi', 'agent', 'sessions'))
     expect(piSessionsDir({ ...ENV, homeDir: '' })).toBeNull()
   })
@@ -143,6 +145,16 @@ describe('listPiSessions', () => {
     expect(scoped[0]?.messageCount).toBe(1)
   })
 
+  it('treats Pi folder encoding as a hint rather than a filter', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ari-pi-root-'))
+    const env: DetectEnvironment = { ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: root } }
+    await writeSession(root, '--future-encoding--', 'one.jsonl', '/workspace', 'still found')
+
+    expect((await listPiSessions({ cwd: '/workspace' }, env)).map((s) => s.title)).toEqual([
+      'still found',
+    ])
+  })
+
   it('skips a corrupt file instead of hiding the rest of the history', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ari-pi-root-'))
     const env: DetectEnvironment = { ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: root } }
@@ -152,7 +164,9 @@ describe('listPiSessions', () => {
   })
 
   it('answers empty when pi has never written a session dir', async () => {
-    expect(await listPiSessions({}, { ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: '/nope' } })).toEqual([])
+    expect(
+      await listPiSessions({}, { ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: '/nope' } }),
+    ).toEqual([])
   })
 })
 
