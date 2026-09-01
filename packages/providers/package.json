@@ -11,6 +11,7 @@
     "./catalog-service": "./src/catalog-service.ts",
     "./updates": "./src/updates.ts",
     "./package-manager": "./src/package-manager.ts",
+    "./config-files": "./src/config-files.ts",
     "./install": "./src/install.ts",
     "./registry": "./src/driver-registry.ts",
     "./driver": "./src/driver.ts",
