@@ -45,7 +45,7 @@ function connectionThat(
     terminalLogins: logins,
     newSession,
     killed: false,
-    kill: () => {
+    shutdown: async () => {
       connection.killed = true
     },
   }

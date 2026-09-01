@@ -461,6 +461,26 @@ its own OAuth and writes its own store; Ari only learns the command and offers t
 - [x] M29.5 Pin the ACP adapter versions: `launches.ts` requests `npx -y <pkg>` unpinned, so every user resolves whatever published that day and `terminal-auth` (an adapter `_meta` extension, not standard ACP) can change underneath us.
 - [x] M29.6 Surface `detection.authReason` and downgrade a provider to `unauthenticated` after a live auth wall — today the detector writes good explanations that render nowhere, and the badge can read "authenticated" while every turn fails.
 
+## M30 — ACP transport gaps (claimed @ fix/acp-gaps)
+
+Why: a review of the pi harness against `pi-acp`'s own source found Ari writing to an axis it had
+misread, probes downloading what they promised not to, and the process-teardown ladder wired into
+every transport except the one that is now primary.
+
+- [x] M30.1 `pickAgentMode` never writes to a mode axis it cannot recognize: `session/set_mode` carries no category, and pi's adapter models `modes` as the *thinking* level (`off` … `xhigh`), so the build-mode escape hatch — "any advertised mode that is not a planning mode" — picked `off` and silently muted the agent's reasoning on every allow-edits/full turn. The hatch now requires one recognizable permission word in the list before it fires; `ask` still never guesses.
+- [x] M30.2 `probeLaunch` makes `--no-install` mean something: npx resolves consent last-wins, so the model probe's and auth preflight's `npx --no-install -y <pkg>` downloaded the adapter anyway (verified on npm 11 — the same line without `-y` refuses with "npx canceled due to missing packages and no YES option"). Probes now strip the consent flag, which also makes provider-auth's "adapter was never fetched → `unknown`" verdict reachable instead of dead code.
+- [x] M30.3 `AcpConnection.shutdown()` ends the agent through the shared teardown ladder (stdin EOF → SIGTERM → `taskkill /T /F`) and the driver cancels the session first. A bare `child.kill()` signalled the `npx` shim, not the tree behind it — node → adapter → agent CLI → its own bash/powershell children — so on Windows every finished turn and every startup probe leaked the agent it had just been talking to. M23.7 wired this ladder into the legacy drivers; the ACP transport was the one path still skipping it.
+- [x] M30.4 `usage_update` no longer reports a context-window gauge as input tokens: `used` is "of `size`", not a per-turn delta, and Ari's usage event is additive — the transcript summed a growing gauge and labelled the total "↑ input tokens". Dropped until there is an event that means context.
+- [x] M30.5 `terminalLoginsFrom` also reads the ACP registry's own `type: 'terminal'` + `args` shape, resolved against the agent's launch command, so sign-in survives the `_meta['terminal-auth']` extension the adapters themselves describe as a stopgap.
+- [x] M30.6 `ARI_ACP_<KIND>=0` actually pins one kind to its legacy driver (documented since M16, but no call site ever passed `envOverride`), and a mismatched negotiated `protocolVersion` is logged instead of silently ignored.
+
+Known gaps left open on purpose: an agent that asks an N-way question through
+`session/request_permission` (pi routes extension `select`/`confirm` prompts there) is answered with
+the first `allow_once` option, because Ari's approval vocabulary is the three-valued
+allow/deny/always-allow and cannot carry an `optionId`. Fixing it means a contract + journal + UI
+change, not a transport one. `available_commands_update` (pi advertises its slash commands) and
+`config_option_update` are still dropped by the fold.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
