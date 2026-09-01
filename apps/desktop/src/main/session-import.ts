@@ -289,18 +289,27 @@ async function writeImportedJournal(
 
 /**
  * pi session ids Ari has already imported, read from the journals' own
- * `session.ref.observed`. There is no separate bookkeeping to fall out of sync:
- * the namespaced provenance ref is also what marks it imported. Folding a read model per session is the cost of that, so the
- * listing round is bounded by how many sessions the user has.
+ * `session.ref.observed` events. The folded read model only keeps the latest
+ * resume ref — after the first live Ari turn that is a new native thread —
+ * so provenance has to come from every observed ref, not just the current one.
  */
 async function importedRefs(sessions: SessionStore): Promise<Set<string>> {
   const refs = new Set<string>()
   const listed = await sessions.listSessions().catch(() => [])
   for (const summary of listed) {
-    const model = await sessions.load(summary.id).catch(() => null)
-    if (model?.session?.driverKind !== 'pi') continue
-    const ref = model.providerSessionId
-    if (typeof ref === 'string' && ref.length > 0) {
+    const journal = await sessions.openJournal(summary.id).catch(() => null)
+    if (journal === null) continue
+    const entries = await journal.readAll().catch(() => [])
+    let isPi = false
+    const observed: string[] = []
+    for (const entry of entries) {
+      if (entry.kind !== 'value') continue
+      const event = entry.value
+      if (event.type === 'session.created' && event.session.driverKind === 'pi') isPi = true
+      if (event.type === 'session.ref.observed' && event.ref.length > 0) observed.push(event.ref)
+    }
+    if (!isPi) continue
+    for (const ref of observed) {
       refs.add(ref.startsWith(IMPORTED_PI_REF_PREFIX) ? ref.slice(IMPORTED_PI_REF_PREFIX.length) : ref)
     }
   }
