@@ -103,18 +103,25 @@ describe('modelsFor fallback chain', () => {
 })
 
 describe('effortsFor', () => {
-  it('is empty until a live probe installs a catalog', () => {
-    expect(effortsFor('grok')).toEqual({ currentId: null, options: [] })
+  it('ships Grok and Ari Core vocabularies before any probe', () => {
+    expect(effortsFor('grok').options.map((o) => o.id)).toEqual([
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+    expect(effortsFor('ari-core').options.map((o) => o.id)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(effortsFor('hermes').options).toEqual([])
   })
 
-  it('returns the probe catalog and clears on empty', () => {
+  it('lets a live probe replace the fallback', () => {
     setDynamicEfforts('grok', {
-      currentId: 'high',
+      currentId: 'low',
       options: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }],
     })
-    expect(effortsFor('grok').currentId).toBe('high')
     expect(effortsFor('grok').options.map((o) => o.id)).toEqual(['low', 'high'])
     setDynamicEfforts('grok', { currentId: null, options: [] })
-    expect(effortsFor('grok').options).toEqual([])
+    expect(effortsFor('grok').options.map((o) => o.id)).toContain('xhigh')
   })
 })

@@ -97,9 +97,11 @@ describe('SessionView question panel', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -202,9 +204,11 @@ describe('SessionView edit and resend', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -281,9 +285,11 @@ describe('SessionView regenerate and retry', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -452,9 +458,11 @@ describe('SessionView per-turn diff cards', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -565,9 +573,11 @@ describe('SessionView context meter', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -786,9 +796,11 @@ describe('SessionView queued messages', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -902,9 +914,11 @@ describe('SessionView mode change preserves the picked model', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -958,6 +972,7 @@ describe('SessionView mode change preserves the picked model', () => {
 describe('EffortChip', () => {
   beforeEach(() => {
     invokeMock.mockReset()
+    rpcMocks.subscribe.mockReturnValue(() => undefined)
   })
 
   it('hides when the harness advertised no thought levels', async () => {
@@ -967,6 +982,23 @@ describe('EffortChip', () => {
     render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
     expect(screen.queryByRole('button', { name: /Effort:/ })).not.toBeInTheDocument()
+  })
+
+  it('shows Grok levels from the models catalog', async () => {
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'grok',
+        source: 'static',
+        models: [],
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High', current: true },
+          { id: 'xhigh', label: 'Extra high' },
+        ],
+      },
+    ])
+    render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
   })
 
   it('renders advertised levels and reports the pick', async () => {

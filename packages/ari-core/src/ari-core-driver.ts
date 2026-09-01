@@ -118,7 +118,8 @@ function anthropicRequest(
   model: string,
   apiKey: string | null,
   messages: ChatMessage[],
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  effort: string | null,
 ): AnthropicChatRequest {
   const turns = renderAsTextTurns(messages)
   const system = turns
@@ -138,6 +139,7 @@ function anthropicRequest(
     ),
     headers: endpoint.headers,
     signal,
+    reasoningEffort: effort,
   }
 }
 
@@ -309,6 +311,7 @@ export class AriCoreDriver implements Driver {
         parameters: tool.parameters,
       }))
 
+      const effort = session.effort ?? null
       const round = (messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<AgentEvent> => {
         // Context guardrail runs before every round; a no-op while small. It is
         // the floor under compaction, not a replacement for it: trimming drops
@@ -317,7 +320,7 @@ export class AriCoreDriver implements Driver {
         switch (endpoint.flavor) {
           case 'anthropic-messages':
             return (clients.anthropic ?? streamChatAnthropic)(
-              anthropicRequest(endpoint, model, apiKey, effective, signal),
+              anthropicRequest(endpoint, model, apiKey, effective, signal, effort),
             )
           case 'ollama':
             return (clients.ollama ?? streamChatOllama)(
@@ -332,6 +335,7 @@ export class AriCoreDriver implements Driver {
               tools: advertised,
               headers: endpoint.headers,
               signal,
+              reasoningEffort: effort,
             })
         }
       }
