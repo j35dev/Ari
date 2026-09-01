@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { findThoughtOption, looksLikeThoughtAxis, thoughtEffortsFromSession } from './thought'
+import {
+  findThoughtOption,
+  looksLikeThoughtAxis,
+  mergeEffortCatalogs,
+  thoughtEffortsFromMeta,
+  thoughtEffortsFromSession,
+} from './thought'
 
 describe('findThoughtOption', () => {
   it('prefers the spec thought_level category', () => {
@@ -29,6 +35,18 @@ describe('findThoughtOption', () => {
       findThoughtOption([{ id: 'thinking', name: 'Thinking', type: 'select', options: [{ value: 'max' }] }])
         ?.id,
     ).toBe('thinking')
+  })
+
+  it('treats a missing type as select (Grok omits it on reasoning_effort)', () => {
+    expect(
+      findThoughtOption([
+        {
+          id: 'reasoning_effort',
+          category: 'thought_level',
+          options: [{ value: 'high', name: 'High' }],
+        },
+      ])?.id,
+    ).toBe('reasoning_effort')
   })
 
   it('never steals the model or permission-mode selectors', () => {
@@ -93,5 +111,36 @@ describe('thoughtEffortsFromSession', () => {
 
   it('returns an empty catalog when the agent advertises neither', () => {
     expect(thoughtEffortsFromSession({ sessionId: 's' })).toEqual({ currentId: null, options: [] })
+  })
+})
+
+describe('thoughtEffortsFromMeta', () => {
+  it('reads Grok initialize modelState reasoningEfforts', () => {
+    const catalog = thoughtEffortsFromMeta({
+      modelState: {
+        availableModels: [
+          {
+            modelId: 'grok-4.6',
+            _meta: {
+              reasoningEffort: 'high',
+              reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+            },
+          },
+        ],
+      },
+    })
+    expect(catalog.currentId).toBe('high')
+    expect(catalog.options.map((o) => o.id)).toEqual(['low', 'medium', 'high', 'xhigh'])
+  })
+})
+
+describe('mergeEffortCatalogs', () => {
+  it('unions options and keeps the first current id', () => {
+    const merged = mergeEffortCatalogs(
+      { currentId: 'high', options: [{ id: 'high', label: 'High' }] },
+      { currentId: 'low', options: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }] },
+    )
+    expect(merged.currentId).toBe('high')
+    expect(merged.options.map((o) => o.id)).toEqual(['high', 'low'])
   })
 })

@@ -92,11 +92,40 @@ export function clearDynamicEfforts(kind: DriverKind): void {
 }
 
 /**
- * Thought/reasoning levels the harness advertised. Empty when the agent has
- * no such selector — the Effort chip must hide rather than invent low/medium/high.
+ * Thought/reasoning levels the harness advertised, or a kind-specific
+ * fallback when we know the CLI's vocabulary (Grok, Ari Core) even before
+ * a live ACP probe returns. Empty for kinds with no known selector.
  */
 export function effortsFor(kind: DriverKind): EffortCatalog {
-  return dynamicEfforts.get(kind) ?? { currentId: null, options: [] }
+  const live = dynamicEfforts.get(kind)
+  if (live !== undefined && live.options.length > 0) return live
+  return FALLBACK_EFFORTS[kind] ?? { currentId: null, options: [] }
+}
+
+const GROK_EFFORTS: EffortCatalog = {
+  currentId: 'high',
+  options: [
+    { id: 'minimal', label: 'Minimal', description: 'Fastest, least reasoning' },
+    { id: 'low', label: 'Low', description: 'Some reasoning, still quick' },
+    { id: 'medium', label: 'Medium', description: 'Balanced reasoning' },
+    { id: 'high', label: 'High', description: 'Deeper reasoning (Grok default)' },
+    { id: 'xhigh', label: 'Extra high', description: 'Maximum reasoning depth' },
+  ],
+}
+
+const ARI_CORE_EFFORTS: EffortCatalog = {
+  currentId: 'high',
+  options: [
+    { id: 'low', label: 'Low', description: 'Faster replies, lighter reasoning' },
+    { id: 'medium', label: 'Medium', description: 'Balanced reasoning' },
+    { id: 'high', label: 'High', description: 'Deeper reasoning' },
+    { id: 'xhigh', label: 'Extra high', description: 'Maximum reasoning depth' },
+  ],
+}
+
+const FALLBACK_EFFORTS: Partial<Record<DriverKind, EffortCatalog>> = {
+  grok: GROK_EFFORTS,
+  'ari-core': ARI_CORE_EFFORTS,
 }
 
 /** Where {@link modelsFor} data currently comes from for a kind. */

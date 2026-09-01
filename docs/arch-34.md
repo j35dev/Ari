@@ -45,11 +45,15 @@ never reached a driver. ACP already advertises a thought/reasoning selector:
 - a thinking-shaped `modes` list (`off` … `xhigh`) for agents like pi that model
   effort as `session/set_mode` rather than a config option
 
-The same throwaway ACP session that probes models now also records that catalog.
-The chip renders those labels (and hides entirely when the agent has none). The
-chosen id is stored on the session and applied at turn start with
-`session/set_config_option` or, for the pi-style axis, `session/set_mode`.
-Permission-mode axes are never treated as thought.
+The same throwaway ACP session that probes models now also records that catalog
+(plus Grok's initialize `_meta.modelState` reasoningEfforts, and a missing
+`type: select` which Grok omits). Grok and Ari Core keep a documented fallback
+vocabulary so the chip is visible before the slow ACP probe returns. The pick
+is stored on the session and applied at turn start with
+`session/set_config_option` (Grok also gets `--effort` on spawn) or, for the
+pi-style axis, `session/set_mode`. Ari Core sends `reasoning_effort` on
+OpenAI-compat requests and a thinking budget on Anthropic. Permission-mode
+axes are never treated as thought.
 
 ## Deliberate cuts
 

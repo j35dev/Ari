@@ -30,7 +30,8 @@ const PERMISSION_VALUE_RE =
  * like effort/thinking — never `model` or `mode`, which have their own chips.
  */
 export function findThoughtOption(configOptions: AcpConfigOption[]): AcpConfigOption | null {
-  const select = configOptions.filter((o) => o.type === 'select')
+  // ACP's default type is select; Grok omits `type` on reasoning_effort.
+  const select = configOptions.filter((o) => o.type === undefined || o.type === 'select')
   const byCategory = select.find((o) => o.category === THOUGHT_CATEGORY)
   if (byCategory !== undefined) return byCategory
   return (
@@ -99,4 +100,91 @@ export function thoughtEffortsFromSession(created: AcpNewSessionResult): EffortC
   const current =
     typeof created.modes?.currentModeId === 'string' ? created.modes.currentModeId : null
   return { currentId: current, options }
+}
+
+/**
+ * Grok (and some adapters) put per-model reasoning levels on initialize
+ * `_meta.modelState.availableModels[]` rather than as a session config option.
+ */
+export function thoughtEffortsFromMeta(meta: unknown): EffortCatalog {
+  const root = asRecord(meta)
+  const models =
+    asArray(asRecord(root?.['modelState'])?.['availableModels']) ??
+    asArray(root?.['availableModels']) ??
+    asArray(asRecord(root?.['modelState'])?.['models'])
+  if (models === null) return { currentId: null, options: [] }
+  const seen = new Map<string, CatalogEffort>()
+  let currentId: string | null = null
+  for (const model of models) {
+    const rec = asRecord(model)
+    if (rec === null) continue
+    const nested = asRecord(rec['_meta']) ?? rec
+    const current =
+      str(nested, 'reasoningEffort') ||
+      str(nested, 'reasoning_effort') ||
+      str(nested, 'defaultReasoningEffort')
+    if (current.length > 0 && currentId === null) currentId = current
+    const list =
+      asArray(nested['reasoningEfforts']) ??
+      asArray(nested['reasoning_efforts']) ??
+      asArray(nested['supportedReasoningEfforts'])
+    if (list === null) continue
+    for (const item of list) {
+      if (typeof item === 'string' && item.length > 0 && !seen.has(item)) {
+        seen.set(item, { id: item, label: labelForEffort(item) })
+        continue
+      }
+      const opt = asRecord(item)
+      if (opt === null) continue
+      const id = str(opt, 'value') || str(opt, 'id') || str(opt, 'effort')
+      if (id.length === 0 || seen.has(id)) continue
+      const label = str(opt, 'name') || str(opt, 'label') || labelForEffort(id)
+      seen.set(id, { id, label })
+    }
+  }
+  return { currentId, options: [...seen.values()] }
+}
+
+export function mergeEffortCatalogs(...catalogs: EffortCatalog[]): EffortCatalog {
+  const seen = new Map<string, CatalogEffort>()
+  let currentId: string | null = null
+  for (const catalog of catalogs) {
+    if (catalog.currentId !== null && currentId === null) currentId = catalog.currentId
+    for (const option of catalog.options) {
+      if (!seen.has(option.id)) seen.set(option.id, option)
+    }
+  }
+  return { currentId, options: [...seen.values()] }
+}
+
+function labelForEffort(id: string): string {
+  switch (id) {
+    case 'minimal':
+      return 'Minimal'
+    case 'low':
+      return 'Low'
+    case 'medium':
+      return 'Medium'
+    case 'high':
+      return 'High'
+    case 'xhigh':
+      return 'Extra high'
+    default:
+      return id
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function asArray(value: unknown): unknown[] | null {
+  return Array.isArray(value) ? value : null
+}
+
+function str(obj: Record<string, unknown>, key: string): string {
+  const v = obj[key]
+  return typeof v === 'string' ? v.trim() : ''
 }

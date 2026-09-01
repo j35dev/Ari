@@ -172,6 +172,8 @@ export interface AcpInitializeResult {
     sessionCapabilities?: { resume?: boolean; close?: boolean; list?: boolean; [k: string]: unknown }
   }
   authMethods?: AcpAuthMethod[]
+  /** Grok (and others) stash per-model reasoning levels here. */
+  _meta?: unknown
 }
 
 /**
