@@ -476,12 +476,10 @@ every transport except the one that is now primary.
 - [x] M30.5 `terminalLoginsFrom` also reads the ACP registry's own `type: 'terminal'` + `args` shape, resolved against the agent's launch command, so sign-in survives the `_meta['terminal-auth']` extension the adapters themselves describe as a stopgap.
 - [x] M30.6 `ARI_ACP_<KIND>=0` actually pins one kind to its legacy driver (documented since M16, but no call site ever passed `envOverride`), and a mismatched negotiated `protocolVersion` is logged instead of silently ignored.
 
-Known gaps left open on purpose: an agent that asks an N-way question through
-`session/request_permission` (pi routes extension `select`/`confirm` prompts there) is answered with
-the first `allow_once` option, because Ari's approval vocabulary is the three-valued
-allow/deny/always-allow and cannot carry an `optionId`. Fixing it means a contract + journal + UI
-change, not a transport one. `available_commands_update` (pi advertises its slash commands) and
-`config_option_update` are still dropped by the fold.
+Known gaps left open on purpose: `available_commands_update` (pi advertises its slash commands) and
+`config_option_update` are still dropped by the fold. N-way `session/request_permission` prompts
+whose options are not allow/deny kinds now route through QuestionPanel (M34); standard
+allow/deny/always-allow permissions stay on ApprovalCard.
 
 ## M31 — Configure an agent from Ari
 
@@ -537,6 +535,31 @@ resumable in pi, so importing can never cost anyone their history.
 - [x] M33.11 Thinking is not the reply: `reasoning_content` / `reasoning` and `<think>` spans become `thinking-delta`.
 - [x] M33.12 JS grep glob matches ripgrep: `*.ts` hits nested files when rg is missing.
 - [x] M33.13 Pi ACP startup metadata is excluded from the assistant transcript; real replies remain visible.
+
+## M34 — Ask the user, plan approval, no history reprint
+
+Why: Grok's `ask_user_question` reverse-RPC was answered method-not-found, so the model had
+nowhere to put a question. `exit_plan_mode` was the same miss — Grok reads a JSON-RPC *error* as
+"the client disconnected" and leaves plan mode stuck. Follow-up turns reprinted earlier answers
+because `session/load` history replay was folded into the new turn's assistant message.
+
+- [x] M34.1 ACP `session/load` replay is dropped (attach `onSessionUpdate` only after load
+      returns). Prefer `session/resume` when advertised. Follow-up turns no longer contain
+      load-replay text.
+- [x] M34.2 Interactive client methods: `elicitation/create` (advertised so Claude's
+      AskUserQuestion is enabled), `_x.ai/ask_user_question`, `_x.ai/exit_plan_mode`. Each
+      parks as `input-requested`; `input.respond` is forwarded into the live adapter as a
+      JSON-RPC *success*. Ari Core gains the same `ask_user_question` tool.
+- [x] M34.3 QuestionPanel: one question at a time (t3code-style interview, Other on
+      every list). Plan approval opens a Cursor-style markdown rail to the right of
+      the transcript. Submit clears the overlay immediately so the card cannot stick.
+      Engine routes `input.respond` into `adapter.respondInput`.
+- [x] M34.4 Effort chip reads the harness's ACP thought/reasoning selector
+      (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
+      list like pi's off…xhigh) instead of inventing low/medium/high for every
+      provider. Hidden when the agent advertises none; the pick is persisted on
+      the session and applied via `session/set_config_option` (or `set_mode`
+      when that axis *is* thinking).
 
 ## Stretch backlog (post-V1, unplanned)
 

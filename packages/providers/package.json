@@ -21,6 +21,7 @@
     "./acp/connection": "./src/acp/connection.ts",
     "./acp/launches": "./src/acp/launches.ts",
     "./acp/protocol": "./src/acp/protocol.ts",
+    "./acp/thought": "./src/acp/thought.ts",
     "./claude": "./src/claude/claude-driver.ts",
     "./claude/mapper": "./src/claude/mapper.ts",
     "./codex": "./src/codex/codex-driver.ts",

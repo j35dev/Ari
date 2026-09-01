@@ -8,6 +8,7 @@ import {
   describeAcpFailure,
   terminalLoginsFrom,
 } from './protocol'
+import { isInteractiveClientMethod } from './client-requests'
 import type {
   AcpInitializeResult,
   AcpNewSessionResult,
@@ -140,6 +141,14 @@ export class AcpConnection {
    */
   onRequestPermission: ((request: AcpRequestPermission) => Promise<unknown>) | null
 
+  /**
+   * Hook answering interactive server→client methods Ari implements:
+   * `elicitation/create`, `_x.ai/ask_user_question`, `_x.ai/exit_plan_mode`
+   * (and the unprefixed `x.ai/` spellings). Unhandled methods still get
+   * method-not-found.
+   */
+  onClientRequest: ((method: string, params: unknown) => Promise<unknown>) | null
+
   private constructor(
     child: AcpChildProcess,
     launch: AcpLaunch,
@@ -150,6 +159,7 @@ export class AcpConnection {
     this.launch = launch
     this.initialize = {}
     this.onRequestPermission = onRequestPermission
+    this.onClientRequest = null
     this.#closeWaiter = closeWaiter
   }
 
@@ -249,6 +259,11 @@ export class AcpConnection {
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
             auth: { terminal: false },
+            // Form elicitation is how Claude (and anyone else speaking ACP)
+            // routes AskUserQuestion. Without this advertisement the adapter
+            // disables the tool at session create and the model has nowhere
+            // to put a question.
+            elicitation: { form: {} },
             // Ari does not implement ACP's `terminal/*` methods, so it cannot
             // host the agent's login itself. The `terminal-auth` extension is
             // the metadata-only alternative: the agent answers with the exact
@@ -392,8 +407,23 @@ export class AcpConnection {
       }
       return
     }
-    // fs/*, terminal/*, elicitation/* are not advertised by Ari's client
-    // capabilities; agents must use their own local access instead.
+    if (this.onClientRequest !== null && isInteractiveClientMethod(method)) {
+      try {
+        const result = await this.onClientRequest(method, params)
+        this.#write({ jsonrpc: '2.0', id, result: result ?? {} })
+      } catch (error) {
+        log.debug('acp: client request handler failed', { method, error: String(error) })
+        this.#write({
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32603, message: 'client request handler failed' },
+        })
+      }
+      return
+    }
+    // fs/*, terminal/* are not advertised by Ari's client capabilities;
+    // agents must use their own local access instead. Interactive methods
+    // (elicitation / Grok ext) are handled above when the adapter hooked them.
     this.#write({
       jsonrpc: '2.0',
       id,
@@ -478,9 +508,22 @@ export class AcpConnection {
    * advertised `agentCapabilities.loadSession`). The spec's response body is
    * empty; the agent re-attaches the given id and replays prior history as
    * session/update notifications, so allow a generous timeout.
+   *
+   * Callers that already hold the transcript (Ari's journal) MUST NOT fold
+   * those replay notifications into the new turn — attach `onSessionUpdate`
+   * only after this promise resolves.
    */
   async loadSession(sessionId: string, cwd: string): Promise<AcpNewSessionResult> {
     const result = await this.#request('session/load', { sessionId, cwd, mcpServers: [] }, 60_000)
+    return { ...((result ?? {}) as AcpNewSessionResult), sessionId }
+  }
+
+  /**
+   * Restores session context without replaying history. Prefer this over
+   * {@link loadSession} when the agent advertised `sessionCapabilities.resume`.
+   */
+  async resumeSession(sessionId: string, cwd: string): Promise<AcpNewSessionResult> {
+    const result = await this.#request('session/resume', { sessionId, cwd, mcpServers: [] }, 60_000)
     return { ...((result ?? {}) as AcpNewSessionResult), sessionId }
   }
 

@@ -12,6 +12,8 @@ import { Composer, type ComposerSeed } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
+import { PlanReviewRail } from '../approvals/PlanReviewRail'
+import { parseQuestionPayload } from '../approvals/questionnaire'
 import { notifyNeedsAttention, useSettleNotify } from '../moment'
 import { WorkingGlyph } from '../moment'
 import { PlanPanel } from './PlanPanel'
@@ -165,6 +167,8 @@ export interface SessionDefaults {
   driverKind: DriverKind
   modelId: string | null
   permissionMode: PermissionMode
+  /** Harness thought/reasoning level; null leaves the agent's default. */
+  effort: string | null
 }
 
 /**
@@ -344,6 +348,7 @@ export function SessionView({
           driverKind: m.session.driverKind,
           modelId: m.session.modelId,
           permissionMode: m.session.permissionMode,
+          effort: m.session.effort ?? null,
         })
         const projects = await rpc.invoke('project.list').catch(() => [])
         if (cancelled) return
@@ -580,23 +585,40 @@ export function SessionView({
   const respondQuestion = useCallback(
     (value: string) => {
       if (pendingQuestion === null) return
+      const current = pendingQuestion
+      // Drop the overlay immediately so Submit cannot leave a locked card
+      // sitting on screen while the engine journals the answer.
+      setPendingQuestion(null)
       void rpc
         .invoke('command.dispatch', {
           command: {
             type: 'input.respond',
             sessionId,
-            inputId: pendingQuestion.inputId,
+            inputId: current.inputId,
             value,
           },
         })
         .then((result) => {
-          // Cleared on acceptance; the `input.responded` replay is a no-op.
-          // A rejection keeps the panel up so the answer can be retried.
-          if (result.accepted) setPendingQuestion(null)
+          if (result.accepted) return
+          setPendingQuestion(current)
+          toast({
+            title: 'Couldn’t send answer',
+            description: 'The agent is no longer waiting on this question.',
+            tone: 'danger',
+            durationMs: 6000,
+          })
         })
-        .catch(() => undefined)
+        .catch((err: unknown) => {
+          setPendingQuestion(current)
+          toast({
+            title: 'Couldn’t send answer',
+            description: err instanceof Error ? err.message : String(err),
+            tone: 'danger',
+            durationMs: 6000,
+          })
+        })
     },
-    [sessionId, pendingQuestion],
+    [sessionId, pendingQuestion, toast],
   )
 
   const changeModel = useCallback(
@@ -620,6 +642,18 @@ export function SessionView({
     [sessionId, onDefaultsChange, telemetry.turnCount, defaults],
   )
 
+  const changeEffort = useCallback(
+    (effort: string | null) => {
+      onDefaultsChange({ ...defaults, effort })
+      void rpc
+        .invoke('command.dispatch', {
+          command: { type: 'session.update', sessionId, effort },
+        })
+        .catch(() => undefined)
+    },
+    [sessionId, onDefaultsChange, defaults],
+  )
+
   const changePermissionMode = useCallback(
     (permissionMode: PermissionMode) => {
       // `defaults` must stay in the dep list: omitting it retained a closure
@@ -635,8 +669,17 @@ export function SessionView({
     [sessionId, onDefaultsChange, defaults],
   )
 
+  const pendingPlan =
+    pendingQuestion === null
+      ? null
+      : (() => {
+          const payload = parseQuestionPayload(pendingQuestion.prompt, pendingQuestion.choicesJson)
+          return payload.kind === 'plan-approval' ? payload : null
+        })()
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <div className="min-h-0 flex-1">
         <TranscriptView
           sessionId={sessionId}
@@ -682,7 +725,7 @@ export function SessionView({
         ) : null}
 
       </div>
-      {pendingQuestion ? (
+      {pendingQuestion && pendingPlan === null ? (
         <div className="ari-glass-overlay border-t border-border p-3">
           <QuestionPanel
             prompt={pendingQuestion.prompt}
@@ -761,32 +804,100 @@ export function SessionView({
               onChange={changeModel}
               lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
             />
-            <EffortChip />
+            <EffortChip
+              driverKind={defaults.driverKind}
+              effort={defaults.effort}
+              onChange={changeEffort}
+            />
             <PermissionModeChip mode={defaults.permissionMode} onChange={changePermissionMode} />
           </>
         }
       />
+      </div>
+      {pendingPlan !== null ? (
+        <PlanReviewRail
+          prompt={pendingPlan.prompt}
+          planContent={pendingPlan.planContent}
+          onRespond={respondQuestion}
+        />
+      ) : null}
     </div>
   )
 }
 
-const EFFORT_LEVELS = [
-  { value: 'low', label: 'Low', hint: 'Faster replies, lighter reasoning' },
-  { value: 'medium', label: 'Medium', hint: 'Balanced reasoning' },
-  { value: 'high', label: 'High', hint: 'Deeper reasoning when it matters' },
-] as const
+interface EffortOption {
+  id: string
+  label: string
+  description?: string
+  current?: boolean
+}
 
-/** Effort is a local composer preference until drivers expose a wire field. */
-export function EffortChip() {
-  const [effort, setEffort] = useState<(typeof EFFORT_LEVELS)[number]['value']>('medium')
+/**
+ * Thought/reasoning chip backed by the harness's own ACP selector
+ * (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
+ * list). Hidden when the agent advertises nothing — we never invent
+ * low/medium/high.
+ */
+export function EffortChip({
+  driverKind,
+  effort,
+  onChange,
+}: {
+  driverKind: DriverKind
+  effort: string | null
+  onChange: (effort: string | null) => void
+}) {
   const [open, setOpen] = useState(false)
-  const current = EFFORT_LEVELS.find((m) => m.value === effort) ?? EFFORT_LEVELS[1]
+  const [loaded, setLoaded] = useState(false)
+  const [options, setOptions] = useState<EffortOption[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    const apply = (rows: { kind: string; efforts?: EffortOption[] }[]): void => {
+      if (cancelled) return
+      const row = rows.find((r) => r.kind === driverKind)
+      setOptions(row?.efforts ?? [])
+      setLoaded(true)
+    }
+    const load = (): void => {
+      void rpc.invoke('providers.models').then(apply).catch(() => {
+        if (!cancelled) {
+          setOptions([])
+          setLoaded(true)
+        }
+      })
+    }
+    load()
+    const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
+      const frame = payload as { type?: string }
+      if (frame.type === 'catalog' || frame.type === 'detections') load()
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [driverKind])
+
+  useEffect(() => {
+    if (!loaded || effort === null) return
+    if (options.length === 0 || !options.some((o) => o.id === effort)) onChange(null)
+  }, [loaded, options, effort, onChange])
+
+  if (options.length === 0) return null
+
+  const selectedId =
+    (effort !== null && options.some((o) => o.id === effort) ? effort : null) ??
+    options.find((o) => o.current)?.id ??
+    options[0]?.id
+  const current = options.find((o) => o.id === selectedId) ?? options[0]
+  if (current === undefined) return null
+
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={`Effort: ${current.hint}`}
+        title={current.description ?? `Effort: ${current.label}`}
         aria-label={`Effort: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -798,21 +909,27 @@ export function EffortChip() {
       {open ? (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div role="listbox" aria-label="Effort" className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border p-1 shadow-2">
-            {EFFORT_LEVELS.map((m) => (
+          <div
+            role="listbox"
+            aria-label="Effort"
+            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border p-1 shadow-2"
+          >
+            {options.map((option) => (
               <button
-                key={m.value}
+                key={option.id}
                 type="button"
                 role="option"
-                aria-selected={m.value === effort}
+                aria-selected={option.id === selectedId}
                 onClick={() => {
-                  setEffort(m.value)
+                  onChange(option.id)
                   setOpen(false)
                 }}
                 className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-2"
               >
-                <span className="text-fg">{m.label}</span>
-                <span className="text-2xs text-fg-subtle">{m.hint}</span>
+                <span className="text-fg">{option.label}</span>
+                {option.description ? (
+                  <span className="text-2xs text-fg-subtle">{option.description}</span>
+                ) : null}
               </button>
             ))}
           </div>
