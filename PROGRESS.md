@@ -155,6 +155,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M19.3 Git worktree per session
 - [x] M19.4 Message retry / edit / regenerate
 - [x] M19.5 Git add / commit / push RPC
+- [x] M19.6 Canonical worktree path identity: treat macOS `/var` and `/private/var` spellings as the same checkout so repeated session turns reuse their linked worktree; worktree tests compare canonical filesystem paths.
 
 ## M0 — Scaffold
 
