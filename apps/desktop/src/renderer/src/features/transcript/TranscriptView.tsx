@@ -1,7 +1,8 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from 'react'
 import { Check, Copy, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { useVirtualizer } from './use-virtualizer'
+import { pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
 import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -13,8 +14,6 @@ import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
 import type { TranscriptRow } from './types'
 import type { Message } from '@ari/contracts/message'
-
-const REENGAGE_BAND_PX = 70
 
 /** Rough characters per rendered line at the transcript's 48rem measure. */
 const CHARS_PER_LINE = 90
@@ -80,6 +79,7 @@ export function TranscriptView({
   working?: React.ReactNode
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const lastScrollTopRef = useRef<number | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const atBottomRef = useRef(true)
 
@@ -169,11 +169,26 @@ export function TranscriptView({
     virtualizer.scrollToBottom('auto')
   }, [rows, atBottom, hasWorking, virtualizer, virtualizer.getVersion()])
 
+  const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
+    // Wheel-up interrupts stick-to-bottom before the scroll sample lands, so
+    // a measurement bump cannot yank the viewport back onto the tail.
+    if (event.deltaY >= 0 || !atBottomRef.current) return
+    atBottomRef.current = false
+    setAtBottom(false)
+  }
+
   const handleScroll = (): void => {
     const el = scrollRef.current
     if (!el) return
+    const previous = lastScrollTopRef.current
+    lastScrollTopRef.current = el.scrollTop
+    const scrolledDown = previous !== null && el.scrollTop > previous
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-    const pinned = distance <= REENGAGE_BAND_PX
+    const pinned = pinnedAfterScroll({
+      wasPinned: atBottomRef.current,
+      distanceFromBottom: distance,
+      scrolledDown,
+    })
     atBottomRef.current = pinned
     setAtBottom(pinned)
     updateActiveRailKey()
@@ -191,6 +206,7 @@ export function TranscriptView({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onWheel={handleWheel}
         role="log"
         aria-label="Conversation transcript"
         aria-live="polite"

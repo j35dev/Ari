@@ -264,6 +264,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M5.10 Copy affordances + language chips on code blocks (CopyButton; language chips deferred with M5.8 diff-card scope)
 - [x] M5.11 Timestamps + usage footer per message
 - [x] M5.12 Stick-to-bottom spring + wheel-up interrupt + 70px re-engage band
+- [x] M5.15 Long-session scroll no longer sticks: wheel-up unpins immediately (the 70px band only re-engages when scrolling back toward the tail); measurement corrections wait out an in-flight wheel/trackpad gesture so Chromium does not cancel it.
 - [x] M5.13 Perf test: 50k-block synthetic transcript ≥55fps scroll (delivered as 50k pure-transform budget + jsdom mount smoke of TranscriptView @2000 messages; fps needs a real compositor, unverifiable headless)
 - [x] M5.14 Transcript a11y pass (roles, announcements) (scroll container is `role="log"` + `aria-label="Conversation transcript"` + `aria-live="polite"`, sr-only "Messages" heading)
 
