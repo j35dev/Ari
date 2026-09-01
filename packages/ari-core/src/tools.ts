@@ -39,6 +39,15 @@ export interface ToolContext {
    * fallback, or absent to auto-detect on PATH.
    */
   rgPath?: string | null
+  /**
+   * Parks an `ask_user_question` call until the host answers. Absent in
+   * headless unit tests that don't exercise that tool.
+   */
+  requestInput?: (request: {
+    inputId: string
+    prompt: string
+    choicesJson: string
+  }) => Promise<string>
 }
 
 export interface Tool {
@@ -569,10 +578,165 @@ export const BUILT_IN_TOOLS: Tool[] = [
       )
     },
   },
+  {
+    name: 'ask_user_question',
+    description:
+      'Ask the user one or more structured questions with selectable options. Always use this instead of posing multiple-choice questions in the message body. The user can pick a listed option or choose Other to type a custom answer.',
+    parameters: {
+      type: 'object',
+      properties: {
+        questions: {
+          type: 'array',
+          description: 'Questions to present (1-4). Each has a prompt and optional choices.',
+          items: {
+            type: 'object',
+            properties: {
+              question: { type: 'string', description: 'The question to ask' },
+              header: { type: 'string', description: 'Short section title' },
+              options: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    label: { type: 'string' },
+                    description: { type: 'string' },
+                  },
+                  required: ['label'],
+                },
+              },
+              multiSelect: {
+                type: 'boolean',
+                description: 'Allow more than one option to be selected',
+              },
+            },
+            required: ['question'],
+          },
+        },
+      },
+      required: ['questions'],
+    },
+    execute: async (args, ctx) => {
+      if (ctx.requestInput === undefined) {
+        throw new Error('ask_user_question requires a host that can prompt the user')
+      }
+      const parsed = parseAskUserToolArgs(args)
+      const value = await ctx.requestInput({
+        inputId: 'direct',
+        prompt: parsed.prompt,
+        choicesJson: parsed.choicesJson,
+      })
+      return formatAskUserResult(parsed.questions, value)
+    },
+  },
   todoWriteTool,
 ]
 
 /** Looks up a built-in tool by name. */
 export function findTool(name: string): Tool | undefined {
   return BUILT_IN_TOOLS.find((t) => t.name === name)
+}
+
+export interface AskUserToolQuestion {
+  id: string
+  question: string
+  header?: string
+  options: { label: string; description?: string }[]
+  multiSelect: boolean
+}
+
+export interface AskUserToolParsed {
+  prompt: string
+  choicesJson: string
+  questions: AskUserToolQuestion[]
+}
+
+/** Projects tool args onto the questionnaire payload the QuestionPanel reads. */
+export function parseAskUserToolArgs(args: Record<string, unknown>): AskUserToolParsed {
+  const raw = args['questions']
+  const questions: AskUserToolQuestion[] = []
+  if (Array.isArray(raw)) {
+    for (const [i, item] of raw.entries()) {
+      if (typeof item === 'string' && item.trim().length > 0) {
+        questions.push({ id: String(i), question: item.trim(), options: [], multiSelect: false })
+        continue
+      }
+      if (item === null || typeof item !== 'object') continue
+      const obj = item as Record<string, unknown>
+      const question =
+        (typeof obj['question'] === 'string' ? obj['question'] : '') ||
+        (typeof obj['prompt'] === 'string' ? obj['prompt'] : '')
+      if (question.trim().length === 0) continue
+      const header = typeof obj['header'] === 'string' ? obj['header'].trim() : ''
+      const options = parseToolOptions(obj['options'] ?? obj['choices'])
+      questions.push({
+        id: typeof obj['id'] === 'string' && obj['id'].length > 0 ? obj['id'] : String(i),
+        question: question.trim(),
+        ...(header.length > 0 ? { header } : {}),
+        options,
+        multiSelect: obj['multiSelect'] === true || obj['multi_select'] === true,
+      })
+    }
+  }
+  if (questions.length === 0) {
+    const fallback = str(args, 'question') || str(args, 'prompt')
+    if (fallback.length > 0) {
+      questions.push({ id: '0', question: fallback, options: [], multiSelect: false })
+    }
+  }
+  const prompt =
+    questions.length === 0
+      ? 'Question'
+      : questions.length === 1
+        ? (questions[0]?.question ?? 'Question')
+        : `${questions.length} questions`
+  return {
+    prompt,
+    choicesJson: JSON.stringify({ kind: 'questionnaire', questions }),
+    questions,
+  }
+}
+
+export function formatAskUserResult(questions: AskUserToolQuestion[], value: string): string {
+  let answers: Record<string, string> = {}
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>
+      const inner = obj['answers']
+      const source =
+        inner !== null && typeof inner === 'object' && !Array.isArray(inner)
+          ? (inner as Record<string, unknown>)
+          : obj
+      for (const [k, v] of Object.entries(source)) {
+        if (typeof v === 'string') answers[k] = v
+      }
+    }
+  } catch {
+    answers = questions.length === 1 && questions[0] !== undefined ? { [questions[0].id]: value } : {}
+  }
+  const lines = questions.map((q) => {
+    const answer = answers[q.id] ?? answers[q.question] ?? (questions.length === 1 ? value : '(no answer)')
+    return `${q.question}: ${answer}`
+  })
+  return lines.length > 0 ? lines.join('\n') : value
+}
+
+function parseToolOptions(raw: unknown): { label: string; description?: string }[] {
+  if (!Array.isArray(raw)) return []
+  const out: { label: string; description?: string }[] = []
+  for (const item of raw) {
+    if (typeof item === 'string' && item.trim().length > 0) {
+      out.push({ label: item.trim() })
+      continue
+    }
+    if (item === null || typeof item !== 'object') continue
+    const obj = item as Record<string, unknown>
+    const label =
+      (typeof obj['label'] === 'string' ? obj['label'] : '') ||
+      (typeof obj['name'] === 'string' ? obj['name'] : '')
+    if (label.trim().length === 0) continue
+    const description = typeof obj['description'] === 'string' ? obj['description'].trim() : ''
+    out.push({ label: label.trim(), ...(description.length > 0 ? { description } : {}) })
+  }
+  return out
 }

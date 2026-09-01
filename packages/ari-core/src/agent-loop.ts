@@ -6,7 +6,13 @@ import type { ChatMessage } from './protocols/openai-chat'
 import type { AllowRule } from './allowlist'
 import { matchesAllowlist } from './allowlist'
 import { checkPermission, MODE_GUARDED_TOOLS } from './permissions'
-import { BUILT_IN_TOOLS, type Tool, type ToolContext } from './tools'
+import {
+  BUILT_IN_TOOLS,
+  formatAskUserResult,
+  parseAskUserToolArgs,
+  type Tool,
+  type ToolContext,
+} from './tools'
 
 export interface AgentLoopOptions {
   /** Streams one model round: given messages, yields normalized events. */
@@ -53,6 +59,11 @@ export interface AgentLoopOptions {
    * absent, mode-gated calls are denied outright instead of silently running.
    */
   requestApproval?: (request: ApprovalRequest) => Promise<AdapterApprovalDecision>
+  /**
+   * Parks `ask_user_question` until the host answers via `input.respond`.
+   * The loop emits `input-requested` itself so the QuestionPanel can mount.
+   */
+  requestInput?: (inputId: string) => Promise<string>
   maxRounds?: number
   /**
    * How many times an entirely empty model round (no text, no thinking, no
@@ -274,6 +285,28 @@ export async function* runAgentLoop(
       } else if (!tool) {
         isError = true
         resultJson = JSON.stringify(`unknown tool: ${call.name}`)
+      } else if (call.name === 'ask_user_question') {
+        const requestInput = options.requestInput
+        try {
+          const args = JSON.parse(call.argsJson || '{}') as Record<string, unknown>
+          const parsed = parseAskUserToolArgs(args)
+          if (requestInput === undefined) {
+            throw new Error('ask_user_question requires a host that can prompt the user')
+          }
+          const inputId = newId('q')
+          const parked = requestInput(inputId)
+          yield {
+            type: 'input-requested',
+            inputId,
+            prompt: parsed.prompt,
+            choicesJson: parsed.choicesJson,
+          }
+          const value = await parked
+          resultJson = JSON.stringify(formatAskUserResult(parsed.questions, value))
+        } catch (e) {
+          isError = true
+          resultJson = JSON.stringify(String(e))
+        }
       } else {
         let execCtx: ToolContext = ctx
         try {

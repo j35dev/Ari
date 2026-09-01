@@ -394,8 +394,9 @@ describe('engine end-to-end with scripted driver', () => {
     expect(steered).toEqual(['focus on the parser instead'])
   }, 10000)
 
-  it('journals agent questions and accepts input.respond mid-turn', async () => {
-    let finish: (() => void) | null = null
+  it('journals agent questions and routes input.respond into the live adapter', async () => {
+    const answers: { inputId: string; value: string }[] = []
+    let finish: ((value: string) => void) | null = null
     const askingDriver: Driver = {
       kind: 'claude',
       create: (_session: AdapterSession) =>
@@ -403,7 +404,7 @@ describe('engine end-to-end with scripted driver', () => {
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'input-requested', inputId: 'q1', prompt: 'Proceed?', choicesJson: null }
-              await new Promise<void>((resolve) => {
+              await new Promise<string>((resolve) => {
                 finish = resolve
               })
               yield { type: 'done' }
@@ -411,6 +412,10 @@ describe('engine end-to-end with scripted driver', () => {
           }),
           interrupt: () => undefined,
           dispose: () => Promise.resolve(),
+          respondInput: (inputId, value) => {
+            answers.push({ inputId, value })
+            finish?.(value)
+          },
         }),
     }
     const registry = new DriverRegistry()
@@ -439,8 +444,8 @@ describe('engine end-to-end with scripted driver', () => {
       value: 'proceed',
     })
     expect(answered.accepted).toBe(true)
+    expect(answers).toEqual([{ inputId: 'q1', value: 'proceed' }])
 
-    ;(finish as (() => void) | null)?.()
     for (let i = 0; i < 150; i++) {
       const model = await store.load(sessionId)
       if (model.activeTurnId === null && model.pendingInputs.length === 0) break
