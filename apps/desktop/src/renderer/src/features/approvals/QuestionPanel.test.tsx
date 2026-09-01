@@ -62,4 +62,31 @@ describe('QuestionPanel', () => {
     setup(vi.fn(), '{"option": "not-a-list"}')
     expect(screen.getByLabelText('Answer')).toBeInTheDocument()
   })
+
+  it('offers Other on a choice list and submits the custom text', async () => {
+    const onRespond = vi.fn()
+    const user = setup(onRespond, JSON.stringify(['Yes', 'No']))
+    expect(screen.getByRole('button', { name: /Other/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Other/ }))
+    await user.type(screen.getByLabelText('Other'), '  maybe later  ')
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+    expect(onRespond).toHaveBeenCalledOnce()
+    expect(onRespond).toHaveBeenCalledWith('maybe later')
+  })
+
+  it('renders a plan-approval card and reports the verdict', async () => {
+    const onRespond = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <QuestionPanel
+        prompt="Approve this plan?"
+        choicesJson={JSON.stringify({ kind: 'plan-approval', planContent: '# Ship it' })}
+        onRespond={onRespond}
+      />,
+    )
+    expect(screen.getByRole('region', { name: 'Plan approval' })).toBeInTheDocument()
+    expect(screen.getByText('# Ship it')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(onRespond).toHaveBeenCalledWith('approved')
+  })
 })

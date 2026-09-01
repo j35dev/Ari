@@ -80,6 +80,8 @@ interface ActiveTurn {
   interrupt: () => void
   /** Forwards approval decisions into the live adapter (M16.8). */
   respondApproval: (approvalId: string, decision: AdapterApprovalDecision) => void
+  /** Forwards an answered agent question into the live adapter. */
+  respondInput: (inputId: string, value: string) => void
   /**
    * Forwards mid-turn steering text into the live adapter (M17.1). Returns
    * true when the adapter consumed the text as steering (providers with a
@@ -153,6 +155,10 @@ export class Engine {
       this.#activeTurns
         .get(command.sessionId)
         ?.respondApproval(command.approvalId, command.decision)
+    }
+
+    if (command.type === 'input.respond') {
+      this.#activeTurns.get(command.sessionId)?.respondInput(command.inputId, command.value)
     }
 
     if (command.type === 'message.enqueue') {
@@ -324,6 +330,9 @@ export class Engine {
       },
       respondApproval: (approvalId, decision) => {
         adapter.respondApproval?.(approvalId, decision)
+      },
+      respondInput: (inputId, value) => {
+        adapter.respondInput?.(inputId, value)
       },
       steer: (text) => {
         if (adapter.steer === undefined) return false

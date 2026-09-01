@@ -1,5 +1,6 @@
 import { PassThrough } from 'node:stream'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentEvent } from '@ari/contracts/agent-event'
 import { createAcpAdapter, AcpDriver, pickAgentMode, shouldFallBack, __resetLearnedAcpSelectors } from './acp-driver'
 import { AcpAuthRequiredError, AcpConnectionError } from './connection'
 import type { AcpLaunch } from './connection'
@@ -156,14 +157,18 @@ const LEGACY_MODES_AGENT: AgentHandler = (method, params, id) => {
 }
 
 async function collectTypes(adapter: ProviderAdapter): Promise<string[]> {
-  const types: string[] = []
+  return (await collectEvents(adapter)).map((event) => event.type)
+}
+
+async function collectEvents(adapter: ProviderAdapter): Promise<AgentEvent[]> {
+  const events: AgentEvent[] = []
   const iterator = adapter.start()[Symbol.asyncIterator]()
   while (true) {
     const next = await iterator.next()
     if (next.done === true) break
-    types.push(next.value.type)
+    events.push(next.value)
   }
-  return types
+  return events
 }
 
 /** Mode ids sent through `session/set_mode` on a connection. */
@@ -483,6 +488,211 @@ describe('createAcpAdapter', () => {
     expect(child.sent.some((m) => m['method'] === 'session/new')).toBe(true)
     const first = adapter.start()[Symbol.asyncIterator]()
     expect((await first.next()).value).toEqual({ type: 'session-ref', ref: 'sess_fresh' })
+    await adapter.dispose()
+  }, 15000)
+
+  it('does not fold session/load history replay into the new turn', async () => {
+    const child = fakeChild()
+    script(child, (method, params) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+      }
+      if (method === 'session/load') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+              sessionId: 'sess_old',
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: 'hello from turn 1' },
+              },
+            },
+          })}\n`,
+        )
+        return null
+      }
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+              sessionId: (params as { sessionId?: string }).sessionId,
+              update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'four' } },
+            },
+          })}\n`,
+        )
+        return { stopReason: 'end_turn' }
+      }
+      if (method === 'session/new') throw new Error('must not create a fresh session')
+      return undefined
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+    const events = await collectEvents(adapter)
+    const texts = events.filter((e) => e.type === 'text-delta').map((e) => e.text)
+    expect(texts).toEqual(['four'])
+    await adapter.dispose()
+  }, 15000)
+
+  it('prefers session/resume over session/load when the agent advertises it', async () => {
+    const child = fakeChild()
+    script(child, (method) => {
+      if (method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: true, sessionCapabilities: { resume: true } },
+        }
+      }
+      if (method === 'session/resume') return { sessionId: 'sess_old' }
+      if (method === 'session/load') throw new Error('must use session/resume')
+      if (method === 'session/new') throw new Error('must not create a fresh session')
+      if (method === 'session/prompt') return { stopReason: 'end_turn' }
+      return undefined
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, resumeOf: 'sess_old' }, () => child)
+    expect(child.sent.some((m) => m['method'] === 'session/resume')).toBe(true)
+    expect(child.sent.some((m) => m['method'] === 'session/load')).toBe(false)
+    await adapter.dispose()
+  }, 15000)
+
+  it('bridges ask_user_question into input-requested and replies as JSON-RPC success', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9101,
+            method: '_x.ai/ask_user_question',
+            params: {
+              questions: [
+                {
+                  question: 'Which approach?',
+                  options: [{ label: 'Conservative' }, { label: 'Rewrite' }],
+                },
+              ],
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    const seen: string[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'input-requested') {
+        seen.push(next.value.prompt)
+        adapter.respondInput(next.value.inputId, JSON.stringify({ answers: { '0': 'Rewrite' } }))
+      }
+    }
+    expect(seen).toEqual(['Which approach?'])
+    const reply = child.sent.find((m) => m['id'] === 9101 && m['method'] === undefined)
+    expect(reply).toMatchObject({
+      result: {
+        outcome: 'accepted',
+        answers: { 'Which approach?': 'Rewrite' },
+      },
+    })
+    await adapter.dispose()
+  }, 15000)
+
+  it('answers exit_plan_mode with a success outcome instead of method-not-found', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9102,
+            method: '_x.ai/exit_plan_mode',
+            params: { planContent: '# Ship it\n\n1. Do the thing.' },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'input-requested') {
+        expect(JSON.parse(next.value.choicesJson ?? '{}')).toMatchObject({
+          kind: 'plan-approval',
+          planContent: '# Ship it\n\n1. Do the thing.',
+        })
+        adapter.respondInput(next.value.inputId, 'approved')
+      }
+    }
+    const reply = child.sent.find((m) => m['id'] === 9102 && m['method'] === undefined)
+    expect(reply).toMatchObject({ result: { outcome: 'approved' } })
+    expect(reply).not.toHaveProperty('error')
+    await adapter.dispose()
+  }, 15000)
+
+  it('bridges elicitation/create into input-requested', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9103,
+            method: 'elicitation/create',
+            params: {
+              mode: 'form',
+              message: 'How should I refactor?',
+              requestedSchema: {
+                type: 'object',
+                properties: {
+                  strategy: { type: 'string', enum: ['conservative', 'balanced'] },
+                },
+              },
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'input-requested') {
+        adapter.respondInput(
+          next.value.inputId,
+          JSON.stringify({ answers: { strategy: 'balanced' } }),
+        )
+      }
+    }
+    const reply = child.sent.find((m) => m['id'] === 9103 && m['method'] === undefined)
+    expect(reply).toMatchObject({
+      result: { action: 'accept', content: { strategy: 'balanced' } },
+    })
     await adapter.dispose()
   }, 15000)
 

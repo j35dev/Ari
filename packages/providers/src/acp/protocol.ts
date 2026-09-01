@@ -167,7 +167,10 @@ export interface AcpAuthMethod {
 export interface AcpInitializeResult {
   protocolVersion?: number
   agentInfo?: { name?: string; version?: string }
-  agentCapabilities?: { loadSession?: boolean; sessionCapabilities?: Record<string, unknown> }
+  agentCapabilities?: {
+    loadSession?: boolean
+    sessionCapabilities?: { resume?: boolean; close?: boolean; list?: boolean; [k: string]: unknown }
+  }
   authMethods?: AcpAuthMethod[]
 }
 
