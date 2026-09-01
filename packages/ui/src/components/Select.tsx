@@ -174,7 +174,7 @@ function SelectListbox({
         activeIndex >= 0 ? `${idBase}-option-${options[activeIndex]?.value}` : undefined
       }
       onKeyDown={handleKeyDown}
-      className="focus-visible:outline-none"
+      className="ari-scroll max-h-72 overflow-y-auto overscroll-contain focus-visible:outline-none"
     >
       {options.map((option, index) => {
         const selected = option.value === selectedValue
