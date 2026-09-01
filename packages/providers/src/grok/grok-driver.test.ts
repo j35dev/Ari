@@ -41,6 +41,11 @@ describe('buildGrokArgs', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('grok-4.6')
   })
 
+  it('passes reasoning effort when the session picked one', () => {
+    const args = buildGrokArgs({ ...base, effort: 'xhigh' })
+    expect(args[args.indexOf('--effort') + 1]).toBe('xhigh')
+  })
+
   it('omits model and resume when absent', () => {
     const args = buildGrokArgs(base)
     expect(args).not.toContain('--model')

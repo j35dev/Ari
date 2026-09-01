@@ -20,6 +20,22 @@ export interface AnthropicChatRequest {
   messages: AnthropicMessage[]
   headers?: Record<string, string>
   signal?: AbortSignal
+  reasoningEffort?: string | null
+}
+
+function thinkingFor(
+  effort: string | null | undefined,
+): { type: 'enabled'; budget_tokens: number } | null {
+  if (effort === null || effort === undefined || effort.length === 0) return null
+  const budget =
+    effort === 'low' || effort === 'minimal'
+      ? 2048
+      : effort === 'medium'
+        ? 8192
+        : effort === 'xhigh'
+          ? 32_000
+          : 16_384
+  return { type: 'enabled', budget_tokens: budget }
 }
 
 interface StreamEvent {
@@ -47,6 +63,7 @@ export async function* streamChatAnthropic(
   }
   if (request.apiKey) headers['x-api-key'] = request.apiKey
 
+  const thinking = thinkingFor(request.reasoningEffort)
   let response
   try {
     response = await sseFetch(url, {
@@ -54,10 +71,11 @@ export async function* streamChatAnthropic(
       headers,
       body: JSON.stringify({
         model: request.model,
-        max_tokens: 8192,
+        max_tokens: thinking ? thinking.budget_tokens + 4096 : 8192,
         ...(request.system ? { system: request.system } : {}),
         messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
         stream: true,
+        ...(thinking !== null ? { thinking } : {}),
       }),
       signal: request.signal,
     })

@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { ToastProvider } from '@ari/ui/toast'
 import {
   ContextMeter,
+  EffortChip,
   PermissionModeChip,
   SessionView,
   contextTokensFromHint,
@@ -35,6 +36,7 @@ const DEFAULTS: SessionDefaults = {
   driverKind: 'ari-core',
   modelId: null,
   permissionMode: 'ask',
+  effort: null,
 }
 
 const PROJECT = {
@@ -95,9 +97,11 @@ describe('SessionView question panel', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -181,6 +185,72 @@ describe('SessionView question panel', () => {
       expect(screen.queryByRole('region', { name: 'Agent question' })).not.toBeInTheDocument()
     })
   })
+
+  it('restores the question card when input.respond is rejected', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: false }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'q1',
+      prompt: 'Proceed with force push?',
+      choicesJson: '["Yes","No"]',
+    })
+    await screen.findByRole('region', { name: 'Agent question' })
+    await user.click(screen.getByRole('button', { name: /Yes/ }))
+    expect(await screen.findByRole('region', { name: 'Agent question' })).toBeInTheDocument()
+  })
+
+  it('opens a plan-approval request in the right-hand review rail', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'plan1',
+      prompt: 'Approve this plan?',
+      choicesJson: JSON.stringify({ kind: 'plan-approval', planContent: '# Ship it' }),
+    })
+    expect(await screen.findByRole('complementary', { name: 'Plan review' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Agent question' })).not.toBeInTheDocument()
+  })
+
+  it('approving the plan rail dispatches input.respond and closes it', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'plan1',
+      prompt: 'Approve this plan?',
+      choicesJson: JSON.stringify({ kind: 'plan-approval', planContent: '# Ship it' }),
+    })
+    await user.click(await screen.findByRole('button', { name: 'Approve plan' }))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+        command: { type: 'input.respond', sessionId: 'sess_1', inputId: 'plan1', value: 'approved' },
+      })
+    })
+    expect(screen.queryByRole('complementary', { name: 'Plan review' })).not.toBeInTheDocument()
+  })
 })
 
 const TURN_DIFF =
@@ -200,9 +270,11 @@ describe('SessionView edit and resend', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -279,9 +351,11 @@ describe('SessionView regenerate and retry', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -450,9 +524,11 @@ describe('SessionView per-turn diff cards', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -563,9 +639,11 @@ describe('SessionView context meter', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -631,7 +709,7 @@ describe('SessionView context meter', () => {
       <ToastProvider>
         <SessionView
           sessionId="sess_1"
-          defaults={{ driverKind: 'claude', modelId: 'sonar-x', permissionMode: 'ask' }}
+          defaults={{ driverKind: 'claude', modelId: 'sonar-x', permissionMode: 'ask', effort: null }}
           onDefaultsChange={() => undefined}
         />
       </ToastProvider>,
@@ -784,9 +862,11 @@ describe('SessionView queued messages', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -900,9 +980,11 @@ describe('SessionView mode change preserves the picked model', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     rpcMocks.subscribe.mockImplementation(
-      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
-        sessionListener = onEvent
-        emitReplayDone()
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
         return () => undefined
       },
     )
@@ -950,5 +1032,75 @@ describe('SessionView mode change preserves the picked model', () => {
     await user.click(screen.getByRole('option', { name: /Full auto/ }))
 
     expect(screen.getByTestId('defaults').textContent).toBe('opencode|gpt-5|full')
+  })
+})
+
+describe('EffortChip', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    rpcMocks.subscribe.mockReturnValue(() => undefined)
+  })
+
+  it('hides when the harness advertised no thought levels', async () => {
+    invokeMock.mockResolvedValue([
+      { kind: 'grok', source: 'live', models: [], efforts: [] },
+    ])
+    render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
+    expect(screen.queryByRole('button', { name: /Effort:/ })).not.toBeInTheDocument()
+  })
+
+  it('shows Grok levels from the models catalog', async () => {
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'grok',
+        source: 'static',
+        models: [],
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High', current: true },
+          { id: 'xhigh', label: 'Extra high' },
+        ],
+      },
+    ])
+    render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+  })
+
+  it('shows Ari Core levels from the models catalog', async () => {
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'ari-core',
+        source: 'static',
+        models: [],
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High', current: true },
+          { id: 'xhigh', label: 'Extra high' },
+        ],
+      },
+    ])
+    render(<EffortChip driverKind="ari-core" effort={null} onChange={() => undefined} />)
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+  })
+
+  it('renders advertised levels and reports the pick', async () => {
+    const onChange = vi.fn()
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'grok',
+        source: 'live',
+        models: [],
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High', description: 'Deeper reasoning' },
+        ],
+      },
+    ])
+    const user = userEvent.setup()
+    render(<EffortChip driverKind="grok" effort="low" onChange={onChange} />)
+    await user.click(await screen.findByRole('button', { name: 'Effort: Low' }))
+    await user.click(screen.getByRole('option', { name: /High/ }))
+    expect(onChange).toHaveBeenCalledWith('high')
   })
 })

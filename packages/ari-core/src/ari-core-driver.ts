@@ -118,7 +118,8 @@ function anthropicRequest(
   model: string,
   apiKey: string | null,
   messages: ChatMessage[],
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  effort: string | null,
 ): AnthropicChatRequest {
   const turns = renderAsTextTurns(messages)
   const system = turns
@@ -138,6 +139,7 @@ function anthropicRequest(
     ),
     headers: endpoint.headers,
     signal,
+    reasoningEffort: effort,
   }
 }
 
@@ -234,6 +236,7 @@ export class AriCoreDriver implements Driver {
 
     // Mode-gated calls park here until the host answers via respondApproval.
     const pendingApprovals = new Map<string, (decision: AdapterApprovalDecision) => void>()
+    const pendingInputs = new Map<string, (value: string) => void>()
     // Live MCP connections for this turn; disposed with the adapter or at
     // the end of the loop, whichever comes first (dispose is idempotent).
     const mcpConnections: McpConnection[] = []
@@ -249,12 +252,21 @@ export class AriCoreDriver implements Driver {
           pendingApprovals.delete(id)
           resolve('deny')
         }
+        for (const [id, resolve] of pendingInputs) {
+          pendingInputs.delete(id)
+          resolve('')
+        }
       },
       { once: true },
     )
     const requestApproval = (request: ApprovalRequest): Promise<AdapterApprovalDecision> => {
       return new Promise((resolve) => {
         pendingApprovals.set(request.approvalId, resolve)
+      })
+    }
+    const requestInput = (inputId: string): Promise<string> => {
+      return new Promise((resolve) => {
+        pendingInputs.set(inputId, resolve)
       })
     }
 
@@ -299,6 +311,7 @@ export class AriCoreDriver implements Driver {
         parameters: tool.parameters,
       }))
 
+      const effort = session.effort ?? null
       const round = (messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<AgentEvent> => {
         // Context guardrail runs before every round; a no-op while small. It is
         // the floor under compaction, not a replacement for it: trimming drops
@@ -307,7 +320,7 @@ export class AriCoreDriver implements Driver {
         switch (endpoint.flavor) {
           case 'anthropic-messages':
             return (clients.anthropic ?? streamChatAnthropic)(
-              anthropicRequest(endpoint, model, apiKey, effective, signal),
+              anthropicRequest(endpoint, model, apiKey, effective, signal, effort),
             )
           case 'ollama':
             return (clients.ollama ?? streamChatOllama)(
@@ -322,6 +335,7 @@ export class AriCoreDriver implements Driver {
               tools: advertised,
               headers: endpoint.headers,
               signal,
+              reasoningEffort: effort,
             })
         }
       }
@@ -404,6 +418,7 @@ export class AriCoreDriver implements Driver {
           },
           ...(compaction ? { compact } : {}),
           requestApproval,
+          requestInput,
           ...(allowlist ? { allowlist } : {}),
           ...(extraTools.length > 0 ? { extraTools } : {}),
           signal: abort.signal,
@@ -425,6 +440,12 @@ export class AriCoreDriver implements Driver {
         if (!resolve) return
         pendingApprovals.delete(approvalId)
         resolve(decision)
+      },
+      respondInput: (inputId, value) => {
+        const resolve = pendingInputs.get(inputId)
+        if (!resolve) return
+        pendingInputs.delete(inputId)
+        resolve(value)
       },
       interrupt: () => abort.abort(),
       dispose: () => {

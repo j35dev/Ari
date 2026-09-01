@@ -110,6 +110,21 @@ describe('openai chat streaming client', () => {
     expect(body.stream).toBe(true)
   })
 
+  it('sends reasoning_effort when the session picked a level', async () => {
+    const box: { body?: string } = {}
+    const fetcher: SseFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return { body: (async function* () { yield 'data: [DONE]' })(), status: 200, statusText: 'OK' }
+    }
+    for await (const _ of streamChatCompletion({ ...base, reasoningEffort: 'high' }, fetcher)) void _
+    const body = JSON.parse(String(box.body)) as {
+      reasoning_effort?: string
+      reasoning?: { effort?: string }
+    }
+    expect(body.reasoning_effort).toBe('high')
+    expect(body.reasoning).toEqual({ effort: 'high' })
+  })
+
   it('advertises tools as OpenAI functions when given a schema list', async () => {
     const box: { body?: string } = {}
     const fetcher: SseFetch = async (_url, init) => {

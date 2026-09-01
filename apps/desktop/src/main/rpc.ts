@@ -33,7 +33,12 @@ import { detectDriver } from '@ari/providers/detector'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
-import { catalogSource, modelsFor } from '@ari/providers/catalogs'
+import { catalogSource, effortsFor, modelsFor, setDynamicEfforts } from '@ari/providers/catalogs'
+import {
+  mergeEffortCatalogs,
+  thoughtEffortsFromMeta,
+  thoughtEffortsFromSession,
+} from '@ari/providers/acp/thought'
 import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
@@ -106,6 +111,15 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
         id: v.value as string,
         label: typeof v.name === 'string' && v.name.length > 0 ? v.name : (v.value as string),
       }))
+    // Same throwaway session: thought_level / effort, plus Grok's
+    // initialize `_meta.modelState` reasoningEfforts when configOptions omit them.
+    setDynamicEfforts(
+      kind,
+      mergeEffortCatalogs(
+        thoughtEffortsFromSession(created),
+        thoughtEffortsFromMeta(connection.initialize._meta),
+      ),
+    )
     return models
   } finally {
     await connection.shutdown()
@@ -117,6 +131,8 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
  * so the providers grid is complete even while drivers are still registering.
  */
 const ALL_CLI_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
+/** CLIs plus Ari Core — catalogs, detections, and the effort chip all use this. */
+const ALL_PROVIDER_KINDS: DriverKind[] = [...ALL_CLI_KINDS, 'ari-core']
 
 /** Short cache so mount-time detect calls from several views share one probe round. */
 let detectionCache: { at: number; value: Promise<RpcResults['providers.detect']> } | null = null
@@ -183,7 +199,7 @@ function rawDetections(force = false): Promise<RpcResults['providers.detect']> {
       at: Date.now(),
       value: resolveDetectionEnvironment().then((env: DetectEnvironment) =>
         Promise.all(
-          [...ALL_CLI_KINDS, 'ari-core' as DriverKind].map(async (kind) => {
+          ALL_PROVIDER_KINDS.map(async (kind) => {
             try {
               return await detectDriver(kind, env)
             } catch (error) {
@@ -510,6 +526,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         driverKind: params.driverKind,
         modelId: params.modelId,
         permissionMode: params.permissionMode,
+        ...(params.effort !== undefined ? { effort: params.effort } : {}),
         status: 'idle',
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -697,11 +714,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
   r.register('providers.models', () =>
-    ALL_CLI_KINDS.map((kind) => ({
-      kind,
-      source: catalogSource(kind),
-      models: modelsFor(kind),
-    })),
+    ALL_PROVIDER_KINDS.map((kind) => {
+      const catalog = effortsFor(kind)
+      return {
+        kind,
+        source: catalogSource(kind),
+        models: modelsFor(kind),
+        efforts: catalog.options.map((option) => ({
+          id: option.id,
+          label: option.label,
+          ...(option.description !== undefined ? { description: option.description } : {}),
+          ...(catalog.currentId === option.id ? { current: true as const } : {}),
+        })),
+      }
+    }),
   )
 
   r.register('window.minimize', () => {

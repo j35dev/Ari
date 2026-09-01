@@ -1,5 +1,8 @@
 import type { DriverKind } from '@ari/contracts/common'
 import snapshot from './catalog-snapshot.json'
+import type { EffortCatalog } from './acp/thought'
+
+export type { CatalogEffort, EffortCatalog } from './acp/thought'
 
 /** One curated model entry for a driver's picker. */
 export interface CatalogModel {
@@ -53,6 +56,7 @@ const SNAPSHOT = snapshot as {
  * host process calls {@link setDynamicModels}.
  */
 const dynamic = new Map<DriverKind, { source: CatalogSource; models: CatalogModel[] }>()
+const dynamicEfforts = new Map<DriverKind, EffortCatalog>()
 
 /**
  * Installs a freshly-fetched catalog for a kind, replacing any previous one.
@@ -71,6 +75,57 @@ export function setDynamicModels(kind: DriverKind, source: CatalogSource, models
 /** Removes any dynamic overlay for a kind (tests, invalidation). */
 export function clearDynamicModels(kind: DriverKind): void {
   dynamic.delete(kind)
+}
+
+/** Installs the thought/reasoning levels a live ACP probe reported for a kind. */
+export function setDynamicEfforts(kind: DriverKind, catalog: EffortCatalog): void {
+  if (catalog.options.length === 0) {
+    dynamicEfforts.delete(kind)
+    return
+  }
+  dynamicEfforts.set(kind, catalog)
+}
+
+/** Removes a kind's effort overlay (tests). */
+export function clearDynamicEfforts(kind: DriverKind): void {
+  dynamicEfforts.delete(kind)
+}
+
+/**
+ * Thought/reasoning levels the harness advertised, or a kind-specific
+ * fallback when we know the CLI's vocabulary (Grok, Ari Core) even before
+ * a live ACP probe returns. Empty for kinds with no known selector.
+ */
+export function effortsFor(kind: DriverKind): EffortCatalog {
+  const live = dynamicEfforts.get(kind)
+  if (live !== undefined && live.options.length > 0) return live
+  return FALLBACK_EFFORTS[kind] ?? { currentId: null, options: [] }
+}
+
+const GROK_EFFORTS: EffortCatalog = {
+  currentId: 'high',
+  options: [
+    { id: 'minimal', label: 'Minimal', description: 'Fastest, least reasoning' },
+    { id: 'low', label: 'Low', description: 'Some reasoning, still quick' },
+    { id: 'medium', label: 'Medium', description: 'Balanced reasoning' },
+    { id: 'high', label: 'High', description: 'Deeper reasoning (Grok default)' },
+    { id: 'xhigh', label: 'Extra high', description: 'Maximum reasoning depth' },
+  ],
+}
+
+const ARI_CORE_EFFORTS: EffortCatalog = {
+  currentId: 'high',
+  options: [
+    { id: 'low', label: 'Low', description: 'Faster replies, lighter reasoning' },
+    { id: 'medium', label: 'Medium', description: 'Balanced reasoning' },
+    { id: 'high', label: 'High', description: 'Deeper reasoning' },
+    { id: 'xhigh', label: 'Extra high', description: 'Maximum reasoning depth' },
+  ],
+}
+
+const FALLBACK_EFFORTS: Partial<Record<DriverKind, EffortCatalog>> = {
+  grok: GROK_EFFORTS,
+  'ari-core': ARI_CORE_EFFORTS,
 }
 
 /** Where {@link modelsFor} data currently comes from for a kind. */
