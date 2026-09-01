@@ -98,6 +98,22 @@ export interface ResolveAcpLaunchOptions {
 }
 
 /**
+ * Turns a launch into one safe for background probing: model lists and login
+ * preflights must read the harness the user already has, never fetch it.
+ *
+ * `--no-install` alone does that, but npx resolves consent last-wins, so
+ * `npx --no-install -y <pkg>` downloads anyway — verified against npm 11, where
+ * `npx --no-install cowsay@1.5.0` refuses with "npx canceled due to missing
+ * packages and no YES option" while the same line plus `-y` installs and runs
+ * it. The consent flag has to come *out* for the guard to mean anything.
+ */
+export function probeLaunch(launch: AcpLaunch): AcpLaunch {
+  if (launch.viaNpx !== true) return launch
+  const args = launch.args.filter((arg) => arg !== '-y' && arg !== '--yes')
+  return { ...launch, args: ['--no-install', ...args] }
+}
+
+/**
  * Returns the ACP launch for a kind, or null when the transport is disabled,
  * unavailable, or its prerequisite CLI is missing.
  */
@@ -106,7 +122,8 @@ export function resolveAcpLaunch(
   options: ResolveAcpLaunchOptions,
   detectEnv: DetectEnvironment = realDetectEnvironment(),
 ): AcpLaunch | null {
-  if (process.env['ARI_ACP'] === '0' || options.envOverride === '0') return null
+  const override = options.envOverride ?? process.env[`ARI_ACP_${kind.toUpperCase()}`] ?? null
+  if (process.env['ARI_ACP'] === '0' || override === '0') return null
   if (options.cliBinaryPath === null) return null
 
   const adapterPkg = NPM_ADAPTERS[kind]

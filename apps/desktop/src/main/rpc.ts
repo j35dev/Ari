@@ -38,7 +38,7 @@ import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updat
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver } from '@ari/providers/acp'
-import { resolveAcpLaunch } from '@ari/providers/acp/launches'
+import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
 import type { AcpLaunch } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
@@ -82,12 +82,13 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
   const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath })
   if (launch === null) return null
   const { AcpConnection } = await import('@ari/providers/acp/connection')
-  // npx launches must not pull packages just to enumerate models: with
-  // --no-install the probe only answers when the adapter is already cached.
-  const launchForProbe = launch.viaNpx
-    ? { ...launch, args: ['--no-install', ...launch.args] }
-    : launch
-  const connection = await AcpConnection.connect({ launch: launchForProbe, cwd: homedir(), initializeTimeoutMs: 20_000 })
+  // npx launches must not pull packages just to enumerate models; probeLaunch
+  // strips the consent flag so --no-install actually holds.
+  const connection = await AcpConnection.connect({
+    launch: probeLaunch(launch),
+    cwd: homedir(),
+    initializeTimeoutMs: 20_000,
+  })
   try {
     const created = await connection.newSession(homedir())
     const modelOption = (created.configOptions ?? []).find((o) => o.category === 'model' && o.type === 'select')
@@ -99,7 +100,7 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
       }))
     return models
   } finally {
-    connection.kill()
+    await connection.shutdown()
   }
 }
 
@@ -128,9 +129,8 @@ const authProbeDeps: AuthProbeDeps = {
     const launch = resolveAcpLaunch(kind, { cliBinaryPath: binaryPath })
     if (launch === null) return null
     const { AcpConnection } = await import('@ari/providers/acp/connection')
-    const launchForProbe = launch.viaNpx ? { ...launch, args: ['--no-install', ...launch.args] } : launch
     return AcpConnection.connect({
-      launch: launchForProbe,
+      launch: probeLaunch(launch),
       cwd: homedir(),
       initializeTimeoutMs: 20_000,
     })
