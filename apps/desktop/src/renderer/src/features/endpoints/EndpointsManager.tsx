@@ -360,14 +360,17 @@ export function EndpointsManager() {
   }
 
   const runTest = useCallback(
-    async (input: { baseUrl: string; flavor: EndpointFlavor }) => {
+    async (input: { id?: string; baseUrl: string; flavor: EndpointFlavor; apiKey?: string }) => {
       const key = `${input.baseUrl}|${input.flavor}`
       setTestStates((prev) => ({ ...prev, [key]: { phase: 'testing' } }))
       try {
         const result = await rpc.invoke('endpoints.test', {
+          ...(input.id !== undefined ? { id: input.id } : {}),
           baseUrl: input.baseUrl,
           flavor: input.flavor,
-          apiKey: null,
+          // A saved endpoint's key comes from the store via `id`; a key typed in
+          // the form is not saved yet, so it rides along here.
+          apiKey: input.apiKey !== undefined && input.apiKey !== '' ? input.apiKey : null,
         })
         setTestStates((prev) => ({ ...prev, [key]: { phase: 'done', result } }))
       } catch (e) {
@@ -393,14 +396,26 @@ export function EndpointsManager() {
    * models land in the add-endpoint form unsaved.
    */
   const fetchModels = useCallback(
-    async (input: { stateKey: string; id?: string; baseUrl: string; flavor: EndpointFlavor }) => {
+    async (input: {
+      stateKey: string
+      id?: string
+      baseUrl: string
+      flavor: EndpointFlavor
+      apiKey?: string
+      /** False for the form: probe without saving an unsubmitted endpoint. */
+      persist?: boolean
+    }) => {
+      const persist = input.persist ?? true
       setFetchStates((prev) => ({ ...prev, [input.stateKey]: { phase: 'fetching' } }))
       try {
         const result = await rpc.invoke('endpoints.discoverModels', {
           ...(input.id !== undefined ? { id: input.id } : {}),
           baseUrl: input.baseUrl,
           flavor: input.flavor,
-          apiKey: null,
+          // A saved endpoint's key lives in the engine; a key typed in the form
+          // is not stored yet, so it has to ride along or discovery 401s.
+          apiKey: input.apiKey !== undefined && input.apiKey !== '' ? input.apiKey : null,
+          persist,
         })
         setFetchStates((prev) => ({
           ...prev,
@@ -411,7 +426,8 @@ export function EndpointsManager() {
           },
         }))
         if (result.models.length === 0) return
-        if (input.id !== undefined) {
+        if (persist) {
+          // The engine already merged and saved; re-read rather than guess.
           await refresh().catch(() => undefined)
           return
         }
@@ -599,6 +615,12 @@ export function EndpointsManager() {
                       stateKey: 'form',
                       baseUrl: formBaseUrl,
                       flavor: form.flavor,
+                      // While editing, `id` lets the engine supply the stored
+                      // key; `persist: false` keeps the probe out of the store
+                      // until the form is actually submitted.
+                      ...(editingId != null ? { id: editingId } : {}),
+                      ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
+                      persist: false,
                     })
                 : null
             }
@@ -621,7 +643,13 @@ export function EndpointsManager() {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => void runTest({ baseUrl: formBaseUrl, flavor: form.flavor })}
+              onClick={() =>
+                void runTest({
+                  baseUrl: formBaseUrl,
+                  flavor: form.flavor,
+                  ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
+                })
+              }
             >
               Test connection
             </Button>

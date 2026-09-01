@@ -835,20 +835,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   // Discovery runs in the main process for the same reason `endpoints.test`
-  // does: the sandboxed renderer cannot reach arbitrary origins. When `id`
-  // names a saved endpoint we reuse its stored key and persist the merged
-  // list, so the picker updates without a second round trip.
+  // does: the sandboxed renderer cannot reach arbitrary origins. An `id` names
+  // a saved endpoint, so its stored key is reused when the caller did not send
+  // one; `persist` decides whether the merged list is written back.
   r.register('endpoints.discoverModels', async (params) => {
     const { discoverModels } = await import('@ari/ari-core/model-discovery')
     const store = getEndpointStore()
     await store.load()
-    const apiKey = params.id !== undefined ? store.apiKeyFor(params.id) : null
+    const storedKey = params.id !== undefined ? store.apiKeyFor(params.id) : null
     const result = await discoverModels({
       baseUrl: params.baseUrl,
       flavor: params.flavor,
-      apiKey: params.apiKey ?? apiKey,
+      apiKey: params.apiKey ?? storedKey,
     })
-    if (params.id === undefined || result.models.length === 0) {
+    if (params.id === undefined || !params.persist || result.models.length === 0) {
       return { models: result.models, error: result.error, saved: false }
     }
     const updated = await store.setModels(
@@ -891,19 +891,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Connection probe runs in the main process: the renderer is blocked from
   // cross-origin fetches by CORS, which would report every endpoint broken.
+  // It hits the same listing path discovery uses, so a reachable endpoint here
+  // means a fetchable model list there.
   r.register('endpoints.test', async (params) => {
+    const { modelsPathFor } = await import('@ari/ari-core/model-discovery')
+    const store = getEndpointStore()
+    await store.load()
+    // A saved endpoint's key lives encrypted in the store; a key typed into the
+    // settings form arrives on the call. Without either, a keyed provider would
+    // report itself broken.
+    const apiKey = params.apiKey ?? (params.id !== undefined ? store.apiKeyFor(params.id) : null)
     const base = params.baseUrl.replace(/\/+$/, '')
-    const url =
-      params.flavor === 'anthropic-messages'
-        ? `${base}/v1/models`
-        : params.flavor === 'ollama'
-          ? `${base}/api/tags`
-          : `${base}/models`
+    const url = `${base}${modelsPathFor(params.flavor)}`
     const headers: Record<string, string> =
       params.flavor === 'anthropic-messages'
-        ? { 'x-api-key': params.apiKey ?? '', 'anthropic-version': '2023-06-01' }
-        : params.flavor === 'openai-chat' && params.apiKey
-          ? { Authorization: `Bearer ${params.apiKey}` }
+        ? { 'x-api-key': apiKey ?? '', 'anthropic-version': '2023-06-01' }
+        : apiKey
+          ? { Authorization: `Bearer ${apiKey}` }
           : {}
     const startedAt = Date.now()
     try {
