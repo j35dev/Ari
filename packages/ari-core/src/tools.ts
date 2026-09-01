@@ -45,6 +45,13 @@ export interface Tool {
   name: string
   description: string
   parameters: Record<string, unknown>
+  /**
+   * Declares the tool free of side effects, which lets the agent loop run it
+   * concurrently with the other read-only calls in the same batch. The built-in
+   * read/grep/glob/ls set it; anything mutating or external leaves it unset and
+   * stays strictly ordered.
+   */
+  readOnly?: boolean
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<string>
 }
 
@@ -400,6 +407,7 @@ async function executeBash(args: BashArgs, ctx: ToolContext): Promise<string> {
 export const BUILT_IN_TOOLS: Tool[] = [
   {
     name: 'read',
+    readOnly: true,
     description:
       'Read the contents of a file. Output is capped at 2000 lines / 50KB; use offset (1-indexed) and limit for large files, and follow the continuation footer to read on. Prefer this over cat or sed.',
     parameters: {
@@ -473,6 +481,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
   },
   {
     name: 'glob',
+    readOnly: true,
     description:
       'List file paths matching a glob pattern (e.g. "src/**/*.ts"). Use grep to find content matches. Respects .gitignore via the filesystem walker.',
     parameters: {
@@ -487,6 +496,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
   },
   {
     name: 'grep',
+    readOnly: true,
     description:
       'Search file contents with a regex. Returns path:line:text matches, capped at 100 by default. Supports a glob file filter, case-insensitive search, and literal (non-regex) matching. Respects .gitignore.',
     parameters: {
@@ -516,6 +526,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
   },
   {
     name: 'ls',
+    readOnly: true,
     description:
       'List the entries of a directory. Directories carry a trailing slash. Use this to explore the workspace structure.',
     parameters: {
