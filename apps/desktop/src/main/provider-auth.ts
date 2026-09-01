@@ -26,7 +26,12 @@ export interface AuthProbeConnection {
   terminalLogins: AcpTerminalLogin[]
   /** Opens a throwaway session — the request Claude's adapter refuses when logged out. */
   newSession(cwd: string): Promise<unknown>
-  kill(): void
+  /**
+   * Ends the throwaway agent. Tears down the whole process tree: a probe that
+   * only signalled the npx shim left the agent it had just finished asking
+   * about still running behind it.
+   */
+  shutdown(): Promise<void>
 }
 
 export interface AuthProbeDeps {
@@ -196,7 +201,7 @@ export async function probeProviderAuth(
       reason: 'Ari could not open a session to check this login; the CLI manages its own sign-in.',
     }
   } finally {
-    connection.kill()
+    await connection.shutdown()
   }
 }
 

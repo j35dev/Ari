@@ -37,8 +37,9 @@ describe('AcpUpdateFolder', () => {
       diff: { path: 'src/util.ts', oldText: 'a', newText: 'b' },
     })
 
-    const usage = events.find((e) => e.type === 'usage') as { inputTokens: number; costUsd: number | null }
-    expect(usage).toMatchObject({ inputTokens: 4210, costUsd: 0.0142 })
+    // A context-window gauge is not a token count, so it must never reach the
+    // transcript's additive usage readout.
+    expect(events.some((e) => e.type === 'usage')).toBe(false)
 
     // plan updates have no transcript surface.
     expect(events.some((e) => e.type === 'error')).toBe(false)
@@ -65,12 +66,13 @@ describe('AcpUpdateFolder', () => {
     expect(JSON.parse((events[1] as { resultJson: string }).resultJson)).toEqual({ ok: true })
   })
 
-  it('treats non-USD costs and malformed payloads conservatively', () => {
+  it('drops the context gauge and other malformed payloads', () => {
     const folder = new AcpUpdateFolder()
-    const events = folder.fold({
-      update: { sessionUpdate: 'usage_update', used: 12, size: 100, cost: { amount: 5, currency: 'EUR' } },
-    })
-    expect(events[0]).toMatchObject({ costUsd: null })
+    expect(
+      folder.fold({
+        update: { sessionUpdate: 'usage_update', used: 12, size: 100, cost: { amount: 5, currency: 'EUR' } },
+      }),
+    ).toEqual([])
     expect(folder.fold({})).toEqual([])
     expect(folder.fold({ update: { sessionUpdate: 'from_the_future' } })).toEqual([])
   })
@@ -179,5 +181,39 @@ describe('terminalLoginsFrom', () => {
   it('answers empty for agents that advertise no auth at all', () => {
     expect(terminalLoginsFrom({})).toEqual([])
     expect(terminalLoginsFrom(null)).toEqual([])
+  })
+
+  it("reads the registry's type/args shape against the agent's own launch", () => {
+    // The `_meta` extension is a stopgap the adapters call one; the registry
+    // shape is `args` to whatever command started the agent.
+    const result = { authMethods: [{ id: 'pi_terminal_login', name: 'Launch pi', type: 'terminal', args: ['--terminal-login'] }] }
+    expect(terminalLoginsFrom(result, { command: 'npx', args: ['-y', 'pi-acp@0.0.33'] })).toEqual([
+      {
+        methodId: 'pi_terminal_login',
+        name: 'Launch pi',
+        description: '',
+        command: 'npx',
+        args: ['-y', 'pi-acp@0.0.33', '--terminal-login'],
+      },
+    ])
+    // Without a launch to append to there is nothing runnable to offer.
+    expect(terminalLoginsFrom(result)).toEqual([])
+  })
+
+  it('prefers the terminal-auth argv over the registry shape when both are present', () => {
+    const [login] = terminalLoginsFrom(
+      {
+        authMethods: [
+          {
+            id: 'pi_terminal_login',
+            type: 'terminal',
+            args: ['--terminal-login'],
+            _meta: { 'terminal-auth': { command: 'node', args: ['dist/index.js', '--terminal-login'] } },
+          },
+        ],
+      },
+      { command: 'npx', args: ['-y', 'pi-acp@0.0.33'] },
+    )
+    expect(login).toMatchObject({ command: 'node', args: ['dist/index.js', '--terminal-login'] })
   })
 })
