@@ -411,18 +411,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   catalogService.start()
 
   // The running-turn counter feeds the tray from the same event flow the
-  // renderer subscribes to; no extra engine coupling.
+  // renderer subscribes to; no extra engine coupling. Imports use the same
+  // publisher after their journals are complete, so session lists refresh.
   const runningTurns = new RunningTurnCounter()
+  const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
+    const payload: SessionEventFrame = { sessionId, event }
+    rpcRegistry.publish('session.events', payload)
+    if (options.onRunningCount && runningTurns.push(event)) {
+      options.onRunningCount(runningTurns.count)
+    }
+  }
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
-    publish: (sessionId: string, event: JournalEvent) => {
-      const payload: SessionEventFrame = { sessionId, event }
-      rpcRegistry.publish('session.events', payload)
-      if (options.onRunningCount && runningTurns.push(event)) {
-        options.onRunningCount(runningTurns.count)
-      }
-    },
+    publish: publishSessionEvent,
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
     // registered folder path by id.
@@ -522,6 +524,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const importDeps = (): SessionImportDeps => ({
     sessions: getSessionStore(),
     projects: getProjectStore(),
+    publish: publishSessionEvent,
   })
   r.register('sessions.importable', (params) => listImportableSessions(importDeps(), params.cwd))
   r.register('sessions.import', (params) => importPiSession(params, importDeps()))
