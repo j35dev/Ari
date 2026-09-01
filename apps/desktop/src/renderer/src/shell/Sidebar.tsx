@@ -9,6 +9,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderX,
+  Import as ImportIcon,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
@@ -378,6 +379,7 @@ export interface SidebarProject {
 /** Per-project commands surfaced on group hover / in the degraded state. */
 export interface ProjectActions {
   onNewSessionInProject?: (projectId: string) => void
+  onImportSessions?: (projectId: string) => void
   onRevealProject?: (projectId: string) => void
   onCloseProject?: (projectId: string) => void
   onRemoveProject?: (projectId: string) => void
@@ -467,6 +469,14 @@ function ProjectGroupSection({
               label: 'New session here',
               icon: Plus,
               onSelect: () => actions.onNewSessionInProject?.(project.id),
+            },
+            {
+              id: 'import',
+              label: 'Import',
+              icon: ImportIcon,
+              disabled: missing,
+              disabledReason: missing ? 'Locate this project before importing sessions' : undefined,
+              onSelect: () => actions.onImportSessions?.(project.id),
             },
             {
               id: 'reveal',

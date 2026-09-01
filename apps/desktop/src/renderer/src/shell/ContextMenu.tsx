@@ -8,6 +8,9 @@ export interface ContextMenuItem {
   icon?: LucideIcon
   /** Renders in danger tone and is separated from the items above it. */
   danger?: boolean
+  /** Keeps unavailable capabilities discoverable and explains why. */
+  disabled?: boolean
+  disabledReason?: string
   onSelect: () => void
 }
 
@@ -99,20 +102,28 @@ export function ContextMenu({
               key={item.id}
               type="button"
               role="menuitem"
+              aria-disabled={item.disabled === true}
+              title={item.disabled === true ? item.disabledReason : undefined}
               onClick={() => {
+                if (item.disabled === true) return
                 onClose()
                 item.onSelect()
               }}
               className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none ${
                 separated ? 'mt-1 border-t border-border pt-2' : ''
               } ${
-                item.danger
-                  ? 'text-danger hover:bg-danger-subtle focus-visible:bg-danger-subtle'
-                  : 'text-fg-muted hover:bg-surface-2 hover:text-fg focus-visible:bg-surface-2 focus-visible:text-fg'
+                item.disabled === true
+                  ? 'cursor-not-allowed text-fg-subtle opacity-50'
+                  : item.danger
+                    ? 'text-danger hover:bg-danger-subtle focus-visible:bg-danger-subtle'
+                    : 'text-fg-muted hover:bg-surface-2 hover:text-fg focus-visible:bg-surface-2 focus-visible:text-fg'
               }`}
             >
               {Icon ? <Icon size={12} aria-hidden className="shrink-0" /> : null}
               <span className="truncate">{item.label}</span>
+              {item.disabled === true && item.disabledReason !== undefined ? (
+                <span className="sr-only">: {item.disabledReason}</span>
+              ) : null}
             </button>
           )
         })}

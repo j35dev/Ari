@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SessionImport } from './SessionImport'
+import { SessionImport, SessionImportList } from './SessionImport'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }))
 
@@ -11,7 +11,7 @@ const SESSIONS = [
   {
     kind: 'pi' as const,
     id: 'pi-1',
-    path: '/p/one.jsonl',
+    candidateId: 'candidate-one',
     cwd: 'D:\\Projects\\Ari',
     title: 'refactor the store',
     startedAt: Date.parse('2026-08-01T10:00:00.000Z'),
@@ -22,7 +22,7 @@ const SESSIONS = [
   {
     kind: 'pi' as const,
     id: 'pi-2',
-    path: '/p/two.jsonl',
+    candidateId: 'candidate-two',
     cwd: 'D:\\Projects\\Ari',
     title: 'already here',
     startedAt: 0,
@@ -65,7 +65,9 @@ describe('SessionImport', () => {
     await user.click(await screen.findByRole('button', { name: 'Import refactor the store' }))
 
     await waitFor(() => {
-      expect(mocks.invoke).toHaveBeenCalledWith('sessions.import', { path: '/p/one.jsonl' })
+      expect(mocks.invoke).toHaveBeenCalledWith('sessions.import', {
+        candidateId: 'candidate-one',
+      })
     })
     expect(onImported).toHaveBeenCalledWith('sess_new')
     expect(await screen.findByText(/Imported "refactor the store"/)).toBeInTheDocument()
@@ -121,12 +123,24 @@ describe('SessionImport', () => {
     if (failedSession === null) throw new Error('expected the failed session row')
     expect(within(failedSession).getByText('error')).toHaveClass('bg-danger-subtle', 'text-danger')
     expect(within(failedSession).getByRole('alert')).toHaveTextContent('open the folder first')
-    expect(within(failedSession).getByRole('button', { name: 'Retry refactor the store' })).toHaveTextContent(
-      'Retry',
-    )
+    expect(
+      within(failedSession).getByRole('button', { name: 'Retry refactor the store' }),
+    ).toHaveTextContent('Retry')
     const importedSession = screen.getByText('already here').closest('li')
     if (importedSession === null) throw new Error('expected the imported session row')
     expect(within(importedSession).queryByRole('alert')).toBeNull()
+  })
+
+  it('scopes project imports through the opaque project id', async () => {
+    const user = userEvent.setup()
+    render(<SessionImportList projectId="proj_ari" />)
+
+    await user.click(await screen.findByRole('button', { name: 'Import refactor the store' }))
+    expect(mocks.invoke).toHaveBeenCalledWith('sessions.importable', { projectId: 'proj_ari' })
+    expect(mocks.invoke).toHaveBeenCalledWith('sessions.import', {
+      candidateId: 'candidate-one',
+      projectId: 'proj_ari',
+    })
   })
 
   it('says so when pi has no sessions on this machine', async () => {

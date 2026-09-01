@@ -3,6 +3,7 @@ import { GitBranch, PanelLeftOpen, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
+import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
 import type { RpcResults, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
@@ -57,6 +58,7 @@ function Shell() {
   const { activityOf } = useSessionActivity()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -406,6 +408,7 @@ function Shell() {
             knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
             onOpenProject={openProjectViaDialog}
             onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
+            onImportSessions={setImportProjectId}
             onRevealProject={(projectId) => {
               const path = projects.find((p) => p.id === projectId)?.path
               if (path === undefined) return
@@ -586,6 +589,22 @@ function Shell() {
         </main>
       </div>
 
+      {importProjectId !== null ? (
+        <SessionImportDialog
+          open
+          project={projects.find((project) => project.id === importProjectId) ?? {
+            id: importProjectId,
+            name: 'Project',
+          }}
+          onClose={() => setImportProjectId(null)}
+          onImported={(sessionId) => {
+            refreshSessions()
+            setActiveSessionId(sessionId)
+            setInspector(null)
+            setFullPage(null)
+          }}
+        />
+      ) : null}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <ContentSearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} root={activeProjectPath} />
       <KeyboardCheatSheet />

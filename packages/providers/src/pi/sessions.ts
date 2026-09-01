@@ -1,5 +1,5 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import { realDetectEnvironment } from '../types'
 import type { DetectEnvironment } from '../types'
 
@@ -122,21 +122,21 @@ export async function listPiSessions(
   if (folders === null) return []
 
   const wanted = options.cwd === undefined ? null : piCwdFolder(options.cwd)
+  // The expected encoded folder is only an ordering hint. Every folder still
+  // gets inspected because the session header's cwd is authoritative.
+  const orderedFolders = [...folders].sort((a, b) =>
+    a.name === wanted ? -1 : b.name === wanted ? 1 : 0,
+  )
   const summaries: PiSessionSummary[] = []
-  for (const folder of folders) {
+  for (const folder of orderedFolders) {
     if (!folder.isDirectory()) continue
-    // The encoding is a filter, not a gate: a mismatch still gets read, and the
-    // header's own cwd decides.
-    if (wanted !== null && folder.name !== wanted && !folder.name.includes(wanted.slice(2, -2))) {
-      continue
-    }
     const dir = join(root, folder.name)
     const files = await readdir(dir).catch(() => [])
     for (const file of files) {
       if (!file.endsWith('.jsonl')) continue
       const summary = await summarize(join(dir, file)).catch(() => null)
       if (summary === null) continue
-      if (options.cwd !== undefined && !sameDir(summary.cwd, options.cwd)) continue
+      if (options.cwd !== undefined && !(await sameDir(summary.cwd, options.cwd))) continue
       summaries.push(summary)
     }
   }
@@ -164,7 +164,14 @@ export type PiTranscriptEntry =
       usage: { inputTokens: number; outputTokens: number; costUsd: number | null } | null
       errorMessage: string | null
     }
-  | { kind: 'tool-result'; callId: string; name: string; resultJson: string; isError: boolean; at: number }
+  | {
+      kind: 'tool-result'
+      callId: string
+      name: string
+      resultJson: string
+      isError: boolean
+      at: number
+    }
 
 /**
  * Reads one pi session file and flattens its active branch. Returns null when
@@ -186,7 +193,10 @@ export async function readPiTranscript(path: string): Promise<PiTranscript | nul
     if (entry.type !== 'message') continue
     const message = entry.message
     if (message === undefined) continue
-    const at = typeof message.timestamp === 'number' ? message.timestamp : Date.parse(entry.timestamp ?? '') || 0
+    const at =
+      typeof message.timestamp === 'number'
+        ? message.timestamp
+        : Date.parse(entry.timestamp ?? '') || 0
     if (typeof message.model === 'string' && message.model.length > 0) model = message.model
 
     if (message.role === 'user') {
@@ -253,7 +263,11 @@ function assistantEntry(message: PiMessage, at: number): PiTranscriptEntry {
   for (const block of Array.isArray(message.content) ? message.content : []) {
     if (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
       blocks.push({ type: 'text', text: block.text })
-    } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.length > 0) {
+    } else if (
+      block.type === 'thinking' &&
+      typeof block.thinking === 'string' &&
+      block.thinking.length > 0
+    ) {
       blocks.push({ type: 'thinking', text: block.thinking })
     } else if (block.type === 'toolCall' && typeof block.id === 'string') {
       toolCalls.push({
@@ -372,9 +386,18 @@ function stampOf(entry: PiEntry): number {
   return Date.parse(entry.timestamp ?? '') || entry.message?.timestamp || 0
 }
 
-function sameDir(a: string, b: string): boolean {
-  const norm = (v: string): string => v.replace(/[/\\]+$/, '').replace(/\\/g, '/').toLowerCase()
-  return norm(a) === norm(b)
+async function sameDir(a: string, b: string): Promise<boolean> {
+  const canonical = async (value: string): Promise<string> => {
+    let path = resolve(value)
+    try {
+      path = await realpath(path)
+    } catch {
+      // A historical workspace may be gone; compare its resolved spelling.
+    }
+    const normalized = path.replace(/[/\\]+$/, '').replace(/\\/g, '/')
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+  }
+  return (await canonical(a)) === (await canonical(b))
 }
 
 function numberOr(value: unknown, fallback: number): number {

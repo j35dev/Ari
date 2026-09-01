@@ -53,7 +53,7 @@ import {
   readProviderConfig,
   writeProviderConfig,
 } from './provider-config'
-import { importPiSession, listImportableSessions } from './session-import'
+import { importPiSessionCandidate, listImportableSessions } from './session-import'
 import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
@@ -535,8 +535,18 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     projects: getProjectStore(),
     publish: publishSessionEvent,
   })
-  r.register('sessions.importable', (params) => listImportableSessions(importDeps(), params.cwd))
-  r.register('sessions.import', (params) => importPiSession(params, importDeps()))
+  r.register('sessions.importable', async (params) => {
+    if (params.projectId === undefined) return listImportableSessions(importDeps())
+    const projects = getProjectStore()
+    await projects.load()
+    const project = projects.get(params.projectId)
+    if (project === null || project.status === 'missing') return []
+    return listImportableSessions(importDeps(), project.path)
+  })
+  r.register('sessions.import', async (params) => {
+    await getProjectStore().load()
+    return importPiSessionCandidate(params, importDeps())
+  })
 
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
