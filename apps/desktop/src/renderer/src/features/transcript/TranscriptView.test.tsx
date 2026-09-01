@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
@@ -50,12 +50,22 @@ describe('TranscriptView loading state', () => {
     expect(container.querySelector('[data-index]')).not.toBeNull()
   })
 
-  it('disables browser overflow anchoring on the transcript scroller', () => {
+  it('keeps every row in document flow so long sessions scroll as one page', () => {
+    const messages = Array.from({ length: 24 }, (_, i) => message(`m${i}`))
+    const { container } = render(
+      createElement(TranscriptView, { sessionId: 'sess_1', messages }),
+    )
+    expect(container.querySelectorAll('[data-index]')).toHaveLength(24)
+  })
+
+  it('unpins stick-to-bottom on wheel-up so the jump pill appears', () => {
     const { container } = render(
       createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }),
     )
     const scroller = container.querySelector('[aria-label="Conversation transcript"]')
-    expect(scroller).toHaveStyle({ overflowAnchor: 'none' })
+    expect(scroller).not.toBeNull()
+    fireEvent.wheel(scroller!, { deltaY: -48 })
+    expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeInTheDocument()
   })
 })
 

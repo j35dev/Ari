@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { useVirtualizer } from './use-virtualizer'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 function stubScrollElement(height: number): HTMLDivElement {
   const el = document.createElement('div')
@@ -196,5 +199,29 @@ describe('useVirtualizer', () => {
       api.measureElement(node)
     })
     expect(scrollEl.scrollTop).toBe(270)
+  })
+
+  /**
+   * Regression: Chromium cancels an in-flight wheel gesture when JS writes
+   * scrollTop, so measuring newly windowed rows during a flick made the
+   * transcript feel stuck until the reader started a new gesture.
+   */
+  it('defers above-the-fold scroll correction until the wheel gesture ends', () => {
+    vi.useFakeTimers()
+    const { api, scrollEl } = renderHarness(20, 200, 50)
+    scrollEl.scrollTop = 300
+    scrollEl.dispatchEvent(new Event('wheel'))
+    const node = document.createElement('div')
+    node.dataset['index'] = '2'
+    node.getBoundingClientRect = () => ({ height: 250 }) as DOMRect
+    act(() => {
+      api.measureElement(node)
+    })
+    expect(scrollEl.scrollTop).toBe(300)
+    act(() => {
+      vi.advanceTimersByTime(120)
+    })
+    expect(scrollEl.scrollTop).toBe(500)
+    vi.useRealTimers()
   })
 })
