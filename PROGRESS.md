@@ -495,6 +495,24 @@ understands only enough to refuse a JSON file the agent could not have loaded.
 - [x] M31.2 `providers.configFiles` / `.readConfig` / `.writeConfig`: the renderer sends a kind and a file id, never a path, and writes go through the same symlink-resolving jail as the engine's tools — rooted at that kind's own config dir, so the surface can only ever touch the declared files. Saving creates the dir when the agent never has (pi writes no `SYSTEM.md` until you do), and a JSON payload that would not parse is refused as data instead of silently replacing a working config.
 - [x] M31.3 Settings › Agents: pick an agent, see which of its files exist and how large they are (absent optional files are listed rather than hidden — that is how you find out `SYSTEM.md` exists), edit one in a mono textarea with Save/Revert, and read the resolved path. Indexed in settings search.
 
+## M33 — Ari Core harness, for real
+
+> HONESTY CORRECTION: every M11 box was ticked, but the harness could not work a
+> repository. Its tools were named `read_file`/`write_file`/`edit_file` (models are
+> trained on `read`/`write`/`edit`), `read` returned whole files with no pagination
+> or size cap, `grep` matched literal substrings only, there was no `ls` at all, and
+> the system prompt was five static sentences that never named the working
+> directory — the agent genuinely did not know which folder it was in. Every turn
+> also started from an empty conversation, so it could not refer to its own previous
+> answer. Custom endpoints held exactly one hand-typed model id. Board number is
+> M33 because main already used M28 for tool-card UX.
+
+- [x] M33.1 Tool surface rebuilt against the vocabulary frontier models are trained on: `read`/`write`/`edit`/`glob`/`grep`/`ls`/`bash`. `read` paginates (1-indexed `offset`, `limit`) and head-truncates at 2000 lines / 50KB with a continuation footer naming the next offset; `edit` applies several exact replacements per call, requires each `oldText` to be unique, and preserves CRLF and BOM; `grep` takes real regexes plus glob filter, `ignoreCase`, `literal` and `limit`, threaded through ripgrep flags with the JS walk as fallback; `bash` gets a model-controlled timeout (120s default, 600s cap), a 4MB buffer, tail truncation and explicit exit-code reporting instead of silently swallowing failures. Shared head/tail truncation helpers are line- and byte-capped and UTF-8 safe.
+- [x] M33.2 System prompt is built per turn from the session's actual environment: working directory, platform, shell, date, git branch and dirty-file count, the top-level workspace layout (build noise skipped), and the project's own `AGENTS.md`/`CLAUDE.md` embedded under a char budget as `<project_instructions>`.
+- [x] M33.3 Conversation memory: `ConversationStore` (in-process and disk-backed, one atomically-written JSON file per session under `userData/ari-core/conversations`) replays prior turns ahead of each new prompt. The loop records assistant text alongside tool calls and results, and the driver persists in a `finally` so an interrupted turn still remembers what was asked and what ran. CLI drivers resume a provider-side thread through `resumeOf`; Ari Core owns its transcript instead.
+- [x] M33.4 Endpoints serve many models. `discoverModels` reads `/models` (OpenAI + Anthropic) or `/api/tags` (Ollama) and normalizes the shapes real servers return — `id`/`name`/`model`, `display_name`, `context_length`, OpenRouter's nested `top_provider.context_length`, Ollama's `details.family` — reporting transport, auth and empty-catalog failures as a reason string rather than throwing. `EndpointStore` gains a model list plus `setModels`, which merges a refresh over stored models while keeping hand-added ones and repoints the default when it stops being served; legacy single-model configs backfill on load. New `endpoints.discoverModels` and `endpoints.setModels` RPC methods run in the main process, since the sandboxed renderer cannot reach other origins.
+- [x] M33.5 Settings manage the list: a fetch-from-endpoint button, discovered and manual models with context-window hints, a radio for the endpoint default, per-row removal, and the same editor in the add/edit form (transient there — nothing persists until save). The session model picker lists every model an endpoint serves as its own row (`ep:<endpointId>:<modelId>`, labelled "endpoint · model"); sessions saved with a bare `ep:<id>` still resolve.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
