@@ -240,6 +240,45 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('hides the pi-acp startup prelude but keeps the real reply', async () => {
+    const child = fakeChild()
+    const startupInfo = '## Context\n- D:/project/AGENTS.md\n\n## Skills\n- C:/skills/example/SKILL.md\n'
+    script(child, (method, params, id) => {
+      if (method === 'session/new') {
+        return { sessionId: 'sess_acp_1', _meta: { piAcp: { startupInfo } } }
+      }
+      if (method === 'session/prompt') {
+        const sessionId = (params as { sessionId?: string }).sessionId
+        for (const text of [startupInfo, 'Hi from Pi.']) {
+          child.stdout.write(
+            `${JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'session/update',
+              params: {
+                sessionId,
+                update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } },
+              },
+            })}\n`,
+          )
+        }
+        return { stopReason: 'end_turn' }
+      }
+      return standardAgent()(method, params, id)
+    })
+
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    const text: string[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'text-delta') text.push(next.value.text)
+    }
+
+    expect(text).toEqual(['Hi from Pi.'])
+    await adapter.dispose()
+  }, 15000)
+
   it('delivers steering as a chained follow-up prompt inside the same stream', async () => {
     const child = fakeChild()
     const prompts: string[] = []
