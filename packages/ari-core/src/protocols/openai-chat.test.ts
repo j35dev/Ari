@@ -109,4 +109,66 @@ describe('openai chat streaming client', () => {
     expect(body.model).toBe('test-model')
     expect(body.stream).toBe(true)
   })
+
+  it('advertises tools as OpenAI functions when given a schema list', async () => {
+    const box: { body?: string } = {}
+    const fetcher: SseFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return { body: (async function* () { yield 'data: [DONE]' })(), status: 200, statusText: 'OK' }
+    }
+    for await (const _ of streamChatCompletion(
+      {
+        ...base,
+        tools: [
+          {
+            name: 'read',
+            description: 'Read a file',
+            parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+          },
+        ],
+      },
+      fetcher,
+    )) {
+      void _
+    }
+    const body = JSON.parse(box.body ?? '{}') as {
+      tools?: { type: string; function: { name: string } }[]
+      tool_choice?: string
+    }
+    expect(body.tool_choice).toBe('auto')
+    expect(body.tools?.[0]).toEqual({
+      type: 'function',
+      function: {
+        name: 'read',
+        description: 'Read a file',
+        parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      },
+    })
+  })
+
+  it('recovers DSML markup in the content as tool-started and does not emit it as text', async () => {
+    const events = []
+    for await (const e of streamChatCompletion(
+      base,
+      sseFrom([
+        'data: {"choices":[{"delta":{"content":"Let me look.\\n"}}]}',
+        'data: {"choices":[{"delta":{"content":"<|DSML|invoke name=\\"read\\"><|DSML|parameter name=\\"file\\" string=\\"true\\">PROGRESS.md</|DSML|parameter></|DSML|invoke>"}}]}',
+        'data: [DONE]',
+      ]),
+    )) {
+      events.push(e)
+    }
+    const text = events
+      .filter((e) => e.type === 'text-delta')
+      .map((e) => (e.type === 'text-delta' ? e.text : ''))
+      .join('')
+    expect(text).toBe('Let me look.\n')
+    expect(text).not.toContain('DSML')
+    const started = events.filter((e) => e.type === 'tool-started')
+    expect(started).toHaveLength(1)
+    if (started[0]?.type === 'tool-started') {
+      expect(started[0].name).toBe('read')
+      expect(JSON.parse(started[0].argsJson)).toEqual({ path: 'PROGRESS.md' })
+    }
+  })
 })
