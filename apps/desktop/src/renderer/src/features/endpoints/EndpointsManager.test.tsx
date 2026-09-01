@@ -20,6 +20,7 @@ const SEED_STORED = {
   baseUrl: 'http://localhost:11434',
   flavor: 'openai-chat',
   model: 'llama3',
+  models: [{ id: 'llama3', label: 'llama3', contextWindow: null, source: 'manual' }],
   apiKeyCipher: null,
 }
 
@@ -33,8 +34,9 @@ function mockList(items: unknown[] = [SEED_STORED]): void {
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   await user.type(screen.getByLabelText('Name'), 'Local llama')
   await user.type(screen.getByLabelText('Base URL'), 'http://localhost:11434')
-  await user.type(screen.getByLabelText('Model'), 'llama3')
   await user.type(screen.getByLabelText('API key'), 'sk-test')
+  await user.type(screen.getByLabelText('Model id to add to the new endpoint'), 'llama3')
+  await user.click(screen.getByRole('button', { name: 'Add model to the new endpoint' }))
   await user.click(screen.getByRole('button', { name: 'Add endpoint' }))
 }
 
@@ -63,6 +65,7 @@ describe('EndpointsManager', () => {
           baseUrl: 'http://localhost:11434',
           flavor: 'openai-chat',
           model: 'llama3',
+          models: [{ id: 'llama3', label: 'llama3', contextWindow: null, source: 'manual' }],
           apiKey: 'sk-test',
           headers: {},
         }),
@@ -71,22 +74,42 @@ describe('EndpointsManager', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('refuses to save an endpoint with no models', async () => {
+    mockList([])
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+
+    await user.type(screen.getByLabelText('Name'), 'Local llama')
+    await user.type(screen.getByLabelText('Base URL'), 'http://localhost:11434')
+    await user.click(screen.getByRole('button', { name: 'Add endpoint' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/at least one model/i)
+    expect(invoke).not.toHaveBeenCalledWith('endpoints.upsert', expect.anything())
+  })
+
   it('editing with a blank key keeps the stored key (apiKey undefined)', async () => {
     mockList()
     const user = userEvent.setup()
     render(<EndpointsManager />)
 
     await user.click(await screen.findByRole('button', { name: 'Edit Local llama' }))
-    // Change only the model; leave the key field empty.
-    const modelField = screen.getByLabelText('Model')
-    await user.clear(modelField)
-    await user.type(modelField, 'llama4')
+    // Add a second model and leave the key field empty.
+    await user.type(screen.getByLabelText('Model id to add to this endpoint'), 'llama4')
+    await user.click(screen.getByRole('button', { name: 'Add model to this endpoint' }))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
         'endpoints.upsert',
-        expect.objectContaining({ id: 'ep-1', model: 'llama4', apiKey: undefined }),
+        expect.objectContaining({
+          id: 'ep-1',
+          model: 'llama3',
+          apiKey: undefined,
+          models: [
+            { id: 'llama3', label: 'llama3', contextWindow: null, source: 'manual' },
+            { id: 'llama4', label: 'llama4', contextWindow: null, source: 'manual' },
+          ],
+        }),
       )
     })
   })
@@ -133,10 +156,13 @@ describe('EndpointsManager', () => {
       expect(status.textContent).toContain('42ms')
     })
     expect(status.querySelector('.bg-success')).not.toBeNull()
-    expect(invoke).toHaveBeenCalledWith(
-      'endpoints.test',
-      expect.objectContaining({ baseUrl: 'http://localhost:11434', flavor: 'openai-chat' }),
-    )
+    // The saved endpoint's id goes along so the engine can use its stored key.
+    expect(invoke).toHaveBeenCalledWith('endpoints.test', {
+      id: 'ep-1',
+      baseUrl: 'http://localhost:11434',
+      flavor: 'openai-chat',
+      apiKey: null,
+    })
   })
 
   it('test failure renders the main-process message', async () => {
@@ -158,5 +184,191 @@ describe('EndpointsManager', () => {
       expect(status.textContent).toContain('timed out')
     })
     expect(status.querySelector('.bg-danger')).not.toBeNull()
+  })
+
+  it('fetches models into the add form without saving them', async () => {
+    invoke.mockImplementation((method: string) => {
+      if (method === 'endpoints.list') return Promise.resolve([])
+      if (method === 'endpoints.discoverModels') {
+        return Promise.resolve({
+          models: [
+            { id: 'gpt-4o-mini', label: 'gpt-4o-mini', contextWindow: 128000, owner: 'openai' },
+            { id: 'gpt-4o', label: 'gpt-4o', contextWindow: null, owner: 'openai' },
+          ],
+          error: null,
+          saved: false,
+        })
+      }
+      return Promise.resolve({ ok: true })
+    })
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+
+    await user.type(screen.getByLabelText('Base URL'), 'https://api.openai.com/v1')
+    await user.type(screen.getByLabelText('API key'), 'sk-typed')
+    await user.click(screen.getByRole('button', { name: /fetch models for the new endpoint/i }))
+
+    const imported = await screen.findByRole('list', { name: 'Models on the new endpoint' })
+    expect(imported).toHaveTextContent('gpt-4o-mini')
+    expect(imported).toHaveTextContent('gpt-4o')
+    expect(imported).toHaveTextContent('128k ctx')
+    expect(screen.getByText(/Added 2 models/)).toBeInTheDocument()
+    // Fetch imports the whole catalog — there is no pick-which-to-add step.
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    // The typed key has to ride along — it is not saved yet, and without it a
+    // keyed provider answers 401. The probe stays transient: persist is false
+    // and nothing is written until the form is submitted.
+    expect(invoke).toHaveBeenCalledWith('endpoints.discoverModels', {
+      baseUrl: 'https://api.openai.com/v1',
+      flavor: 'openai-chat',
+      apiKey: 'sk-typed',
+      persist: false,
+    })
+    expect(invoke).not.toHaveBeenCalledWith('endpoints.upsert', expect.anything())
+  })
+
+  it('surfaces a discovery failure without clearing the form', async () => {
+    invoke.mockImplementation((method: string) => {
+      if (method === 'endpoints.list') return Promise.resolve([])
+      if (method === 'endpoints.discoverModels') {
+        return Promise.resolve({
+          models: [],
+          error: 'HTTP 401 — check the API key',
+          saved: false,
+        })
+      }
+      return Promise.resolve({ ok: true })
+    })
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+
+    await user.type(screen.getByLabelText('Base URL'), 'https://api.openai.com/v1')
+    await user.click(screen.getByRole('button', { name: /fetch models for the new endpoint/i }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('HTTP 401 — check the API key')
+    expect(screen.getByLabelText('Base URL')).toHaveValue('https://api.openai.com/v1')
+  })
+
+  it('refreshes a saved endpoint through the engine and re-reads the list', async () => {
+    let items: unknown[] = [SEED_STORED]
+    invoke.mockImplementation((method: string) => {
+      if (method === 'endpoints.list') return Promise.resolve(items)
+      if (method === 'endpoints.discoverModels') {
+        items = [
+          {
+            ...SEED_STORED,
+            models: [
+              { id: 'llama3', label: 'llama3', contextWindow: null, source: 'manual' },
+              { id: 'qwen3', label: 'qwen3', contextWindow: 32000, source: 'discovered' },
+            ],
+          },
+        ]
+        return Promise.resolve({
+          models: [{ id: 'qwen3', label: 'qwen3', contextWindow: 32000, owner: null }],
+          error: null,
+          saved: true,
+        })
+      }
+      return Promise.resolve({ ok: true })
+    })
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+    await screen.findByText('Local llama')
+
+    await user.click(screen.getByRole('button', { name: /manage models for local llama/i }))
+    await user.click(screen.getByRole('button', { name: /fetch models for Local llama/i }))
+
+    expect(await screen.findByText('qwen3')).toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith(
+      'endpoints.discoverModels',
+      expect.objectContaining({ id: 'ep-1' }),
+    )
+    await waitFor(() => {
+      expect(screen.getByText(/2 models · default llama3/)).toBeInTheDocument()
+    })
+  })
+
+  it('persists a manual model added on a saved endpoint', async () => {
+    mockList()
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+    await screen.findByText('Local llama')
+
+    await user.click(screen.getByRole('button', { name: /manage models for local llama/i }))
+    await user.type(screen.getByLabelText('Model id to add to Local llama'), 'mistral')
+    await user.click(screen.getByRole('button', { name: 'Add model to Local llama' }))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('endpoints.setModels', {
+        id: 'ep-1',
+        models: [
+          { id: 'llama3', label: 'llama3', contextWindow: null, source: 'manual' },
+          { id: 'mistral', label: 'mistral', contextWindow: null, source: 'manual' },
+        ],
+        defaultModel: 'llama3',
+      })
+    })
+  })
+
+  it('changes the default model of a saved endpoint', async () => {
+    mockList([
+      {
+        ...SEED_STORED,
+        models: [
+          { id: 'llama3', label: 'llama3', contextWindow: null, source: 'manual' },
+          { id: 'qwen3', label: 'qwen3', contextWindow: null, source: 'discovered' },
+        ],
+      },
+    ])
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+    await screen.findByText('Local llama')
+
+    await user.click(screen.getByRole('button', { name: /manage models for local llama/i }))
+    await user.click(screen.getByLabelText(/default for local llama/i))
+    await user.click(screen.getByRole('option', { name: 'qwen3' }))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        'endpoints.setModels',
+        expect.objectContaining({ id: 'ep-1', defaultModel: 'qwen3' }),
+      )
+    })
+  })
+
+  it('keeps the add form above saved endpoints', async () => {
+    mockList()
+    render(<EndpointsManager />)
+    const formHeading = await screen.findByRole('heading', { name: 'Add endpoint' })
+    const savedHeading = screen.getByRole('heading', { name: 'Saved endpoints' })
+    expect(
+      formHeading.compareDocumentPosition(savedHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0)
+  })
+
+  it('removing the default model hands the role to the next one', async () => {
+    mockList([
+      {
+        ...SEED_STORED,
+        models: [
+          { id: 'llama3', label: 'llama3', contextWindow: null, source: 'manual' },
+          { id: 'qwen3', label: 'qwen3', contextWindow: null, source: 'discovered' },
+        ],
+      },
+    ])
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+    await screen.findByText('Local llama')
+
+    await user.click(screen.getByRole('button', { name: /manage models for local llama/i }))
+    await user.click(screen.getByRole('button', { name: 'Remove model llama3 from Local llama' }))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('endpoints.setModels', {
+        id: 'ep-1',
+        models: [{ id: 'qwen3', label: 'qwen3', contextWindow: null, source: 'discovered' }],
+        defaultModel: 'qwen3',
+      })
+    })
   })
 })
