@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionImport } from './SessionImport'
@@ -71,15 +71,62 @@ describe('SessionImport', () => {
     expect(await screen.findByText(/Imported "refactor the store"/)).toBeInTheDocument()
   })
 
+  it('shows which session is importing and blocks duplicate actions while it runs', async () => {
+    let finishImport:
+      | ((result: { ok: true; sessionId: string; title: string; messageCount: number }) => void)
+      | undefined
+    mocks.invoke.mockImplementation(async (method: string) => {
+      if (method === 'sessions.importable') return SESSIONS
+      if (method === 'sessions.import') {
+        return new Promise((resolve) => {
+          finishImport = resolve
+        })
+      }
+      throw new Error(`unexpected ${method}`)
+    })
+
+    const user = userEvent.setup()
+    render(<SessionImport />)
+    await user.click(await screen.findByRole('button', { name: 'Import refactor the store' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('Importing “refactor the store”…')
+    expect(screen.getByRole('button', { name: 'Importing refactor the store' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+    expect(screen.getByRole('button', { name: 'Import already here' })).toBeDisabled()
+
+    finishImport?.({
+      ok: true,
+      sessionId: 'sess_new',
+      title: 'refactor the store',
+      messageCount: 12,
+    })
+    expect(await screen.findByText(/Imported "refactor the store"/)).toBeInTheDocument()
+  })
+
   it('surfaces a refusal instead of pretending it worked', async () => {
     const user = userEvent.setup()
     mocks.invoke.mockImplementation(async (method: string) => {
       if (method === 'sessions.importable') return SESSIONS
-      return { ok: false, error: 'No Ari project for D:\\Nowhere — open the folder first, then import.' }
+      return {
+        ok: false,
+        error: 'No Ari project for D:\\Nowhere — open the folder first, then import.',
+      }
     })
     render(<SessionImport />)
     await user.click(await screen.findByRole('button', { name: 'Import refactor the store' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('open the folder first')
+
+    const failedSession = screen.getByText('refactor the store').closest('li')
+    if (failedSession === null) throw new Error('expected the failed session row')
+    expect(within(failedSession).getByText('error')).toHaveClass('bg-danger-subtle', 'text-danger')
+    expect(within(failedSession).getByRole('alert')).toHaveTextContent('open the folder first')
+    expect(within(failedSession).getByRole('button', { name: 'Retry refactor the store' })).toHaveTextContent(
+      'Retry',
+    )
+    const importedSession = screen.getByText('already here').closest('li')
+    if (importedSession === null) throw new Error('expected the imported session row')
+    expect(within(importedSession).queryByRole('alert')).toBeNull()
   })
 
   it('says so when pi has no sessions on this machine', async () => {
