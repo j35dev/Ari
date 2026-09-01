@@ -23,6 +23,10 @@ import { McpConnection } from './mcp'
 import { mountMcpTools, type MountedMcpServer } from './mcp-tools'
 import type { Tool } from './tools'
 import { buildSystemPrompt } from './system-prompt'
+import {
+  MemoryConversationStore,
+  type ConversationStore,
+} from './conversation-store'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('ari-core:driver')
@@ -52,6 +56,12 @@ export interface AriCoreDriverOptions {
   mcpServers?: McpServerConfig[]
   /** Connection seam for tests; production connects over real stdio. */
   mcpConnect?: (server: McpServerConfig) => Promise<McpConnection>
+  /**
+   * Conversation memory across turns of one session. Defaults to an
+   * in-process store; the desktop layer passes a disk-backed one so a
+   * session's history survives a restart.
+   */
+  conversations?: ConversationStore
 }
 
 interface RenderedTurn {
@@ -147,6 +157,10 @@ function ollamaRequest(
  * Enabled MCP servers are mounted per turn: each one spawns over stdio,
  * lists its tools as `mcp_<server>_<tool>`, and joins the loop's toolset.
  * Failures fail soft — a dead server is logged and omitted for the turn.
+ *
+ * Conversation memory is the driver's own concern: CLI drivers resume a
+ * provider-side thread through `resumeOf`, but Ari Core has none, so it
+ * replays the session's stored transcript ahead of each new prompt.
  */
 export class AriCoreDriver implements Driver {
   readonly kind = 'ari-core' as const
@@ -157,6 +171,7 @@ export class AriCoreDriver implements Driver {
   readonly #allowlist: AllowRule[] | undefined
   readonly #mcpServers: McpServerConfig[]
   readonly #mcpConnectOverride?: (server: McpServerConfig) => Promise<McpConnection>
+  readonly #conversations: ConversationStore
 
   constructor(endpoints: EndpointStore, options: AriCoreDriverOptions = {}) {
     this.#endpoints = endpoints
@@ -165,6 +180,7 @@ export class AriCoreDriver implements Driver {
     this.#allowlist = options.allowlist
     this.#mcpServers = options.mcpServers ?? []
     this.#mcpConnectOverride = options.mcpConnect
+    this.#conversations = options.conversations ?? new MemoryConversationStore()
   }
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
@@ -189,6 +205,7 @@ export class AriCoreDriver implements Driver {
     const clients = this.#clients
     const contextCharLimit = this.#contextCharLimit
     const allowlist = this.#allowlist
+    const conversations = this.#conversations
     const mcpServers = this.#mcpServers.filter((s) => !s.disabled)
     const mcpConnect =
       this.#mcpConnectOverride ??
@@ -280,6 +297,22 @@ export class AriCoreDriver implements Driver {
         extraTools = await mountMcpTools(mounted)
       }
 
+      // Replay this session's earlier turns so the model keeps its memory;
+      // the stored transcript is trimmed to the same budget as a request so a
+      // long session cannot grow it without bound.
+      const history = trimMessages(await conversations.load(session.sessionId), contextCharLimit)
+      let latest: ChatMessage[] = history
+      const persist = (): Promise<void> =>
+        conversations
+          .save(session.sessionId, trimMessages(latest, contextCharLimit))
+          .catch((error: unknown) => {
+            // Losing memory is worse than a noisy log, but never fatal to a turn.
+            log.warn('failed to persist ari-core conversation', {
+              sessionId: session.sessionId,
+              error: String(error),
+            })
+          })
+
       try {
         yield* runAgentLoop({
           round,
@@ -287,12 +320,19 @@ export class AriCoreDriver implements Driver {
           userPrompt: session.prompt,
           workspacePath: session.workspacePath,
           permissionMode: session.permissionMode,
+          history,
+          onTranscript: (messages) => {
+            latest = messages
+          },
           requestApproval,
           ...(allowlist ? { allowlist } : {}),
           ...(extraTools.length > 0 ? { extraTools } : {}),
           signal: abort.signal,
         })
       } finally {
+        // Persist whatever the turn produced, including a partial transcript
+        // after an interrupt — the next turn should see what already happened.
+        await persist()
         await disposeMcpConnections()
       }
     }
