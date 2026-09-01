@@ -15,6 +15,17 @@ export interface AgentLoopOptions {
   userPrompt: string
   workspacePath: string
   /**
+   * Prior turns of this session, without the system prompt. The loop replays
+   * them ahead of `userPrompt` so the model keeps its memory across turns.
+   */
+  history?: ChatMessage[]
+  /**
+   * Receives the conversation (history plus this turn, system prompt excluded)
+   * whenever it grows, so the caller can persist it. Called with a snapshot;
+   * the loop never hands out its own array.
+   */
+  onTranscript?: (messages: ChatMessage[]) => void
+  /**
    * Session permission mode (`ask` | `allow-edits` | `full`). Bash and file
    * writes are gated by it; an absent mode is treated as `ask` (fail-closed).
    */
@@ -85,8 +96,15 @@ export async function* runAgentLoop(
   const alwaysAllowed = new Set<string>()
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
+    ...(options.history ?? []),
     { role: 'user', content: userPrompt },
   ]
+  // The system prompt is rebuilt per turn (its environment facts go stale), so
+  // it is never part of the persisted transcript.
+  const publishTranscript = (): void => {
+    options.onTranscript?.(messages.slice(1).map((m) => ({ ...m })))
+  }
+  publishTranscript()
 
   for (let current = 0; current < maxRounds; current++) {
     if (signal?.aborted) {
@@ -101,6 +119,9 @@ export async function* runAgentLoop(
     const maxEmptyRetries = options.emptyResponseRetries ?? 2
     let emptyAttempts = 0
     let pending: PendingToolCall[]
+    // Assigned at the top of every attempt, like `pending`: a retried round
+    // replaces the text rather than appending to a discarded attempt's.
+    let assistantText: string
     for (;;) {
       let sawContent = false
       const deferredUsage: AgentEvent[] = []
@@ -108,6 +129,7 @@ export async function* runAgentLoop(
       // empty attempt never leaks stray fragments to the transcript.
       const deferredWhitespace: AgentEvent[] = []
       pending = []
+      assistantText = ''
 
       for await (const event of round(messages, signal)) {
         if (event.type === 'tool-started') {
@@ -121,6 +143,7 @@ export async function* runAgentLoop(
           deferredUsage.push(event)
           continue
         }
+        if (event.type === 'text-delta') assistantText += event.text
         if (
           (event.type === 'text-delta' || event.type === 'thinking-delta') &&
           !sawContent &&
@@ -159,6 +182,12 @@ export async function* runAgentLoop(
     }
 
     if (pending.length === 0) {
+      // A text-only round ends the turn; keep the answer in the transcript so
+      // the next turn can refer back to it.
+      if (assistantText.length > 0) {
+        messages.push({ role: 'assistant', content: assistantText })
+        publishTranscript()
+      }
       yield { type: 'done' }
       return
     }
@@ -169,7 +198,8 @@ export async function* runAgentLoop(
       name: p.name,
       argsJson: p.argsJson,
     }))
-    messages.push({ role: 'assistant', content: '', toolCalls: assistantToolCalls })
+    messages.push({ role: 'assistant', content: assistantText, toolCalls: assistantToolCalls })
+    publishTranscript()
 
     for (const call of pending) {
       const tool = toolset.get(call.name)
@@ -249,6 +279,7 @@ export async function* runAgentLoop(
         toolCallId: call.callId,
       })
     }
+    publishTranscript()
   }
 
   yield { type: 'error', message: `round budget exhausted (${maxRounds})`, rawJson: null }

@@ -15,7 +15,8 @@
     "./driver": "./src/ari-core-driver.ts",
     "./mcp": "./src/mcp.ts",
     "./mcp-servers": "./src/mcp-servers.ts",
-    "./mcp-tools": "./src/mcp-tools.ts"
+    "./mcp-tools": "./src/mcp-tools.ts",
+    "./conversation-store": "./src/conversation-store.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

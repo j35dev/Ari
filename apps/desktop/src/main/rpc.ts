@@ -55,6 +55,7 @@ import {
 } from './provider-config'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
+import { FileConversationStore } from '@ari/ari-core/conversation-store'
 
 const log = createLogger('desktop:rpc')
 
@@ -394,7 +395,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // The registry exists immediately with Ari Core attached; CLI drivers are
   // added as background detection completes. Nothing waits on that to answer.
   const driverRegistry = new DriverRegistry()
-  driverRegistry.register(new AriCoreDriver(getEndpointStore()))
+  driverRegistry.register(
+    new AriCoreDriver(getEndpointStore(), {
+      // Ari Core owns its transcript (it has no provider-side thread to
+      // resume), so conversation memory is persisted per session on disk.
+      conversations: new FileConversationStore(
+        join(app.getPath('userData'), 'ari-core', 'conversations'),
+      ),
+    }),
+  )
   driverRegistryRef = driverRegistry
   hydrateDrivers(driverRegistry)
 

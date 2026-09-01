@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { AriCoreDriver } from './ari-core-driver'
+import { MemoryConversationStore, type ConversationStore } from './conversation-store'
 import { EndpointStore } from './endpoints'
 import type { ChatRequest } from './protocols/openai-chat'
 import type { AnthropicChatRequest } from './protocols/anthropic-messages'
@@ -262,6 +263,235 @@ describe('ari core driver flavor routing', () => {
       expect(requests[0]?.model).toBe('gpt-test')
       expect(events.some((e) => e.type === 'error')).toBe(false)
       expect(events[0]).toEqual({ type: 'text-delta', text: 'hi' })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('honours the model named in an `ep:<id>:<model>` handle', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-core-epm-'))
+    try {
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'oai',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'default-model',
+        models: [
+          { id: 'default-model', label: 'default', contextWindow: null, source: 'manual' },
+          { id: 'llama3.1:8b', label: 'Llama', contextWindow: null, source: 'discovered' },
+        ],
+        headers: {},
+      })
+      const requests: ChatRequest[] = []
+      const driver = new AriCoreDriver(endpoints, {
+        clients: {
+          openai: async function* (request) {
+            requests.push(request)
+            yield { type: 'text-delta', text: 'hi' }
+            yield { type: 'done' }
+          },
+        },
+      })
+      // Only the first colon separates endpoint from model; ids like
+      // `llama3.1:8b` carry their own.
+      const adapter = await driver.create(makeSession(dir, 'hello', 'ep:oai:llama3.1:8b'))
+      await collect(adapter.start())
+
+      expect(requests[0]?.model).toBe('llama3.1:8b')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('anchors the system prompt to the session workspace', async () => {    const dir = await mkdtemp(join(tmpdir(), 'ari-core-prompt-'))
+    try {
+      await writeFile(join(dir, 'AGENTS.md'), 'Prefer pnpm.', 'utf8')
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'oai',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'gpt-test',
+        headers: {},
+      })
+      const requests: ChatRequest[] = []
+      const driver = new AriCoreDriver(endpoints, {
+        clients: {
+          openai: async function* (request) {
+            requests.push(request)
+            yield { type: 'text-delta', text: 'hi' }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const adapter = await driver.create(makeSession(dir, 'hello', 'ep:oai'))
+      await collect(adapter.start())
+
+      const system = requests[0]?.messages?.[0]?.content ?? ''
+      expect(system).toContain(dir.replace(/\\/g, '/'))
+      expect(system).toContain('AGENTS.md')
+      expect(system).toContain('Prefer pnpm.')
+      expect(system).toContain('Workspace layout')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('ari core driver conversation memory', () => {
+  async function memoryDriver(
+    dir: string,
+    conversations: ConversationStore,
+    requests: ChatRequest[],
+    reply: string,
+  ): Promise<AriCoreDriver> {
+    const endpoints = new EndpointStore({ dir })
+    await endpoints.upsert({
+      id: 'ep-mem',
+      name: 'Router',
+      baseUrl: 'https://oai.test/v1',
+      flavor: 'openai-chat',
+      model: 'm',
+      headers: {},
+    })
+    return new AriCoreDriver(endpoints, {
+      conversations,
+      clients: {
+        openai: async function* (request) {
+          requests.push(request)
+          yield { type: 'text-delta', text: reply }
+          yield { type: 'done' }
+        },
+      },
+    })
+  }
+
+  it('replays the previous turn on the next prompt', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-'))
+    try {
+      const conversations = new MemoryConversationStore()
+      const requests: ChatRequest[] = []
+      const first = await memoryDriver(dir, conversations, requests, 'the answer is 42')
+      await collect((await first.create(makeSession(dir, 'what is the answer?', 'ep:ep-mem'))).start())
+
+      const second = await memoryDriver(dir, conversations, requests, 'still 42')
+      await collect((await second.create(makeSession(dir, 'are you sure?', 'ep:ep-mem'))).start())
+
+      // Round two carries turn one's exchange ahead of the new prompt, so the
+      // model is not answering "are you sure?" with an empty conversation.
+      const secondMessages = requests[1]?.messages ?? []
+      expect(secondMessages.map((m) => m.role)).toEqual([
+        'system',
+        'user',
+        'assistant',
+        'user',
+      ])
+      expect(secondMessages[1]?.content).toBe('what is the answer?')
+      expect(secondMessages[2]?.content).toBe('the answer is 42')
+      expect(secondMessages.at(-1)?.content).toBe('are you sure?')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps sessions separate and excludes the system prompt from storage', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-sep-'))
+    try {
+      const conversations = new MemoryConversationStore()
+      const requests: ChatRequest[] = []
+      const driver = await memoryDriver(dir, conversations, requests, 'ok')
+      await collect((await driver.create(makeSession(dir, 'hello', 'ep:ep-mem'))).start())
+
+      const stored = await conversations.load('s1')
+      expect(stored.some((m) => m.role === 'system')).toBe(false)
+      expect(stored).toEqual([
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'ok' },
+      ])
+      expect(await conversations.load('other-session')).toEqual([])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('records the tool exchange so later turns see what already ran', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-tools-'))
+    try {
+      await writeFile(join(dir, 'note.txt'), 'note body', 'utf8')
+      const conversations = new MemoryConversationStore()
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep-mem',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'm',
+        headers: {},
+      })
+      let round = 0
+      const driver = new AriCoreDriver(endpoints, {
+        conversations,
+        clients: {
+          openai: async function* () {
+            round++
+            if (round === 1) {
+              yield {
+                type: 'tool-started',
+                callId: 'c1',
+                name: 'read',
+                argsJson: '{"path":"note.txt"}',
+              }
+            } else {
+              yield { type: 'text-delta', text: 'it says note body' }
+            }
+            yield { type: 'done' }
+          },
+        },
+      })
+      await collect((await driver.create(makeSession(dir, 'read the note', 'ep:ep-mem'))).start())
+
+      const stored = await conversations.load('s1')
+      expect(stored.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
+      expect(stored[1]?.toolCalls?.[0]?.name).toBe('read')
+      expect(stored[2]?.content).toContain('note body')
+      expect(stored.at(-1)?.content).toBe('it says note body')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('persists the transcript even when the turn is interrupted', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-abort-'))
+    try {
+      const conversations = new MemoryConversationStore()
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep-mem',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'm',
+        headers: {},
+      })
+      const driver = new AriCoreDriver(endpoints, {
+        conversations,
+        clients: {
+          openai: async function* () {
+            yield { type: 'text-delta', text: 'partial' }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const adapter = await driver.create(makeSession(dir, 'do the thing', 'ep:ep-mem'))
+      await collect(adapter.start())
+      adapter.interrupt()
+
+      // The prompt is in memory regardless: the next turn should know it was
+      // asked, not repeat from nothing.
+      expect((await conversations.load('s1')).some((m) => m.content === 'do the thing')).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
