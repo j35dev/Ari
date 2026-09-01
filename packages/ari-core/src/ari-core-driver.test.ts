@@ -463,8 +463,7 @@ describe('ari core driver conversation memory', () => {
     }
   })
 
-  it('persists the transcript even when the turn is interrupted', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-abort-'))
+  it('persists the transcript even when the turn is interrupted', async () => {    const dir = await mkdtemp(join(tmpdir(), 'ari-mem-abort-'))
     try {
       const conversations = new MemoryConversationStore()
       const endpoints = new EndpointStore({ dir })
@@ -605,6 +604,135 @@ describe('ari core driver permission enforcement', () => {
       expect(after.value.resultJson).toContain("denied by user under permission mode 'ask'")
     } finally {
       await rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('ari core driver compaction', () => {
+  /** Endpoint plus a client that answers summarization and normal rounds. */
+  async function compactingDriver(
+    dir: string,
+    conversations: MemoryConversationStore,
+    requests: ChatRequest[],
+  ): Promise<AriCoreDriver> {
+    const endpoints = new EndpointStore({ dir })
+    await endpoints.upsert({
+      id: 'ep-c',
+      name: 'Router',
+      baseUrl: 'https://oai.test/v1',
+      flavor: 'openai-chat',
+      model: 'm',
+      headers: {},
+    })
+    return new AriCoreDriver(endpoints, {
+      conversations,
+      // Small budget so a modest history crosses the threshold.
+      contextCharLimit: 2000,
+      clients: {
+        openai: async function* (request) {
+          requests.push(request)
+          const isSummaryCall = (request.messages[0]?.content ?? '').startsWith(
+            'Summarize the conversation so far',
+          )
+          yield {
+            type: 'text-delta',
+            text: isSummaryCall ? '## Goal\nrename the widget' : 'carrying on',
+          }
+          yield { type: 'done' }
+        },
+      },
+    })
+  }
+
+  it('summarizes older history instead of dropping it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-compact-'))
+    try {
+      const conversations = new MemoryConversationStore()
+      // A history well past the 75% trigger of the 2000-char budget.
+      await conversations.save('s1', [
+        { role: 'user', content: `rename the widget ${'x'.repeat(900)}` },
+        { role: 'assistant', content: `did it ${'y'.repeat(900)}` },
+        { role: 'user', content: 'and the tests?' },
+        { role: 'assistant', content: 'updated them' },
+      ])
+      const requests: ChatRequest[] = []
+      const driver = await compactingDriver(dir, conversations, requests)
+      await collect((await driver.create(makeSession(dir, 'what next?', 'ep:ep-c'))).start())
+
+      // First call is the summarization pass, second is the real round.
+      expect(requests).toHaveLength(2)
+      expect(requests[0]?.messages[0]?.content).toContain('Summarize the conversation so far')
+      expect(requests[0]?.messages[1]?.content).toContain('[User]: rename the widget')
+      const round = requests[1]?.messages ?? []
+      const summary = round.find((m) => m.content.includes('[summary of earlier conversation]'))
+      expect(summary?.content).toContain('rename the widget')
+      // The bulky original turns are gone, the newest ones and the summary stay.
+      expect(round.some((m) => m.content.includes('x'.repeat(900)))).toBe(false)
+      expect(round.some((m) => m.content === 'updated them')).toBe(true)
+      expect(round.at(-1)?.content).toBe('what next?')
+      // Compaction is what gets stored, so the next turn starts from it.
+      const stored = await conversations.load('s1')
+      expect(stored.some((m) => m.content.includes('[summary of earlier conversation]'))).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
+  })
+
+  it('leaves a small conversation alone', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-compact-small-'))
+    try {
+      const conversations = new MemoryConversationStore()
+      await conversations.save('s1', [{ role: 'user', content: 'brief' }])
+      const requests: ChatRequest[] = []
+      const driver = await compactingDriver(dir, conversations, requests)
+      await collect((await driver.create(makeSession(dir, 'again', 'ep:ep-c'))).start())
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.messages.some((m) => m.content.includes('[summary'))).toBe(false)
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
+  })
+
+  it('falls back to trimming when summarization fails', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-compact-fail-'))
+    try {
+      const conversations = new MemoryConversationStore()
+      await conversations.save('s1', [
+        { role: 'user', content: 'x'.repeat(1200) },
+        { role: 'assistant', content: 'y'.repeat(900) },
+        { role: 'user', content: 'still here' },
+      ])
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep-c',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'm',
+        headers: {},
+      })
+      let calls = 0
+      const driver = new AriCoreDriver(endpoints, {
+        conversations,
+        contextCharLimit: 2000,
+        clients: {
+          openai: async function* () {
+            calls++
+            if (calls === 1) throw new Error('summarizer offline')
+            yield { type: 'text-delta', text: 'answered anyway' }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const events = await collect(
+        (await driver.create(makeSession(dir, 'go on', 'ep:ep-c'))).start(),
+      )
+      // A dead summarizer degrades the context; it must not fail the turn.
+      expect(events.some((e) => e.type === 'text-delta')).toBe(true)
+      expect(events.at(-1)).toEqual({ type: 'done' })
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
 })
