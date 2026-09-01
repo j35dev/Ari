@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import { containsDsml, parseDsmlToolCalls } from './dsml'
+import { StreamContent } from './content-split'
+import { parseDsmlToolCalls } from './dsml'
 
 /**
  * OpenAI-compatible chat-completions streaming client. Works with any
@@ -68,6 +69,8 @@ interface StreamChunk {
     delta?: {
       content?: string
       reasoning_content?: string
+      /** OpenRouter and some reasoner proxies use `reasoning` instead. */
+      reasoning?: string
       tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[]
     }
   }[]
@@ -149,11 +152,7 @@ export async function* streamChatCompletion(
   let inputTokens = 0
   let outputTokens = 0
   let sawNativeTool = false
-  // DSML can arrive split across deltas (`<|` then `DSML|…`). Hold only a
-  // suffix that could still become a DSML open tag so ordinary text still
-  // streams, then recover the markup as tool-started if no native tool_calls.
-  let held = ''
-  let dsmlMode = false
+  const content = new StreamContent()
 
   for await (const raw of response.body) {
     const data = raw.startsWith('data:') ? raw.slice(5).trim() : raw.trim()
@@ -168,23 +167,10 @@ export async function* streamChatCompletion(
     const choice = chunk.choices?.[0]
     const delta = choice?.delta
     if (delta?.content) {
-      held += delta.content
-      if (!dsmlMode) {
-        const at = held.search(/<\s*\|\s*DSML\s*\|/i)
-        if (at === -1) {
-          const keep = trailingDsmlPrefixLen(held)
-          const flush = held.slice(0, held.length - keep)
-          held = held.slice(held.length - keep)
-          if (flush.length > 0) yield { type: 'text-delta', text: flush }
-        } else {
-          const before = held.slice(0, at)
-          if (before.length > 0) yield { type: 'text-delta', text: before }
-          held = held.slice(at)
-          dsmlMode = true
-        }
-      }
+      for (const event of content.push(delta.content)) yield event
     }
-    if (delta?.reasoning_content) yield { type: 'thinking-delta', text: delta.reasoning_content }
+    const reasoning = delta?.reasoning_content ?? delta?.reasoning
+    if (reasoning) yield { type: 'thinking-delta', text: reasoning }
     for (const call of delta?.tool_calls ?? []) {
       const entry = pendingTools.get(call.index) ?? { id: '', name: '', args: '' }
       if (call.id) entry.id = call.id
@@ -221,8 +207,10 @@ export async function* streamChatCompletion(
     }
   }
 
-  if (!sawNativeTool && (dsmlMode || containsDsml(held))) {
-    const recovered = parseDsmlToolCalls(held)
+  const leftover = content.end()
+  for (const event of leftover.events) yield event
+  if (!sawNativeTool && leftover.dsml !== null) {
+    const recovered = parseDsmlToolCalls(leftover.dsml)
     for (const [i, call] of recovered.entries()) {
       yield {
         type: 'tool-started',
@@ -231,8 +219,6 @@ export async function* streamChatCompletion(
         argsJson: JSON.stringify(call.args),
       }
     }
-  } else if (!dsmlMode && held.length > 0) {
-    yield { type: 'text-delta', text: held }
   }
 
   yield { type: 'usage', inputTokens, outputTokens, costUsd: null }
@@ -246,13 +232,4 @@ function looksComplete(args: string): boolean {
   } catch {
     return false
   }
-}
-
-/** Longest suffix of `text` that could still grow into a `<|DSML|` open tag. */
-function trailingDsmlPrefixLen(text: string): number {
-  const max = Math.min(text.length, 16)
-  for (let n = max; n > 0; n--) {
-    if (/^<\s*(?:\|\s*(?:D(?:S(?:M(?:L(?:\s*\|?)?)?)?)?)?)?$/i.test(text.slice(-n))) return n
-  }
-  return 0
 }

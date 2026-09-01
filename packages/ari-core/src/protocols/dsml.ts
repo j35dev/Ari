@@ -34,6 +34,15 @@ export function containsDsml(text: string): boolean {
   return /<\s*\|\s*DSML\s*\|/i.test(text)
 }
 
+/** Longest suffix of `text` that could still grow into a `<|DSML|` open tag. */
+export function trailingDsmlPrefixLen(text: string): number {
+  const max = Math.min(text.length, 16)
+  for (let n = max; n > 0; n--) {
+    if (/^<\s*(?:\|\s*(?:D(?:S(?:M(?:L(?:\s*\|?)?)?)?)?)?)?$/i.test(text.slice(-n))) return n
+  }
+  return 0
+}
+
 function canonicalArgName(name: string): string {
   return ARG_ALIASES[name] ?? name
 }

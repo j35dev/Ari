@@ -146,6 +146,30 @@ describe('openai chat streaming client', () => {
     })
   })
 
+  it('routes reasoning_content and <think> tags to thinking-delta, not the reply', async () => {
+    const events = []
+    for await (const e of streamChatCompletion(
+      base,
+      sseFrom([
+        'data: {"choices":[{"delta":{"reasoning_content":"planning"}}]}',
+        'data: {"choices":[{"delta":{"content":"<think>inner</think>Hi there"}}]}',
+        'data: [DONE]',
+      ]),
+    )) {
+      events.push(e)
+    }
+    const thinking = events
+      .filter((e) => e.type === 'thinking-delta')
+      .map((e) => (e.type === 'thinking-delta' ? e.text : ''))
+      .join('')
+    const text = events
+      .filter((e) => e.type === 'text-delta')
+      .map((e) => (e.type === 'text-delta' ? e.text : ''))
+      .join('')
+    expect(thinking).toBe('planninginner')
+    expect(text).toBe('Hi there')
+  })
+
   it('recovers DSML markup in the content as tool-started and does not emit it as text', async () => {
     const events = []
     for await (const e of streamChatCompletion(
