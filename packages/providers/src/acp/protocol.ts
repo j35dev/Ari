@@ -138,15 +138,18 @@ export interface AcpNewSessionResult {
 
 /**
  * One entry of `initialize.authMethods`. `type: 'terminal'` methods are run by
- * the client, not the agent; the `terminal-auth` `_meta` block spells out the
- * exact argv so a client without ACP's `terminal/*` methods can still launch
- * the login in a pty of its own.
+ * the client, not the agent. Two spellings exist for the same idea: the ACP
+ * registry's own `type`/`args`/`env` fields, and the `terminal-auth` `_meta`
+ * block that spells out a complete argv. Adapters ship both (pi's does),
+ * because clients implemented the `_meta` extension first.
  */
 export interface AcpAuthMethod {
   id?: string
   name?: string
   description?: string
   type?: string
+  /** Registry shape: arguments to the agent's *own* launch command. */
+  args?: string[]
   _meta?: {
     'terminal-auth'?: {
       command?: string
@@ -181,29 +184,57 @@ export interface AcpTerminalLogin {
 
 /**
  * Projects `initialize.authMethods` onto the subset Ari can launch. Methods
- * without a runnable `terminal-auth` argv are dropped: offering a button that
- * cannot do anything is worse than offering none.
+ * without a runnable argv are dropped: offering a button that cannot do
+ * anything is worse than offering none.
+ *
+ * Two shapes count as runnable. A `terminal-auth` `_meta` block carries the
+ * whole command line and is preferred. Failing that, a `type: 'terminal'`
+ * method's `args` are arguments to the *agent's own* launch command, which the
+ * caller supplies as `agentLaunch` — that is the ACP registry's own spelling,
+ * and the one that survives if the `_meta` extension (explicitly a stopgap in
+ * the adapters that emit it) is ever dropped.
  */
-export function terminalLoginsFrom(result: AcpInitializeResult | null | undefined): AcpTerminalLogin[] {
+export function terminalLoginsFrom(
+  result: AcpInitializeResult | null | undefined,
+  agentLaunch?: { command: string; args: string[] },
+): AcpTerminalLogin[] {
   const logins: AcpTerminalLogin[] = []
   for (const method of result?.authMethods ?? []) {
-    const terminal = method._meta?.['terminal-auth']
-    const command = terminal?.command
     if (typeof method.id !== 'string' || method.id.length === 0) continue
-    if (typeof command !== 'string' || command.length === 0) continue
-    const args = (terminal?.args ?? []).filter((arg): arg is string => typeof arg === 'string')
+    const launch = runnableLaunch(method, agentLaunch)
+    if (launch === null) continue
     logins.push({
       methodId: method.id,
       name:
         typeof method.name === 'string' && method.name.trim().length > 0
           ? method.name.trim()
-          : (terminal?.label ?? method.id),
+          : (method._meta?.['terminal-auth']?.label ?? method.id),
       description: typeof method.description === 'string' ? method.description.trim() : '',
-      command,
-      args,
+      command: launch.command,
+      args: launch.args,
     })
   }
   return logins
+}
+
+/** The argv for one auth method, or null when Ari has no way to run it. */
+function runnableLaunch(
+  method: AcpAuthMethod,
+  agentLaunch?: { command: string; args: string[] },
+): { command: string; args: string[] } | null {
+  const terminal = method._meta?.['terminal-auth']
+  const command = terminal?.command
+  if (typeof command === 'string' && command.length > 0) {
+    return { command, args: stringsOf(terminal?.args) }
+  }
+  if (method.type !== 'terminal' || agentLaunch === undefined) return null
+  const args = stringsOf(method.args)
+  if (args.length === 0) return null
+  return { command: agentLaunch.command, args: [...agentLaunch.args, ...args] }
+}
+
+function stringsOf(values: unknown): string[] {
+  return Array.isArray(values) ? values.filter((v): v is string => typeof v === 'string') : []
 }
 
 function asBlocks(content: AcpContentBlock | AcpContentBlock[] | undefined): AcpContentBlock[] {
@@ -290,13 +321,13 @@ export class AcpUpdateFolder {
           },
         ]
       }
-      case 'usage_update': {
-        const used = typeof update.used === 'number' && update.used >= 0 ? Math.floor(update.used) : 0
-        const costUsd = update.cost?.currency === 'USD' && typeof update.cost.amount === 'number'
-          ? update.cost.amount
-          : null
-        return [{ type: 'usage', inputTokens: used, outputTokens: 0, costUsd }]
-      }
+      case 'usage_update':
+        // ACP's usage_update is a context-window gauge (`used` of `size`), not
+        // a per-turn token delta — and Ari's `usage` event is additive, so the
+        // transcript summed a gauge that grows with every update and labelled
+        // the total "input tokens". Reporting nothing beats reporting that.
+        // TODO(m31): a dedicated context-usage event with its own readout.
+        return []
       default:
         // user_message_chunk / plan / mode / config / commands updates have
         // no transcript surface yet (plan needs a dedicated event + UI).

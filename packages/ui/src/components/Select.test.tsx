@@ -140,6 +140,20 @@ describe('Select', () => {
     expect(onValueChange).toHaveBeenCalledWith('pi')
   })
 
+  it('caps the listbox so a long catalog cannot overflow the viewport', async () => {
+    const user = userEvent.setup()
+    const many: SelectOption[] = Array.from({ length: 40 }, (_, i) => ({
+      value: `m-${i}`,
+      label: `model-${i}`,
+    }))
+    render(<Select options={many} placeholder="Pick" />)
+    await user.click(screen.getByRole('button'))
+
+    const listbox = screen.getByRole('listbox')
+    expect(listbox.className).toMatch(/max-h-72/)
+    expect(listbox.className).toMatch(/overflow-y-auto/)
+  })
+
   it('ignores clicks on disabled options', async () => {
     const user = userEvent.setup()
     const onValueChange = vi.fn()

@@ -2,6 +2,7 @@ import type { Readable, Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import { explainExitCode } from '../exit-codes'
 import { spawnCli } from '../spawn-cli'
+import { teardownChild } from '../teardown'
 import {
   AUTH_REQUIRED_ERROR,
   describeAcpFailure,
@@ -16,6 +17,14 @@ import type {
 } from './protocol'
 
 const log = createLogger('providers:acp')
+
+/** The ACP major version every message Ari sends is shaped for. */
+export const ACP_PROTOCOL_VERSION = 1
+
+/** How long the stdio transport's own EOF gets before the ladder escalates. */
+const TRANSPORT_EOF_GRACE_MS = 400
+/** How long SIGTERM gets before the process tree is killed outright. */
+const TRANSPORT_TERM_GRACE_MS = 600
 
 /** Launch description for an ACP agent subprocess. */
 export interface AcpLaunch {
@@ -33,11 +42,14 @@ export interface AcpChildProcess {
   stdout: Readable
   stderr: Readable
   readonly killed: boolean
-  kill(): boolean
+  kill(signal?: NodeJS.Signals): boolean
   /** Subscribes to process-level failures (spawn ENOENT, EPIPE…). */
   on(event: 'error', listener: (error: Error) => void): unknown
   /** Optional exit subscription (`child.on('close', …)`); enables npm exit decoding. */
   onExit?(listener: (code: number | null) => void): unknown
+  /** Optional: real spawns carry one, and the teardown ladder needs it to
+   * reach grandchildren (`npx` → node → the agent → its own tools). */
+  pid?: number | undefined
 }
 
 export interface AcpConnectOptions {
@@ -147,7 +159,10 @@ export class AcpConnection {
 
   /** Logins the agent advertised at initialize that Ari can launch itself. */
   get terminalLogins(): AcpTerminalLogin[] {
-    return terminalLoginsFrom(this.initialize)
+    return terminalLoginsFrom(this.initialize, {
+      command: this.launch.command,
+      args: this.launch.args,
+    })
   }
 
   /**
@@ -225,7 +240,7 @@ export class AcpConnection {
       const result = (await connection.#request(
         'initialize',
         {
-          protocolVersion: 1,
+          protocolVersion: ACP_PROTOCOL_VERSION,
           clientInfo: {
             name: options.clientName ?? 'ari',
             version: options.clientVersion ?? '0.1.0',
@@ -246,6 +261,18 @@ export class AcpConnection {
         options.initializeTimeoutMs ?? 45_000,
       )) as AcpInitializeResult
       connection.initialize = result ?? {}
+      // The agent answers with the version it will actually speak. Ari keeps
+      // talking either way — every message it sends is v1-shaped and the
+      // adapters downgrade rather than refuse — but a mismatch is the first
+      // thing to look at when an agent's updates stop making sense.
+      const negotiated = connection.initialize.protocolVersion
+      if (typeof negotiated === 'number' && negotiated !== ACP_PROTOCOL_VERSION) {
+        log.warn('acp: agent negotiated a different protocol version', {
+          label: launch.label,
+          requested: ACP_PROTOCOL_VERSION,
+          negotiated,
+        })
+      }
       return connection
     } catch (error) {
       connection.kill()
@@ -508,5 +535,52 @@ export class AcpConnection {
 
   kill(): void {
     if (!this.#child.killed) this.#child.kill()
+  }
+
+  /**
+   * Ends the agent for good, in escalating rungs: close stdin (the stdio
+   * transport's own end-of-input), then hand off to the shared teardown ladder
+   * (SIGTERM, then a tree kill).
+   *
+   * A bare `kill()` was not enough. An npx-launched adapter is the root of a
+   * tree — `npx` → node → the adapter → the agent CLI it spawns → that agent's
+   * own bash/powershell children — and on Windows a signal to the `.cmd` shim
+   * reaches none of them, so every finished turn leaked the agent it had just
+   * been talking to. `teardownChild` is the same ladder the legacy CLI drivers
+   * dispose through; the ACP transport was the one path still skipping it.
+   */
+  async shutdown(): Promise<void> {
+    const child = this.#child
+    if (child.stdin !== null && !child.stdin.writableEnded) child.stdin.end()
+    if (this.#closed) return
+    if (await this.#closedWithin(TRANSPORT_EOF_GRACE_MS)) return
+    await teardownChild(
+      {
+        pid: child.pid,
+        exitCode: this.#exitCode,
+        stdin: null,
+        kill: (signal) => child.kill(signal),
+        // stdout close is the transport end, so the close waiter is the
+        // liveness signal the ladder should race its rungs against.
+        once: (event, listener) => {
+          if (event === 'close') void this.#closeWaiter.then(listener, listener)
+        },
+      },
+      { eofGraceMs: 0, termGraceMs: TRANSPORT_TERM_GRACE_MS },
+    )
+  }
+
+  /** True when the transport closed within `ms`. */
+  async #closedWithin(ms: number): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<false>((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout(false), ms)
+      timer.unref?.()
+    })
+    try {
+      return await Promise.race([this.#closeWaiter.then(() => true), timeout])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }

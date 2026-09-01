@@ -121,7 +121,7 @@ describe('ProvidersView', () => {
       'text-success',
     )
     expect(
-      within(coreCard).getByText(/manage them in the Endpoints section below/i),
+      within(coreCard).getByText(/manage them in the Endpoints settings section/i),
     ).toBeInTheDocument()
   })
 
