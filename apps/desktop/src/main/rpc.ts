@@ -53,6 +53,8 @@ import {
   readProviderConfig,
   writeProviderConfig,
 } from './provider-config'
+import { importPiSession, listImportableSessions } from './session-import'
+import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 
@@ -514,6 +516,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     await getSessionStore().destroy(params.sessionId)
     return { destroyed: true }
   })
+
+  // Sessions the user already has in pi, replayed into Ari's own journal. Read
+  // only: pi's file stays where it is and stays resumable in pi afterwards.
+  const importDeps = (): SessionImportDeps => ({
+    sessions: getSessionStore(),
+    projects: getProjectStore(),
+  })
+  r.register('sessions.importable', (params) => listImportableSessions(importDeps(), params.cwd))
+  r.register('sessions.import', (params) => importPiSession(params, importDeps()))
 
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
@@ -1056,6 +1067,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'session.create',
     'session.load',
     'session.destroy',
+    'sessions.importable',
+    'sessions.import',
     'usage.summary',
     'usage.ccusage',
     'command.dispatch',
