@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { ToastProvider } from '@ari/ui/toast'
 import {
   ContextMeter,
+  EffortChip,
   PermissionModeChip,
   SessionView,
   contextTokensFromHint,
@@ -35,6 +36,7 @@ const DEFAULTS: SessionDefaults = {
   driverKind: 'ari-core',
   modelId: null,
   permissionMode: 'ask',
+  effort: null,
 }
 
 const PROJECT = {
@@ -631,7 +633,7 @@ describe('SessionView context meter', () => {
       <ToastProvider>
         <SessionView
           sessionId="sess_1"
-          defaults={{ driverKind: 'claude', modelId: 'sonar-x', permissionMode: 'ask' }}
+          defaults={{ driverKind: 'claude', modelId: 'sonar-x', permissionMode: 'ask', effort: null }}
           onDefaultsChange={() => undefined}
         />
       </ToastProvider>,
@@ -950,5 +952,40 @@ describe('SessionView mode change preserves the picked model', () => {
     await user.click(screen.getByRole('option', { name: /Full auto/ }))
 
     expect(screen.getByTestId('defaults').textContent).toBe('opencode|gpt-5|full')
+  })
+})
+
+describe('EffortChip', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+  })
+
+  it('hides when the harness advertised no thought levels', async () => {
+    invokeMock.mockResolvedValue([
+      { kind: 'grok', source: 'live', models: [], efforts: [] },
+    ])
+    render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
+    expect(screen.queryByRole('button', { name: /Effort:/ })).not.toBeInTheDocument()
+  })
+
+  it('renders advertised levels and reports the pick', async () => {
+    const onChange = vi.fn()
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'grok',
+        source: 'live',
+        models: [],
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High', description: 'Deeper reasoning' },
+        ],
+      },
+    ])
+    const user = userEvent.setup()
+    render(<EffortChip driverKind="grok" effort="low" onChange={onChange} />)
+    await user.click(await screen.findByRole('button', { name: 'Effort: Low' }))
+    await user.click(screen.getByRole('option', { name: /High/ }))
+    expect(onChange).toHaveBeenCalledWith('high')
   })
 })

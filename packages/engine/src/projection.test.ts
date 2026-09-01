@@ -112,6 +112,15 @@ describe('session projection', () => {
     expect(replayed.session?.pinned).toBe(false)
   })
 
+  it('folds a thought/reasoning effort onto the session', () => {
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    expect(state.session?.effort).toBeUndefined()
+    state = applyEvent(state, ev(1, { type: 'session.updated', effort: 'high' }))
+    expect(state.session?.effort).toBe('high')
+    state = applyEvent(state, ev(2, { type: 'session.updated', effort: null }))
+    expect(state.session?.effort).toBeNull()
+  })
+
   it('tracks agent questions from request to answered input', () => {
     let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
     state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))
