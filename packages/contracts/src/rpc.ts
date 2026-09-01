@@ -240,20 +240,24 @@ export const rpcParams = {
   }),
   'endpoints.remove': z.object({ id: z.string().min(1) }),
   'endpoints.test': z.object({
+    /** Saved endpoint whose stored key should be used when `apiKey` is null. */
+    id: z.string().min(1).optional(),
     baseUrl: z.string().url(),
     flavor: endpointFlavorSchema,
     apiKey: z.string().nullable().default(null),
   }),
   /**
-   * Queries an endpoint's own model listing. `id` refreshes a saved endpoint
-   * (reusing its stored key) and persists the merged list; without it the
-   * probe is transient, for the add-endpoint form.
+   * Queries an endpoint's own model listing. `id` names a saved endpoint, so
+   * its stored key is reused; `persist` (default true) writes the merged list
+   * back. The settings form probes with `persist: false` — it must not save an
+   * endpoint the user has not submitted yet.
    */
   'endpoints.discoverModels': z.object({
     id: z.string().min(1).optional(),
     baseUrl: z.string().url(),
     flavor: endpointFlavorSchema,
     apiKey: z.string().nullable().default(null),
+    persist: z.boolean().default(true),
   }),
   /** Replaces an endpoint's model list (manual adds and removals). */
   'endpoints.setModels': z.object({

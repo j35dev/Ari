@@ -156,10 +156,13 @@ describe('EndpointsManager', () => {
       expect(status.textContent).toContain('42ms')
     })
     expect(status.querySelector('.bg-success')).not.toBeNull()
-    expect(invoke).toHaveBeenCalledWith(
-      'endpoints.test',
-      expect.objectContaining({ baseUrl: 'http://localhost:11434', flavor: 'openai-chat' }),
-    )
+    // The saved endpoint's id goes along so the engine can use its stored key.
+    expect(invoke).toHaveBeenCalledWith('endpoints.test', {
+      id: 'ep-1',
+      baseUrl: 'http://localhost:11434',
+      flavor: 'openai-chat',
+      apiKey: null,
+    })
   })
 
   it('test failure renders the main-process message', async () => {
@@ -202,15 +205,20 @@ describe('EndpointsManager', () => {
     render(<EndpointsManager />)
 
     await user.type(screen.getByLabelText('Base URL'), 'https://api.openai.com/v1')
+    await user.type(screen.getByLabelText('API key'), 'sk-typed')
     await user.click(screen.getByRole('button', { name: /fetch models for the new endpoint/i }))
 
     expect(await screen.findByText('gpt-4o-mini')).toBeInTheDocument()
     expect(screen.getByText('128k ctx')).toBeInTheDocument()
-    // The probe is transient: nothing is persisted until the form is saved.
-    expect(invoke).toHaveBeenCalledWith(
-      'endpoints.discoverModels',
-      expect.objectContaining({ baseUrl: 'https://api.openai.com/v1', flavor: 'openai-chat' }),
-    )
+    // The typed key has to ride along — it is not saved yet, and without it a
+    // keyed provider answers 401. The probe stays transient: persist is false
+    // and nothing is written until the form is submitted.
+    expect(invoke).toHaveBeenCalledWith('endpoints.discoverModels', {
+      baseUrl: 'https://api.openai.com/v1',
+      flavor: 'openai-chat',
+      apiKey: 'sk-typed',
+      persist: false,
+    })
     expect(invoke).not.toHaveBeenCalledWith('endpoints.upsert', expect.anything())
   })
 
