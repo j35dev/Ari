@@ -121,6 +121,19 @@ entry.
 Discovery and probing run in the main process for the same reason `endpoints.test`
 already did: the sandboxed renderer cannot reach arbitrary origins.
 
+## Settings: form first, fetch imports all
+
+The add/edit form used to sit under the saved-endpoint cards. Fetching a
+catalog of dozens or hundreds of models stretched a card so far that the form
+left the viewport, and a radio on every row read as "pick which models to add"
+even though fetch already wrote the whole list in.
+
+The form is now first, with Save/Test above the model list so a fetch cannot
+push the actions off-screen. Fetch still imports every discovered model; the
+user deletes the ones they do not want. The default is a dropdown, not a radio
+on each row. Each list is `max-h-52` scrolled so one endpoint cannot push the
+rest of the page away.
+
 ## Where the API key comes from
 
 A key can be in one of two places, and the wrong assumption breaks the headline
