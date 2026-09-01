@@ -134,6 +134,11 @@ export interface AcpNewSessionResult {
     currentModeId?: string
     availableModes?: { id?: string; name?: string }[]
   } | null
+  _meta?: {
+    piAcp?: {
+      startupInfo?: string | null
+    }
+  }
 }
 
 /**
@@ -277,13 +282,19 @@ function resultJsonOf(update: AcpToolCallUpdate): string {
  */
 export class AcpUpdateFolder {
   readonly #started = new Set<string>()
+  #startupInfo: string | null = null
+
+  /** Remembers the adapter-owned prelude so it never becomes transcript prose. */
+  setStartupInfo(text: string | null | undefined): void {
+    this.#startupInfo = typeof text === 'string' && text.length > 0 ? text : null
+  }
 
   fold(notification: AcpSessionNotification): AgentEvent[] {
     const update = notification.update
     if (update === undefined || typeof update.sessionUpdate !== 'string') return []
     switch (update.sessionUpdate) {
       case 'agent_message_chunk':
-        return chunkToDeltas(textOf(asBlocks(update.content)), 'text-delta')
+        return this.#textChunk(update.content, 'text-delta')
       case 'agent_thought_chunk':
         return chunkToDeltas(textOf(asBlocks(update.content)), 'thinking-delta')
       case 'tool_call': {
@@ -333,6 +344,18 @@ export class AcpUpdateFolder {
         // no transcript surface yet (plan needs a dedicated event + UI).
         return []
     }
+  }
+
+  #textChunk(
+    content: AcpContentBlock | AcpContentBlock[] | undefined,
+    kind: 'text-delta' | 'thinking-delta',
+  ): AgentEvent[] {
+    const text = textOf(asBlocks(content))
+    if (kind === 'text-delta' && this.#startupInfo !== null && text === this.#startupInfo) {
+      this.#startupInfo = null
+      return []
+    }
+    return chunkToDeltas(text, kind)
   }
 }
 

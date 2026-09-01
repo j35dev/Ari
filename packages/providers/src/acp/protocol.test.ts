@@ -84,6 +84,28 @@ describe('AcpUpdateFolder', () => {
     ).toEqual([])
   })
 
+  it('does not turn the pi-acp startup prelude into assistant prose', () => {
+    const startupInfo = '## Context\n- D:/project/AGENTS.md\n\n## Skills\n- C:/skills/example/SKILL.md\n'
+    const folder = new AcpUpdateFolder()
+    folder.setStartupInfo(startupInfo)
+
+    expect(
+      folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: startupInfo } } }),
+    ).toEqual([])
+    expect(
+      folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hi.' } } }),
+    ).toEqual([{ type: 'text-delta', text: 'Hi.' }])
+  })
+
+  it('preserves a real reply that merely resembles the startup prelude', () => {
+    const folder = new AcpUpdateFolder()
+    folder.setStartupInfo('## Context\n- D:/project/AGENTS.md\n')
+
+    expect(
+      folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '## Context\n- D:/project/AGENTS.md\n\nI found it.' } } }),
+    ).toEqual([{ type: 'text-delta', text: '## Context\n- D:/project/AGENTS.md\n\nI found it.' }])
+  })
+
   it('surfaces agent error updates instead of swallowing them', () => {
     const folder = new AcpUpdateFolder()
     const events = folder.fold({
