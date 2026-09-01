@@ -22,6 +22,7 @@ import {
   replyPermissionChoice,
   replyPlanExit,
 } from './client-requests'
+import { findThoughtOption, looksLikeThoughtAxis } from './thought'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
 import type {
   AcpConfigOption,
@@ -268,6 +269,13 @@ export async function createAcpAdapter(
     selectors.configOptions,
     selectors.availableModes,
     session.permissionMode,
+  )
+  await applyThoughtLevel(
+    connection,
+    sessionId,
+    selectors.configOptions,
+    selectors.availableModes,
+    session.effort ?? null,
   )
 
   /**
@@ -592,6 +600,43 @@ function findOption(
   category: 'model' | 'mode',
 ): AcpConfigOption | null {
   return configOptions.find((o) => o.category === category && o.type === 'select') ?? null
+}
+
+/**
+ * Applies the user's thought/reasoning pick onto the agent's own selector.
+ * Config options (`thought_level`, or id aliases like `effort`) are preferred;
+ * a thinking-shaped `session/set_mode` axis (pi) is the fallback. Unknown
+ * values are skipped so we never push a level the harness did not advertise.
+ */
+async function applyThoughtLevel(
+  connection: AcpConnection,
+  sessionId: string,
+  configOptions: AcpConfigOption[],
+  availableModes: { id?: string; name?: string }[],
+  effort: string | null,
+): Promise<void> {
+  if (effort === null || effort.length === 0) return
+  const option = findThoughtOption(configOptions)
+  if (option !== null && option.id !== undefined && option.options !== undefined) {
+    const value = option.options.find((v) => v.value === effort)?.value
+    if (value === undefined) {
+      log.debug('acp: requested thought level not advertised by agent', { effort })
+      return
+    }
+    try {
+      await connection.setConfigOption(sessionId, option.id, value)
+    } catch (error) {
+      log.debug('acp: set_config_option(thought) failed', { error: String(error) })
+    }
+    return
+  }
+  const ids = availableModes.map((m) => m.id).filter((v): v is string => typeof v === 'string' && v.length > 0)
+  if (!looksLikeThoughtAxis(ids) || !ids.includes(effort)) return
+  try {
+    await connection.setMode(sessionId, effort)
+  } catch (error) {
+    log.debug('acp: set_mode(thought) failed', { error: String(error) })
+  }
 }
 
 /**

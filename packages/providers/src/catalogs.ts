@@ -1,5 +1,8 @@
 import type { DriverKind } from '@ari/contracts/common'
 import snapshot from './catalog-snapshot.json'
+import type { EffortCatalog } from './acp/thought'
+
+export type { CatalogEffort, EffortCatalog } from './acp/thought'
 
 /** One curated model entry for a driver's picker. */
 export interface CatalogModel {
@@ -53,6 +56,7 @@ const SNAPSHOT = snapshot as {
  * host process calls {@link setDynamicModels}.
  */
 const dynamic = new Map<DriverKind, { source: CatalogSource; models: CatalogModel[] }>()
+const dynamicEfforts = new Map<DriverKind, EffortCatalog>()
 
 /**
  * Installs a freshly-fetched catalog for a kind, replacing any previous one.
@@ -71,6 +75,28 @@ export function setDynamicModels(kind: DriverKind, source: CatalogSource, models
 /** Removes any dynamic overlay for a kind (tests, invalidation). */
 export function clearDynamicModels(kind: DriverKind): void {
   dynamic.delete(kind)
+}
+
+/** Installs the thought/reasoning levels a live ACP probe reported for a kind. */
+export function setDynamicEfforts(kind: DriverKind, catalog: EffortCatalog): void {
+  if (catalog.options.length === 0) {
+    dynamicEfforts.delete(kind)
+    return
+  }
+  dynamicEfforts.set(kind, catalog)
+}
+
+/** Removes a kind's effort overlay (tests). */
+export function clearDynamicEfforts(kind: DriverKind): void {
+  dynamicEfforts.delete(kind)
+}
+
+/**
+ * Thought/reasoning levels the harness advertised. Empty when the agent has
+ * no such selector — the Effort chip must hide rather than invent low/medium/high.
+ */
+export function effortsFor(kind: DriverKind): EffortCatalog {
+  return dynamicEfforts.get(kind) ?? { currentId: null, options: [] }
 }
 
 /** Where {@link modelsFor} data currently comes from for a kind. */

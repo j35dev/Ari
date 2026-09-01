@@ -165,6 +165,8 @@ export interface SessionDefaults {
   driverKind: DriverKind
   modelId: string | null
   permissionMode: PermissionMode
+  /** Harness thought/reasoning level; null leaves the agent's default. */
+  effort: string | null
 }
 
 /**
@@ -344,6 +346,7 @@ export function SessionView({
           driverKind: m.session.driverKind,
           modelId: m.session.modelId,
           permissionMode: m.session.permissionMode,
+          effort: m.session.effort ?? null,
         })
         const projects = await rpc.invoke('project.list').catch(() => [])
         if (cancelled) return
@@ -620,6 +623,18 @@ export function SessionView({
     [sessionId, onDefaultsChange, telemetry.turnCount, defaults],
   )
 
+  const changeEffort = useCallback(
+    (effort: string | null) => {
+      onDefaultsChange({ ...defaults, effort })
+      void rpc
+        .invoke('command.dispatch', {
+          command: { type: 'session.update', sessionId, effort },
+        })
+        .catch(() => undefined)
+    },
+    [sessionId, onDefaultsChange, defaults],
+  )
+
   const changePermissionMode = useCallback(
     (permissionMode: PermissionMode) => {
       // `defaults` must stay in the dep list: omitting it retained a closure
@@ -761,7 +776,11 @@ export function SessionView({
               onChange={changeModel}
               lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
             />
-            <EffortChip />
+            <EffortChip
+              driverKind={defaults.driverKind}
+              effort={defaults.effort}
+              onChange={changeEffort}
+            />
             <PermissionModeChip mode={defaults.permissionMode} onChange={changePermissionMode} />
           </>
         }
@@ -770,23 +789,73 @@ export function SessionView({
   )
 }
 
-const EFFORT_LEVELS = [
-  { value: 'low', label: 'Low', hint: 'Faster replies, lighter reasoning' },
-  { value: 'medium', label: 'Medium', hint: 'Balanced reasoning' },
-  { value: 'high', label: 'High', hint: 'Deeper reasoning when it matters' },
-] as const
+interface EffortOption {
+  id: string
+  label: string
+  description?: string
+  current?: boolean
+}
 
-/** Effort is a local composer preference until drivers expose a wire field. */
-export function EffortChip() {
-  const [effort, setEffort] = useState<(typeof EFFORT_LEVELS)[number]['value']>('medium')
+/**
+ * Thought/reasoning chip backed by the harness's own ACP selector
+ * (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
+ * list). Hidden when the agent advertises nothing — we never invent
+ * low/medium/high.
+ */
+export function EffortChip({
+  driverKind,
+  effort,
+  onChange,
+}: {
+  driverKind: DriverKind
+  effort: string | null
+  onChange: (effort: string | null) => void
+}) {
   const [open, setOpen] = useState(false)
-  const current = EFFORT_LEVELS.find((m) => m.value === effort) ?? EFFORT_LEVELS[1]
+  const [loaded, setLoaded] = useState(false)
+  const [options, setOptions] = useState<EffortOption[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void rpc
+      .invoke('providers.models')
+      .then((rows) => {
+        if (cancelled) return
+        const row = rows.find((r) => r.kind === driverKind)
+        setOptions(row?.efforts ?? [])
+        setLoaded(true)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOptions([])
+          setLoaded(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [driverKind])
+
+  useEffect(() => {
+    if (!loaded || effort === null) return
+    if (options.length === 0 || !options.some((o) => o.id === effort)) onChange(null)
+  }, [loaded, options, effort, onChange])
+
+  if (options.length === 0) return null
+
+  const selectedId =
+    (effort !== null && options.some((o) => o.id === effort) ? effort : null) ??
+    options.find((o) => o.current)?.id ??
+    options[0]?.id
+  const current = options.find((o) => o.id === selectedId) ?? options[0]
+  if (current === undefined) return null
+
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={`Effort: ${current.hint}`}
+        title={current.description ?? `Effort: ${current.label}`}
         aria-label={`Effort: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -798,21 +867,27 @@ export function EffortChip() {
       {open ? (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div role="listbox" aria-label="Effort" className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border p-1 shadow-2">
-            {EFFORT_LEVELS.map((m) => (
+          <div
+            role="listbox"
+            aria-label="Effort"
+            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border p-1 shadow-2"
+          >
+            {options.map((option) => (
               <button
-                key={m.value}
+                key={option.id}
                 type="button"
                 role="option"
-                aria-selected={m.value === effort}
+                aria-selected={option.id === selectedId}
                 onClick={() => {
-                  setEffort(m.value)
+                  onChange(option.id)
                   setOpen(false)
                 }}
                 className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-2"
               >
-                <span className="text-fg">{m.label}</span>
-                <span className="text-2xs text-fg-subtle">{m.hint}</span>
+                <span className="text-fg">{option.label}</span>
+                {option.description ? (
+                  <span className="text-2xs text-fg-subtle">{option.description}</span>
+                ) : null}
               </button>
             ))}
           </div>

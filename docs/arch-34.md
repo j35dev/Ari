@@ -35,6 +35,22 @@ Three live Grok-in-Ari failures, all ACP-client gaps:
 - QuestionPanel follows ApprovalCard tokens: numbered options, Other on every choice list,
   questionnaire sections, and a plan-approval card (Approve / Request changes / Abandon).
 
+## Effort levels from the harness
+
+The composer Effort chip used to be a local `low | medium | high` preference that
+never reached a driver. ACP already advertises a thought/reasoning selector:
+
+- spec category `thought_level`
+- id/name aliases `effort`, `thinking`, `reasoning_effort` (Claude, Codex, Grok)
+- a thinking-shaped `modes` list (`off` … `xhigh`) for agents like pi that model
+  effort as `session/set_mode` rather than a config option
+
+The same throwaway ACP session that probes models now also records that catalog.
+The chip renders those labels (and hides entirely when the agent has none). The
+chosen id is stored on the session and applied at turn start with
+`session/set_config_option` or, for the pi-style axis, `session/set_mode`.
+Permission-mode axes are never treated as thought.
+
 ## Deliberate cuts
 
 - URL-mode elicitation is declined (Ari advertised form only).

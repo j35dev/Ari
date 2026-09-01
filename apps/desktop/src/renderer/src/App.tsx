@@ -45,6 +45,7 @@ export interface SessionDefaults {
   driverKind: DriverKind
   modelId: string | null
   permissionMode: PermissionMode
+  effort: string | null
 }
 
 function Shell() {
@@ -69,6 +70,7 @@ function Shell() {
     driverKind: 'ari-core',
     modelId: null,
     permissionMode: 'ask',
+    effort: null,
   })
 
   useEffect(() => {
@@ -300,6 +302,7 @@ function Shell() {
           driverKind: effective.driverKind,
           modelId: effective.modelId,
           permissionMode: effective.permissionMode,
+          effort: effective.effort,
         })
         .then(({ sessionId }) => {
           if (overrides) setDefaults(effective)

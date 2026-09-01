@@ -138,6 +138,48 @@ const CONFIG_OPTIONS_AGENT: AgentHandler = (method, params, id) => {
   return standardAgent()(method, params, id)
 }
 
+const THOUGHT_LEVEL_AGENT: AgentHandler = (method, params, id) => {
+  if (method === 'session/new') {
+    return {
+      sessionId: 'sess_acp_1',
+      configOptions: [
+        {
+          id: 'effort',
+          name: 'Effort',
+          category: 'thought_level',
+          type: 'select',
+          currentValue: 'medium',
+          options: [
+            { value: 'low', name: 'Low' },
+            { value: 'medium', name: 'Medium' },
+            { value: 'high', name: 'High' },
+          ],
+        },
+      ],
+    }
+  }
+  if (method === 'session/set_config_option') return { configOptions: [] as unknown[] }
+  return standardAgent()(method, params, id)
+}
+
+const PI_THINKING_AGENT: AgentHandler = (method, params, id) => {
+  if (method === 'session/new') {
+    return {
+      sessionId: 'sess_acp_1',
+      modes: {
+        currentModeId: 'low',
+        availableModes: [
+          { id: 'off', name: 'Off' },
+          { id: 'low', name: 'Low' },
+          { id: 'xhigh', name: 'Extra high' },
+        ],
+      },
+    }
+  }
+  if (method === 'session/set_mode') return {}
+  return standardAgent()(method, params, id)
+}
+
 /** opencode's vocabulary: two modes, neither of them named like Ari's. */
 const LEGACY_MODES_AGENT: AgentHandler = (method, params, id) => {
   if (method === 'session/new') {
@@ -201,6 +243,51 @@ describe('createAcpAdapter', () => {
     await collectTypes(adapter)
     await adapter.dispose()
     expect(child.killed).toBe(true)
+  }, 15000)
+
+  it('applies a thought_level config option when the session picked an effort', async () => {
+    const child = fakeChild()
+    script(child, THOUGHT_LEVEL_AGENT)
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, effort: 'high' }, () => child)
+    const thought = child.sent.filter(
+      (m) =>
+        m['method'] === 'session/set_config_option' &&
+        (m['params'] as { configId?: string })?.configId === 'effort',
+    ) as { params?: { value?: string } }[]
+    expect(thought.map((r) => r.params?.value)).toEqual(['high'])
+    await adapter.dispose()
+  }, 15000)
+
+  it('leaves thought_level untouched when the session has no effort pick', async () => {
+    const child = fakeChild()
+    script(child, THOUGHT_LEVEL_AGENT)
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    expect(child.sent.some((m) => m['method'] === 'session/set_config_option')).toBe(false)
+    await adapter.dispose()
+  }, 15000)
+
+  it('sets pi-style thinking modes via session/set_mode for an effort pick', async () => {
+    const child = fakeChild()
+    script(child, PI_THINKING_AGENT)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'allow-edits', effort: 'xhigh' },
+      () => child,
+    )
+    expect(modeCalls(child)).toEqual(['xhigh'])
+    await adapter.dispose()
+  }, 15000)
+
+  it('does not drive a permission mode axis as thought', async () => {
+    const child = fakeChild()
+    script(child, LEGACY_MODES_AGENT)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'allow-edits', effort: 'high' },
+      () => child,
+    )
+    expect(modeCalls(child)).toEqual(['build'])
+    await adapter.dispose()
   }, 15000)
 
   it('keeps the agent default when the requested model is not advertised', async () => {
