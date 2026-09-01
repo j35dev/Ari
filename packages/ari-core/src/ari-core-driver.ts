@@ -15,7 +15,16 @@ import {
   type AnthropicChatRequest,
 } from './protocols/anthropic-messages'
 import { streamChatOllama, type OllamaChatRequest } from './protocols/ollama'
-import { CONTEXT_WINDOW_CHARS, trimMessages } from './context-manager'
+import {
+  CONTEXT_WINDOW_CHARS,
+  KEEP_RECENT_RATIO,
+  needsCompaction,
+  serializeForSummary,
+  splitForCompaction,
+  summaryMessage,
+  SUMMARY_INSTRUCTIONS,
+  trimMessages,
+} from './context-manager'
 import type { AllowRule } from './allowlist'
 import type { Endpoint, EndpointStore } from './endpoints'
 import type { McpServerConfig } from './mcp-servers'
@@ -62,6 +71,12 @@ export interface AriCoreDriverOptions {
    * session's history survives a restart.
    */
   conversations?: ConversationStore
+  /**
+   * Summarize older history instead of dropping it once the context budget is
+   * mostly used. Costs one extra model call when it triggers; disable to keep
+   * the plain trimming behaviour. Default true.
+   */
+  compaction?: boolean
 }
 
 interface RenderedTurn {
@@ -172,6 +187,7 @@ export class AriCoreDriver implements Driver {
   readonly #mcpServers: McpServerConfig[]
   readonly #mcpConnectOverride?: (server: McpServerConfig) => Promise<McpConnection>
   readonly #conversations: ConversationStore
+  readonly #compaction: boolean
 
   constructor(endpoints: EndpointStore, options: AriCoreDriverOptions = {}) {
     this.#endpoints = endpoints
@@ -181,6 +197,7 @@ export class AriCoreDriver implements Driver {
     this.#mcpServers = options.mcpServers ?? []
     this.#mcpConnectOverride = options.mcpConnect
     this.#conversations = options.conversations ?? new MemoryConversationStore()
+    this.#compaction = options.compaction ?? true
   }
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
@@ -206,6 +223,7 @@ export class AriCoreDriver implements Driver {
     const contextCharLimit = this.#contextCharLimit
     const allowlist = this.#allowlist
     const conversations = this.#conversations
+    const compaction = this.#compaction
     const mcpServers = this.#mcpServers.filter((s) => !s.disabled)
     const mcpConnect =
       this.#mcpConnectOverride ??
@@ -253,7 +271,9 @@ export class AriCoreDriver implements Driver {
 
       const model = modelOverride ?? endpoint.model
       const round = (messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<AgentEvent> => {
-        // Context guardrail runs before every round; a no-op while small.
+        // Context guardrail runs before every round; a no-op while small. It is
+        // the floor under compaction, not a replacement for it: trimming drops
+        // history, compaction summarizes it first.
         const effective = trimMessages(messages, contextCharLimit)
         switch (endpoint.flavor) {
           case 'anthropic-messages':
@@ -313,6 +333,55 @@ export class AriCoreDriver implements Driver {
             })
           })
 
+      /**
+       * Summarizes an older span through the session's own model. Usage from
+       * this call is not folded into the turn's totals, so cost under-reports
+       * slightly when a session compacts.
+       */
+      const summarize = async (older: ChatMessage[]): Promise<string> => {
+        let text = ''
+        for await (const event of round(
+          [
+            { role: 'system', content: SUMMARY_INSTRUCTIONS },
+            { role: 'user', content: serializeForSummary(older) },
+          ],
+          abort.signal,
+        )) {
+          if (event.type === 'text-delta') text += event.text
+        }
+        return text.trim()
+      }
+
+      /**
+       * Replaces the summarizable span with one summary message, keeping the
+       * newest turns verbatim. Failure falls through to plain trimming: a
+       * degraded context is better than a failed turn.
+       */
+      const compact = async (messages: ChatMessage[]): Promise<ChatMessage[]> => {
+        if (!needsCompaction(messages, contextCharLimit)) return messages
+        const { systems, older, recent } = splitForCompaction(
+          messages,
+          Math.max(1, Math.floor(contextCharLimit * KEEP_RECENT_RATIO)),
+        )
+        if (older.length === 0) return messages
+        try {
+          const summary = await summarize(older)
+          if (summary.length === 0) return messages
+          log.info('compacted ari-core context', {
+            sessionId: session.sessionId,
+            summarized: older.length,
+            kept: recent.length,
+          })
+          return [...systems, summaryMessage(summary), ...recent]
+        } catch (error) {
+          log.warn('compaction failed; falling back to trimming', {
+            sessionId: session.sessionId,
+            error: String(error),
+          })
+          return messages
+        }
+      }
+
       try {
         yield* runAgentLoop({
           round,
@@ -324,6 +393,7 @@ export class AriCoreDriver implements Driver {
           onTranscript: (messages) => {
             latest = messages
           },
+          ...(compaction ? { compact } : {}),
           requestApproval,
           ...(allowlist ? { allowlist } : {}),
           ...(extraTools.length > 0 ? { extraTools } : {}),
