@@ -43,7 +43,7 @@ describe('agent loop', () => {
             role: 'assistant',
             content: '',
             toolCalls: [
-              { id: 'c1', name: 'read_file', argsJson: JSON.stringify({ path: 'note.txt' }) },
+              { id: 'c1', name: 'read', argsJson: JSON.stringify({ path: 'note.txt' }) },
             ],
           },
         ],
@@ -74,7 +74,7 @@ describe('agent loop', () => {
   it('jailed tools reject path escapes', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-jail-'))
     try {
-      const tool = findTool('write_file')
+      const tool = findTool('write')
       expect(tool).toBeDefined()
       await expect(
         tool?.execute(
@@ -87,11 +87,11 @@ describe('agent loop', () => {
     }
   })
 
-  it('edit_file requires a unique match', async () => {
+  it('edit requires a unique match', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-edit-'))
     try {
       await writeFile(join(dir, 'f.txt'), 'a b a', 'utf8')
-      const tool = findTool('edit_file')
+      const tool = findTool('edit')
       const ctx = { workspacePath: dir, permissionMode: 'full' as const }
       await expect(
         tool?.execute({ path: 'f.txt', oldString: 'a', newString: 'z' }, ctx),
@@ -202,7 +202,7 @@ describe('permission modes', () => {
             toolCalls: [
               {
                 id: 'e1',
-                name: 'edit_file',
+                name: 'edit',
                 argsJson: JSON.stringify({ path: 'f.txt', oldString: 'alpha', newString: 'omega' }),
               },
               { id: 'b1', name: 'bash', argsJson: JSON.stringify({ command: 'echo nope' }) },
@@ -263,7 +263,7 @@ describe('permission modes', () => {
               toolCalls: [
                 {
                   id: 'w1',
-                  name: 'write_file',
+                  name: 'write',
                   argsJson: JSON.stringify({ path: 'evil.txt', content: 'x' }),
                 },
               ],
@@ -275,7 +275,7 @@ describe('permission modes', () => {
         userPrompt: 'u',
         workspacePath: dir,
         permissionMode: 'full',
-        allowlist: [{ tool: 'write_file', pattern: 'docs/**' }],
+        allowlist: [{ tool: 'write', pattern: 'docs/**' }],
       })
       const completed = events.find((e) => e.type === 'tool-completed')
       if (completed?.type !== 'tool-completed') throw new Error('expected tool-completed')
@@ -433,7 +433,7 @@ describe('permission modes', () => {
         yield {
           type: 'tool-started',
           callId: 't1',
-          name: 'read_file',
+          name: 'read',
           argsJson: JSON.stringify({ path: 'note.txt' }),
         }
         yield { type: 'done' }

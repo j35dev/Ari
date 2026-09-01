@@ -174,7 +174,7 @@ describe('ModelSelector', () => {
     expect(screen.getByText(/no models match/i)).toBeInTheDocument()
   })
 
-  it('maps an endpoint pick to the ari-core driver with its ep: handle', async () => {
+  it('lists every model an endpoint serves and picks the one clicked', async () => {
     rpcMocks.invoke.mockImplementation(async (method: string) => {
       if (method === 'providers.detect') {
         return [
@@ -189,7 +189,22 @@ describe('ModelSelector', () => {
       }
       if (method === 'providers.models') return []
       if (method === 'endpoints.list') {
-        return [{ id: 'end_1', name: 'My Relay', model: 'relay-large' }]
+        return [
+          {
+            id: 'end_1',
+            name: 'My Relay',
+            model: 'relay-large',
+            models: [
+              {
+                id: 'relay-large',
+                label: 'Relay Large',
+                contextWindow: 200000,
+                source: 'discovered',
+              },
+              { id: 'relay-small', label: 'Relay Small', contextWindow: null, source: 'manual' },
+            ],
+          },
+        ]
       }
       throw new Error(`unexpected ${String(method)}`)
     })
@@ -199,27 +214,66 @@ describe('ModelSelector', () => {
 
     await user.click(screen.getByRole('button', { name: /model:/i }))
     const models = await screen.findByRole('listbox', { name: 'Models' })
-    await user.click(within(models).getByText('My Relay'))
+    expect(within(models).getByText('My Relay · Relay Large')).toBeInTheDocument()
+    await user.click(within(models).getByText('My Relay · Relay Small'))
 
-    // The old behaviour sent driverKind 'ep' (splitting 'ep:end_1'), which
-    // failed session.create validation the moment a custom endpoint existed.
-    expect(onChange).toHaveBeenCalledWith({ driverKind: 'ari-core', modelId: 'ep:end_1' })
+    // driverKind stays 'ari-core'; splitting the handle on ':' once sent 'ep',
+    // which failed session.create the moment a custom endpoint existed.
+    expect(onChange).toHaveBeenCalledWith({
+      driverKind: 'ari-core',
+      modelId: 'ep:end_1:relay-small',
+    })
   })
 
-  it('shows the endpoint name, not its raw ep: handle, on the trigger', async () => {
+  it('shows the endpoint and model names, not the raw ep: handle, on the trigger', async () => {
     rpcMocks.invoke.mockImplementation(async (method: string) => {
       if (method === 'providers.detect') return []
       if (method === 'providers.models') return []
       if (method === 'endpoints.list') {
-        return [{ id: 'end_1', name: 'My Relay', model: 'relay-large' }]
+        return [
+          {
+            id: 'end_1',
+            name: 'My Relay',
+            model: 'relay-large',
+            models: [
+              { id: 'relay-large', label: 'Relay Large', contextWindow: null, source: 'manual' },
+            ],
+          },
+        ]
+      }
+      throw new Error(`unexpected ${String(method)}`)
+    })
+    render(
+      <ModelSelector driverKind='ari-core' modelId='ep:end_1:relay-large' onChange={vi.fn()} />,
+    )
+
+    const trigger = await screen.findByRole('button', { name: /model:/i })
+    expect(trigger).toHaveTextContent('My Relay · Relay Large')
+    expect(trigger).not.toHaveTextContent('ep:end_1')
+  })
+
+  it('resolves a legacy bare ep: handle to its endpoint label', async () => {
+    rpcMocks.invoke.mockImplementation(async (method: string) => {
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') {
+        return [
+          {
+            id: 'end_1',
+            name: 'My Relay',
+            model: 'relay-large',
+            models: [
+              { id: 'relay-large', label: 'Relay Large', contextWindow: null, source: 'manual' },
+            ],
+          },
+        ]
       }
       throw new Error(`unexpected ${String(method)}`)
     })
     render(<ModelSelector driverKind='ari-core' modelId='ep:end_1' onChange={vi.fn()} />)
 
     const trigger = await screen.findByRole('button', { name: /model:/i })
-    expect(trigger).toHaveTextContent('My Relay')
-    expect(trigger).not.toHaveTextContent('ep:end_1')
+    expect(trigger).toHaveTextContent('My Relay · Relay Large')
   })
 
   it('shows a loading empty state before catalogs resolve', async () => {

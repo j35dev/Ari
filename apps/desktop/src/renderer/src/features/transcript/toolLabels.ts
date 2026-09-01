@@ -24,7 +24,6 @@ const READ_TOOLS = new Set([
   'view',
   'read_many_files',
 ])
-
 const SEARCH_TOOLS = new Set([
   'grep',
   'search',

@@ -447,7 +447,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M28.4 Engine-injected `⚠` failure text renders as a styled in-transcript error note instead of plain markdown
 - [x] M28.5 Turn error banner extracts to `TurnErrorBanner` with a raw-details disclosure and a `turnError.ts` classifier adding actionable headlines/hints (auth, rate limit, spawn, timeout)
 - [x] M28.6 Silent `command.dispatch` failures surface as danger toasts instead of vanishing
-## M29 — Provider sign-in without a terminal (claimed @ feat/m29.1-acp-login)
+## M29 — Provider sign-in without a terminal
 
 Why: ACP auth walls were reaching users as "the CLI may be wedged or waiting for login" and a
 demand to go re-run OAuth in a terminal they don't use. Ari had opted out of the login handshake
@@ -461,7 +461,27 @@ its own OAuth and writes its own store; Ari only learns the command and offers t
 - [x] M29.5 Pin the ACP adapter versions: `launches.ts` requests `npx -y <pkg>` unpinned, so every user resolves whatever published that day and `terminal-auth` (an adapter `_meta` extension, not standard ACP) can change underneath us.
 - [x] M29.6 Surface `detection.authReason` and downgrade a provider to `unauthenticated` after a live auth wall — today the detector writes good explanations that render nowhere, and the badge can read "authenticated" while every turn fails.
 
-## M31 — Configure an agent from Ari (claimed @ feat/provider-config)
+## M30 — ACP transport gaps
+
+Why: a review of the pi harness against `pi-acp`'s own source found Ari writing to an axis it had
+misread, probes downloading what they promised not to, and the process-teardown ladder wired into
+every transport except the one that is now primary.
+
+- [x] M30.1 `pickAgentMode` never writes to a mode axis it cannot recognize: `session/set_mode` carries no category, and pi's adapter models `modes` as the *thinking* level (`off` … `xhigh`), so the build-mode escape hatch — "any advertised mode that is not a planning mode" — picked `off` and silently muted the agent's reasoning on every allow-edits/full turn. The hatch now requires one recognizable permission word in the list before it fires; `ask` still never guesses.
+- [x] M30.2 `probeLaunch` makes `--no-install` mean something: npx resolves consent last-wins, so the model probe's and auth preflight's `npx --no-install -y <pkg>` downloaded the adapter anyway (verified on npm 11 — the same line without `-y` refuses with "npx canceled due to missing packages and no YES option"). Probes now strip the consent flag, which also makes provider-auth's "adapter was never fetched → `unknown`" verdict reachable instead of dead code.
+- [x] M30.3 `AcpConnection.shutdown()` ends the agent through the shared teardown ladder (stdin EOF → SIGTERM → `taskkill /T /F`) and the driver cancels the session first. A bare `child.kill()` signalled the `npx` shim, not the tree behind it — node → adapter → agent CLI → its own bash/powershell children — so on Windows every finished turn and every startup probe leaked the agent it had just been talking to. M23.7 wired this ladder into the legacy drivers; the ACP transport was the one path still skipping it.
+- [x] M30.4 `usage_update` no longer reports a context-window gauge as input tokens: `used` is "of `size`", not a per-turn delta, and Ari's usage event is additive — the transcript summed a growing gauge and labelled the total "↑ input tokens". Dropped until there is an event that means context.
+- [x] M30.5 `terminalLoginsFrom` also reads the ACP registry's own `type: 'terminal'` + `args` shape, resolved against the agent's launch command, so sign-in survives the `_meta['terminal-auth']` extension the adapters themselves describe as a stopgap.
+- [x] M30.6 `ARI_ACP_<KIND>=0` actually pins one kind to its legacy driver (documented since M16, but no call site ever passed `envOverride`), and a mismatched negotiated `protocolVersion` is logged instead of silently ignored.
+
+Known gaps left open on purpose: an agent that asks an N-way question through
+`session/request_permission` (pi routes extension `select`/`confirm` prompts there) is answered with
+the first `allow_once` option, because Ari's approval vocabulary is the three-valued
+allow/deny/always-allow and cannot carry an `optionId`. Fixing it means a contract + journal + UI
+change, not a transport one. `available_commands_update` (pi advertises its slash commands) and
+`config_option_update` are still dropped by the fold.
+
+## M31 — Configure an agent from Ari
 
 Why (user feedback): "it would be cool if I could configure my pi agent from Ari … adding
 extensions, configuring the system prompt, changing PI settings.json". Ari detected six agents and
@@ -475,7 +495,7 @@ understands only enough to refuse a JSON file the agent could not have loaded.
 - [x] M31.2 `providers.configFiles` / `.readConfig` / `.writeConfig`: the renderer sends a kind and a file id, never a path, and writes go through the same symlink-resolving jail as the engine's tools — rooted at that kind's own config dir, so the surface can only ever touch the declared files. Saving creates the dir when the agent never has (pi writes no `SYSTEM.md` until you do), and a JSON payload that would not parse is refused as data instead of silently replacing a working config.
 - [x] M31.3 Settings › Agents: pick an agent, see which of its files exist and how large they are (absent optional files are listed rather than hidden — that is how you find out `SYSTEM.md` exists), edit one in a mono textarea with Save/Revert, and read the resolved path. Indexed in settings search.
 
-## M32 — Import existing pi sessions (claimed @ feat/pi-session-import)
+## M32 — Import existing pi sessions
 
 Why (user feedback): "it would be cool if I can import my existing PI sessions into Ari". Work done
 in pi was invisible to Ari, so adopting Ari meant leaving your history behind.
@@ -487,6 +507,32 @@ resumable in pi, so importing can never cost anyone their history.
 - [x] M32.1 `providers/pi/sessions.ts` reads pi's own store: session dir per `PI_CODING_AGENT_SESSION_DIR` > `PI_CODING_AGENT_DIR/sessions` > `~/.pi/agent/sessions`, and the folder encoding pi uses for a cwd (separators *and* the drive colon each become `-`, wrapped in `--`, so `D:\Projects\Ari` → `--D--Projects-Ari--`) as a fast path only — each file's header carries the authoritative cwd. Crucially the entries are a **tree**, not a list: every entry has `id`/`parentId` and `/fork` or an edited prompt adds a sibling branch *inside the same file*, so reading lines in order would replay abandoned branches as if they had happened. A transcript is the newest leaf walked back to the root and reversed. Verified against the real files on this machine (5 sessions, including a 377 KB one that flattens to 5 user / 39 assistant / 34 tool-result).
 - [x] M32.2 `sessions.importable` / `sessions.import`: the listing marks what Ari already has by reading the journals' own `session.ref.observed`, so the "imported" flag cannot drift from reality — the same ref that makes an imported session resumable is the one that marks it imported. The replay opens a turn per user message and settles it, stamps every event with the pi timestamp it came from (so the session sorts into the sidebar where the work happened, not at "now"), and pairs tool calls with their results. A session whose folder matches no Ari project is refused with what to do about it rather than being dropped into the wrong project.
 - [x] M32.3 Import surface in Settings › Agents under pi: title, message count, date, and folder per session, with the ones already in Ari disabled and marked. States on the surface that pi keeps its own copy, because "import" usually implies something is moved.
+- [x] M32.4 Import UX (#113, @jdholst): a finished import publishes `turn.settled` so the sidebar refreshes live (the Agents settings page never passed `onImported`); per-row error + Retry; busy/loading states so a slow replay cannot be double-clicked.
+
+## M33 — Ari Core harness, for real
+
+> HONESTY CORRECTION: every M11 box was ticked, but the harness could not work a
+> repository. Its tools were named `read_file`/`write_file`/`edit_file` (models are
+> trained on `read`/`write`/`edit`), `read` returned whole files with no pagination
+> or size cap, `grep` matched literal substrings only, there was no `ls` at all, and
+> the system prompt was five static sentences that never named the working
+> directory — the agent genuinely did not know which folder it was in. Every turn
+> also started from an empty conversation, so it could not refer to its own previous
+> answer. Custom endpoints held exactly one hand-typed model id. Board number is
+> M33 because main already used M28 for tool-card UX.
+
+- [x] M33.1 Tool surface rebuilt against the vocabulary frontier models are trained on: `read`/`write`/`edit`/`glob`/`grep`/`ls`/`bash`. `read` paginates (1-indexed `offset`, `limit`) and head-truncates at 2000 lines / 50KB with a continuation footer naming the next offset; `edit` applies several exact replacements per call, requires each `oldText` to be unique, and preserves CRLF and BOM; `grep` takes real regexes plus glob filter, `ignoreCase`, `literal` and `limit`, threaded through ripgrep flags with the JS walk as fallback; `bash` gets a model-controlled timeout (120s default, 600s cap), a 4MB buffer, tail truncation and explicit exit-code reporting instead of silently swallowing failures. Shared head/tail truncation helpers are line- and byte-capped and UTF-8 safe.
+- [x] M33.2 System prompt is built per turn from the session's actual environment: working directory, platform, shell, date, git branch and dirty-file count, the top-level workspace layout (build noise skipped), and the project's own `AGENTS.md`/`CLAUDE.md` embedded under a char budget as `<project_instructions>`.
+- [x] M33.3 Conversation memory: `ConversationStore` (in-process and disk-backed, one atomically-written JSON file per session under `userData/ari-core/conversations`) replays prior turns ahead of each new prompt. The loop records assistant text alongside tool calls and results, and the driver persists in a `finally` so an interrupted turn still remembers what was asked and what ran. CLI drivers resume a provider-side thread through `resumeOf`; Ari Core owns its transcript instead.
+- [x] M33.4 Endpoints serve many models. `discoverModels` reads `/models` (OpenAI + Anthropic) or `/api/tags` (Ollama) and normalizes the shapes real servers return — `id`/`name`/`model`, `display_name`, `context_length`, OpenRouter's nested `top_provider.context_length`, Ollama's `details.family` — reporting transport, auth and empty-catalog failures as a reason string rather than throwing. `EndpointStore` gains a model list plus `setModels`, which merges a refresh over stored models while keeping hand-added ones and repoints the default when it stops being served; legacy single-model configs backfill on load. New `endpoints.discoverModels` and `endpoints.setModels` RPC methods run in the main process, since the sandboxed renderer cannot reach other origins.
+- [x] M33.5 Settings manage the list: fetch-from-endpoint imports every model (no pick-step), a default dropdown, per-row removal, add form above the saved list, catalogs scroll inside a max-height. The session picker lists every model as `ep:<endpointId>:<modelId>`.
+- [x] M33.6 The key typed into the settings form is actually sent on fetch/test. Discovery takes an explicit `persist` flag so the form can probe without writing an unsubmitted endpoint.
+- [x] M33.7 Read-only tool calls run concurrently (`readOnly` on read/grep/glob/ls). Mutating tools stay ordered. Guarded names never fan out.
+- [x] M33.8 Context is summarized, not just dropped, past 75% of the budget. Known gap: summarization usage is not folded into turn totals.
+- [x] M33.9 Select listboxes cap at max-h-72 so a long catalog cannot fill the window.
+- [x] M33.10 The OpenAI-compat request advertises tools; leftover DSML is parsed; `file` aliases `path`.
+- [x] M33.11 Thinking is not the reply: `reasoning_content` / `reasoning` and `<think>` spans become `thinking-delta`.
+- [x] M33.12 JS grep glob matches ripgrep: `*.ts` hits nested files when rg is missing.
 
 ## Stretch backlog (post-V1, unplanned)
 

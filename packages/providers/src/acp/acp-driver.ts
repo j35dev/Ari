@@ -156,10 +156,14 @@ export async function createAcpAdapter(
     session.permissionMode,
   )
 
-  const finish = (): void => {
+  /**
+   * Releases anything the turn was still waiting on. Parked permission
+   * requests must be answered before the process goes away, or the agent sits
+   * on a request whose client has already left.
+   */
+  const releasePending = (): void => {
     for (const pending of pendingPermissions.values()) pending.resolve({ outcome: { outcome: 'cancelled' } })
     pendingPermissions.clear()
-    connection.kill()
   }
 
   // ACP has no mid-turn injection method, so steering rides out as the next
@@ -245,11 +249,11 @@ export async function createAcpAdapter(
       )
     },
     dispose: async () => {
-      finish()
-      await Promise.race([
-        connection.waitClosed(),
-        new Promise<void>((resolve) => setTimeout(resolve, 1000).unref?.()),
-      ])
+      releasePending()
+      // Cancel first so the agent can stop its own tools and children in
+      // order; the ladder in shutdown() is what guarantees they are gone.
+      if (!connection.closed) connection.cancel(sessionId)
+      await connection.shutdown()
     },
   }
 }
@@ -405,6 +409,20 @@ const MODE_PREFERENCE: Record<PermissionMode, RegExp[][]> = {
 }
 
 /**
+ * Whether an advertised vocabulary is about permissions at all.
+ *
+ * `session/set_mode` carries no category, so the mode list is whatever axis the
+ * agent happens to model as "modes" — and for pi's ACP adapter that axis is the
+ * *thinking* level (`off`, `minimal`, … `xhigh`). Ari must be able to tell the
+ * two apart before it writes anything: one recognizable permission word in the
+ * list is the evidence that the axis is Ari's to drive.
+ */
+function looksLikePermissionAxis(values: string[]): boolean {
+  const vocabulary = [...PLANNING_PATTERNS, ...ASK_PATTERNS, ...EDIT_PATTERNS, ...FULL_PATTERNS]
+  return values.some((value) => matchesAny(value, vocabulary))
+}
+
+/**
  * Resolves an Ari permission mode against the mode vocabulary an agent
  * advertises, in candidate order. Returns null when nothing safe matches, which
  * the caller reads as "leave the agent alone".
@@ -415,6 +433,11 @@ const MODE_PREFERENCE: Record<PermissionMode, RegExp[][]> = {
  * here) would otherwise be stranded in the planning mode a previous Ask-mode
  * turn selected, with no way out from inside Ari. Guessing in the other
  * direction would silently escalate permissions, so `ask` never falls back.
+ *
+ * The hatch is gated on {@link looksLikePermissionAxis}: applied to a list that
+ * is not about permissions it picks the first entry, which is how an
+ * allow-edits turn against pi used to send `set_mode('off')` and silently
+ * disable the agent's reasoning.
  */
 export function pickAgentMode(
   candidates: (string | undefined)[],
@@ -426,6 +449,7 @@ export function pickAgentMode(
     if (match !== undefined) return match
   }
   if (mode === 'ask') return null
+  if (!looksLikePermissionAxis(values)) return null
   return values.find((v) => !matchesAny(v, PLANNING_PATTERNS)) ?? null
 }
 
