@@ -171,6 +171,13 @@ export const rpcParams = {
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
+  /** Sessions another agent already has on disk; `cwd` scopes to one project. */
+  'sessions.importable': z.object({ cwd: z.string().min(1).optional() }),
+  'sessions.import': z.object({
+    path: z.string().min(1),
+    /** Defaults to the project whose folder matches the session's own cwd. */
+    projectId: z.string().min(1).optional(),
+  }),
   'usage.summary': z.undefined(),
   'usage.ccusage': z.object({ subcommand: z.enum(['daily', 'monthly', 'blocks']).optional() }),
   'command.dispatch': z.object({ command: commandSchema }),
@@ -302,6 +309,26 @@ export interface RpcResults {
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.destroy': { destroyed: boolean }
+  /**
+   * Sessions another agent has on disk and Ari could replay. `imported` is
+   * derived from the Ari journals' own provider refs, so it cannot drift from
+   * what actually exists.
+   */
+  'sessions.importable': {
+    kind: 'pi'
+    id: string
+    path: string
+    cwd: string
+    title: string
+    startedAt: number
+    updatedAt: number
+    messageCount: number
+    imported: boolean
+  }[]
+  /** Failure is data: no matching project and an already-imported session are both expected. */
+  'sessions.import':
+    | { ok: true; sessionId: string; title: string; messageCount: number }
+    | { ok: false; error: string }
   'usage.summary': UsageSummary
   /**
    * Output of `npx ccusage` (the community Claude Code usage analyzer) run

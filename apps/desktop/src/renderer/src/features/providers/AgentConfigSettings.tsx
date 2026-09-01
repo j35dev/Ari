@@ -7,6 +7,7 @@ import { Spinner } from '@ari/ui/spinner'
 import { Textarea } from '@ari/ui/textarea'
 import { createLogger } from '@ari/shared/logger'
 import { SettingsPage } from '../settings/SettingsPage'
+import { SessionImport } from './SessionImport'
 import { rpc } from '../../lib/rpc'
 
 const log = createLogger('ui:agent-config')
@@ -228,6 +229,8 @@ export function AgentConfigSettings() {
           {notice !== null ? <p className="text-sm text-fg-muted">{notice}</p> : null}
         </section>
       ) : null}
+
+      {kind === 'pi' ? <SessionImport /> : null}
     </SettingsPage>
   )
 }

@@ -475,6 +475,19 @@ understands only enough to refuse a JSON file the agent could not have loaded.
 - [x] M31.2 `providers.configFiles` / `.readConfig` / `.writeConfig`: the renderer sends a kind and a file id, never a path, and writes go through the same symlink-resolving jail as the engine's tools — rooted at that kind's own config dir, so the surface can only ever touch the declared files. Saving creates the dir when the agent never has (pi writes no `SYSTEM.md` until you do), and a JSON payload that would not parse is refused as data instead of silently replacing a working config.
 - [x] M31.3 Settings › Agents: pick an agent, see which of its files exist and how large they are (absent optional files are listed rather than hidden — that is how you find out `SYSTEM.md` exists), edit one in a mono textarea with Save/Revert, and read the resolved path. Indexed in settings search.
 
+## M32 — Import existing pi sessions (claimed @ feat/pi-session-import)
+
+Why (user feedback): "it would be cool if I can import my existing PI sessions into Ari". Work done
+in pi was invisible to Ari, so adopting Ari meant leaving your history behind.
+
+The import is a replay, not a link: it writes Ari's own journal so the transcript renders, searches,
+and resumes like any other session. pi's file is only ever read — it stays where it is and stays
+resumable in pi, so importing can never cost anyone their history.
+
+- [x] M32.1 `providers/pi/sessions.ts` reads pi's own store: session dir per `PI_CODING_AGENT_SESSION_DIR` > `PI_CODING_AGENT_DIR/sessions` > `~/.pi/agent/sessions`, and the folder encoding pi uses for a cwd (separators *and* the drive colon each become `-`, wrapped in `--`, so `D:\Projects\Ari` → `--D--Projects-Ari--`) as a fast path only — each file's header carries the authoritative cwd. Crucially the entries are a **tree**, not a list: every entry has `id`/`parentId` and `/fork` or an edited prompt adds a sibling branch *inside the same file*, so reading lines in order would replay abandoned branches as if they had happened. A transcript is the newest leaf walked back to the root and reversed. Verified against the real files on this machine (5 sessions, including a 377 KB one that flattens to 5 user / 39 assistant / 34 tool-result).
+- [x] M32.2 `sessions.importable` / `sessions.import`: the listing marks what Ari already has by reading the journals' own `session.ref.observed`, so the "imported" flag cannot drift from reality — the same ref that makes an imported session resumable is the one that marks it imported. The replay opens a turn per user message and settles it, stamps every event with the pi timestamp it came from (so the session sorts into the sidebar where the work happened, not at "now"), and pairs tool calls with their results. A session whose folder matches no Ari project is refused with what to do about it rather than being dropped into the wrong project.
+- [x] M32.3 Import surface in Settings › Agents under pi: title, message count, date, and folder per session, with the ones already in Ari disabled and marked. States on the surface that pi keeps its own copy, because "import" usually implies something is moved.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
