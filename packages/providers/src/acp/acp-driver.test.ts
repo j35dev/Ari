@@ -60,6 +60,11 @@ function fakeChild(): FakeChild {
       index = buffer.indexOf('\n')
     }
   })
+  // A stdio agent exits when its input closes, so dispose settles on the
+  // transport's own EOF instead of waiting out the teardown ladder.
+  stdin.on('end', () => {
+    if (!child.killed) child.kill()
+  })
   return child
 }
 
@@ -552,6 +557,15 @@ describe('pickAgentMode', () => {
 
   it('refuses to answer a build mode with a read-only mode', () => {
     expect(pickAgentMode(['plan', 'readOnly', 'chat'], 'full')).toBeNull()
+  })
+
+  it("leaves an axis that is not about permissions alone (pi's thinking levels)", () => {
+    // pi's ACP adapter models `modes` as reasoning effort, so the build-mode
+    // escape hatch used to answer with `off` and mute the agent's thinking.
+    const thinking = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+    expect(pickAgentMode(thinking, 'ask')).toBeNull()
+    expect(pickAgentMode(thinking, 'allow-edits')).toBeNull()
+    expect(pickAgentMode(thinking, 'full')).toBeNull()
   })
 })
 

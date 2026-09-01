@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { acpAdapterSpec, findNpxCommand, resolveAcpLaunch } from './launches'
+import { acpAdapterSpec, findNpxCommand, probeLaunch, resolveAcpLaunch } from './launches'
 import type { DetectEnvironment } from '../types'
 
 const ENV: DetectEnvironment = {
@@ -50,8 +50,37 @@ describe('resolveAcpLaunch', () => {
     }
   })
 
+  it('pins a single kind onto its legacy driver via ARI_ACP_<KIND>', () => {
+    process.env['ARI_ACP_OPENCODE'] = '0'
+    try {
+      expect(resolveAcpLaunch('opencode', { cliBinaryPath: '/usr/bin/opencode' }, ENV)).toBeNull()
+      // Neighbours are untouched — the override is per kind, not global.
+      expect(resolveAcpLaunch('hermes', { cliBinaryPath: '/usr/bin/hermes' }, ENV)).not.toBeNull()
+    } finally {
+      delete process.env['ARI_ACP_OPENCODE']
+    }
+  })
+
   it('returns null for kinds without an ACP transport story (ari-core)', () => {
     expect(resolveAcpLaunch('ari-core', { cliBinaryPath: '/x' }, ENV)).toBeNull()
+  })
+})
+
+describe('probeLaunch', () => {
+  it('drops npx consent so --no-install cannot be overridden', () => {
+    const probe = probeLaunch({
+      label: 'pi (ACP adapter pi-acp@0.0.33)',
+      command: 'npx',
+      args: ['-y', 'pi-acp@0.0.33'],
+      viaNpx: true,
+    })
+    expect(probe.args).toEqual(['--no-install', 'pi-acp@0.0.33'])
+    expect(probe.args).not.toContain('-y')
+  })
+
+  it('leaves native launches exactly as they are', () => {
+    const native = { label: 'opencode (native ACP)', command: '/usr/bin/opencode', args: ['acp'] }
+    expect(probeLaunch(native)).toEqual(native)
   })
 })
 
