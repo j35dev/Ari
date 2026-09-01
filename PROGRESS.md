@@ -108,9 +108,10 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
 ## M21 — Fleet/parallelism wave (Cline Kanban · Conductor · Nimbalyst research)
 
 - [x] M21.1 Diff-line comments that attach to the composer as feedback for the session's next turn
-- [~] M21.2 A/B race mode — 2a DONE: race launcher (palette "New A/B provider race") creates two
-      sibling sessions from one prompt and starts both turns. Remaining: side-by-side diff
-      comparison + keep-A/keep-B resolution (M21.2b)
+- [–] M21.2 A/B race mode — DROPPED (product decision, 2026-08-31). The race launcher shipped as
+      2a but the mode never earned its place: two sibling sessions from one prompt doubled provider
+      cost for a comparison nobody performed, and the unbuilt half (side-by-side diff + keep-A/keep-B)
+      would have needed its own resolution UI. `features/race/` and the palette entry are removed.
 - [x] M21.3 Named run-script buttons per project (pnpm dev etc.) with captured output
 - [x] M21.4 Ship flow: stage-all → commit → push in one action, then inline PR creation via `gh`
       (`git.createPr` RPC; gh-missing and auth failures surface as actionable guidance)
@@ -398,7 +399,10 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M23.1 Split provider install state from auth state: `Detection.installed` + `authReason` (contracts + detector), a missing binary is `installed:false` / `authStatus:'unknown'` instead of the old false `'unauthenticated'`; real read-only auth probes for grok/pi/hermes with `XAI_API_KEY` / `PI_CODING_AGENT_DIR` / `HERMES_HOME` overrides; pure `package-manager.ts` mapping binary path + kind to argv install/upgrade commands
 - [x] M23.2 Install/update execution + UI: `install.ts` runner (tail-capped line-streamed output, 5-min timeout with teardown-ladder reap, cancel handle, terminal event always fires), `providers.plan`/`providers.install`/`providers.cancelInstall` RPCs publishing progress + settle frames on the `providers.updates` stream (settle `ok` reflects a mandatory re-detect, not just exit code), single-flight per kind; ProvidersView cards gain Install/Update/Cancel actions behind a confirm dialog showing the literal argv before anything runs, live output pane per card; update toasts fired once per kind@version after a 30s post-launch grace
 - [x] M23.3 Multiple projects open directly in the sidebar: `Project` gains `open`/`lastOpenedAt`/live `status`, realpath-canonicalized dedupe so reopening a folder reuses its project, `project.open`/`project.close`/`dialog.pickFolder`/`shell.revealPath` RPCs, collapsible per-project session groups with an Unfiled group and a degraded missing-folder row, project-aware `sidebarOrder` so keyboard traversal matches the rendered order, `projects` removed from the bottom nav strip
-- [ ] M23.4 Move ProjectsView to a settings section for known-but-closed projects (it still owns the script runner and per-project defaults)
+- [–] M23.4 Move ProjectsView to a settings section — DROPPED (product decision, 2026-08-31).
+      M23.3 made the sidebar the only place projects need to exist: open/close, reveal, remove and
+      per-project new-session all live on the sidebar rows, and scripts reach the terminal
+      workspace via M24.1 panes. A second projects surface in Settings would duplicate that.
 - [x] M23.5 Real multi-theme engine: six full oklch palettes (obsidian, graphite, nocturne, verdant + light porcelain, sandstone) replacing the single hardcoded `comet-glass` appearance, per-theme `[data-ari-theme]` token blocks, glass demoted to an opt-in per-theme capability gated on `[data-ari-glass]` and forced off by `prefers-reduced-transparency`, engine-persisted theme/mode/glass with a localStorage pre-hydration cache, `theme.apply` RPC so window chrome (backgroundMaterial/vibrancy/backgroundColor/titleBarOverlay/nativeTheme) tracks the active theme instead of assuming dark acrylic, Appearance picker with swatch previews and Follow system. Contrast verified numerically: fg/bg 14.7-17.2:1, muted 6.1-9.2:1, accent 4.5-10.8:1
 - [x] M23.10 Post-merge review fixes for #75/#76: `stopWatchingProject` tears down a removed project's watcher + file index (was leaking fs events for the process lifetime); `ProjectStore.load()` is load-once so a slow read can't clobber in-flight mutations; archived/search rows keep their project chip via `knownProjectNames`; `dialog.pickFolder` takes `defaultPath` so Locate starts near the dead folder; every swallowed RPC rejection in `App.tsx` now logs through `@ari/shared/logger`; `docs/arch-23.md` written; cross-package test pins `themeIdSchema.options` == `themeIds`
 - [x] M23.11 Theme provider hardening: the save effect is gated on hydration so the localStorage cache can never overwrite the durable copy before it loads (a picked theme could be lost); `applyCachedTheme()` paints the cached palette before React mounts so light-theme users don't get a dark first frame
@@ -466,6 +470,22 @@ its own OAuth and writes its own store; Ari only learns the command and offers t
 - Usage dashboards/heatmaps
 
 ---
+
+## Known gaps (reachability audit, 2026-08-31)
+
+Features that exist in code and pass tests but cannot be reached from the running app, or that
+shipped explicitly partial. Recorded here so a ticked box never reads as "the user can use this".
+
+| Gap | Evidence | Weight |
+| --- | --- | --- |
+| Run scripts (M21.3) unreachable | `ProjectsView` is the only script-runner UI and is mounted nowhere since M23.3 removed the Projects rail entry | high |
+| MCP servers (M19.2) never mount | `McpServerStore` has no desktop caller and `rpc.ts` builds `new AriCoreDriver(getEndpointStore())` with no `mcpServers`; no UI writes `mcp-servers.json` | high |
+| Per-project defaults (M9.7) inert | `useProjectSettings` has no consumer; `session.create` always uses the shell-wide defaults | medium |
+| Keybinding remapping (M12.5) | Keybindings page is a read-only table; no remap layer, no conflict detection | medium |
+| Logs viewer / journal tools (M12.6) | Advanced settings ships diagnostics export only; no RPC reads the log file or journal | medium |
+| Settings search not palette-wired (M12.9) | `SettingsSearch` only lives inside the settings sidebar | low |
+| Code-block language chips (M5.10) | Copy button shipped; language chip deferred | low |
+| Post-revert undo (M8.8) | Inline confirm + result toast only | low |
 
 ## Blockers
 
