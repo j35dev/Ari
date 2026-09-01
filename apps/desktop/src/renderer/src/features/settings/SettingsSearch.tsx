@@ -50,6 +50,11 @@ export const SETTINGS_SEARCH_INDEX = [
       'pi settings.json claude.md agents.md config.toml opencode.json system prompt append extensions packages models thinking configure edit',
   },
   {
+    section: 'settings-agents',
+    label: 'Import pi sessions',
+    keywords: 'import bring in existing history transcript resume pi jsonl past sessions migrate',
+  },
+  {
     section: 'settings-permissions',
     label: 'Default permission mode',
     keywords: 'ask allow edits full access approve confirm agent tools',
