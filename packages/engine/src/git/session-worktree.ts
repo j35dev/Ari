@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { createLogger } from '@ari/shared/logger'
 import { newDefaultCapturer, type GitService } from './git-service'
 
@@ -46,12 +46,13 @@ function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
-function samePath(a: string, b: string): boolean {
-  const left = normalizePath(a)
-  const right = normalizePath(b)
-  return process.platform === 'win32'
-    ? left.toLowerCase() === right.toLowerCase()
-    : left === right
+async function samePath(a: string, b: string): Promise<boolean> {
+  const canonical = async (path: string): Promise<string> => {
+    const resolved = await realpath(path).catch(() => resolve(path))
+    const normalized = normalizePath(resolved)
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+  }
+  return (await canonical(a)) === (await canonical(b))
 }
 
 /**
@@ -110,8 +111,10 @@ export async function ensureSessionWorktree(
     await excludeSessionDir(git, repoRoot)
 
     const listed = await git.listWorktrees(repoRoot)
-    if (listed.ok && listed.value.some((w) => samePath(w.path, target))) {
-      return target
+    if (listed.ok) {
+      for (const worktree of listed.value) {
+        if (await samePath(worktree.path, target)) return target
+      }
     }
 
     const branch = sessionWorktreeBranch(sessionId)
