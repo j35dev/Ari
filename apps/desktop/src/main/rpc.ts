@@ -131,6 +131,8 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
  * so the providers grid is complete even while drivers are still registering.
  */
 const ALL_CLI_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
+/** CLIs plus Ari Core — catalogs, detections, and the effort chip all use this. */
+const ALL_PROVIDER_KINDS: DriverKind[] = [...ALL_CLI_KINDS, 'ari-core']
 
 /** Short cache so mount-time detect calls from several views share one probe round. */
 let detectionCache: { at: number; value: Promise<RpcResults['providers.detect']> } | null = null
@@ -197,7 +199,7 @@ function rawDetections(force = false): Promise<RpcResults['providers.detect']> {
       at: Date.now(),
       value: resolveDetectionEnvironment().then((env: DetectEnvironment) =>
         Promise.all(
-          [...ALL_CLI_KINDS, 'ari-core' as DriverKind].map(async (kind) => {
+          ALL_PROVIDER_KINDS.map(async (kind) => {
             try {
               return await detectDriver(kind, env)
             } catch (error) {
@@ -712,7 +714,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
   r.register('providers.models', () =>
-    ALL_CLI_KINDS.map((kind) => {
+    ALL_PROVIDER_KINDS.map((kind) => {
       const catalog = effortsFor(kind)
       return {
         kind,

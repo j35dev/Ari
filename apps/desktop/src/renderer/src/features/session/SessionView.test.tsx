@@ -1001,6 +1001,23 @@ describe('EffortChip', () => {
     expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
   })
 
+  it('shows Ari Core levels from the models catalog', async () => {
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'ari-core',
+        source: 'static',
+        models: [],
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High', current: true },
+          { id: 'xhigh', label: 'Extra high' },
+        ],
+      },
+    ])
+    render(<EffortChip driverKind="ari-core" effort={null} onChange={() => undefined} />)
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+  })
+
   it('renders advertised levels and reports the pick', async () => {
     const onChange = vi.fn()
     invokeMock.mockResolvedValue([
