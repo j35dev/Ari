@@ -4,6 +4,19 @@ Notes on what changed structurally in the built-in harness, and why. Context:
 every M11 box was ticked while the harness could not actually work a repository
 (see the honesty correction in PROGRESS.md § M28).
 
+## Tools have to be on the request, not just in the prompt
+
+The system prompt listed tool names in prose, but the OpenAI-compat
+`/chat/completions` body never included a `tools` array. Models that know
+function calling (Grok especially) then dumped xAI DSML markup into the
+assistant text — `<|DSML|invoke name="read">…` — which the transcript
+rendered as a broken table (`< | DSML | …`) and the loop never executed.
+The request now advertises every built-in (plus mounted MCP tools) as
+OpenAI functions. If a provider still writes DSML into the content, the
+streamer holds the markup back, parses the invokes, aliases invented
+parameter names (`file` → `path`), and emits `tool-started` the same way
+native `tool_calls` do.
+
 ## Tool naming is a capability, not a style choice
 
 Tools were `read_file` / `write_file` / `edit_file`. Frontier models are trained

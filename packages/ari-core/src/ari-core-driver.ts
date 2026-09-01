@@ -30,7 +30,7 @@ import type { Endpoint, EndpointStore } from './endpoints'
 import type { McpServerConfig } from './mcp-servers'
 import { McpConnection } from './mcp'
 import { mountMcpTools, type MountedMcpServer } from './mcp-tools'
-import type { Tool } from './tools'
+import { BUILT_IN_TOOLS, type Tool } from './tools'
 import { buildSystemPrompt } from './system-prompt'
 import {
   MemoryConversationStore,
@@ -270,6 +270,35 @@ export class AriCoreDriver implements Driver {
       }
 
       const model = modelOverride ?? endpoint.model
+
+      // Mount enabled MCP servers for this turn: connect (fail-soft), list
+      // tools, and hand the merged toolset to the loop. A dead or slow
+      // server is logged and omitted; the turn always runs. The advertised
+      // schemas go on the OpenAI-compat request so the model emits native
+      // tool_calls instead of dumping markup into the transcript.
+      let extraTools: Tool[] = []
+      if (mcpServers.length > 0) {
+        const mounted: MountedMcpServer[] = []
+        for (const server of mcpServers) {
+          try {
+            const connection = await mcpConnect(server)
+            mcpConnections.push(connection)
+            mounted.push({ name: server.name, connection })
+          } catch (error) {
+            log.warn('mcp server unavailable; omitting', {
+              server: server.name,
+              error: String(error),
+            })
+          }
+        }
+        extraTools = await mountMcpTools(mounted)
+      }
+      const advertised = [...BUILT_IN_TOOLS, ...extraTools].map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }))
+
       const round = (messages: ChatMessage[], signal?: AbortSignal): AsyncGenerator<AgentEvent> => {
         // Context guardrail runs before every round; a no-op while small. It is
         // the floor under compaction, not a replacement for it: trimming drops
@@ -290,31 +319,11 @@ export class AriCoreDriver implements Driver {
               apiKey,
               model,
               messages: effective,
+              tools: advertised,
               headers: endpoint.headers,
               signal,
             })
         }
-      }
-
-      // Mount enabled MCP servers for this turn: connect (fail-soft), list
-      // tools, and hand the merged toolset to the loop. A dead or slow
-      // server is logged and omitted; the turn always runs.
-      let extraTools: Tool[] = []
-      if (mcpServers.length > 0) {
-        const mounted: MountedMcpServer[] = []
-        for (const server of mcpServers) {
-          try {
-            const connection = await mcpConnect(server)
-            mcpConnections.push(connection)
-            mounted.push({ name: server.name, connection })
-          } catch (error) {
-            log.warn('mcp server unavailable; omitting', {
-              server: server.name,
-              error: String(error),
-            })
-          }
-        }
-        extraTools = await mountMcpTools(mounted)
       }
 
       // Replay this session's earlier turns so the model keeps its memory;

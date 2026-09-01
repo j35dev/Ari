@@ -58,6 +58,17 @@ describe('read tool', () => {
     }
   })
 
+  it('accepts `file` as an alias for `path`', async () => {
+    const { dir, cleanup } = await workspace()
+    try {
+      await writeFile(join(dir, 'a.txt'), 'hello', 'utf8')
+      const result = await findTool('read')?.execute({ file: 'a.txt' }, READ_CTX(dir))
+      expect(result).toBe('hello')
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('rejects offsets beyond EOF and paths escaping the workspace', async () => {
     const { dir, cleanup } = await workspace()
     try {

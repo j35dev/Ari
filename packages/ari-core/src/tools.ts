@@ -81,6 +81,11 @@ function num(args: Record<string, unknown>, key: string): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
 
+/** Path-like args: models that never saw the schema often send `file`. */
+function pathArg(args: Record<string, unknown>): string {
+  return str(args, 'path') || str(args, 'file') || str(args, 'filepath') || str(args, 'filename')
+}
+
 const GUARDED_TOOLS = new Set(['bash', 'write', 'edit'])
 
 /**
@@ -154,7 +159,7 @@ interface SingleEdit {
 
 /** Accepts both the `edits[]` form and the legacy single oldString/newString. */
 function parseEditArgs(args: Record<string, unknown>): { path: string; edits: SingleEdit[] } {
-  const target = str(args, 'path')
+  const target = pathArg(args)
   const rawEdits = args['edits']
   const edits: SingleEdit[] = []
   if (Array.isArray(rawEdits)) {
@@ -311,10 +316,11 @@ const GLOB_MAX_RESULTS = 200
 async function executeGlob(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
   const pattern = str(args, 'pattern')
   if (pattern.length === 0) throw new Error('glob requires a pattern')
+  const rel = pathArg(args)
   const base =
-    args.path === undefined || str(args, 'path') === '' || str(args, 'path') === '.'
+    rel === '' || rel === '.'
       ? ctx.workspacePath
-      : await jailed(ctx, args.path)
+      : await jailed(ctx, rel)
   const { glob } = await import('node:fs/promises')
   const results: string[] = []
   for await (const entry of glob(pattern, { cwd: base })) {
@@ -330,7 +336,7 @@ const LS_MAX_ENTRIES = 500
 
 /** Lists one directory's entries; directories carry a trailing slash. */
 async function executeLs(args: Record<string, unknown>, ctx: ToolContext): Promise<string> {
-  const rel = str(args, 'path') || '.'
+  const rel = pathArg(args) || '.'
   const target = await jailed(ctx, rel)
   const entries = await fs.readdir(target, { withFileTypes: true })
   entries.sort((a, b) => {
@@ -422,7 +428,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
     execute: async (args, ctx) =>
       await executeRead(
         {
-          path: str(args, 'path'),
+          path: pathArg(args),
           offset: num(args, 'offset'),
           limit: num(args, 'limit'),
         },
@@ -443,10 +449,11 @@ export const BUILT_IN_TOOLS: Tool[] = [
     },
     execute: async (args, ctx) => {
       assertAllowed(ctx, 'write', args)
-      const target = await jailed(ctx, args['path'])
+      const rel = pathArg(args)
+      const target = await jailed(ctx, rel)
       await fs.mkdir(path.dirname(target), { recursive: true })
       await fs.writeFile(target, str(args, 'content'), 'utf8')
-      return `Wrote ${Buffer.byteLength(str(args, 'content'), 'utf8')} bytes to ${str(args, 'path')}`
+      return `Wrote ${Buffer.byteLength(str(args, 'content'), 'utf8')} bytes to ${rel}`
     },
   },
   {
@@ -515,7 +522,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
       await executeGrep(
         {
           pattern: str(args, 'pattern'),
-          path: str(args, 'path') || undefined,
+          path: pathArg(args) || undefined,
           glob: str(args, 'glob') || undefined,
           ignoreCase: args['ignoreCase'] === true,
           literal: args['literal'] === true,
@@ -552,7 +559,10 @@ export const BUILT_IN_TOOLS: Tool[] = [
     },
     execute: async (args, ctx) => {
       assertAllowed(ctx, 'bash', args)
-      return await executeBash({ command: str(args, 'command'), timeout: num(args, 'timeout') }, ctx)
+      return await executeBash(
+        { command: str(args, 'command') || str(args, 'cmd'), timeout: num(args, 'timeout') },
+        ctx,
+      )
     },
   },
   todoWriteTool,
