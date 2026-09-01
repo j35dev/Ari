@@ -536,6 +536,7 @@ resumable in pi, so importing can never cost anyone their history.
 - [x] M33.10 The OpenAI-compat request advertises tools; leftover DSML is parsed; `file` aliases `path`.
 - [x] M33.11 Thinking is not the reply: `reasoning_content` / `reasoning` and `<think>` spans become `thinking-delta`.
 - [x] M33.12 JS grep glob matches ripgrep: `*.ts` hits nested files when rg is missing.
+- [x] M33.13 Pi ACP startup metadata is excluded from the assistant transcript; real replies remain visible.
 
 ## Stretch backlog (post-V1, unplanned)
 
