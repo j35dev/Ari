@@ -33,6 +33,7 @@
     "./opencode/mapper": "./src/opencode/mapper.ts",
     "./pi": "./src/pi/pi-driver.ts",
     "./pi/mapper": "./src/pi/mapper.ts",
+    "./pi/sessions": "./src/pi/sessions.ts",
     "./hermes": "./src/hermes/hermes-driver.ts",
     "./hermes/mapper": "./src/hermes/mapper.ts"
   },
