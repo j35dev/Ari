@@ -53,6 +53,8 @@ import {
   readProviderConfig,
   writeProviderConfig,
 } from './provider-config'
+import { importPiSession, listImportableSessions } from './session-import'
+import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
@@ -418,18 +420,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   catalogService.start()
 
   // The running-turn counter feeds the tray from the same event flow the
-  // renderer subscribes to; no extra engine coupling.
+  // renderer subscribes to; no extra engine coupling. Imports use the same
+  // publisher after their journals are complete, so session lists refresh.
   const runningTurns = new RunningTurnCounter()
+  const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
+    const payload: SessionEventFrame = { sessionId, event }
+    rpcRegistry.publish('session.events', payload)
+    if (options.onRunningCount && runningTurns.push(event)) {
+      options.onRunningCount(runningTurns.count)
+    }
+  }
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
-    publish: (sessionId: string, event: JournalEvent) => {
-      const payload: SessionEventFrame = { sessionId, event }
-      rpcRegistry.publish('session.events', payload)
-      if (options.onRunningCount && runningTurns.push(event)) {
-        options.onRunningCount(runningTurns.count)
-      }
-    },
+    publish: publishSessionEvent,
     // Workspace resolution lives here so the engine never guesses: ad-hoc
     // sessions run against the home directory; project sessions resolve the
     // registered folder path by id.
@@ -523,6 +527,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     await getSessionStore().destroy(params.sessionId)
     return { destroyed: true }
   })
+
+  // Sessions the user already has in pi, replayed into Ari's own journal. Read
+  // only: pi's file stays where it is and stays resumable in pi afterwards.
+  const importDeps = (): SessionImportDeps => ({
+    sessions: getSessionStore(),
+    projects: getProjectStore(),
+    publish: publishSessionEvent,
+  })
+  r.register('sessions.importable', (params) => listImportableSessions(importDeps(), params.cwd))
+  r.register('sessions.import', (params) => importPiSession(params, importDeps()))
 
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
@@ -1126,6 +1140,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'session.create',
     'session.load',
     'session.destroy',
+    'sessions.importable',
+    'sessions.import',
     'usage.summary',
     'usage.ccusage',
     'command.dispatch',
