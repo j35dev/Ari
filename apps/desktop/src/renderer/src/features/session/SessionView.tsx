@@ -12,6 +12,8 @@ import { Composer, type ComposerSeed } from '../composer/Composer'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
+import { PlanReviewRail } from '../approvals/PlanReviewRail'
+import { parseQuestionPayload } from '../approvals/questionnaire'
 import { notifyNeedsAttention, useSettleNotify } from '../moment'
 import { WorkingGlyph } from '../moment'
 import { PlanPanel } from './PlanPanel'
@@ -583,23 +585,40 @@ export function SessionView({
   const respondQuestion = useCallback(
     (value: string) => {
       if (pendingQuestion === null) return
+      const current = pendingQuestion
+      // Drop the overlay immediately so Submit cannot leave a locked card
+      // sitting on screen while the engine journals the answer.
+      setPendingQuestion(null)
       void rpc
         .invoke('command.dispatch', {
           command: {
             type: 'input.respond',
             sessionId,
-            inputId: pendingQuestion.inputId,
+            inputId: current.inputId,
             value,
           },
         })
         .then((result) => {
-          // Cleared on acceptance; the `input.responded` replay is a no-op.
-          // A rejection keeps the panel up so the answer can be retried.
-          if (result.accepted) setPendingQuestion(null)
+          if (result.accepted) return
+          setPendingQuestion(current)
+          toast({
+            title: 'Couldn’t send answer',
+            description: 'The agent is no longer waiting on this question.',
+            tone: 'danger',
+            durationMs: 6000,
+          })
         })
-        .catch(() => undefined)
+        .catch((err: unknown) => {
+          setPendingQuestion(current)
+          toast({
+            title: 'Couldn’t send answer',
+            description: err instanceof Error ? err.message : String(err),
+            tone: 'danger',
+            durationMs: 6000,
+          })
+        })
     },
-    [sessionId, pendingQuestion],
+    [sessionId, pendingQuestion, toast],
   )
 
   const changeModel = useCallback(
@@ -650,8 +669,17 @@ export function SessionView({
     [sessionId, onDefaultsChange, defaults],
   )
 
+  const pendingPlan =
+    pendingQuestion === null
+      ? null
+      : (() => {
+          const payload = parseQuestionPayload(pendingQuestion.prompt, pendingQuestion.choicesJson)
+          return payload.kind === 'plan-approval' ? payload : null
+        })()
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <div className="min-h-0 flex-1">
         <TranscriptView
           sessionId={sessionId}
@@ -697,7 +725,7 @@ export function SessionView({
         ) : null}
 
       </div>
-      {pendingQuestion ? (
+      {pendingQuestion && pendingPlan === null ? (
         <div className="ari-glass-overlay border-t border-border p-3">
           <QuestionPanel
             prompt={pendingQuestion.prompt}
@@ -785,6 +813,14 @@ export function SessionView({
           </>
         }
       />
+      </div>
+      {pendingPlan !== null ? (
+        <PlanReviewRail
+          prompt={pendingPlan.prompt}
+          planContent={pendingPlan.planContent}
+          onRespond={respondQuestion}
+        />
+      ) : null}
     </div>
   )
 }

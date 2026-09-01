@@ -32,8 +32,10 @@ Three live Grok-in-Ari failures, all ACP-client gaps:
   rather than an ApprovalCard.
 - Ari Core's `ask_user_question` tool parks through the same `input-requested` / `input.respond`
   path so custom endpoints get the same UI.
-- QuestionPanel follows ApprovalCard tokens: numbered options, Other on every choice list,
-  questionnaire sections, and a plan-approval card (Approve / Request changes / Abandon).
+- QuestionPanel is a one-question-at-a-time interview (progress, full-width option
+  rows, Other, Back/Continue). Plan approval opens a markdown rail beside the
+  transcript (Approve / Request changes / Abandon). Submit clears the overlay
+  immediately; a rejected `input.respond` restores it.
 
 ## Effort levels from the harness
 
@@ -59,4 +61,5 @@ axes are never treated as thought.
 
 - URL-mode elicitation is declined (Ari advertised form only).
 - `session/request_permission` with standard allow/deny kinds still uses ApprovalCard.
-- Plan body is rendered as preformatted text, not a second markdown pipeline.
+- Compact PlanApproval inside QuestionPanel is a fallback; the session view prefers
+  the plan rail. The rail reuses the transcript MarkdownBlock pipeline.
