@@ -201,6 +201,27 @@ describe('importPiSession', () => {
     expect(again).toHaveProperty('error', expect.stringContaining('already in Ari'))
   })
 
+  it('still marks a pi session imported after a live provider ref lands', async () => {
+    const path = await seedPiSession('live', 'after import')
+    const result = await importPiSession({ path }, deps)
+    expect(result).toMatchObject({ ok: true })
+    if (!result.ok) return
+
+    await deps.sessions.append(result.sessionId, {
+      type: 'session.ref.observed',
+      ref: 'native-thread-after-import',
+    })
+    const model = await deps.sessions.load(result.sessionId)
+    expect(model.providerSessionId).toBe('native-thread-after-import')
+
+    const listed = await listImportableSessions(deps)
+    expect(listed).toHaveLength(1)
+    expect(listed[0]?.imported).toBe(true)
+    const again = await importPiSession({ path }, deps)
+    expect(again).toMatchObject({ ok: false })
+    expect(again).toHaveProperty('error', expect.stringContaining('already in Ari'))
+  })
+
   it('explains itself when no Ari project matches the session folder', async () => {
     const path = await seedPiSession('five', 'stranded', 'D:\\Nowhere')
     const result = await importPiSession({ path }, deps)

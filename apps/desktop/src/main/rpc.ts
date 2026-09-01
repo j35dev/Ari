@@ -543,7 +543,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (project === null || project.status === 'missing') return []
     return listImportableSessions(importDeps(), project.path)
   })
-  r.register('sessions.import', (params) => importPiSessionCandidate(params, importDeps()))
+  r.register('sessions.import', async (params) => {
+    await getProjectStore().load()
+    return importPiSessionCandidate(params, importDeps())
+  })
 
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
