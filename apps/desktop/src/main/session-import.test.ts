@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '@ari/engine/session-store'
 import { ProjectStore } from '@ari/engine/projects'
 import { importPiSession, listImportableSessions } from './session-import'
@@ -126,6 +126,22 @@ describe('importPiSession', () => {
     expect(toolResult).toMatchObject({ callId: 'call-1', isError: false })
     // The abandoned branch in that fixture must not appear.
     expect(JSON.stringify(parts)).not.toContain('ABANDONED')
+  })
+
+  it('publishes the completed import so live session lists refresh', async () => {
+    const publish = vi.fn()
+    const result = await importPiSession(
+      { path: FIXTURE, projectId: firstProjectId() },
+      { ...deps, publish },
+    )
+    if (!result.ok) throw new Error('expected the import to succeed')
+
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenCalledWith(
+      result.sessionId,
+      expect.objectContaining({ type: 'turn.settled', sessionId: result.sessionId }),
+    )
+    expect((await deps.sessions.load(result.sessionId)).activeTurnId).toBeNull()
   })
 
   it('refuses a second import of the same pi session', async () => {

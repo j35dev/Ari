@@ -1,3 +1,4 @@
+import type { JournalEvent } from '@ari/contracts/events'
 import type { RpcResults } from '@ari/contracts/rpc'
 import type { MessagePart } from '@ari/contracts/message'
 import { createLogger } from '@ari/shared/logger'
@@ -25,6 +26,8 @@ const log = createLogger('desktop:session-import')
 export interface SessionImportDeps {
   sessions: SessionStore
   projects: ProjectStore
+  /** Announces a fully materialized import to live session-list subscribers. */
+  publish?: (sessionId: string, event: JournalEvent) => void
   now?: () => number
 }
 
@@ -76,7 +79,8 @@ export async function importPiSession(
   }
 
   const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-  await writeImportedJournal(sessionId, projectId, transcript, deps)
+  const completed = await writeImportedJournal(sessionId, projectId, transcript, deps)
+  deps.publish?.(sessionId, completed)
   log.info('imported a pi session', {
     sessionId,
     piSessionId: transcript.sessionId,
@@ -99,7 +103,7 @@ async function writeImportedJournal(
   projectId: string,
   transcript: PiTranscript,
   deps: SessionImportDeps,
-): Promise<void> {
+): Promise<JournalEvent> {
   const append = deps.sessions.append.bind(deps.sessions)
   const now = deps.now ?? Date.now
   const startedAt = transcript.startedAt > 0 ? transcript.startedAt : now()
@@ -124,10 +128,11 @@ async function writeImportedJournal(
 
   let turnId: string | null = null
   let messageId: string | null = null
+  let completion: JournalEvent | null = null
 
   const settle = async (at: number): Promise<void> => {
     if (turnId === null) return
-    await append(sessionId, {
+    completion = await append(sessionId, {
       type: 'turn.settled',
       at,
       turnId,
@@ -219,6 +224,10 @@ async function writeImportedJournal(
   }
 
   await settle(lastAt)
+  if (completion === null) {
+    throw new Error('pi transcript produced no completed import turn')
+  }
+  return completion
 }
 
 /**
