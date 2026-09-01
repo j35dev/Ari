@@ -44,6 +44,12 @@ export const SETTINGS_SEARCH_INDEX = [
     keywords: 'claude codex opencode grok pi hermes detect rescan health install auth badge',
   },
   {
+    section: 'settings-agents',
+    label: 'Agent configuration files',
+    keywords:
+      'pi settings.json claude.md agents.md config.toml opencode.json system prompt append extensions packages models thinking configure edit',
+  },
+  {
     section: 'settings-permissions',
     label: 'Default permission mode',
     keywords: 'ask allow edits full access approve confirm agent tools',
