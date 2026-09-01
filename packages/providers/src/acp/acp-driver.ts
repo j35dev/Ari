@@ -141,6 +141,11 @@ export async function createAcpAdapter(
     connection.kill()
     throw setupFailure(error)
   }
+  // pi-acp can emit its startup prelude as a regular agent message when the
+  // client does not consume the copy carried in session/new metadata. The
+  // response is delivered before pi-acp's deferred notification, so the
+  // folder has the exact prelude before that notification can be folded.
+  folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   const sessionId = created.sessionId as string
   // Publish the agent's session id so Ari can resume it via session/load on
   // the next turn instead of losing all context.
