@@ -4,6 +4,16 @@ Notes on what changed structurally in the built-in harness, and why. Context:
 every M11 box was ticked while the harness could not actually work a repository
 (see the honesty correction in PROGRESS.md § M28).
 
+## Thinking is not the reply
+
+Reasoner models (DeepSeek, Qwen, Grok via OpenAI-compat) put chain-of-thought
+in `delta.reasoning_content` / `delta.reasoning`, or wrap it in `<think>` /
+`<thinking>` inside `delta.content`. Markdown strips those tags and the
+planning prose ("The user just said hi…") rendered as the assistant message.
+The streamer now yields that span as `thinking-delta`, which the transcript
+already collapses behind a Reasoning row. The visible reply is whatever sits
+outside the tags.
+
 ## Tools have to be on the request, not just in the prompt
 
 The system prompt listed tool names in prose, but the OpenAI-compat
