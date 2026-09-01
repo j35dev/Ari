@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { EndpointFlavor, EndpointModel } from '@ari/contracts/endpoint'
 import { Badge } from '@ari/ui/badge'
@@ -245,7 +245,6 @@ function EndpointCard({
             onChange={(next) => onModelsChange(endpoint.id, next)}
             onFetch={() => onFetchModels(endpoint)}
             fetchState={fetchState}
-            idPrefix={`ep-${endpoint.id}`}
             scopeLabel={endpoint.name}
           />
         </div>
@@ -260,8 +259,10 @@ function EndpointCard({
  * and never render back. Connection probes and model discovery run in the main
  * process, since the sandboxed renderer cannot reach arbitrary origins.
  *
- * Each endpoint holds a list of models: fetched from the endpoint's own
- * listing API, or added by hand, with one marked as the endpoint default.
+ * Each endpoint holds a list of models: a fetch imports every id the
+ * listing API returns (unwanted ones are deleted afterwards), or ids are
+ * added by hand, with one marked as the endpoint default. The add form sits
+ * above the saved list so a long catalog cannot bury it.
  */
 export function EndpointsManager() {
   const [endpoints, setEndpoints] = useState<StoredEndpoint[]>([])
@@ -272,6 +273,7 @@ export function EndpointsManager() {
   const [testStates, setTestStates] = useState<Record<string, TestState>>({})
   const [fetchStates, setFetchStates] = useState<Record<string, FetchState>>({})
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
 
   const refresh = useCallback(async (): Promise<void> => {
     const stored = await rpc.invoke('endpoints.list')
@@ -357,6 +359,7 @@ export function EndpointsManager() {
     setEditingId(endpoint.id)
     setShowApiKey(false)
     setFormError(null)
+    formRef.current?.scrollIntoView?.({ block: 'start' })
   }
 
   const runTest = useCallback(
@@ -491,42 +494,9 @@ export function EndpointsManager() {
   const formBaseUrl = form.baseUrl.trim()
 
   return (
-    <section aria-label="Model endpoints" className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-fg">Model endpoints</h2>
-        {endpoints.length === 0 ? (
-          <p className="text-xs text-fg-muted">
-            No endpoints yet — add an OpenAI-compatible, Anthropic, or Ollama endpoint to chat
-            through Ari Core.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {endpoints.map((endpoint) => (
-              <EndpointCard
-                key={endpoint.id}
-                endpoint={endpoint}
-                testState={testStates[testKeyFor(endpoint.baseUrl, endpoint.flavor)]}
-                fetchState={fetchStates[endpoint.id]}
-                expanded={expandedId === endpoint.id}
-                onToggleModels={(id) => setExpandedId((prev) => (prev === id ? null : id))}
-                onModelsChange={(id, next) => void saveEndpointModels(id, next)}
-                onFetchModels={(target) =>
-                  void fetchModels({
-                    stateKey: target.id,
-                    id: target.id,
-                    baseUrl: target.baseUrl,
-                    flavor: target.flavor,
-                  })
-                }
-                onTest={(target) => void runTest(target)}
-                onEdit={startEdit}
-                onDelete={(id) => void handleDelete(id)}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
+    <section aria-label="Model endpoints" className="flex flex-col gap-6">
       <form
+        ref={formRef}
         onSubmit={(e) => void handleSave(e)}
         className="flex max-w-md flex-col gap-3 rounded-md border border-border bg-surface-1 p-3"
       >
@@ -597,38 +567,6 @@ export function EndpointsManager() {
             />
           )}
         </Field>
-        <div className="border-t border-border pt-3">
-          <ModelListEditor
-            models={form.models}
-            defaultModel={form.defaultModel}
-            onChange={(next) =>
-              setForm((prev) => ({
-                ...prev,
-                models: next.models,
-                defaultModel: next.defaultModel,
-              }))
-            }
-            onFetch={
-              isHttpUrl(formBaseUrl)
-                ? () =>
-                    void fetchModels({
-                      stateKey: 'form',
-                      baseUrl: formBaseUrl,
-                      flavor: form.flavor,
-                      // While editing, `id` lets the engine supply the stored
-                      // key; `persist: false` keeps the probe out of the store
-                      // until the form is actually submitted.
-                      ...(editingId != null ? { id: editingId } : {}),
-                      ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
-                      persist: false,
-                    })
-                : null
-            }
-            fetchState={fetchStates['form']}
-            idPrefix="form"
-            scopeLabel={editingId != null ? 'this endpoint' : 'the new endpoint'}
-          />
-        </div>
         {formError != null && (
           <p role="alert" className="text-xs text-danger">
             {formError}
@@ -660,7 +598,72 @@ export function EndpointsManager() {
             </Button>
           )}
         </div>
+        <div className="border-t border-border pt-3">
+          <ModelListEditor
+            models={form.models}
+            defaultModel={form.defaultModel}
+            onChange={(next) =>
+              setForm((prev) => ({
+                ...prev,
+                models: next.models,
+                defaultModel: next.defaultModel,
+              }))
+            }
+            onFetch={
+              isHttpUrl(formBaseUrl)
+                ? () =>
+                    void fetchModels({
+                      stateKey: 'form',
+                      baseUrl: formBaseUrl,
+                      flavor: form.flavor,
+                      // While editing, `id` lets the engine supply the stored
+                      // key; `persist: false` keeps the probe out of the store
+                      // until the form is actually submitted.
+                      ...(editingId != null ? { id: editingId } : {}),
+                      ...(form.apiKey.trim() !== '' ? { apiKey: form.apiKey.trim() } : {}),
+                      persist: false,
+                    })
+                : null
+            }
+            fetchState={fetchStates['form']}
+            scopeLabel={editingId != null ? 'this endpoint' : 'the new endpoint'}
+          />
+        </div>
       </form>
+      <div className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-fg">Saved endpoints</h2>
+        {endpoints.length === 0 ? (
+          <p className="text-xs text-fg-muted">
+            None yet — add an OpenAI-compatible, Anthropic, or Ollama endpoint above to chat
+            through Ari Core.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {endpoints.map((endpoint) => (
+              <EndpointCard
+                key={endpoint.id}
+                endpoint={endpoint}
+                testState={testStates[testKeyFor(endpoint.baseUrl, endpoint.flavor)]}
+                fetchState={fetchStates[endpoint.id]}
+                expanded={expandedId === endpoint.id}
+                onToggleModels={(id) => setExpandedId((prev) => (prev === id ? null : id))}
+                onModelsChange={(id, next) => void saveEndpointModels(id, next)}
+                onFetchModels={(target) =>
+                  void fetchModels({
+                    stateKey: target.id,
+                    id: target.id,
+                    baseUrl: target.baseUrl,
+                    flavor: target.flavor,
+                  })
+                }
+                onTest={(target) => void runTest(target)}
+                onEdit={startEdit}
+                onDelete={(id) => void handleDelete(id)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   )
 }
