@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
   Cpu,
+  FileCog,
   Keyboard,
   Palette,
   Plug,
@@ -14,12 +15,13 @@ import { AdvancedSettings } from './AdvancedSettings'
 import { KeybindingsSettings } from './KeybindingsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 import { SettingsSearch } from './SettingsSearch'
-import { ProvidersView } from '../providers'
+import { ProvidersView, AgentConfigSettings } from '../providers'
 import { EndpointsManager } from '../endpoints'
 
 export const SETTINGS_SECTIONS = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'providers', label: 'Providers', icon: Cpu },
+  { id: 'agents', label: 'Agents', icon: FileCog },
   { id: 'endpoints', label: 'Endpoints', icon: Plug },
   { id: 'permissions', label: 'Permissions', icon: Shield },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
@@ -135,6 +137,7 @@ export function SettingsWorkspace({
               <ProvidersView onOpenTerminal={onOpenTerminal} />
             </div>
           ) : null}
+          {section === 'agents' ? <AgentConfigSettings /> : null}
           {section === 'endpoints' ? (
             <div id="settings-endpoints" className="mx-auto max-w-2xl p-8">
               <EndpointsManager />
