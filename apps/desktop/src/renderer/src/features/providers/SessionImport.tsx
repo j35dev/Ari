@@ -26,7 +26,7 @@ export function SessionImport({ onImported }: SessionImportProps) {
   const [sessions, setSessions] = useState<Importable[]>([])
   const [loading, setLoading] = useState(true)
   const [busyPath, setBusyPath] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [errorsByPath, setErrorsByPath] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -45,21 +45,29 @@ export function SessionImport({ onImported }: SessionImportProps) {
     void refresh()
   }, [refresh])
 
+  const busySession = sessions.find((session) => session.path === busyPath) ?? null
+
   const importOne = async (session: Importable): Promise<void> => {
-    setError(null)
+    setErrorsByPath((current) => {
+      const next = { ...current }
+      delete next[session.path]
+      return next
+    })
     setNotice(null)
     setBusyPath(session.path)
     try {
       const result = await rpc.invoke('sessions.import', { path: session.path })
       if (!result.ok) {
-        setError(result.error)
+        setErrorsByPath((current) => ({ ...current, [session.path]: result.error }))
         return
       }
       setNotice(`Imported "${result.title}" — ${result.messageCount} entries.`)
       onImported?.(result.sessionId)
+      setBusyPath(null)
       await refresh()
     } catch (e: unknown) {
-      setError(String(e instanceof Error ? e.message : e))
+      const message = e instanceof Error ? e.message : String(e)
+      setErrorsByPath((current) => ({ ...current, [session.path]: message }))
     } finally {
       setBusyPath(null)
     }
@@ -76,44 +84,70 @@ export function SessionImport({ onImported }: SessionImportProps) {
       </p>
 
       {loading ? (
-        <Spinner size="sm" />
+        <div role="status" className="flex items-center gap-2 text-sm text-fg-muted">
+          <Spinner size="sm" />
+          <span>Finding pi sessions…</span>
+        </div>
       ) : sessions.length === 0 ? (
         <p className="text-sm text-fg-muted">No pi sessions found on this machine.</p>
       ) : (
         <ul className="flex flex-col">
-          {sessions.map((session) => (
-            <li
-              key={session.path}
-              className="flex items-center gap-3 border-b border-border/60 py-3 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm text-fg">{session.title}</span>
-                  {session.imported ? <Badge tone="success">in Ari</Badge> : null}
-                </div>
-                <p className="mt-0.5 truncate text-xs text-fg-muted">
-                  {session.messageCount} messages · {formatWhen(session.updatedAt)} ·{' '}
-                  <span className="font-mono">{session.cwd}</span>
-                </p>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={session.imported || busyPath !== null}
-                loading={busyPath === session.path}
-                onClick={() => void importOne(session)}
-                aria-label={`Import ${session.title}`}
+          {sessions.map((session) => {
+            const error = errorsByPath[session.path]
+            return (
+              <li
+                key={session.path}
+                className="flex flex-col gap-1 border-b border-border/60 py-3 last:border-b-0"
               >
-                {session.imported ? 'Imported' : 'Import'}
-              </Button>
-            </li>
-          ))}
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm text-fg">{session.title}</span>
+                      {session.imported ? <Badge tone="success">in Ari</Badge> : null}
+                      {error !== undefined ? <Badge tone="danger">error</Badge> : null}
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-fg-muted">
+                      {session.messageCount} messages · {formatWhen(session.updatedAt)} ·{' '}
+                      <span className="font-mono">{session.cwd}</span>
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={session.imported || busyPath !== null}
+                    loading={busyPath === session.path}
+                    onClick={() => void importOne(session)}
+                    aria-label={
+                      busyPath === session.path
+                        ? `Importing ${session.title}`
+                        : error !== undefined
+                          ? `Retry ${session.title}`
+                          : `Import ${session.title}`
+                    }
+                  >
+                    {session.imported
+                      ? 'Imported'
+                      : busyPath === session.path
+                        ? 'Importing…'
+                        : error !== undefined
+                          ? 'Retry'
+                          : 'Import'}
+                  </Button>
+                </div>
+                {error !== undefined ? (
+                  <p role="alert" className="break-words text-xs text-danger">
+                    {error}
+                  </p>
+                ) : null}
+              </li>
+            )
+          })}
         </ul>
       )}
 
-      {error !== null ? (
-        <p role="alert" className="text-sm text-danger">
-          {error}
+      {busySession !== null ? (
+        <p role="status" aria-live="polite" className="text-sm text-fg-muted">
+          Importing “{busySession.title}”…
         </p>
       ) : null}
       {notice !== null ? <p className="text-sm text-fg-muted">{notice}</p> : null}
