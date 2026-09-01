@@ -1,4 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import { StreamContent } from './content-split'
+import { parseDsmlToolCalls } from './dsml'
 
 /**
  * OpenAI-compatible chat-completions streaming client. Works with any
@@ -14,11 +16,20 @@ export interface ChatMessage {
   toolCalls?: { id: string; name: string; argsJson: string }[]
 }
 
+/** One function advertised to an OpenAI-compat endpoint. */
+export interface ChatTool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
 export interface ChatRequest {
   baseUrl: string
   apiKey: string | null
   model: string
   messages: ChatMessage[]
+  /** Function schemas. Absent or empty means the request advertises none. */
+  tools?: ChatTool[]
   headers?: Record<string, string>
   signal?: AbortSignal
 }
@@ -58,6 +69,8 @@ interface StreamChunk {
     delta?: {
       content?: string
       reasoning_content?: string
+      /** OpenRouter and some reasoner proxies use `reasoning` instead. */
+      reasoning?: string
       tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[]
     }
   }[]
@@ -103,6 +116,19 @@ export async function* streamChatCompletion(
         })),
         stream: true,
         stream_options: { include_usage: true },
+        ...(request.tools && request.tools.length > 0
+          ? {
+              tools: request.tools.map((tool) => ({
+                type: 'function',
+                function: {
+                  name: tool.name,
+                  description: tool.description,
+                  parameters: tool.parameters,
+                },
+              })),
+              tool_choice: 'auto',
+            }
+          : {}),
       }),
       signal: request.signal,
     })
@@ -125,6 +151,8 @@ export async function* streamChatCompletion(
   const pendingTools = new Map<number, { id: string; name: string; args: string }>()
   let inputTokens = 0
   let outputTokens = 0
+  let sawNativeTool = false
+  const content = new StreamContent()
 
   for await (const raw of response.body) {
     const data = raw.startsWith('data:') ? raw.slice(5).trim() : raw.trim()
@@ -138,8 +166,11 @@ export async function* streamChatCompletion(
     }
     const choice = chunk.choices?.[0]
     const delta = choice?.delta
-    if (delta?.content) yield { type: 'text-delta', text: delta.content }
-    if (delta?.reasoning_content) yield { type: 'thinking-delta', text: delta.reasoning_content }
+    if (delta?.content) {
+      for (const event of content.push(delta.content)) yield event
+    }
+    const reasoning = delta?.reasoning_content ?? delta?.reasoning
+    if (reasoning) yield { type: 'thinking-delta', text: reasoning }
     for (const call of delta?.tool_calls ?? []) {
       const entry = pendingTools.get(call.index) ?? { id: '', name: '', args: '' }
       if (call.id) entry.id = call.id
@@ -150,6 +181,7 @@ export async function* streamChatCompletion(
       // agent loop re-parses strictly anyway.
       if (entry.name && looksComplete(entry.args)) {
         pendingTools.delete(call.index)
+        sawNativeTool = true
         yield {
           type: 'tool-started',
           callId: entry.id || `call_${call.index}`,
@@ -166,11 +198,26 @@ export async function* streamChatCompletion(
 
   // Flush any tools whose argument stream never looked complete.
   for (const [index, entry] of pendingTools) {
+    sawNativeTool = true
     yield {
       type: 'tool-started',
       callId: entry.id || `call_${index}`,
       name: entry.name,
       argsJson: entry.args,
+    }
+  }
+
+  const leftover = content.end()
+  for (const event of leftover.events) yield event
+  if (!sawNativeTool && leftover.dsml !== null) {
+    const recovered = parseDsmlToolCalls(leftover.dsml)
+    for (const [i, call] of recovered.entries()) {
+      yield {
+        type: 'tool-started',
+        callId: `dsml_${i}`,
+        name: call.name,
+        argsJson: JSON.stringify(call.args),
+      }
     }
   }
 

@@ -49,24 +49,37 @@ function scanPath(): string | null {
 export interface RipgrepOptions {
   timeoutMs?: number
   maxMatches?: number
+  /** Glob file filter passed as `--glob`. */
+  glob?: string
+  ignoreCase?: boolean
+  /** `--fixed-strings` instead of regex matching. */
+  literal?: boolean
+  /** When set, match paths are rewritten relative to this root. */
+  relativeTo?: string
 }
 
-function parseMatchLine(line: string): string | null {
+function parseMatchLine(line: string, relativeTo?: string): string | null {
   // `--no-heading --line-number` emits `path:line:text`; paths containing
   // colons degrade exactly like the JS fallback's `relative:line:text`.
   const match = /^(.+):(\d+):(.*)$/.exec(line)
-  if (!match) return null
-  return `${match[1]}:${match[2]}:${(match[3] ?? '').trim().slice(0, 120)}`
+  if (!match || match[1] === undefined || match[2] === undefined) return null
+  const text = (match[3] ?? '').trim().slice(0, 240)
+  if (relativeTo === undefined) {
+    return `${match[1]}:${match[2]}:${text}`
+  }
+  const rel = path.relative(relativeTo, match[1]).split(path.sep).join('/')
+  return `${rel.startsWith('..') ? match[1] : rel}:${match[2]}:${text}`
 }
 
 /**
- * Runs ripgrep for a literal needle under `cwd` and formats matches as
- * `path:line:text`, capped like the JS fallback. Exit 0/1 resolve normally
- * (1 = no matches); anything else rejects so callers can fall back.
+ * Runs ripgrep for a pattern (literal by default via options) under `cwd`
+ * and formats matches as `path:line:text`, capped like the JS fallback.
+ * Exit 0/1 resolve normally (1 = no matches); anything else rejects so
+ * callers can fall back.
  */
 export function searchWithRipgrep(
   rgPath: string,
-  needle: string,
+  pattern: string,
   cwd: string,
   options: RipgrepOptions = {},
 ): Promise<string> {
@@ -77,7 +90,19 @@ export function searchWithRipgrep(
     // executables, fully-escaped cmd.exe wrapper otherwise, never shell:true
     // with raw text.
     let file = rgPath
-    let argv = ['--fixed-strings', '--line-number', '--no-heading', '--no-messages', needle, '.']
+    let argv = [
+      '--line-number',
+      '--no-heading',
+      '--no-messages',
+      ...(options.literal === true ? ['--fixed-strings'] : []),
+      ...(options.ignoreCase === true ? ['--ignore-case'] : []),
+      ...(options.glob !== undefined && options.glob.length > 0
+        ? ['--glob', options.glob]
+        : []),
+      '-e',
+      pattern,
+      '.',
+    ]
     if (needsWindowsShell(rgPath)) {
       const wrapped = buildCmdSpawnArgs(rgPath, argv.slice())
       file = wrapped.file
@@ -117,7 +142,7 @@ export function searchWithRipgrep(
         // Strip CRLF's trailing \r — `.`/`$` in parseMatchLine never match it.
         const line = stdoutTail.slice(0, newlineAt).replace(/\r$/, '')
         stdoutTail = stdoutTail.slice(newlineAt + 1)
-        const formatted = parseMatchLine(line)
+        const formatted = parseMatchLine(line, options.relativeTo)
         if (formatted !== null) out.push(formatted)
         if (out.length >= maxMatches || buffered >= RG_MAX_BUFFER) {
           finish(null)
@@ -130,7 +155,7 @@ export function searchWithRipgrep(
     child.on('close', (code) => {
       // Drain any final partial line that still fits the caps.
       if (!settled && code === 0 && out.length < maxMatches && stdoutTail.trim().length > 0) {
-        const formatted = parseMatchLine(stdoutTail.trim())
+        const formatted = parseMatchLine(stdoutTail.trim(), options.relativeTo)
         if (formatted !== null) out.push(formatted)
       }
       if (settled) return

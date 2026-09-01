@@ -10,7 +10,7 @@ export interface AllowRule {
 }
 
 /** Tools whose candidate is a workspace-relative path argument. */
-const PATH_TOOLS = new Set(['read_file', 'write_file', 'edit_file'])
+const PATH_TOOLS = new Set(['read', 'write', 'edit'])
 
 /**
  * Derives the string a rule pattern is matched against for a tool call.

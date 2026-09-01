@@ -92,13 +92,26 @@ export function ModelSelector({
         setCatalog(byKind)
       }),
       rpc.invoke('endpoints.list').then((endpoints) => {
+        // One row per model an endpoint serves, so a single endpoint holding
+        // twenty models is twenty selectable entries. The id carries both
+        // parts (`ep:<endpointId>:<modelId>`); model ids may contain colons,
+        // and the driver splits on the first one only.
         setEndpointModels(
-          endpoints.map((e) => ({
-            id: `ep:${e.id}`,
-            label: e.name,
-            group: 'Ari Core',
-            hint: e.model,
-          })),
+          endpoints.flatMap((endpoint) => {
+            const models =
+              Array.isArray(endpoint.models) && endpoint.models.length > 0
+                ? endpoint.models
+                : [{ id: endpoint.model, label: endpoint.model, contextWindow: null }]
+            return models.map((model) => ({
+              id: `ep:${endpoint.id}:${model.id}`,
+              label: `${endpoint.name} · ${model.label}`,
+              group: 'Ari Core',
+              hint:
+                model.contextWindow != null
+                  ? `${Math.round(model.contextWindow / 1000)}k`
+                  : model.id,
+            }))
+          }),
         )
       }),
     ]).finally(() => setLoaded(true))
@@ -266,9 +279,13 @@ export function ModelSelector({
 
   const triggerLabel = useMemo(() => {
     if (driverKind === 'ari-core') {
-      // Show the endpoint's name, not its raw `ep:<id>` handle.
-      const endpoint = endpointModels.find((e) => e.id === modelId)
-      return endpoint?.label ?? modelId ?? 'Ari Core'
+      // Show "endpoint · model", not the raw `ep:<id>:<model>` handle. Sessions
+      // saved before per-model selection carry a bare `ep:<id>`, which matches
+      // by prefix so their label still resolves.
+      const exact = endpointModels.find((e) => e.id === modelId)
+      const legacy =
+        exact ?? (modelId != null ? endpointModels.find((e) => e.id.startsWith(`${modelId}:`)) : undefined)
+      return legacy?.label ?? modelId ?? 'Ari Core'
     }
     const list = optionsFor(driverKind)
     return list.find((o) => o.id === currentId)?.label ?? modelId ?? 'CLI default'
