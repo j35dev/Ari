@@ -48,6 +48,11 @@ import {
   toLoginMethods,
 } from './provider-auth'
 import type { AuthProbeConnection, AuthProbeDeps } from './provider-auth'
+import {
+  listProviderConfigFiles,
+  readProviderConfig,
+  writeProviderConfig,
+} from './provider-config'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 
@@ -649,6 +654,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return resolved
   })
 
+  // The agent's own config files, editable in Ari instead of a terminal. The
+  // renderer only ever names a kind and a file id; paths resolve here.
+  r.register('providers.configFiles', (params) => listProviderConfigFiles(params.kind))
+  r.register('providers.readConfig', (params) => readProviderConfig(params.kind, params.fileId))
+  r.register('providers.writeConfig', (params) =>
+    writeProviderConfig(params.kind, params.fileId, params.content),
+  )
+
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
   r.register('providers.models', () =>
     ALL_CLI_KINDS.map((kind) => ({
@@ -1053,6 +1066,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'providers.cancelInstall',
     'providers.authProbe',
     'providers.login',
+    'providers.configFiles',
+    'providers.readConfig',
+    'providers.writeConfig',
     'window.minimize',
     'window.toggleMaximize',
     'window.close',

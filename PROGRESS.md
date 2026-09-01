@@ -447,7 +447,7 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 - [x] M28.4 Engine-injected `⚠` failure text renders as a styled in-transcript error note instead of plain markdown
 - [x] M28.5 Turn error banner extracts to `TurnErrorBanner` with a raw-details disclosure and a `turnError.ts` classifier adding actionable headlines/hints (auth, rate limit, spawn, timeout)
 - [x] M28.6 Silent `command.dispatch` failures surface as danger toasts instead of vanishing
-## M29 — Provider sign-in without a terminal (claimed @ feat/m29.1-acp-login)
+## M29 — Provider sign-in without a terminal
 
 Why: ACP auth walls were reaching users as "the CLI may be wedged or waiting for login" and a
 demand to go re-run OAuth in a terminal they don't use. Ari had opted out of the login handshake
@@ -461,7 +461,7 @@ its own OAuth and writes its own store; Ari only learns the command and offers t
 - [x] M29.5 Pin the ACP adapter versions: `launches.ts` requests `npx -y <pkg>` unpinned, so every user resolves whatever published that day and `terminal-auth` (an adapter `_meta` extension, not standard ACP) can change underneath us.
 - [x] M29.6 Surface `detection.authReason` and downgrade a provider to `unauthenticated` after a live auth wall — today the detector writes good explanations that render nowhere, and the badge can read "authenticated" while every turn fails.
 
-## M30 — ACP transport gaps (claimed @ fix/acp-gaps)
+## M30 — ACP transport gaps
 
 Why: a review of the pi harness against `pi-acp`'s own source found Ari writing to an axis it had
 misread, probes downloading what they promised not to, and the process-teardown ladder wired into
@@ -480,6 +480,20 @@ the first `allow_once` option, because Ari's approval vocabulary is the three-va
 allow/deny/always-allow and cannot carry an `optionId`. Fixing it means a contract + journal + UI
 change, not a transport one. `available_commands_update` (pi advertises its slash commands) and
 `config_option_update` are still dropped by the fold.
+
+## M31 — Configure an agent from Ari
+
+Why (user feedback): "it would be cool if I could configure my pi agent from Ari … adding
+extensions, configuring the system prompt, changing PI settings.json". Ari detected six agents and
+could sign you into them, but every setting still meant a terminal and a docs page.
+
+Shape: a plain editor over each vendor's *own* file, not a form per agent. The formats change with
+every release and a form that lags one is worse than none — so Ari stores what you type verbatim and
+understands only enough to refuse a JSON file the agent could not have loaded.
+
+- [x] M31.1 `providers/config-files.ts` — the per-kind manifest of files a user would actually want to edit (pi's `settings.json`, `SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`, `models.json`, `keybindings.json`; claude's `settings.json` + `CLAUDE.md`; codex's `config.toml` + `AGENTS.md`; opencode's `opencode.json`; grok's `config.toml`), each under the env var that relocates its dir (`PI_CODING_AGENT_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG_DIR`, `GROK_HOME`). A kind with no confirmed layout answers empty rather than guessing a path Ari would then create a file at that the agent never reads. Credential stores are structurally excluded, and tested for.
+- [x] M31.2 `providers.configFiles` / `.readConfig` / `.writeConfig`: the renderer sends a kind and a file id, never a path, and writes go through the same symlink-resolving jail as the engine's tools — rooted at that kind's own config dir, so the surface can only ever touch the declared files. Saving creates the dir when the agent never has (pi writes no `SYSTEM.md` until you do), and a JSON payload that would not parse is refused as data instead of silently replacing a working config.
+- [x] M31.3 Settings › Agents: pick an agent, see which of its files exist and how large they are (absent optional files are listed rather than hidden — that is how you find out `SYSTEM.md` exists), edit one in a mono textarea with Save/Revert, and read the resolved path. Indexed in settings search.
 
 ## Stretch backlog (post-V1, unplanned)
 

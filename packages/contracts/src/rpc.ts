@@ -140,6 +140,13 @@ export const checkpointComponentSchema = z
 /** Hard ceiling for `search.content` results regardless of requested maxResults. */
 export const SEARCH_CONTENT_MAX_RESULTS = 200
 
+/**
+ * Ceiling on a provider config payload. These are hand-written settings files —
+ * the largest documented one is a few kilobytes — so a cap this generous still
+ * refuses anything that is really a pasted transcript or a binary.
+ */
+export const PROVIDER_CONFIG_MAX_CHARS = 256 * 1024
+
 /** A single content-search hit: file path relative to the searched root. */
 export const contentMatchSchema = z.object({
   path: z.string().min(1),
@@ -177,6 +184,13 @@ export const rpcParams = {
   'providers.cancelInstall': z.object({ kind: driverKindSchema }),
   'providers.authProbe': z.object({ kind: driverKindSchema }),
   'providers.login': z.object({ kind: driverKindSchema }),
+  'providers.configFiles': z.object({ kind: driverKindSchema }),
+  'providers.readConfig': z.object({ kind: driverKindSchema, fileId: z.string().min(1) }),
+  'providers.writeConfig': z.object({
+    kind: driverKindSchema,
+    fileId: z.string().min(1),
+    content: z.string().max(PROVIDER_CONFIG_MAX_CHARS),
+  }),
   'window.minimize': z.undefined(),
   'window.toggleMaximize': z.undefined(),
   'window.close': z.undefined(),
@@ -346,6 +360,27 @@ export interface RpcResults {
    * run, so a confirm dialog and the actual launch can never drift.
    */
   'providers.login': { label: string; logins: ProviderLoginMethod[] }
+  /**
+   * The agent's own configuration files Ari can show and edit — the vendor's
+   * format, read and written verbatim. `null` dir means Ari has no confirmed
+   * layout for that agent, which is different from having one that is empty.
+   */
+  'providers.configFiles': {
+    dir: string | null
+    files: {
+      id: string
+      label: string
+      path: string
+      format: 'json' | 'toml' | 'markdown'
+      description: string
+      exists: boolean
+      /** UTF-8 byte size on disk; 0 when absent. */
+      size: number
+    }[]
+  }
+  'providers.readConfig': { content: string; exists: boolean; path: string; truncated: boolean }
+  /** Failure comes back as data: an invalid path or unparseable JSON is expected. */
+  'providers.writeConfig': { ok: true; bytesWritten: number } | { ok: false; error: string }
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }
