@@ -10,6 +10,11 @@ export interface AdapterSession {
   prompt: string
   modelId: string | null
   permissionMode: PermissionMode
+  /**
+   * Thought/reasoning level id advertised by the harness, when the user
+   * picked one. Absent/null leaves the agent's own default.
+   */
+  effort?: string | null
   /** Provider-native session id to resume, when continuing a thread. */
   resumeOf: string | null
 }

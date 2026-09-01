@@ -313,6 +313,7 @@ export class Engine {
         prompt,
         modelId: session.modelId,
         permissionMode: session.permissionMode,
+        effort: session.effort ?? null,
         resumeOf,
       })
     } catch (e) {

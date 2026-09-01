@@ -194,6 +194,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
         ...(event.driverKind !== undefined ? { driverKind: event.driverKind } : {}),
         ...(event.modelId !== undefined ? { modelId: event.modelId } : {}),
         ...(event.permissionMode !== undefined ? { permissionMode: event.permissionMode } : {}),
+        ...(event.effort !== undefined ? { effort: event.effort } : {}),
         ...(event.title !== undefined ? { title: event.title } : {}),
         ...(event.archived !== undefined ? { archived: event.archived } : {}),
         ...(event.pinned !== undefined ? { pinned: event.pinned } : {}),

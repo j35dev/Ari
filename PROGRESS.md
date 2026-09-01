@@ -553,6 +553,12 @@ because `session/load` history replay was folded into the new turn's assistant m
 - [x] M34.3 QuestionPanel: questionnaire + Other on every choice list + plan-approval
       (Approve / Request changes / Abandon), Ari tokens. Engine routes `input.respond`
       into `adapter.respondInput`.
+- [x] M34.4 Effort chip reads the harness's ACP thought/reasoning selector
+      (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
+      list like pi's off…xhigh) instead of inventing low/medium/high for every
+      provider. Hidden when the agent advertises none; the pick is persisted on
+      the session and applied via `session/set_config_option` (or `set_mode`
+      when that axis *is* thinking).
 
 ## Stretch backlog (post-V1, unplanned)
 
