@@ -275,7 +275,7 @@ async function executeGrep(args: GrepArgs, ctx: ToolContext): Promise<string> {
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
-        if (args.glob !== undefined && !simpleGlobMatch(relative(full), args.glob)) continue
+        // Globs filter files, not directories — `*.ts` must still walk `src/`.
         await walk(full, depth + 1)
       } else if (entry.isFile()) {
         const rel = relative(full)
@@ -299,15 +299,19 @@ async function executeGrep(args: GrepArgs, ctx: ToolContext): Promise<string> {
   return out.join('\n') || '(no matches)'
 }
 
-/** Tiny `*`-and-`**` glob matcher shared by the grep fallback and tools. */
+/**
+ * Tiny `*`-and-`**` glob matcher. A pattern with no slash is matched against
+ * the basename only, matching ripgrep: `*.ts` hits `src/app.ts`.
+ */
 function simpleGlobMatch(candidate: string, pattern: string): boolean {
+  const target = pattern.includes('/') ? candidate : (candidate.split('/').pop() ?? candidate)
   const re = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*\*/g, '\0')
     .replace(/\*/g, '[^/]*')
     .replace(/\0/g, '.*')
     .replace(/\?/g, '[^/]')
-  return new RegExp(`^${re}$`).test(candidate)
+  return new RegExp(`^${re}$`).test(target)
 }
 
 const GLOB_MAX_RESULTS = 200
