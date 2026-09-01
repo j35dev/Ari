@@ -63,6 +63,45 @@ and an interrupted turn still records what was asked and what ran. History is
 trimmed through the same `trimMessages` budget as a request, both on load and
 on save, so a long session cannot grow the file without bound.
 
+## Two kinds of ordering
+
+Tool calls in one batch fall into two classes. Read-only builtins (`read`,
+`grep`, `glob`, `ls`) cannot interfere with each other and are never
+permission-gated, so they run concurrently — the fan-out that opens every
+exploration used to cost one sequential round-trip per file. Everything else
+stays strictly ordered: the sequence is the model's intent, and two writes to
+one file must not race.
+
+The distinction is a `readOnly` flag on the tool rather than a name list, so
+extensions can opt in. It is checked against `MODE_GUARDED_TOOLS` regardless, so
+a tool cannot claim `readOnly` to skip the approval gate. Results are yielded in
+call order either way, which keeps the transcript and the message list identical
+to the sequential path.
+
+## Compaction, then trimming
+
+Trimming deletes; compaction summarizes first. Past 75% of the budget the older
+span goes through the session's own model into a fixed structure — goal,
+constraints, progress, decisions, next steps, critical context — and the newest
+35% of the budget stays verbatim, so work in progress keeps full detail while
+settled history becomes prose.
+
+Three constraints shape where the cut lands. It happens between rounds, never
+mid-round, because a mid-round list can have a tool call whose results have not
+arrived. It lands on a user message, so the kept span starts a turn and never
+opens with an orphaned tool result. And the keep window is a *ratio* of the
+budget, not a fixed character count: a harness configured with a small window
+would otherwise never find anything old enough to summarize.
+
+The summary replaces the span in the stored transcript too, so the next turn
+starts from it rather than re-summarizing. Failure falls back to trimming — a
+degraded context beats a failed turn. The `compact` hook returns the message
+list it wants the loop to use, and returning the same array means "nothing to
+do", which keeps the no-op path allocation-free.
+
+Known gap: usage from the summarization call is not folded into the turn's
+totals, so cost under-reports slightly on a session that compacts.
+
 ## Endpoints are provider + model list, not provider + model
 
 An endpoint used to be one base URL and one model id. Now it carries a model
@@ -81,6 +120,22 @@ entry.
 
 Discovery and probing run in the main process for the same reason `endpoints.test`
 already did: the sandboxed renderer cannot reach arbitrary origins.
+
+## Where the API key comes from
+
+A key can be in one of two places, and the wrong assumption breaks the headline
+flow. A *saved* endpoint's key lives encrypted in the store, reachable from the
+main process by endpoint id. A key being typed into the settings form exists only
+in renderer state — the endpoint has not been submitted yet. The original code
+sent `apiKey: null` in both cases, so paste-URL-and-key-then-fetch answered 401
+against any keyed provider, while keyless and local servers worked fine (which is
+why unit tests passed).
+
+Both `endpoints.test` and `endpoints.discoverModels` therefore accept a key *and*
+an optional endpoint id, preferring the passed key and falling back to the stored
+one. Discovery takes an explicit `persist` flag rather than inferring intent from
+a missing id: the form needs to send its id (for the stored key, while editing)
+without the probe writing an unsubmitted endpoint into the store.
 
 ## Model handles
 
