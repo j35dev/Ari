@@ -315,6 +315,10 @@ describe('engine end-to-end with scripted driver', () => {
     })
     const sessionId = 'sess_resume'
     await seedSession(store, sessionId)
+    await store.append(sessionId, {
+      type: 'session.ref.observed',
+      ref: 'imported:pi:native-thread-before-import',
+    })
 
     await engine.dispatch({ type: 'turn.start', sessionId, text: 'first' } as Command)
     for (let i = 0; i < 150; i++) {

@@ -135,7 +135,7 @@ export class Engine {
         model.session as Session,
         command.text,
         ids.turnId,
-        model.providerSessionId,
+        model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
       ).catch((e) => {
         log.error('turn execution crashed', { error: String(e) })
       })
