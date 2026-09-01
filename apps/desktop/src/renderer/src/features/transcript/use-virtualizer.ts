@@ -61,6 +61,9 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
   const sizesVersionRef = useRef(0)
   const lastClientHeightRef = useRef(0)
   const offsetsCacheRef = useRef<{ version: number; count: number; offsets: number[] } | null>(null)
+  const userScrollingRef = useRef(false)
+  const pendingDeltaRef = useRef(0)
+  const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   countRef.current = count
   overscanRef.current = overscan
@@ -107,6 +110,33 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
 
   const bump = useCallback(() => setMeasureVersion((v) => v + 1), [])
 
+  const applyScrollCorrection = useCallback(
+    (element: HTMLElement, delta: number): void => {
+      if (delta === 0) return
+      const corrected = Math.max(0, element.scrollTop + delta)
+      element.scrollTop = corrected
+      scrollOffsetRef.current = corrected
+    },
+    [],
+  )
+
+  const flushPendingCorrection = useCallback((): void => {
+    userScrollingRef.current = false
+    const element = stableGetScroll()
+    const delta = pendingDeltaRef.current
+    pendingDeltaRef.current = 0
+    if (element) applyScrollCorrection(element, delta)
+  }, [applyScrollCorrection, stableGetScroll])
+
+  const markUserScrolling = useCallback((): void => {
+    userScrollingRef.current = true
+    if (scrollIdleTimerRef.current !== null) clearTimeout(scrollIdleTimerRef.current)
+    scrollIdleTimerRef.current = setTimeout(() => {
+      scrollIdleTimerRef.current = null
+      flushPendingCorrection()
+    }, 120)
+  }, [flushPendingCorrection])
+
   /**
    * Applies fresh row heights, keeping the viewport anchored to whatever the
    * reader is looking at. A row that sits entirely above the scroll position and
@@ -115,6 +145,11 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
    * eyes. That is what made scrolling back through a long conversation feel like
    * it stuck and fought at every block boundary: rows enter the window at the
    * 64px estimate, get measured for real, and shove the content away again.
+   *
+   * Writing `scrollTop` during an in-flight wheel/trackpad gesture cancels the
+   * rest of that gesture in Chromium, so the transcript feels stuck until the
+   * reader starts a new flick. While they are scrolling we accumulate the
+   * correction and apply it once the gesture ends.
    */
   const applyMeasurements = useCallback(
     (updates: { index: number; size: number }[]): void => {
@@ -136,13 +171,12 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
       if (!changed) return
       sizesVersionRef.current++
       if (deltaAbove !== 0 && element) {
-        const corrected = Math.max(0, scrollTop + deltaAbove)
-        element.scrollTop = corrected
-        scrollOffsetRef.current = corrected
+        if (userScrollingRef.current) pendingDeltaRef.current += deltaAbove
+        else applyScrollCorrection(element, deltaAbove)
       }
       bump()
     },
-    [bump, getOffsets, stableGetScroll],
+    [applyScrollCorrection, bump, getOffsets, stableGetScroll],
   )
 
   const measureNode = useCallback(
@@ -197,6 +231,8 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
     }
     onScroll()
     element.addEventListener('scroll', onScroll, { passive: true })
+    element.addEventListener('wheel', markUserScrolling, { passive: true })
+    element.addEventListener('touchmove', markUserScrolling, { passive: true })
 
     let observer: ResizeObserver | null = null
     if (typeof ResizeObserver !== 'undefined') {
@@ -207,10 +243,13 @@ export function useVirtualizer(options: UseVirtualizerOptions): Virtualizer {
 
     return () => {
       element.removeEventListener('scroll', onScroll)
+      element.removeEventListener('wheel', markUserScrolling)
+      element.removeEventListener('touchmove', markUserScrolling)
+      if (scrollIdleTimerRef.current !== null) clearTimeout(scrollIdleTimerRef.current)
       observer?.disconnect()
       observerRef.current = null
     }
-  }, [stableGetScroll, handleResize])
+  }, [stableGetScroll, handleResize, markUserScrolling])
 
   const measureElement = useCallback(
     (node: HTMLElement | null): void => {
