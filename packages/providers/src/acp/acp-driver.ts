@@ -5,8 +5,31 @@ import { formatUnknownError } from '@ari/shared/result'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { AcpAuthRequiredError, AcpConnection, AcpConnectionError } from './connection'
 import type { AcpChildProcess, AcpLaunch } from './connection'
+import {
+  encodeQuestionnaire,
+  isAskUserQuestionMethod,
+  isExitPlanModeMethod,
+  isQuestionPermission,
+  parseAskUserQuestions,
+  parseElicitationForm,
+  parsePlanExit,
+  questionsFromPermission,
+  replyAskUser,
+  replyAskUserCancelled,
+  replyElicitation,
+  replyElicitationCancel,
+  replyPermissionCancelled,
+  replyPermissionChoice,
+  replyPlanExit,
+} from './client-requests'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
-import type { AcpConfigOption, AcpNewSessionResult, AcpRequestPermission, AcpTerminalLogin } from './protocol'
+import type {
+  AcpConfigOption,
+  AcpInitializeResult,
+  AcpNewSessionResult,
+  AcpRequestPermission,
+  AcpTerminalLogin,
+} from './protocol'
 
 const log = createLogger('providers:acp')
 
@@ -23,6 +46,8 @@ export type AcpAuthRequiredHandler = (wall: { label: string; logins: AcpTerminal
 export interface AcpAdapter extends ProviderAdapter {
   /** Answers a pending `session/request_permission` originated approval. */
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
+  /** Answers a pending `input-requested` question (elicitation, ask-user, plan). */
+  respondInput(inputId: string, value: string): void
 }
 
 /**
@@ -44,7 +69,16 @@ export async function createAcpAdapter(
     string,
     { options: AcpRequestPermission['options']; resolve: (outcome: unknown) => void }
   >()
+  const pendingInputs = new Map<
+    string,
+    {
+      resolve: (outcome: unknown) => void
+      toResult: (value: string) => unknown
+      cancelResult: unknown
+    }
+  >()
   let permissionSeq = 0
+  let inputSeq = 0
 
   const folder = new AcpUpdateFolder()
   const queue: AgentEvent[] = []
@@ -56,7 +90,30 @@ export async function createAcpAdapter(
     notify = null
   }
 
+  const parkInput = (
+    prompt: string,
+    choicesJson: string,
+    toResult: (value: string) => unknown,
+    cancelResult: unknown,
+  ): Promise<unknown> => {
+    return new Promise((resolve) => {
+      const inputId = `acp-in-${++inputSeq}`
+      pendingInputs.set(inputId, { resolve, toResult, cancelResult })
+      push([{ type: 'input-requested', inputId, prompt, choicesJson }])
+    })
+  }
+
   const onRequestPermission = (request: AcpRequestPermission): Promise<unknown> => {
+    if (isQuestionPermission(request.options)) {
+      const title = request.toolCall?.title ?? request.toolCall?.kind ?? 'Choose an option'
+      const questions = questionsFromPermission(title, request.options)
+      return parkInput(
+        title,
+        encodeQuestionnaire({ kind: 'questionnaire', questions }),
+        (value) => replyPermissionChoice(request.options, value),
+        replyPermissionCancelled(),
+      )
+    }
     return new Promise((resolve) => {
       const approvalId = `acp-perm-${++permissionSeq}`
       pendingPermissions.set(approvalId, { options: request.options, resolve })
@@ -74,6 +131,44 @@ export async function createAcpAdapter(
         },
       ])
     })
+  }
+
+  const onClientRequest = (method: string, params: unknown): Promise<unknown> => {
+    if (isAskUserQuestionMethod(method)) {
+      const questions = parseAskUserQuestions(params)
+      const prompt = questions[0]?.question ?? 'Question'
+      return parkInput(
+        questions.length > 1 ? `${questions.length} questions` : prompt,
+        encodeQuestionnaire({ kind: 'questionnaire', questions }),
+        (value) => replyAskUser(questions, value),
+        replyAskUserCancelled(),
+      )
+    }
+    if (isExitPlanModeMethod(method)) {
+      const plan = parsePlanExit(params)
+      return parkInput(
+        'Approve this plan?',
+        encodeQuestionnaire({
+          kind: 'plan-approval',
+          questions: [],
+          ...(plan.planContent.length > 0 ? { planContent: plan.planContent } : {}),
+        }),
+        replyPlanExit,
+        { outcome: 'cancelled' },
+      )
+    }
+    if (method === 'elicitation/create') {
+      const form = parseElicitationForm(params)
+      if (form.url) return Promise.resolve(replyElicitationCancel())
+      const prompt = form.message.length > 0 ? form.message : (form.questions[0]?.question ?? 'Question')
+      return parkInput(
+        form.questions.length > 1 ? form.message || `${form.questions.length} questions` : prompt,
+        encodeQuestionnaire({ kind: 'questionnaire', questions: form.questions }),
+        (value) => replyElicitation(form.questions, value),
+        replyElicitationCancel(),
+      )
+    }
+    return Promise.resolve({ outcome: { outcome: 'cancelled' } })
   }
 
   /**
@@ -101,31 +196,44 @@ export async function createAcpAdapter(
   }
 
   connection.onRequestPermission = onRequestPermission
-  connection.onSessionUpdate = (notification) => push(folder.fold(notification))
+  connection.onClientRequest = onClientRequest
+  // Session updates stay unhooked until after session/load returns. The spec
+  // says the agent replays the whole prior conversation as session/update
+  // notifications before that call resolves; folding them here would reprint
+  // turn 1's answer as the start of turn 2. Ari already has that transcript
+  // in the journal.
 
   /**
-   * Resumes the agent's persisted session when possible (agent advertises
-   * `loadSession` and Ari knows a prior session id) so multi-turn context
-   * survives Ari's spawn-per-turn model; otherwise opens a fresh one. A load
-   * failure degrades to a fresh session rather than failing the turn. The
+   * Resumes the agent's persisted session when possible so multi-turn context
+   * survives Ari's spawn-per-turn model; otherwise opens a fresh one. Prefer
+   * `session/resume` (no history replay) when advertised, then `session/load`.
+   * A failure degrades to a fresh session rather than failing the turn. The
    * `resumed` flag tells {@link resolveSelectors} whether an absent mode/model
    * selector means "the agent has none" or "session/load answered with the
    * empty body the spec allows".
    */
   const openSession = async (): Promise<{ created: AcpNewSessionResult; resumed: boolean }> => {
     const resumeId = session.resumeOf
-    if (
-      typeof resumeId === 'string' &&
-      resumeId.length > 0 &&
-      connection.initialize.agentCapabilities?.loadSession === true
-    ) {
-      try {
-        return { created: await connection.loadSession(resumeId, session.workspacePath), resumed: true }
-      } catch (error) {
-        log.warn('acp: session/load failed; starting a fresh session', {
-          resumeId,
-          error: String(error instanceof Error ? error.message : error),
-        })
+    if (typeof resumeId === 'string' && resumeId.length > 0) {
+      if (sessionResumeSupported(connection.initialize)) {
+        try {
+          return { created: await connection.resumeSession(resumeId, session.workspacePath), resumed: true }
+        } catch (error) {
+          log.warn('acp: session/resume failed; trying session/load', {
+            resumeId,
+            error: String(error instanceof Error ? error.message : error),
+          })
+        }
+      }
+      if (connection.initialize.agentCapabilities?.loadSession === true) {
+        try {
+          return { created: await connection.loadSession(resumeId, session.workspacePath), resumed: true }
+        } catch (error) {
+          log.warn('acp: session/load failed; starting a fresh session', {
+            resumeId,
+            error: String(error instanceof Error ? error.message : error),
+          })
+        }
       }
     }
     return { created: await connection.newSession(session.workspacePath), resumed: false }
@@ -147,6 +255,7 @@ export async function createAcpAdapter(
   // folder has the exact prelude before that notification can be folded.
   folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   const sessionId = created.sessionId as string
+  connection.onSessionUpdate = (notification) => push(folder.fold(notification))
   // Publish the agent's session id so Ari can resume it via session/load on
   // the next turn instead of losing all context.
   push([{ type: 'session-ref', ref: sessionId }])
@@ -169,6 +278,11 @@ export async function createAcpAdapter(
   const releasePending = (): void => {
     for (const pending of pendingPermissions.values()) pending.resolve({ outcome: { outcome: 'cancelled' } })
     pendingPermissions.clear()
+    // Answer parked interactive requests as a JSON-RPC *success* cancel.
+    // A method-not-found or a dropped request is what Grok reads as
+    // "the client disconnected"; plan mode then stays stuck.
+    for (const pending of pendingInputs.values()) pending.resolve(pending.cancelResult)
+    pendingInputs.clear()
   }
 
   // ACP has no mid-turn injection method, so steering rides out as the next
@@ -253,6 +367,12 @@ export async function createAcpAdapter(
           : { outcome: { outcome: 'cancelled' } },
       )
     },
+    respondInput: (inputId, value) => {
+      const pending = pendingInputs.get(inputId)
+      if (pending === undefined) return
+      pendingInputs.delete(inputId)
+      pending.resolve(pending.toResult(value))
+    },
     dispose: async () => {
       releasePending()
       // Cancel first so the agent can stop its own tools and children in
@@ -261,6 +381,11 @@ export async function createAcpAdapter(
       await connection.shutdown()
     },
   }
+}
+
+/** True when the agent advertised `session/resume` (no history replay). */
+export function sessionResumeSupported(initialize: AcpInitializeResult): boolean {
+  return initialize.agentCapabilities?.sessionCapabilities?.resume === true
 }
 
 function formatAcpSetupError(error: unknown): string {

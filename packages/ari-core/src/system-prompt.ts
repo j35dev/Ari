@@ -20,6 +20,7 @@ const TOOL_SNIPPETS: readonly (readonly [string, string])[] = [
   ['ls', 'List directory entries'],
   ['bash', 'Run shell commands in the workspace'],
   ['todo_write', 'Maintain a structured task list for the current work'],
+  ['ask_user_question', 'Ask the user a multiple-choice question (they can always pick Other)'],
 ]
 
 const GUIDELINES: readonly string[] = [

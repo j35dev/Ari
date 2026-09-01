@@ -234,6 +234,7 @@ export class AriCoreDriver implements Driver {
 
     // Mode-gated calls park here until the host answers via respondApproval.
     const pendingApprovals = new Map<string, (decision: AdapterApprovalDecision) => void>()
+    const pendingInputs = new Map<string, (value: string) => void>()
     // Live MCP connections for this turn; disposed with the adapter or at
     // the end of the loop, whichever comes first (dispose is idempotent).
     const mcpConnections: McpConnection[] = []
@@ -249,12 +250,21 @@ export class AriCoreDriver implements Driver {
           pendingApprovals.delete(id)
           resolve('deny')
         }
+        for (const [id, resolve] of pendingInputs) {
+          pendingInputs.delete(id)
+          resolve('')
+        }
       },
       { once: true },
     )
     const requestApproval = (request: ApprovalRequest): Promise<AdapterApprovalDecision> => {
       return new Promise((resolve) => {
         pendingApprovals.set(request.approvalId, resolve)
+      })
+    }
+    const requestInput = (inputId: string): Promise<string> => {
+      return new Promise((resolve) => {
+        pendingInputs.set(inputId, resolve)
       })
     }
 
@@ -404,6 +414,7 @@ export class AriCoreDriver implements Driver {
           },
           ...(compaction ? { compact } : {}),
           requestApproval,
+          requestInput,
           ...(allowlist ? { allowlist } : {}),
           ...(extraTools.length > 0 ? { extraTools } : {}),
           signal: abort.signal,
@@ -425,6 +436,12 @@ export class AriCoreDriver implements Driver {
         if (!resolve) return
         pendingApprovals.delete(approvalId)
         resolve(decision)
+      },
+      respondInput: (inputId, value) => {
+        const resolve = pendingInputs.get(inputId)
+        if (!resolve) return
+        pendingInputs.delete(inputId)
+        resolve(value)
       },
       interrupt: () => abort.abort(),
       dispose: () => {

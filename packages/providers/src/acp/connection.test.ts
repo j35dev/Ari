@@ -217,6 +217,47 @@ describe('AcpConnection', () => {
     connection.kill()
   })
 
+  it('bridges elicitation/create through onClientRequest as a JSON-RPC success', async () => {
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    connection.onClientRequest = async () => ({ action: 'accept', content: { strategy: 'balanced' } })
+    child.stdout.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 43,
+        method: 'elicitation/create',
+        params: { mode: 'form', message: 'pick' },
+      })}\n`,
+    )
+    await drain()
+    const reply = child.sent.find((m) => m['id'] === 43 && m['method'] === undefined)
+    expect(reply).toMatchObject({
+      id: 43,
+      result: { action: 'accept', content: { strategy: 'balanced' } },
+    })
+    connection.kill()
+  })
+
+  it('resumeSession sends session/resume and echoes the session id', async () => {
+    const child = fakeChild()
+    script(child, (method) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { resume: true } } }
+      }
+      if (method === 'session/resume') return null
+      return undefined
+    })
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const resumed = await connection.resumeSession('sess_old', '/next')
+    expect(resumed.sessionId).toBe('sess_old')
+    const resume = child.sent.find((m) => m['method'] === 'session/resume') as
+      | { params?: Record<string, unknown> }
+      | undefined
+    expect(resume?.params).toEqual({ sessionId: 'sess_old', cwd: '/next', mcpServers: [] })
+    connection.kill()
+  })
+
   it('answers unadvertised client methods with method-not-found', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
