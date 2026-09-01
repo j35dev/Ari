@@ -185,6 +185,72 @@ describe('SessionView question panel', () => {
       expect(screen.queryByRole('region', { name: 'Agent question' })).not.toBeInTheDocument()
     })
   })
+
+  it('restores the question card when input.respond is rejected', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: false }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'q1',
+      prompt: 'Proceed with force push?',
+      choicesJson: '["Yes","No"]',
+    })
+    await screen.findByRole('region', { name: 'Agent question' })
+    await user.click(screen.getByRole('button', { name: /Yes/ }))
+    expect(await screen.findByRole('region', { name: 'Agent question' })).toBeInTheDocument()
+  })
+
+  it('opens a plan-approval request in the right-hand review rail', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'plan1',
+      prompt: 'Approve this plan?',
+      choicesJson: JSON.stringify({ kind: 'plan-approval', planContent: '# Ship it' }),
+    })
+    expect(await screen.findByRole('complementary', { name: 'Plan review' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Agent question' })).not.toBeInTheDocument()
+  })
+
+  it('approving the plan rail dispatches input.respond and closes it', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'plan1',
+      prompt: 'Approve this plan?',
+      choicesJson: JSON.stringify({ kind: 'plan-approval', planContent: '# Ship it' }),
+    })
+    await user.click(await screen.findByRole('button', { name: 'Approve plan' }))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+        command: { type: 'input.respond', sessionId: 'sess_1', inputId: 'plan1', value: 'approved' },
+      })
+    })
+    expect(screen.queryByRole('complementary', { name: 'Plan review' })).not.toBeInTheDocument()
+  })
 })
 
 const TURN_DIFF =

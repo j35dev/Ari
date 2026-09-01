@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
@@ -6,8 +6,7 @@ import { Textarea } from '@ari/ui/textarea'
 import { Checkbox } from '@ari/ui/checkbox'
 import { encodeAnswers, parseQuestionPayload, type QuestionItem } from './questionnaire'
 
-const PAGE_SIZE = 9
-const AUTO_ADVANCE_MS = 220
+const AUTO_ADVANCE_MS = 180
 const OTHER_LABEL = 'Other'
 
 export interface QuestionPanelProps {
@@ -20,10 +19,9 @@ export interface QuestionPanelProps {
 }
 
 /**
- * Composer-replacing surface for provider input requests. Follows the same
- * token language as ApprovalCard: surface-1 plate, accent border, numbered
- * option keys. Every multiple-choice question also offers Other so the user
- * can type an answer the agent did not list.
+ * One-question-at-a-time interview. Options are full-width rows with a
+ * number key, label, and description — not a stacked multi-question grid.
+ * Every choice list ends with Other so the user can type their own answer.
  */
 export function QuestionPanel({ prompt, choicesJson, onRespond }: QuestionPanelProps) {
   const payload = parseQuestionPayload(prompt, choicesJson)
@@ -31,157 +29,155 @@ export function QuestionPanel({ prompt, choicesJson, onRespond }: QuestionPanelP
     return <PlanApproval prompt={payload.prompt} planContent={payload.planContent} onRespond={onRespond} />
   }
   if (payload.kind === 'questionnaire') {
-    return <QuestionnaireForm prompt={payload.prompt} questions={payload.questions} onRespond={onRespond} />
+    return <Interview questions={payload.questions} onRespond={onRespond} />
   }
   if (payload.kind === 'choices') {
-    return <ChoiceGrid prompt={payload.prompt} choices={payload.choices} onRespond={onRespond} />
+    return (
+      <Interview
+        questions={[
+          {
+            id: 'choice',
+            question: payload.prompt,
+            options: payload.choices.map((label) => ({ id: label, label })),
+            multiSelect: false,
+          },
+        ]}
+        onRespond={(value) => {
+          try {
+            const parsed = JSON.parse(value) as { answers?: Record<string, string> }
+            onRespond(parsed.answers?.['choice'] ?? value)
+          } catch {
+            onRespond(value)
+          }
+        }}
+      />
+    )
   }
   return <FreeText prompt={payload.prompt} onRespond={onRespond} />
 }
 
-function ChoiceGrid({
-  prompt,
-  choices,
-  onRespond,
-}: {
-  prompt: string
-  choices: string[]
-  onRespond: (value: string) => void
-}) {
-  const [page, setPage] = useState(0)
-  const [chosen, setChosen] = useState<string | null>(null)
-  const [otherOpen, setOtherOpen] = useState(false)
-  const [otherDraft, setOtherDraft] = useState('')
-  const pageCount = Math.max(1, Math.ceil(choices.length / PAGE_SIZE))
-  const visible = choices.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
-
-  const choose = (value: string) => {
-    if (chosen != null) return
-    setChosen(value)
-    window.setTimeout(() => onRespond(value), AUTO_ADVANCE_MS)
-  }
-
-  const submitOther = () => {
-    const value = otherDraft.trim()
-    if (value === '' || chosen != null) return
-    setChosen(value)
-    onRespond(value)
-  }
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (chosen != null || otherOpen) return
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
-    const digit = '123456789'.indexOf(event.key)
-    if (digit === -1) return
-    const value = choices[page * PAGE_SIZE + digit]
-    if (value === undefined) return
-    event.preventDefault()
-    choose(value)
-  }
-
-  return (
-    <section
-      role="region"
-      aria-label="Agent question"
-      tabIndex={0}
-      onKeyDown={handleKeyDown}
-      className="rounded-md border border-accent bg-surface-1 p-3 shadow-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-    >
-      <p className="text-sm text-fg">{prompt}</p>
-      <OptionButtons
-        options={visible.map((label) => ({ id: label, label }))}
-        chosen={chosen}
-        onChoose={(id) => choose(id)}
-      />
-      {pageCount > 1 ? (
-        <div className="mt-2 flex items-center justify-end gap-2">
-          <span className="mr-auto font-mono text-2xs text-fg-subtle">
-            Page {page + 1}/{pageCount}
-          </span>
-          <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-            Prev
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={page >= pageCount - 1}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      ) : null}
-      <OtherField
-        open={otherOpen}
-        draft={otherDraft}
-        disabled={chosen != null}
-        onOpen={() => setOtherOpen(true)}
-        onDraft={setOtherDraft}
-        onSubmit={submitOther}
-      />
-    </section>
-  )
-}
-
-function QuestionnaireForm({
-  prompt,
+function Interview({
   questions,
   onRespond,
 }: {
-  prompt: string
   questions: QuestionItem[]
   onRespond: (value: string) => void
 }) {
+  const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [otherOpen, setOtherOpen] = useState<Record<string, boolean>>({})
-  const [otherDraft, setOtherDraft] = useState<Record<string, string>>({})
-  const [submitted, setSubmitted] = useState(false)
-  const single = questions.length === 1 && questions[0]?.multiSelect !== true
+  const [otherOpen, setOtherOpen] = useState(false)
+  const [otherDraft, setOtherDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const question = questions[index]
 
-  const setAnswer = (id: string, value: string, auto = false) => {
-    if (submitted) return
-    const next = { ...answers, [id]: value }
-    setAnswers(next)
-    if (auto && single) {
-      setSubmitted(true)
-      window.setTimeout(() => onRespond(encodeAnswers(next)), AUTO_ADVANCE_MS)
+  const clearAdvance = (): void => {
+    if (advanceTimer.current !== null) {
+      clearTimeout(advanceTimer.current)
+      advanceTimer.current = null
     }
   }
 
-  const toggleMulti = (question: QuestionItem, label: string) => {
-    if (submitted) return
-    const current = answers[question.id]
-    const selected = current === undefined || current === '' ? [] : current.split(', ')
+  useEffect(
+    () => () => {
+      if (advanceTimer.current !== null) clearTimeout(advanceTimer.current)
+    },
+    [],
+  )
+
+  if (question === undefined) return null
+
+  const total = questions.length
+  const last = index === total - 1
+  const chosen = answers[question.id] ?? null
+
+  const restoreOther = (at: number, map: Record<string, string>): void => {
+    const q = questions[at]
+    const value = q === undefined ? undefined : map[q.id]
+    const known =
+      q !== undefined &&
+      value !== undefined &&
+      q.options.some((option) => option.label === value || option.id === value)
+    if (value !== undefined && value.length > 0 && !known) {
+      setOtherOpen(true)
+      setOtherDraft(value)
+      return
+    }
+    setOtherOpen(false)
+    setOtherDraft('')
+  }
+
+  const goTo = (nextIndex: number, map: Record<string, string>): void => {
+    clearAdvance()
+    setIndex(nextIndex)
+    restoreOther(nextIndex, map)
+  }
+
+  const finish = (next: Record<string, string>): void => {
+    if (busy) return
+    setBusy(true)
+    onRespond(encodeAnswers(next))
+  }
+
+  const commit = (value: string, advance: boolean): void => {
+    if (busy) return
+    const next = { ...answers, [question.id]: value }
+    setAnswers(next)
+    setOtherOpen(false)
+    if (!advance) return
+    if (last) {
+      finish(next)
+      return
+    }
+    clearAdvance()
+    advanceTimer.current = setTimeout(() => goTo(index + 1, next), AUTO_ADVANCE_MS)
+  }
+
+  const continueNext = (): void => {
+    const value = otherOpen ? otherDraft.trim() : (chosen ?? '').trim()
+    if (value === '' || busy) return
+    const next = { ...answers, [question.id]: value }
+    setAnswers(next)
+    if (last) {
+      finish(next)
+      return
+    }
+    goTo(index + 1, next)
+  }
+
+  const toggleMulti = (label: string): void => {
+    if (busy) return
+    const selected = chosen === null || chosen === '' ? [] : chosen.split(', ')
     const next = selected.includes(label) ? selected.filter((s) => s !== label) : [...selected, label]
     setAnswers({ ...answers, [question.id]: next.join(', ') })
   }
 
-  const submit = () => {
-    if (submitted) return
-    const next = { ...answers }
-    for (const question of questions) {
-      if (otherOpen[question.id]) {
-        const draft = (otherDraft[question.id] ?? '').trim()
-        if (draft.length > 0) next[question.id] = draft
-      }
-    }
-    if (questions.some((q) => (next[q.id] ?? '').trim() === '')) return
-    setSubmitted(true)
-    onRespond(encodeAnswers(next))
-  }
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (!single || submitted) return
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    if (busy) return
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
-    const question = questions[0]
-    if (question === undefined || otherOpen[question.id]) return
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      continueNext()
+      return
+    }
     const digit = '123456789'.indexOf(event.key)
     if (digit === -1) return
+    if (digit === question.options.length) {
+      event.preventDefault()
+      setOtherOpen(true)
+      return
+    }
     const option = question.options[digit]
     if (option === undefined) return
     event.preventDefault()
-    setAnswer(question.id, option.label, true)
+    if (question.multiSelect) {
+      toggleMulti(option.label)
+      return
+    }
+    commit(option.label, true)
   }
+
+  const canContinue = otherOpen ? otherDraft.trim() !== '' : (chosen ?? '').trim() !== ''
 
   return (
     <section
@@ -189,71 +185,117 @@ function QuestionnaireForm({
       aria-label="Agent question"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="rounded-md border border-accent bg-surface-1 p-3 shadow-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      className="rounded-lg border border-accent bg-surface-1 p-4 shadow-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     >
-      {questions.length > 1 ? <p className="text-sm font-medium text-fg">{prompt}</p> : null}
-      <div className={questions.length > 1 ? 'mt-2 flex flex-col gap-3' : ''}>
-        {questions.map((question) => {
-          const chosen = answers[question.id] ?? null
-          const isOther = otherOpen[question.id] === true
-          return (
-            <div key={question.id} className="flex flex-col gap-2">
-              {question.header ? (
-                <p className="text-2xs uppercase tracking-[0.12em] text-fg-subtle">{question.header}</p>
-              ) : null}
-              <p className="text-sm text-fg">{question.question}</p>
-              {question.multiSelect ? (
-                <div className="flex flex-col gap-1.5">
-                  {question.options.map((option) => {
-                    const selected = (chosen ?? '').split(', ').includes(option.label)
-                    return (
-                      <Checkbox
-                        key={option.id}
-                        checked={selected}
-                        disabled={submitted}
-                        onChange={() => toggleMulti(question, option.label)}
-                      >
-                        <span className="text-xs text-fg">{option.label}</span>
-                        {option.description ? (
-                          <span className="block text-2xs text-fg-muted">{option.description}</span>
-                        ) : null}
-                      </Checkbox>
-                    )
-                  })}
-                </div>
-              ) : (
-                <OptionButtons
-                  options={question.options}
-                  chosen={isOther ? null : chosen}
-                  onChoose={(id) => {
-                    const option = question.options.find((o) => o.id === id)
-                    if (option) setAnswer(question.id, option.label, true)
-                  }}
-                />
-              )}
-              <OtherField
-                open={isOther}
-                draft={otherDraft[question.id] ?? ''}
-                disabled={submitted}
-                onOpen={() => setOtherOpen({ ...otherOpen, [question.id]: true })}
-                onDraft={(value) => setOtherDraft({ ...otherDraft, [question.id]: value })}
-                onSubmit={() => {
-                  const draft = (otherDraft[question.id] ?? '').trim()
-                  if (draft.length === 0) return
-                  setAnswer(question.id, draft, true)
-                }}
-              />
-            </div>
-          )
-        })}
+      <div className="flex items-baseline justify-between gap-3">
+        {total > 1 ? (
+          <p className="font-mono text-2xs tabular-nums text-fg-subtle">
+            Question {index + 1} of {total}
+          </p>
+        ) : (
+          <span />
+        )}
+        {question.header ? (
+          <p className="min-w-0 truncate text-2xs uppercase tracking-[0.12em] text-fg-subtle">{question.header}</p>
+        ) : null}
       </div>
-      {!single || questions.some((q) => q.multiSelect) ? (
-        <div className="mt-3 flex justify-end">
-          <Button variant="primary" size="md" disabled={submitted} onClick={submit}>
-            Submit
-          </Button>
-        </div>
-      ) : null}
+      <h2 className="mt-2 text-sm font-medium leading-snug text-fg" aria-live="polite">
+        {question.question}
+      </h2>
+      <div className="mt-3 flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+        {question.multiSelect
+          ? question.options.map((option) => {
+              const selected = (chosen ?? '').split(', ').includes(option.label)
+              return (
+                <div
+                  key={option.id}
+                  className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors ${
+                    selected ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
+                  }`}
+                >
+                  <Checkbox
+                    checked={selected}
+                    disabled={busy}
+                    onChange={() => toggleMulti(option.label)}
+                  >
+                    <span className="block font-medium">{option.label}</span>
+                    {option.description ? (
+                      <span className="mt-0.5 block text-xs font-normal leading-relaxed text-fg-muted">
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </Checkbox>
+                </div>
+              )
+            })
+          : question.options.map((option, i) => {
+              const selected = !otherOpen && (chosen === option.label || chosen === option.id)
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={selected}
+                  onClick={() => commit(option.label, true)}
+                  className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
+                    selected ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
+                  }`}
+                >
+                  <kbd className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-1 font-mono text-2xs text-fg-muted">
+                    {i + 1}
+                  </kbd>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-fg">{option.label}</span>
+                    {option.description ? (
+                      <span className="mt-0.5 block text-xs leading-relaxed text-fg-muted">{option.description}</span>
+                    ) : null}
+                  </span>
+                </button>
+              )
+            })}
+        <button
+          type="button"
+          disabled={busy}
+          aria-pressed={otherOpen}
+          onClick={() => setOtherOpen(true)}
+          className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
+            otherOpen ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
+          }`}
+        >
+          <kbd className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-1 font-mono text-2xs text-fg-muted">
+            {question.options.length + 1}
+          </kbd>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-fg">{OTHER_LABEL}</span>
+            <span className="mt-0.5 block text-xs text-fg-muted">Describe your own answer</span>
+          </span>
+        </button>
+        {otherOpen ? (
+          <Textarea
+            aria-label={OTHER_LABEL}
+            autoFocus
+            value={otherDraft}
+            disabled={busy}
+            onChange={(event) => setOtherDraft(event.target.value)}
+            placeholder="Type your answer"
+            className="mt-1"
+          />
+        ) : null}
+      </div>
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={index === 0 || busy}
+          onClick={() => goTo(Math.max(0, index - 1), answers)}
+        >
+          Back
+        </Button>
+        <Button type="button" variant="primary" size="sm" disabled={busy || !canContinue} onClick={continueNext}>
+          {last ? 'Submit' : 'Continue'}
+        </Button>
+      </div>
     </section>
   )
 }
@@ -271,41 +313,29 @@ function PlanApproval({
   const [feedback, setFeedback] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
 
-  const pick = (value: string) => {
+  const pick = (value: string): void => {
     if (chosen != null) return
     setChosen(value)
     onRespond(value)
   }
 
   return (
-    <section
-      role="region"
-      aria-label="Plan approval"
-      className="rounded-md border border-accent bg-surface-1 p-3 shadow-2"
-    >
-      <div className="flex items-center gap-2">
-        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-        <p className="text-sm font-medium text-fg">{prompt}</p>
-      </div>
+    <section role="region" aria-label="Plan approval" className="rounded-lg border border-accent bg-surface-1 p-3">
+      <p className="text-sm font-medium text-fg">{prompt}</p>
+      <p className="mt-1 text-xs text-fg-muted">The full plan is in the side panel.</p>
       {planContent.length > 0 ? (
-        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface-2 p-2 font-mono text-2xs leading-relaxed text-fg-muted">
-          {planContent}
+        <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface-2 p-2 font-mono text-2xs text-fg-muted">
+          {planContent.slice(0, 280)}
+          {planContent.length > 280 ? '…' : ''}
         </pre>
-      ) : (
-        <p className="mt-2 text-xs text-fg-muted">The agent did not attach a plan body.</p>
-      )}
+      ) : null}
       {mode === 'changes' ? (
         <form
           className="mt-3 flex flex-col gap-2"
           onSubmit={(event: FormEvent) => {
             event.preventDefault()
             const text = feedback.trim()
-            pick(
-              JSON.stringify({
-                outcome: 'cancelled',
-                ...(text.length > 0 ? { feedback: text } : {}),
-              }),
-            )
+            pick(JSON.stringify({ outcome: 'cancelled', ...(text.length > 0 ? { feedback: text } : {}) }))
           }}
         >
           <Textarea
@@ -344,7 +374,7 @@ function PlanApproval({
 function FreeText({ prompt, onRespond }: { prompt: string; onRespond: (value: string) => void }) {
   const [draft, setDraft] = useState('')
   const [chosen, setChosen] = useState<string | null>(null)
-  const submit = () => {
+  const submit = (): void => {
     const value = draft.trim()
     if (value === '' || chosen != null) return
     setChosen(value)
@@ -354,11 +384,11 @@ function FreeText({ prompt, onRespond }: { prompt: string; onRespond: (value: st
     <section
       role="region"
       aria-label="Agent question"
-      className="rounded-md border border-accent bg-surface-1 p-3 shadow-2"
+      className="rounded-lg border border-accent bg-surface-1 p-4 shadow-2"
     >
-      <p className="text-sm text-fg">{prompt}</p>
+      <p className="text-sm font-medium text-fg">{prompt}</p>
       <form
-        className="mt-2 flex items-center gap-2"
+        className="mt-3 flex items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           submit()
@@ -377,101 +407,10 @@ function FreeText({ prompt, onRespond }: { prompt: string; onRespond: (value: st
           }}
           className="flex-1"
         />
-        <Button type="submit" variant="primary" size="md" disabled={draft.trim() === ''}>
+        <Button type="submit" variant="primary" size="md" disabled={draft.trim() === '' || chosen != null}>
           Submit
         </Button>
       </form>
     </section>
-  )
-}
-
-function OptionButtons({
-  options,
-  chosen,
-  onChoose,
-}: {
-  options: { id: string; label: string; description?: string }[]
-  chosen: string | null
-  onChoose: (id: string) => void
-}) {
-  return (
-    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-      {options.map((option, index) => {
-        const selected = chosen === option.label || chosen === option.id
-        return (
-          <button
-            key={option.id}
-            type="button"
-            disabled={chosen != null}
-            aria-pressed={selected}
-            onClick={() => onChoose(option.id)}
-            className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
-              selected ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
-            }`}
-          >
-            <kbd className="mt-0.5 shrink-0 rounded-sm border border-border bg-surface-1 px-1 font-mono text-2xs font-normal text-fg-muted">
-              {index + 1}
-            </kbd>
-            <span className="min-w-0">
-              <span className="block truncate text-fg">{option.label}</span>
-              {option.description ? (
-                <span className="mt-0.5 block text-2xs text-fg-muted">{option.description}</span>
-              ) : null}
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function OtherField({
-  open,
-  draft,
-  disabled,
-  onOpen,
-  onDraft,
-  onSubmit,
-}: {
-  open: boolean
-  draft: string
-  disabled: boolean
-  onOpen: () => void
-  onDraft: (value: string) => void
-  onSubmit: () => void
-}) {
-  if (!open) {
-    return (
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onOpen}
-        className="mt-2 text-xs text-fg-muted underline-offset-2 transition-colors hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60"
-      >
-        {OTHER_LABEL}…
-      </button>
-    )
-  }
-  return (
-    <form
-      className="mt-2 flex items-center gap-2"
-      onSubmit={(event) => {
-        event.preventDefault()
-        onSubmit()
-      }}
-    >
-      <Input
-        aria-label={OTHER_LABEL}
-        autoFocus
-        value={draft}
-        disabled={disabled}
-        onChange={(event) => onDraft(event.target.value)}
-        placeholder="Describe your own answer"
-        className="flex-1"
-      />
-      <Button type="submit" variant="primary" size="sm" disabled={disabled || draft.trim() === ''}>
-        Submit
-      </Button>
-    </form>
   )
 }

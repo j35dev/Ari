@@ -550,9 +550,10 @@ because `session/load` history replay was folded into the new turn's assistant m
       AskUserQuestion is enabled), `_x.ai/ask_user_question`, `_x.ai/exit_plan_mode`. Each
       parks as `input-requested`; `input.respond` is forwarded into the live adapter as a
       JSON-RPC *success*. Ari Core gains the same `ask_user_question` tool.
-- [x] M34.3 QuestionPanel: questionnaire + Other on every choice list + plan-approval
-      (Approve / Request changes / Abandon), Ari tokens. Engine routes `input.respond`
-      into `adapter.respondInput`.
+- [x] M34.3 QuestionPanel: one question at a time (t3code-style interview, Other on
+      every list). Plan approval opens a Cursor-style markdown rail to the right of
+      the transcript. Submit clears the overlay immediately so the card cannot stick.
+      Engine routes `input.respond` into `adapter.respondInput`.
 - [x] M34.4 Effort chip reads the harness's ACP thought/reasoning selector
       (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
       list like pi's off…xhigh) instead of inventing low/medium/high for every
