@@ -34,7 +34,11 @@ import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import { catalogSource, effortsFor, modelsFor, setDynamicEfforts } from '@ari/providers/catalogs'
-import { thoughtEffortsFromSession } from '@ari/providers/acp/thought'
+import {
+  mergeEffortCatalogs,
+  thoughtEffortsFromMeta,
+  thoughtEffortsFromSession,
+} from '@ari/providers/acp/thought'
 import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
@@ -107,8 +111,15 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
         id: v.value as string,
         label: typeof v.name === 'string' && v.name.length > 0 ? v.name : (v.value as string),
       }))
-    // Same throwaway session: thought_level / effort / thinking-shaped modes.
-    setDynamicEfforts(kind, thoughtEffortsFromSession(created))
+    // Same throwaway session: thought_level / effort, plus Grok's
+    // initialize `_meta.modelState` reasoningEfforts when configOptions omit them.
+    setDynamicEfforts(
+      kind,
+      mergeEffortCatalogs(
+        thoughtEffortsFromSession(created),
+        thoughtEffortsFromMeta(connection.initialize._meta),
+      ),
+    )
     return models
   } finally {
     await connection.shutdown()

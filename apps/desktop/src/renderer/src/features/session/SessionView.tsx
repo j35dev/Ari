@@ -817,22 +817,28 @@ export function EffortChip({
 
   useEffect(() => {
     let cancelled = false
-    void rpc
-      .invoke('providers.models')
-      .then((rows) => {
-        if (cancelled) return
-        const row = rows.find((r) => r.kind === driverKind)
-        setOptions(row?.efforts ?? [])
-        setLoaded(true)
-      })
-      .catch(() => {
+    const apply = (rows: { kind: string; efforts?: EffortOption[] }[]): void => {
+      if (cancelled) return
+      const row = rows.find((r) => r.kind === driverKind)
+      setOptions(row?.efforts ?? [])
+      setLoaded(true)
+    }
+    const load = (): void => {
+      void rpc.invoke('providers.models').then(apply).catch(() => {
         if (!cancelled) {
           setOptions([])
           setLoaded(true)
         }
       })
+    }
+    load()
+    const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
+      const frame = payload as { type?: string }
+      if (frame.type === 'catalog' || frame.type === 'detections') load()
+    })
     return () => {
       cancelled = true
+      unsubscribe()
     }
   }, [driverKind])
 

@@ -1,7 +1,14 @@
 import { PassThrough } from 'node:stream'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import { createAcpAdapter, AcpDriver, pickAgentMode, shouldFallBack, __resetLearnedAcpSelectors } from './acp-driver'
+import {
+  createAcpAdapter,
+  AcpDriver,
+  launchWithEffort,
+  pickAgentMode,
+  shouldFallBack,
+  __resetLearnedAcpSelectors,
+} from './acp-driver'
 import { AcpAuthRequiredError, AcpConnectionError } from './connection'
 import type { AcpLaunch } from './connection'
 import type { AdapterSession, ProviderAdapter } from '../driver'
@@ -862,6 +869,23 @@ describe('createAcpAdapter', () => {
     expect(modeCalls(second)).toEqual(['build'])
     await buildTurn.dispose()
   }, 20000)
+})
+
+describe('launchWithEffort', () => {
+  it('prepends --effort on a grok native ACP launch', () => {
+    expect(
+      launchWithEffort({ label: 'grok (native ACP)', command: 'grok', args: ['agent', 'stdio'] }, 'high'),
+    ).toEqual({
+      label: 'grok (native ACP)',
+      command: 'grok',
+      args: ['--effort', 'high', 'agent', 'stdio'],
+    })
+  })
+
+  it('leaves other agents untouched', () => {
+    const launch = { label: 'opencode (native ACP)', command: 'opencode', args: ['acp'] }
+    expect(launchWithEffort(launch, 'high')).toBe(launch)
+  })
 })
 
 describe('pickAgentMode', () => {

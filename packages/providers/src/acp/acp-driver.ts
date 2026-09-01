@@ -185,10 +185,11 @@ export async function createAcpAdapter(
     return new Error(formatAcpSetupError(error), { cause: error })
   }
 
+  const effectiveLaunch = launchWithEffort(launch, session.effort ?? null)
   let connection: AcpConnection
   try {
     connection = await AcpConnection.connect({
-      launch,
+      launch: effectiveLaunch,
       cwd: session.workspacePath,
       ...(spawn !== undefined ? { spawn } : {}),
     })
@@ -276,6 +277,7 @@ export async function createAcpAdapter(
     selectors.configOptions,
     selectors.availableModes,
     session.effort ?? null,
+    launch.label,
   )
 
   /**
@@ -614,29 +616,48 @@ async function applyThoughtLevel(
   configOptions: AcpConfigOption[],
   availableModes: { id?: string; name?: string }[],
   effort: string | null,
+  launchLabel: string,
 ): Promise<void> {
   if (effort === null || effort.length === 0) return
   const option = findThoughtOption(configOptions)
-  if (option !== null && option.id !== undefined && option.options !== undefined) {
-    const value = option.options.find((v) => v.value === effort)?.value
-    if (value === undefined) {
+  if (option !== null && option.id !== undefined) {
+    const advertised = option.options ?? []
+    if (advertised.length > 0 && !advertised.some((v) => v.value === effort)) {
       log.debug('acp: requested thought level not advertised by agent', { effort })
       return
     }
     try {
-      await connection.setConfigOption(sessionId, option.id, value)
+      await connection.setConfigOption(sessionId, option.id, effort)
     } catch (error) {
       log.debug('acp: set_config_option(thought) failed', { error: String(error) })
     }
     return
   }
   const ids = availableModes.map((m) => m.id).filter((v): v is string => typeof v === 'string' && v.length > 0)
-  if (!looksLikeThoughtAxis(ids) || !ids.includes(effort)) return
-  try {
-    await connection.setMode(sessionId, effort)
-  } catch (error) {
-    log.debug('acp: set_mode(thought) failed', { error: String(error) })
+  if (looksLikeThoughtAxis(ids) && ids.includes(effort)) {
+    try {
+      await connection.setMode(sessionId, effort)
+    } catch (error) {
+      log.debug('acp: set_mode(thought) failed', { error: String(error) })
+    }
+    return
   }
+  // Grok documents configId `reasoning_effort` even when session/new omitted the
+  // option (or listed it with an empty options array for an unsupported model).
+  if (!/^grok\b/i.test(launchLabel)) return
+  try {
+    await connection.setConfigOption(sessionId, 'reasoning_effort', effort)
+  } catch (error) {
+    log.debug('acp: set_config_option(reasoning_effort) failed', { error: String(error) })
+  }
+}
+
+/** Grok's `--effort` is a top-level `grok` flag, before `agent stdio`. */
+export function launchWithEffort(launch: AcpLaunch, effort: string | null): AcpLaunch {
+  if (effort === null || effort.length === 0) return launch
+  if (!/^grok\b/i.test(launch.label)) return launch
+  if (launch.args.includes('--effort')) return launch
+  return { ...launch, args: ['--effort', effort, ...launch.args] }
 }
 
 /**
