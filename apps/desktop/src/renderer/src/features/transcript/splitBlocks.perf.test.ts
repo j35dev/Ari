@@ -11,8 +11,7 @@ const SPLIT_BLOCK_BUDGET_MS = 500
 const MOUNT_MESSAGE_COUNT = 2_000
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
-// stick-to-bottom effect calls scrollTo during mount. Zero-height rects would
-// also starve the virtualizer's measure loop, so rows report the 64px estimate.
+// stick-to-bottom effect calls scrollTo during mount.
 if (!Element.prototype.scrollTo) {
   Element.prototype.scrollTo = () => {}
 }
