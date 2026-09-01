@@ -1,7 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from 'react'
 import { Check, Copy, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
-import { useVirtualizer } from './use-virtualizer'
 import { pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
 import { groupBlocks } from './groupBlocks'
@@ -20,13 +19,11 @@ const CHARS_PER_LINE = 90
 const LINE_HEIGHT_PX = 22
 
 /**
- * Pre-measurement height guess per row kind. Collapsed rows (tool activity,
- * diff cards) are a fixed size; prose scales with its text. A closer estimate
- * means smaller corrections when the real height arrives, which is what keeps
- * scrolling through unmeasured history smooth rather than jumpy.
+ * Fallback height for `contain-intrinsic-size` before a row has been painted.
+ * `auto` remembers the last real size so off-screen rows do not collapse when
+ * `content-visibility: auto` skips them.
  */
-function estimateRowSize(row: TranscriptRow | undefined): number {
-  if (row === undefined) return 64
+function estimateRowSize(row: TranscriptRow): number {
   if (row.kind === 'tool-group' || row.kind === 'turn-diff') return 40
   if (row.kind === 'tool-call' || row.kind === 'tool-result') return 48
   const text = row.text ?? ''
@@ -35,18 +32,22 @@ function estimateRowSize(row: TranscriptRow | undefined): number {
   for (const paragraph of text.split('\n')) {
     lines += Math.max(1, Math.ceil(paragraph.length / CHARS_PER_LINE))
   }
-  // Blocks are padded top and bottom; thinking rows render collapsed.
   return row.kind === 'thinking' ? 36 : lines * LINE_HEIGHT_PX + 16
+}
+
+function scrollToBottom(el: HTMLElement, behavior: ScrollBehavior): void {
+  const top = Math.max(0, el.scrollHeight - el.clientHeight)
+  if (typeof el.scrollTo === 'function') el.scrollTo({ top, left: 0, behavior })
+  else el.scrollTop = top
 }
 
 /** Placeholder row widths for the initial-load skeleton (M13.3: no spinners >300ms). */
 const LOADING_ROW_WIDTHS = ['92%', '78%', '85%', '64%'] as const
 
 /**
- * Virtualized transcript: block-granular rows, dynamic measurement,
- * stick-to-bottom with a re-engage band (PLAN §6.5). Consecutive tool calls
- * collapse into single activity rows; user messages render as right-aligned
- * bubbles. While the initial load resolves it shows skeleton rows.
+ * Transcript in one native-scrolling document. Rows stay in flow — windowing
+ * them as absolutely positioned segments made long sessions hitch and eat
+ * wheel gestures every time a block mounted at a new height.
  */
 export function TranscriptView({
   sessionId,
@@ -79,6 +80,7 @@ export function TranscriptView({
   working?: React.ReactNode
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
   const lastScrollTopRef = useRef<number | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const atBottomRef = useRef(true)
@@ -113,65 +115,51 @@ export function TranscriptView({
     return null
   }, [messages])
 
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    estimateSize: (index) => estimateRowSize(rows[index]),
-    getScrollElement: () => scrollRef.current,
-    overscan: 6,
-  })
-
-  // Offsets refresh each render; user rows are few so this is trivial.
-  const railOffsets = useMemo(
-    () =>
-      railEntries.map((entry) => ({
-        key: entry.key,
-        start: virtualizer.getRowStart(Number(entry.key)),
-      })),
-    [railEntries, virtualizer, virtualizer.getVersion()],
-  )
-
   const updateActiveRailKey = useCallback((): void => {
     const el = scrollRef.current
-    if (el === null || railOffsets.length < 2) return
+    if (el === null || railEntries.length < 2) return
     const anchor = el.scrollTop + el.clientHeight * 0.25
     let active: string | null = null
-    for (const { key, start } of railOffsets) {
-      if (start <= anchor) active = key
+    for (const { key } of railEntries) {
+      const node = el.querySelector(`[data-index="${key}"]`)
+      if (!(node instanceof HTMLElement)) continue
+      if (node.offsetTop <= anchor) active = key
       else break
     }
     setActiveRailKey((prev) => (prev === active ? prev : active))
-  }, [railOffsets])
+  }, [railEntries])
 
-  const handleRailJump = useCallback(
-    (key: string) => {
-      atBottomRef.current = false
-      setAtBottom(false)
-      virtualizer.scrollToOffset(Math.max(0, virtualizer.getRowStart(Number(key)) - 12), 'smooth')
-    },
-    [virtualizer],
-  )
+  const handleRailJump = useCallback((key: string) => {
+    const scroller = scrollRef.current
+    const node = scroller?.querySelector(`[data-index="${key}"]`)
+    if (!scroller || !(node instanceof HTMLElement)) return
+    atBottomRef.current = false
+    setAtBottom(false)
+    scroller.scrollTo({ top: Math.max(0, node.offsetTop - 12), left: 0, behavior: 'smooth' })
+  }, [])
 
   const hasWorking = Boolean(working)
 
-  // Stick-to-bottom: follow new content while pinned; expose jump pill otherwise.
-  // `getVersion()` keeps the follow honest while heights settle after the row
-  // list stops changing — code fences finish highlighting well after their block
-  // last appended. The ref is updated synchronously in `handleScroll` so a
-  // measurement bump cannot yank the reader back after they have scrolled up.
-  // Skip when already at the painted max so measure → scroll → ResizeObserver
-  // cannot loop (that loop flashed the transcript empty and ate wheel input).
+  // Follow the tail while pinned. Observe the column so Shiki/code-fence
+  // growth still sticks without a virtualizer measurement loop.
   useLayoutEffect(() => {
-    if (!atBottomRef.current) return
-    const el = scrollRef.current
-    if (!el) return
-    const max = Math.max(0, el.scrollHeight - el.clientHeight)
-    if (Math.abs(el.scrollTop - max) <= 1) return
-    virtualizer.scrollToBottom('auto')
-  }, [rows, atBottom, hasWorking, virtualizer, virtualizer.getVersion()])
+    const scroller = scrollRef.current
+    const inner = innerRef.current
+    if (!scroller || !inner) return
+    const follow = (): void => {
+      if (!atBottomRef.current) return
+      const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      if (Math.abs(scroller.scrollTop - max) <= 1) return
+      scrollToBottom(scroller, 'auto')
+    }
+    follow()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(follow)
+    observer.observe(inner)
+    return () => observer.disconnect()
+  }, [rows, atBottom, hasWorking])
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
-    // Wheel-up interrupts stick-to-bottom before the scroll sample lands, so
-    // a measurement bump cannot yank the viewport back onto the tail.
     if (event.deltaY >= 0 || !atBottomRef.current) return
     atBottomRef.current = false
     setAtBottom(false)
@@ -194,11 +182,6 @@ export function TranscriptView({
     updateActiveRailKey()
   }
 
-  const measureElement = useCallback(
-    (node: HTMLElement | null): void => virtualizer.measureElement(node),
-    [virtualizer],
-  )
-
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <h2 className="sr-only">Messages</h2>
@@ -212,66 +195,20 @@ export function TranscriptView({
         aria-live="polite"
         className="ari-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
         data-session={sessionId}
-        style={{ overflowAnchor: 'none' }}
       >
-        <div
-          style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
-          className="mx-auto max-w-3xl"
-        >
-          {virtualizer.getVirtualItems().map((item) => {
-            const row = rows[item.index]
-            if (!row) return null
-            return (
-              <div
-                key={row.key}
-                data-index={item.index}
-                ref={measureElement}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${item.start}px)`,
-                }}
-              >
-                {row.kind === 'tool-group' ? (
-                  <ToolActivityGroup row={row} />
-                ) : row.kind === 'turn-diff' ? (
-                  <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
-                ) : row.kind === 'markdown' ? (
-                  row.role === 'user' ? (
-                    <UserBubble text={row.text ?? ''} onEdit={onEditUserMessage} />
-                  ) : (
-                    <div>
-                      <MarkdownBlock text={row.text ?? ''} />
-                      {row.isLastOfMessage && row.messageId ? (
-                        <MessageFooter
-                          message={{
-                            id: row.messageId,
-                            sessionId: '',
-                            turnId: null,
-                            role: 'assistant',
-                            parts: [{ type: 'text', text: row.text ?? '' }],
-                            createdAt: row.messageCreatedAt ?? Date.now(),
-                          }}
-                          onRegenerate={
-                            onRegenerate && row.messageId === lastAssistantMessageId
-                              ? onRegenerate
-                              : undefined
-                          }
-                          actionDisabled={regenerateDisabled}
-                        />
-                      ) : null}
-                    </div>
-                  )
-                ) : row.kind === 'error-note' ? (
-                  <ErrorNote text={row.text ?? ''} />
-                ) : row.kind === 'thinking' ? (
-                  <ThinkingBlock text={row.text ?? ''} />
-                ) : null}
-              </div>
-            )
-          })}
+        <div ref={innerRef} className="mx-auto max-w-3xl">
+          {rows.map((row, index) => (
+            <TranscriptRowView
+              key={row.key}
+              row={row}
+              index={index}
+              lastAssistantMessageId={lastAssistantMessageId}
+              onEditUserMessage={onEditUserMessage}
+              onRegenerate={onRegenerate}
+              regenerateDisabled={regenerateDisabled}
+              onDiffComment={onDiffComment}
+            />
+          ))}
         </div>
 
         {loading && rows.length === 0 ? (
@@ -299,9 +236,10 @@ export function TranscriptView({
         <button
           type="button"
           onClick={() => {
+            const el = scrollRef.current
             atBottomRef.current = true
             setAtBottom(true)
-            virtualizer.scrollToBottom('smooth')
+            if (el) scrollToBottom(el, 'smooth')
           }}
           className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-1 text-xs font-medium text-fg-on-accent shadow-2 transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
@@ -311,6 +249,68 @@ export function TranscriptView({
 
       {railEntries.length >= 2 ? (
         <MessageRail entries={railEntries} activeKey={activeRailKey} onJump={handleRailJump} />
+      ) : null}
+    </div>
+  )
+}
+
+function TranscriptRowView({
+  row,
+  index,
+  lastAssistantMessageId,
+  onEditUserMessage,
+  onRegenerate,
+  regenerateDisabled,
+  onDiffComment,
+}: {
+  row: TranscriptRow
+  index: number
+  lastAssistantMessageId: string | null
+  onEditUserMessage?: (text: string) => void
+  onRegenerate?: () => void
+  regenerateDisabled: boolean
+  onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
+}) {
+  return (
+    <div
+      data-index={index}
+      style={{
+        contentVisibility: 'auto',
+        containIntrinsicSize: `auto ${estimateRowSize(row)}px`,
+      }}
+    >
+      {row.kind === 'tool-group' ? (
+        <ToolActivityGroup row={row} />
+      ) : row.kind === 'turn-diff' ? (
+        <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
+      ) : row.kind === 'markdown' ? (
+        row.role === 'user' ? (
+          <UserBubble text={row.text ?? ''} onEdit={onEditUserMessage} />
+        ) : (
+          <div>
+            <MarkdownBlock text={row.text ?? ''} />
+            {row.isLastOfMessage && row.messageId ? (
+              <MessageFooter
+                message={{
+                  id: row.messageId,
+                  sessionId: '',
+                  turnId: null,
+                  role: 'assistant',
+                  parts: [{ type: 'text', text: row.text ?? '' }],
+                  createdAt: row.messageCreatedAt ?? Date.now(),
+                }}
+                onRegenerate={
+                  onRegenerate && row.messageId === lastAssistantMessageId ? onRegenerate : undefined
+                }
+                actionDisabled={regenerateDisabled}
+              />
+            ) : null}
+          </div>
+        )
+      ) : row.kind === 'error-note' ? (
+        <ErrorNote text={row.text ?? ''} />
+      ) : row.kind === 'thinking' ? (
+        <ThinkingBlock text={row.text ?? ''} />
       ) : null}
     </div>
   )
