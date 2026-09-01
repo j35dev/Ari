@@ -506,9 +506,10 @@ and resumes like any other session. pi's file is only ever read — it stays whe
 resumable in pi, so importing can never cost anyone their history.
 
 - [x] M32.1 `providers/pi/sessions.ts` reads pi's own store: session dir per `PI_CODING_AGENT_SESSION_DIR` > `PI_CODING_AGENT_DIR/sessions` > `~/.pi/agent/sessions`, and the folder encoding pi uses for a cwd (separators *and* the drive colon each become `-`, wrapped in `--`, so `D:\Projects\Ari` → `--D--Projects-Ari--`) as a fast path only — each file's header carries the authoritative cwd. Crucially the entries are a **tree**, not a list: every entry has `id`/`parentId` and `/fork` or an edited prompt adds a sibling branch *inside the same file*, so reading lines in order would replay abandoned branches as if they had happened. A transcript is the newest leaf walked back to the root and reversed. Verified against the real files on this machine (5 sessions, including a 377 KB one that flattens to 5 user / 39 assistant / 34 tool-result).
-- [x] M32.2 `sessions.importable` / `sessions.import`: the listing marks what Ari already has by reading the journals' own `session.ref.observed`, so the "imported" flag cannot drift from reality — the same ref that makes an imported session resumable is the one that marks it imported. The replay opens a turn per user message and settles it, stamps every event with the pi timestamp it came from (so the session sorts into the sidebar where the work happened, not at "now"), and pairs tool calls with their results. A session whose folder matches no Ari project is refused with what to do about it rather than being dropped into the wrong project.
+- [x] M32.2 `sessions.importable` / `sessions.import`: the listing marks what Ari already has by reading the journals' own namespaced `session.ref.observed`, so the "imported" flag cannot drift from provenance. The namespace prevents the first live Ari turn from unsafely resuming a native thread whose context may differ; that turn establishes its own resumable provider ref. The replay opens a turn per user message and settles it, stamps every event with the pi timestamp it came from (so the session sorts into the sidebar where the work happened, not at "now"), and pairs tool calls with their results. A session whose folder matches no Ari project is refused with what to do about it rather than being dropped into the wrong project.
 - [x] M32.3 Import surface in Settings › Agents under pi: title, message count, date, and folder per session, with the ones already in Ari disabled and marked. States on the surface that pi keeps its own copy, because "import" usually implies something is moved.
 - [x] M32.4 Import UX (#113, @jdholst): a finished import publishes `turn.settled` so the sidebar refreshes live (the Agents settings page never passed `onImported`); per-row error + Retry; busy/loading states so a slow replay cannot be double-clicked.
+- [x] M32.5 Project import flow: each project menu exposes generic **Import** after **New session here**; a source-neutral dialog selects Pi, then reuses the Settings session list scoped by opaque `projectId`. Successful imports open the Ari chat and close the dialog; row failures stay visible in the open dialog. Missing projects keep Import discoverable but disabled. Renderer imports use opaque candidate ids resolved from Pi's discovered store, path identity is canonical, folder encoding is only an ordering hint, and concurrent duplicate replays are refused.
 
 ## M33 — Ari Core harness, for real
 
@@ -565,6 +566,7 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
 
 | Task | Tried | Error essence | Status |
 | --- | --- | --- | --- |
+| M32.5 | `pnpm verify`; reran `pnpm --filter @ari/engine test` | macOS `/var` versus `/private/var` path aliasing broke raw worktree identity checks; fixed in M19.6. | resolved |
 
 
 ## Merge log

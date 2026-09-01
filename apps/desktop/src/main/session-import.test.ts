@@ -1,10 +1,10 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '@ari/engine/session-store'
 import { ProjectStore } from '@ari/engine/projects'
-import { importPiSession, listImportableSessions } from './session-import'
+import { importPiSession, importPiSessionCandidate, listImportableSessions } from './session-import'
 import type { SessionImportDeps } from './session-import'
 
 /**
@@ -67,7 +67,26 @@ async function seedPiSession(name: string, prompt: string, cwd = projectPath): P
   return path
 }
 
+async function seedFixtureSession(name: string): Promise<string> {
+  const path = await seedPiSession(name, 'fixture placeholder')
+  const fixture = await readFile(FIXTURE, 'utf8')
+  const lines = fixture.split('\n')
+  lines[0] =
+    lines[0]?.replace('"cwd":"D:\\\\Projects\\\\Ari"', `"cwd":${JSON.stringify(projectPath)}`) ?? ''
+  await writeFile(path, lines.join('\n'), 'utf8')
+  return path
+}
+
 describe('listImportableSessions', () => {
+  it('returns only sessions whose canonical cwd matches the requested project', async () => {
+    await seedPiSession('ari', 'keep this one')
+    await seedPiSession('other', 'exclude this one', await mkdtemp(join(tmpdir(), 'other-project-')))
+
+    const scoped = await listImportableSessions(deps, projectPath)
+    expect(scoped.map((session) => session.title)).toEqual(['keep this one'])
+    expect(scoped.every((session) => session.cwd === projectPath)).toBe(true)
+  })
+
   it("lists pi's sessions and marks the ones Ari already has", async () => {
     const path = await seedPiSession('one', 'refactor the store')
     const before = await listImportableSessions(deps)
@@ -94,9 +113,9 @@ describe('importPiSession', () => {
       modelId: 'grok-4.5',
       status: 'idle',
     })
-    // The pi session id rides along so the next turn resumes rather than
-    // re-prompting cold off a wall of replayed text.
-    expect(model.providerSessionId).toBe('pi-two')
+    // Provenance is namespaced so the first live Ari turn starts safely
+    // instead of resuming a native thread with mismatched context.
+    expect(model.providerSessionId).toBe('imported:pi:pi-two')
     expect(model.messages.map((m) => m.role)).toEqual(['user', 'assistant'])
     expect(model.messages[1]?.parts).toEqual([
       { type: 'thinking', text: 'considering' },
@@ -116,7 +135,8 @@ describe('importPiSession', () => {
   })
 
   it('carries tool calls and their results across as paired parts', async () => {
-    const result = await importPiSession({ path: FIXTURE, projectId: firstProjectId() }, deps)
+    const path = await seedFixtureSession('tool-calls')
+    const result = await importPiSession({ path, projectId: firstProjectId() }, deps)
     if (!result.ok) throw new Error('expected the import to succeed')
     const model = await deps.sessions.load(result.sessionId)
     const parts = model.messages.flatMap((m) => m.parts)
@@ -130,8 +150,9 @@ describe('importPiSession', () => {
 
   it('publishes the completed import so live session lists refresh', async () => {
     const publish = vi.fn()
+    const path = await seedFixtureSession('publishing')
     const result = await importPiSession(
-      { path: FIXTURE, projectId: firstProjectId() },
+      { path, projectId: firstProjectId() },
       { ...deps, publish },
     )
     if (!result.ok) throw new Error('expected the import to succeed')
@@ -142,6 +163,34 @@ describe('importPiSession', () => {
       expect.objectContaining({ type: 'turn.settled', sessionId: result.sessionId }),
     )
     expect((await deps.sessions.load(result.sessionId)).activeTurnId).toBeNull()
+  })
+
+  it('rolls back a partial journal when replay fails', async () => {
+    const path = await seedPiSession('rollback', 'do not leave debris')
+    const append = deps.sessions.append.bind(deps.sessions)
+    let appendCalls = 0
+    vi.spyOn(deps.sessions, 'append').mockImplementation(async (sessionId, event) => {
+      appendCalls++
+      if (appendCalls === 2) throw new Error('disk full')
+      return append(sessionId, event)
+    })
+
+    expect(await importPiSession({ path }, deps)).toEqual({
+      ok: false,
+      error: 'The Pi session could not be imported.',
+    })
+    expect(await deps.sessions.listSessions()).toEqual([])
+  })
+
+  it('allows only one concurrent import of the same pi session', async () => {
+    const path = await seedPiSession('concurrent', 'once at a time')
+    const results = await Promise.all([
+      importPiSession({ path }, deps),
+      importPiSession({ path }, deps),
+    ])
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1)
+    expect(results.filter((result) => !result.ok)).toHaveLength(1)
   })
 
   it('refuses a second import of the same pi session', async () => {
@@ -157,6 +206,25 @@ describe('importPiSession', () => {
     const result = await importPiSession({ path }, deps)
     expect(result).toMatchObject({ ok: false })
     expect(result).toHaveProperty('error', expect.stringContaining('open the folder first'))
+  })
+
+  it('resolves only opaque candidates returned by the discovery list', async () => {
+    await seedPiSession('candidate', 'safe import')
+    const [candidate] = await listImportableSessions(deps, projectPath)
+    if (candidate === undefined) throw new Error('expected a candidate')
+
+    expect(
+      await importPiSessionCandidate(
+        { candidateId: candidate.candidateId, projectId: firstProjectId() },
+        deps,
+      ),
+    ).toMatchObject({ ok: true })
+    expect(
+      await importPiSessionCandidate(
+        { candidateId: 'pi_renderer-controlled-path', projectId: firstProjectId() },
+        deps,
+      ),
+    ).toEqual({ ok: false, error: 'That import candidate is no longer available.' })
   })
 
   it('refuses a file that is not a pi session', async () => {

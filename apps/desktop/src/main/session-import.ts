@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { RpcResults } from '@ari/contracts/rpc'
 import type { MessagePart } from '@ari/contracts/message'
@@ -6,9 +7,11 @@ import { newTypedId } from '@ari/shared/ids'
 import { listPiSessions, readPiTranscript } from '@ari/providers/pi/sessions'
 import type { PiTranscript } from '@ari/providers/pi/sessions'
 import type { SessionStore } from '@ari/engine/session-store'
-import type { ProjectStore } from '@ari/engine/projects'
+import { canonicalizeFolder, type ProjectStore } from '@ari/engine/projects'
 
 const log = createLogger('desktop:session-import')
+const IMPORTED_PI_REF_PREFIX = 'imported:pi:'
+const inFlightImports = new Set<string>()
 
 /**
  * Brings a session the user already had in pi into Ari, as a real journal.
@@ -18,9 +21,9 @@ const log = createLogger('desktop:session-import')
  * is only read — it stays exactly where it was and remains resumable in pi
  * afterwards, so importing can never cost someone their history.
  *
- * The imported session carries `session.ref.observed` with pi's own session id,
- * which is what lets the next turn continue the same thread rather than
- * starting cold from a wall of replayed text.
+ * The imported session carries a namespaced `session.ref.observed` for
+ * provenance and deduplication. The engine does not resume that native Pi
+ * thread until a new live turn establishes its own provider ref.
  */
 
 export interface SessionImportDeps {
@@ -41,7 +44,7 @@ export async function listImportableSessions(
   return found.map((session) => ({
     kind: 'pi' as const,
     id: session.id,
-    path: session.path,
+    candidateId: candidateIdFor(session.path),
     cwd: session.cwd,
     title: session.title,
     startedAt: session.startedAt,
@@ -49,6 +52,29 @@ export async function listImportableSessions(
     messageCount: session.messageCount,
     imported: already.has(session.id),
   }))
+}
+
+/** Resolves an opaque renderer token against Pi's currently discoverable sessions. */
+export async function importPiSessionCandidate(
+  params: { candidateId: string; projectId?: string },
+  deps: SessionImportDeps,
+): Promise<RpcResults['sessions.import']> {
+  const project = params.projectId === undefined ? null : deps.projects.get(params.projectId)
+  if (params.projectId !== undefined && (project === null || project.status === 'missing')) {
+    return { ok: false, error: 'That Ari project is not available.' }
+  }
+  const found = await listPiSessions(project === null ? {} : { cwd: project.path })
+  const source = found.find((session) => candidateIdFor(session.path) === params.candidateId)
+  if (source === undefined) {
+    return { ok: false, error: 'That import candidate is no longer available.' }
+  }
+  return importPiSession(
+    {
+      path: source.path,
+      ...(params.projectId === undefined ? {} : { projectId: params.projectId }),
+    },
+    deps,
+  )
 }
 
 /**
@@ -65,28 +91,55 @@ export async function importPiSession(
     return { ok: false, error: 'That file is not a readable pi session.' }
   }
 
-  const already = await importedRefs(deps.sessions)
-  if (already.has(transcript.sessionId)) {
-    return { ok: false, error: 'This pi session is already in Ari.' }
+  if (inFlightImports.has(transcript.sessionId)) {
+    return { ok: false, error: 'This pi session is already being imported.' }
   }
-
-  const projectId = params.projectId ?? projectFor(transcript.cwd, deps.projects)
-  if (projectId === null) {
-    return {
-      ok: false,
-      error: `No Ari project for ${transcript.cwd || 'that folder'} — open the folder first, then import.`,
+  inFlightImports.add(transcript.sessionId)
+  try {
+    const already = await importedRefs(deps.sessions)
+    if (already.has(transcript.sessionId)) {
+      return { ok: false, error: 'This pi session is already in Ari.' }
     }
-  }
 
-  const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-  const completed = await writeImportedJournal(sessionId, projectId, transcript, deps)
-  deps.publish?.(sessionId, completed)
-  log.info('imported a pi session', {
-    sessionId,
-    piSessionId: transcript.sessionId,
-    entries: transcript.entries.length,
-  })
-  return { ok: true, sessionId, title: transcript.title, messageCount: transcript.entries.length }
+    const matchedProjectId = await projectFor(transcript.cwd, deps.projects)
+    const projectId = params.projectId ?? matchedProjectId
+    if (projectId === null) {
+      return {
+        ok: false,
+        error: `No Ari project for ${transcript.cwd || 'that folder'} — open the folder first, then import.`,
+      }
+    }
+    if (deps.projects.get(projectId) === null || matchedProjectId !== projectId) {
+      return {
+        ok: false,
+        error: 'That Pi session belongs to a different project.',
+      }
+    }
+
+    const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    let completed: JournalEvent
+    try {
+      completed = await writeImportedJournal(sessionId, projectId, transcript, deps)
+    } catch (error: unknown) {
+      await deps.sessions.destroy(sessionId).catch((rollbackError: unknown) => {
+        log.error('failed to roll back a partial session import', {
+          sessionId,
+          error: String(rollbackError),
+        })
+      })
+      log.warn('could not import a pi session', { error: String(error) })
+      return { ok: false, error: 'The Pi session could not be imported.' }
+    }
+    deps.publish?.(sessionId, completed)
+    log.info('imported a pi session', {
+      sessionId,
+      piSessionId: transcript.sessionId,
+      entries: transcript.entries.length,
+    })
+    return { ok: true, sessionId, title: transcript.title, messageCount: transcript.entries.length }
+  } finally {
+    inFlightImports.delete(transcript.sessionId)
+  }
 }
 
 /**
@@ -124,7 +177,11 @@ async function writeImportedJournal(
       updatedAt: lastAt,
     },
   })
-  await append(sessionId, { type: 'session.ref.observed', at: startedAt, ref: transcript.sessionId })
+  await append(sessionId, {
+    type: 'session.ref.observed',
+    at: startedAt,
+    ref: `${IMPORTED_PI_REF_PREFIX}${transcript.sessionId}`,
+  })
 
   let turnId: string | null = null
   let messageId: string | null = null
@@ -233,8 +290,7 @@ async function writeImportedJournal(
 /**
  * pi session ids Ari has already imported, read from the journals' own
  * `session.ref.observed`. There is no separate bookkeeping to fall out of sync:
- * the ref that makes an imported session resumable is the same one that marks
- * it imported. Folding a read model per session is the cost of that, so the
+ * the namespaced provenance ref is also what marks it imported. Folding a read model per session is the cost of that, so the
  * listing round is bounded by how many sessions the user has.
  */
 async function importedRefs(sessions: SessionStore): Promise<Set<string>> {
@@ -244,16 +300,22 @@ async function importedRefs(sessions: SessionStore): Promise<Set<string>> {
     const model = await sessions.load(summary.id).catch(() => null)
     if (model?.session?.driverKind !== 'pi') continue
     const ref = model.providerSessionId
-    if (typeof ref === 'string' && ref.length > 0) refs.add(ref)
+    if (typeof ref === 'string' && ref.length > 0) {
+      refs.add(ref.startsWith(IMPORTED_PI_REF_PREFIX) ? ref.slice(IMPORTED_PI_REF_PREFIX.length) : ref)
+    }
   }
   return refs
 }
 
-/** The registered project whose folder is the session's cwd, if any. */
-function projectFor(cwd: string, projects: ProjectStore): string | null {
+function candidateIdFor(path: string): string {
+  return `pi_${createHash('sha256').update(path).digest('base64url')}`
+}
+
+/** The registered project whose canonical folder is the session's cwd, if any. */
+async function projectFor(cwd: string, projects: ProjectStore): Promise<string | null> {
   if (cwd.length === 0) return null
-  const norm = (value: string): string =>
-    value.replace(/[/\\]+$/, '').replace(/\\/g, '/').toLowerCase()
-  const target = norm(cwd)
-  return projects.list().find((project) => norm(project.path) === target)?.id ?? null
+  const target = await canonicalizeFolder(cwd)
+  const key = (value: string): string =>
+    process.platform === 'win32' ? value.toLowerCase() : value
+  return projects.list().find((project) => key(project.path) === key(target))?.id ?? null
 }
