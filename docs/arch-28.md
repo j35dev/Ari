@@ -132,7 +132,9 @@ The form is now first, with Save/Test above the model list so a fetch cannot
 push the actions off-screen. Fetch still imports every discovered model; the
 user deletes the ones they do not want. The default is a dropdown, not a radio
 on each row. Each list is `max-h-52` scrolled so one endpoint cannot push the
-rest of the page away.
+rest of the page away. The Select listbox itself is also `max-h-72` scrolled —
+without that, opening Default on an OpenRouter-scale catalog painted every row
+into a page-height popover and the glass pane disappeared behind it.
 
 ## Where the API key comes from
 
