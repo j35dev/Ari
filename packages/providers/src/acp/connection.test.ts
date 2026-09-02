@@ -313,6 +313,50 @@ describe('AcpConnection', () => {
     connection.kill()
   })
 
+  it('does not fail a silent prompt while the agent waits on a parked user question', async () => {
+    const child = fakeChild()
+    const promptIds: number[] = []
+    script(child, (method, _params, id) => {
+      if (method === 'session/new') return { sessionId: 'sess_park' }
+      if (method === 'session/prompt') {
+        // Answered manually below, only after the user responds — however
+        // long that takes.
+        promptIds.push(id as number)
+        return NO_REPLY
+      }
+      return { ok: true }
+    })
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const created = await connection.newSession('/w')
+    let resolvePermission: ((outcome: unknown) => void) | undefined
+    connection.onRequestPermission = () =>
+      new Promise((resolve) => {
+        resolvePermission = resolve
+      })
+    const promptPromise = connection.prompt(created.sessionId as string, 'do work', 120)
+    await drain()
+    // The agent parks a permission request and goes quiet well past the
+    // stall ceiling — silence while waiting on the user must not fail.
+    child.stdout.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 99,
+        method: 'session/request_permission',
+        params: { sessionId: created.sessionId, options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }] },
+      })}\n`,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(promptIds.length).toBe(1)
+    // User finally answers; the agent completes the turn.
+    resolvePermission?.({ outcome: { outcome: 'selected', optionId: 'allow_once' } })
+    await drain()
+    child.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: promptIds[0], result: { stopReason: 'end_turn' } })}\n`,
+    )
+    await expect(promptPromise).resolves.toBe('end_turn')
+    connection.kill()
+  })
+
   it('decodes npm fatal exits when an npx-launched adapter dies at startup', async () => {
     const child = fakeChild()
     // Never answers the handshake — npm died before the agent started.
@@ -456,11 +500,11 @@ describe('AcpConnection.shutdown', () => {
 
 describe('acpPromptStallMs', () => {
   it('parses the env knob with sane fallbacks', () => {
-    expect(acpPromptStallMs(undefined)).toBe(120_000)
-    expect(acpPromptStallMs('')).toBe(120_000)
+    expect(acpPromptStallMs(undefined)).toBe(300_000)
+    expect(acpPromptStallMs('')).toBe(300_000)
     expect(acpPromptStallMs('30000')).toBe(30_000)
     expect(acpPromptStallMs('0')).toBe(0)
-    expect(acpPromptStallMs('nonsense')).toBe(120_000)
-    expect(acpPromptStallMs('-5')).toBe(120_000)
+    expect(acpPromptStallMs('nonsense')).toBe(300_000)
+    expect(acpPromptStallMs('-5')).toBe(300_000)
   })
 })
