@@ -14,7 +14,7 @@ import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import { sidebarOrder } from './features/session/session-nav'
-import { TerminalWorkspace } from './features/terminal'
+import { TerminalDock } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
@@ -32,11 +32,24 @@ import {
   type SidebarNavId,
 } from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
-import { SIDEBAR_WIDTH_BOUNDS, useSidebarWidth } from './shell/use-sidebar-width'
+import {
+  DOCK_WIDTH_BOUNDS,
+  SIDEBAR_WIDTH_BOUNDS,
+  useDockWidth,
+  useSidebarWidth,
+} from './shell/use-pane-width'
 import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'terminal'>
+type InspectorId = Exclude<SidebarNavId, 'session' | 'settings'>
+
+/** Rail headings, and the accessible name of the rail itself. */
+const INSPECTOR_TITLES: Record<InspectorId, string> = {
+  terminal: 'Terminal',
+  changes: 'Changes',
+  files: 'Files',
+  usage: 'Usage',
+}
 
 /** Full project registry rows; ids feed lookups, paths feed git/fs panes. */
 type ProjectRow = RpcResults['project.list'][number]
@@ -50,9 +63,9 @@ export interface SessionDefaults {
 
 function Shell() {
   const [inspector, setInspector] = useState<InspectorId | null>(null)
-  // Usage, Changes and the terminal workspace get the full page, not a 520px
-  // inspector pane — they're rooms, not tools. Files stays an inspector.
-  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'terminal' | null>(null)
+  // Usage and Changes get the full page — they're rooms. Files and the terminal
+  // are tools, so they dock to the trailing rail beside the transcript.
+  const [fullPage, setFullPage] = useState<'usage' | 'changes' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -84,11 +97,25 @@ function Shell() {
   // is the right home. Ctrl+B toggles; a rail button restores it.
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('ari.sidebar.open') !== '0')
   const sidebar = useSidebarWidth()
+  const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
       localStorage.setItem('ari.sidebar.open', open ? '0' : '1')
       return !open
     })
+  }, [])
+
+  // The terminal is a tool the transcript keeps working next to, so Ctrl+`
+  // docks and undocks the rail instead of navigating anywhere.
+  const toggleTerminal = useCallback(() => {
+    setFullPage(null)
+    setInspector((prev) => (prev === 'terminal' ? null : 'terminal'))
+  }, [])
+
+  // Switching chats must not kill a running shell; every other rail still
+  // yields to the session view the way it always has.
+  const clearTransientInspector = useCallback(() => {
+    setInspector((prev) => (prev === 'terminal' ? prev : null))
   }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -179,10 +206,10 @@ function Shell() {
       if (view === 'settings') {
         setSettingsOpen(true)
       } else if (view === 'sessions') {
-        setInspector(null)
+        clearTransientInspector()
       } else if (view === 'terminal') {
-        setInspector(null)
-        setFullPage('terminal')
+        setFullPage(null)
+        setInspector('terminal')
       } else {
         setInspector(view)
       }
@@ -240,13 +267,17 @@ function Shell() {
         e.preventDefault()
         createSessionRef.current?.()
       }
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === '`') {
+        e.preventDefault()
+        toggleTerminal()
+      }
       if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
         // Mod+1..9 jumps to the nth sidebar row (T3/comet session jumping).
         const target = navOrder[Number(e.key) - 1]
         if (target && !paletteOpen && !searchOpen) {
           e.preventDefault()
           setActiveSessionId(target.id)
-          setInspector(null)
+          clearTransientInspector()
         }
       }
       if (e.ctrlKey && e.key === 'Tab') {
@@ -262,7 +293,7 @@ function Shell() {
               : navOrder[(index + delta + navOrder.length) % navOrder.length]
           if (next) {
             setActiveSessionId(next.id)
-            setInspector(null)
+            clearTransientInspector()
           }
         }
       }
@@ -276,7 +307,7 @@ function Shell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, settingsOpen, navOrder, activeSessionId])
+  }, [paletteOpen, settingsOpen, navOrder, activeSessionId, toggleTerminal, clearTransientInspector])
 
   const createSession = useCallback(
     (overrides?: Partial<SessionDefaults>, projectId = 'adhoc'): void => {
@@ -292,7 +323,7 @@ function Shell() {
       if (reusable) {
         if (overrides) setDefaults(effective)
         setActiveSessionId(reusable.id)
-        setInspector(null)
+        clearTransientInspector()
         return
       }
       void rpc
@@ -307,12 +338,12 @@ function Shell() {
         .then(({ sessionId }) => {
           if (overrides) setDefaults(effective)
           setActiveSessionId(sessionId)
-          setInspector(null)
+          clearTransientInspector()
           refreshSessions()
         })
         .catch((error: unknown) => log.warn("rpc call failed", error))
     },
-    [defaults, sessions, refreshSessions],
+    [defaults, sessions, refreshSessions, clearTransientInspector],
   )
   createSessionRef.current = createSession
 
@@ -329,7 +360,7 @@ function Shell() {
       setFullPage(null)
       return
     }
-    if (id === 'usage' || id === 'changes' || id === 'terminal') {
+    if (id === 'usage' || id === 'changes') {
       setInspector(null)
       setFullPage((prev) => (prev === id ? null : id))
       return
@@ -358,8 +389,8 @@ function Shell() {
           onBack={() => setSettingsOpen(false)}
           onOpenTerminal={() => {
             setSettingsOpen(false)
-            setInspector(null)
-            setFullPage('terminal')
+            setFullPage(null)
+            setInspector('terminal')
           }}
         />
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
@@ -434,7 +465,7 @@ function Shell() {
             activityOf={activityOf}
             onSelect={(id) => {
               setActiveSessionId(id)
-              setInspector(null)
+              clearTransientInspector()
               // Selecting a chat must land on it, not leave Usage/Changes up.
               setFullPage(null)
             }}
@@ -519,10 +550,6 @@ function Shell() {
                 <ErrorBoundary label="Usage">
                   <UsagePage />
                 </ErrorBoundary>
-              ) : fullPage === 'terminal' ? (
-                <ErrorBoundary label="Terminal">
-                  <TerminalWorkspace cwd={(activeProjectPath ?? workspaceCwd) || undefined} />
-                </ErrorBoundary>
               ) : (
                 <ErrorBoundary label="Changes">
                   <ChangesView
@@ -556,36 +583,72 @@ function Shell() {
               )}
             </div>
             {inspector ? (
-              <aside className="flex w-[min(520px,46vw)] shrink-0 flex-col border-l border-border">
-                <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-                  <span className="text-xs font-medium text-fg">Changes</span>
-                  <div className="flex-1" />
-                  <button
-                    type="button"
-                    aria-label="Close inspector"
-                    onClick={() => setInspector(null)}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-                <div className="min-h-0 flex-1">
-                  {inspector === 'changes' ? (
-                    <ErrorBoundary label="Changes">
-                      <ChangesView
-                        sessionId={activeSessionId}
-                        projectId={activeSession?.projectId ?? null}
-                      />
-                    </ErrorBoundary>
-                  ) : activeProjectPath ? (
-                    <FileExplorer root={activeProjectPath} />
-                  ) : (
-                    <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-                      Open a project first — the explorer browses its folder.
+              <>
+                <div
+                  role="separator"
+                  aria-label="Resize panel"
+                  aria-orientation="vertical"
+                  aria-valuenow={dock.width}
+                  aria-valuemin={DOCK_WIDTH_BOUNDS.min}
+                  aria-valuemax={DOCK_WIDTH_BOUNDS.max}
+                  tabIndex={0}
+                  title="Drag to resize · double-click to reset"
+                  {...dock.handleProps}
+                  className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
+                    dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
+                  }`}
+                />
+                <aside
+                  role="complementary"
+                  aria-label={INSPECTOR_TITLES[inspector]}
+                  className="flex shrink-0 flex-col border-l border-border"
+                  style={{ width: dock.width, maxWidth: '60vw' }}
+                >
+                  {inspector === 'terminal' ? (
+                    <div className="min-h-0 flex-1">
+                      <ErrorBoundary label="Terminal">
+                        <TerminalDock
+                          cwd={(activeProjectPath ?? workspaceCwd) || undefined}
+                          onClose={() => setInspector(null)}
+                        />
+                      </ErrorBoundary>
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+                        <span className="text-xs font-medium text-fg">
+                          {INSPECTOR_TITLES[inspector]}
+                        </span>
+                        <div className="flex-1" />
+                        <button
+                          type="button"
+                          aria-label="Close inspector"
+                          onClick={() => setInspector(null)}
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                      <div className="min-h-0 flex-1">
+                        {inspector === 'changes' ? (
+                          <ErrorBoundary label="Changes">
+                            <ChangesView
+                              sessionId={activeSessionId}
+                              projectId={activeSession?.projectId ?? null}
+                            />
+                          </ErrorBoundary>
+                        ) : activeProjectPath ? (
+                          <FileExplorer root={activeProjectPath} />
+                        ) : (
+                          <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
+                            Open a project first — the explorer browses its folder.
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
-                </div>
-              </aside>
+                </aside>
+              </>
             ) : null}
           </div>
           )}
@@ -603,7 +666,7 @@ function Shell() {
           onImported={(sessionId) => {
             refreshSessions()
             setActiveSessionId(sessionId)
-            setInspector(null)
+            clearTransientInspector()
             setFullPage(null)
           }}
         />
