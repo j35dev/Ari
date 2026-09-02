@@ -152,10 +152,11 @@ update awareness, model lists fetched from the providers themselves (models.dev 
 
 - [x] M19.1 Codex app-server JSON-RPC driver
 - [x] M19.2 MCP stdio client in Ari Core
-- [x] M19.3 Git worktree per session
+- [x] M19.3 Git worktree per session — **removed 2026-09-03**, see the M34 entry: relocating an
+      agent into `.ari/worktrees/<sessionId>` is the harness's call, not Ari's
 - [x] M19.4 Message retry / edit / regenerate
 - [x] M19.5 Git add / commit / push RPC
-- [x] M19.6 Canonical worktree path identity: treat macOS `/var` and `/private/var` spellings as the same checkout so repeated session turns reuse their linked worktree; worktree tests compare canonical filesystem paths.
+- [x] M19.6 Canonical worktree path identity: treat macOS `/var` and `/private/var` spellings as the same checkout so repeated session turns reuse their linked worktree; worktree tests compare canonical filesystem paths. (Retired with M19.3; `GitService`'s worktree primitives keep their own path tests.)
 
 ## M0 — Scaffold
 
@@ -588,6 +589,27 @@ because `session/load` history replay was folded into the new turn's assistant m
       no audio asset). Fires for live settles only, never journal replay, and is
       gated by Settings › Notifications › Completion sound
       (`notifications.settleSound`, default on).
+- [x] Ari stops making worktrees (bug report, 2026-09-03): a user asked an agent to
+      build something and found it built inside `.ari/worktrees/<sessionId>` on
+      branch `ari/<sessionId>` instead of the project folder they opened. Asked
+      why, the agent said it was part of its workflow architecture — it wasn't,
+      Ari had put it there. M19.3 made this unconditional: `#turnWorkspace` read
+      the presence of `resolveWorkspace` as consent, lazily built the default
+      worktree source, and `ensureSessionWorktree` created a linked checkout on
+      the first `turn.start` of every project session in a git repo. Nothing
+      surfaced it — the Changes rail, per-turn diffs, and the terminal all read
+      the project path, so the agent's work was invisible in the UI and piled up
+      untracked worktrees (this repo had 20). Deciding to branch or isolate
+      belongs to the agent, which the user prompts directly, so the whole
+      mechanism is gone rather than made switchable: `packages/engine/src/git/
+      session-worktree.ts` and its tests are deleted, the `git` barrel no longer
+      exports them, and `EngineDeps` loses `worktrees`/`SessionWorktreeSource`.
+      A turn's cwd is now exactly `#workspaceFor(projectId)` — the registered
+      project folder, or the home dir for ad-hoc — which is also what checkpoints
+      and `checkpoint.revert` operate on. `GitService.addWorktree` /
+      `removeWorktree` / `listWorktrees` stay as plain git primitives with no
+      caller in the turn path. Leftover `.ari/worktrees/<id>` checkouts from
+      earlier versions are untouched; work in them is on `ari/<sessionId>`.
 
 ## Stretch backlog (post-V1, unplanned)
 
