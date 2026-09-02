@@ -627,6 +627,25 @@ because `session/load` history replay was folded into the new turn's assistant m
       so shuffled JSON or a reordered parallel batch no longer slips past. The
       UI gained a `Turn stopped early` family for both messages, and the failure
       banner no longer prints `Turn failed — Turn failed.` when no family matches.
+- [x] Custom-endpoint context budget matches a real model window (bug report,
+      2026-09-03): the same user reported thinking-but-never-editing turns that
+      spun for a long time with nothing on screen, far slower than the same
+      endpoint on another harness. `CONTEXT_WINDOW_CHARS` was 120,000 characters
+      (~30k tokens) for every endpoint and compaction fires at 75% of it, while
+      `read` returns up to 50KB per call — so two file reads cross the threshold
+      and a real task compacts constantly. Each compaction costs an extra model
+      call whose events are all discarded (`summarize` keeps only `text-delta`),
+      which is the blank spinner, and whose result is often empty because that
+      call still advertises the full tool set and the model answers with tool
+      calls instead of prose — leaving the context unchanged, so it re-fires next
+      round while `trimMessages` drops the file contents the model was working
+      from. The budget is now `DEFAULT_CONTEXT_WINDOW_TOKENS` (500k) ×
+      `CHARS_PER_TOKEN` (4), so compaction engages near 375k tokens rather than
+      ~22k. Ari Core only; CLI-backed providers manage their own context. Known
+      gaps: the summarize call still advertises tools, and a model whose real
+      window is under ~375k tokens now hits the provider's limit before this
+      budget, which surfaces as `empty response (3 attempts)` because an HTTP
+      error round is counted as an empty one.
 
 ## Stretch backlog (post-V1, unplanned)
 
