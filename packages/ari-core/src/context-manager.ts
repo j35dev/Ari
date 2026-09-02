@@ -10,10 +10,31 @@ import type { ChatMessage } from './protocols/openai-chat'
 export const TRIMMED_TOOL_RESULTS_PLACEHOLDER = '[earlier tool results trimmed]'
 
 /**
- * Soft context budget (in content characters) applied by the driver before
- * each model round. Roughly ~30k tokens for typical tokenizers.
+ * Characters per token assumed when converting a model's token context window
+ * into the character budget these functions work in. Four is the usual figure
+ * for English source code across mainstream tokenizers.
  */
-export const CONTEXT_WINDOW_CHARS = 120_000
+export const CHARS_PER_TOKEN = 4
+
+/**
+ * Default assumed context window, in tokens, for a custom endpoint whose real
+ * window Ari does not know. Ari Core only — CLI-backed providers manage their
+ * own context and never consult this.
+ */
+export const DEFAULT_CONTEXT_WINDOW_TOKENS = 500_000
+
+/**
+ * Soft context budget (in content characters) applied before each model round,
+ * derived from {@link DEFAULT_CONTEXT_WINDOW_TOKENS}.
+ *
+ * It is deliberately generous: the budget is a backstop against a runaway
+ * session, not a target. Set too low it compacts constantly, and each
+ * compaction costs an extra model call and drops the file contents the model is
+ * working from, which reads as a slow agent that keeps re-reading instead of
+ * editing. The trade at this size is that a model with a smaller real window
+ * will hit its own limit before this budget engages.
+ */
+export const CONTEXT_WINDOW_CHARS = DEFAULT_CONTEXT_WINDOW_TOKENS * CHARS_PER_TOKEN
 
 /**
  * Fraction of the budget that must be in use before compaction is worth a
