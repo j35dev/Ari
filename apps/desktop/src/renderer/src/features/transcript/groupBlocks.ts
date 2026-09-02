@@ -63,11 +63,22 @@ export function insertTurnDiffRows(
   return out
 }
 
+/** Long tool runs chunk into bursts of at most this many calls per row. */
+export const MAX_CALLS_PER_GROUP = 6
+
+function callsIn(run: TranscriptBlock[]): number {
+  let n = 0
+  for (const b of run) if (b.kind === 'tool-call') n++
+  return n
+}
+
 /**
  * Collapses each run of consecutive work blocks — tool calls, results, and the
- * reasoning between them — into a single activity row ("Ran 3 commands ·
- * Edited 1 file"), leaving assistant prose and user bubbles as their own rows.
- * A run carrying any tool traffic always becomes a group, even a single
+ * reasoning between them — into activity rows ("Ran 3 commands · Edited 1
+ * file"), leaving assistant prose and user bubbles as their own rows. Long
+ * runs chunk into bursts of at most {@link MAX_CALLS_PER_GROUP} calls so an
+ * expanded row stays a short step list instead of a fifty-line dropdown. A
+ * burst carrying any tool traffic always becomes a group, even a single
  * in-flight call, so the row does not change shape as results stream in; a
  * lone thinking block stays a plain thinking row. Group keys span first→last
  * member so they stay stable while more parts arrive. When `turnDiffs` carries
@@ -112,6 +123,9 @@ export function groupBlocks(
 
   for (const block of blocks) {
     if (isActivityBlock(block)) {
+      if (block.kind === 'tool-call' && hasToolTraffic(run) && callsIn(run) >= MAX_CALLS_PER_GROUP) {
+        flush()
+      }
       run.push(block)
     } else {
       flush()
@@ -179,7 +193,7 @@ export function formatToolSummary(summary: ToolActivitySummary): string {
   if (summary.edited > 0) parts.push(`Edited ${summary.edited} file${summary.edited === 1 ? '' : 's'}`)
   if (summary.read > 0) parts.push(`Read ${summary.read} file${summary.read === 1 ? '' : 's'}`)
   if (summary.searched > 0)
-    parts.push(`Searched ×${summary.searched}`)
+    parts.push(`Searched ${summary.searched} time${summary.searched === 1 ? '' : 's'}`)
   return parts.join(' · ')
 }
 
