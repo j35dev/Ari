@@ -389,6 +389,18 @@ export interface RpcResults {
     models: CatalogModelInfo[]
     /** Thought/reasoning levels the harness advertised; empty when it has none. */
     efforts: { id: string; label: string; description?: string; current?: boolean }[]
+    /**
+     * Permission modes the harness advertised over ACP, each mapped onto the
+     * Ari mode it behaves like (codex `yolo` → `full`); empty when none were
+     * discovered, in which case the picker falls back to Ari's own vocabulary.
+     */
+    modes: {
+      id: string
+      label: string
+      description?: string
+      ariMode: 'ask' | 'allow-edits' | 'full'
+      current?: boolean
+    }[]
   }[]
   /**
    * The literal argv Ari would run to install or upgrade a provider CLI, so
