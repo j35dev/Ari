@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { activityHeadline, formatToolSummary, groupBlocks, summarizeToolRun } from './groupBlocks'
+import {
+  activityHeadline,
+  formatToolSummary,
+  groupBlocks,
+  MAX_CALLS_PER_GROUP,
+  summarizeToolRun,
+} from './groupBlocks'
 import { splitBlocks } from './splitBlocks'
 import type { Message } from '@ari/contracts/message'
 import type { TranscriptBlock } from './types'
@@ -55,6 +61,22 @@ describe('groupBlocks', () => {
     expect(row.key).toBe('m2#0..m2#3')
     expect(row.calls.map((c) => c.callId)).toEqual(['c1', 'c2'])
     expect(row.resultsByCallId.get('c1')?.kind).toBe('tool-result')
+  })
+
+  it('chunks a long run into bursts of at most MAX_CALLS_PER_GROUP calls', () => {
+    const parts: Message['parts'] = []
+    for (let i = 0; i < MAX_CALLS_PER_GROUP + 2; i++) {
+      parts.push({ type: 'tool-call', callId: `c${i}`, name: 'Bash', argsJson: '{}' })
+      parts.push({ type: 'tool-result', callId: `c${i}`, resultJson: '"ok"', isError: false })
+    }
+    const rows = groupBlocks(splitBlocks([assistantMessage(parts)]))
+    expect(rows).toHaveLength(2)
+    const [first, second] = rows
+    if (first?.kind !== 'tool-group' || second?.kind !== 'tool-group') {
+      throw new Error('expected two tool groups')
+    }
+    expect(first.calls).toHaveLength(MAX_CALLS_PER_GROUP)
+    expect(second.calls).toHaveLength(2)
   })
 
   it('folds interleaved thinking into the run and breaks only on assistant prose', () => {
@@ -195,7 +217,7 @@ describe('summarizeToolRun + formatToolSummary', () => {
     expect(summary.edited).toBe(2)
     expect(summary.read).toBe(1)
     expect(summary.searched).toBe(2)
-    expect(formatToolSummary(summary)).toBe('Ran 2 commands · Edited 2 files · Read 1 file · Searched ×2')
+    expect(formatToolSummary(summary)).toBe('Ran 2 commands · Edited 2 files · Read 1 file · Searched 2 times')
   })
 
   it('counts errors and pending calls', () => {

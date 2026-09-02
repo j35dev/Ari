@@ -51,13 +51,22 @@ describe('ToolActivityGroup collapsed state', () => {
     expect(screen.queryByText('weighing the options')).not.toBeInTheDocument()
   })
 
-  it('names the in-flight call while a result is outstanding', () => {
+  it('starts a working burst expanded as a live timeline', () => {
     render(<ToolActivityGroup row={row(RUN.slice(0, 5))} />)
 
-    expect(screen.getByRole('button', { expanded: false })).toHaveTextContent(
+    expect(screen.getByRole('button', { expanded: true })).toHaveTextContent(
       'Reading desktop/main.ts',
     )
     expect(screen.getByLabelText('working')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ran git status --short' })).toBeInTheDocument()
+  })
+
+  it('compacts a settled burst until the user expands it', () => {
+    render(<ToolActivityGroup row={row(RUN)} />)
+
+    expect(screen.getByRole('button', { expanded: false })).toHaveTextContent(
+      'Ran 1 command · Read 1 file',
+    )
   })
 
   it('badges failures on the collapsed row', () => {

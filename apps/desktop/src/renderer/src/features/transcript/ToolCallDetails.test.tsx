@@ -20,7 +20,7 @@ describe('ToolCallDetails', () => {
     expect(screen.getByLabelText('Copy')).toBeInTheDocument()
   })
 
-  it('renders edits as Before/After panels', () => {
+  it('renders edits as a unified diff, not Before/After panels', () => {
     render(
       <ToolCallDetails
         call={call(
@@ -31,10 +31,12 @@ describe('ToolCallDetails', () => {
     )
 
     expect(screen.getByText('Ari Edit')).toBeInTheDocument()
-    expect(screen.getByText('Before')).toBeInTheDocument()
+    expect(screen.getByText('changes')).toBeInTheDocument()
+    expect(screen.getByText('src/a.ts')).toBeInTheDocument()
     expect(screen.getByText('const a = 1')).toBeInTheDocument()
-    expect(screen.getByText('After')).toBeInTheDocument()
     expect(screen.getByText('const a = 2')).toBeInTheDocument()
+    expect(screen.queryByText('Before')).not.toBeInTheDocument()
+    expect(screen.queryByText('After')).not.toBeInTheDocument()
   })
 
   it('labels read and search fields with shortened paths', () => {

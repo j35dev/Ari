@@ -676,6 +676,20 @@ the user's text bubble (`attachments.read`, cached per id).
 
 - [x] M35 Composer images end-to-end: staged refs through `turn.start`/queue, delivery in every transport, transcript thumbnails
 
+## M35 — Transcript parsing UX (live timeline + edit diffs)
+
+Why (user feedback): a whole turn collapsed into one activity row, so reads,
+thinking, and edits were a single long dropdown; edit previews were
+Before/After text dumps instead of diffs.
+
+- [x] M35.1 Bursts + live timeline: runs chunk at 6 calls per row
+      (`MAX_CALLS_PER_GROUP`); a working burst starts expanded naming the
+      in-flight call and compacts on settle unless toggled; error counts read
+      muted; running calls show headline only; thinking is a dim expandable
+      preview (Claude style); edits synthesize a unified diff into the shared
+      `DiffViewer` (Before/After kept as oversized fallback); tally reads
+      `Searched N times`
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
