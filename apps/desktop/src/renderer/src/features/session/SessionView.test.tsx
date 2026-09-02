@@ -947,10 +947,18 @@ describe('SessionView queued messages', () => {
 })
 
 describe('PermissionModeChip', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockResolvedValue([
+      { kind: 'codex', source: 'live', models: [], efforts: [], modes: [] },
+    ])
+    rpcMocks.subscribe.mockReturnValue(() => undefined)
+  })
+
   it('opens a listbox and reports the chosen mode', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
-    render(<PermissionModeChip mode="ask" onChange={onChange} />)
+    render(<PermissionModeChip driverKind="codex" mode="ask" onChange={onChange} />)
 
     await user.click(screen.getByRole('button', { name: 'Permission mode: Ask' }))
     const listbox = screen.getByRole('listbox', { name: 'Permission mode' })
@@ -958,6 +966,43 @@ describe('PermissionModeChip', () => {
 
     await user.click(screen.getByRole('option', { name: /Full auto/ }))
     expect(onChange).toHaveBeenCalledWith('full')
+  })
+
+  it("offers the harness's own modes when the ACP probe classified them", async () => {
+    const user = userEvent.setup()
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'codex',
+        source: 'live',
+        models: [],
+        efforts: [],
+        modes: [
+          { id: 'chat', label: 'Chat', ariMode: 'ask' },
+          { id: 'build', label: 'Build', ariMode: 'allow-edits' },
+          { id: 'yolo', label: 'Yolo', description: 'Skip every approval', ariMode: 'full' },
+        ],
+      },
+    ])
+    const onChange = vi.fn()
+    render(<PermissionModeChip driverKind="codex" mode="ask" onChange={onChange} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Permission mode: Chat' }))
+    // Native labels replace Ari's generic ones; the description doubles as hint.
+    expect(screen.getByRole('option', { name: /Yolo/ })).toHaveTextContent('Skip every approval')
+    expect(screen.queryByRole('option', { name: /Full auto/ })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('option', { name: /Yolo/ }))
+    expect(onChange).toHaveBeenCalledWith('full')
+  })
+
+  it("falls back to Ari's own vocabulary while the catalog is empty", async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(<PermissionModeChip driverKind="codex" mode="ask" onChange={onChange} />)
+
+    await user.click(screen.getByRole('button', { name: 'Permission mode: Ask' }))
+    await user.click(screen.getByRole('option', { name: /Edits/ }))
+    expect(onChange).toHaveBeenCalledWith('allow-edits')
   })
 })
 
