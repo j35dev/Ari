@@ -368,4 +368,24 @@ describe('Composer mention highlight', () => {
 
     expect(document.querySelector('mark')).toBeNull()
   })
+
+  it('paints the overlay inside the field box, never across the plate', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'see @src/app.ts ok')
+
+    // The highlight mirror must share the textarea's wrapper (inset-0 = the
+    // field's own box) so it cannot bleed over the send controls once the
+    // draft grows past MAX_HEIGHT and the field scrolls.
+    const mark = screen.getByText('@src/app.ts')
+    const overlay = mark.closest('div[aria-hidden="true"]')!
+    expect(overlay.parentElement).toBe(input.parentElement)
+    expect(overlay.contains(screen.getByRole('button', { name: 'Send' }))).toBe(false)
+
+    // Both layers must reserve the same scrollbar gutter so line wrapping —
+    // and therefore character alignment — stays identical while scrolling.
+    expect(input.className).toContain('scrollbar-gutter')
+    expect(overlay.className).toContain('scrollbar-gutter')
+  })
 })
