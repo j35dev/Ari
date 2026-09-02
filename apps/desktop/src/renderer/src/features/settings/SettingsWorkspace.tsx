@@ -84,13 +84,28 @@ export function SettingsWorkspace({
   return (
     <div className="flex min-h-0 flex-1">
       <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
-        <div className="flex items-center px-3 pb-1 pt-3">
+        {/* Back leads the header rather than sitting in a footer. The row is
+            below the titlebar, so it clears the macOS hiddenInset traffic
+            lights without needing a leading inset. */}
+        <div className="flex items-center gap-1.5 px-2 pb-1 pt-3">
+          <button
+            type="button"
+            aria-label="Back"
+            title="Back to workspace"
+            onClick={onBack}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            <ArrowLeft size={14} strokeWidth={1.8} aria-hidden />
+          </button>
           <span className="text-sm font-semibold tracking-tight text-fg">Settings</span>
         </div>
         <div className="px-3 pb-2 pt-1">
           <SettingsSearch onJump={handleSearchJump} />
         </div>
-        <nav aria-label="Settings sections" className="min-h-0 flex-1 overflow-y-auto px-2">
+        <nav
+          aria-label="Settings sections"
+          className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+        >
           <ul className="flex flex-col gap-0.5">
             {SETTINGS_SECTIONS.map((entry) => {
               const Icon: LucideIcon = entry.icon
@@ -115,16 +130,6 @@ export function SettingsWorkspace({
             })}
           </ul>
         </nav>
-        <div className="border-t border-border px-2 py-1.5">
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <ArrowLeft size={14} aria-hidden />
-            Back
-          </button>
-        </div>
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col border-l border-border bg-bg">
