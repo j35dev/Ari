@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CONTEXT_WINDOW_CHARS,
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
   TRIMMED_TOOL_RESULTS_PLACEHOLDER,
   trimMessages,
 } from './context-manager'
@@ -141,6 +142,7 @@ describe('trimMessages', () => {
   })
 
   it('exposes the driver default budget constant', () => {
-    expect(CONTEXT_WINDOW_CHARS).toBe(120_000)
+    expect(DEFAULT_CONTEXT_WINDOW_TOKENS).toBe(500_000)
+    expect(CONTEXT_WINDOW_CHARS).toBe(2_000_000)
   })
 })
