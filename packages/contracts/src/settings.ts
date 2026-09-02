@@ -62,6 +62,12 @@ export const settingsSchema = z.object({
       defaultPermissionMode: permissionModeSchema.default('ask'),
     })
     .default({ defaultDriverKind: null, defaultPermissionMode: 'ask' }),
+  notifications: z
+    .object({
+      /** Soft chime when a turn settles; failures get their own muted tone. */
+      settleSound: z.boolean().default(true),
+    })
+    .default({ settleSound: true }),
   permissions: z
     .object({
       /** Tools pre-approved across all sessions, e.g. ['Bash(git status*)']. */
@@ -105,6 +111,12 @@ export const settingsUpdateSchema = z.object({
     })
     .partial()
     .optional(),
+  notifications: z
+    .object({
+      settleSound: z.boolean(),
+    })
+    .partial()
+    .optional(),
   permissions: z
     .object({
       allowlist: z.array(z.string()),
@@ -128,6 +140,7 @@ export const defaultSettings: Settings = {
   version: 1,
   appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  notifications: { settleSound: true },
   permissions: { allowlist: [] },
   window: null,
 }

@@ -24,6 +24,7 @@ const engineSettings: Settings = {
     wallpaper: 'none',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  notifications: { settleSound: true },
   permissions: { allowlist: ['git status'] },
   window: null,
 }
@@ -96,6 +97,7 @@ describe('AdvancedSettings', () => {
     const bundle = {
       version: 1,
       appearance: { themeId: 'porcelain' },
+      notifications: { settleSound: false },
       permissions: { allowlist: ['git status'] },
       window: { x: 10, y: 20, width: 800, height: 600, maximized: false },
     }
@@ -108,6 +110,7 @@ describe('AdvancedSettings', () => {
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({
         appearance: { themeId: 'porcelain' },
+        notifications: { settleSound: false },
         permissions: { allowlist: ['git status'] },
       }),
     )

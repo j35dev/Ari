@@ -9,6 +9,8 @@ export {
   useSettleNotify,
 } from './SettleNotification'
 export type { SettleNotifyOptions } from './SettleNotification'
+export { playSettleSound } from './settle-sound'
+export type { SettleSoundKind } from './settle-sound'
 export { SessionActivityMark } from './SessionActivityMark'
 export type { SessionActivityMarkProps } from './SessionActivityMark'
 export { WorkingGlyph } from './WorkingGlyph'

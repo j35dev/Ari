@@ -40,6 +40,18 @@ describe('SettingsStore', () => {
     expect(persisted.appearance.mode).toBe('nocturne')
   })
 
+  it('merges notification patches and defaults the settle sound for old files', async () => {
+    const store = new SettingsStore({ dir })
+    await store.load()
+    expect(store.current.notifications.settleSound).toBe(true)
+    const next = await store.update({ notifications: { settleSound: false } })
+    expect(next.notifications.settleSound).toBe(false)
+    expect(next.appearance.themeId).toBe('obsidian') // untouched section survives
+
+    const persisted = await new SettingsStore({ dir }).load()
+    expect(persisted.notifications.settleSound).toBe(false)
+  })
+
   it('falls back to defaults on corrupt file', async () => {
     const { writeFile } = await import('node:fs/promises')
     await writeFile(join(dir, 'settings.json'), '{corrupt', 'utf8')

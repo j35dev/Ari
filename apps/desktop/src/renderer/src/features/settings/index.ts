@@ -5,6 +5,7 @@ export type { SettingsWorkspaceProps, SettingsSectionId } from './SettingsWorksp
 export { SettingsRow } from './SettingsRow'
 export { KeyboardCheatSheet } from './KeyboardCheatSheet'
 export { KeybindingsSettings } from './KeybindingsSettings'
+export { NotificationsSettings } from './NotificationsSettings'
 export { PermissionsSettings } from './PermissionsSettings'
 export { SettingsPage } from './SettingsPage'
 export {

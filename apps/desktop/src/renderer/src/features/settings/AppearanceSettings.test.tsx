@@ -24,6 +24,7 @@ const engineSettings: Settings = {
     wallpaper: 'none',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  notifications: { settleSound: true },
   permissions: { allowlist: [] },
   window: null,
 }
