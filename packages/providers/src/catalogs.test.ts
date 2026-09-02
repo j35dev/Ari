@@ -4,11 +4,14 @@ import {
   catalogSource,
   clearDynamicEfforts,
   clearDynamicModels,
+  clearDynamicModes,
   effortsFor,
   MODEL_CATALOGS,
   modelsFor,
+  modesFor,
   setDynamicEfforts,
   setDynamicModels,
+  setDynamicModes,
 } from './catalogs'
 
 const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
@@ -17,6 +20,7 @@ afterEach(() => {
   for (const kind of ALL_KINDS) {
     clearDynamicModels(kind)
     clearDynamicEfforts(kind)
+    clearDynamicModes(kind)
   }
 })
 
@@ -123,5 +127,33 @@ describe('effortsFor', () => {
     expect(effortsFor('grok').options.map((o) => o.id)).toEqual(['low', 'high'])
     setDynamicEfforts('grok', { currentId: null, options: [] })
     expect(effortsFor('grok').options.map((o) => o.id)).toContain('xhigh')
+  })
+})
+
+describe('modesFor', () => {
+  it('is empty for every kind until a probe classifies the agent vocabulary', () => {
+    for (const kind of ALL_KINDS) {
+      expect(modesFor(kind)).toEqual({ currentId: null, options: [] })
+    }
+  })
+
+  it('carries the probe result, unclassified modes included', () => {
+    setDynamicModes('codex', {
+      currentId: 'yolo',
+      options: [
+        { id: 'chat', label: 'Chat', ariMode: 'ask' },
+        { id: 'yolo', label: 'Yolo', ariMode: 'full' },
+        { id: 'mystery', label: 'Mystery', ariMode: null },
+      ],
+    })
+    expect(modesFor('codex').currentId).toBe('yolo')
+    expect(modesFor('codex').options.map((o) => [o.id, o.ariMode])).toEqual([
+      ['chat', 'ask'],
+      ['yolo', 'full'],
+      ['mystery', null],
+    ])
+    // The picker filter is the RPC layer's job; the overlay keeps raw data.
+    setDynamicModes('codex', { currentId: null, options: [] })
+    expect(modesFor('codex')).toEqual({ currentId: null, options: [] })
   })
 })

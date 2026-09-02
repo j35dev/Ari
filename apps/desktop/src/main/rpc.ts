@@ -33,7 +33,15 @@ import { detectDriver } from '@ari/providers/detector'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
-import { catalogSource, effortsFor, modelsFor, setDynamicEfforts } from '@ari/providers/catalogs'
+import {
+  catalogSource,
+  effortsFor,
+  modelsFor,
+  modesFor,
+  setDynamicEfforts,
+  setDynamicModes,
+} from '@ari/providers/catalogs'
+import { agentModesFromSession } from '@ari/providers/acp/modes'
 import {
   mergeEffortCatalogs,
   thoughtEffortsFromMeta,
@@ -120,6 +128,9 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
         thoughtEffortsFromMeta(connection.initialize._meta),
       ),
     )
+    // And the permission-mode selector, so the picker can offer the harness's
+    // own modes (codex `yolo`, claude `bypassPermissions`) instead of guessing.
+    setDynamicModes(kind, agentModesFromSession(created))
     return models
   } finally {
     await connection.shutdown()
@@ -716,6 +727,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('providers.models', () =>
     ALL_PROVIDER_KINDS.map((kind) => {
       const catalog = effortsFor(kind)
+      const modeCatalog = modesFor(kind)
       return {
         kind,
         source: catalogSource(kind),
@@ -726,6 +738,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           ...(option.description !== undefined ? { description: option.description } : {}),
           ...(catalog.currentId === option.id ? { current: true as const } : {}),
         })),
+        // Only classifiable modes reach the renderer; the picker falls back to
+        // Ari's own vocabulary when the list is empty.
+        modes: modeCatalog.options
+          .filter((option) => option.ariMode !== null)
+          .map((option) => ({
+            id: option.id,
+            label: option.label,
+            ...(option.description !== undefined ? { description: option.description } : {}),
+            ariMode: option.ariMode as 'ask' | 'allow-edits' | 'full',
+            ...(modeCatalog.currentId === option.id ? { current: true as const } : {}),
+          })),
       }
     }),
   )
