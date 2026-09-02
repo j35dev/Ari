@@ -113,6 +113,17 @@ describe('contracts', () => {
     expect(parsed.appearance.wallpaper).toBe('none')
   })
 
+  it('defaults the settle sound to on when settings predate the section', () => {
+    const parsed = settingsSchema.parse({ version: 1 })
+    expect(parsed.notifications.settleSound).toBe(true)
+    expect(settingsUpdateSchema.parse({ notifications: { settleSound: false } })).toEqual({
+      notifications: { settleSound: false },
+    })
+    expect(settingsUpdateSchema.safeParse({ notifications: { settleSound: 'no' } }).success).toBe(
+      false,
+    )
+  })
+
   it('drops the retired wallpaperLook field from stored settings', () => {
     const parsed = settingsSchema.parse({
       version: 1,

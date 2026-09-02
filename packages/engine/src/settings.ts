@@ -53,6 +53,7 @@ export class SettingsStore {
   async update(patch: {
     appearance?: Partial<Settings['appearance']>
     sessions?: Partial<Settings['sessions']>
+    notifications?: Partial<Settings['notifications']>
     permissions?: Partial<Settings['permissions']>
     window?: Settings['window']
   }): Promise<Settings> {
@@ -60,6 +61,7 @@ export class SettingsStore {
       version: 1,
       appearance: { ...this.#current.appearance, ...patch.appearance },
       sessions: { ...this.#current.sessions, ...patch.sessions },
+      notifications: { ...this.#current.notifications, ...patch.notifications },
       permissions: { ...this.#current.permissions, ...patch.permissions },
       window: patch.window !== undefined ? patch.window : this.#current.window,
     }
