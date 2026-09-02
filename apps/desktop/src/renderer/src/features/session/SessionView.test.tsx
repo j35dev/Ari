@@ -1438,6 +1438,42 @@ describe('SessionView settle sound', () => {
     })
   }
 
+  function emitApproval(replay = false): void {
+    act(() => {
+      sessionListener?.({
+        sessionId: 'sess_1',
+        replay,
+        event: {
+          seq: replay ? 2 : 101,
+          at: 2,
+          sessionId: 'sess_1',
+          type: 'approval.requested',
+          approvalId: replay ? 'ap_r' : 'ap_l',
+          toolName: 'bash',
+          summaryJson: '{}',
+        },
+      })
+    })
+  }
+
+  function emitQuestion(replay = false): void {
+    act(() => {
+      sessionListener?.({
+        sessionId: 'sess_1',
+        replay,
+        event: {
+          seq: replay ? 3 : 102,
+          at: 3,
+          sessionId: 'sess_1',
+          type: 'input.requested',
+          inputId: replay ? 'q_r' : 'q_l',
+          prompt: 'Which branch?',
+          choicesJson: null,
+        },
+      })
+    })
+  }
+
   it('plays the complete cue for a live settle', async () => {
     renderView()
     await screen.findByLabelText('Message')
@@ -1466,6 +1502,34 @@ describe('SessionView settle sound', () => {
     expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
   })
 
+  it('plays the attention cue for a live approval request', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitApproval()
+
+    expect(settleSoundMocks.playSettleSound).toHaveBeenCalledWith('attention')
+  })
+
+  it('plays the attention cue for a live question', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitQuestion()
+
+    expect(settleSoundMocks.playSettleSound).toHaveBeenCalledWith('attention')
+  })
+
+  it('stays silent for replayed approval and question blocks', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitApproval(true)
+    emitQuestion(true)
+
+    expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
+  })
+
   it('stays silent when the setting is off', async () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') {
@@ -1488,6 +1552,8 @@ describe('SessionView settle sound', () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
     emitSettle('completed')
+    emitApproval()
+    emitQuestion()
     expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
   })
 })
