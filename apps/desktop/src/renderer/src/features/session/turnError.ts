@@ -16,7 +16,12 @@ export interface TurnErrorView {
 /** Ordered families — the first match wins. */
 const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
   [
-    /not authenticated|unauthorized|401|invalid api key|invalid apikey|api key|apikey|oauth|login/i,
+    // Deliberately excludes the bare word "login": the ACP stall watchdog's
+    // message ends "…may be wedged or waiting for login", and that is a stall
+    // failure, not an auth one — matching it here used to relabel wedged
+    // agents as "Authentication required" and send users to a terminal for
+    // a login they did not need.
+    /not authenticated|unauthorized|401|invalid api key|invalid apikey|api key|apikey|oauth|login flow|sign in/i,
     'Authentication required',
     'Run the agent’s login flow once in a terminal, then retry.',
   ],
@@ -31,7 +36,9 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
     'The CLI may not be installed or is missing from PATH — install it and confirm it runs in a terminal, then retry.',
   ],
   [
-    /timed? ?out|no output within|stall|wedged|handshake/i,
+    // "went silent" is the stall watchdog's exact phrasing; "waiting for
+    // login" in its message must land here, not in the auth family above.
+    /timed? ?out|no output within|went silent|stall|wedged|handshake/i,
     'Agent timed out',
     'The agent stopped responding — it may be waiting for login or a hung process. Retry once it responds in a terminal.',
   ],
