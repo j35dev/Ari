@@ -23,6 +23,8 @@ import {
   replyPlanExit,
 } from './client-requests'
 import { findThoughtOption, looksLikeThoughtAxis } from './thought'
+import { findModeOption, pickAgentMode } from './modes'
+export { pickAgentMode } from './modes'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
 import type {
   AcpConfigOption,
@@ -113,6 +115,23 @@ export async function createAcpAdapter(
         encodeQuestionnaire({ kind: 'questionnaire', questions }),
         (value) => replyPermissionChoice(request.options, value),
         replyPermissionCancelled(),
+      )
+    }
+    // Agents keep their own default when the mode selector was absent or
+    // unmapped, and some ask regardless — a Full-auto turn must not park those
+    // on the user. Answer inline with the agent's own allow option, mirroring
+    // respondApproval's allow preference; an agent that offers no allow option
+    // gets the same cancelled outcome a dismissal produces.
+    if (autoAllows(session.permissionMode, request.toolCall?.kind)) {
+      const optionId = optionFor(request.options, ['allow_once', 'allow_always'])
+      log.debug('acp: auto-approved by permission mode', {
+        mode: session.permissionMode,
+        kind: request.toolCall?.kind,
+      })
+      return Promise.resolve(
+        optionId !== undefined
+          ? { outcome: { outcome: 'selected', optionId } }
+          : { outcome: { outcome: 'cancelled' } },
       )
     }
     return new Promise((resolve) => {
@@ -398,6 +417,23 @@ export function sessionResumeSupported(initialize: AcpInitializeResult): boolean
   return initialize.agentCapabilities?.sessionCapabilities?.resume === true
 }
 
+/**
+ * Tool-call kinds that mutate the workspace. `allow-edits` auto-approves these
+ * and still asks for everything else (commands, fetches); ACP's own kind set
+ * is read/edit/move/search/think/execute/fetch/delete.
+ */
+const MUTATING_KINDS = new Set(['edit', 'move', 'delete'])
+
+/**
+ * Whether the session's permission mode answers this request without the user.
+ * `full` approves everything; `allow-edits` only the file-mutation kinds.
+ */
+function autoAllows(mode: PermissionMode, kind: string | undefined): boolean {
+  if (mode === 'full') return true
+  if (mode === 'allow-edits') return typeof kind === 'string' && MUTATING_KINDS.has(kind)
+  return false
+}
+
 function formatAcpSetupError(error: unknown): string {
   if (error instanceof AcpConnectionError) return error.message
   return `ACP transport unavailable: ${formatUnknownError(error)}`
@@ -475,7 +511,7 @@ async function applyModel(
   modelId: string | null,
 ): Promise<void> {
   if (modelId === null || modelId === 'default') return
-  const option = findOption(configOptions, 'model')
+  const option = findModelOption(configOptions)
   if (option === null || option.options === undefined) return
   const value = option.options.find((v) => v.value === modelId)?.value
   if (value === undefined) {
@@ -501,7 +537,7 @@ async function applyPermissionMode(
   availableModes: { id?: string; name?: string }[],
   mode: PermissionMode,
 ): Promise<void> {
-  const option = findOption(configOptions, 'mode')
+  const option = findModeOption(configOptions)
   if (option !== null && option.options !== undefined && option.id !== undefined) {
     const chosen = pickAgentMode(option.options.map((v) => v.value), mode)
     if (chosen === null) return
@@ -521,87 +557,9 @@ async function applyPermissionMode(
   }
 }
 
-/** Modes that make an agent refuse to write; a build mode must never land here. */
-const PLANNING_PATTERNS = [/\bplan(ning)?\b/i, /read.?only/i, /\bchat\b/i, /\bask\b/i]
-
-const ASK_PATTERNS = [
-  /\bask\b/i,
-  /\bdefault\b/i,
-  /\bnormal\b/i,
-  /\bstandard\b/i,
-  /\bplan(ning)?\b/i,
-]
-// `build` is opencode's write-capable mode; `code` is the same idea elsewhere.
-const EDIT_PATTERNS = [
-  /accept.?edits?/i,
-  /\bedit(s|ing)?\b/i,
-  /\bworkspace\b/i,
-  /\bbuild\b/i,
-  /^code$/i,
-]
-const FULL_PATTERNS = [/bypass/i, /yolo/i, /\bfull\b/i, /\bauto\b/i, /danger/i]
-
-/** Preference chain per Ari mode: first vocabulary that matches wins. */
-const MODE_PREFERENCE: Record<PermissionMode, RegExp[][]> = {
-  ask: [ASK_PATTERNS],
-  'allow-edits': [EDIT_PATTERNS, FULL_PATTERNS],
-  full: [FULL_PATTERNS, EDIT_PATTERNS],
-}
-
-/**
- * Whether an advertised vocabulary is about permissions at all.
- *
- * `session/set_mode` carries no category, so the mode list is whatever axis the
- * agent happens to model as "modes" — and for pi's ACP adapter that axis is the
- * *thinking* level (`off`, `minimal`, … `xhigh`). Ari must be able to tell the
- * two apart before it writes anything: one recognizable permission word in the
- * list is the evidence that the axis is Ari's to drive.
- */
-function looksLikePermissionAxis(values: string[]): boolean {
-  const vocabulary = [...PLANNING_PATTERNS, ...ASK_PATTERNS, ...EDIT_PATTERNS, ...FULL_PATTERNS]
-  return values.some((value) => matchesAny(value, vocabulary))
-}
-
-/**
- * Resolves an Ari permission mode against the mode vocabulary an agent
- * advertises, in candidate order. Returns null when nothing safe matches, which
- * the caller reads as "leave the agent alone".
- *
- * The two build modes take a last-resort escape hatch that `ask` deliberately
- * does not: any advertised mode that is not a planning/read-only mode. Agents
- * whose write mode Ari cannot name (opencode's `build` before it was listed
- * here) would otherwise be stranded in the planning mode a previous Ask-mode
- * turn selected, with no way out from inside Ari. Guessing in the other
- * direction would silently escalate permissions, so `ask` never falls back.
- *
- * The hatch is gated on {@link looksLikePermissionAxis}: applied to a list that
- * is not about permissions it picks the first entry, which is how an
- * allow-edits turn against pi used to send `set_mode('off')` and silently
- * disable the agent's reasoning.
- */
-export function pickAgentMode(
-  candidates: (string | undefined)[],
-  mode: PermissionMode,
-): string | null {
-  const values = candidates.filter((v): v is string => typeof v === 'string' && v.length > 0)
-  for (const patterns of MODE_PREFERENCE[mode]) {
-    const match = values.find((v) => matchesAny(v, patterns))
-    if (match !== undefined) return match
-  }
-  if (mode === 'ask') return null
-  if (!looksLikePermissionAxis(values)) return null
-  return values.find((v) => !matchesAny(v, PLANNING_PATTERNS)) ?? null
-}
-
-function matchesAny(value: string | boolean | undefined, patterns: RegExp[]): boolean {
-  return typeof value === 'string' && patterns.some((p) => p.test(value))
-}
-
-function findOption(
-  configOptions: AcpConfigOption[],
-  category: 'model' | 'mode',
-): AcpConfigOption | null {
-  return configOptions.find((o) => o.category === category && o.type === 'select') ?? null
+/** The `model`-category select option, if the agent exposes one. */
+function findModelOption(configOptions: AcpConfigOption[]): AcpConfigOption | null {
+  return configOptions.find((o) => o.category === 'model' && o.type === 'select') ?? null
 }
 
 /**

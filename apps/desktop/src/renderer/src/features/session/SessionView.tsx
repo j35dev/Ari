@@ -809,7 +809,11 @@ export function SessionView({
               effort={defaults.effort}
               onChange={changeEffort}
             />
-            <PermissionModeChip mode={defaults.permissionMode} onChange={changePermissionMode} />
+            <PermissionModeChip
+              driverKind={defaults.driverKind}
+              mode={defaults.permissionMode}
+              onChange={changePermissionMode}
+            />
           </>
         }
       />
@@ -947,17 +951,95 @@ const PERMISSION_MODES: { value: PermissionMode; label: string; hint: string }[]
 
 const DEFAULT_MODE = PERMISSION_MODES[0] as (typeof PERMISSION_MODES)[number]
 
+/** A permission mode the harness advertised over ACP, mapped to Ari's enum. */
+interface DiscoveredModeOption {
+  id: string
+  label: string
+  description?: string
+  ariMode: PermissionMode
+  current?: boolean
+}
+
+/** One picker row: an Ari mode, labeled by the harness's native mode when known. */
+interface ModeEntry {
+  value: PermissionMode
+  label: string
+  hint: string
+  /** Advertised mode id this row represents; absent for Ari's own vocabulary. */
+  nativeId?: string
+  /** True when the harness reported this native mode as its current one. */
+  nativeCurrent?: boolean
+}
+
+/**
+ * Picker rows for the session's mode: per Ari mode, the harness's own modes
+ * (codex `yolo`, claude `bypassPermissions`) when the probe classified any,
+ * otherwise Ari's generic label. Native ids are display-only — the choice
+ * still stores the Ari mode, which the driver maps back onto the agent's
+ * vocabulary at turn start.
+ */
+function modeEntries(discovered: DiscoveredModeOption[]): ModeEntry[] {
+  const entries: ModeEntry[] = []
+  for (const fallback of PERMISSION_MODES) {
+    const native = discovered.filter((o) => o.ariMode === fallback.value)
+    if (native.length === 0) {
+      entries.push(fallback)
+      continue
+    }
+    for (const option of native) {
+      entries.push({
+        value: fallback.value,
+        label: option.label,
+        hint: option.description ?? fallback.hint,
+        nativeId: option.id,
+        nativeCurrent: option.current === true,
+      })
+    }
+  }
+  return entries
+}
+
 /** Permission-mode chip in the composer foot. */
 export function PermissionModeChip({
+  driverKind,
   mode,
   onChange,
 }: {
+  driverKind: DriverKind
   mode: PermissionMode
   onChange: (mode: PermissionMode) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [discovered, setDiscovered] = useState<DiscoveredModeOption[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
-  const current = PERMISSION_MODES.find((m) => m.value === mode) ?? DEFAULT_MODE
+
+  useEffect(() => {
+    let cancelled = false
+    const apply = (rows: { kind: string; modes?: DiscoveredModeOption[] }[]): void => {
+      if (cancelled) return
+      setDiscovered(rows.find((r) => r.kind === driverKind)?.modes ?? [])
+    }
+    const load = (): void => {
+      void rpc.invoke('providers.models').then(apply).catch(() => {
+        if (!cancelled) setDiscovered([])
+      })
+    }
+    load()
+    const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
+      const frame = payload as { type?: string }
+      if (frame.type === 'catalog' || frame.type === 'detections') load()
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [driverKind])
+
+  const entries = modeEntries(discovered)
+  const current =
+    entries.find((e) => e.value === mode && e.nativeCurrent === true) ??
+    entries.find((e) => e.value === mode) ??
+    DEFAULT_MODE
 
   useEffect(() => {
     if (!open) return
@@ -1018,11 +1100,11 @@ export function PermissionModeChip({
             onKeyDown={onMenuKeyDown}
             className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2"
           >
-            {PERMISSION_MODES.map((m) => {
-              const selected = m.value === mode
+            {entries.map((m) => {
+              const selected = m === current
               return (
                 <button
-                  key={m.value}
+                  key={m.nativeId ?? m.value}
                   type="button"
                   role="option"
                   aria-selected={selected}
