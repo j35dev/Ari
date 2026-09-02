@@ -70,6 +70,11 @@ export const SETTINGS_SEARCH_INDEX = [
     keywords: 'openai anthropic ollama api key base url custom connection test chat completions',
   },
   {
+    section: 'settings-notifications',
+    label: 'Completion sound',
+    keywords: 'audio chime bell ding alert sound effect finish settle turn complete agent done notification',
+  },
+  {
     section: 'settings-keybindings',
     label: 'Keyboard shortcuts',
     keywords: 'keybindings keys chords remap mod ctrl cmd cheat sheet map',

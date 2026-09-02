@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
+  Bell,
   Cpu,
   FileCog,
   Keyboard,
@@ -13,6 +14,7 @@ import type { LucideIcon } from 'lucide-react'
 import { AppearanceSettings } from './AppearanceSettings'
 import { AdvancedSettings } from './AdvancedSettings'
 import { KeybindingsSettings } from './KeybindingsSettings'
+import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 import { SettingsSearch } from './SettingsSearch'
 import { ProvidersView, AgentConfigSettings } from '../providers'
@@ -23,6 +25,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'agents', label: 'Agents', icon: FileCog },
   { id: 'endpoints', label: 'Endpoints', icon: Plug },
+  { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'permissions', label: 'Permissions', icon: Shield },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
   { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
@@ -143,6 +146,7 @@ export function SettingsWorkspace({
               <EndpointsManager />
             </div>
           ) : null}
+          {section === 'notifications' ? <NotificationsSettings /> : null}
           {section === 'permissions' ? <PermissionsSettings /> : null}
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}

@@ -76,6 +76,10 @@ export function parseSettingsBundle(raw: string): Result<SettingsUpdate, string>
     if (!isPlainObject(bundle['sessions'])) return err('"sessions" must be an object')
     patch.sessions = bundle['sessions']
   }
+  if (bundle['notifications'] !== undefined) {
+    if (!isPlainObject(bundle['notifications'])) return err('"notifications" must be an object')
+    patch.notifications = bundle['notifications']
+  }
   if (bundle['permissions'] !== undefined) {
     if (!isPlainObject(bundle['permissions'])) return err('"permissions" must be an object')
     patch.permissions = bundle['permissions']
@@ -161,8 +165,8 @@ export function AdvancedSettings() {
           Settings bundle
         </h2>
         <p className="text-sm text-fg-muted">
-          Export appearance, session, and permission settings as a JSON bundle, or import one
-          from another device. Window bounds stay local to this machine.
+          Export appearance, session, notification, and permission settings as a JSON bundle, or
+          import one from another device. Window bounds stay local to this machine.
         </p>
         <div className="flex gap-2">
           <Button onClick={exportSettings} disabled={settings === null}>
