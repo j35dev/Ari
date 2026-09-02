@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -688,7 +690,7 @@ describe('engine end-to-end with scripted driver', () => {
   })
 })
 
-describe('M19.3 session worktrees', () => {
+describe('turn workspace', () => {
   /** Driver that records every AdapterSession it is created with. */
   function recordingDriver(created: AdapterSession[]): Driver {
     return {
@@ -717,84 +719,55 @@ describe('M19.3 session worktrees', () => {
     }
   }
 
-  it('runs project turns inside the session worktree handed to driver.create', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'ari-proj-'))
-    dirs.push(projectDir)
-    const worktreePath = join(projectDir, '.ari', 'worktrees', 'sess_wt_run')
-
-    const created: AdapterSession[] = []
-    const ensureCalls: [string, string][] = []
-    const registry = new DriverRegistry()
-    registry.register(recordingDriver(created))
-    const engine = new Engine({
-      store,
-      registry,
-      publish: (sessionId, event) => published.push({ sessionId, event }),
-      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
-      resolveWorkspace: async () => projectDir,
-      worktrees: {
-        // Stands in for the real GitService-backed source.
-        ensure: async (repoPath, sessionId) => {
-          ensureCalls.push([repoPath, sessionId])
-          return worktreePath
-        },
-      },
-    })
-
-    const sessionId = 'sess_wt_run'
-    await seedSession(store, sessionId)
-    const result = await engine.dispatch({ type: 'turn.start', sessionId, text: 'hi' } as Command)
-    expect(result.accepted).toBe(true)
-    await waitSettled(store, sessionId)
-
-    // The turn's cwd — and therefore driver.create's workspacePath — is the
-    // session worktree derived from the project folder + session id.
-    expect(ensureCalls).toEqual([[projectDir, sessionId]])
-    expect(created).toHaveLength(1)
-    expect(created[0]?.workspacePath).toBe(worktreePath)
-  }, 10000)
-
-  it('falls back to the project folder when no worktree can be ensured', async () => {
-    const projectDir = await mkdtemp(join(tmpdir(), 'ari-proj-'))
-    dirs.push(projectDir)
-
-    const created: AdapterSession[] = []
-    const registry = new DriverRegistry()
-    registry.register(recordingDriver(created))
-    const engine = new Engine({
-      store,
-      registry,
-      publish: (sessionId, event) => published.push({ sessionId, event }),
-      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
-      resolveWorkspace: async () => projectDir,
-      worktrees: { ensure: async () => null }, // fail-soft signal
-    })
-
-    const sessionId = 'sess_wt_fallback'
-    await seedSession(store, sessionId)
-    const result = await engine.dispatch({
-      type: 'turn.start',
-      sessionId,
-      text: 'still works',
-    } as Command)
-    expect(result.accepted).toBe(true)
-    await waitSettled(store, sessionId)
-
-    expect(created[0]?.workspacePath).toBe(projectDir)
-    const settled = published.find(
-      (p) => p.sessionId === sessionId && p.event.type === 'turn.settled',
-    )
-    if (settled?.event.type === 'turn.settled') {
-      expect(settled.event.stopReason).toBe('completed') // fallback never fails the turn
+  /** A git repo scratch project; skipped assertions when git is unavailable. */
+  async function initRepo(): Promise<string | null> {
+    const repo = await mkdtemp(join(tmpdir(), 'ari-proj-'))
+    dirs.push(repo)
+    try {
+      execFileSync('git', ['init'], { cwd: repo, stdio: 'ignore' })
+    } catch {
+      return null
     }
+    return repo
+  }
+
+  it('runs a turn in the project folder the user opened, not a checkout of its own', async () => {
+    const projectDir = await initRepo()
+    if (projectDir === null) return // no git on this machine
+
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver(created))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      resolveWorkspace: async () => projectDir,
+    })
+
+    const sessionId = 'sess_ws_project'
+    await seedSession(store, sessionId)
+    const result = await engine.dispatch({ type: 'turn.start', sessionId, text: 'build it' } as Command)
+    expect(result.accepted).toBe(true)
+    await waitSettled(store, sessionId)
+
+    // A user who asked for a build expects it in the folder they opened. Ari
+    // never moves the agent into `.ari/worktrees/<sessionId>` on its own — a
+    // worktree is the agent's to make when the prompt asks for one.
+    expect(created).toHaveLength(1)
+    expect(created[0]?.workspacePath).toBe(projectDir)
+    expect(existsSync(join(projectDir, '.ari'))).toBe(false)
+    const worktrees = execFileSync('git', ['worktree', 'list'], { cwd: projectDir, encoding: 'utf8' })
+    expect(worktrees.trim().split(/\r?\n/)).toHaveLength(1) // the main checkout only
+    expect(execFileSync('git', ['branch', '--list', 'ari/*'], { cwd: projectDir, encoding: 'utf8' })).toBe('')
   }, 10000)
 
-  it('keeps ad-hoc sessions on the home directory without asking for worktrees', async () => {
+  it('keeps ad-hoc sessions on the home directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'ari-home-'))
     dirs.push(homeDir)
 
     const created: AdapterSession[] = []
-    let askedForWorktree = false
     const registry = new DriverRegistry()
     registry.register(recordingDriver(created))
     const engine = new Engine({
@@ -803,22 +776,42 @@ describe('M19.3 session worktrees', () => {
       publish: (sessionId, event) => published.push({ sessionId, event }),
       git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
       resolveWorkspace: async (projectId) => (projectId === 'adhoc' ? homeDir : null),
-      worktrees: {
-        ensure: async () => {
-          askedForWorktree = true
-          return '/tmp/should-not-happen'
-        },
-      },
     })
 
-    const sessionId = 'sess_adhoc_wt'
+    const sessionId = 'sess_adhoc_ws'
     await seedSession(store, sessionId, 'adhoc')
     const result = await engine.dispatch({ type: 'turn.start', sessionId, text: 'q' } as Command)
     expect(result.accepted).toBe(true)
     await waitSettled(store, sessionId)
 
-    expect(askedForWorktree).toBe(false)
     expect(created[0]?.workspacePath).toBe(homeDir)
+  }, 10000)
+
+  it('settles with an actionable error when the project folder is gone', async () => {
+    const created: AdapterSession[] = []
+    const registry = new DriverRegistry()
+    registry.register(recordingDriver(created))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      resolveWorkspace: async () => null,
+    })
+
+    const sessionId = 'sess_ws_missing'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'hi' } as Command)
+    await waitSettled(store, sessionId)
+
+    expect(created).toHaveLength(0) // no adapter is spawned without a cwd
+    const settled = published.find(
+      (p) => p.sessionId === sessionId && p.event.type === 'turn.settled',
+    )
+    if (settled?.event.type === 'turn.settled') {
+      expect(settled.event.stopReason).toBe('error')
+      expect(settled.event.errorMessage).toContain('workspace folder not found')
+    }
   }, 10000)
 })
 
