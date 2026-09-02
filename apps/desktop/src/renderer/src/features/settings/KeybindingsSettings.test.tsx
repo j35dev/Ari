@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { KeybindingsSettings } from './KeybindingsSettings'
+import { APP_SHORTCUTS } from './shortcuts'
 
 function stubPlatform(value: string): void {
   Object.defineProperty(window.navigator, 'platform', { value, configurable: true })
@@ -19,6 +20,7 @@ describe('KeybindingsSettings', () => {
       'Toggle command palette',
       'New session',
       'Search project content',
+      'Toggle terminal panel',
       'Jump to session 1–9',
       'Next session',
       'Previous session',
@@ -26,7 +28,7 @@ describe('KeybindingsSettings', () => {
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
-    expect(screen.getAllByRole('listitem')).toHaveLength(7)
+    expect(screen.getAllByRole('listitem')).toHaveLength(APP_SHORTCUTS.length)
   })
 
   it('shows Cmd chords on Apple platforms', () => {

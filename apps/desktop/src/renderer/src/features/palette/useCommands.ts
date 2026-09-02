@@ -57,6 +57,7 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       id: 'nav.terminal',
       label: 'Go to Terminal',
       icon: TerminalSquare,
+      hint: 'Ctrl+`',
       run: () => ctx.onNavigate('terminal'),
     },
     {
