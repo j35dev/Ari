@@ -47,9 +47,24 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
     'Network error',
     'Ari could not reach the provider — check your connection or proxy settings, then retry.',
   ],
+  [
+    // Ari Core's own loop guards: the per-turn step ceiling and the
+    // repeated-tool-call detector. Both stop a turn on purpose and keep the
+    // transcript, so the fix is to continue, not to retry from scratch.
+    /step limit|repeating the same tool call/i,
+    'Turn stopped early',
+    'Ari Core stopped the turn itself and kept everything it had done — send another message to carry on from there.',
+  ],
 ]
 
-const FALLBACK: TurnErrorView = { title: 'Turn failed', hint: null }
+/**
+ * Headline used when no family matched. Callers compare against it to avoid
+ * printing it twice ("Turn failed — Turn failed."); the raw message is the
+ * only real information in that case.
+ */
+export const UNCLASSIFIED_TITLE = 'Turn failed'
+
+const FALLBACK: TurnErrorView = { title: UNCLASSIFIED_TITLE, hint: null }
 
 /** Classifies one raw failure message into a headline + hint. */
 export function classifyTurnError(message: string): TurnErrorView {

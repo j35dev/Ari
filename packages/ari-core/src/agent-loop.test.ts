@@ -506,4 +506,124 @@ describe('permission modes', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('redirects a model that keeps re-requesting an identical tool call, then stops it', async () => {
+    let calls = 0
+    // Fresh call id every round (providers mint new ones) and shuffled argument
+    // key order — neither should defeat the guard, which canonicalizes both.
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      yield {
+        type: 'tool-started',
+        callId: `c${calls}`,
+        name: 'read',
+        argsJson:
+          calls % 2 === 0
+            ? '{"path":"ari-missing.txt","offset":1}'
+            : '{"offset":1,"path":"ari-missing.txt"}',
+      }
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+    })
+    // Three identical rounds earn a redirect, three more end the turn.
+    expect(calls).toBe(6)
+    const redirect = events.find(
+      (e) => e.type === 'tool-completed' && e.resultJson.includes('Not run:'),
+    )
+    expect(redirect).toBeDefined()
+    const error = events.find((e) => e.type === 'error')
+    expect(error?.type === 'error' && error.message).toContain('after being told it was looping')
+    expect(events.at(-1)).toEqual({ type: 'done' })
+  })
+
+  it('lets a model recover after the loop redirect instead of failing the turn', async () => {
+    let calls = 0
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      // Loops three times, is redirected, then answers.
+      if (calls > 3) {
+        yield { type: 'text-delta', text: 'right, switching approach' }
+        yield { type: 'done' }
+        return
+      }
+      yield {
+        type: 'tool-started',
+        callId: `c${calls}`,
+        name: 'read',
+        argsJson: JSON.stringify({ path: 'ari-missing.txt' }),
+      }
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+    })
+    expect(calls).toBe(4)
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    expect(events.some((e) => e.type === 'text-delta' && e.text.includes('switching'))).toBe(true)
+  })
+
+  it('honours an explicit round ceiling when a caller sets one', async () => {
+    let calls = 0
+    // Arguments differ every round, so the repetition guard stays quiet and the
+    // ceiling is what ends the turn.
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      yield {
+        type: 'tool-started',
+        callId: `c${calls}`,
+        name: 'read',
+        argsJson: JSON.stringify({ path: `ari-missing-${calls}.txt` }),
+      }
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+      maxRounds: 3,
+    })
+    expect(calls).toBe(3)
+    expect(events.some((e) => e.type === 'error' && e.message.includes('3-round step limit'))).toBe(
+      true,
+    )
+  })
+
+  it('runs unbounded by default so a long honest turn is never cut short', async () => {
+    // 30 rounds of real tool work, then an answer. No production caller sets
+    // maxRounds; the turn must end because the model stopped asking for tools.
+    let calls = 0
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      if (calls > 30) {
+        yield { type: 'text-delta', text: 'done exploring' }
+        yield { type: 'done' }
+        return
+      }
+      yield {
+        type: 'tool-started',
+        callId: `c${calls}`,
+        name: 'read',
+        argsJson: JSON.stringify({ path: `ari-missing-${calls}.txt` }),
+      }
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+    })
+    expect(calls).toBe(31)
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    expect(events.at(-1)).toEqual({ type: 'done' })
+  })
 })

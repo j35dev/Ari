@@ -47,6 +47,22 @@ describe('TurnErrorBanner', () => {
     expect(screen.queryByRole('button', { name: 'Retry last message' })).not.toBeInTheDocument()
   })
 
+  it('does not repeat the headline when no family is recognised', () => {
+    render(
+      <TurnErrorBanner
+        message="model returned an empty response (3 attempts)"
+        canRetry={false}
+        retryDisabled={false}
+        onRetry={() => {}}
+        onDismiss={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('Turn failed —')).toBeInTheDocument()
+    expect(screen.queryByText(/Turn failed — Turn failed/)).not.toBeInTheDocument()
+    expect(screen.getByText(/empty response \(3 attempts\)/)).toBeInTheDocument()
+  })
+
   it('wires retry and dismiss', async () => {
     const user = userEvent.setup()
     const onRetry = vi.fn()

@@ -48,6 +48,19 @@ describe('classifyTurnError', () => {
     expect(classifyTurnError('getaddrinfo ENOTFOUND api.example.com').title).toBe('Network error')
   })
 
+  it('recognises the harness stopping its own turn', () => {
+    const limit = classifyTurnError(
+      'the turn hit its 200-round step limit before the model finished; the work so far is kept — send another message to continue from here',
+    )
+    expect(limit.title).toBe('Turn stopped early')
+    expect(limit.hint).toContain('send another message')
+    expect(
+      classifyTurnError(
+        'the model kept repeating the same tool call (read) after being told it was looping, so the turn was stopped',
+      ).title,
+    ).toBe('Turn stopped early')
+  })
+
   it('falls through with no hint for unknown failures', () => {
     expect(classifyTurnError('model returned an empty response (3 attempts)')).toEqual({
       title: 'Turn failed',

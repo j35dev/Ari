@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, X } from 'lucide-react'
 import { friendlyErrorText } from '../moment'
-import { classifyTurnError } from './turnError'
+import { classifyTurnError, UNCLASSIFIED_TITLE } from './turnError'
 
 /**
  * The turn-failed banner docked above the composer: a danger strip with the
@@ -26,6 +26,9 @@ export function TurnErrorBanner({
   const [showDetails, setShowDetails] = useState(false)
   const { title, hint } = classifyTurnError(message)
   const friendly = friendlyErrorText(message)
+  // An unclassified failure has no family to name, so the headline stays bare
+  // rather than repeating itself before the raw message.
+  const headline = title === UNCLASSIFIED_TITLE ? 'Turn failed —' : `Turn failed — ${title}.`
 
   return (
     <div
@@ -36,7 +39,7 @@ export function TurnErrorBanner({
         <AlertTriangle size={14} className="mt-0.5 shrink-0 text-danger" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="break-words text-xs leading-relaxed text-fg-muted">
-            <span className="font-medium text-danger">Turn failed — {title}.</span> {friendly}
+            <span className="font-medium text-danger">{headline}</span> {friendly}
           </p>
           {hint !== null ? (
             <p className="mt-0.5 break-words text-2xs leading-relaxed text-fg-subtle">{hint}</p>
