@@ -221,6 +221,36 @@ describe('SessionView question panel', () => {
     const user = userEvent.setup()
     renderView()
     await screen.findByLabelText('Message')
+    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'q1',
+      prompt: 'Proceed with force push?',
+      choicesJson: '["Yes","No"]',
+    })
+    await screen.findByRole('region', { name: 'Agent question' })
+    await user.click(screen.getByRole('button', { name: /Yes/ }))
+    expect(await screen.findByRole('region', { name: 'Agent question' })).toBeInTheDocument()
+  })
+
+  it('keeps the question dismissed when the turn ended before the answer', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: false }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
     emitSessionEvent({
       seq: 1,
       at: 1,
@@ -232,7 +262,66 @@ describe('SessionView question panel', () => {
     })
     await screen.findByRole('region', { name: 'Agent question' })
     await user.click(screen.getByRole('button', { name: /Yes/ }))
-    expect(await screen.findByRole('region', { name: 'Agent question' })).toBeInTheDocument()
+    // No live turn owns the question anymore: resurrecting it would strand a
+    // card no dispatch can ever answer, so it stays dismissed.
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Agent question' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('clears a parked question when the turn settles mid-question', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'q1',
+      prompt: 'Proceed with force push?',
+      choicesJson: '["Yes","No"]',
+    })
+    await screen.findByRole('region', { name: 'Agent question' })
+    // Stopping while the agent waits on an answer settles the turn; the card
+    // must go away with it instead of sticking around unanswerable.
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'interrupted',
+      errorMessage: null,
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Agent question' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('skipping a question dispatches an empty answer and clears the panel', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'q1',
+      prompt: 'Proceed with force push?',
+      choicesJson: '["Yes","No"]',
+    })
+    await screen.findByRole('region', { name: 'Agent question' })
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+        command: { type: 'input.respond', sessionId: 'sess_1', inputId: 'q1', value: '' },
+      })
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Agent question' })).not.toBeInTheDocument()
+    })
   })
 
   it('opens a plan-approval request in the right-hand review rail', async () => {

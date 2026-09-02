@@ -117,6 +117,11 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'turn.settled':
       next.activeTurnId = null
       next.streamingMessageId = null
+      // A settled turn owns no live prompts: stopping (or failing) while a
+      // question or approval is parked must not leave it answerable forever.
+      // `input.respond` after settle rejects, and replay never resurrects it.
+      next.pendingInputs = []
+      next.pendingApprovals = []
       break
 
     case 'usage.recorded':
