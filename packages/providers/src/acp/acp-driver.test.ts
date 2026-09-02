@@ -457,6 +457,114 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('auto-answers permission requests in full mode instead of asking', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9005,
+            method: 'session/request_permission',
+            params: {
+              sessionId: 'sess_acp_1',
+              toolCall: {
+                toolCallId: 't1',
+                title: 'Run tests',
+                kind: 'execute',
+                rawInput: { command: 'vitest' },
+              },
+              options: [
+                { optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' },
+                { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' },
+              ],
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'full' },
+      () => child,
+    )
+    const events = await collectEvents(adapter)
+    // No approval may reach the user: the agent's own allow option answers it.
+    expect(events.some((event) => event.type === 'approval-requested')).toBe(false)
+    const reply = child.sent.find((m) => m['id'] === 9005 && m['method'] === undefined)
+    expect(reply).toMatchObject({
+      result: { outcome: { outcome: 'selected', optionId: 'allow_once' } },
+    })
+    await adapter.dispose()
+  }, 15000)
+
+  it('auto-approves only file mutations in allow-edits mode', async () => {
+    const child = fakeChild()
+    const requests = [
+      { id: 9006, kind: 'edit', title: 'Edit file', toolCallId: 't1' },
+      { id: 9007, kind: 'execute', title: 'Run tests', toolCallId: 't2' },
+    ]
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        for (const request of requests) {
+          child.stdout.write(
+            `${JSON.stringify({
+              jsonrpc: '2.0',
+              id: request.id,
+              method: 'session/request_permission',
+              params: {
+                sessionId: 'sess_acp_1',
+                toolCall: {
+                  toolCallId: request.toolCallId,
+                  title: request.title,
+                  kind: request.kind,
+                  rawInput: {},
+                },
+                options: [{ optionId: 'allow_once', kind: 'allow_once' }],
+              },
+            })}\n`,
+          )
+        }
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'allow-edits' },
+      () => child,
+    )
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    const approvals: string[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'approval-requested') approvals.push(next.value.approvalId)
+    }
+    // The edit was answered inline; only the command reached the user.
+    expect(approvals).toHaveLength(1)
+    const editReply = child.sent.find((m) => m['id'] === 9006 && m['method'] === undefined)
+    expect(editReply).toMatchObject({
+      result: { outcome: { outcome: 'selected', optionId: 'allow_once' } },
+    })
+    expect(child.sent.some((m) => m['id'] === 9007 && m['method'] === undefined)).toBe(false)
+    await adapter.dispose()
+  }, 15000)
+
   it('surfaces auth walls with an actionable message', async () => {
     const child = fakeChild()
     script(child, (method, _params, id) => {
@@ -894,6 +1002,22 @@ describe('pickAgentMode', () => {
     expect(pickAgentMode(modes, 'ask')).toBe('default')
     expect(pickAgentMode(modes, 'allow-edits')).toBe('acceptEdits')
     expect(pickAgentMode(modes, 'full')).toBe('bypassPermissions')
+  })
+
+  /**
+   * claude-agent-acp lists `auto` (classifier-approved permissions) before
+   * `bypassPermissions`. Full auto must take the real bypass: `auto` sends
+   * every tool call through a safety-classifier model, and when that model is
+   * unavailable the whole session stalls with "auto mode cannot determine
+   * the safety of Bash".
+   */
+  it('prefers bypassPermissions over the classifier-based auto mode', () => {
+    const modes = ['auto', 'default', 'acceptEdits', 'plan', 'dontAsk', 'bypassPermissions']
+    expect(pickAgentMode(modes, 'full')).toBe('bypassPermissions')
+    // Without an advertised bypass (e.g. running as root), auto is still the
+    // best available approximation of Full auto.
+    const noBypass = ['auto', 'default', 'acceptEdits', 'plan', 'dontAsk']
+    expect(pickAgentMode(noBypass, 'full')).toBe('auto')
   })
 
   it("maps Ari's modes onto opencode's build/plan pair", () => {
