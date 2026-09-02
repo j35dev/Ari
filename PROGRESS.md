@@ -610,6 +610,23 @@ because `session/load` history replay was folded into the new turn's assistant m
       `removeWorktree` / `listWorktrees` stay as plain git primitives with no
       caller in the turn path. Leftover `.ari/worktrees/<id>` checkouts from
       earlier versions are untouched; work in them is on `ari/<sessionId>`.
+- [x] Custom-endpoint turns stop giving up early (bug report, 2026-09-03): a user
+      hit `Turn failed — round budget exhausted (12)` on some custom endpoints.
+      `runAgentLoop` capped a turn at 12 model rounds — one round per tool
+      round-trip — set in the loop's first commit and never revisited, so any
+      task needing a 13th tool call died as a *failure*. It only bit some
+      endpoints because models that batch calls finish inside 12 while models
+      taking one small step per reply do not. Neither pi nor oh-my-pi caps rounds
+      at all (verified against both sources; omp uses a wall-clock deadline
+      instead), so `maxRounds` is now optional and unset: a turn ends when the
+      model stops asking for tools. The replacement guard is omp's, which
+      distinguishes a long task from a loop where a round count cannot:
+      identical tool calls three rounds running are answered with an explanation
+      instead of being executed, and only a second run of identical rounds ends
+      the turn. Signatures canonicalize argument key order and sort the call set,
+      so shuffled JSON or a reordered parallel batch no longer slips past. The
+      UI gained a `Turn stopped early` family for both messages, and the failure
+      banner no longer prints `Turn failed — Turn failed.` when no family matches.
 
 ## Stretch backlog (post-V1, unplanned)
 
