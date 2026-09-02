@@ -437,6 +437,17 @@ update awareness, model lists fetched from the providers themselves (models.dev 
       320–900px, persisted separately) and its heading finally names what it shows instead of
       always saying "Changes". Switching sessions no longer closes it — a running shell
       outlives a chat switch. `TerminalWorkspace` + `terminal-layout.ts` deleted.
+- [x] M24.8 Terminal typography (user request, 2026-09-03 — "looks a bit stacked"): the pane
+      was passing `fontFamily: var(--ari-font-mono, …)`, and xterm sizes the character cell by
+      assigning `ctx.font` on an offscreen canvas, where `var()` cannot resolve — the
+      assignment was rejected outright, so every cell was measured against canvas's default
+      10px sans-serif while the rows rendered in Geist Mono at 12px. The token is now read
+      through the same `readToken` the theme colours already use, pinned by
+      `TerminalPane.test.tsx`. Also `lineHeight` 1.3 (xterm defaults to 1.0, which reads as one
+      solid block), `fontSize` 13, numeric weights 400/600 so the variable font doesn't bloom
+      on dark, 12/8px host padding, and a re-measure on `document.fonts.load` for the case
+      where the bundled webfont lands after the rail opens. No `letterSpacing`: it widens the
+      cell and would gap the box-drawing characters the agent CLIs draw their TUIs with.
 
 ## M25 — Sidebar activity marks
 
