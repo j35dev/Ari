@@ -64,6 +64,14 @@ export interface AgentLoopOptions {
    * The loop emits `input-requested` itself so the QuestionPanel can mount.
    */
   requestInput?: (inputId: string) => Promise<string>
+  /**
+   * Optional ceiling on model rounds in one turn. Absent — the default — means
+   * unbounded: the turn ends when the model stops asking for tools, the way
+   * every production coding agent works. A round count is a bad proxy for
+   * "stuck", because it cannot tell a long honest task from a loop; that job
+   * belongs to {@link MAX_IDENTICAL_ROUNDS} and the user's interrupt. Set this
+   * only where a hard bound is genuinely wanted (tests, headless batch runs).
+   */
   maxRounds?: number
   /**
    * How many times an entirely empty model round (no text, no thinking, no
@@ -74,6 +82,15 @@ export interface AgentLoopOptions {
   emptyResponseRetries?: number
   signal?: AbortSignal
 }
+
+/**
+ * Consecutive rounds requesting the exact same tool calls before the loop
+ * intervenes. The first intervention is a redirect, not a stop: the batch is
+ * answered with an explanation instead of being executed, which is usually
+ * enough to break the model out. A second run of identical rounds after that
+ * ends the turn, so the guard itself cannot loop.
+ */
+const MAX_IDENTICAL_ROUNDS = 3
 
 export interface ApprovalRequest {
   approvalId: string
@@ -117,6 +134,51 @@ async function executeTool(
 }
 
 /**
+ * Sorts object keys recursively so two arguments that differ only in key order
+ * hash the same. Without this a model can defeat the loop guard by shuffling
+ * its own JSON, which costs the user tokens for nothing.
+ */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (value === null || typeof value !== 'object') return value
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )
+  return Object.fromEntries(entries.map(([k, v]) => [k, canonicalize(v)]))
+}
+
+/**
+ * Identity of a round's tool requests. The call list is sorted so a model
+ * reordering a parallel batch still reads as the same request, and arguments
+ * are canonicalized rather than compared as raw text.
+ */
+function roundSignature(calls: readonly PendingToolCall[]): string {
+  return calls
+    .map((c) => {
+      let args: unknown
+      try {
+        args = canonicalize(JSON.parse(c.argsJson || '{}'))
+      } catch {
+        args = c.argsJson
+      }
+      return JSON.stringify([c.name, args])
+    })
+    .sort()
+    .join('\u0001')
+}
+
+/** Told to the model in place of running a batch it has already run. */
+function loopRedirectText(calls: readonly PendingToolCall[]): string {
+  const names = [...new Set(calls.map((c) => c.name))].join(', ')
+  return (
+    `Not run: you have requested this exact call (${names}) with these exact arguments ` +
+    'several rounds in a row and the results have not changed. Re-reading the results ' +
+    'you already have, take a different action — a different tool, different arguments, ' +
+    'or tell the user what is blocking you.'
+  )
+}
+
+/**
  * The Ari Core agent loop: stream a model round; when the model requests
  * tools, execute them (jailed), feed results back, and repeat until the
  * model finishes or the round budget is exhausted. All normalized events
@@ -125,7 +187,14 @@ async function executeTool(
 export async function* runAgentLoop(
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, void, undefined> {
-  const { round, systemPrompt, userPrompt, workspacePath, maxRounds = 12, signal } = options
+  const {
+    round,
+    systemPrompt,
+    userPrompt,
+    workspacePath,
+    maxRounds,
+    signal,
+  } = options
   // Fail-closed: an absent mode behaves as `ask`.
   const permissionMode: PermissionMode = options.permissionMode ?? 'ask'
   const extraTools = options.extraTools ?? []
@@ -153,7 +222,14 @@ export async function* runAgentLoop(
   }
   publishTranscript()
 
-  for (let current = 0; current < maxRounds; current++) {
+  // Loop detection: a model that re-requests the same tool calls round after
+  // round is stuck, and letting it run costs the user real tokens. Tracked
+  // across rounds, reset the moment anything differs.
+  let lastSignature: string | null = null
+  let identicalRounds = 0
+  let redirected = false
+
+  for (let current = 0; maxRounds === undefined || current < maxRounds; current++) {
     if (signal?.aborted) {
       yield { type: 'error', message: 'aborted', rawJson: null }
       yield { type: 'done' }
@@ -250,6 +326,30 @@ export async function* runAgentLoop(
       return
     }
 
+    const signature = roundSignature(pending)
+    identicalRounds = signature === lastSignature ? identicalRounds + 1 : 1
+    lastSignature = signature
+    // Answered with an explanation instead of executed, once, when the model
+    // is repeating itself; null on every normal round.
+    let loopRedirect: string | null = null
+    if (identicalRounds >= MAX_IDENTICAL_ROUNDS) {
+      if (redirected) {
+        const names = [...new Set(pending.map((p) => p.name))].join(', ')
+        yield {
+          type: 'error',
+          message:
+            `the model kept repeating the same tool call (${names}) after being told it ` +
+            'was looping, so the turn was stopped',
+          rawJson: null,
+        }
+        yield { type: 'done' }
+        return
+      }
+      redirected = true
+      identicalRounds = 0
+      loopRedirect = loopRedirectText(pending)
+    }
+
     // Record the assistant's tool calls, then execute and append results.
     const assistantToolCalls = pending.map((p) => ({
       id: p.callId,
@@ -266,10 +366,12 @@ export async function* runAgentLoop(
     // one file must not race. Results are still yielded in call order, so the
     // transcript and the message list are identical either way.
     const inFlight = new Map<string, Promise<ToolOutcome>>()
-    for (const call of pending) {
-      const tool = toolset.get(call.name)
-      if (tool && isConcurrencySafe(tool)) {
-        inFlight.set(call.callId, executeTool(tool, call.argsJson, ctx))
+    if (loopRedirect === null) {
+      for (const call of pending) {
+        const tool = toolset.get(call.name)
+        if (tool && isConcurrencySafe(tool)) {
+          inFlight.set(call.callId, executeTool(tool, call.argsJson, ctx))
+        }
       }
     }
 
@@ -278,7 +380,10 @@ export async function* runAgentLoop(
       let resultJson: string
       let isError = false
       const concurrent = inFlight.get(call.callId)
-      if (concurrent) {
+      if (loopRedirect !== null) {
+        isError = true
+        resultJson = JSON.stringify(loopRedirect)
+      } else if (concurrent) {
         const outcome = await concurrent
         resultJson = outcome.resultJson
         isError = outcome.isError
@@ -381,6 +486,15 @@ export async function* runAgentLoop(
     publishTranscript()
   }
 
-  yield { type: 'error', message: `round budget exhausted (${maxRounds})`, rawJson: null }
+  // Only reachable when the caller set an explicit ceiling: the default loop
+  // has none and leaves through the model finishing, the repetition guard, or
+  // the user's interrupt.
+  yield {
+    type: 'error',
+    message:
+      `the turn hit its ${String(maxRounds)}-round step limit before the model finished; ` +
+      'the work so far is kept — send another message to continue from here',
+    rawJson: null,
+  }
   yield { type: 'done' }
 }
