@@ -264,4 +264,17 @@ describe('ask_user_question tool', () => {
       await cleanup()
     }
   })
+
+  it('tells the model to proceed when the question is dismissed', async () => {
+    const { dir, cleanup } = await workspace()
+    try {
+      const result = await findTool('ask_user_question')?.execute(
+        { questions: [{ question: 'Ship it?', options: [{ label: 'Yes' }] }] },
+        { ...READ_CTX(dir), requestInput: async () => '' },
+      )
+      expect(result).toContain('dismissed by the user')
+    } finally {
+      await cleanup()
+    }
+  })
 })
