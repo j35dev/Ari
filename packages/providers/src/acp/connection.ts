@@ -102,12 +102,16 @@ interface PendingRequest {
  * Prompt-stall ceiling from `ARI_ACP_PROMPT_STALL_MS`: how long an agent may
  * stay completely silent mid-turn before its prompt fails legibly instead of
  * spinning forever (comet's wedge detection). Number in ms; 0 disables;
- * unset falls back to the 120s default.
+ * unset falls back to the 300s default. The ceiling is generous on purpose:
+ * agents can be legitimately — and detectably — silent for minutes (Claude's
+ * adapter emits no session/update while it compacts a long conversation),
+ * and only a true wedge has neither inbound traffic nor a pending
+ * server→client request to explain the quiet.
  */
 export function acpPromptStallMs(raw = process.env['ARI_ACP_PROMPT_STALL_MS']): number {
-  if (raw === undefined || raw.trim() === '') return 120_000
+  if (raw === undefined || raw.trim() === '') return 300_000
   const value = Number(raw)
-  if (!Number.isFinite(value) || value < 0) return 120_000
+  if (!Number.isFinite(value) || value < 0) return 300_000
   return value
 }
 
@@ -128,6 +132,14 @@ export class AcpConnection {
   /** Last inbound byte timestamp — liveness signal for the stall watchdog. */
   #lastInboundAt = Date.now()
   #exitCode: number | null = null
+  /**
+   * Server→client requests the agent is still waiting on an answer for.
+   * Silence while this is > 0 means the agent is parked on the user (a
+   * permission prompt, a question, a plan approval) — not that it is wedged —
+   * so the stall watchdog must not fail the turn no matter how long the user
+   * takes to answer.
+   */
+  #pendingServerRequests = 0
 
   launch: AcpLaunch
   initialize: AcpInitializeResult
@@ -393,42 +405,55 @@ export class AcpConnection {
   }
 
   async #handleServerRequest(id: number, method: string, params: unknown): Promise<void> {
-    if (method === 'session/request_permission' && this.onRequestPermission !== null) {
-      try {
-        const result = await this.onRequestPermission(params as AcpRequestPermission)
-        this.#write({ jsonrpc: '2.0', id, result: result ?? { outcome: { outcome: 'cancelled' } } })
-      } catch (error) {
-        log.debug('acp: permission handler failed', { error: String(error) })
-        this.#write({
-          jsonrpc: '2.0',
-          id,
-          error: { code: -32603, message: 'permission handler failed' },
-        })
+    // Every path below answers the agent, but some only after the user acts
+    // (permissions, questions, plan approvals park until responded). The
+    // counter tells the stall watchdog the agent is waiting, not dead.
+    this.#pendingServerRequests++
+    try {
+      if (method === 'session/request_permission' && this.onRequestPermission !== null) {
+        try {
+          const result = await this.onRequestPermission(params as AcpRequestPermission)
+          this.#write({ jsonrpc: '2.0', id, result: result ?? { outcome: { outcome: 'cancelled' } } })
+        } catch (error) {
+          log.debug('acp: permission handler failed', { error: String(error) })
+          this.#write({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32603, message: 'permission handler failed' },
+          })
+        }
+        return
       }
-      return
-    }
-    if (this.onClientRequest !== null && isInteractiveClientMethod(method)) {
-      try {
-        const result = await this.onClientRequest(method, params)
-        this.#write({ jsonrpc: '2.0', id, result: result ?? {} })
-      } catch (error) {
-        log.debug('acp: client request handler failed', { method, error: String(error) })
-        this.#write({
-          jsonrpc: '2.0',
-          id,
-          error: { code: -32603, message: 'client request handler failed' },
-        })
+      if (this.onClientRequest !== null && isInteractiveClientMethod(method)) {
+        try {
+          const result = await this.onClientRequest(method, params)
+          this.#write({ jsonrpc: '2.0', id, result: result ?? {} })
+        } catch (error) {
+          log.debug('acp: client request handler failed', { method, error: String(error) })
+          this.#write({
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32603, message: 'client request handler failed' },
+          })
+        }
+        return
       }
-      return
+      // fs/*, terminal/* are not advertised by Ari's client capabilities;
+      // agents must use their own local access instead. Interactive methods
+      // (elicitation / Grok ext) are handled above when the adapter hooked them.
+      this.#write({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32601, message: `method not implemented by client: ${method}` },
+      })
+    } finally {
+      this.#pendingServerRequests--
+      // The exchange just advanced — the user answered and the agent has new
+      // input. Restart the stall clock, or the watchdog would measure the
+      // agent's next move against the whole time the user spent thinking,
+      // and fail the turn the moment the parked request completes.
+      this.#lastInboundAt = Date.now()
     }
-    // fs/*, terminal/* are not advertised by Ari's client capabilities;
-    // agents must use their own local access instead. Interactive methods
-    // (elicitation / Grok ext) are handled above when the adapter hooked them.
-    this.#write({
-      jsonrpc: '2.0',
-      id,
-      error: { code: -32601, message: `method not implemented by client: ${method}` },
-    })
   }
 
   #write(message: Record<string, unknown>): boolean {
@@ -459,9 +484,12 @@ export class AcpConnection {
       }
       if (stallSilenceMs !== undefined && stallSilenceMs > 0) {
         // Silence watchdog: any inbound traffic (updates, pings, partials)
-        // proves liveness; total silence past the ceiling fails the request.
+        // proves liveness; total silence past the ceiling fails the request —
+        // unless the agent is parked on an unanswered server→client request,
+        // where the silence is Ari's user taking their time, not a wedge.
         const interval = setInterval(() => {
           if (Date.now() - this.#lastInboundAt < stallSilenceMs) return
+          if (this.#pendingServerRequests > 0) return
           if (timer !== null) clearTimeout(timer)
           clearInterval(interval)
           this.#pending.delete(id)

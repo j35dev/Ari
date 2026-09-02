@@ -10,6 +10,22 @@ describe('classifyTurnError', () => {
     expect(view.hint).toContain('login flow')
   })
 
+  it('classifies stall watchdog failures as timeouts, not auth', () => {
+    // The watchdog's message ends "…may be wedged or waiting for login"; the
+    // bare word "login" must not flip it into the auth family.
+    const view = classifyTurnError(
+      'claude (ACP adapter @agentclientprotocol/claude-agent-acp@0.70.0) went silent for 120s mid-session/prompt — the agent may be wedged or waiting for login',
+    )
+    expect(view.title).toBe('Agent timed out')
+    expect(view.hint).toContain('stopped responding')
+  })
+
+  it('still recognises sign-in phrasing without "login flow"', () => {
+    expect(classifyTurnError('claude needs you to sign in again').title).toBe(
+      'Authentication required',
+    )
+  })
+
   it('recognises rate limits and quota', () => {
     expect(classifyTurnError('429 too many requests').title).toBe('Provider is throttling')
     expect(classifyTurnError('insufficient credits').title).toBe('Provider is throttling')
