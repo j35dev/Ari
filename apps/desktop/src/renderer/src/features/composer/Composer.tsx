@@ -308,26 +308,28 @@ export function Composer({
             <AttachmentStrip images={images} onRemove={removeAt} />
           </div>
         )}
-        <MentionOverlay ref={overlayRef} text={text} />
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value)
-            syncCaret(e.target)
-          }}
-          onSelect={(e) => syncCaret(e.currentTarget)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onScroll={syncOverlayScroll}
-          placeholder={placeholder}
-          disabled={disabled}
-          rows={1}
-          aria-label="Message"
-          className="block max-h-[260px] w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50"
-        />
+        <div className="relative">
+          <MentionOverlay ref={overlayRef} text={text} />
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value)
+              syncCaret(e.target)
+            }}
+            onSelect={(e) => syncCaret(e.currentTarget)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onScroll={syncOverlayScroll}
+            placeholder={placeholder}
+            disabled={disabled}
+            rows={1}
+            aria-label="Message"
+            className="block max-h-[260px] w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable]"
+          />
+        </div>
         <div className="flex items-center gap-1 px-2.5 pb-2 pt-1">
           {leading}
           <button
@@ -429,7 +431,11 @@ export function Composer({
  * underneath the transparent textarea (highlight-within-textarea pattern).
  * Must keep the textarea's exact typography, padding and wrapping so the two
  * layers stay aligned character-for-character; scroll is synced by the
- * textarea's onScroll/resize.
+ * textarea's onScroll/resize. Sits inside the same `relative` wrapper as the
+ * textarea (NOT the plate) so it is clipped to the field's own box — over the
+ * foot row it used to bleed onto the send controls once the text exceeded
+ * MAX_HEIGHT — and reserves the same scrollbar gutter so wrapping matches
+ * while the textarea scrolls.
  */
 const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function MentionOverlay(
   { text },
@@ -457,7 +463,7 @@ const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function Men
     <div
       ref={ref}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3.5 text-sm leading-relaxed text-fg"
+      className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable]"
     >
       {parts}
     </div>
