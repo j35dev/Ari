@@ -1,8 +1,10 @@
 import type { DriverKind } from '@ari/contracts/common'
 import snapshot from './catalog-snapshot.json'
 import type { EffortCatalog } from './acp/thought'
+import type { AgentModeCatalog } from './acp/modes'
 
 export type { CatalogEffort, EffortCatalog } from './acp/thought'
+export type { CatalogAgentMode, AgentModeCatalog } from './acp/modes'
 
 /** One curated model entry for a driver's picker. */
 export interface CatalogModel {
@@ -89,6 +91,31 @@ export function setDynamicEfforts(kind: DriverKind, catalog: EffortCatalog): voi
 /** Removes a kind's effort overlay (tests). */
 export function clearDynamicEfforts(kind: DriverKind): void {
   dynamicEfforts.delete(kind)
+}
+
+const dynamicModes = new Map<DriverKind, AgentModeCatalog>()
+
+/** Installs the permission modes a live ACP probe reported for a kind. */
+export function setDynamicModes(kind: DriverKind, catalog: AgentModeCatalog): void {
+  if (catalog.options.length === 0) {
+    dynamicModes.delete(kind)
+    return
+  }
+  dynamicModes.set(kind, catalog)
+}
+
+/** Removes a kind's mode overlay (tests). */
+export function clearDynamicModes(kind: DriverKind): void {
+  dynamicModes.delete(kind)
+}
+
+/**
+ * Permission modes the harness advertised over ACP, each classified into an
+ * Ari mode; empty for kinds with no discovered permission axis, where the
+ * picker falls back to Ari's own Ask/Edits/Full-auto vocabulary.
+ */
+export function modesFor(kind: DriverKind): AgentModeCatalog {
+  return dynamicModes.get(kind) ?? { currentId: null, options: [] }
 }
 
 /**
