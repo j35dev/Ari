@@ -697,6 +697,15 @@ export function parseAskUserToolArgs(args: Record<string, unknown>): AskUserTool
 }
 
 export function formatAskUserResult(questions: AskUserToolQuestion[], value: string): string {
+  // An empty value is the host's dismissal (the user skipped the question or
+  // stopped the turn while it was parked). Say so explicitly: a bare
+  // "question: " reads as a rendering glitch and invites the model to re-ask.
+  if (value.trim().length === 0) {
+    const lines = questions.map(
+      (q) => `${q.question}: (dismissed by the user — proceed with your best judgment)`,
+    )
+    return lines.length > 0 ? lines.join('\n') : '(dismissed by the user — proceed with your best judgment)'
+  }
   let answers: Record<string, string> = {}
   try {
     const parsed: unknown = JSON.parse(value)

@@ -646,6 +646,17 @@ because `session/load` history replay was folded into the new turn's assistant m
       window is under ~375k tokens now hits the provider's limit before this
       budget, which surfaces as `empty response (3 attempts)` because an HTTP
       error round is counted as an empty one.
+- [x] Cancellable questions + stop-safe settle (bug report, 2026-09-03): the
+      agent's question popup had no way to say no, the Other text box was easy
+      to miss, and pressing Stop mid-question wedged the session (the card
+      stayed up but no answer could ever satisfy it). The panel gains Skip
+      (button + Esc), answered as an empty `input.respond` that ACP maps onto
+      its `cancelled` outcome and Ari Core narrates as a dismissal so the model
+      proceeds. The Other box is now a labeled accent-bordered field. Stopping
+      unmounts the card at once: `turn.settled` clears parked inputs/approvals
+      in the projection and the view, ACP `interrupt()` answers parked prompts
+      as cancelled before `session/cancel` so the turn can actually finish,
+      and a rejected answer only restores the card while its turn is alive.
 
 ## Stretch backlog (post-V1, unplanned)
 
