@@ -14,8 +14,9 @@ import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
 import { PlanReviewRail } from '../approvals/PlanReviewRail'
 import { parseQuestionPayload } from '../approvals/questionnaire'
-import { notifyNeedsAttention, useSettleNotify } from '../moment'
+import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../moment'
 import { WorkingGlyph } from '../moment'
+import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { TurnErrorBanner } from './TurnErrorBanner'
 
@@ -227,6 +228,11 @@ export function SessionView({
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
   notifySettledRef.current = notifySettledTurn
+  // Settle chime toggle; null until settings load (defaults on). Ref so the
+  // stable event applier reads it without re-subscribing.
+  const { settings: engineSettings } = useEngineSettings()
+  const settleSoundRef = useRef(true)
+  settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
 
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
   // Model catalogs feed the context-window meter's denominator.
@@ -274,13 +280,13 @@ export function SessionView({
     replayDoneRef.current = false
     liveBufferRef.current = []
 
-    const ingest = (raw: JournalEvent): void => {
+    const ingest = (raw: JournalEvent, live: boolean): void => {
       const seq = typeof raw.seq === 'number' ? raw.seq : null
       if (seq !== null) {
         if (appliedSeqsRef.current.has(seq)) return // replay/live overlap
         appliedSeqsRef.current.add(seq)
       }
-      applyEvent(raw)
+      applyEvent(raw, live)
     }
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
@@ -290,13 +296,13 @@ export function SessionView({
         replayDoneRef.current = true
         const buffered = liveBufferRef.current
         liveBufferRef.current = []
-        for (const event of buffered) ingest(event)
+        for (const event of buffered) ingest(event, true)
         return
       }
       const event = frame.event as JournalEvent
       if (frame.replay === true) {
         // The replay burst is seq-ordered; apply directly.
-        ingest(event)
+        ingest(event, false)
         return
       }
       // Live frame: hold until the replay burst has drained so history and
@@ -305,7 +311,7 @@ export function SessionView({
         liveBufferRef.current.push(event)
         return
       }
-      ingest(event)
+      ingest(event, true)
     })
 
     // Per-turn diff cards (M18.1): after a turn settles, query its checkpoint
@@ -370,7 +376,7 @@ export function SessionView({
   }, [sessionId])
 
   const applyEvent = useCallback(
-    (event: JournalEvent) => {
+    (event: JournalEvent, live: boolean) => {
       switch (event.type) {
         case 'user.message.added':
           setMessages((prev) => [...prev, event.message])
@@ -423,6 +429,11 @@ export function SessionView({
             notifySettledRef.current({ error: event.errorMessage })
           } else {
             notifySettledRef.current()
+          }
+          // Settle chime — live settles only, so remounting a session never
+          // replays the cue for turns that finished while it was closed.
+          if (live && settleSoundRef.current) {
+            playSettleSound(event.stopReason === 'error' ? 'error' : 'complete')
           }
           // Queue continuation is the engine's job now: after a clean settle
           // it dequeues the oldest message and runs it as the next turn.

@@ -560,6 +560,12 @@ because `session/load` history replay was folded into the new turn's assistant m
       provider. Hidden when the agent advertises none; the pick is persisted on
       the session and applied via `session/set_config_option` (or `set_mode`
       when that axis *is* thinking).
+- [x] Settle chime (user request, 2026-09-02): a turn settling now plays a soft
+      synthesized cue — rising fifth for completion, muted falling third for
+      failure (`moment/settle-sound.ts`, Web Audio like the launch signature,
+      no audio asset). Fires for live settles only, never journal replay, and is
+      gated by Settings › Notifications › Completion sound
+      (`notifications.settleSound`, default on).
 
 ## Stretch backlog (post-V1, unplanned)
 
