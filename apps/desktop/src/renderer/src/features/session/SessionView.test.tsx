@@ -28,6 +28,9 @@ const rpcMocks = vi.hoisted(() => ({
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
 
+const settleSoundMocks = vi.hoisted(() => ({ playSettleSound: vi.fn() }))
+vi.mock('../moment/settle-sound', () => settleSoundMocks)
+
 const invokeMock = rpcMocks.invoke as unknown as Mock<
   (method: string, params?: unknown) => Promise<unknown>
 >
@@ -59,6 +62,22 @@ const SESSION = {
   updatedAt: 0,
 }
 
+/** Engine settings payload; settle-sound tests override `notifications`. */
+const SETTINGS = {
+  version: 1,
+  appearance: {
+    themeId: 'obsidian',
+    mode: 'system',
+    glass: true,
+    reducedMotion: false,
+    wallpaper: 'none',
+  },
+  sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  notifications: { settleSound: true },
+  permissions: { allowlist: [] },
+  window: null,
+}
+
 /** The live event listener registered by the session.events subscription. */
 let sessionListener: ((payload: unknown) => void) | null = null
 
@@ -87,6 +106,7 @@ describe('SessionView question panel', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -188,6 +208,7 @@ describe('SessionView question panel', () => {
 
   it('restores the question card when input.respond is rejected', async () => {
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -260,6 +281,7 @@ describe('SessionView edit and resend', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -340,6 +362,7 @@ describe('SessionView regenerate and retry', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -510,6 +533,7 @@ describe('SessionView per-turn diff cards', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -629,6 +653,7 @@ describe('SessionView context meter', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -688,6 +713,7 @@ describe('SessionView context meter', () => {
 
   it('shows used / window when the session model carries a context hint', async () => {
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -760,6 +786,7 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -852,6 +879,7 @@ describe('SessionView queued messages', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -1015,6 +1043,7 @@ describe('SessionView mode change preserves the picked model', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
@@ -1147,5 +1176,112 @@ describe('EffortChip', () => {
     await user.click(await screen.findByRole('button', { name: 'Effort: Low' }))
     await user.click(screen.getByRole('option', { name: /High/ }))
     expect(onChange).toHaveBeenCalledWith('high')
+  })
+})
+
+/**
+ * Settle chime (notifications.settleSound): the cue fires for live settles
+ * only — replaying a session's journal on remount must stay silent — and a
+ * disabled setting suppresses it entirely.
+ */
+describe('SessionView settle sound', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  function emitSettle(stopReason: string, replay = false): void {
+    act(() => {
+      sessionListener?.({
+        sessionId: 'sess_1',
+        replay,
+        event: {
+          seq: replay ? 1 : 100,
+          at: 1,
+          sessionId: 'sess_1',
+          type: 'turn.settled',
+          turnId: replay ? 'turn_r' : 'turn_l',
+          stopReason,
+          errorMessage: stopReason === 'error' ? 'boom' : null,
+        },
+      })
+    })
+  }
+
+  it('plays the complete cue for a live settle', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSettle('completed')
+
+    expect(settleSoundMocks.playSettleSound).toHaveBeenCalledWith('complete')
+  })
+
+  it('plays the error cue for a failed live settle', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSettle('error')
+
+    expect(settleSoundMocks.playSettleSound).toHaveBeenCalledWith('error')
+  })
+
+  it('stays silent for replayed settles from the journal', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSettle('completed', true)
+    emitSettle('error', true)
+
+    expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
+  })
+
+  it('stays silent when the setting is off', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') {
+        return { ...SETTINGS, notifications: { settleSound: false } }
+      }
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    renderView()
+    await screen.findByLabelText('Message')
+    // settings.get resolves in a microtask and re-renders with the disabled
+    // flag; flush a macrotask so the ref has landed before the settle fires.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    emitSettle('completed')
+    expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
   })
 })
