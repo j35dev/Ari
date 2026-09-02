@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react'
 import { CopyButton } from './CopyButton'
 import { CodeBlock } from './CodeBlock'
 import { DiffViewer } from '../diffs'
+import { editPayloadToDiff } from './edit-diff'
 import {
   ariToolName,
   classifyToolCall,
@@ -100,6 +101,14 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
         </Field>
       )
     }
+    const synthesized = editPayloadToDiff(payload)
+    if (synthesized !== null) {
+      return (
+        <Field label="changes">
+          <DiffViewer diffText={synthesized.diffText} />
+        </Field>
+      )
+    }
     const oldText = stringArg(payload, OLD_KEYS)
     const newText = stringArg(payload, NEW_KEYS)
     if (oldText === null && newText === null) return null
@@ -145,8 +154,8 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
 /**
  * Expanded body of one tool step, branded as an Ari tool: a header naming the
  * Ari identity ("Ari Run") beside the provider's own tool name, then the
- * arguments rendered per kind — highlighted command for runs, Before/After
- * panels for edits, labeled fields for reads and searches. Anything the
+ * arguments rendered per kind — highlighted command for runs, a synthesized
+ * unified diff for edits, labeled fields for reads and searches. Anything the
  * structured views cannot express falls back to the raw pretty-printed JSON.
  */
 export function ToolCallDetails({ call }: { call: TranscriptBlock }) {

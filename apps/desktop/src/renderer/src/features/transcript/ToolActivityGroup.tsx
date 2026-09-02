@@ -15,24 +15,28 @@ const KIND_ICON: Record<ToolKind, LucideIcon> = {
 }
 
 /**
- * One collapsed activity run: a single line reading "Ran 2 commands · Edited 1
- * file" while settled, or naming the in-flight call while working. Expanding
- * reveals one line per step — reasoning and tool calls in wire order — and each
- * of those opens to its own arguments and result. Nothing below the headline
- * renders until the user asks for it, so a fifty-step turn costs one row.
+ * One collapsed activity burst: a single line reading "Ran 2 commands ·
+ * Edited 1 file" while settled, or naming the in-flight call while working. A
+ * working burst starts expanded so the run reads as a live timeline and
+ * compacts itself on settle unless the user has toggled it; expanding reveals
+ * one line per step — reasoning and tool calls in wire order — and each of
+ * those opens to its own arguments and result. Nothing below the headline
+ * renders until asked, and a running call shows its headline only until the
+ * result lands. Error counts stay muted so a failed step never shouts.
  */
 export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
-  const [open, setOpen] = useState(false)
   const summary = summarizeToolRun(row.calls, row.resultsByCallId)
   const headline = activityHeadline(row)
   const working = summary.pending > 0
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
+  const open = manualOpen ?? working
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
 
   return (
     <div className="my-0.5">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setManualOpen(!open)}
         aria-expanded={open}
         className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
@@ -46,7 +50,7 @@ export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
           {headline}
         </span>
         {summary.errors > 0 ? (
-          <span className="shrink-0 rounded-sm bg-danger-subtle px-1.5 py-0.5 text-2xs font-medium text-danger">
+          <span className="shrink-0 rounded-sm bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-fg-muted">
             {summary.errors} error{summary.errors === 1 ? '' : 's'}
           </span>
         ) : null}
@@ -100,18 +104,14 @@ function ToolStep({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={`${verb} ${target}`}
+        aria-label={`${verb} ${target}${failed ? ', error' : ''}`}
         className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <Icon
-          size={11}
-          className={`shrink-0 ${failed ? 'text-danger' : 'text-fg-subtle'}`}
-          aria-hidden="true"
-        />
+        <Icon size={11} className="shrink-0 text-fg-subtle" aria-hidden="true" />
         <span className="shrink-0 text-2xs text-fg-subtle">{verb}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">{target}</span>
         {failed ? (
-          <span className="shrink-0 text-2xs font-medium text-danger">failed</span>
+          <span className="shrink-0 text-2xs text-fg-subtle">error</span>
         ) : result === undefined ? (
           <span
             aria-label="running"
@@ -120,11 +120,7 @@ function ToolStep({
         ) : null}
       </button>
       {open ? (
-        <div
-          className={`mb-1 ml-4 overflow-hidden rounded-md border bg-surface-1 ${
-            failed ? 'border-danger' : 'border-border'
-          }`}
-        >
+        <div className="mb-1 ml-4 overflow-hidden rounded-md border border-border bg-surface-1">
           {call.argsJson ? <ToolCallDetails call={call} /> : null}
           {result?.resultJson ? <ToolResultBody resultJson={result.resultJson} /> : null}
         </div>
