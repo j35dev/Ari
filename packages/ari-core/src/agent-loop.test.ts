@@ -570,6 +570,53 @@ describe('permission modes', () => {
     expect(events.some((e) => e.type === 'text-delta' && e.text.includes('switching'))).toBe(true)
   })
 
+  it('redirects an identical read re-requested after other work, instead of running it again', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-loop-'))
+    try {
+      await writeFile(join(dir, 'note.txt'), 'the payload', 'utf8')
+      let calls = 0
+      // Re-reads note.txt interleaved with other reads. The back-to-back guard
+      // stays quiet (the round signatures keep changing), but the near-miss
+      // guard sees the third request for a result that is still fresh and
+      // redirects it rather than executing it a third time.
+      const round = async function* (): AsyncGenerator<AgentEvent> {
+        calls++
+        const path = calls === 1 || calls === 3 || calls === 4 ? 'note.txt' : `other-${calls}.txt`
+        if (calls === 5) {
+          yield { type: 'text-delta', text: 'enough' }
+          yield { type: 'done' }
+          return
+        }
+        yield {
+          type: 'tool-started',
+          callId: `c${calls}`,
+          name: 'read',
+          argsJson: JSON.stringify({ path }),
+        }
+        yield { type: 'done' }
+      }
+      const events = await collect({
+        round,
+        systemPrompt: 's',
+        userPrompt: 'u',
+        workspacePath: dir,
+      })
+      // note.txt really ran twice (calls 1 and 3); the third request (call 4)
+      // was answered with a stale-result redirect instead of being executed.
+      const executed = events.filter(
+        (e) => e.type === 'tool-completed' && e.resultJson.includes('the payload'),
+      )
+      expect(executed).toHaveLength(2)
+      const redirect = events.find(
+        (e) => e.type === 'tool-completed' && e.resultJson.includes('Not run:'),
+      )
+      expect(redirect?.type === 'tool-completed' && redirect.resultJson).toContain('already returned')
+      expect(events.some((e) => e.type === 'error')).toBe(false)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('honours an explicit round ceiling when a caller sets one', async () => {
     let calls = 0
     // Arguments differ every round, so the repetition guard stays quiet and the
