@@ -162,7 +162,7 @@ describe('tool-level allowlist enforcement', () => {
       await writeFile(join(dir, 'open.txt'), 'visible', 'utf8')
       await expect(
         reader?.execute({ path: 'open.txt' }, { workspacePath: dir, permissionMode: 'ask' }),
-      ).resolves.toBe('visible')
+      ).resolves.toBe('1\tvisible')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -178,7 +178,7 @@ describe('tool-level allowlist enforcement', () => {
           workspacePath: dir,
           allowlist: [{ tool: 'read', pattern: 'never/**' }],
         }),
-      ).resolves.toBe('visible')
+      ).resolves.toBe('1\tvisible')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

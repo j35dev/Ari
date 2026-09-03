@@ -116,15 +116,85 @@ describe('ari core driver flavor routing', () => {
       const first = requests[0]
       expect(first?.system).toContain('Ari Core')
       expect(first?.messages).toEqual([{ role: 'user', content: 'read the note' }])
+      // Tools are advertised natively, not left for the model to improvise.
+      expect(first?.tools?.some((t) => t.name === 'read')).toBe(true)
+      expect(first?.tools?.some((t) => t.name === 'bash')).toBe(true)
+      // The prefix every round resends is marked for caching.
+      expect(first?.cache).toBe(true)
 
-      // second round maps the tool exchange onto plain user/assistant turns
+      // second round maps the tool exchange onto native blocks: the assistant
+      // turn carries tool_use, the next user turn carries the tool_result.
       const second = requests[1]
       expect(second?.system).toContain('Ari Core')
-      expect(second?.messages).toEqual([
+      const secondMessages = second?.messages ?? []
+      expect(secondMessages[0]).toEqual({ role: 'user', content: 'read the note' })
+      expect(secondMessages[1]).toEqual({
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'c1', name: 'read', input: { path: 'note.txt' } }],
+      })
+      const resultTurn = secondMessages[2]
+      expect(resultTurn?.role).toBe('user')
+      const resultBlock = (
+        Array.isArray(resultTurn?.content) ? resultTurn?.content[0] : undefined
+      ) as { type: string; tool_use_id?: string; content?: string } | undefined
+      expect(resultBlock?.type).toBe('tool_result')
+      expect(resultBlock?.tool_use_id).toBe('c1')
+      expect(resultBlock?.content).toContain('note body')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps tool_result blocks when a new prompt follows an unfinished tool round', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-driver-resume-'))
+    try {
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep-an',
+        name: 'Anthropic',
+        baseUrl: 'https://an.test',
+        flavor: 'anthropic-messages',
+        model: 'claude-test',
+        headers: {},
+      })
+      // An abort or a round-ceiling exit both leave the stored transcript
+      // ending on tool results. The next prompt lands directly after them, and
+      // merging it must not swallow the result answering the assistant's call.
+      const conversations = new MemoryConversationStore()
+      await conversations.save('s1', [
         { role: 'user', content: 'read the note' },
-        { role: 'assistant', content: '[tool call read] {"path":"note.txt"}' },
-        { role: 'user', content: '[tool result c1]\n"note body"' },
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'c1', name: 'read', argsJson: '{"path":"note.txt"}' }],
+        },
+        { role: 'tool', content: 'note body', toolCallId: 'c1' },
       ])
+      const requests: AnthropicChatRequest[] = []
+      const driver = new AriCoreDriver(endpoints, {
+        conversations,
+        compaction: false,
+        clients: {
+          anthropic: async function* (request) {
+            requests.push(request)
+            yield { type: 'text-delta', text: 'ok' }
+            yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const adapter = await driver.create(makeSession(dir, 'now summarize it', 'ep-an'))
+      await collect(adapter.start())
+
+      const wire = requests[0]?.messages ?? []
+      const blocks = wire.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+      // Anthropic rejects a tool_use that no tool_result answers.
+      expect(blocks.filter((b) => b.type === 'tool_result')).toEqual([
+        { type: 'tool_result', tool_use_id: 'c1', content: 'note body' },
+      ])
+      // The follow-up prompt rides along in the same user turn, not a second one.
+      expect(wire.filter((m) => m.role === 'user')).toHaveLength(2)
+      expect(JSON.stringify(wire)).toContain('now summarize it')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

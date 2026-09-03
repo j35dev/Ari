@@ -158,21 +158,28 @@ function canonicalize(value: unknown): unknown {
 }
 
 /**
+ * Canonical identity of one tool call (name + normalized arguments). Two calls
+ * with the same identity are asking for exactly the same thing; the near-miss
+ * guard keys on this to tell whether a call's result is still fresh.
+ */
+function callIdentity(call: PendingToolCall): string {
+  let args: unknown
+  try {
+    args = canonicalize(JSON.parse(call.argsJson || '{}'))
+  } catch {
+    args = call.argsJson
+  }
+  return JSON.stringify([call.name, args])
+}
+
+/**
  * Identity of a round's tool requests. The call list is sorted so a model
  * reordering a parallel batch still reads as the same request, and arguments
  * are canonicalized rather than compared as raw text.
  */
 function roundSignature(calls: readonly PendingToolCall[]): string {
   return calls
-    .map((c) => {
-      let args: unknown
-      try {
-        args = canonicalize(JSON.parse(c.argsJson || '{}'))
-      } catch {
-        args = c.argsJson
-      }
-      return JSON.stringify([c.name, args])
-    })
+    .map(callIdentity)
     .sort()
     .join('\u0001')
 }
@@ -185,6 +192,17 @@ function loopRedirectText(calls: readonly PendingToolCall[]): string {
     'several rounds in a row and the results have not changed. Re-reading the results ' +
     'you already have, take a different action — a different tool, different arguments, ' +
     'or tell the user what is blocking you.'
+  )
+}
+
+/** Told to the model in place of re-running calls whose results are still in context. */
+function staleReadText(calls: readonly PendingToolCall[]): string {
+  const names = [...new Set(calls.map((c) => c.name))].join(', ')
+  return (
+    `Not run: this exact ${names} call already returned this same result earlier in the ` +
+    'turn and nothing has changed it since — no writes or commands ran in between, so ' +
+    'running it again would repeat what is already on screen. Use the result you have or ' +
+    'take a different action.'
   )
 }
 
@@ -243,6 +261,12 @@ export async function* runAgentLoop(
   let lastSignature: string | null = null
   let identicalRounds = 0
   let redirected = false
+  // Near-miss loop detection: how many times each read-only call has been
+  // executed since the last mutating call (or compaction). While that count is
+  // unbroken the call's result is byte-identical every run, so re-requesting it
+  // a third time adds nothing — even when the repeats are interleaved with other
+  // work, which is how a stuck model hides from the back-to-back guard above.
+  let freshReadHits = new Map<string, number>()
 
   for (let current = 0; maxRounds === undefined || current < maxRounds; current++) {
     if (signal?.aborted) {
@@ -259,6 +283,9 @@ export async function* runAgentLoop(
         messages.length = 0
         messages.push(...compacted)
         publishTranscript()
+        // History changed under the model, so a repeated read may now be asking
+        // for content that was summarized away — never flag it as stale.
+        freshReadHits = new Map()
       }
     }
 
@@ -344,10 +371,25 @@ export async function* runAgentLoop(
     const signature = roundSignature(pending)
     identicalRounds = signature === lastSignature ? identicalRounds + 1 : 1
     lastSignature = signature
+
+    // Near-miss: a round made only of read-only calls that have already been
+    // executed twice while still fresh is about to re-run byte-identical tools.
+    // Unlike identicalRounds (which only sees back-to-back repeats), this also
+    // catches a stuck model that interleaves its repeated reads with other work.
+    // A mutating call or a compaction clears the map, so a re-read after an edit
+    // — the legitimate reason to re-read — is never mistaken for a repeat.
+    const allFreshDuplicates =
+      pending.length > 0 &&
+      pending.every((call) => {
+        const tool = toolset.get(call.name)
+        const hits = tool?.readOnly === true ? (freshReadHits.get(callIdentity(call)) ?? 0) : 0
+        return hits >= 2
+      })
+
     // Answered with an explanation instead of executed, once, when the model
     // is repeating itself; null on every normal round.
     let loopRedirect: string | null = null
-    if (identicalRounds >= MAX_IDENTICAL_ROUNDS) {
+    if (allFreshDuplicates || identicalRounds >= MAX_IDENTICAL_ROUNDS) {
       if (redirected) {
         const names = [...new Set(pending.map((p) => p.name))].join(', ')
         yield {
@@ -362,7 +404,14 @@ export async function* runAgentLoop(
       }
       redirected = true
       identicalRounds = 0
-      loopRedirect = loopRedirectText(pending)
+      if (allFreshDuplicates) {
+        // The redirect is not an execution, so drop these calls' freshness to
+        // give the model one clean run of MAX before it is stopped again.
+        for (const call of pending) freshReadHits.delete(callIdentity(call))
+        loopRedirect = staleReadText(pending)
+      } else {
+        loopRedirect = loopRedirectText(pending)
+      }
     }
 
     // Record the assistant's tool calls, then execute and append results.
@@ -497,6 +546,24 @@ export async function* runAgentLoop(
         content: resultJson,
         toolCallId: call.callId,
       })
+    }
+
+    // Track freshness for the next round's near-miss guard. A read-only call
+    // that actually ran is fresh; executing any mutating call invalidates the
+    // reads before it, since it may have changed what they saw. A read that
+    // shares a round with a mutating call may have raced it, so it is never
+    // certified fresh either. Redirected rounds ran nothing, so they leave the
+    // map untouched.
+    if (loopRedirect === null) {
+      const mutated = pending.some((call) => toolset.get(call.name)?.readOnly !== true)
+      if (mutated) {
+        freshReadHits.clear()
+      } else {
+        for (const call of pending) {
+          const identity = callIdentity(call)
+          freshReadHits.set(identity, (freshReadHits.get(identity) ?? 0) + 1)
+        }
+      }
     }
     publishTranscript()
   }
