@@ -1,5 +1,13 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { ChatImage } from './openai-chat'
+import {
+  describeFailure,
+  faultMessage,
+  guardStream,
+  MAX_ERROR_BODY_CHARS,
+  withRetry,
+  type StreamFetch,
+} from './http-retry'
 
 /**
  * Ollama `/api/chat` streaming client. Unlike the SSE protocols, Ollama
@@ -24,20 +32,31 @@ export interface OllamaChatRequest {
   signal?: AbortSignal
 }
 
-export type NdjsonFetch = (
-  url: string,
-  init: RequestInit,
-) => Promise<{ body: AsyncIterable<string> | null; status: number; statusText: string }>
+export type NdjsonFetch = StreamFetch
 
-export const defaultNdjsonFetch: NdjsonFetch = async (url, init) => {
+/** One attempt, no retrying — {@link defaultNdjsonFetch} wraps it in backoff. */
+const ndjsonFetchOnce: NdjsonFetch = async (url, init) => {
   const response = await fetch(url, init)
-  if (!response.body) return { body: null, status: response.status, statusText: response.statusText }
+  const retryAfter = response.headers.get('retry-after')
+  if (!response.body || response.status >= 400) {
+    const errorBody = await response.text().catch(() => '')
+    return {
+      body: null,
+      status: response.status,
+      statusText: response.statusText,
+      errorBody: errorBody.slice(0, MAX_ERROR_BODY_CHARS),
+      retryAfter,
+    }
+  }
   return {
     body: readNdjsonLines(response.body),
     status: response.status,
     statusText: response.statusText,
+    retryAfter,
   }
 }
+
+export const defaultNdjsonFetch: NdjsonFetch = withRetry(ndjsonFetchOnce)
 
 /** Converts a byte stream into trimmed NDJSON lines. */
 async function* readNdjsonLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -111,8 +130,8 @@ export async function* streamChatOllama(
   if (!response.body || response.status >= 400) {
     yield {
       type: 'error',
-      message: `endpoint error ${response.status}: ${response.statusText}`,
-      rawJson: null,
+      message: describeFailure(response),
+      rawJson: response.errorBody ?? null,
     }
     yield { type: 'done' }
     return
@@ -120,8 +139,9 @@ export async function* streamChatOllama(
 
   let inputTokens = 0
   let outputTokens = 0
+  let streamFault: unknown = null
 
-  for await (const line of response.body) {
+  for await (const line of guardStream(response.body, (error) => (streamFault = error))) {
     const data = line.trim()
     if (data.length === 0) continue
     let chunk: ChatChunk
@@ -141,6 +161,18 @@ export async function* streamChatOllama(
       outputTokens = chunk.eval_count ?? outputTokens
       break
     }
+  }
+
+  if (streamFault !== null) {
+    if (request.signal?.aborted !== true) {
+      yield {
+        type: 'error',
+        message: `endpoint stream interrupted: ${faultMessage(streamFault)}`,
+        rawJson: null,
+      }
+    }
+    yield { type: 'done' }
+    return
   }
 
   yield { type: 'usage', inputTokens, outputTokens, costUsd: null }

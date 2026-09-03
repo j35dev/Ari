@@ -760,6 +760,40 @@ already holding.
       repeats (`read A → read B → read A`) that the back-to-back signature
       guard never sees
 
+- [x] M36.4 Transport resilience for custom endpoints (bug report, 2026-09-04):
+      a user's endpoint failed constantly under Ari Core while the same endpoint
+      served other harnesses. The journal settles it — four rounds of the turn
+      succeeded, then three `500`s landed inside **152 ms** and the turn died as
+      `model returned an empty response (3 attempts)`; an earlier lone `500` in
+      the same turn had been recovered from. So the request shape was fine and
+      the endpoint was flaking: Ari had no HTTP retry anywhere in the request
+      path, and the agent loop's empty-response guard — instant, no backoff, and
+      blind to the difference between a silent model and a dead socket — spent
+      its whole budget inside one failure window.
+
+      `protocols/http-retry.ts` now wraps the connection attempt of all three
+      transports in exponential backoff with equal jitter (5 attempts over ~8s),
+      retrying only congestion and upstream faults (408/425/429/500/502/503/
+      504/529) and never a status about the request itself. `Retry-After` wins
+      when the endpoint sends one, capped so a turn cannot be parked for a
+      minute; an interrupt ends the sequence instead of waiting out a backoff.
+
+      Failures are legible now too. `defaultSseFetch` read no body on a non-2xx,
+      so the endpoint's own explanation was discarded (`rawJson: null`) and the
+      socket leaked — it now reads and reports it, capped, with the attempt
+      count. A mid-stream break used to end the round as if the model had simply
+      stopped, or escape the generator as a raw rejection; `guardStream` turns it
+      into an error event and drops the half-parsed tool call it cut off. The
+      loop no longer retries a round that failed at the transport, so a hard
+      endpoint failure reads as itself rather than as an empty model response,
+      and `turnError.ts` classifies it as `Endpoint is failing` — matched ahead
+      of the auth and throttle families so a gateway quoting "invalid api key"
+      inside a 500 cannot relabel the failure.
+
+      Left open on purpose: no idle-stream deadline yet (a gateway that accepts
+      the connection and then goes quiet still hangs the turn until the user
+      interrupts), and the OpenAI-compat path still sends no `max_tokens`.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
