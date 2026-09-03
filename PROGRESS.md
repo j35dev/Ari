@@ -760,6 +760,71 @@ already holding.
       repeats (`read A → read B → read A`) that the back-to-back signature
       guard never sees
 
+- [x] M36.4 Transport resilience for custom endpoints (bug report, 2026-09-04):
+      a user's endpoint failed constantly under Ari Core while the same endpoint
+      served other harnesses. The journal settles it — four rounds of the turn
+      succeeded, then three `500`s landed inside **152 ms** and the turn died as
+      `model returned an empty response (3 attempts)`; an earlier lone `500` in
+      the same turn had been recovered from. So the request shape was fine and
+      the endpoint was flaking: Ari had no HTTP retry anywhere in the request
+      path, and the agent loop's empty-response guard — instant, no backoff, and
+      blind to the difference between a silent model and a dead socket — spent
+      its whole budget inside one failure window.
+
+      `protocols/http-retry.ts` now wraps the connection attempt of all three
+      transports in exponential backoff with equal jitter (5 attempts over ~8s),
+      retrying only congestion and upstream faults (408/425/429/500/502/503/
+      504/529) and never a status about the request itself. `Retry-After` wins
+      when the endpoint sends one, capped so a turn cannot be parked for a
+      minute; an interrupt ends the sequence instead of waiting out a backoff.
+
+      Failures are legible now too. `defaultSseFetch` read no body on a non-2xx,
+      so the endpoint's own explanation was discarded (`rawJson: null`) and the
+      socket leaked — it now reads and reports it, capped, with the attempt
+      count. A mid-stream break used to end the round as if the model had simply
+      stopped, or escape the generator as a raw rejection; `guardStream` turns it
+      into an error event and drops the half-parsed tool call it cut off. The
+      loop no longer retries a round that failed at the transport, so a hard
+      endpoint failure reads as itself rather than as an empty model response,
+      and `turnError.ts` classifies it as `Endpoint is failing` — matched ahead
+      of the auth and throttle families so a gateway quoting "invalid api key"
+      inside a 500 cannot relabel the failure.
+
+      Left open on purpose: no idle-stream deadline yet (a gateway that accepts
+      the connection and then goes quiet still hangs the turn until the user
+      interrupts), and the OpenAI-compat path still sends no `max_tokens`.
+
+- [x] M36.5 Stalled streams and over-long requests stop being mysteries — the
+      two gaps M36.4 left open, minus `max_tokens`, which needs a value decided
+      rather than guessed.
+
+      `withIdleDeadline` gives every streaming transport a 120s silence budget
+      between lines. A gateway that accepts the connection and then goes away
+      used to hang the turn until the user noticed and interrupted by hand; it
+      now ends as a stall through M36.4's mid-stream handler, keeping whatever
+      arrived and closing the abandoned iterator so the socket does not outlive
+      the turn. The budget is deliberately generous: a reasoning model behind a
+      buffering proxy can be slow to its first token, and killing a turn that
+      was about to answer is the worse failure.
+
+      A context overflow arrives as a plain 400, so it used to read as a
+      malformed request — `isContextOverflow` recognises the phrasings endpoints
+      actually use (`maximum context length`, `prompt is too long`, `reduce the
+      length`, `too many input tokens`) on 400/413/422 and leads the message
+      with the fix instead of the status. `turnError.ts` gains a
+      `Conversation too long` family, matched ahead of the transport families
+      because the quoted body usually mentions tokens and limits too.
+
+      Still open, and none of them small: the context budget is a hardcoded
+      500k-token assumption (`DEFAULT_CONTEXT_WINDOW_TOKENS`) that no discovered
+      model overrides — the gateways in use report no `context_length`, which
+      `normalizeRow` would otherwise read — so compaction cannot fire before a
+      smaller model hits its own ceiling, and an overflow is now legible but
+      still fatal rather than triggering an emergency compaction and retry.
+      Thinking blocks are still dropped between rounds, which for Anthropic
+      needs `signature_delta` captured off the stream before it can be fixed
+      correctly. No sub-agent tool. No prompt caching on the OpenAI-compat path.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
