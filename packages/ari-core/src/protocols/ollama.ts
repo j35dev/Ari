@@ -1,4 +1,5 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import type { ChatImage } from './openai-chat'
 
 /**
  * Ollama `/api/chat` streaming client. Unlike the SSE protocols, Ollama
@@ -9,6 +10,8 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 export interface OllamaMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  /** Staged images attached to a user turn; sent as Ollama's native `images`. */
+  images?: ChatImage[]
 }
 
 export interface OllamaChatRequest {
@@ -88,7 +91,13 @@ export async function* streamChatOllama(
       headers,
       body: JSON.stringify({
         model: request.model,
-        messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: request.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          ...(m.images && m.images.length > 0
+            ? { images: m.images.map((img) => img.dataBase64) }
+            : {}),
+        })),
         stream: true,
       }),
       signal: request.signal,

@@ -11,7 +11,7 @@ describe('Composer', () => {
     render(<Composer onSend={onSend} />)
     await user.type(screen.getByLabelText('Message'), '  fix the bug  ')
     await user.click(screen.getByRole('button', { name: 'Send' }))
-    expect(onSend).toHaveBeenCalledWith('fix the bug')
+    expect(onSend).toHaveBeenCalledWith('fix the bug', [])
     expect(screen.getByLabelText('Message')).toHaveValue('')
   })
 
@@ -121,7 +121,7 @@ describe('Composer draft seeding', () => {
     await waitFor(() => expect(input).toHaveValue('first attempt, corrected:'))
     await waitFor(() => expect(input).toHaveFocus())
     await user.type(input, ' with the fix{Enter}')
-    expect(onSend).toHaveBeenCalledWith('first attempt, corrected: with the fix')
+    expect(onSend).toHaveBeenCalledWith('first attempt, corrected: with the fix', [])
   })
 
   it('applies a new nonce over both user edits and earlier seeds', async () => {
@@ -199,8 +199,25 @@ describe('Composer image attachments', () => {
     pasteImages(input, [imageFile('shot.png')])
     await user.type(input, 'look at this{Enter}')
 
-    expect(onSend).toHaveBeenCalledWith('look at this')
+    expect(onSend).toHaveBeenCalledOnce()
+    const [sentText, sentFiles] = onSend.mock.calls[0] as [string, File[]]
+    expect(sentText).toBe('look at this')
+    expect(sentFiles.map((f) => f.name)).toEqual(['shot.png'])
     expect(screen.queryByRole('list', { name: 'Attached images' })).not.toBeInTheDocument()
+  })
+
+  it('sends images with empty text', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    render(<Composer onSend={onSend} />)
+    const input = screen.getByLabelText('Message')
+    pasteImages(input, [imageFile('shot.png')])
+    await user.type(input, '{Enter}')
+
+    expect(onSend).toHaveBeenCalledOnce()
+    const [sentText, sentFiles] = onSend.mock.calls[0] as [string, File[]]
+    expect(sentText).toBe('')
+    expect(sentFiles.map((f) => f.name)).toEqual(['shot.png'])
   })
 })
 
@@ -301,7 +318,7 @@ describe('Composer mention popup', () => {
     await user.type(input, '@main')
     await user.type(input, '{Enter}')
     await user.type(input, 'x{Enter}')
-    expect(onSend).toHaveBeenCalledWith('@src/main.tsx x')
+    expect(onSend).toHaveBeenCalledWith('@src/main.tsx x', [])
   })
 
   it('lists at most 8 paths', async () => {

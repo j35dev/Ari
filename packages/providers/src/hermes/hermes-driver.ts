@@ -2,6 +2,7 @@ import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { mapHermesLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
@@ -15,7 +16,7 @@ const log = createLogger('providers:hermes')
  * they must be probed against the real binary when it ships.
  */
 export function buildHermesArgs(session: AdapterSession): string[] {
-  const args = ['-p', session.prompt, '--output-format', 'stream-json', '--verbose']
+  const args = ['-p', promptWithAttachments(session), '--output-format', 'stream-json', '--verbose']
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--resume', session.resumeOf)
   args.push('--permission-mode', permissionModeFlag(session.permissionMode))

@@ -9,6 +9,7 @@ import {
 const driverKindSchemaOptional = driverKindSchema.optional()
 const permissionModeSchemaOptional = permissionModeSchema.optional()
 import { messageSchema, messagePartSchema } from './message'
+import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 import { sessionSchema } from './session'
 
 /**
@@ -105,11 +106,13 @@ export const journalEventSchema = z.discriminatedUnion('type', [
   }),
   eventBase.extend({
     type: z.literal('message.enqueued'),
-    text: z.string().min(1),
+    text: z.string(),
+    attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
   }),
   eventBase.extend({
     type: z.literal('message.dequeued'),
-    text: z.string().min(1),
+    text: z.string(),
+    attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
   }),
 ])
 export type JournalEvent = z.infer<typeof journalEventSchema>
