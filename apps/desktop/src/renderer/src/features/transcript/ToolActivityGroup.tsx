@@ -16,27 +16,26 @@ const KIND_ICON: Record<ToolKind, LucideIcon> = {
 
 /**
  * One collapsed activity burst: a single line reading "Ran 2 commands ·
- * Edited 1 file" while settled, or naming the in-flight call while working. A
- * working burst starts expanded so the run reads as a live timeline and
- * compacts itself on settle unless the user has toggled it; expanding reveals
- * one line per step — reasoning and tool calls in wire order — and each of
- * those opens to its own arguments and result. Nothing below the headline
- * renders until asked, and a running call shows its headline only until the
- * result lands. Error counts stay muted so a failed step never shouts.
+ * Edited 1 file" while settled, or naming the in-flight call while working.
+ * Bursts stay collapsed — live and settled — so a long run costs one row per
+ * burst instead of a wall of tool lines; expanding reveals one line per step
+ * — reasoning and tool calls in wire order — and each of those opens to its
+ * own arguments and result. Nothing below the headline renders until asked,
+ * and a running call shows its headline only until the result lands. Error
+ * counts stay muted so a failed step never shouts.
  */
 export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
   const summary = summarizeToolRun(row.calls, row.resultsByCallId)
   const headline = activityHeadline(row)
   const working = summary.pending > 0
-  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
-  const open = manualOpen ?? working
+  const [open, setOpen] = useState(false)
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
 
   return (
     <div className="my-0.5">
       <button
         type="button"
-        onClick={() => setManualOpen(!open)}
+        onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
