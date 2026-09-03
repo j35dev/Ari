@@ -1,7 +1,7 @@
 import type { TranscriptBlock } from './types'
 
 /** Coarse bucket a tool falls into; drives both verbs and summary counters. */
-export type ToolKind = 'run' | 'edit' | 'read' | 'search'
+export type ToolKind = 'run' | 'edit' | 'read' | 'search' | 'todo'
 
 const EDIT_TOOLS = new Set([
   'edit',
@@ -35,8 +35,11 @@ const SEARCH_TOOLS = new Set([
   'codebase_search',
 ])
 
+const TODO_TOOLS = new Set(['todo_write', 'todowrite', 'todo', 'todos', 'todo_read'])
+
 /** Substring probes for provider-specific names the exact sets miss. */
 const FUZZY_KIND: ReadonlyArray<readonly [RegExp, ToolKind]> = [
+  [/todo/, 'todo'],
   [/write|edit|patch|replace|create|insert|delete|move|rename/, 'edit'],
   [/read|list|glob|view|cat|open/, 'read'],
   [/search|grep|find|fetch|lookup/, 'search'],
@@ -45,6 +48,7 @@ const FUZZY_KIND: ReadonlyArray<readonly [RegExp, ToolKind]> = [
 /** Buckets a raw tool name; anything unrecognised counts as a command run. */
 export function classifyTool(name: string | undefined): ToolKind {
   const key = (name ?? '').toLowerCase()
+  if (TODO_TOOLS.has(key)) return 'todo'
   if (EDIT_TOOLS.has(key)) return 'edit'
   if (READ_TOOLS.has(key)) return 'read'
   if (SEARCH_TOOLS.has(key)) return 'search'
@@ -61,6 +65,7 @@ const ARI_TOOL_NAME: Record<ToolKind, string> = {
   edit: 'Ari Edit',
   read: 'Ari Read',
   search: 'Ari Search',
+  todo: 'Ari Todo',
 }
 
 /** Brand name for a bucket ("Ari Run"); pairs with {@link classifyTool}. */
@@ -74,6 +79,7 @@ const PAST_VERB: Record<ToolKind, string> = {
   edit: 'Edited',
   read: 'Read',
   search: 'Searched',
+  todo: 'Updated',
 }
 
 /** Present-participle verb for the in-flight step ("Reading src/app.ts"). */
@@ -82,6 +88,7 @@ const LIVE_VERB: Record<ToolKind, string> = {
   edit: 'Editing',
   read: 'Reading',
   search: 'Searching',
+  todo: 'Updating',
 }
 
 /**
@@ -96,9 +103,14 @@ const TARGET_KEYS = [
   'filePath',
   'target_file',
   'targetFile',
+  'file',
+  'filename',
+  'filepath',
   'notebook_path',
   'absolute_path',
   'target_directory',
+  'directory',
+  'dir',
   'path',
   'pattern',
   'query',
@@ -208,6 +220,59 @@ export function stringArg(
   return null
 }
 
+const TODO_LIST_KEYS = ['items', 'todos', 'tasks', 'checklist'] as const
+const TODO_TEXT_KEYS = ['text', 'content', 'title', 'label', 'name'] as const
+const TODO_STATE_KEYS = ['status', 'state'] as const
+const TODO_DONE_STATES = new Set(['done', 'completed', 'complete'])
+
+export interface TodoListItem {
+  text: string
+  done: boolean
+  active: boolean
+}
+
+function asRecordList(value: unknown): Record<string, unknown>[] | null {
+  if (!Array.isArray(value)) return null
+  const out: Record<string, unknown>[] = []
+  for (const entry of value) {
+    const record = asRecord(entry)
+    if (record !== null) out.push(record)
+  }
+  return out
+}
+
+/**
+ * Reads a plan/checklist payload across provider shapes — Ari Core
+ * `{items:[{text,status}]}` and Claude-style `{todos:[{content,status}]}`.
+ * An entry counts as done on a `done`/`completed` state or a truthy
+ * `completed`/`checked` flag, active while `in_progress`.
+ */
+export function todoItems(payload: Record<string, unknown>): TodoListItem[] | null {
+  for (const key of TODO_LIST_KEYS) {
+    const records = asRecordList(payload[key])
+    if (records === null || records.length === 0) continue
+    return records.map((record) => {
+      const text = stringArg(record, TODO_TEXT_KEYS) ?? 'untitled'
+      const state = stringArg(record, TODO_STATE_KEYS)?.toLowerCase() ?? ''
+      const flagged =
+        record['completed'] === true || record['checked'] === true || record['done'] === true
+      return {
+        text,
+        done: TODO_DONE_STATES.has(state) || flagged,
+        active: state === 'in_progress' || state === 'in-progress' || state === 'active',
+      }
+    })
+  }
+  return null
+}
+
+/** `done/total` progress of a plan payload, or null when no list is present. */
+export function todoProgress(payload: Record<string, unknown>): string | null {
+  const items = todoItems(payload)
+  if (items === null) return null
+  return `${items.filter((i) => i.done).length}/${items.length}`
+}
+
 /** Extracts the most meaningful single-line argument preview from a call. */
 export function toolTarget(argsJson: string | undefined): string {
   const parsed = parseArgs(argsJson)
@@ -230,6 +295,42 @@ export function toolTarget(argsJson: string | undefined): string {
     )
     if (first !== undefined) return oneLine(String(first[1]))
   }
+  return ''
+}
+
+const SEARCH_QUERY_KEYS = ['pattern', 'query', 'q', 'url'] as const
+const SEARCH_SCOPE_KEYS = ['path', 'include', 'glob', 'file_pattern'] as const
+
+/** Argument records outermost-first, so envelope levels never hide a target. */
+function recordList(argsJson: string | undefined): Record<string, unknown>[] {
+  const parsed = parseToolArgs(argsJson)
+  if (parsed === null) return []
+  return parsed.payload === parsed.args ? [parsed.args] : [parsed.args, parsed.payload]
+}
+
+function firstString(
+  records: Record<string, unknown>[],
+  keys: readonly string[],
+): string | null {
+  for (const record of records) {
+    const value = stringArg(record, keys)
+    if (value !== null) return value
+  }
+  return null
+}
+
+/**
+ * Kind-aware target for a search call: `settle in engine` when both a query
+ * and a scope are present, otherwise whichever half exists.
+ */
+function searchTarget(records: Record<string, unknown>[]): string {
+  const query = firstString(records, SEARCH_QUERY_KEYS)
+  const scope = firstString(records, SEARCH_SCOPE_KEYS)
+  if (query !== null && scope !== null && scope !== query) {
+    return `${oneLine(query)} in ${shortenPath(scope)}`
+  }
+  if (query !== null) return oneLine(query)
+  if (scope !== null) return shortenPath(scope)
   return ''
 }
 
@@ -270,9 +371,21 @@ export function classifyToolCall(block: Pick<TranscriptBlock, 'name' | 'argsJson
 }
 
 /**
+ * Humanizes a raw tool identifier for display (`run_terminal_command` →
+ * `run terminal command`). Used when a call carries no showable target so the
+ * row names the tool instead of pairing a verb with the raw id.
+ */
+export function humanizeToolName(name: string | undefined): string {
+  const clean = (name ?? '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return clean.length > 0 ? clean : 'tool'
+}
+
+/**
  * One-line description of a tool call. `live` picks the present participle so
  * the in-flight header reads "Reading tokens.css" while history reads "Read
- * tokens.css".
+ * tokens.css". When no argument is showable the target is empty and callers
+ * fall back to {@link humanizeToolName} — never the raw id as a target, which
+ * read as "Editing Edit".
  */
 export function describeToolCall(
   block: Pick<TranscriptBlock, 'name' | 'argsJson'>,
@@ -280,12 +393,21 @@ export function describeToolCall(
 ): ToolStepLabel {
   const name = effectiveToolName(block.name, block.argsJson)
   const kind = classifyTool(name)
-  const target = toolTarget(block.argsJson)
-  return {
-    kind,
-    verb: live ? LIVE_VERB[kind] : PAST_VERB[kind],
-    target: target.length > 0 ? target : name,
+  const verb = live ? LIVE_VERB[kind] : PAST_VERB[kind]
+  const records = recordList(block.argsJson)
+  if (records.length > 0) {
+    if (kind === 'search') {
+      return { kind, verb, target: searchTarget(records) }
+    }
+    if (kind === 'todo') {
+      for (const record of records) {
+        const progress = todoProgress(record)
+        if (progress !== null) return { kind, verb, target: progress }
+      }
+      return { kind, verb, target: '' }
+    }
   }
+  return { kind, verb, target: toolTarget(block.argsJson) }
 }
 
 const MAX_THOUGHT_CHARS = 120

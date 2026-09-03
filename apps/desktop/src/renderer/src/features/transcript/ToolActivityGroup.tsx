@@ -1,10 +1,19 @@
 import { useState } from 'react'
-import { ChevronRight, FilePen, FileText, Search, Terminal, type LucideIcon } from 'lucide-react'
+import {
+  ChevronRight,
+  FilePen,
+  FileText,
+  ListChecks,
+  Search,
+  Terminal,
+  type LucideIcon,
+} from 'lucide-react'
 import { ToolCallDetails } from './ToolCallDetails'
 import { ToolResultBody } from './ToolResultBody'
 import { ThinkingBlock } from './ThinkingBlock'
 import { activityHeadline, summarizeToolRun } from './groupBlocks'
-import { describeToolCall, type ToolKind } from './toolLabels'
+import { editDiffStat } from './edit-diff'
+import { describeToolCall, effectiveToolName, humanizeToolName, type ToolKind } from './toolLabels'
 import type { ToolGroupRow, TranscriptBlock } from './types'
 
 const KIND_ICON: Record<ToolKind, LucideIcon> = {
@@ -12,20 +21,24 @@ const KIND_ICON: Record<ToolKind, LucideIcon> = {
   edit: FilePen,
   read: FileText,
   search: Search,
+  todo: ListChecks,
 }
 
 /**
- * One collapsed activity run: a single line reading "Ran 2 commands · Edited 1
- * file" while settled, or naming the in-flight call while working. Expanding
- * reveals one line per step — reasoning and tool calls in wire order — and each
- * of those opens to its own arguments and result. Nothing below the headline
- * renders until the user asks for it, so a fifty-step turn costs one row.
+ * One collapsed activity burst: a single line reading "Ran 2 commands ·
+ * Edited 1 file" while settled, or naming the in-flight call while working.
+ * Bursts stay collapsed — live and settled — so a long run costs one row per
+ * burst instead of a wall of tool lines; expanding reveals one line per step
+ * — reasoning and tool calls in wire order — and each of those opens to its
+ * own arguments and result. Nothing below the headline renders until asked,
+ * and a running call shows its headline only until the result lands. Error
+ * counts stay muted so a failed step never shouts.
  */
 export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
-  const [open, setOpen] = useState(false)
   const summary = summarizeToolRun(row.calls, row.resultsByCallId)
   const headline = activityHeadline(row)
   const working = summary.pending > 0
+  const [open, setOpen] = useState(false)
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
 
   return (
@@ -46,7 +59,7 @@ export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
           {headline}
         </span>
         {summary.errors > 0 ? (
-          <span className="shrink-0 rounded-sm bg-danger-subtle px-1.5 py-0.5 text-2xs font-medium text-danger">
+          <span className="shrink-0 rounded-sm bg-surface-2 px-1.5 py-0.5 text-2xs font-medium text-fg-muted">
             {summary.errors} error{summary.errors === 1 ? '' : 's'}
           </span>
         ) : null}
@@ -79,10 +92,12 @@ export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
 }
 
 /**
- * One tool call as a single line: verb, target, state. Opening it shows the
- * arguments and the result body (diff-aware via {@link ToolResultBody}).
+ * One tool call as a single line: verb, target, state — or the humanized tool
+ * name alone when no argument is showable. Edit rows advertise their size
+ * (`+2 −3`). Opening it shows the arguments and the result body (diff-aware
+ * via {@link ToolResultBody}).
  */
-function ToolStep({
+export function ToolStep({
   call,
   result,
 }: {
@@ -90,9 +105,12 @@ function ToolStep({
   result: TranscriptBlock | undefined
 }) {
   const [open, setOpen] = useState(false)
-  const { kind, verb, target } = describeToolCall(call)
+  const { kind, verb, target } = describeToolCall(call, result === undefined)
   const Icon = KIND_ICON[kind]
   const failed = result?.isError === true
+  const nameOnly = target.length === 0
+  const label = nameOnly ? humanizeToolName(effectiveToolName(call.name, call.argsJson)) : `${verb} ${target}`
+  const stat = kind === 'edit' && !nameOnly ? editDiffStat(call.argsJson) : null
 
   return (
     <div className="my-0.5">
@@ -100,18 +118,27 @@ function ToolStep({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={`${verb} ${target}`}
+        aria-label={failed ? `${label}, error` : label}
         className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <Icon
-          size={11}
-          className={`shrink-0 ${failed ? 'text-danger' : 'text-fg-subtle'}`}
-          aria-hidden="true"
-        />
-        <span className="shrink-0 text-2xs text-fg-subtle">{verb}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">{target}</span>
+        <Icon size={11} className="shrink-0 text-fg-subtle" aria-hidden="true" />
+        {nameOnly ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">{label}</span>
+        ) : (
+          <>
+            <span className="shrink-0 text-2xs text-fg-subtle">{verb}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">
+              {target}
+            </span>
+            {stat !== null && (stat.added > 0 || stat.removed > 0) ? (
+              <span className="shrink-0 font-mono text-2xs text-fg-subtle">
+                +{stat.added} −{stat.removed}
+              </span>
+            ) : null}
+          </>
+        )}
         {failed ? (
-          <span className="shrink-0 text-2xs font-medium text-danger">failed</span>
+          <span className="shrink-0 text-2xs text-fg-subtle">error</span>
         ) : result === undefined ? (
           <span
             aria-label="running"
@@ -120,11 +147,7 @@ function ToolStep({
         ) : null}
       </button>
       {open ? (
-        <div
-          className={`mb-1 ml-4 overflow-hidden rounded-md border bg-surface-1 ${
-            failed ? 'border-danger' : 'border-border'
-          }`}
-        >
+        <div className="mb-1 ml-4 overflow-hidden rounded-md border border-border bg-surface-1">
           {call.argsJson ? <ToolCallDetails call={call} /> : null}
           {result?.resultJson ? <ToolResultBody resultJson={result.resultJson} /> : null}
         </div>
