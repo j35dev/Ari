@@ -31,6 +31,36 @@ describe('classifyTurnError', () => {
     expect(classifyTurnError('insufficient credits').title).toBe('Provider is throttling')
   })
 
+  it('recognises an over-long conversation ahead of the transport families', () => {
+    const view = classifyTurnError(
+      "endpoint error 400: the conversation is longer than this model's context window — " +
+        'start a new session — {"error":"prompt is too long"}',
+    )
+    expect(view.title).toBe('Conversation too long')
+    expect(view.hint).toContain('context window')
+  })
+
+  it('recognises a failing custom endpoint after its retries ran out', () => {
+    const view = classifyTurnError('endpoint error 500: Internal Server Error (5 attempts)')
+    expect(view.title).toBe('Endpoint is failing')
+    expect(view.hint).toContain('retries')
+    expect(classifyTurnError('endpoint stream interrupted: socket hang up').title).toBe(
+      'Endpoint is failing',
+    )
+  })
+
+  it('does not let an endpoint quoted error body relabel the family', () => {
+    // The gateway's own body is inlined into the message; a 500 stays a 500.
+    expect(
+      classifyTurnError('endpoint error 500: Internal Server Error — {"error":"invalid api key"}')
+        .title,
+    ).toBe('Endpoint is failing')
+    // A real auth status still classifies as auth.
+    expect(classifyTurnError('endpoint error 401: Unauthorized').title).toBe(
+      'Authentication required',
+    )
+  })
+
   it('recognises spawn failures and missing binaries', () => {
     const view = classifyTurnError(
       "spawn npx ENOENT: 'ari-missing-bin' is not recognized as an internal or external command",

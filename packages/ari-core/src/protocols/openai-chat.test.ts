@@ -243,4 +243,85 @@ describe('openai chat streaming client', () => {
       expect(JSON.parse(started[0].argsJson)).toEqual({ path: 'PROGRESS.md' })
     }
   })
+
+  it('reports the endpoint own error text and how many attempts were spent', async () => {
+    const failing: SseFetch = () =>
+      Promise.resolve({
+        body: null,
+        status: 500,
+        statusText: 'Internal Server Error',
+        errorBody: '{"error":{"message":"upstream bedrock throttled"}}',
+        attempts: 5,
+      })
+    const events = []
+    for await (const e of streamChatCompletion(base, failing)) events.push(e)
+    expect(events).toHaveLength(2)
+    const error = events[0]
+    expect(error?.type).toBe('error')
+    if (error?.type === 'error') {
+      expect(error.message).toBe(
+        'endpoint error 500: Internal Server Error (5 attempts) — ' +
+          '{"error":{"message":"upstream bedrock throttled"}}',
+      )
+      expect(error.rawJson).toBe('{"error":{"message":"upstream bedrock throttled"}}')
+    }
+    expect(events[1]).toEqual({ type: 'done' })
+  })
+
+  it('reports a mid-stream break as an error instead of ending the round quietly', async () => {
+    const breaking: SseFetch = () =>
+      Promise.resolve({
+        body: (async function* () {
+          yield 'data: {"choices":[{"delta":{"content":"partial"}}]}'
+          throw new Error('socket hang up')
+        })(),
+        status: 200,
+        statusText: 'OK',
+      })
+    const events = []
+    for await (const e of streamChatCompletion(base, breaking)) events.push(e)
+    expect(events.map((e) => e.type)).toEqual(['text-delta', 'error', 'done'])
+    const error = events[1]
+    if (error?.type === 'error') expect(error.message).toContain('socket hang up')
+  })
+
+  it('stays quiet about a stream the user interrupted', async () => {
+    const controller = new AbortController()
+    const aborting: SseFetch = () =>
+      Promise.resolve({
+        body: (async function* () {
+          // A payloadless line yields no event, so an interrupted stream is
+          // observably silent rather than merely empty.
+          yield 'data:'
+          controller.abort()
+          throw new Error('The operation was aborted')
+        })(),
+        status: 200,
+        statusText: 'OK',
+      })
+    const events = []
+    for await (const e of streamChatCompletion(
+      { ...base, signal: controller.signal },
+      aborting,
+    )) {
+      events.push(e)
+    }
+    expect(events).toEqual([{ type: 'done' }])
+  })
+
+  it('does not flush a tool call whose arguments were cut off mid-stream', async () => {
+    const breaking: SseFetch = () =>
+      Promise.resolve({
+        body: (async function* () {
+          yield 'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"bash","arguments":"{\\"com"}}]}}]}'
+          throw new Error('socket hang up')
+        })(),
+        status: 200,
+        statusText: 'OK',
+      })
+    const events = []
+    for await (const e of streamChatCompletion(base, breaking)) events.push(e)
+    expect(events.some((e) => e.type === 'tool-started')).toBe(false)
+    expect(events.map((e) => e.type)).toEqual(['error', 'done'])
+  })
 })
