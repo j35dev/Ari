@@ -7,6 +7,7 @@ import { applyCachedTheme } from '@ari/ui/theme-provider'
 import '@ari/ui/fonts'
 import { App } from './App'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import { installExternalLinkInterceptor } from './lib/external-links'
 import './styles/index.css'
 
 const container = document.getElementById('root')
@@ -19,6 +20,10 @@ applyCachedTheme()
 // background. App clears the flag once the launch animation hands over
 // (see features/moment/awaken-splash.css).
 document.documentElement.dataset['ariBooting'] = 'on'
+
+// Links inside the ADE (agent markdown) open in the OS browser instead of
+// navigating the window away; the main process re-guards this as a safety net.
+installExternalLinkInterceptor()
 
 createRoot(container).render(
   <StrictMode>
