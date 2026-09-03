@@ -110,6 +110,39 @@ describe('openai chat streaming client', () => {
     expect(body.stream).toBe(true)
   })
 
+  it('sends staged images as multimodal content parts', async () => {
+    const box: { body?: string } = {}
+    const fetcher: SseFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return { body: (async function* () { yield 'data: [DONE]' })(), status: 200, statusText: 'OK' }
+    }
+    for await (const _ of streamChatCompletion(
+      {
+        ...base,
+        messages: [
+          {
+            role: 'user',
+            content: 'look',
+            images: [{ dataBase64: 'aGk=', mimeType: 'image/png' }],
+          },
+        ],
+      },
+      fetcher,
+    )) {
+      void _
+    }
+    const body = JSON.parse(box.body ?? '{}') as {
+      messages: { role: string; content: unknown }[]
+    }
+    expect(body.messages[0]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,aGk=' } },
+      ],
+    })
+  })
+
   it('sends reasoning_effort when the session picked a level', async () => {
     const box: { body?: string } = {}
     const fetcher: SseFetch = async (_url, init) => {

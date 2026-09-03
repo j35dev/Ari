@@ -556,20 +556,27 @@ export class AcpConnection {
   }
 
   /**
-   * Sends one user text prompt; resolves with the turn's stopReason. A
-   * totally silent agent fails after `stallSilenceMs` (default from
-   * {@link acpPromptStallMs}) instead of hanging the turn forever.
+   * Sends one user prompt with optional staged images; resolves with the
+   * turn's stopReason. A totally silent agent fails after `stallSilenceMs`
+   * (default from {@link acpPromptStallMs}) instead of hanging the turn
+   * forever.
    */
   async prompt(
     sessionId: string,
     text: string,
-    stallSilenceMs: number = acpPromptStallMs(),
+    options: { images?: { data: string; mimeType: string }[]; stallSilenceMs?: number } = {},
   ): Promise<string> {
+    const { images = [], stallSilenceMs = acpPromptStallMs() } = options
+    const blocks: { type: string; text?: string; data?: string; mimeType?: string }[] = []
+    if (text.length > 0) blocks.push({ type: 'text', text })
+    for (const image of images) {
+      blocks.push({ type: 'image', data: image.data, mimeType: image.mimeType })
+    }
     const result = (await this.#request(
       'session/prompt',
       {
         sessionId,
-        prompt: [{ type: 'text', text }],
+        prompt: blocks,
       },
       undefined,
       stallSilenceMs,

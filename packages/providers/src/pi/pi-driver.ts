@@ -2,6 +2,7 @@ import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { mapPiLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
@@ -18,7 +19,7 @@ export function buildPiArgs(session: AdapterSession): string[] {
   args.push(...permissionFlags(session.permissionMode))
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--session', session.resumeOf)
-  args.push('-p', session.prompt)
+  args.push('-p', promptWithAttachments(session))
   return args
 }
 

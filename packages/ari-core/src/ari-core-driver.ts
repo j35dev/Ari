@@ -8,6 +8,7 @@ import type {
 import { runAgentLoop, type ApprovalRequest } from './agent-loop'
 import {
   streamChatCompletion,
+  type ChatImage,
   type ChatMessage,
 } from './protocols/openai-chat'
 import {
@@ -31,6 +32,7 @@ import type { McpServerConfig } from './mcp-servers'
 import { McpConnection } from './mcp'
 import { mountMcpTools, type MountedMcpServer } from './mcp-tools'
 import { BUILT_IN_TOOLS, type Tool } from './tools'
+import { loadImageData, missingImagesNote } from '@ari/providers/attachments'
 import { buildSystemPrompt } from './system-prompt'
 import {
   MemoryConversationStore,
@@ -82,22 +84,25 @@ export interface AriCoreDriverOptions {
 interface RenderedTurn {
   role: 'system' | 'user' | 'assistant'
   content: string
+  images?: ChatImage[]
 }
 
 /**
  * Renders internal messages as plain text turns for flavors without a
  * native tool-role pipeline: tool results become user text, assistant tool
  * calls are serialized inline, consecutive same-role turns merge.
+ * Attached images ride along on their turn (merged like content).
  */
 function renderAsTextTurns(messages: ChatMessage[]): RenderedTurn[] {
   const out: RenderedTurn[] = []
-  const push = (role: RenderedTurn['role'], content: string) => {
+  const push = (role: RenderedTurn['role'], content: string, images?: ChatImage[]) => {
     const last = out.at(-1)
     if (last && last.role === role) {
       last.content += `\n\n${content}`
+      if (images && images.length > 0) last.images = [...(last.images ?? []), ...images]
       return
     }
-    out.push({ role, content })
+    out.push({ role, content, ...(images && images.length > 0 ? { images: [...images] } : {}) })
   }
   for (const message of messages) {
     if (message.role === 'tool') {
@@ -107,7 +112,7 @@ function renderAsTextTurns(messages: ChatMessage[]): RenderedTurn[] {
       const calls = message.toolCalls.map((c) => `[tool call ${c.name}] ${c.argsJson}`).join('\n')
       push('assistant', message.content ? `${message.content}\n${calls}` : calls)
     } else {
-      push(message.role, message.content)
+      push(message.role, message.content, message.images)
     }
   }
   return out
@@ -135,7 +140,11 @@ function anthropicRequest(
     messages: rest.map((turn) =>
       turn.role === 'assistant'
         ? { role: 'assistant', content: turn.content }
-        : { role: 'user', content: turn.content },
+        : {
+            role: 'user',
+            content: turn.content,
+            ...(turn.images && turn.images.length > 0 ? { images: turn.images } : {}),
+          },
     ),
     headers: endpoint.headers,
     signal,
@@ -283,6 +292,17 @@ export class AriCoreDriver implements Driver {
 
       const model = modelOverride ?? endpoint.model
 
+      // Staged images become multimodal parts on the user message; unreadable
+      // ones are named in text instead of dropped.
+      const { loaded, missing } = await loadImageData(
+        (session.attachments ?? []).map((a) => ({ ...a })),
+      )
+      const userPrompt = session.prompt + missingImagesNote(missing)
+      const userImages: ChatImage[] = loaded.map((img) => ({
+        dataBase64: img.dataBase64,
+        mimeType: img.mimeType,
+      }))
+
       // Mount enabled MCP servers for this turn: connect (fail-soft), list
       // tools, and hand the merged toolset to the loop. A dead or slow
       // server is logged and omitted; the turn always runs. The advertised
@@ -409,7 +429,8 @@ export class AriCoreDriver implements Driver {
         yield* runAgentLoop({
           round,
           systemPrompt: await buildSystemPrompt({ workspacePath: session.workspacePath }),
-          userPrompt: session.prompt,
+          userPrompt,
+          ...(userImages.length > 0 ? { userImages } : {}),
           workspacePath: session.workspacePath,
           permissionMode: session.permissionMode,
           history,

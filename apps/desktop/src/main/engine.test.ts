@@ -129,6 +129,64 @@ describe('engine end-to-end with scripted driver', () => {
     expect(published[0]?.event.type).toBe('turn.started')
   }, 10000)
 
+  it('resolves staged attachments for the adapter and journals image parts', async () => {
+    const seen: AdapterSession[] = []
+    const capturing: Driver = {
+      kind: 'claude',
+      create: (session: AdapterSession) => {
+        seen.push(session)
+        return Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        })
+      },
+    }
+    const registry = new DriverRegistry()
+    registry.register(capturing)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      resolveAttachmentPath: async (id) => `/staged/${id}.png`,
+    })
+
+    const sessionId = 'sess_attachments'
+    await seedSession(store, sessionId)
+    const ref = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 }
+    const result = await engine.dispatch({
+      type: 'turn.start',
+      sessionId,
+      text: 'look',
+      attachments: [ref],
+    })
+    expect(result.accepted).toBe(true)
+
+    const settledAt = Date.now()
+    while (true) {
+      const model = await store.load(sessionId)
+      if (model.status === 'idle') break
+      if (Date.now() - settledAt > 30000) throw new Error('turn never settled idle')
+      await new Promise((r) => setTimeout(r, 25))
+    }
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.attachments).toEqual([
+      { id: 'att_1', name: 'shot.png', mimeType: 'image/png', path: '/staged/att_1.png' },
+    ])
+    const userMessage = published.find((p) => p.event.type === 'user.message.added')?.event
+    if (userMessage?.type !== 'user.message.added') throw new Error('missing user message')
+    expect(userMessage.message.parts).toEqual([
+      { type: 'image', attachmentId: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 },
+      { type: 'text', text: 'look' },
+    ])
+  }, 10000)
+
   it('interrupt settles an active turn and drops late adapter events', async () => {
     const slowDriver: Driver = {
       kind: 'claude',
@@ -384,6 +442,7 @@ describe('engine end-to-end with scripted driver', () => {
       type: 'message.enqueue',
       sessionId,
       text: 'focus on the parser instead',
+      attachments: [],
     })
     expect(queued.accepted).toBe(true)
 
@@ -394,6 +453,58 @@ describe('engine end-to-end with scripted driver', () => {
       await new Promise((r) => setTimeout(r, 20))
     }
     expect(steered).toEqual(['focus on the parser instead'])
+  }, 10000)
+
+  it('never steers an imaged message; it stays queued with its images', async () => {
+    const steered: string[] = []
+    const releaseRef: { current: (() => void) | null } = { current: null }
+    const steerableDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'status', status: 'running' as const }
+              await new Promise<void>((resolve) => {
+                releaseRef.current = resolve
+              })
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          steer: (text) => {
+            steered.push(text)
+            releaseRef.current?.()
+          },
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(steerableDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_steer_images'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    await new Promise((r) => setTimeout(r, 50))
+
+    const ref = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 }
+    const queued = await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId,
+      text: 'see this',
+      attachments: [ref],
+    })
+    expect(queued.accepted).toBe(true)
+    expect(steered).toEqual([])
+
+    const model = await store.load(sessionId)
+    expect(model.queuedMessages).toEqual([{ text: 'see this', attachments: [ref] }])
+    releaseRef.current?.()
   }, 10000)
 
   it('journals agent questions and routes input.respond into the live adapter', async () => {
@@ -857,6 +968,7 @@ describe('Engine durable queue continuation', () => {
       type: 'message.enqueue',
       sessionId,
       text: 'steer away',
+      attachments: [],
     })
     expect(enqueued.accepted).toBe(true)
 
@@ -921,6 +1033,7 @@ describe('Engine durable queue continuation', () => {
       type: 'message.enqueue',
       sessionId,
       text: 'queued follow-up',
+      attachments: [],
     })
     expect(queued.accepted).toBe(true)
 
