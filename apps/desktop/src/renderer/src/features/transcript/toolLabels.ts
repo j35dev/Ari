@@ -82,6 +82,11 @@ const PAST_VERB: Record<ToolKind, string> = {
   todo: 'Updated',
 }
 
+/** Past-tense verb for a bucket ("Edited"); pairs with {@link classifyTool}. */
+export function pastVerb(kind: ToolKind): string {
+  return PAST_VERB[kind]
+}
+
 /** Present-participle verb for the in-flight step ("Reading src/app.ts"). */
 const LIVE_VERB: Record<ToolKind, string> = {
   run: 'Running',
@@ -134,6 +139,48 @@ export function shortenPath(value: string): string {
   const segments = value.split(/[\\/]+/).filter((s) => s.length > 0)
   if (segments.length <= 2) return segments.join('/')
   return segments.slice(-2).join('/')
+}
+
+/** Final path segment (`toolLabels.ts`) — a headline names files, not folders. */
+export function pathTail(value: string): string {
+  const segments = value.split(/[\\/]+/).filter((s) => s.length > 0)
+  return segments[segments.length - 1] ?? value
+}
+
+/** Cap for a headline subject; step rows carry the untruncated target. */
+const MAX_SUBJECT_CHARS = 24
+
+function clip(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+/**
+ * Leading words of a command, so a headline reads `pnpm verify` instead of a
+ * flag soup. Elision always shows as `…` — a headline never implies the
+ * command was shorter than it was.
+ */
+export function commandHead(command: string): string {
+  const flat = command.replace(/\s+/g, ' ').trim()
+  const words = flat.split(' ')
+  let head = words[0] ?? ''
+  const second = words[1]
+  if (second !== undefined && `${head} ${second}`.length <= MAX_SUBJECT_CHARS) {
+    head = `${head} ${second}`
+  }
+  if (head === flat) return clip(head, MAX_SUBJECT_CHARS)
+  return `${clip(head, MAX_SUBJECT_CHARS - 1)}…`
+}
+
+/**
+ * Headline-length form of a step's target: the file's name without its
+ * folders, the leading words of a command, a capped query. Empty stays empty so
+ * callers can fall back to a tally.
+ */
+export function toolSubject(kind: ToolKind, target: string): string {
+  if (target.length === 0) return ''
+  if (kind === 'run') return commandHead(target)
+  if (kind === 'edit' || kind === 'read') return clip(pathTail(target), MAX_SUBJECT_CHARS)
+  return clip(target, MAX_SUBJECT_CHARS)
 }
 
 function isPathKey(key: string): boolean {
