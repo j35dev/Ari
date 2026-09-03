@@ -2,6 +2,14 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { Detection } from './types'
 
+/** One staged image handed to an adapter; `path` is null when unresolvable. */
+export interface SessionAttachment {
+  id: string
+  name: string
+  mimeType: string
+  path: string | null
+}
+
 /** One turn of work handed to a provider adapter. */
 export interface AdapterSession {
   /** Ari-side session id (journal owner). */
@@ -17,6 +25,12 @@ export interface AdapterSession {
   effort?: string | null
   /** Provider-native session id to resume, when continuing a thread. */
   resumeOf: string | null
+  /**
+   * Staged images for this turn. Transports with an image channel send the
+   * bytes; one-shot CLIs reference the staged files in text instead. Absent
+   * (or empty) when the turn carries none.
+   */
+  attachments?: SessionAttachment[]
 }
 
 export interface ProviderAdapter {

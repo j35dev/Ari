@@ -135,4 +135,41 @@ describe('anthropic messages streaming client', () => {
       { role: 'user', content: 'bye' },
     ])
   })
+
+  it('sends staged images as base64 image blocks', async () => {
+    const box: { body?: string } = {}
+    const fetcher: SseFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return {
+        body: (async function* () {
+          yield 'data: {"type":"message_stop"}'
+        })(),
+        status: 200,
+        statusText: 'OK',
+      }
+    }
+    for await (const _ of streamChatAnthropic(
+      {
+        ...base,
+        messages: [
+          { role: 'user', content: 'look', images: [{ dataBase64: 'aGk=', mimeType: 'image/png' }] },
+        ],
+      },
+      fetcher,
+    )) {
+      void _
+    }
+    const body = JSON.parse(String(box.body)) as {
+      messages: { role: string; content: unknown }[]
+    }
+    expect(body.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } },
+        ],
+      },
+    ])
+  })
 })

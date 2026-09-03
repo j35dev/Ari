@@ -2,6 +2,7 @@ import type { PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { mapGrokLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
@@ -16,7 +17,7 @@ const log = createLogger('providers:grok')
 export function buildGrokArgs(session: AdapterSession): string[] {
   const args = [
     '-p',
-    session.prompt,
+    promptWithAttachments(session),
     '--output-format',
     'streaming-messages-json',
     '--include-partial-messages',

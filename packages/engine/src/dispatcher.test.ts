@@ -38,7 +38,7 @@ describe('decideCommand', () => {
   it('accepts turn.start when idle and emits started + message + running', () => {
     const result = decideCommand(
       modelWithSession(),
-      { type: 'turn.start', sessionId: 'sess_1', text: 'fix it', attachmentPaths: [] },
+      { type: 'turn.start', sessionId: 'sess_1', text: 'fix it', attachments: [] },
       ids,
     )
     expect(result.accepted).toBe(true)
@@ -61,17 +61,49 @@ describe('decideCommand', () => {
     })
     const result = decideCommand(
       model,
-      { type: 'turn.start', sessionId: 'sess_1', text: 'again', attachmentPaths: [] },
+      { type: 'turn.start', sessionId: 'sess_1', text: 'again', attachments: [] },
       { turnId: 'turn_2', messageId: 'msg_2' },
     )
     expect(result.accepted).toBe(false)
     expect(result.reason).toContain('already active')
   })
 
+  it('folds staged images into image parts ahead of the text', () => {
+    const ref = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 }
+    const result = decideCommand(
+      modelWithSession(),
+      { type: 'turn.start', sessionId: 'sess_1', text: 'look', attachments: [ref] },
+      ids,
+    )
+    expect(result.accepted).toBe(true)
+    const added = result.events.find((e) => e.type === 'user.message.added')
+    expect(added).toMatchObject({
+      message: {
+        parts: [
+          { type: 'image', attachmentId: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 },
+          { type: 'text', text: 'look' },
+        ],
+      },
+    })
+  })
+
+  it('omits the text part for image-only turns', () => {
+    const ref = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 }
+    const result = decideCommand(
+      modelWithSession(),
+      { type: 'turn.start', sessionId: 'sess_1', text: '', attachments: [ref] },
+      ids,
+    )
+    expect(result.accepted).toBe(true)
+    const added = result.events.find((e) => e.type === 'user.message.added')
+    expect(added).toMatchObject({ message: { parts: [{ type: 'image', attachmentId: 'att_1' }] } })
+    expect(result.events.some((e) => e.type === 'session.updated')).toBe(false)
+  })
+
   it('queues messages only behind an active turn', () => {
     const idle = modelWithSession()
     expect(
-      decideCommand(idle, { type: 'message.enqueue', sessionId: 'sess_1', text: 'hi' }, ids)
+      decideCommand(idle, { type: 'message.enqueue', sessionId: 'sess_1', text: 'hi', attachments: [] }, ids)
         .accepted,
     ).toBe(false)
 
@@ -81,11 +113,28 @@ describe('decideCommand', () => {
     })
     const result = decideCommand(
       running,
-      { type: 'message.enqueue', sessionId: 'sess_1', text: 'one more thing' },
+      { type: 'message.enqueue', sessionId: 'sess_1', text: 'one more thing', attachments: [] },
       ids,
     )
     expect(result.accepted).toBe(true)
     expect(previewDispatch(running, result).lastSeq).toBeGreaterThan(running.lastSeq)
+  })
+
+  it('carries staged images on queued messages', () => {
+    const running = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [{ type: 'turn.started', turnId: 'turn_1' }],
+    })
+    const ref = { id: 'att_9', name: 'b.png', mimeType: 'image/png', size: 4 }
+    const result = decideCommand(
+      running,
+      { type: 'message.enqueue', sessionId: 'sess_1', text: '', attachments: [ref] },
+      ids,
+    )
+    expect(result.accepted).toBe(true)
+    expect(previewDispatch(running, result).queuedMessages).toEqual([
+      { text: '', attachments: [ref] },
+    ])
   })
 
   it('interrupts the active turn and returns to idle', () => {

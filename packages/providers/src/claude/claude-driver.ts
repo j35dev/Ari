@@ -3,6 +3,7 @@ import type { Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import { mapClaudeLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { PumpableProcess } from '../process-stream'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
@@ -56,10 +57,22 @@ function permissionModeFlag(mode: PermissionMode): string {
 
 /**
  * Stream-json input user frame — the initial turn prompt and mid-session
- * steering messages ride stdin in this shape.
+ * steering messages ride stdin in this shape. Staged images ride as
+ * Anthropic-style base64 image blocks; steering frames stay text-only.
  */
-export function buildUserFrame(text: string): unknown {
-  return { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }
+export function buildUserFrame(
+  text: string,
+  images: { dataBase64: string; mimeType: string }[] = [],
+): unknown {
+  const content: unknown[] = []
+  if (text.length > 0) content.push({ type: 'text', text })
+  for (const image of images) {
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: image.mimeType, data: image.dataBase64 },
+    })
+  }
+  return { type: 'user', message: { role: 'user', content } }
 }
 
 /** Cooperative interrupt request; the driver still kills the process if the stream ignores it. */
@@ -246,6 +259,10 @@ export class ClaudeDriver implements Driver {
     })
     log.debug('claude spawned', { pid: child.pid })
 
-    return Promise.resolve(wireClaudeControl(child, { initialPrompt: buildUserFrame(session.prompt) }))
+    return loadImageData(stagedImagesOf(session)).then(({ loaded, missing }) =>
+      wireClaudeControl(child, {
+        initialPrompt: buildUserFrame(session.prompt + missingImagesNote(missing), loaded),
+      }),
+    )
   }
 }
