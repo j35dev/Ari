@@ -25,6 +25,7 @@ export function TerminalPane({
   cwd,
   initialCommand,
   active,
+  onError,
 }: {
   terminalId: string
   cwd: string | null
@@ -32,9 +33,14 @@ export function TerminalPane({
   initialCommand?: string
   /** Focused pane: steals xterm focus without re-creating anything. */
   active: boolean
+  /** Receives the `terminal.create` rejection message so the dock can offer a retry. */
+  onError?: (message: string) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  // Kept out of the spawn effect's deps: reporting a failure must not respawn the pty.
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
 
   useEffect(() => {
     if (cwd === null) return
@@ -94,12 +100,18 @@ export function TerminalPane({
       // no FontFaceSet (jsdom): the first measurement stands
     }
 
+    // A rejected create used to vanish into `.catch(() => undefined)`, leaving
+    // a blank xterm with a blinking cursor and no way to tell it had failed.
     void rpc.invoke('terminal.create', { id: terminalId, cwd }).then(() => {
       if (initialCommand !== undefined && initialCommand.length > 0) {
         return rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
       }
       return undefined
-    }).catch(() => undefined)
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      term.writeln(`\r\n[Terminal failed to start: ${message}]`)
+      onErrorRef.current?.(message)
+    })
 
     const dataSub = rpc.subscribe('terminal.data', { id: terminalId }, (payload) => {
       const frame = payload as { id: string; data: string }
