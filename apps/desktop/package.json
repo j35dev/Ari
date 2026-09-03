@@ -3,6 +3,7 @@
   "version": "0.2.6",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.29.3",
   "description": "Ari — an open, local-first agent development environment for Windows, macOS and Linux.",
   "homepage": "https://github.com/tahacore/Ari",
   "main": "./out/main/index.js",
@@ -23,6 +24,14 @@
     "motion": "^13.1.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
+  },
+  "optionalDependencies": {
+    "@lydell/node-pty-darwin-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-darwin-x64": "1.2.0-beta.15",
+    "@lydell/node-pty-linux-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-linux-x64": "1.2.0-beta.15",
+    "@lydell/node-pty-win32-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-win32-x64": "1.2.0-beta.15"
   },
   "devDependencies": {
     "@ari/ari-core": "workspace:*",

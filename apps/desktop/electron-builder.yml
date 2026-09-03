@@ -12,10 +12,20 @@ directories:
 files:
   - out/**
   - package.json
+  # Debug symbols for the pty prebuilds: ~10MB per win32 arch, never loaded.
+  - '!**/node_modules/@lydell/node-pty-*/prebuilds/**/*.pdb'
 # node-pty is the only native dependency; it must stay physical on disk
-# (Electron ABI build) or ConPTY/Unix PTY loading fails inside asar.
+# (ConPTY needs to dlopen conpty.node and spawn OpenConsole.exe, neither of
+# which works from inside an asar archive). `@lydell/node-pty` is only a
+# resolver stub — the implementation and the binaries live in the
+# platform-specific `@lydell/node-pty-<platform>-<arch>` package it requires,
+# so both must be unpacked.
 asarUnpack:
   - '**/node_modules/@lydell/node-pty/**'
+  - '**/node_modules/@lydell/node-pty-*/**'
+# Fails the build if the platform pty package did not survive dependency
+# collection — that regression ships a terminal that opens to a dead cursor.
+afterPack: ./packaging/after-pack.js
 win:
   target:
     - nsis

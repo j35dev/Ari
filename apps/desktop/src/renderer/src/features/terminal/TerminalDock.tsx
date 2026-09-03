@@ -51,6 +51,10 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
   const [launcherAnchor, setLauncherAnchor] = useState<MenuAnchor | null>(null)
   const [installedKinds, setInstalledKinds] = useState<Set<string>>(new Set())
   const [cwdAttempt, setCwdAttempt] = useState(0)
+  // `terminal.create` rejections used to leave a blank blinking cursor; each
+  // tab now keeps its failure so the rail can name it and offer a retry.
+  const [errorByTab, setErrorByTab] = useState<Record<string, string>>({})
+  const [retryNonce, setRetryNonce] = useState<Record<string, number>>({})
 
   useEffect(() => {
     setResolvedCwd(cwd ?? null)
@@ -110,10 +114,36 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
   const closeTab = useCallback((id: string) => {
     void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
     closeTerminalTab(id)
+    setErrorByTab((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+
+  const handlePaneError = useCallback(
+    (id: string) => (message: string) => {
+      setErrorByTab((prev) => (prev[id] === message ? prev : { ...prev, [id]: message }))
+    },
+    [],
+  )
+
+  // Clearing the error and bumping the nonce remounts just that pane, which
+  // re-runs `terminal.create` (idempotent per id: a live pty is re-adopted).
+  const retryTab = useCallback((id: string) => {
+    setErrorByTab((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+    setRetryNonce((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
   }, [])
 
   const availablePresets = PRESETS.filter((p) => p.kind === undefined || installedKinds.has(p.kind))
   const activeTitle = tabs.find((tab) => tab.id === activeId)?.title ?? 'none'
+  const activeError = activeId !== null ? (errorByTab[activeId] ?? null) : null
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg">
@@ -184,6 +214,24 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
 
       <TerminalA11y title={activeTitle} />
 
+      {activeError !== null && activeId !== null ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center gap-2 border-b border-danger-subtle bg-danger-subtle px-3 py-1.5 text-xs text-danger"
+        >
+          <span className="min-w-0 flex-1 truncate" title={activeError}>
+            Terminal failed to start: {activeError}
+          </span>
+          <button
+            type="button"
+            onClick={() => retryTab(activeId)}
+            className="flex shrink-0 items-center gap-1 rounded-md border border-danger px-2 py-0.5 text-2xs transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            <RotateCcw size={10} aria-hidden /> Retry
+          </button>
+        </div>
+      ) : null}
+
       <div className="relative min-h-0 flex-1">
         {failed !== null ? (
           <EmptyRail message={`Terminal could not start: ${failed}`} tone="danger">
@@ -211,7 +259,7 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
             // keep a layout box so xterm's fit addon still measures them.
             return (
               <div
-                key={tab.id}
+                key={`${tab.id}:${retryNonce[tab.id] ?? 0}`}
                 aria-hidden={!active}
                 className={`absolute inset-0 ${active ? '' : 'invisible'}`}
               >
@@ -220,6 +268,7 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
                   cwd={tab.cwd}
                   initialCommand={tab.command}
                   active={active}
+                  onError={handlePaneError(tab.id)}
                 />
               </div>
             )
