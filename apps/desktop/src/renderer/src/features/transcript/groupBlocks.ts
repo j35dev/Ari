@@ -1,4 +1,4 @@
-import { classifyToolCall, describeToolCall } from './toolLabels'
+import { classifyToolCall, describeToolCall, effectiveToolName, humanizeToolName } from './toolLabels'
 import type { ToolGroupRow, TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
 
 export type { TranscriptRow } from './types'
@@ -212,7 +212,8 @@ export function activityHeadline(row: Pick<ToolGroupRow, 'blocks' | 'calls' | 'r
       if (call === undefined) continue
       if (call.callId && row.resultsByCallId.has(call.callId)) continue
       const { verb, target } = describeToolCall(call, true)
-      return target.length > 0 ? `${verb} ${target}` : verb
+      if (target.length > 0) return `${verb} ${target}`
+      return humanizeToolName(effectiveToolName(call.name, call.argsJson))
     }
   }
   if (row.blocks[row.blocks.length - 1]?.kind === 'thinking') return 'Thinking'

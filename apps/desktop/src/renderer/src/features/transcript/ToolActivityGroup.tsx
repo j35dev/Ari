@@ -4,7 +4,7 @@ import { ToolCallDetails } from './ToolCallDetails'
 import { ToolResultBody } from './ToolResultBody'
 import { ThinkingBlock } from './ThinkingBlock'
 import { activityHeadline, summarizeToolRun } from './groupBlocks'
-import { describeToolCall, type ToolKind } from './toolLabels'
+import { describeToolCall, effectiveToolName, humanizeToolName, type ToolKind } from './toolLabels'
 import type { ToolGroupRow, TranscriptBlock } from './types'
 
 const KIND_ICON: Record<ToolKind, LucideIcon> = {
@@ -82,8 +82,9 @@ export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
 }
 
 /**
- * One tool call as a single line: verb, target, state. Opening it shows the
- * arguments and the result body (diff-aware via {@link ToolResultBody}).
+ * One tool call as a single line: verb, target, state — or the humanized tool
+ * name alone when no argument is showable. Opening it shows the arguments and
+ * the result body (diff-aware via {@link ToolResultBody}).
  */
 function ToolStep({
   call,
@@ -96,6 +97,8 @@ function ToolStep({
   const { kind, verb, target } = describeToolCall(call)
   const Icon = KIND_ICON[kind]
   const failed = result?.isError === true
+  const nameOnly = target.length === 0
+  const label = nameOnly ? humanizeToolName(effectiveToolName(call.name, call.argsJson)) : `${verb} ${target}`
 
   return (
     <div className="my-0.5">
@@ -103,12 +106,20 @@ function ToolStep({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={`${verb} ${target}${failed ? ', error' : ''}`}
+        aria-label={failed ? `${label}, error` : label}
         className="flex w-full items-center gap-2 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <Icon size={11} className="shrink-0 text-fg-subtle" aria-hidden="true" />
-        <span className="shrink-0 text-2xs text-fg-subtle">{verb}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">{target}</span>
+        {nameOnly ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">{label}</span>
+        ) : (
+          <>
+            <span className="shrink-0 text-2xs text-fg-subtle">{verb}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">
+              {target}
+            </span>
+          </>
+        )}
         {failed ? (
           <span className="shrink-0 text-2xs text-fg-subtle">error</span>
         ) : result === undefined ? (

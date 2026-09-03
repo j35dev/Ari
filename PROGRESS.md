@@ -690,6 +690,11 @@ Before/After text dumps instead of diffs.
       `DiffViewer` (Before/After kept as oversized fallback); tally reads
       `Searched N times`
 
+- [x] M35.2 No verb + name doubling: calls with no showable target render the
+      humanized tool name alone (`Edit`, `run terminal command`) instead of
+      `Editing Edit`; target keys widened (`file`, `filename`, `filepath`,
+      `directory`, `dir`)
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
