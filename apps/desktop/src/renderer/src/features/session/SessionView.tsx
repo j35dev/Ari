@@ -479,6 +479,12 @@ export function SessionView({
           notifyNeedsAttention(sessionTitleRef.current, {
             detail: `${event.toolName} approval`,
           })
+          // Attention cue — live blocks only, so journal replay on remount
+          // never replays it. Fires even when focused: the card is visible
+          // but the user may be looking away.
+          if (live && settleSoundRef.current) {
+            playSettleSound('attention')
+          }
           break
         case 'approval.responded':
           setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
@@ -499,6 +505,9 @@ export function SessionView({
             notifyNeedsAttention(sessionTitleRef.current, {
               detail: question.prompt.slice(0, 80),
             })
+            if (live && settleSoundRef.current) {
+              playSettleSound('attention')
+            }
             break
           }
           const respondedId = respondedInputId(event)
