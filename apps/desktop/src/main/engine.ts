@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
@@ -49,6 +50,11 @@ export interface EngineDeps {
    * literal path.
    */
   resolveWorkspace?: (projectId: string) => Promise<string | null>
+  /**
+   * Resolves a staged attachment id to its disk path for adapters. Absent
+   * for tests: attachments resolve as unavailable and are named in text.
+   */
+  resolveAttachmentPath?: (id: string) => Promise<string | null>
   /**
    * Upgrades the auto-slice title after the first settled turn (M18.2).
    * Defaults to the deterministic strategy; an LLM-backed one can be
@@ -119,6 +125,7 @@ export class Engine {
       void this.#runTurn(
         model.session as Session,
         command.text,
+        command.attachments ?? [],
         ids.turnId,
         model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
       ).catch((e) => {
@@ -149,8 +156,14 @@ export class Engine {
       // providers with a writable control channel (claude stdin, ACP) — the
       // text is consumed mid-turn, so it is dequeued immediately and must
       // never re-run as a follow-up turn. Transports without steering keep
-      // the message queued; settle dispatches it as the next turn.
-      const steered = this.#activeTurns.get(command.sessionId)?.steer(command.text) ?? false
+      // the message queued; settle dispatches it as the next turn. Messages
+      // carrying images never steer: steering is text-only, so they stay
+      // queued and run as the follow-up turn with their images intact.
+      const attachments = command.attachments ?? []
+      const steered =
+        attachments.length === 0
+          ? (this.#activeTurns.get(command.sessionId)?.steer(command.text) ?? false)
+          : false
       if (steered) {
         let consumed = this.#steeredTexts.get(command.sessionId)
         if (consumed === undefined) {
@@ -158,7 +171,7 @@ export class Engine {
           this.#steeredTexts.set(command.sessionId, consumed)
         }
         consumed.add(command.text)
-        await this.#append(command.sessionId, { type: 'message.dequeued', text: command.text })
+        await this.#append(command.sessionId, { type: 'message.dequeued', text: command.text, attachments })
       }
     }
 
@@ -204,6 +217,7 @@ export class Engine {
   async #runTurn(
     session: Session,
     prompt: string,
+    attachments: AttachmentRef[],
     turnId: string,
     resumeOf: string | null,
   ): Promise<void> {
@@ -264,6 +278,7 @@ export class Engine {
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,
         resumeOf,
+        ...(attachments.length > 0 ? { attachments: await this.#resolveAttachments(attachments) } : {}),
       })
     } catch (e) {
       await this.#settle(session.id, turnId, 'error', String(e))
@@ -461,19 +476,39 @@ export class Engine {
     const steered = this.#steeredTexts.get(sessionId)
     this.#steeredTexts.delete(sessionId)
     if (stopReason === 'completed') {
-      const next = model.queuedMessages.find((text) => steered === undefined || !steered.has(text))
+      const next = model.queuedMessages.find(
+        (queued) => steered === undefined || !steered.has(queued.text),
+      )
       if (next !== undefined) {
-        await this.#append(sessionId, { type: 'message.dequeued', text: next })
+        await this.#append(sessionId, { type: 'message.dequeued', text: next.text, attachments: next.attachments })
         void this.dispatch({
           type: 'turn.start',
           sessionId,
-          text: next,
-          attachmentPaths: [],
+          text: next.text,
+          attachments: next.attachments,
         }).catch((e) => {
           log.error('queued-turn dispatch failed', { error: String(e) })
         })
       }
     }
+  }
+
+  /**
+   * Resolves staged attachment refs to adapter inputs. Unknown ids resolve
+   * with a null path so drivers name them in text instead of failing the turn.
+   */
+  async #resolveAttachments(
+    attachments: AttachmentRef[],
+  ): Promise<{ id: string; name: string; mimeType: string; path: string | null }[]> {
+    const resolve = this.#deps.resolveAttachmentPath
+    return Promise.all(
+      attachments.map(async (attachment) => ({
+        id: attachment.id,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        path: resolve ? await resolve(attachment.id) : null,
+      })),
+    )
   }
 
   /**

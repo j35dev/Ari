@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { commandSchema } from './commands'
+import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
+import type { AttachmentRef } from './attachments'
 import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
@@ -184,6 +186,24 @@ export const rpcParams = {
   'usage.summary': z.undefined(),
   'usage.ccusage': z.object({ subcommand: z.enum(['daily', 'monthly', 'blocks']).optional() }),
   'command.dispatch': z.object({ command: commandSchema }),
+  /**
+   * Stages pasted/dropped images in the main process (the sandboxed renderer
+   * cannot hand file paths to the engine). Returns refs for `turn.start`.
+   */
+  'attachments.stage': z.object({
+    files: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(128),
+          mimeType: z.string().min(1).max(128),
+          dataBase64: z.string().min(1).max(MAX_ATTACHMENT_BASE64_CHARS),
+        }),
+      )
+      .min(1)
+      .max(MAX_ATTACHMENTS),
+  }),
+  /** Reads staged bytes back as base64 for transcript thumbnails. */
+  'attachments.read': z.object({ id: z.string().min(1).max(128) }),
   'providers.detect': z.undefined(),
   'providers.models': z.undefined(),
   'providers.plan': z.object({ kind: driverKindSchema }),
@@ -366,6 +386,10 @@ export interface RpcResults {
    */
   'usage.ccusage': { ok: boolean; output: string; error: string | null }
   'command.dispatch': { accepted: boolean }
+  'attachments.stage': { attachments: AttachmentRef[] }
+  'attachments.read': {
+    attachment: { name: string; mimeType: string; size: number; dataBase64: string } | null
+  }
   'providers.detect': {
     kind: string
     /** True when a binary was resolved on disk; independent of authStatus. */

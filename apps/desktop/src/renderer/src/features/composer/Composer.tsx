@@ -30,8 +30,8 @@ export interface ComposerSeed {
 }
 
 export interface ComposerProps {
-  /** Called with the message text when the user sends. */
-  onSend: (text: string) => void
+  /** Called with the message text and pending image files when the user sends. */
+  onSend: (text: string, files: File[]) => void
   /** Called when the user presses stop during an active turn. */
   onStop?: () => void
   /** Whether a turn is currently running for the active session. */
@@ -60,7 +60,9 @@ const MAX_HEIGHT = 260
  * Message composer: one glass plate. Draft on top; agent + permission on
  * the left of the foot, stash + send on the right. Enter sends, Shift+Enter
  * breaks the line. Slash and @file popovers sit above the field. Pasted or
- * dropped images land in an attachment strip inside the plate.
+ * dropped images land in an attachment strip inside the plate and are handed
+ * to `onSend` alongside the text — the session view stages them in the main
+ * process before dispatching the turn.
  */
 export function Composer({
   onSend,
@@ -185,15 +187,13 @@ export function Composer({
 
   const send = useCallback(() => {
     const trimmed = text.trim()
-    if (trimmed.length === 0 || disabled) return
-    onSend(trimmed)
+    if ((trimmed.length === 0 && images.length === 0) || disabled) return
+    onSend(trimmed, [...images])
     setText('')
-    // Pending images are visual-only for now: handing real file paths to
-    // turn.start needs a staging IPC in the main process (sandboxed
-    // renderers cannot resolve File paths), so they clear on send.
+    setCaret(0)
     clear()
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [text, disabled, onSend, clear])
+  }, [text, images, disabled, onSend, clear])
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -336,7 +336,7 @@ export function Composer({
             type="button"
             aria-label="Send message"
             onClick={send}
-            disabled={text.trim().length === 0 || disabled || running}
+            disabled={(text.trim().length === 0 && images.length === 0) || disabled || running}
             tabIndex={-1}
             className="sr-only"
           >
@@ -417,7 +417,7 @@ export function Composer({
               running={running}
               onSend={send}
               onStop={onStop}
-              canSend={text.trim().length > 0}
+              canSend={text.trim().length > 0 || images.length > 0}
             />
           </div>
         </div>

@@ -8,6 +8,7 @@
     "./session": "./src/session.ts",
     "./message": "./src/message.ts",
     "./agent-event": "./src/agent-event.ts",
+    "./attachments": "./src/attachments.ts",
     "./commands": "./src/commands.ts",
     "./events": "./src/events.ts",
     "./rpc": "./src/rpc.ts",

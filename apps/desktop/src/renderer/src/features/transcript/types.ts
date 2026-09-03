@@ -1,7 +1,21 @@
 import type { Message } from '@ari/contracts/message'
 
 /** The visual row kinds the transcript renders. */
-export type TranscriptBlockKind = 'markdown' | 'thinking' | 'tool-call' | 'tool-result' | 'error-note'
+export type TranscriptBlockKind =
+  | 'markdown'
+  | 'thinking'
+  | 'tool-call'
+  | 'tool-result'
+  | 'error-note'
+  | 'image'
+
+/** One staged image inside an `image` row (all of a message's images share it). */
+export interface TranscriptImage {
+  attachmentId: string
+  name: string
+  mimeType: string
+  size: number
+}
 
 /** Rows the virtualizer renders: plain blocks, collapsed tool runs, turn diffs. */
 export type TranscriptRow = TranscriptBlock | ToolGroupRow | TurnDiffRow
@@ -23,6 +37,8 @@ export interface TranscriptBlock {
   argsJson?: string
   resultJson?: string
   isError?: boolean
+  /** Staged images for `image` rows (one row per run of image parts). */
+  images?: TranscriptImage[]
   /** Owning message id (assistant text rows) — drives the copy footer. */
   messageId?: string
   /** Owning message creation time (assistant text rows). */

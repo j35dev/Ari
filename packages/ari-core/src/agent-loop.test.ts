@@ -626,4 +626,32 @@ describe('permission modes', () => {
     expect(events.some((e) => e.type === 'error')).toBe(false)
     expect(events.at(-1)).toEqual({ type: 'done' })
   })
+
+  it('attaches staged images to the turn user message', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-loop-'))
+    try {
+      let seen: ChatMessage[] = []
+      const round = async function* (
+        messages: ChatMessage[],
+      ): AsyncGenerator<AgentEvent> {
+        seen = messages
+        yield { type: 'text-delta', text: 'seen it' }
+        yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+        yield { type: 'done' }
+      }
+      const events = await collect({
+        round,
+        systemPrompt: 's',
+        userPrompt: 'look',
+        userImages: [{ dataBase64: 'aGk=', mimeType: 'image/png' }],
+        workspacePath: dir,
+      })
+      expect(events.at(-1)).toEqual({ type: 'done' })
+      expect(seen.find((m) => m.role === 'user')?.images).toEqual([
+        { dataBase64: 'aGk=', mimeType: 'image/png' },
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

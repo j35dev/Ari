@@ -11,9 +11,34 @@ import { parseDsmlToolCalls } from './dsml'
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** Staged images attached to a user turn; sent as multimodal content parts. */
+  images?: ChatImage[]
   toolCallId?: string
   /** Assistant tool calls to echo back in multi-turn tool flows. */
   toolCalls?: { id: string; name: string; argsJson: string }[]
+}
+
+/** One staged image as base64 bytes for a multimodal request part. */
+export interface ChatImage {
+  dataBase64: string
+  mimeType: string
+}
+
+/**
+ * Renders a message's content for the OpenAI-compat wire format: plain text
+ * when imageless, multimodal parts otherwise. Images bypass the text-only
+ * history helpers elsewhere, which keep reading `content` alone.
+ */
+export function openaiMessageContent(
+  message: Pick<ChatMessage, 'content' | 'images'>,
+): string | { type: string; text?: string; image_url?: { url: string } }[] {
+  if (!message.images || message.images.length === 0) return message.content
+  const parts: { type: string; text?: string; image_url?: { url: string } }[] = []
+  if (message.content.length > 0) parts.push({ type: 'text', text: message.content })
+  for (const image of message.images) {
+    parts.push({ type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` } })
+  }
+  return parts
 }
 
 /** One function advertised to an OpenAI-compat endpoint. */
@@ -104,7 +129,7 @@ export async function* streamChatCompletion(
         model: request.model,
         messages: request.messages.map((m) => ({
           role: m.role,
-          content: m.content,
+          content: openaiMessageContent(m),
           ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
           ...(m.toolCalls
             ? {

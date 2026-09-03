@@ -156,6 +156,25 @@ describe('AcpConnection', () => {
     connection.kill()
   })
 
+  it('sends staged images as image blocks after the text', async () => {
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const created = await connection.newSession('/w')
+    const stopReason = await connection.prompt(created.sessionId as string, 'look', {
+      images: [{ data: 'aGk=', mimeType: 'image/png' }],
+    })
+    expect(stopReason).toBe('end_turn')
+    const promptRequest = child.sent.find((m) => m['method'] === 'session/prompt') as
+      | { params?: { prompt?: { type: string; text?: string; data?: string; mimeType?: string }[] } }
+      | undefined
+    expect(promptRequest?.params?.prompt).toEqual([
+      { type: 'text', text: 'look' },
+      { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+    ])
+    connection.kill()
+  })
+
   it('loadSession sends the resume frame and echoes the session id even with an empty body', async () => {
     // Spec: session/load's response body is null; the agent re-attaches the id.
     const child = fakeChild()
@@ -307,7 +326,7 @@ describe('AcpConnection', () => {
     const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
     const created = await connection.newSession('/w')
     await expect(
-      connection.prompt(created.sessionId as string, 'hello?', 120),
+      connection.prompt(created.sessionId as string, 'hello?', { stallSilenceMs: 120 }),
     ).rejects.toThrow(/went silent for (120ms|0s).*wedged or waiting for login/s)
     expect(child.killed).toBe(false)
     connection.kill()
@@ -333,7 +352,9 @@ describe('AcpConnection', () => {
       new Promise((resolve) => {
         resolvePermission = resolve
       })
-    const promptPromise = connection.prompt(created.sessionId as string, 'do work', 120)
+    const promptPromise = connection.prompt(created.sessionId as string, 'do work', {
+      stallSilenceMs: 120,
+    })
     await drain()
     // The agent parks a permission request and goes quiet well past the
     // stall ceiling — silence while waiting on the user must not fail.
@@ -454,7 +475,9 @@ describe('AcpConnection', () => {
       )
     }, 40)
     try {
-      const stopReason = await connection.prompt(created.sessionId as string, 'work', 120)
+      const stopReason = await connection.prompt(created.sessionId as string, 'work', {
+        stallSilenceMs: 120,
+      })
       expect(stopReason).toBe('end_turn')
     } finally {
       clearInterval(spam)

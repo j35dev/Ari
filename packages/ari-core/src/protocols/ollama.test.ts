@@ -113,4 +113,33 @@ describe('ollama chat streaming client', () => {
       { role: 'user', content: 'hi' },
     ])
   })
+
+  it('passes staged images as native image payloads', async () => {
+    const box: { body?: string } = {}
+    const fetcher: NdjsonFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return {
+        body: (async function* () {
+          yield '{"done":true}'
+        })(),
+        status: 200,
+        statusText: 'OK',
+      }
+    }
+    for await (const _ of streamChatOllama(
+      {
+        ...base,
+        messages: [
+          { role: 'user', content: 'look', images: [{ dataBase64: 'aGk=', mimeType: 'image/png' }] },
+        ],
+      },
+      fetcher,
+    )) {
+      void _
+    }
+    const body = JSON.parse(String(box.body)) as {
+      messages: { role: string; content: string; images?: string[] }[]
+    }
+    expect(body.messages).toEqual([{ role: 'user', content: 'look', images: ['aGk='] }])
+  })
 })
