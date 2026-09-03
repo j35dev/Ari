@@ -589,6 +589,13 @@ because `session/load` history replay was folded into the new turn's assistant m
       no audio asset). Fires for live settles only, never journal replay, and is
       gated by Settings › Notifications › Completion sound
       (`notifications.settleSound`, default on).
+- [x] Settle chime audible + attention cue (bug report, 2026-09-03): the cue was
+      near-silent — fresh `AudioContext`s start `suspended` even with the
+      autoplay-policy opt-out and were never resumed, and peaks sat at
+      ~-26dB. Both cues now `resume()` before scheduling, log instead of
+      swallowing failures, and peak ~3x louder. Live `approval.requested` /
+      `input.requested` blocks also play a distinct higher-fifth attention cue
+      under the same setting, so permission prompts sound even when focused.
 - [x] Ari stops making worktrees (bug report, 2026-09-03): a user asked an agent to
       build something and found it built inside `.ari/worktrees/<sessionId>` on
       branch `ari/<sessionId>` instead of the project folder they opened. Asked
