@@ -184,6 +184,50 @@ export async function* guardStream(
   }
 }
 
+/**
+ * Silence allowed between two lines before a stream counts as stalled.
+ *
+ * Generous on purpose: a reasoning model behind a buffering gateway can take a
+ * long time to produce its first token, and killing a turn that was about to
+ * answer is worse than waiting. What this catches is the opposite failure — a
+ * gateway that accepted the connection and then went away, which otherwise
+ * hangs the turn until the user notices and interrupts it by hand.
+ */
+export const DEFAULT_STREAM_IDLE_MS = 120_000
+
+/**
+ * Wraps a line stream so a gap longer than `idleMs` ends it with a stall error
+ * instead of waiting forever. The underlying iterator is closed on the way out,
+ * so an abandoned socket does not outlive the turn. Raising past the first line
+ * is deliberate: the fault reaches the client's mid-stream handler, which keeps
+ * whatever content already arrived.
+ */
+export async function* withIdleDeadline(
+  body: AsyncIterable<string>,
+  idleMs: number = DEFAULT_STREAM_IDLE_MS,
+): AsyncGenerator<string> {
+  const iterator = body[Symbol.asyncIterator]()
+  const stalled = Symbol('stalled')
+  for (;;) {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<typeof stalled>((resolve) => {
+      timer = setTimeout(() => resolve(stalled), idleMs)
+    })
+    let settled: IteratorResult<string> | typeof stalled
+    try {
+      settled = await Promise.race([iterator.next(), deadline])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+    if (settled === stalled) {
+      await iterator.return?.()
+      throw new Error(`endpoint sent nothing for ${Math.max(1, Math.round(idleMs / 1000))}s`)
+    }
+    if (settled.done === true) return
+    yield settled.value
+  }
+}
+
 /** Longest error body inlined into a user-facing message. */
 const MAX_ERROR_SUMMARY_CHARS = 300
 
@@ -199,15 +243,33 @@ export function summarizeErrorBody(
 }
 
 /**
+ * Phrases endpoints use when a request outgrew the model's context. The status
+ * is an ordinary 400, so without this the failure reads as a generic bad
+ * request and the user is never told that the fix is a shorter conversation.
+ */
+const CONTEXT_OVERFLOW =
+  /context[ _-]?length|context[ _-]?window|maximum context|too many (?:input )?tokens|prompt is too long|reduce the length/i
+
+/** True when a rejected request was too long rather than malformed. */
+export function isContextOverflow(response: StreamResponse): boolean {
+  if (![400, 413, 422].includes(response.status)) return false
+  return CONTEXT_OVERFLOW.test(response.errorBody ?? '')
+}
+
+/**
  * The message a failed attempt sequence reaches the user with. Names the
  * status, how many attempts were spent, and whatever the endpoint said —
  * without which a gateway's own explanation is invisible and every failure
- * reads identically.
+ * reads identically. A context overflow leads with what to do about it, since
+ * the status alone points at the request being malformed instead of long.
  */
 export function describeFailure(response: StreamResponse): string {
   const attempts = response.attempts ?? 1
   const tried = attempts > 1 ? ` (${attempts} attempts)` : ''
   const detail = summarizeErrorBody(response.errorBody)
-  const head = `endpoint error ${response.status}: ${response.statusText}${tried}`
+  const head = isContextOverflow(response)
+    ? `endpoint error ${response.status}: the conversation is longer than this model's context ` +
+      'window — start a new session, or pick a model with a larger window'
+    : `endpoint error ${response.status}: ${response.statusText}${tried}`
   return detail === null ? head : `${head} — ${detail}`
 }

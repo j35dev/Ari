@@ -5,6 +5,7 @@ import {
   faultMessage,
   guardStream,
   MAX_ERROR_BODY_CHARS,
+  withIdleDeadline,
   withRetry,
   type StreamFetch,
 } from './http-retry'
@@ -49,7 +50,7 @@ const ndjsonFetchOnce: NdjsonFetch = async (url, init) => {
     }
   }
   return {
-    body: readNdjsonLines(response.body),
+    body: withIdleDeadline(readNdjsonLines(response.body)),
     status: response.status,
     statusText: response.statusText,
     retryAfter,
