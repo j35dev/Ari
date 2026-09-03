@@ -735,6 +735,31 @@ Before/After text dumps instead of diffs.
       blocks, `{output,exitCode}` and `{matches:[]}` before counting anything.
       A lone call opens straight to its body instead of a one-item list.
 
+## M36 — Ari Core harness hardening (repetition, native tool use, exact reads)
+
+Why (user feedback): "many times the model in Ari core harness does the same
+thing again and again", and turns read as slow. Measured against pi / oh-my-pi:
+both give the model numbered file views, native provider tool calls and a cached
+prompt prefix, and neither lets a stuck model re-run work whose result it is
+already holding.
+
+- [x] M36.1 `read` numbers every line by its true file position (`N\tline`), so
+      offsets, continuation footers and edit anchors are exact instead of
+      counted from unnumbered text; a trailing newline terminates the last line
+      rather than opening a phantom one
+
+- [x] M36.2 Native Anthropic tool use: the Messages client streams `tool_use`
+      blocks (accumulating `input_json_delta`), and the driver serializes turns
+      as `tool_use`/`tool_result` blocks advertising real tool schemas instead
+      of improvised markup. System prompt + last tool carry `cache_control`
+      breakpoints, so the prefix every round resends is served from cache
+
+- [x] M36.3 Near-miss repetition guard: a round made only of read-only calls
+      already executed twice while still fresh — no write, command or
+      compaction in between — is redirected instead of run, catching interleaved
+      repeats (`read A → read B → read A`) that the back-to-back signature
+      guard never sees
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
