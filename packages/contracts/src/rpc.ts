@@ -220,6 +220,8 @@ export const rpcParams = {
   'project.remove': z.object({ id: z.string().min(1) }),
   'dialog.pickFolder': z.object({ defaultPath: z.string().min(1).optional() }),
   'shell.revealPath': z.object({ path: z.string().min(1) }),
+  /** Opens a URL in the OS browser; only http/https/mailto reach openExternal. */
+  'shell.openUrl': z.object({ url: z.string().min(1).max(2048) }),
   'files.index': z.object({ projectId: z.string().min(1) }),
   'search.content': z
     .object({
@@ -470,6 +472,7 @@ export interface RpcResults {
   /** Native folder picker; `path` is null when the user cancels (clean no-op). */
   'dialog.pickFolder': { path: string | null }
   'shell.revealPath': { revealed: boolean }
+  'shell.openUrl': { opened: boolean }
   'files.index': { paths: string[] }
   'search.content': ContentSearchMatch[]
   'endpoints.list': {

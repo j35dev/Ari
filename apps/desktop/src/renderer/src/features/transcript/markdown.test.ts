@@ -51,16 +51,27 @@ describe('renderMarkdown', () => {
   })
 
   it('renders links and rejects unsafe href schemes', () => {
-    expect(renderMarkdown('[site](https://x.y)')).toBe('<p><a href="https://x.y">site</a></p>')
+    // External links open as popups (OS browser), never a window navigation.
+    expect(renderMarkdown('[site](https://x.y)')).toBe(
+      '<p><a href="https://x.y" target="_blank" rel="noopener noreferrer">site</a></p>',
+    )
     // Sanitizer strips the href entirely, leaving an inert anchor.
     expect(renderMarkdown('[evil](javascript:alert(1))')).toBe('<p><a>evil</a></p>')
   })
 
   it('autolinks bare URLs and <angle> forms', () => {
     expect(renderMarkdown('see https://a.b/c.')).toBe(
-      '<p>see <a href="https://a.b/c">https://a.b/c</a>.</p>',
+      '<p>see <a href="https://a.b/c" target="_blank" rel="noopener noreferrer">https://a.b/c</a>.</p>',
     )
-    expect(renderMarkdown('<https://a.b>')).toBe('<p><a href="https://a.b">https://a.b</a></p>')
+    expect(renderMarkdown('<https://a.b>')).toBe(
+      '<p><a href="https://a.b" target="_blank" rel="noopener noreferrer">https://a.b</a></p>',
+    )
+  })
+
+  it('tags localhost links as external popups (dev-server preview case)', () => {
+    expect(flat(renderMarkdown('[app](http://localhost:3000)'))).toBe(
+      '<p><a href="http://localhost:3000" target="_blank" rel="noopener noreferrer">app</a></p>',
+    )
   })
 
   it('drops raw HTML so injection cannot pass through', () => {
