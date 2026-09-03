@@ -18,12 +18,23 @@ const READ_CTX = (dir: string): ToolContext => ({
 })
 
 describe('read tool', () => {
-  it('reads a whole small file', async () => {
+  it('reads a whole small file with numbered lines', async () => {
     const { dir, cleanup } = await workspace()
     try {
       await writeFile(join(dir, 'a.txt'), 'one\ntwo\nthree', 'utf8')
       const result = await findTool('read')?.execute({ path: 'a.txt' }, READ_CTX(dir))
-      expect(result).toBe('one\ntwo\nthree')
+      expect(result).toBe('1\tone\n2\ttwo\n3\tthree')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('numbers lines by their true file position when paginating', async () => {
+    const { dir, cleanup } = await workspace()
+    try {
+      await writeFile(join(dir, 'a.txt'), 'a\nb\nc\nd\ne', 'utf8')
+      const result = await findTool('read')?.execute({ path: 'a.txt', offset: 3 }, READ_CTX(dir))
+      expect(result).toBe('3\tc\n4\td\n5\te')
     } finally {
       await cleanup()
     }
@@ -63,7 +74,7 @@ describe('read tool', () => {
     try {
       await writeFile(join(dir, 'a.txt'), 'hello', 'utf8')
       const result = await findTool('read')?.execute({ file: 'a.txt' }, READ_CTX(dir))
-      expect(result).toBe('hello')
+      expect(result).toBe('1\thello')
     } finally {
       await cleanup()
     }

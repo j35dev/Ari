@@ -46,7 +46,13 @@ describe('todo_write tool', () => {
       const reader = findTool('read')
       expect(reader).toBeDefined()
       const content = await reader?.execute({ path: TODO_FILENAME }, { workspacePath: dir })
-      expect(JSON.parse(content ?? '')).toEqual(items)
+      // `read` prefixes every line with its file line number, so strip those to
+      // get the file's own bytes back before parsing.
+      const unnumbered = (content ?? '')
+        .split('\n')
+        .map((line) => line.replace(/^\d+\t/, ''))
+        .join('\n')
+      expect(JSON.parse(unnumbered)).toEqual(items)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
