@@ -334,7 +334,7 @@ export const rpcParams = {
       path: z.string().min(1),
       content: z.string(),
     }),
-  'plan.get': z.object({ path: z.string().min(1) }),
+  'plan.get': z.object({ path: z.string().min(1), sessionId: z.string().min(1).optional() }),
   'scripts.list': z.object({ path: z.string().min(1) }),
     'stream.subscribe': z.object({
     id: z.string().min(1),
@@ -539,8 +539,9 @@ export interface RpcResults {
     'fs.readTextFile': { content: string; truncated: boolean }
     'fs.writeTextFile': { bytesWritten: number }
   /**
-   * The session workspace's structured plan (`.ari-todo.json` written by
-   * Ari Core's `todo_write`). `items: null` when no plan exists.
+   * One session's structured plan (per-session `.ari-todo-<sessionId>.json`
+   * written by Ari Core's `todo_write`). `items: null` when no plan exists.
+   * Without `sessionId` the legacy shared `.ari-todo.json` is read.
    */
   'plan.get': { items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] | null; error?: string }
   /** npm-style scripts declared in the folder's package.json (M21.3). */

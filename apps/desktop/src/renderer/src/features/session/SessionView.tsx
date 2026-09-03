@@ -204,7 +204,8 @@ export function SessionView({
   const [catalogModels, setCatalogModels] = useState<
     { kind: string; models: CatalogModelInfo[] }[]
   >([])
-  // Workspace path + refresh tick driving the plan panel (.ari-todo.json).
+  // Workspace path + refresh tick driving the plan panel (per-session
+  // `.ari-todo-<sessionId>.json`, keyed by this view's session id).
   const [planPath, setPlanPath] = useState<string | null>(null)
   const [planNonce, setPlanNonce] = useState(0)
   // Review notes (M21.1): inline diff comments attached to the next message.
@@ -776,7 +777,7 @@ export function SessionView({
           onEditUserMessage={handleEditMessage}
           onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
           regenerateDisabled={running}
-          header={<PlanPanel path={planPath} refreshNonce={planNonce} />}
+          header={<PlanPanel path={planPath} sessionId={sessionId} refreshNonce={planNonce} />}
           onDiffComment={handleDiffComment}
           working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
         />
