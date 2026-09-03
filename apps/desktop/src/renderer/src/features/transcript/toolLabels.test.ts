@@ -5,6 +5,7 @@ import {
   classifyToolCall,
   describeToolCall,
   effectiveToolName,
+  humanizeToolName,
   parseToolArgs,
   shortenPath,
   thoughtPreview,
@@ -109,8 +110,18 @@ describe('describeToolCall', () => {
     expect(describeToolCall(block, true).verb).toBe('Reading')
   })
 
-  it('falls back to the tool name when no argument is showable', () => {
-    expect(describeToolCall({ name: 'Bash', argsJson: '{}' }).target).toBe('Bash')
+  it('leaves the target empty when no argument is showable', () => {
+    expect(describeToolCall({ name: 'Bash', argsJson: '{}' })).toEqual({
+      kind: 'run',
+      verb: 'Ran',
+      target: '',
+    })
+  })
+
+  it('humanizes tool names for the no-target fallback', () => {
+    expect(humanizeToolName('run_terminal_command')).toBe('run terminal command')
+    expect(humanizeToolName('TodoWrite')).toBe('TodoWrite')
+    expect(humanizeToolName(undefined)).toBe('tool')
   })
 })
 
@@ -142,7 +153,7 @@ describe('the ACP { title, input } envelope', () => {
   it('never shows the envelope title as the target', () => {
     expect(toolTarget('{"title":"some_tool","input":{}}')).toBe('')
     expect(describeToolCall({ name: 'tool', argsJson: '{"title":"some_tool","input":{}}' })).toEqual(
-      { kind: 'run', verb: 'Ran', target: 'some_tool' },
+      { kind: 'run', verb: 'Ran', target: '' },
     )
   })
 })

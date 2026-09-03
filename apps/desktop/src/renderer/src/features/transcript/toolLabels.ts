@@ -96,9 +96,14 @@ const TARGET_KEYS = [
   'filePath',
   'target_file',
   'targetFile',
+  'file',
+  'filename',
+  'filepath',
   'notebook_path',
   'absolute_path',
   'target_directory',
+  'directory',
+  'dir',
   'path',
   'pattern',
   'query',
@@ -270,9 +275,21 @@ export function classifyToolCall(block: Pick<TranscriptBlock, 'name' | 'argsJson
 }
 
 /**
+ * Humanizes a raw tool identifier for display (`run_terminal_command` →
+ * `run terminal command`). Used when a call carries no showable target so the
+ * row names the tool instead of pairing a verb with the raw id.
+ */
+export function humanizeToolName(name: string | undefined): string {
+  const clean = (name ?? '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return clean.length > 0 ? clean : 'tool'
+}
+
+/**
  * One-line description of a tool call. `live` picks the present participle so
  * the in-flight header reads "Reading tokens.css" while history reads "Read
- * tokens.css".
+ * tokens.css". When no argument is showable the target is empty and callers
+ * fall back to {@link humanizeToolName} — never the raw id as a target, which
+ * read as "Editing Edit".
  */
 export function describeToolCall(
   block: Pick<TranscriptBlock, 'name' | 'argsJson'>,
@@ -280,11 +297,10 @@ export function describeToolCall(
 ): ToolStepLabel {
   const name = effectiveToolName(block.name, block.argsJson)
   const kind = classifyTool(name)
-  const target = toolTarget(block.argsJson)
   return {
     kind,
     verb: live ? LIVE_VERB[kind] : PAST_VERB[kind],
-    target: target.length > 0 ? target : name,
+    target: toolTarget(block.argsJson),
   }
 }
 

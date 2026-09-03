@@ -261,6 +261,15 @@ describe('activityHeadline', () => {
     expect(headline).toBe('Reading src/tokens.css')
   })
 
+  it('names a targetless in-flight call by its tool, never verb + name', () => {
+    expect(activityHeadline(group([call('c1', 'Edit', '{}')]))).toBe('Edit')
+    expect(
+      activityHeadline(
+        group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]),
+      ),
+    ).toBe('run terminal command')
+  })
+
   it('falls back to the settled tally once every call has answered', () => {
     const headline = activityHeadline(
       group([
