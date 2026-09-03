@@ -207,13 +207,13 @@ function SessionRow({
             <Pin size={10} aria-hidden className="text-accent" />
           ) : (
             <MessageSquareText
-              size={11}
+              size={10}
               aria-hidden
               className={isActive ? 'text-accent' : 'text-fg-subtle'}
             />
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
         {projectName ? (
           <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle lg:flex">
             <FolderGit2 size={10} aria-hidden />
@@ -353,8 +353,8 @@ function CollapsibleSessions({
           size={11}
           className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
-        {Icon ? <Icon size={12} aria-hidden className="shrink-0 text-fg-subtle" /> : null}
-        <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+        {Icon ? <Icon size={13} aria-hidden className="shrink-0 text-fg-subtle" /> : null}
+        <span className="text-sm font-medium uppercase tracking-[0.14em] text-fg-subtle">
           {label}
         </span>
         <span className="rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
@@ -444,12 +444,12 @@ function ProjectGroupSection({
             className={`shrink-0 text-fg-subtle transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
           />
           <GroupIcon
-            size={12}
+            size={13}
             aria-hidden
             className={`shrink-0 ${missing ? 'text-warning' : 'text-fg-subtle'}`}
           />
           <span
-            className={`min-w-0 flex-1 truncate text-2xs font-semibold uppercase tracking-[0.14em] ${
+            className={`min-w-0 flex-1 truncate text-sm font-medium uppercase tracking-[0.14em] ${
               missing ? 'text-fg-subtle line-through' : 'text-fg-subtle'
             }`}
           >
