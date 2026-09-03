@@ -69,9 +69,9 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const { activityOf } = useSessionActivity()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const { activityOf, acknowledge, forget } = useSessionActivity(activeSessionId)
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -117,6 +117,19 @@ function Shell() {
   const clearTransientInspector = useCallback(() => {
     setInspector((prev) => (prev === 'terminal' ? prev : null))
   }, [])
+
+  // Visiting a session lands on it and clears its settled badge — done/error
+  // sticks until the user has seen what the agent did.
+  const selectSession = useCallback(
+    (id: string) => {
+      setActiveSessionId(id)
+      clearTransientInspector()
+      // Selecting a chat must land on it, not leave Usage/Changes up.
+      setFullPage(null)
+      acknowledge(id)
+    },
+    [acknowledge, clearTransientInspector],
+  )
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
@@ -276,8 +289,7 @@ function Shell() {
         const target = navOrder[Number(e.key) - 1]
         if (target && !paletteOpen && !searchOpen) {
           e.preventDefault()
-          setActiveSessionId(target.id)
-          clearTransientInspector()
+          selectSession(target.id)
         }
       }
       if (e.ctrlKey && e.key === 'Tab') {
@@ -292,8 +304,7 @@ function Shell() {
                 (delta === 1 ? navOrder[0] : navOrder[navOrder.length - 1])
               : navOrder[(index + delta + navOrder.length) % navOrder.length]
           if (next) {
-            setActiveSessionId(next.id)
-            clearTransientInspector()
+            selectSession(next.id)
           }
         }
       }
@@ -307,7 +318,7 @@ function Shell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, settingsOpen, navOrder, activeSessionId, toggleTerminal, clearTransientInspector])
+  }, [paletteOpen, settingsOpen, navOrder, activeSessionId, toggleTerminal, selectSession])
 
   const createSession = useCallback(
     (overrides?: Partial<SessionDefaults>, projectId = 'adhoc'): void => {
@@ -463,12 +474,7 @@ function Shell() {
             onLocateProject={openProjectViaDialog}
             activeSessionId={activeSessionId}
             activityOf={activityOf}
-            onSelect={(id) => {
-              setActiveSessionId(id)
-              clearTransientInspector()
-              // Selecting a chat must land on it, not leave Usage/Changes up.
-              setFullPage(null)
-            }}
+            onSelect={selectSession}
             onRename={(id, title) => {
               void rpc
                 .invoke('command.dispatch', {
@@ -478,6 +484,7 @@ function Shell() {
                 .catch((error: unknown) => log.warn("rpc call failed", error))
             }}
             onDelete={(id) => {
+              forget(id)
               void rpc
                 .invoke('session.destroy', { sessionId: id })
                 .then(() => {
@@ -665,9 +672,7 @@ function Shell() {
           onClose={() => setImportProjectId(null)}
           onImported={(sessionId) => {
             refreshSessions()
-            setActiveSessionId(sessionId)
-            clearTransientInspector()
-            setFullPage(null)
+            selectSession(sessionId)
           }}
         />
       ) : null}
