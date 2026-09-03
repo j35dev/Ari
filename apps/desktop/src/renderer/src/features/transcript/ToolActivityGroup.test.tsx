@@ -114,4 +114,14 @@ describe('ToolActivityGroup expanded state', () => {
     await user.click(screen.getAllByRole('button', { name: 'Reasoning' })[0]!)
     expect(screen.getByText(/deeper detail here/)).toBeInTheDocument()
   })
+
+  it('names a targetless step by its tool instead of doubling verb + name', async () => {
+    const user = userEvent.setup()
+    render(<ToolActivityGroup row={row([call('c1', 'Edit', '{}'), result('c1')])} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edited Edit' })).not.toBeInTheDocument()
+  })
 })
