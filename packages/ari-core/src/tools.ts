@@ -136,29 +136,37 @@ interface ReadArgs {
 /**
  * Reads a text file with pi-style pagination: 1-indexed `offset`, optional
  * `limit`, head-truncated to 2000 lines / 50KB, and an explicit
- * continuation footer so the model always knows how to read on.
+ * continuation footer so the model always knows how to read on. Every line is
+ * prefixed with its 1-indexed file line number so the model can anchor edits
+ * and pagination precisely instead of counting from unnumbered text.
  */
 async function executeRead(args: ReadArgs, ctx: ToolContext): Promise<string> {
   const target = await jailed(ctx, args.path)
   const raw = await fs.readFile(target, 'utf8')
-  const allLines = raw.split('\n')
-  const totalLines = allLines.length
+  // A trailing newline terminates the final line rather than opening an empty
+  // one, so an unnumbered phantom line never pollutes the count or the output.
+  const rawLines = raw.split('\n')
+  const lastIndex = raw.endsWith('\n') ? rawLines.length - 1 : rawLines.length
   const start = Math.max(0, (args.offset ?? 1) - 1)
-  if (start >= totalLines) {
-    throw new Error(`offset ${args.offset} is beyond end of file (${totalLines} lines)`)
+  if (raw.length === 0) return ''
+  if (start >= lastIndex) {
+    throw new Error(`offset ${args.offset} is beyond end of file (${lastIndex} lines)`)
   }
-  const slice =
+  const endIndex =
     args.limit !== undefined && args.limit > 0
-      ? allLines.slice(start, start + args.limit).join('\n')
-      : (allLines.slice(start).join('\n') ?? '')
-  const truncation = truncateHead(slice)
+      ? Math.min(start + args.limit, lastIndex)
+      : lastIndex
+  const numbered = rawLines
+    .slice(start, endIndex)
+    .map((line, index) => `${start + index + 1}\t${line}`)
+    .join('\n')
+  const truncation = truncateHead(numbered)
   let text = truncation.content
   if (truncation.truncated) {
-    const nextOffset = start + truncation.outputLines + 1
-    text += `\n\n[Showing lines ${start + 1}-${start + truncation.outputLines} of ${totalLines} total. Use offset=${nextOffset} to continue.]`
-  } else if (args.limit !== undefined && start + args.limit < totalLines) {
-    const nextOffset = start + args.limit + 1
-    text += `\n\n[${totalLines - (start + args.limit)} more lines in file. Use offset=${nextOffset} to continue.]`
+    const shown = start + truncation.outputLines
+    text += `\n\n[Showing lines ${start + 1}-${shown} of ${lastIndex} total. Use offset=${shown + 1} to continue.]`
+  } else if (args.limit !== undefined && endIndex < lastIndex) {
+    text += `\n\n[${lastIndex - endIndex} more lines in file. Use offset=${endIndex + 1} to continue.]`
   }
   return text
 }
@@ -434,7 +442,7 @@ export const BUILT_IN_TOOLS: Tool[] = [
     name: 'read',
     readOnly: true,
     description:
-      'Read the contents of a file. Output is capped at 2000 lines / 50KB; use offset (1-indexed) and limit for large files, and follow the continuation footer to read on. Prefer this over cat or sed.',
+      'Read the contents of a file. Output is capped at 2000 lines / 50KB and every line is prefixed with its 1-indexed file line number, so offsets and edit anchors are exact. Use offset (1-indexed) and limit for large files, and follow the continuation footer to read on. Prefer this over cat or sed.',
     parameters: {
       type: 'object',
       properties: {
