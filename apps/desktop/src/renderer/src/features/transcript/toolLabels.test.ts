@@ -3,13 +3,17 @@ import {
   ariToolName,
   classifyTool,
   classifyToolCall,
+  commandHead,
   describeToolCall,
   effectiveToolName,
   humanizeToolName,
   parseToolArgs,
+  pastVerb,
+  pathTail,
   shortenPath,
   thoughtPreview,
   todoItems,
+  toolSubject,
   toolTarget,
 } from './toolLabels'
 
@@ -223,5 +227,36 @@ describe('thoughtPreview', () => {
     expect(preview).toHaveLength(120)
     expect(preview.endsWith('…')).toBe(true)
     expect(thoughtPreview('   ')).toBe('Thinking')
+  })
+})
+
+describe('headline subjects', () => {
+  it('names a file without its folders', () => {
+    expect(pathTail('D:/Projects/Ari/apps/desktop/main.ts')).toBe('main.ts')
+    expect(pathTail('main.ts')).toBe('main.ts')
+    expect(pathTail('')).toBe('')
+  })
+
+  it('keeps a command short and marks the elision', () => {
+    expect(commandHead('pnpm verify')).toBe('pnpm verify')
+    expect(commandHead('git status --short')).toBe('git status…')
+    expect(commandHead('  git   log  ')).toBe('git log')
+    expect(commandHead('supercalifragilistic --expialidocious --flag')).toBe(
+      'supercalifragilistic…',
+    )
+  })
+
+  it('shortens per bucket and leaves nothing to say alone', () => {
+    expect(toolSubject('edit', 'transcript/groupBlocks.ts')).toBe('groupBlocks.ts')
+    expect(toolSubject('read', 'ui/tokens.css')).toBe('tokens.css')
+    expect(toolSubject('run', 'pnpm verify --filter desktop')).toBe('pnpm verify…')
+    expect(toolSubject('search', 'settle in engine')).toBe('settle in engine')
+    expect(toolSubject('todo', '1/2')).toBe('1/2')
+    expect(toolSubject('run', '')).toBe('')
+  })
+
+  it('exposes the past-tense verb per bucket', () => {
+    expect(pastVerb('edit')).toBe('Edited')
+    expect(pastVerb('search')).toBe('Searched')
   })
 })

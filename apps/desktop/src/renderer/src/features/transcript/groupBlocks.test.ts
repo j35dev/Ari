@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  activityHeadline,
+  activityLedger,
+  describeActivity,
   formatToolSummary,
   groupBlocks,
-  MAX_CALLS_PER_GROUP,
   summarizeToolRun,
 } from './groupBlocks'
 import { splitBlocks } from './splitBlocks'
@@ -63,20 +63,17 @@ describe('groupBlocks', () => {
     expect(row.resultsByCallId.get('c1')?.kind).toBe('tool-result')
   })
 
-  it('chunks a long run into bursts of at most MAX_CALLS_PER_GROUP calls', () => {
+  it('keeps one long run whole so a stretch of work is one row', () => {
     const parts: Message['parts'] = []
-    for (let i = 0; i < MAX_CALLS_PER_GROUP + 2; i++) {
+    for (let i = 0; i < 14; i++) {
       parts.push({ type: 'tool-call', callId: `c${i}`, name: 'Bash', argsJson: '{}' })
       parts.push({ type: 'tool-result', callId: `c${i}`, resultJson: '"ok"', isError: false })
     }
     const rows = groupBlocks(splitBlocks([assistantMessage(parts)]))
-    expect(rows).toHaveLength(2)
-    const [first, second] = rows
-    if (first?.kind !== 'tool-group' || second?.kind !== 'tool-group') {
-      throw new Error('expected two tool groups')
-    }
-    expect(first.calls).toHaveLength(MAX_CALLS_PER_GROUP)
-    expect(second.calls).toHaveLength(2)
+    expect(rows).toHaveLength(1)
+    const only = rows[0]
+    if (only?.kind !== 'tool-group') throw new Error('expected one tool group')
+    expect(only.calls).toHaveLength(14)
   })
 
   it('folds interleaved thinking into the run and breaks only on assistant prose', () => {
@@ -217,7 +214,7 @@ describe('summarizeToolRun + formatToolSummary', () => {
     expect(summary.edited).toBe(2)
     expect(summary.read).toBe(1)
     expect(summary.searched).toBe(2)
-    expect(formatToolSummary(summary)).toBe('Ran 2 commands · Edited 2 files · Read 1 file · Searched 2 times')
+    expect(formatToolSummary(summary)).toBe('Edited 2 files · Ran 2 commands · Searched 2 times · Read 1 file')
   })
 
   it('counts errors and pending calls', () => {
@@ -258,7 +255,7 @@ describe('summarizeToolRun + formatToolSummary', () => {
   })
 })
 
-describe('activityHeadline', () => {
+describe('describeActivity', () => {
   function call(callId: string, name: string, argsJson: string): TranscriptBlock {
     return { key: `k-${callId}`, kind: 'tool-call', callId, name, argsJson }
   }
@@ -275,49 +272,120 @@ describe('activityHeadline', () => {
   }
 
   it('names the in-flight call in the present tense', () => {
-    const headline = activityHeadline(
+    const activity = describeActivity(
       group([
         call('c1', 'Bash', '{"command":"pnpm verify"}'),
         result('c1'),
         call('c2', 'Read', '{"file_path":"D:/Projects/Ari/packages/ui/src/tokens.css"}'),
       ]),
     )
-    expect(headline).toBe('Reading src/tokens.css')
+    expect(activity.label).toBe('Reading src/tokens.css')
+    expect(activity.working).toBe(true)
   })
 
   it('names a targetless in-flight call by its tool, never verb + name', () => {
-    expect(activityHeadline(group([call('c1', 'Edit', '{}')]))).toBe('Edit')
+    expect(describeActivity(group([call('c1', 'Edit', '{}')])).label).toBe('Edit')
     expect(
-      activityHeadline(
+      describeActivity(
         group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]),
-      ),
+      ).label,
     ).toBe('run terminal command')
   })
 
-  it('falls back to the settled tally once every call has answered', () => {
-    const headline = activityHeadline(
+  it('leads with what a settled run touched, not a tally of nouns', () => {
+    const activity = describeActivity(
       group([
-        call('c1', 'Bash', '{"command":"git status"}'),
+        call('c1', 'Bash', '{"command":"git status --short"}'),
         result('c1'),
-        call('c2', 'Read', '{"file_path":"a/b.ts"}'),
+        call('c2', 'Edit', '{"file_path":"src/features/transcript/groupBlocks.ts"}'),
         result('c2'),
+        call('c3', 'Edit', '{"file_path":"src/features/transcript/types.ts"}'),
+        result('c3'),
+        call('c4', 'Edit', '{"file_path":"src/features/transcript/ActivityBurst.tsx"}'),
+        result('c4'),
       ]),
     )
-    expect(headline).toBe('Ran 1 command · Read 1 file')
+    expect(activity.verb).toBe('Edited')
+    expect(activity.subject).toBe('groupBlocks.ts, types.ts')
+    expect(activity.more).toBe(1)
+    expect(activity.label).toBe('Edited groupBlocks.ts, types.ts +1')
+    expect(activity.working).toBe(false)
   })
 
-  it('reads as Thinking while reasoning trails a finished run', () => {
+  it('prefers the highest-signal bucket over the busiest one', () => {
+    const blocks = [
+      call('c1', 'Read', '{"file_path":"a.ts"}'),
+      result('c1'),
+      call('c2', 'Read', '{"file_path":"b.ts"}'),
+      result('c2'),
+      call('c3', 'Read', '{"file_path":"c.ts"}'),
+      result('c3'),
+      call('c4', 'Edit', '{"file_path":"config.ts"}'),
+      result('c4'),
+    ]
+    const activity = describeActivity(group(blocks))
+    expect(activity.label).toBe('Edited config.ts')
+    // The headline already names the edits, so the ledger reports only the rest.
+    expect(activity.ledger).toEqual([{ kind: 'read', count: 3 }])
+  })
+
+  it('sizes the burst by the lines its edits moved', () => {
+    const edit = (id: string, path: string, before: string, after: string): TranscriptBlock =>
+      call(id, 'Edit', JSON.stringify({ file_path: path, old_string: before, new_string: after }))
+    const activity = describeActivity(
+      group([
+        edit('c1', 'src/a.ts', 'a', 'a\nb\nc'),
+        result('c1'),
+        edit('c2', 'src/b.ts', 'x\ny', 'z'),
+        result('c2'),
+        call('c3', 'Bash', '{"command":"ls"}'),
+        result('c3'),
+      ]),
+    )
+    expect(activity.label).toBe('Edited a.ts, b.ts')
+    expect(activity.stat).toEqual({ added: 4, removed: 3 })
+    expect(activity.ledger).toEqual([{ kind: 'run', count: 1 }])
+  })
+
+  it('shortens subjects to names and command heads', () => {
+    expect(
+      describeActivity(
+        group([call('c1', 'Bash', '{"command":"pnpm verify --filter desktop"}'), result('c1')]),
+      ).label,
+    ).toBe('Ran pnpm verify…')
+  })
+
+  it('falls back to a bucket phrase when no call names anything', () => {
+    const activity = describeActivity(
+      group([call('c1', 'Read', '{}'), result('c1'), call('c2', 'Read', '{}'), result('c2')]),
+    )
+    expect(activity.label).toBe('Read 2 files')
+    expect(activity.subject).toBe('')
+  })
+
+  it('describes what a run did even when reasoning trails it', () => {
     const blocks = [
       call('c1', 'Bash', '{"command":"git status"}'),
       result('c1'),
       { key: 'k-t', kind: 'thinking', text: 'weighing options' } satisfies TranscriptBlock,
     ]
-    expect(activityHeadline(group(blocks))).toBe('Thinking')
+    expect(describeActivity(group(blocks)).label).toBe('Ran git status')
   })
 
-  it('degrades to a call count when no verb bucket matched', () => {
-    expect(activityHeadline({ blocks: [], calls: [], resultsByCallId: new Map() })).toBe(
-      '0 tool calls',
+  it('reads as Thinking with no calls at all', () => {
+    expect(describeActivity({ blocks: [], calls: [], resultsByCallId: new Map() }).label).toBe(
+      'Thinking',
     )
+  })
+})
+
+describe('activityLedger', () => {
+  it('orders buckets highest-signal first and omits the idle ones', () => {
+    const summary = { ran: 2, edited: 3, read: 0, searched: 1, todos: 0, errors: 0, pending: 0 }
+    expect(activityLedger(summary)).toEqual([
+      { kind: 'edit', count: 3 },
+      { kind: 'run', count: 2 },
+      { kind: 'search', count: 1 },
+    ])
   })
 })

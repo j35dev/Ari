@@ -3,16 +3,16 @@ import { Check, Copy, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
-import { groupBlocks, isSingleStepGroup } from './groupBlocks'
+import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
 import { MessageFooter } from './MessageFooter'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ErrorNote } from './ErrorNote'
-import { ToolActivityGroup, ToolStep } from './ToolActivityGroup'
+import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { attachmentDataUrl } from './attachment-urls'
-import type { ToolGroupRow, TranscriptImage, TranscriptRow } from './types'
+import type { TranscriptImage, TranscriptRow } from './types'
 import type { Message } from '@ari/contracts/message'
 
 /** Rough characters per rendered line at the transcript's 48rem measure. */
@@ -25,7 +25,8 @@ const LINE_HEIGHT_PX = 22
  * `content-visibility: auto` skips them.
  */
 function estimateRowSize(row: TranscriptRow): number {
-  if (row.kind === 'tool-group' || row.kind === 'turn-diff') return 40
+  if (row.kind === 'tool-group') return 30
+  if (row.kind === 'turn-diff') return 40
   if (row.kind === 'tool-call' || row.kind === 'tool-result') return 48
   if (row.kind === 'image') return 96
   const text = row.text ?? ''
@@ -267,18 +268,6 @@ export function TranscriptView({
   )
 }
 
-/**
- * A tool burst renders as its bare step row when it holds a single call and
- * no reasoning; anything larger keeps the collapsible activity wrapper.
- */
-function ToolGroupView({ row }: { row: ToolGroupRow }) {
-  const call = row.calls.length === 1 && isSingleStepGroup(row) ? row.calls[0] : undefined
-  if (call === undefined) return <ToolActivityGroup row={row} />
-  return (
-    <ToolStep call={call} result={call.callId ? row.resultsByCallId.get(call.callId) : undefined} />
-  )
-}
-
 function TranscriptRowView({
   row,
   index,
@@ -305,7 +294,7 @@ function TranscriptRowView({
       }}
     >
       {row.kind === 'tool-group' ? (
-        <ToolGroupView row={row} />
+        <ActivityBurst row={row} />
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
       ) : row.kind === 'image' ? (
