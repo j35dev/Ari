@@ -14,6 +14,9 @@ import {
 import {
   streamChatAnthropic,
   type AnthropicChatRequest,
+  type AnthropicContentBlock,
+  type AnthropicMessage,
+  type AnthropicToolResultBlock,
 } from './protocols/anthropic-messages'
 import { streamChatOllama, type OllamaChatRequest } from './protocols/ollama'
 import {
@@ -118,6 +121,107 @@ function renderAsTextTurns(messages: ChatMessage[]): RenderedTurn[] {
   return out
 }
 
+/** Advertised tool shape used across protocol flavors. */
+interface AdvertisedTool {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+/** Parses a tool call's JSON args; malformed args degrade to `{}`. */
+function parseToolInput(argsJson: string): unknown {
+  try {
+    return JSON.parse(argsJson) as unknown
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Serializes internal messages as native Anthropic turns. An assistant tool
+ * call becomes `tool_use` content blocks and its results become `tool_result`
+ * blocks in the following user turn (Anthropic requires each `tool_use` to be
+ * answered by a `tool_result` in the very next user message). Consecutive
+ * plain user turns merge: compaction inserts a summary user message directly
+ * before the next prompt, and Anthropic rejects adjacent user turns.
+ */
+function anthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
+  const out: AnthropicMessage[] = []
+  let results: AnthropicToolResultBlock[] = []
+  /**
+   * Appends one user turn's blocks, merging into the previous user turn when
+   * there already is one — adjacent user turns are invalid on the wire. The
+   * merge always appends: replacing what the previous turn holds would strip
+   * the `tool_result`s answering the assistant's `tool_use`, or a prior turn's
+   * images, and the request would be rejected.
+   */
+  const appendUser = (blocks: AnthropicContentBlock[]): void => {
+    if (blocks.length === 0) return
+    const last = out.at(-1)
+    if (last?.role !== 'user') {
+      // A turn carrying nothing but text stays a plain string; blocks are only
+      // needed once images or tool results share the turn.
+      const only = blocks.length === 1 ? blocks[0] : undefined
+      out.push({ role: 'user', content: only?.type === 'text' ? only.text : blocks })
+      return
+    }
+    const prior: AnthropicContentBlock[] =
+      typeof last.content === 'string'
+        ? last.content.length > 0
+          ? [{ type: 'text', text: last.content }]
+          : []
+        : last.content
+    last.content = [...prior, ...blocks]
+  }
+  const flushResults = (): void => {
+    if (results.length === 0) return
+    appendUser(results)
+    results = []
+  }
+  const pushUser = (content: string, images?: ChatImage[]): void => {
+    const blocks: AnthropicContentBlock[] = []
+    if (content.length > 0) blocks.push({ type: 'text', text: content })
+    for (const image of images ?? []) {
+      blocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: image.mimeType, data: image.dataBase64 },
+      })
+    }
+    appendUser(blocks)
+  }
+
+  for (const message of messages) {
+    if (message.role === 'tool') {
+      results.push({
+        type: 'tool_result',
+        tool_use_id: message.toolCallId ?? '',
+        content: message.content,
+      })
+      continue
+    }
+    if (message.role === 'assistant') {
+      flushResults()
+      const blocks: AnthropicContentBlock[] = []
+      if (message.content.length > 0) blocks.push({ type: 'text', text: message.content })
+      for (const call of message.toolCalls ?? []) {
+        blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: parseToolInput(call.argsJson) })
+      }
+      // A turn with neither text nor tool calls has no valid wire form — the
+      // API rejects empty content — and carries nothing the model needs, so it
+      // is dropped rather than sent. Any user turn that follows merges into the
+      // one before it, so dropping this never leaves two users adjacent.
+      if (blocks.length === 0) continue
+      out.push({ role: 'assistant', content: blocks })
+      continue
+    }
+    // user
+    flushResults()
+    pushUser(message.content, message.images)
+  }
+  flushResults()
+  return out
+}
+
 function anthropicRequest(
   endpoint: Endpoint,
   model: string,
@@ -125,30 +229,36 @@ function anthropicRequest(
   messages: ChatMessage[],
   signal: AbortSignal | undefined,
   effort: string | null,
+  advertised: AdvertisedTool[],
 ): AnthropicChatRequest {
-  const turns = renderAsTextTurns(messages)
-  const system = turns
-    .filter((turn): turn is RenderedTurn & { role: 'system' } => turn.role === 'system')
-    .map((turn) => turn.content)
-    .join('\n\n')
-  const rest = turns.filter((turn) => turn.role !== 'system')
+  let system = ''
+  const rest: ChatMessage[] = []
+  for (const message of messages) {
+    if (message.role === 'system') {
+      system += system.length > 0 ? `\n\n${message.content}` : message.content
+    } else {
+      rest.push(message)
+    }
+  }
   return {
     baseUrl: endpoint.baseUrl,
     apiKey,
     model,
-    ...(system ? { system } : {}),
-    messages: rest.map((turn) =>
-      turn.role === 'assistant'
-        ? { role: 'assistant', content: turn.content }
-        : {
-            role: 'user',
-            content: turn.content,
-            ...(turn.images && turn.images.length > 0 ? { images: turn.images } : {}),
-          },
-    ),
+    ...(system.length > 0 ? { system } : {}),
+    messages: anthropicMessages(rest),
+    tools: advertised.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters,
+    })),
     headers: endpoint.headers,
     signal,
     reasoningEffort: effort,
+    // Every round of a turn resends the same system prompt and tool schemas;
+    // caching that prefix is the cheapest latency win available to a harness
+    // that runs many rounds. Any endpoint on this flavor speaks the Messages
+    // API, which has carried `cache_control` since Claude 3.
+    cache: true,
   }
 }
 
@@ -340,7 +450,7 @@ export class AriCoreDriver implements Driver {
         switch (endpoint.flavor) {
           case 'anthropic-messages':
             return (clients.anthropic ?? streamChatAnthropic)(
-              anthropicRequest(endpoint, model, apiKey, effective, signal, effort),
+              anthropicRequest(endpoint, model, apiKey, effective, signal, effort, advertised),
             )
           case 'ollama':
             return (clients.ollama ?? streamChatOllama)(
