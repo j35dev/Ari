@@ -425,6 +425,36 @@ describe('permission modes', () => {
     expect(events.at(-1)).toEqual({ type: 'done' })
   })
 
+  it('a round that failed at the transport is not retried as an empty response', async () => {
+    let calls = 0
+    const round = async function* (): AsyncGenerator<AgentEvent> {
+      calls++
+      yield {
+        type: 'error',
+        message: 'endpoint error 500: Internal Server Error (5 attempts)',
+        rawJson: '{"error":"overloaded"}',
+      }
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+    })
+    // The protocol client already retried with backoff; the loop must not stack
+    // instant attempts on top of it.
+    expect(calls).toBe(1)
+    const errors = events.filter((e) => e.type === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.type === 'error' && errors[0].message).toContain('endpoint error 500')
+    // The model never answered, so it must not be blamed for an empty response.
+    expect(events.some((e) => e.type === 'error' && e.message.includes('empty response'))).toBe(
+      false,
+    )
+    expect(events.at(-1)).toEqual({ type: 'done' })
+  })
+
   it('an empty retry still executes tool calls that arrive on the next attempt', async () => {
     let calls = 0
     const round = async function* (): AsyncGenerator<AgentEvent> {

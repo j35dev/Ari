@@ -1,6 +1,15 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { StreamContent } from './content-split'
 import { parseDsmlToolCalls } from './dsml'
+import {
+  describeFailure,
+  faultMessage,
+  guardStream,
+  MAX_ERROR_BODY_CHARS,
+  withIdleDeadline,
+  withRetry,
+  type StreamFetch,
+} from './http-retry'
 
 /**
  * OpenAI-compatible chat-completions streaming client. Works with any
@@ -61,16 +70,38 @@ export interface ChatRequest {
   reasoningEffort?: string | null
 }
 
-export type SseFetch = (
-  url: string,
-  init: RequestInit,
-) => Promise<{ body: AsyncIterable<string> | null; status: number; statusText: string }>
+/**
+ * Transport seam. Resolves once the response headers are in: `body` streams
+ * SSE payload lines on success, and a failed attempt carries the endpoint's
+ * own error text instead.
+ */
+export type SseFetch = StreamFetch
 
-export const defaultSseFetch: SseFetch = async (url, init) => {
+/** One attempt, no retrying — {@link defaultSseFetch} wraps it in backoff. */
+const sseFetchOnce: SseFetch = async (url, init) => {
   const response = await fetch(url, init)
-  if (!response.body) return { body: null, status: response.status, statusText: response.statusText }
-  return { body: readSseLines(response.body), status: response.status, statusText: response.statusText }
+  const retryAfter = response.headers.get('retry-after')
+  if (!response.body || response.status >= 400) {
+    // Reading the body both surfaces the endpoint's explanation and releases
+    // the socket, which discarding an unconsumed stream would leak.
+    const errorBody = await response.text().catch(() => '')
+    return {
+      body: null,
+      status: response.status,
+      statusText: response.statusText,
+      errorBody: errorBody.slice(0, MAX_ERROR_BODY_CHARS),
+      retryAfter,
+    }
+  }
+  return {
+    body: withIdleDeadline(readSseLines(response.body)),
+    status: response.status,
+    statusText: response.statusText,
+    retryAfter,
+  }
 }
+
+export const defaultSseFetch: SseFetch = withRetry(sseFetchOnce)
 
 /** Converts a byte stream into SSE `data:` payload lines. */
 async function* readSseLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -174,8 +205,8 @@ export async function* streamChatCompletion(
   if (!response.body || response.status >= 400) {
     yield {
       type: 'error',
-      message: `endpoint error ${response.status}: ${response.statusText}`,
-      rawJson: null,
+      message: describeFailure(response),
+      rawJson: response.errorBody ?? null,
     }
     yield { type: 'done' }
     return
@@ -185,9 +216,10 @@ export async function* streamChatCompletion(
   let inputTokens = 0
   let outputTokens = 0
   let sawNativeTool = false
+  let streamFault: unknown = null
   const content = new StreamContent()
 
-  for await (const raw of response.body) {
+  for await (const raw of guardStream(response.body, (error) => (streamFault = error))) {
     const data = raw.startsWith('data:') ? raw.slice(5).trim() : raw.trim()
     if (data.length === 0) continue
     if (data === '[DONE]') break
@@ -227,6 +259,20 @@ export async function* streamChatCompletion(
       inputTokens = chunk.usage.prompt_tokens ?? inputTokens
       outputTokens = chunk.usage.completion_tokens ?? outputTokens
     }
+  }
+
+  // A stream that broke mid-flight has emitted whatever arrived; the round
+  // still failed, so no half-parsed tool call is flushed from it.
+  if (streamFault !== null) {
+    if (request.signal?.aborted !== true) {
+      yield {
+        type: 'error',
+        message: `endpoint stream interrupted: ${faultMessage(streamFault)}`,
+        rawJson: null,
+      }
+    }
+    yield { type: 'done' }
+    return
   }
 
   // Flush any tools whose argument stream never looked complete.

@@ -88,6 +88,10 @@ export interface AgentLoopOptions {
    * tool calls) is retried before the turn fails with a visible error.
    * An empty completion is a retryable provider hiccup, not a silent success
    * (DSH EMPTY_RESPONSE semantics). Default 2; 0 disables.
+   *
+   * A round that failed at the transport is not counted here: the protocol
+   * client already retried it with backoff, and a hard endpoint failure is not
+   * an empty completion.
    */
   emptyResponseRetries?: number
   signal?: AbortSignal
@@ -300,6 +304,9 @@ export async function* runAgentLoop(
     let assistantText: string
     for (;;) {
       let sawContent = false
+      // Set when the round's only outcome was a transport failure, which the
+      // client has already retried with backoff.
+      let roundFailed = false
       const deferredUsage: AgentEvent[] = []
       // Whitespace-only deltas held back until real content shows up, so an
       // empty attempt never leaks stray fragments to the transcript.
@@ -315,6 +322,7 @@ export async function* runAgentLoop(
             argsJson: event.argsJson,
           })
         }
+        if (event.type === 'error') roundFailed = true
         if (event.type === 'usage') {
           deferredUsage.push(event)
           continue
@@ -339,6 +347,13 @@ export async function* runAgentLoop(
       }
 
       if (!sawContent && pending.length === 0) {
+        // The error the round already yielded is the whole story: retrying it
+        // here would stack instant attempts on top of the client's backoff and
+        // then blame the model for an "empty response" it never sent.
+        if (roundFailed) {
+          yield { type: 'done' }
+          return
+        }
         emptyAttempts++
         if (emptyAttempts > maxEmptyRetries) {
           yield {

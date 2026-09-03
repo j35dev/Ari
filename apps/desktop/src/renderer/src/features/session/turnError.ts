@@ -16,6 +16,23 @@ export interface TurnErrorView {
 /** Ordered families — the first match wins. */
 const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
   [
+    // Ari Core reports an over-long request in these words because the status
+    // it arrives with (a plain 400) says nothing useful. Matched first: the
+    // quoted endpoint body often also mentions tokens or limits.
+    /longer than this model|context length|context window/i,
+    'Conversation too long',
+    'The transcript no longer fits the model’s context window — start a new session, or pick a model with a larger window in the model selector.',
+  ],
+  [
+    // Ari Core's own transport prefix, matched before the families below so an
+    // endpoint's quoted error body cannot relabel the failure — a gateway that
+    // returns "invalid api key" inside a 500 is still a failing gateway, and a
+    // real 401 carries its own status here.
+    /endpoint error 5\d\d|endpoint stream interrupted/i,
+    'Endpoint is failing',
+    'The endpoint returned a server error after several retries — it or the provider behind it is down or overloaded. Retry, or switch endpoints in Settings › Endpoints.',
+  ],
+  [
     // Deliberately excludes the bare word "login": the ACP stall watchdog's
     // message ends "…may be wedged or waiting for login", and that is a stall
     // failure, not an auth one — matching it here used to relabel wedged

@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { defaultSseFetch, type SseFetch } from './openai-chat'
+import { describeFailure, faultMessage, guardStream } from './http-retry'
 
 /**
  * Anthropic Messages API streaming client (`POST /v1/messages`, SSE).
@@ -167,8 +168,8 @@ export async function* streamChatAnthropic(
   if (!response.body || response.status >= 400) {
     yield {
       type: 'error',
-      message: `endpoint error ${response.status}: ${response.statusText}`,
-      rawJson: null,
+      message: describeFailure(response),
+      rawJson: response.errorBody ?? null,
     }
     yield { type: 'done' }
     return
@@ -176,10 +177,11 @@ export async function* streamChatAnthropic(
 
   let inputTokens = 0
   let outputTokens = 0
+  let streamFault: unknown = null
   // Tool_use blocks accumulate by content-block index; emitted on block stop.
   const pendingTools = new Map<number, { id: string; name: string; json: string }>()
 
-  for await (const raw of response.body) {
+  for await (const raw of guardStream(response.body, (error) => (streamFault = error))) {
     const data = raw.startsWith('data:') ? raw.slice(5).trim() : raw.trim()
     if (data.length === 0) continue
     let event: StreamEvent
@@ -240,6 +242,20 @@ export async function* streamChatAnthropic(
       yield { type: 'done' }
       return
     }
+  }
+
+  // A stream that broke mid-flight has emitted whatever arrived; the round
+  // still failed, so no half-parsed tool block is flushed from it.
+  if (streamFault !== null) {
+    if (request.signal?.aborted !== true) {
+      yield {
+        type: 'error',
+        message: `endpoint stream interrupted: ${faultMessage(streamFault)}`,
+        rawJson: null,
+      }
+    }
+    yield { type: 'done' }
+    return
   }
 
   // Flush any tool block whose stream ended without an explicit stop.
