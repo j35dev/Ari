@@ -9,6 +9,7 @@ import {
   parseToolArgs,
   shortenPath,
   thoughtPreview,
+  todoItems,
   toolTarget,
 } from './toolLabels'
 
@@ -20,6 +21,12 @@ describe('classifyTool', () => {
     expect(classifyTool('list_dir')).toBe('read')
     expect(classifyTool('Grep')).toBe('search')
     expect(classifyTool('web_fetch')).toBe('search')
+  })
+
+  it('buckets plan tools separately so they never read as edits', () => {
+    expect(classifyTool('todo_write')).toBe('todo')
+    expect(classifyTool('TodoWrite')).toBe('todo')
+    expect(classifyTool('my_todo_tool')).toBe('todo')
   })
 
   it('probes unfamiliar names by substring, shells first', () => {
@@ -41,6 +48,7 @@ describe('ariToolName', () => {
     expect(ariToolName('edit')).toBe('Ari Edit')
     expect(ariToolName('read')).toBe('Ari Read')
     expect(ariToolName('search')).toBe('Ari Search')
+    expect(ariToolName('todo')).toBe('Ari Todo')
   })
 })
 
@@ -110,6 +118,30 @@ describe('describeToolCall', () => {
     expect(describeToolCall(block, true).verb).toBe('Reading')
   })
 
+  it('labels searches as query in scope', () => {
+    expect(
+      describeToolCall({ name: 'Grep', argsJson: '{"pattern":"settle","path":"packages/engine"}' }),
+    ).toEqual({ kind: 'search', verb: 'Searched', target: 'settle in packages/engine' })
+    expect(describeToolCall({ name: 'Grep', argsJson: '{"pattern":"settle"}' }).target).toBe(
+      'settle',
+    )
+  })
+
+  it('labels plans as done/total progress', () => {
+    const args = JSON.stringify({
+      items: [
+        { text: 'a', status: 'done' },
+        { text: 'b', status: 'in_progress' },
+        { text: 'c', status: 'pending' },
+      ],
+    })
+    expect(describeToolCall({ name: 'todo_write', argsJson: args })).toEqual({
+      kind: 'todo',
+      verb: 'Updated',
+      target: '1/3',
+    })
+  })
+
   it('leaves the target empty when no argument is showable', () => {
     expect(describeToolCall({ name: 'Bash', argsJson: '{}' })).toEqual({
       kind: 'run',
@@ -155,6 +187,28 @@ describe('the ACP { title, input } envelope', () => {
     expect(describeToolCall({ name: 'tool', argsJson: '{"title":"some_tool","input":{}}' })).toEqual(
       { kind: 'run', verb: 'Ran', target: '' },
     )
+  })
+})
+
+describe('todoItems', () => {
+  it('reads Ari Core and Claude plan shapes', () => {
+    expect(
+      todoItems({ items: [{ text: 'a', status: 'done' }, { text: 'b', status: 'in_progress' }] }),
+    ).toEqual([
+      { text: 'a', done: true, active: false },
+      { text: 'b', done: false, active: true },
+    ])
+    expect(
+      todoItems({ todos: [{ content: 'a', status: 'completed' }, { content: 'b' }] }),
+    ).toEqual([
+      { text: 'a', done: true, active: false },
+      { text: 'b', done: false, active: false },
+    ])
+  })
+
+  it('returns null when no list is present', () => {
+    expect(todoItems({ file_path: 'src/a.ts' })).toBeNull()
+    expect(todoItems({ items: [] })).toBeNull()
   })
 })
 

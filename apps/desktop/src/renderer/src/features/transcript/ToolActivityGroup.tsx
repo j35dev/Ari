@@ -1,9 +1,18 @@
 import { useState } from 'react'
-import { ChevronRight, FilePen, FileText, Search, Terminal, type LucideIcon } from 'lucide-react'
+import {
+  ChevronRight,
+  FilePen,
+  FileText,
+  ListChecks,
+  Search,
+  Terminal,
+  type LucideIcon,
+} from 'lucide-react'
 import { ToolCallDetails } from './ToolCallDetails'
 import { ToolResultBody } from './ToolResultBody'
 import { ThinkingBlock } from './ThinkingBlock'
 import { activityHeadline, summarizeToolRun } from './groupBlocks'
+import { editDiffStat } from './edit-diff'
 import { describeToolCall, effectiveToolName, humanizeToolName, type ToolKind } from './toolLabels'
 import type { ToolGroupRow, TranscriptBlock } from './types'
 
@@ -12,6 +21,7 @@ const KIND_ICON: Record<ToolKind, LucideIcon> = {
   edit: FilePen,
   read: FileText,
   search: Search,
+  todo: ListChecks,
 }
 
 /**
@@ -83,10 +93,11 @@ export function ToolActivityGroup({ row }: { row: ToolGroupRow }) {
 
 /**
  * One tool call as a single line: verb, target, state — or the humanized tool
- * name alone when no argument is showable. Opening it shows the arguments and
- * the result body (diff-aware via {@link ToolResultBody}).
+ * name alone when no argument is showable. Edit rows advertise their size
+ * (`+2 −3`). Opening it shows the arguments and the result body (diff-aware
+ * via {@link ToolResultBody}).
  */
-function ToolStep({
+export function ToolStep({
   call,
   result,
 }: {
@@ -94,11 +105,12 @@ function ToolStep({
   result: TranscriptBlock | undefined
 }) {
   const [open, setOpen] = useState(false)
-  const { kind, verb, target } = describeToolCall(call)
+  const { kind, verb, target } = describeToolCall(call, result === undefined)
   const Icon = KIND_ICON[kind]
   const failed = result?.isError === true
   const nameOnly = target.length === 0
   const label = nameOnly ? humanizeToolName(effectiveToolName(call.name, call.argsJson)) : `${verb} ${target}`
+  const stat = kind === 'edit' && !nameOnly ? editDiffStat(call.argsJson) : null
 
   return (
     <div className="my-0.5">
@@ -118,6 +130,11 @@ function ToolStep({
             <span className="min-w-0 flex-1 truncate font-mono text-2xs text-fg-muted">
               {target}
             </span>
+            {stat !== null && (stat.added > 0 || stat.removed > 0) ? (
+              <span className="shrink-0 font-mono text-2xs text-fg-subtle">
+                +{stat.added} −{stat.removed}
+              </span>
+            ) : null}
           </>
         )}
         {failed ? (

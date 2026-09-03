@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseDiff } from '../diffs'
-import { editArgsToDiff, editPayloadToDiff } from './edit-diff'
+import { editArgsToDiff, editDiffStat, editFilePath, editPayloadToDiff } from './edit-diff'
 
 describe('editPayloadToDiff', () => {
   it('shapes a single replacement as a one-file unified diff', () => {
@@ -56,5 +56,29 @@ describe('editArgsToDiff', () => {
     )
     expect(diff?.path).toBe('src/a.ts')
     expect(parseDiff(diff?.diffText ?? '').files).toHaveLength(1)
+  })
+})
+
+describe('editDiffStat', () => {
+  it('counts added and removed lines for step rows', () => {
+    expect(
+      editDiffStat(JSON.stringify({ file_path: 'src/a.ts', old_string: 'a\nb', new_string: 'a\nc\nd' })),
+    ).toEqual({ added: 3, removed: 2 })
+    expect(editDiffStat(JSON.stringify({ path: 'src/n.ts', content: 'x' }))).toEqual({
+      added: 1,
+      removed: 0,
+    })
+  })
+
+  it('returns null when no diff synthesizes', () => {
+    expect(editDiffStat('{}')).toBeNull()
+    expect(editDiffStat(undefined)).toBeNull()
+  })
+})
+
+describe('editFilePath', () => {
+  it('reads the file across provider key shapes', () => {
+    expect(editFilePath({ file_path: 'src/a.ts' })).toBe('src/a.ts')
+    expect(editFilePath({})).toBeNull()
   })
 })
