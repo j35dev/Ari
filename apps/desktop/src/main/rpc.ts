@@ -72,6 +72,7 @@ import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
+import { TODO_FILENAME, todoFilenameFor } from '@ari/ari-core/todo'
 
 const log = createLogger('desktop:rpc')
 
@@ -1149,11 +1150,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { bytesWritten }
   })
 
-  // Structured plan surface (research wave M20): reads the `.ari-todo.json`
-  // that Ari Core's todo_write tool maintains in the session workspace.
+  // Structured plan surface (research wave M20): reads the per-session
+  // `.ari-todo-<sessionId>.json` that Ari Core's todo_write tool maintains
+  // in the session workspace. Siblings share the project folder, so a
+  // session-scoped read never surfaces another agent's plan; without a
+  // sessionId the legacy shared file answers (old renderer compat).
   r.register('plan.get', async (params) => {
     try {
-      const raw = await readFile(join(params.path, '.ari-todo.json'), 'utf8')
+      const filename = params.sessionId ? todoFilenameFor(params.sessionId) : TODO_FILENAME
+      const raw = await readFile(join(params.path, filename), 'utf8')
       const parsed: unknown = JSON.parse(raw)
       if (!Array.isArray(parsed)) return { items: null }
       const items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] = []

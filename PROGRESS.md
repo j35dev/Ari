@@ -94,6 +94,10 @@ zeronsh/comet (issues #93/#95 in particular), converted into Ari fixes:
 - [x] M20.13 Attention toast when an approval or question blocks while the window is hidden
 - [x] M20.14 Live plan panel: `.ari-todo.json` from todo_write renders as a collapsible checklist
       pinned above the transcript (`plan.get` RPC; refreshes on settle)
+- [x] M20.15 Plan panel is per-session: todo_write writes `.ari-todo-<sessionId>.json`
+      (sanitized like FileConversationStore keys; legacy shared file kept for session-less
+      reads) and `plan.get` + PlanPanel take `sessionId`, so sibling sessions in one
+      project never render each other's plan
 
 ## M22 — Output-quality & prompt-box wave (from live screenshot feedback)
 
