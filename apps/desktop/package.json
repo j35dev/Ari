@@ -23,9 +23,7 @@
     "lucide-react": "^1.33.0",
     "motion": "^13.1.1",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
-  },
-  "optionalDependencies": {
+    "react-dom": "^19.2.8",
     "@lydell/node-pty-darwin-arm64": "1.2.0-beta.15",
     "@lydell/node-pty-darwin-x64": "1.2.0-beta.15",
     "@lydell/node-pty-linux-arm64": "1.2.0-beta.15",

@@ -2,10 +2,12 @@
 //
 // `@lydell/node-pty` is only a resolver stub: it `require`s
 // `@lydell/node-pty-<platform>-<arch>`, which is where the implementation and the
-// prebuilt binaries actually live. That package reaches the app as an optional
-// dependency, so any regression in electron-builder's dependency collection drops
-// it silently — the app still boots, and the terminal opens to a dead blinking
-// cursor. Assert the invariant here so the build fails instead of shipping.
+// prebuilt binaries actually live. Those packages are plain `dependencies` rather
+// than `optionalDependencies` on purpose: electron-builder platform-filters
+// optional deps against the *host*, which silently drops the second slice of a
+// universal macOS build (the x64 half on an arm64 runner). The app still boots and
+// the terminal opens to a dead blinking cursor. Assert the invariant here so the
+// build fails instead of shipping.
 
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -53,8 +55,9 @@ export default async function afterPack(context) {
       [
         `Terminal would ship broken for ${platform}/${ARCH_NAMES[context.arch]}:`,
         ...problems.map((it) => `  - ${it}`),
-        'Check that the @lydell/node-pty-* optionalDependencies are still declared in',
-        'apps/desktop/package.json and that asarUnpack still covers them.',
+        'Check that the @lydell/node-pty-* packages are still plain dependencies (not',
+        'optional — electron-builder platform-filters those against the build host) in',
+        'apps/desktop/package.json, and that asarUnpack still covers them.',
       ].join('\n'),
     )
   }
