@@ -36,6 +36,17 @@ export function defaultShell(): { file: string; args: string[] } {
   return { file: '/bin/bash', args: [] }
 }
 
+/**
+ * Names why no pty is available. A permanent load failure (the prebuilt
+ * platform package missing from a package, say) must not read as a cold start:
+ * the pane shows this verbatim, and "still loading" would never resolve.
+ */
+export function ptyUnavailableReason(loadError: string | null): string {
+  return loadError !== null
+    ? `terminal backend unavailable — ${loadError}`
+    : 'terminal backend still loading'
+}
+
 function killTree(pid: number): void {
   if (process.platform === 'win32') {
     exec(`taskkill /PID ${pid} /T /F`, () => undefined)
@@ -107,6 +118,13 @@ export class TerminalService {
     const session = this.#sessions.get(id)
     if (!session) return
     this.#sessions.delete(id)
+    // Release the native handle first; the tree kill is the backstop for
+    // orphaned children (killTree alone leaks the ConPTY/file descriptor).
+    try {
+      session.pty.kill()
+    } catch {
+      // already gone
+    }
     killTree(session.pty.pid)
   }
 
