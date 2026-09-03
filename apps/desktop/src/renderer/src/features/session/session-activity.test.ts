@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  lingerMsFor,
+  ACTIVE_SETTLE_LINGER_MS,
   peakActivity,
   reduceSessionActivity,
   type SessionActivity,
@@ -99,11 +99,8 @@ describe('peakActivity', () => {
   })
 })
 
-describe('lingerMsFor', () => {
-  it('lingers done and error, not live phases', () => {
-    expect(lingerMsFor('done')).toBe(4_200)
-    expect(lingerMsFor('error')).toBe(8_000)
-    expect(lingerMsFor('working')).toBeNull()
-    expect(lingerMsFor('paused')).toBeNull()
+describe('ACTIVE_SETTLE_LINGER_MS', () => {
+  it('fades a seen settle after a few seconds', () => {
+    expect(ACTIVE_SETTLE_LINGER_MS).toBe(4_200)
   })
 })
