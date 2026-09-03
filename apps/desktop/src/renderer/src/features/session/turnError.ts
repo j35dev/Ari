@@ -16,6 +16,15 @@ export interface TurnErrorView {
 /** Ordered families — the first match wins. */
 const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
   [
+    // Ari Core's own transport prefix, matched before the families below so an
+    // endpoint's quoted error body cannot relabel the failure — a gateway that
+    // returns "invalid api key" inside a 500 is still a failing gateway, and a
+    // real 401 carries its own status here.
+    /endpoint error 5\d\d|endpoint stream interrupted/i,
+    'Endpoint is failing',
+    'The endpoint returned a server error after several retries — it or the provider behind it is down or overloaded. Retry, or switch endpoints in Settings › Endpoints.',
+  ],
+  [
     // Deliberately excludes the bare word "login": the ACP stall watchdog's
     // message ends "…may be wedged or waiting for login", and that is a stall
     // failure, not an auth one — matching it here used to relabel wedged
