@@ -496,7 +496,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const terminals = new TerminalService(
     {
       onData: (id, data) => rpcRegistry.publish('terminal.data', { id, data }),
-      onExit: () => undefined,
+      // A shell that exits instantly (bad cwd, killed binary) used to leave a
+      // blank xterm with a blinking cursor; name the exit so it reads as one.
+      onExit: (id) =>
+        rpcRegistry.publish('terminal.data', {
+          id,
+          data: '\r\n[Shell exited — open a new terminal with +]\r\n',
+        }),
     },
     ptyFactory,
   )
@@ -850,6 +856,25 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('shell.revealPath', (params) => {
     shell.showItemInFolder(params.path)
     return { revealed: true }
+  })
+
+  // Renderer-side link clicks land here: the sandbox cannot call shell
+  // directly. Only http/https/mailto reach the OS browser; anything else
+  // (file:, javascript:, custom schemes from agent output) is refused.
+  r.register('shell.openUrl', (params) => {
+    let protocol: string
+    try {
+      protocol = new URL(params.url).protocol
+    } catch {
+      throw new Error('refused to open URL with unknown scheme')
+    }
+    if (protocol !== 'http:' && protocol !== 'https:' && protocol !== 'mailto:') {
+      throw new Error(`refused to open URL with scheme ${protocol}`)
+    }
+    void shell.openExternal(params.url).catch((error: unknown) => {
+      log.warn('shell.openUrl failed', { error: String(error) })
+    })
+    return { opened: true }
   })
 
   r.register('files.index', async (params) => {
@@ -1229,6 +1254,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'project.remove',
     'dialog.pickFolder',
     'shell.revealPath',
+    'shell.openUrl',
     'files.index',
     'search.content',
     'endpoints.list',
