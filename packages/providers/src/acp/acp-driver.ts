@@ -384,7 +384,13 @@ export async function createAcpAdapter(
 
   return {
     start: () => ({ [Symbol.asyncIterator]: () => iterator }),
-    interrupt: () => connection.cancel(sessionId),
+    interrupt: () => {
+      // Unpark anything the turn is waiting on first: the agent sits on its
+      // question until the client answers, so a bare session/cancel leaves
+      // the prompt — and the turn — hanging. Cancelled answers let it finish.
+      releasePending()
+      connection.cancel(sessionId)
+    },
     steer: (text) => {
       steeredTexts.push(text)
     },
@@ -409,6 +415,13 @@ export async function createAcpAdapter(
       const pending = pendingInputs.get(inputId)
       if (pending === undefined) return
       pendingInputs.delete(inputId)
+      // An empty answer is the UI's dismissal (Cancel/Skip): the user skipped
+      // the question, so the agent gets the same cancelled outcome as a Stop.
+      // An accepted-but-empty reply would read as a real answer.
+      if (value.trim().length === 0) {
+        pending.resolve(pending.cancelResult)
+        return
+      }
       pending.resolve(pending.toResult(value))
     },
     dispose: async () => {

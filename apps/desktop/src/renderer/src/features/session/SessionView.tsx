@@ -417,6 +417,11 @@ export function SessionView({
           break
         case 'turn.settled': {
           setRunning(false)
+          // A settled turn owns no live prompts: stopping (or failing) while
+          // a question or approval is parked unmounts its card at once, so a
+          // later answer can never strand a card no dispatch can satisfy.
+          setPendingQuestion(null)
+          setApprovals([])
           activeTurnIdRef.current = null
           setTelemetry((t) => ({
             ...t,
@@ -644,6 +649,10 @@ export function SessionView({
     (value: string) => {
       if (pendingQuestion === null) return
       const current = pendingQuestion
+      // Whether the turn was alive when the user answered: a turn that died
+      // underneath the answer (e.g. Stop) owns no question anymore, so a
+      // rejected dispatch must not resurrect its card.
+      const turnAlive = running
       // Drop the overlay immediately so Submit cannot leave a locked card
       // sitting on screen while the engine journals the answer.
       setPendingQuestion(null)
@@ -658,16 +667,18 @@ export function SessionView({
         })
         .then((result) => {
           if (result.accepted) return
-          setPendingQuestion(current)
+          if (turnAlive) setPendingQuestion(current)
           toast({
             title: 'Couldn’t send answer',
-            description: 'The agent is no longer waiting on this question.',
+            description: turnAlive
+              ? 'The agent is no longer waiting on this question.'
+              : 'The turn ended before your answer was sent.',
             tone: 'danger',
             durationMs: 6000,
           })
         })
         .catch((err: unknown) => {
-          setPendingQuestion(current)
+          if (turnAlive) setPendingQuestion(current)
           toast({
             title: 'Couldn’t send answer',
             description: err instanceof Error ? err.message : String(err),
@@ -676,8 +687,17 @@ export function SessionView({
           })
         })
     },
-    [sessionId, pendingQuestion, toast],
+    [sessionId, pendingQuestion, running, toast],
   )
+
+  /**
+   * Skips the parked question: an empty value is the dismissal convention —
+   * adapters answer `cancelled` so the agent proceeds with its best judgment
+   * instead of parking on the question forever.
+   */
+  const cancelQuestion = useCallback(() => {
+    respondQuestion('')
+  }, [respondQuestion])
 
   const changeModel = useCallback(
     (next: { driverKind: DriverKind; modelId: string | null }) => {
@@ -789,6 +809,7 @@ export function SessionView({
             prompt={pendingQuestion.prompt}
             choicesJson={pendingQuestion.choicesJson}
             onRespond={respondQuestion}
+            onCancel={cancelQuestion}
           />
         </div>
       ) : null}
