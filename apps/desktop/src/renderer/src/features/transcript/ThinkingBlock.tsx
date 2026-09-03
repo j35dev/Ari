@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { Brain, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { thoughtPreview } from './toolLabels'
 
 /**
- * Collapsible reasoning row, collapsed by default. The collapsed state shows
- * the thought's opening line rather than a bare "thinking" label so a run of
- * reasoning stays scannable without being expanded. Used standalone and as a
- * step inside a collapsed activity group.
+ * Collapsible reasoning row, collapsed by default in the Claude style: a dim
+ * italic preview line that expands to the full thought. Used standalone and
+ * as a step inside an expanded activity burst.
  */
 export function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
@@ -23,7 +22,6 @@ export function ThinkingBlock({ text }: { text: string }) {
           size={11}
           className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
-        <Brain size={11} className="shrink-0 text-fg-subtle" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-2xs italic text-fg-subtle">
           {thoughtPreview(text)}
         </span>

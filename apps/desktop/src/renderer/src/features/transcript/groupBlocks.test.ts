@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { activityHeadline, formatToolSummary, groupBlocks, summarizeToolRun } from './groupBlocks'
+import {
+  activityHeadline,
+  formatToolSummary,
+  groupBlocks,
+  MAX_CALLS_PER_GROUP,
+  summarizeToolRun,
+} from './groupBlocks'
 import { splitBlocks } from './splitBlocks'
 import type { Message } from '@ari/contracts/message'
 import type { TranscriptBlock } from './types'
@@ -55,6 +61,22 @@ describe('groupBlocks', () => {
     expect(row.key).toBe('m2#0..m2#3')
     expect(row.calls.map((c) => c.callId)).toEqual(['c1', 'c2'])
     expect(row.resultsByCallId.get('c1')?.kind).toBe('tool-result')
+  })
+
+  it('chunks a long run into bursts of at most MAX_CALLS_PER_GROUP calls', () => {
+    const parts: Message['parts'] = []
+    for (let i = 0; i < MAX_CALLS_PER_GROUP + 2; i++) {
+      parts.push({ type: 'tool-call', callId: `c${i}`, name: 'Bash', argsJson: '{}' })
+      parts.push({ type: 'tool-result', callId: `c${i}`, resultJson: '"ok"', isError: false })
+    }
+    const rows = groupBlocks(splitBlocks([assistantMessage(parts)]))
+    expect(rows).toHaveLength(2)
+    const [first, second] = rows
+    if (first?.kind !== 'tool-group' || second?.kind !== 'tool-group') {
+      throw new Error('expected two tool groups')
+    }
+    expect(first.calls).toHaveLength(MAX_CALLS_PER_GROUP)
+    expect(second.calls).toHaveLength(2)
   })
 
   it('folds interleaved thinking into the run and breaks only on assistant prose', () => {
@@ -195,7 +217,7 @@ describe('summarizeToolRun + formatToolSummary', () => {
     expect(summary.edited).toBe(2)
     expect(summary.read).toBe(1)
     expect(summary.searched).toBe(2)
-    expect(formatToolSummary(summary)).toBe('Ran 2 commands · Edited 2 files · Read 1 file · Searched ×2')
+    expect(formatToolSummary(summary)).toBe('Ran 2 commands · Edited 2 files · Read 1 file · Searched 2 times')
   })
 
   it('counts errors and pending calls', () => {
@@ -203,6 +225,30 @@ describe('summarizeToolRun + formatToolSummary', () => {
     const summary = summarizeToolRun(calls, resultsByCallId)
     expect(summary.errors).toBe(1)
     expect(summary.pending).toBe(1)
+  })
+
+  it('counts plan calls and formats the tally', () => {
+    const calls: TranscriptBlock[] = [
+      { key: 'k0', kind: 'tool-call', callId: 'c0', name: 'todo_write', argsJson: '{"items":[]}' },
+    ]
+    expect(formatToolSummary(summarizeToolRun(calls, new Map()))).toBe('Updated 1 todo')
+  })
+
+  it('dedupes edits to the same file', () => {
+    const a = (id: string, argsJson: string): TranscriptBlock => ({
+      key: `k-${id}`,
+      kind: 'tool-call',
+      callId: id,
+      name: 'Edit',
+      argsJson,
+    })
+    const same = 'src/a.ts'
+    const calls = [
+      a('c1', JSON.stringify({ file_path: same, old_string: 'x', new_string: 'y' })),
+      a('c2', JSON.stringify({ file_path: 'SRC/A.TS', old_string: 'y', new_string: 'z' })),
+      a('c3', '{}'),
+    ]
+    expect(summarizeToolRun(calls, new Map()).edited).toBe(2)
   })
 
   it('formats singular and empty cases', () => {
@@ -237,6 +283,15 @@ describe('activityHeadline', () => {
       ]),
     )
     expect(headline).toBe('Reading src/tokens.css')
+  })
+
+  it('names a targetless in-flight call by its tool, never verb + name', () => {
+    expect(activityHeadline(group([call('c1', 'Edit', '{}')]))).toBe('Edit')
+    expect(
+      activityHeadline(
+        group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]),
+      ),
+    ).toBe('run terminal command')
   })
 
   it('falls back to the settled tally once every call has answered', () => {

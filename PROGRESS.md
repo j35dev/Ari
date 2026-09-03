@@ -676,6 +676,31 @@ the user's text bubble (`attachments.read`, cached per id).
 
 - [x] M35 Composer images end-to-end: staged refs through `turn.start`/queue, delivery in every transport, transcript thumbnails
 
+## M35 — Transcript parsing UX (live timeline + edit diffs)
+
+Why (user feedback): a whole turn collapsed into one activity row, so reads,
+thinking, and edits were a single long dropdown; edit previews were
+Before/After text dumps instead of diffs.
+
+- [x] M35.1 Bursts + live timeline: runs chunk at 6 calls per row
+      (`MAX_CALLS_PER_GROUP`); a working burst starts expanded naming the
+      in-flight call and compacts on settle unless toggled; error counts read
+      muted; running calls show headline only; thinking is a dim expandable
+      preview (Claude style); edits synthesize a unified diff into the shared
+      `DiffViewer` (Before/After kept as oversized fallback); tally reads
+      `Searched N times`
+
+- [x] M35.2 No verb + name doubling: calls with no showable target render the
+      humanized tool name alone (`Edit`, `run terminal command`) instead of
+      `Editing Edit`; target keys widened (`file`, `filename`, `filepath`,
+      `directory`, `dir`)
+
+- [x] M35.3 Patterns ported from t3code / deepseek-harness / comet: a `todo`
+      tool kind (`Ari Todo`, `Updated 1/2`, checklist body, `Updated N todos`
+      tally); search steps read `query in scope`; edit steps advertise `+A −R`
+      diffstat; single-call bursts render as flat step rows; edits tally
+      distinct files; pending steps use the live verb (`Reading`, not `Read`)
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
