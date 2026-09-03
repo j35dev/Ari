@@ -136,6 +136,108 @@ describe('anthropic messages streaming client', () => {
     ])
   })
 
+  it('parses a native tool_use stream into a single tool-started event', async () => {
+    const events = []
+    for await (const e of streamChatAnthropic(
+      base,
+      sseFrom([
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":12}}}',
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_1","name":"read"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\":"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\\"note.txt\\"}"}}',
+        'data: {"type":"content_block_stop","index":0}',
+        'data: {"type":"message_delta","usage":{"output_tokens":5}}',
+        'data: {"type":"message_stop"}',
+      ]),
+    )) {
+      events.push(e)
+    }
+    expect(events.map((e) => e.type)).toEqual(['tool-started', 'usage', 'done'])
+    if (events[0]?.type === 'tool-started') {
+      expect(events[0].callId).toBe('tu_1')
+      expect(events[0].name).toBe('read')
+      expect(events[0].argsJson).toBe('{"path":"note.txt"}')
+    }
+    if (events[1]?.type === 'usage') {
+      expect(events[1].inputTokens).toBe(12)
+      expect(events[1].outputTokens).toBe(5)
+    }
+  })
+
+  it('streams text and tool_use from one assistant turn without losing either', async () => {
+    const events = []
+    for await (const e of streamChatAnthropic(
+      base,
+      sseFrom([
+        'data: {"type":"content_block_start","index":0,"content_block":{"type":"text"}}',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"let me look"}}',
+        'data: {"type":"content_block_stop","index":0}',
+        'data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu_2","name":"grep"}}',
+        'data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"pattern\\":\\"x\\"}"}}',
+        'data: {"type":"content_block_stop","index":1}',
+        'data: {"type":"message_stop"}',
+      ]),
+    )) {
+      events.push(e)
+    }
+    expect(events.filter((e) => e.type === 'text-delta')).toHaveLength(1)
+    const tool = events.find((e) => e.type === 'tool-started')
+    expect(tool?.type === 'tool-started' && tool.name).toBe('grep')
+  })
+
+  it('advertises tools and marks the system + last tool for caching when opted in', async () => {
+    const box: { body?: string } = {}
+    const fetcher: SseFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return {
+        body: (async function* () {
+          yield 'data: {"type":"message_stop"}'
+        })(),
+        status: 200,
+        statusText: 'OK',
+      }
+    }
+    const tools = [
+      { name: 'read', description: 'Read', input_schema: { type: 'object' } },
+      { name: 'bash', description: 'Bash', input_schema: { type: 'object' } },
+    ]
+    for await (const _ of streamChatAnthropic({ ...base, tools, cache: true }, fetcher)) void _
+
+    const body = JSON.parse(String(box.body)) as {
+      system: { type: string; text: string; cache_control?: unknown }[]
+      tools: { name: string; cache_control?: unknown }[]
+    }
+    expect(body.system).toEqual([
+      { type: 'text', text: 'you are terse', cache_control: { type: 'ephemeral' } },
+    ])
+    expect(body.tools.map((t) => t.name)).toEqual(['read', 'bash'])
+    expect(body.tools[0]?.cache_control).toBeUndefined()
+    expect(body.tools[1]?.cache_control).toEqual({ type: 'ephemeral' })
+  })
+
+  it('leaves an uncached request with a plain string system and no cache markers', async () => {
+    const box: { body?: string } = {}
+    const fetcher: SseFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return {
+        body: (async function* () {
+          yield 'data: {"type":"message_stop"}'
+        })(),
+        status: 200,
+        statusText: 'OK',
+      }
+    }
+    const tools = [{ name: 'read', description: 'Read', input_schema: { type: 'object' } }]
+    for await (const _ of streamChatAnthropic({ ...base, tools }, fetcher)) void _
+
+    const body = JSON.parse(String(box.body)) as {
+      system: string | unknown[]
+      tools: { cache_control?: unknown }[]
+    }
+    expect(body.system).toBe('you are terse')
+    expect(body.tools[0]?.cache_control).toBeUndefined()
+  })
+
   it('sends staged images as base64 image blocks', async () => {
     const box: { body?: string } = {}
     const fetcher: SseFetch = async (_url, init) => {
@@ -152,7 +254,13 @@ describe('anthropic messages streaming client', () => {
       {
         ...base,
         messages: [
-          { role: 'user', content: 'look', images: [{ dataBase64: 'aGk=', mimeType: 'image/png' }] },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'look' },
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } },
+            ],
+          },
         ],
       },
       fetcher,
