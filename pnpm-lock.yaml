@@ -54,6 +54,24 @@ importers:
       '@lydell/node-pty':
         specifier: 1.2.0-beta.15
         version: 1.2.0-beta.15
+      '@lydell/node-pty-darwin-arm64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-darwin-x64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-linux-arm64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-linux-x64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-win32-arm64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-win32-x64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
       '@tanstack/react-router':
         specifier: ^1.170.31
         version: 1.170.31(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -157,25 +175,6 @@ importers:
       vite:
         specifier: ^7.3.6
         version: 7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0)
-    optionalDependencies:
-      '@lydell/node-pty-darwin-arm64':
-        specifier: 1.2.0-beta.15
-        version: 1.2.0-beta.15
-      '@lydell/node-pty-darwin-x64':
-        specifier: 1.2.0-beta.15
-        version: 1.2.0-beta.15
-      '@lydell/node-pty-linux-arm64':
-        specifier: 1.2.0-beta.15
-        version: 1.2.0-beta.15
-      '@lydell/node-pty-linux-x64':
-        specifier: 1.2.0-beta.15
-        version: 1.2.0-beta.15
-      '@lydell/node-pty-win32-arm64':
-        specifier: 1.2.0-beta.15
-        version: 1.2.0-beta.15
-      '@lydell/node-pty-win32-x64':
-        specifier: 1.2.0-beta.15
-        version: 1.2.0-beta.15
 
   packages/ari-core:
     dependencies:
@@ -4120,23 +4119,17 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@lydell/node-pty-darwin-arm64@1.2.0-beta.15':
-    optional: true
+  '@lydell/node-pty-darwin-arm64@1.2.0-beta.15': {}
 
-  '@lydell/node-pty-darwin-x64@1.2.0-beta.15':
-    optional: true
+  '@lydell/node-pty-darwin-x64@1.2.0-beta.15': {}
 
-  '@lydell/node-pty-linux-arm64@1.2.0-beta.15':
-    optional: true
+  '@lydell/node-pty-linux-arm64@1.2.0-beta.15': {}
 
-  '@lydell/node-pty-linux-x64@1.2.0-beta.15':
-    optional: true
+  '@lydell/node-pty-linux-x64@1.2.0-beta.15': {}
 
-  '@lydell/node-pty-win32-arm64@1.2.0-beta.15':
-    optional: true
+  '@lydell/node-pty-win32-arm64@1.2.0-beta.15': {}
 
-  '@lydell/node-pty-win32-x64@1.2.0-beta.15':
-    optional: true
+  '@lydell/node-pty-win32-x64@1.2.0-beta.15': {}
 
   '@lydell/node-pty@1.2.0-beta.15':
     optionalDependencies:
