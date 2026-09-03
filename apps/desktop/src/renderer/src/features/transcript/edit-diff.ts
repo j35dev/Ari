@@ -116,16 +116,13 @@ export interface EditDiffStat {
   removed: number
 }
 
-/**
- * Counts added/removed lines in a call's synthesized diff so step rows can
- * advertise size (`+2 −3`) without opening. Null when no diff synthesizes.
- */
-export function editDiffStat(argsJson: string | undefined): EditDiffStat | null {
-  const diff = editArgsToDiff(argsJson)
-  if (diff === null) return null
+const DIFF_KEYS = ['diff', 'patch'] as const
+
+/** Counts +/- body lines of a unified diff, ignoring its headers and hunks. */
+function countDiffLines(diffText: string): EditDiffStat {
   let added = 0
   let removed = 0
-  for (const line of diff.diffText.split('\n')) {
+  for (const line of diffText.split('\n')) {
     if (
       line.startsWith('diff --git ') ||
       line.startsWith('--- ') ||
@@ -138,6 +135,21 @@ export function editDiffStat(argsJson: string | undefined): EditDiffStat | null 
     else if (line.startsWith('-')) removed++
   }
   return { added, removed }
+}
+
+/**
+ * Counts added/removed lines for a call so step rows can advertise size
+ * (`+2 −3`) without opening. Reads a payload's own `diff`/`patch` text when it
+ * carries one — patch-style tools ship no before/after pair — and otherwise
+ * measures the diff synthesized from that pair. Null when neither exists.
+ */
+export function editDiffStat(argsJson: string | undefined): EditDiffStat | null {
+  const parsed = parseToolArgs(argsJson)
+  if (parsed === null) return null
+  const patch = stringArg(parsed.payload, DIFF_KEYS)
+  if (patch !== null) return countDiffLines(patch)
+  const diff = editPayloadToDiff(parsed.payload)
+  return diff === null ? null : countDiffLines(diff.diffText)
 }
 
 /** File path carried by an edit payload, if any. */
