@@ -47,6 +47,14 @@ mac:
         - universal
   category: public.app-category.developer-tools
   artifactName: Ari-${version}-universal.${ext}
+  # A universal app is packed as an x64 slice and an arm64 slice which are then
+  # merged. Both slices carry every pty prebuild (they are plain dependencies, so
+  # electron-builder cannot host-filter them away), which makes each prebuild
+  # binary byte-identical in both — and @electron/universal refuses an identical
+  # Mach-O in both slices unless it is declared here. These are single-arch
+  # addons that the resolver stub picks at runtime, so copying them verbatim is
+  # exactly right; there is nothing to lipo together.
+  x64ArchFiles: '**/node_modules/@lydell/node-pty-*/**'
 linux:
   target:
     - AppImage
