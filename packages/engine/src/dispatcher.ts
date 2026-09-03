@@ -1,5 +1,6 @@
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
+import type { MessagePart } from '@ari/contracts/message'
 import { applyEvent, initialReadModel, type DistributiveOmit, type SessionReadModel } from './projection'
 import { deriveSliceTitle } from './title'
 
@@ -39,6 +40,16 @@ export function decideCommand(
     case 'turn.start': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (model.activeTurnId) return reject('a turn is already active')
+      // Direct dispatches (tests, engine internals) bypass zod defaults.
+      const attachments = command.attachments ?? []
+      const parts: MessagePart[] = attachments.map((a) => ({
+        type: 'image',
+        attachmentId: a.id,
+        name: a.name,
+        mimeType: a.mimeType,
+        size: a.size,
+      }))
+      if (command.text.length > 0) parts.push({ type: 'text', text: command.text })
       const events: UnstampedJournalEvent[] = [
         { type: 'turn.started', turnId: ids.turnId },
         {
@@ -48,7 +59,7 @@ export function decideCommand(
             sessionId: model.session.id,
             turnId: ids.turnId,
             role: 'user',
-            parts: [{ type: 'text', text: command.text }],
+            parts,
             createdAt: Date.now(),
           },
         },
@@ -72,7 +83,9 @@ export function decideCommand(
     case 'message.enqueue': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (!model.activeTurnId) return reject('no active turn to queue behind; use turn.start')
-      return accept([{ type: 'message.enqueued', text: command.text }])
+      return accept([
+        { type: 'message.enqueued', text: command.text, attachments: command.attachments ?? [] },
+      ])
     }
 
     case 'turn.interrupt': {

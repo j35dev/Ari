@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -352,7 +352,7 @@ describe('SessionView edit and resend', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'turn.start', sessionId: 'sess_1', text: 'please retry the build, verbose' },
+        command: { type: 'turn.start', sessionId: 'sess_1', text: 'please retry the build, verbose', attachments: [] },
       })
     })
   })
@@ -441,7 +441,7 @@ describe('SessionView regenerate and retry', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite' },
+        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite', attachments: [] },
       })
     })
   })
@@ -504,7 +504,7 @@ describe('SessionView regenerate and retry', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite' },
+        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite', attachments: [] },
       })
     })
   })
@@ -923,7 +923,7 @@ describe('SessionView queued messages', () => {
 
     await user.type(screen.getByLabelText('Message'), 'second prompt{Enter}')
     expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-      command: { type: 'message.enqueue', sessionId: 'sess_1', text: 'second prompt' },
+      command: { type: 'message.enqueue', sessionId: 'sess_1', text: 'second prompt', attachments: [] },
     })
 
     emitSessionEvent({
@@ -971,6 +971,123 @@ describe('SessionView queued messages', () => {
     await waitFor(() => {
       expect(screen.queryByText(/queued message/)).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('SessionView image attachments', () => {
+  const REF = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 }
+
+  function fakeFileList(files: File[]): FileList {
+    return Object.assign([...files], {
+      item: (index: number) => files[index] ?? null,
+    })
+  }
+
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      if (method === 'attachments.stage') return { attachments: [REF] }
+      if (method === 'attachments.read') {
+        return { attachment: { name: 'shot.png', mimeType: 'image/png', size: 8, dataBase64: 'aGk=' } }
+      }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  it('stages pasted images and dispatches turn.start with refs', async () => {
+    const user = userEvent.setup()
+    renderView()
+    const input = await screen.findByLabelText('Message')
+
+    fireEvent.paste(input, {
+      clipboardData: { files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]) },
+    })
+    await user.type(input, 'look at this{Enter}')
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+        command: { type: 'turn.start', sessionId: 'sess_1', text: 'look at this', attachments: [REF] },
+      })
+    })
+    const stageCall = invokeMock.mock.calls.find(([method]) => method === 'attachments.stage')
+    expect(stageCall?.[1]).toMatchObject({
+      files: [{ name: 'shot.png', mimeType: 'image/png' }],
+    })
+  })
+
+  it('renders the staged image on the user message', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [
+          { type: 'image', attachmentId: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 },
+          { type: 'text', text: 'look at this' },
+        ],
+        createdAt: 1,
+      },
+    })
+
+    expect(await screen.findByRole('img', { name: 'shot.png' })).toBeInTheDocument()
+    expect(screen.getByText('look at this')).toBeInTheDocument()
+  })
+
+  it('restores the draft and sends nothing when staging fails', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'attachments.stage') throw new Error('disk full')
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    renderView()
+    const input = await screen.findByLabelText('Message')
+
+    fireEvent.paste(input, {
+      clipboardData: { files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]) },
+    })
+    await user.type(input, 'do not lose this{Enter}')
+
+    expect(await screen.findByText('Couldn’t attach images')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('do not lose this'))
+    expect(invokeMock.mock.calls.some(([method]) => method === 'command.dispatch')).toBe(false)
   })
 })
 

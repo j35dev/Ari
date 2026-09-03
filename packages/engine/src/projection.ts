@@ -1,5 +1,6 @@
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Message } from '@ari/contracts/message'
+import type { QueuedMessage } from '@ari/contracts/attachments'
 import type { Session, SessionStatus } from '@ari/contracts/session'
 
 /** Omit that distributes over unions — required for discriminated events. */
@@ -31,7 +32,7 @@ export interface SessionReadModel {
   /** Agent questions awaiting an `input.respond` answer. */
   pendingInputs: { inputId: string; prompt: string; choicesJson: string | null }[]
   /** User messages queued behind the active turn (survives reload via replay). */
-  queuedMessages: string[]
+  queuedMessages: QueuedMessage[]
   checkpoints: { turnId: string; gitRef: string }[]
   /** Provider-native session/thread id to resume, when one was observed. */
   providerSessionId: string | null
@@ -155,11 +156,21 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       break
 
     case 'message.enqueued':
-      next.queuedMessages = [...next.queuedMessages, event.text]
+      next.queuedMessages = [
+        ...next.queuedMessages,
+        // Pre-attachment journals carry no attachments field.
+        { text: event.text, attachments: event.attachments ?? [] },
+      ]
       break
 
     case 'message.dequeued': {
-      const idx = next.queuedMessages.indexOf(event.text)
+      // Matches the oldest entry with the same text and image set; legacy
+      // dequeues (text only) match the first same-text entry.
+      const idsOf = (ids: readonly { id: string }[]): string => ids.map((a) => a.id).join(',')
+      const want = idsOf(event.attachments ?? [])
+      const idx = next.queuedMessages.findIndex(
+        (m) => m.text === event.text && (event.attachments === undefined || idsOf(m.attachments) === want),
+      )
       if (idx === -1) break
       next.queuedMessages = [
         ...next.queuedMessages.slice(0, idx),

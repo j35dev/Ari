@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
+import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import type { CatalogModelInfo, SessionEventFrame } from '@ari/contracts/rpc'
@@ -9,6 +10,7 @@ import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { TranscriptView } from '../transcript'
 import { Composer, type ComposerSeed } from '../composer/Composer'
+import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
@@ -190,7 +192,7 @@ export function SessionView({
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
-  const [queued, setQueued] = useState<string[]>([])
+  const [queued, setQueued] = useState<{ text: string; attachments: AttachmentRef[] }[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
   const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null)
   const [turnError, setTurnError] = useState<string | null>(null)
@@ -442,11 +444,20 @@ export function SessionView({
           break
         }
         case 'message.enqueued':
-          setQueued((prev) => [...prev, event.text])
+          setQueued((prev) => [
+            ...prev,
+            { text: event.text, attachments: event.attachments ?? [] },
+          ])
           break
         case 'message.dequeued':
           setQueued((prev) => {
-            const idx = prev.indexOf(event.text)
+            const want = (event.attachments ?? []).map((a) => a.id).join(',')
+            const idx = prev.findIndex(
+              (q) =>
+                q.text === event.text &&
+                (event.attachments === undefined ||
+                  q.attachments.map((a) => a.id).join(',') === want),
+            )
             return idx < 0 ? prev : [...prev.slice(0, idx), ...prev.slice(idx + 1)]
           })
           break
@@ -514,8 +525,8 @@ export function SessionView({
     [toast],
   )
 
-  const handleSend = useCallback(
-    (text: string) => {
+  const dispatchSend = useCallback(
+    (text: string, attachments: AttachmentRef[]) => {
       // Review notes ride along with the next outgoing message, then clear.
       let outgoing = text
       setReviewNotes((notes) => {
@@ -532,15 +543,41 @@ export function SessionView({
         // The engine journals the queue (and dequeues immediately when the
         // transport can steer); the mirrored events update the view here.
         dispatch(
-          { type: 'message.enqueue', sessionId, text: outgoing },
+          { type: 'message.enqueue', sessionId, text: outgoing, attachments },
           'Couldn’t queue message',
         )
         return
       }
       setTurnError(null)
-      dispatch({ type: 'turn.start', sessionId, text: outgoing }, 'Couldn’t send message')
+      dispatch({ type: 'turn.start', sessionId, text: outgoing, attachments }, 'Couldn’t send message')
     },
     [sessionId, running, dispatch],
+  )
+
+  const handleSend = useCallback(
+    (text: string, files: File[]) => {
+      // Staging is async; imageless sends skip it and dispatch synchronously.
+      if (files.length === 0) {
+        dispatchSend(text, [])
+        return
+      }
+      void stageImages(files).then(
+        (attachments) => dispatchSend(text, attachments),
+        (err: unknown) => {
+          // The composer already cleared: restore the draft so the failure
+          // costs a retry, not the message, and never send text-only behind
+          // images the user explicitly attached.
+          setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+          toast({
+            title: 'Couldn’t attach images',
+            description: err instanceof Error ? err.message : String(err),
+            tone: 'danger',
+            durationMs: 6000,
+          })
+        },
+      )
+    },
+    [dispatchSend, toast],
   )
 
   /** M21.1 review loop: a saved diff line note joins the next message. */
@@ -559,8 +596,9 @@ export function SessionView({
   }, [])
 
   // M19.4 regenerate/retry: the prompt to re-run is the most recent user
-  // message's concatenated text parts (null when the transcript has none).
-  const lastUserPrompt = useMemo((): string | null => {
+  // message's text plus its staged image refs (null when the transcript has
+  // no user message yet).
+  const lastUserMessage = useMemo((): { text: string; attachments: AttachmentRef[] } | null => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
       if (!m || m.role !== 'user') continue
@@ -569,7 +607,16 @@ export function SessionView({
         .map((part) => part.text)
         .join('\n')
         .trim()
-      return text.length > 0 ? text : null
+      const attachments: AttachmentRef[] = m.parts
+        .filter((part) => part.type === 'image')
+        .map((part) => ({
+          id: part.attachmentId,
+          name: part.name,
+          mimeType: part.mimeType,
+          size: part.size,
+        }))
+      if (text.length === 0 && attachments.length === 0) return null
+      return { text, attachments }
     }
     return null
   }, [messages])
@@ -578,9 +625,9 @@ export function SessionView({
   // last user prompt as a fresh turn via the normal send path; disabled while
   // a turn runs so it can never enqueue behind itself.
   const resendLastPrompt = useCallback(() => {
-    if (running || lastUserPrompt === null) return
-    handleSend(lastUserPrompt)
-  }, [running, lastUserPrompt, handleSend])
+    if (running || lastUserMessage === null) return
+    dispatchSend(lastUserMessage.text, lastUserMessage.attachments)
+  }, [running, lastUserMessage, dispatchSend])
 
   const respondApproval = useCallback(
     (approvalId: string, decision: 'allow' | 'deny' | 'always-allow') => {
@@ -698,7 +745,7 @@ export function SessionView({
           loading={loading}
           turnDiffs={turnDiffs}
           onEditUserMessage={handleEditMessage}
-          onRegenerate={lastUserPrompt !== null ? resendLastPrompt : undefined}
+          onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
           regenerateDisabled={running}
           header={<PlanPanel path={planPath} refreshNonce={planNonce} />}
           onDiffComment={handleDiffComment}
@@ -768,7 +815,7 @@ export function SessionView({
       {turnError ? (
         <TurnErrorBanner
           message={turnError}
-          canRetry={lastUserPrompt !== null}
+          canRetry={lastUserMessage !== null}
           retryDisabled={running}
           onRetry={resendLastPrompt}
           onDismiss={() => setTurnError(null)}
@@ -804,7 +851,7 @@ export function SessionView({
         onSend={handleSend}
         onStop={handleStop}
         running={running}
-        queued={queued}
+        queued={queued.map((q) => q.text)}
         seed={composerSeed ?? undefined}
         suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
         leading={

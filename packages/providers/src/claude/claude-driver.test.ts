@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AdapterSession } from '../driver'
-import { buildClaudeArgs } from './claude-driver'
+import { buildClaudeArgs, buildUserFrame } from './claude-driver'
 
 describe('buildClaudeArgs', () => {
   const base: AdapterSession = {
@@ -46,5 +46,29 @@ describe('buildClaudeArgs', () => {
     const args = buildClaudeArgs(base)
     expect(args).not.toContain('--model')
     expect(args).not.toContain('--resume')
+  })
+})
+
+describe('buildUserFrame', () => {
+  it('sends text-only prompts as a single text block', () => {
+    expect(buildUserFrame('do the thing')).toEqual({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'text', text: 'do the thing' }] },
+    })
+  })
+
+  it('sends staged images as base64 image blocks after the text', () => {
+    expect(
+      buildUserFrame('look', [{ dataBase64: 'aGk=', mimeType: 'image/png' }]),
+    ).toEqual({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGk=' } },
+        ],
+      },
+    })
   })
 })

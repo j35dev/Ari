@@ -1,5 +1,5 @@
 import type { Message, MessagePart } from '@ari/contracts/message'
-import type { TranscriptBlock } from './types'
+import type { TranscriptBlock, TranscriptImage } from './types'
 
 /**
  * Marker the engine injects before provider failure text when it appends the
@@ -57,6 +57,21 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
         isError: part.isError,
         ...meta,
       }
+    case 'image':
+      return {
+        key,
+        kind: 'image',
+        role: message.role,
+        images: [
+          {
+            attachmentId: part.attachmentId,
+            name: part.name,
+            mimeType: part.mimeType,
+            size: part.size,
+          },
+        ],
+        turnId: message.turnId,
+      }
   }
 }
 
@@ -73,8 +88,39 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
   for (const message of messages) {
     let mergeIndex: number | null = null
     let mergeKind: 'markdown' | 'thinking' | null = null
+    // A message's images render as one thumbnail strip, not one row per
+    // file; user messages are journaled whole, so the run never grows later.
+    let imageStart: number | null = null
+    let imageRun: TranscriptImage[] = []
+
+    const flushImages = (): void => {
+      if (imageStart === null || imageRun.length === 0) return
+      blocks.push({
+        key: `${message.id}#img${imageStart}`,
+        kind: 'image',
+        role: message.role,
+        images: imageRun,
+        turnId: message.turnId,
+      })
+      mergeIndex = blocks.length - 1
+      mergeKind = null
+      imageStart = null
+      imageRun = []
+    }
 
     message.parts.forEach((part, partIndex) => {
+      if (part.type === 'image') {
+        if (imageStart === null) imageStart = partIndex
+        imageRun.push({
+          attachmentId: part.attachmentId,
+          name: part.name,
+          mimeType: part.mimeType,
+          size: part.size,
+        })
+        mergeKind = null
+        return
+      }
+      flushImages()
       // An error note is its own block: the marker check lives in partToBlock,
       // but the merge must not swallow the part before it gets there.
       if (
@@ -100,6 +146,7 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
       mergeIndex = blocks.length - 1
       mergeKind = part.type === 'text' ? 'markdown' : part.type === 'thinking' ? 'thinking' : null
     })
+    flushImages()
 
     // The message footer attaches to the final markdown or error-note block,
     // whichever part came last.

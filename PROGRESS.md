@@ -647,6 +647,24 @@ because `session/load` history replay was folded into the new turn's assistant m
       budget, which surfaces as `empty response (3 attempts)` because an HTTP
       error round is counted as an empty one.
 
+## M35 — Composer images end-to-end
+
+Why (bug report): pasting or dropping an image into the composer showed a
+thumbnail strip, but sending silently dropped the files — the transcript never
+showed them and the agent never received them (`Composer.send` cleared pending
+images without forwarding, and `turn.start`'s `attachmentPaths` was ignored by
+the decider).
+
+Shape: the renderer stages bytes in the main process (`attachments.stage`,
+id-keyed files under `userData/attachments`); only refs cross IPC and land in
+journals, so history replay never replays megabytes. Image-channel transports
+(ACP image blocks, Claude stdin frames, Ari Core multimodal parts) send the
+bytes; one-shot CLIs reference the staged files in text so the agent can open
+them with its own file tools. The transcript renders a thumbnail strip above
+the user's text bubble (`attachments.read`, cached per id).
+
+- [x] M35 Composer images end-to-end: staged refs through `turn.start`/queue, delivery in every transport, transcript thumbnails
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support

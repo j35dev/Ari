@@ -29,11 +29,25 @@ export const toolResultPartSchema = z.object({
   isError: z.boolean(),
 })
 
+/**
+ * A staged image attached to a user message. Carries the attachment ref only;
+ * the bytes are fetched from the main process (`attachments.read`) when the
+ * transcript renders the thumbnail.
+ */
+export const imagePartSchema = z.object({
+  type: z.literal('image'),
+  attachmentId: z.string().min(1),
+  name: z.string().min(1),
+  mimeType: z.string().min(1),
+  size: z.number().int().nonnegative(),
+})
+
 export const messagePartSchema = z.discriminatedUnion('type', [
   textPartSchema,
   thinkingPartSchema,
   toolCallPartSchema,
   toolResultPartSchema,
+  imagePartSchema,
 ])
 export type MessagePart = z.infer<typeof messagePartSchema>
 

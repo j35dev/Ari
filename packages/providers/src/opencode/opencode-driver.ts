@@ -1,6 +1,7 @@
 import { createLogger } from '@ari/shared/logger'
 import { mapOpencodeLine } from './mapper'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
@@ -18,7 +19,7 @@ export function buildOpencodeArgs(session: AdapterSession): string[] {
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--session', session.resumeOf)
   if (session.permissionMode === 'full') args.push('--auto')
-  args.push(session.prompt)
+  args.push(promptWithAttachments(session))
   return args
 }
 

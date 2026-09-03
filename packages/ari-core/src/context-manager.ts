@@ -268,7 +268,7 @@ export function serializeForSummary(messages: ChatMessage[], maxToolResultChars 
       }
       continue
     }
-    lines.push(`[${message.role === 'user' ? 'User' : 'System'}]: ${message.content}`)
+    lines.push(`[${message.role === 'user' ? 'User' : 'System'}]: ${message.content}${message.images && message.images.length > 0 ? ` [${message.images.length} attached image(s)]` : ''}`)
   }
   return lines.join('\n')
 }
