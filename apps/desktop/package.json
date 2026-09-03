@@ -1,6 +1,6 @@
 {
   "name": "@ari/desktop",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "type": "module",
   "description": "Ari — an open, local-first agent development environment for Windows, macOS and Linux.",
