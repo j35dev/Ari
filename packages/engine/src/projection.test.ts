@@ -136,25 +136,41 @@ describe('session projection', () => {
   it('restores the message queue from enqueued/dequeued events', () => {
     let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
     state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))
-    state = applyEvent(state, ev(2, { type: 'message.enqueued', text: 'first' }))
-    state = applyEvent(state, ev(3, { type: 'message.enqueued', text: 'second' }))
-    expect(state.queuedMessages).toEqual(['first', 'second'])
-    state = applyEvent(state, ev(4, { type: 'message.dequeued', text: 'first' }))
-    expect(state.queuedMessages).toEqual(['second'])
+    state = applyEvent(state, ev(2, { type: 'message.enqueued', text: 'first', attachments: [] }))
+    state = applyEvent(state, ev(3, { type: 'message.enqueued', text: 'second', attachments: [] }))
+    expect(state.queuedMessages).toEqual([
+      { text: 'first', attachments: [] },
+      { text: 'second', attachments: [] },
+    ])
+    state = applyEvent(state, ev(4, { type: 'message.dequeued', text: 'first', attachments: [] }))
+    expect(state.queuedMessages).toEqual([{ text: 'second', attachments: [] }])
     // A full replay (reload path) restores the same queue.
     expect(projectEvents([
       ev(0, { type: 'session.created', session }),
       ev(1, { type: 'turn.started', turnId: 'turn_1' }),
-      ev(2, { type: 'message.enqueued', text: 'first' }),
-      ev(3, { type: 'message.enqueued', text: 'second' }),
-      ev(4, { type: 'message.dequeued', text: 'first' }),
-    ]).queuedMessages).toEqual(['second'])
+      ev(2, { type: 'message.enqueued', text: 'first', attachments: [] }),
+      ev(3, { type: 'message.enqueued', text: 'second', attachments: [] }),
+      ev(4, { type: 'message.dequeued', text: 'first', attachments: [] }),
+    ]).queuedMessages).toEqual([{ text: 'second', attachments: [] }])
     // Dequeuing unknown text is a no-op.
     const noop = applyEvent(
       projectEvents([ev(0, { type: 'session.created', session })]),
-      ev(1, { type: 'message.dequeued', text: 'ghost' }),
+      ev(1, { type: 'message.dequeued', text: 'ghost', attachments: [] }),
     )
     expect(noop.queuedMessages).toEqual([])
+  })
+
+  it('keeps queued attachments with their message and dequeues by image set', () => {
+    const ref = { id: 'att_1', name: 'a.png', mimeType: 'image/png', size: 3 }
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))
+    state = applyEvent(state, ev(2, { type: 'message.enqueued', text: 'same', attachments: [] }))
+    state = applyEvent(state, ev(3, { type: 'message.enqueued', text: 'same', attachments: [ref] }))
+    // A text-only dequeue removes the text-only entry, not the imaged one.
+    state = applyEvent(state, ev(4, { type: 'message.dequeued', text: 'same', attachments: [] }))
+    expect(state.queuedMessages).toEqual([{ text: 'same', attachments: [ref] }])
+    state = applyEvent(state, ev(5, { type: 'message.dequeued', text: 'same', attachments: [ref] }))
+    expect(state.queuedMessages).toEqual([])
   })
 
   it('accumulates token usage and keeps cost null until a price arrives', () => {

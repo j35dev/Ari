@@ -9,6 +9,7 @@ import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { Engine } from './engine'
+import { AttachmentStore } from './attachments'
 import { commit as gitCommit, performGitAction, push as gitPush, stage as gitStage } from './git-actions'
 import { writeTextFile } from './fs-write'
 import { RunningTurnCounter } from './running-turns'
@@ -457,6 +458,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       options.onRunningCount(runningTurns.count)
     }
   }
+  // Composer image staging: pasted/dropped bytes land here keyed by id; only
+  // refs cross IPC and journals, so history replay never replays megabytes.
+  const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
+
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
@@ -469,6 +474,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       await getProjectStore().load()
       return getProjectStore().get(projectId)?.path ?? null
     },
+    resolveAttachmentPath: (id) => attachmentStore.pathFor(id),
   })
 
   const ptyFactory: PtyFactory = (file, args, options) => {
@@ -610,6 +616,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('command.dispatch', async (params) => engine.dispatch(params.command))
+
+  r.register('attachments.stage', async (params) => ({
+    attachments: await attachmentStore.stage(params.files),
+  }))
+
+  r.register('attachments.read', async (params) => ({
+    attachment: await attachmentStore.read(params.id),
+  }))
 
   r.register('providers.detect', () => detectionsForClient())
 
@@ -1204,6 +1218,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'usage.summary',
     'usage.ccusage',
     'command.dispatch',
+    'attachments.stage',
+    'attachments.read',
     'providers.detect',
     'providers.models',
     'providers.plan',

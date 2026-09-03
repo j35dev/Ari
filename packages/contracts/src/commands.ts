@@ -3,6 +3,21 @@ import {
   driverKindSchema,
   permissionModeSchema,
 } from './common'
+import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
+
+/**
+ * A user turn needs text, images, or both: an images-only message (empty
+ * text) is a legitimate "look at this", while empty + imageless sends
+ * nothing and is rejected.
+ */
+function requiresTextOrAttachments(
+  value: { text: string; attachments: { id: string }[] },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.text.trim().length === 0 && value.attachments.length === 0) {
+    ctx.addIssue({ code: 'custom', message: 'text or attachments required' })
+  }
+}
 
 /**
  * Commands dispatched from the renderer to the engine. The engine validates
@@ -18,17 +33,22 @@ export const commandSchema = z.discriminatedUnion('type', [
     modelId: z.string().nullable(),
     permissionMode: permissionModeSchema,
   }),
-  z.object({
-    type: z.literal('turn.start'),
-    sessionId: z.string(),
-    text: z.string().min(1),
-    attachmentPaths: z.array(z.string()).default([]),
-  }),
-  z.object({
-    type: z.literal('message.enqueue'),
-    sessionId: z.string(),
-    text: z.string().min(1),
-  }),
+  z
+    .object({
+      type: z.literal('turn.start'),
+      sessionId: z.string(),
+      text: z.string(),
+      attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+    })
+    .superRefine(requiresTextOrAttachments),
+  z
+    .object({
+      type: z.literal('message.enqueue'),
+      sessionId: z.string(),
+      text: z.string(),
+      attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+    })
+    .superRefine(requiresTextOrAttachments),
   z.object({ type: z.literal('turn.interrupt'), sessionId: z.string() }),
   z.object({
     type: z.literal('approval.respond'),

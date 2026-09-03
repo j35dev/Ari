@@ -59,8 +59,67 @@ describe('contracts', () => {
       sessionId: 'sess_1',
       text: 'do it',
     })
-    if (cmd.type === 'turn.start') expect(cmd.attachmentPaths).toEqual([])
+    if (cmd.type === 'turn.start') expect(cmd.attachments).toEqual([])
     expect(() => commandSchema.parse({ type: 'turn.start', sessionId: 's', text: '' })).toThrow()
+    expect(() => commandSchema.parse({ type: 'turn.start', sessionId: 's', text: '  ' })).toThrow()
+  })
+
+  it('accepts image-only turns and validates attachment refs', () => {
+    const ref = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 12 }
+    const cmd = commandSchema.parse({ type: 'turn.start', sessionId: 's', text: '', attachments: [ref] })
+    if (cmd.type !== 'turn.start') throw new Error('wrong command')
+    expect(cmd.attachments).toEqual([ref])
+    expect(() =>
+      commandSchema.parse({
+        type: 'turn.start',
+        sessionId: 's',
+        text: 'hi',
+        attachments: [{ ...ref, mimeType: 'text/plain' }],
+      }),
+    ).toThrow()
+    expect(() =>
+      commandSchema.parse({
+        type: 'turn.start',
+        sessionId: 's',
+        text: 'hi',
+        attachments: [
+          ref,
+          { ...ref, id: 'a2' },
+          { ...ref, id: 'a3' },
+          { ...ref, id: 'a4' },
+          { ...ref, id: 'a5' },
+        ],
+      }),
+    ).toThrow()
+    const queued = commandSchema.parse({ type: 'message.enqueue', sessionId: 's', text: 'later' })
+    if (queued.type !== 'message.enqueue') throw new Error('wrong command')
+    expect(queued.attachments).toEqual([])
+  })
+
+  it('defaults attachments on pre-image journal events', () => {
+    const base = { seq: 1, at: 1, sessionId: 'sess_1' }
+    const enqueued = journalEventSchema.parse({ ...base, type: 'message.enqueued', text: 'hi' })
+    if (enqueued.type !== 'message.enqueued') throw new Error('wrong event')
+    expect(enqueued.attachments).toEqual([])
+    const dequeued = journalEventSchema.parse({ ...base, type: 'message.dequeued', text: 'hi' })
+    if (dequeued.type !== 'message.dequeued') throw new Error('wrong event')
+    expect(dequeued.attachments).toEqual([])
+  })
+
+  it('parses image message parts and staged-attachment RPC payloads', () => {    expect(
+      messagePartSchema.parse({
+        type: 'image',
+        attachmentId: 'att_1',
+        name: 'shot.png',
+        mimeType: 'image/png',
+        size: 12,
+      }).type,
+    ).toBe('image')
+    expect(rpcParams['attachments.stage'].parse({
+      files: [{ name: 'a.png', mimeType: 'image/png', dataBase64: 'aGk=' }],
+    }).files).toHaveLength(1)
+    expect(() => rpcParams['attachments.stage'].parse({ files: [] })).toThrow()
+    expect(rpcParams['attachments.read'].parse({ id: 'att_1' })).toEqual({ id: 'att_1' })
   })
 
   it('validates journal events with seq/at/session base', () => {

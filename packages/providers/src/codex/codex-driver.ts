@@ -9,6 +9,7 @@ import { AppServerConnection } from './appserver-connection'
 import type { CodexChildProcess } from './appserver-connection'
 import { createAppServerProbe, type AppServerProbe } from './appserver-probe'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
+import { promptWithAttachments } from '../attachments'
 import { streamProcessEvents } from '../process-stream'
 import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
@@ -23,7 +24,7 @@ export function buildCodexArgs(session: AdapterSession): string[] {
   const args = ['exec', '--json', '--skip-git-repo-check']
   if (session.modelId) args.push('--model', session.modelId)
   args.push(...sandboxFlags(session.permissionMode))
-  args.push(session.prompt)
+  args.push(promptWithAttachments(session))
   return args
 }
 
@@ -232,7 +233,7 @@ export async function createCodexAppServerAdapter(
     void connection
       .request('turn/start', {
         threadId,
-        input: [{ type: 'text', text: session.prompt }],
+        input: [{ type: 'text', text: promptWithAttachments(session) }],
         ...(session.modelId !== null && session.modelId !== 'default'
           ? { model: session.modelId }
           : {}),

@@ -142,4 +142,39 @@ describe('splitBlocks', () => {
     expect(blocks.map((b) => b.kind)).toEqual(['error-note', 'markdown'])
     expect(blocks[1]).toMatchObject({ text: 'more prose' })
   })
+
+  it('groups a message image run into one strip ahead of the text', () => {
+    const blocks = splitBlocks([
+      msg(
+        'u1',
+        [
+          { type: 'image', attachmentId: 'att_1', name: 'a.png', mimeType: 'image/png', size: 1 },
+          { type: 'image', attachmentId: 'att_2', name: 'b.png', mimeType: 'image/png', size: 2 },
+          { type: 'text', text: 'look' },
+        ],
+        'user',
+      ),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['image', 'markdown'])
+    expect(blocks[0]).toMatchObject({
+      key: 'u1#img0',
+      role: 'user',
+      images: [
+        { attachmentId: 'att_1', name: 'a.png', mimeType: 'image/png', size: 1 },
+        { attachmentId: 'att_2', name: 'b.png', mimeType: 'image/png', size: 2 },
+      ],
+    })
+    expect(blocks[1]).toMatchObject({ text: 'look' })
+  })
+
+  it('keeps trailing images in their own strip without a text block', () => {
+    const blocks = splitBlocks([
+      msg(
+        'u1',
+        [{ type: 'image', attachmentId: 'att_1', name: 'a.png', mimeType: 'image/png', size: 1 }],
+        'user',
+      ),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['image'])
+  })
 })

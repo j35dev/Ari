@@ -25,6 +25,7 @@ import {
 import { findThoughtOption, looksLikeThoughtAxis } from './thought'
 import { findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
+import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
 import type {
   AcpConfigOption,
@@ -314,13 +315,21 @@ export async function createAcpAdapter(
     pendingInputs.clear()
   }
 
+  // Staged images ride the first prompt as ACP image blocks; unreadable
+  // entries are named in text instead of dropped silently.
+  const { loaded, missing } = await loadImageData(stagedImagesOf(session))
+  const promptText = session.prompt + missingImagesNote(missing)
+  const promptImages = loaded.map((img) => ({ data: img.dataBase64, mimeType: img.mimeType }))
+
   // ACP has no mid-turn injection method, so steering rides out as the next
   // `session/prompt` the moment the current one reports its stop reason — one
   // continuous stream from the user's point of view, no queue-then-restart.
+  // Only the turn's first prompt carries images; steered follow-ups are
+  // text-only (the engine never steers an imaged message — it stays queued).
   const steeredTexts: string[] = []
-  const launchPrompt = (text: string): void => {
+  const launchPrompt = (text: string, images: { data: string; mimeType: string }[] = []): void => {
     void connection
-      .prompt(sessionId, text)
+      .prompt(sessionId, text, { images })
       .then((stopReason) => {
         const next = steeredTexts.shift()
         if (next === undefined || connection.closed) {
@@ -352,7 +361,7 @@ export async function createAcpAdapter(
   const iterator = (async function* generate(): AsyncGenerator<AgentEvent, void, undefined> {
     // The turn's prompt rides out on first pull; its completion closes the stream
     // — after any steered follow-ups have been chained onto it.
-    launchPrompt(session.prompt)
+    launchPrompt(promptText, promptImages)
 
     while (true) {
       while (queue.length > 0) {

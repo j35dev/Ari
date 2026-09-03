@@ -2,7 +2,7 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { PermissionMode } from '@ari/contracts/common'
 import type { AdapterApprovalDecision } from '@ari/providers/driver'
 import { newId } from '@ari/shared/ids'
-import type { ChatMessage } from './protocols/openai-chat'
+import type { ChatImage, ChatMessage } from './protocols/openai-chat'
 import type { AllowRule } from './allowlist'
 import { matchesAllowlist } from './allowlist'
 import { checkPermission, MODE_GUARDED_TOOLS } from './permissions'
@@ -20,6 +20,11 @@ export interface AgentLoopOptions {
   systemPrompt: string
   userPrompt: string
   workspacePath: string
+  /**
+   * Staged images for this turn, attached to the user message. History
+   * messages may carry their own `images` from earlier turns.
+   */
+  userImages?: ChatImage[]
   /**
    * Prior turns of this session, without the system prompt. The loop replays
    * them ahead of `userPrompt` so the model keeps its memory across turns.
@@ -213,7 +218,11 @@ export async function* runAgentLoop(
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     ...(options.history ?? []),
-    { role: 'user', content: userPrompt },
+    {
+      role: 'user',
+      content: userPrompt,
+      ...(options.userImages && options.userImages.length > 0 ? { images: options.userImages } : {}),
+    },
   ]
   // The system prompt is rebuilt per turn (its environment facts go stale), so
   // it is never part of the persisted transcript.

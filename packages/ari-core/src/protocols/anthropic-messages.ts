@@ -1,5 +1,5 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import { defaultSseFetch, type SseFetch } from './openai-chat'
+import { defaultSseFetch, type ChatImage, type SseFetch } from './openai-chat'
 
 /**
  * Anthropic Messages API streaming client (`POST /v1/messages`, SSE).
@@ -9,6 +9,8 @@ import { defaultSseFetch, type SseFetch } from './openai-chat'
 export interface AnthropicMessage {
   role: 'user' | 'assistant'
   content: string
+  /** Staged images attached to a user turn; sent as base64 image blocks. */
+  images?: ChatImage[]
 }
 
 export interface AnthropicChatRequest {
@@ -47,6 +49,25 @@ interface StreamEvent {
 }
 
 /**
+ * Renders a message for the Anthropic wire format: plain text when imageless,
+ * mixed text + base64 image blocks otherwise.
+ */
+export function anthropicContent(
+  message: Pick<AnthropicMessage, 'content' | 'images'>,
+): string | ({ type: string; text?: string; source?: { type: string; media_type: string; data: string } }[]) {
+  if (!message.images || message.images.length === 0) return message.content
+  const blocks: { type: string; text?: string; source?: { type: string; media_type: string; data: string } }[] = []
+  if (message.content.length > 0) blocks.push({ type: 'text', text: message.content })
+  for (const image of message.images) {
+    blocks.push({
+      type: 'image',
+      source: { type: 'base64', media_type: image.mimeType, data: image.dataBase64 },
+    })
+  }
+  return blocks
+}
+
+/**
  * Streams one Anthropic completion, yielding normalized AgentEvents.
  * `message_start` carries input tokens, `message_delta` output tokens, and
  * `message_stop` terminates the stream with a final usage event.
@@ -73,7 +94,7 @@ export async function* streamChatAnthropic(
         model: request.model,
         max_tokens: thinking ? thinking.budget_tokens + 4096 : 8192,
         ...(request.system ? { system: request.system } : {}),
-        messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: request.messages.map((m) => ({ role: m.role, content: anthropicContent(m) })),
         stream: true,
         ...(thinking !== null ? { thinking } : {}),
       }),

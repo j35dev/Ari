@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from 'react'
 import { Check, Copy, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { pinnedAfterScroll } from './transcript-pin'
@@ -11,7 +11,8 @@ import { ErrorNote } from './ErrorNote'
 import { ToolActivityGroup } from './ToolActivityGroup'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
-import type { TranscriptRow } from './types'
+import { attachmentDataUrl } from './attachment-urls'
+import type { TranscriptImage, TranscriptRow } from './types'
 import type { Message } from '@ari/contracts/message'
 
 /** Rough characters per rendered line at the transcript's 48rem measure. */
@@ -26,6 +27,7 @@ const LINE_HEIGHT_PX = 22
 function estimateRowSize(row: TranscriptRow): number {
   if (row.kind === 'tool-group' || row.kind === 'turn-diff') return 40
   if (row.kind === 'tool-call' || row.kind === 'tool-result') return 48
+  if (row.kind === 'image') return 96
   const text = row.text ?? ''
   if (text.length === 0) return 32
   let lines = 0
@@ -33,6 +35,15 @@ function estimateRowSize(row: TranscriptRow): number {
     lines += Math.max(1, Math.ceil(paragraph.length / CHARS_PER_LINE))
   }
   return row.kind === 'thinking' ? 36 : lines * LINE_HEIGHT_PX + 16
+}
+
+/** Hover preview text for a rail entry: prompt text, or image filenames. */
+function railText(row: TranscriptRow): string {
+  if (row.kind === 'image') {
+    return row.images?.map((image) => image.name).join(', ') || 'attached image'
+  }
+  if (row.kind === 'markdown') return row.text ?? ''
+  return ''
 }
 
 function scrollToBottom(el: HTMLElement, behavior: ScrollBehavior): void {
@@ -91,16 +102,18 @@ export function TranscriptView({
   )
 
   // Message rail (T3 minimap): one entry per user bubble row, with its row
-  // index for jump-scrolling. Hidden until two prompts exist to navigate.
+  // index for jump-scrolling. Image-only prompts have no markdown row, so
+  // their thumbnail row carries the entry instead. Hidden until two prompts
+  // exist to navigate.
   const railEntries = useMemo<MessageRailEntry[]>(
     () =>
       rows
         .map((row, index) => ({ row, index }))
-        .filter(({ row }) => row.kind === 'markdown' && row.role === 'user')
-        .map(({ row, index }) => ({
-          key: String(index),
-          text: (row.kind === 'markdown' && (row.text ?? '')) || '',
-        })),
+        .filter(
+          ({ row }) =>
+            (row.kind === 'markdown' || row.kind === 'image') && row.role === 'user',
+        )
+        .map(({ row, index }) => ({ key: String(index), text: railText(row) })),
     [rows],
   )
   const [activeRailKey, setActiveRailKey] = useState<string | null>(null)
@@ -283,6 +296,8 @@ function TranscriptRowView({
         <ToolActivityGroup row={row} />
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
+      ) : row.kind === 'image' ? (
+        <UserImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (
         row.role === 'user' ? (
           <UserBubble text={row.text ?? ''} onEdit={onEditUserMessage} />
@@ -312,6 +327,64 @@ function TranscriptRowView({
       ) : row.kind === 'thinking' ? (
         <ThinkingBlock text={row.text ?? ''} />
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * Staged-image thumbnails for a message's image row, stacked above its text
+ * bubble. Bytes load lazily from the main process (`attachments.read`,
+ * cached per id); a missing file renders its filename, never a broken image.
+ */
+function UserImageRow({ images, right }: { images: TranscriptImage[]; right: boolean }) {
+  const [urls, setUrls] = useState<Record<string, string | null>>({})
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all(
+      images.map(async (image) => {
+        const url = await attachmentDataUrl(image.attachmentId)
+        if (!cancelled) setUrls((prev) => ({ ...prev, [image.attachmentId]: url }))
+      }),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [images])
+
+  if (images.length === 0) return null
+  return (
+    <div className={`my-2 flex ${right ? 'justify-end' : 'justify-start'}`}>
+      <div
+        role="list"
+        aria-label="Attached images"
+        className="flex max-w-[85%] flex-wrap gap-2"
+      >
+        {images.map((image) => {
+          const url = urls[image.attachmentId]
+          return (
+            <div
+              key={image.attachmentId}
+              role="listitem"
+              title={image.name}
+              className="h-20 w-20 overflow-hidden rounded-lg border border-border bg-surface-1"
+            >
+              {url === undefined ? (
+                <div
+                  className="h-full w-full animate-pulse bg-surface-2"
+                  aria-label={`Loading ${image.name}`}
+                />
+              ) : url === null ? (
+                <div className="flex h-full w-full items-center justify-center px-1 text-center text-2xs text-fg-subtle">
+                  {image.name}
+                </div>
+              ) : (
+                <img src={url} alt={image.name} className="h-full w-full object-cover" />
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
