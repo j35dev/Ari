@@ -212,12 +212,34 @@ describe('TranscriptView tool bursts', () => {
     }
   }
 
-  it('renders a lone tool call as a flat step row without group chrome', async () => {
+  it('renders a lone tool call as one burst that opens straight to its body', async () => {
     const user = userEvent.setup()
     render(createElement(TranscriptView, { sessionId: 'sess_1', messages: [toolMessage('m1')] }))
 
-    expect(screen.getByRole('button', { name: 'Read src/a.ts' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Read src/a.ts' }))
+    const burst = screen.getByRole('button', { name: 'Read a.ts · Read 1 file' })
+    await user.click(burst)
     expect(screen.getByText('Ari Read')).toBeInTheDocument()
+  })
+
+  it('keeps a whole stretch of work in one row instead of a wall of tallies', () => {
+    const parts: Message['parts'] = []
+    for (let i = 0; i < 9; i++) {
+      parts.push({ type: 'tool-call', callId: `c${i}`, name: 'Bash', argsJson: '{"command":"ls"}' })
+      parts.push({ type: 'tool-result', callId: `c${i}`, resultJson: '"ok"', isError: false })
+    }
+    const message: Message = {
+      id: 'm1',
+      sessionId: 'sess_1',
+      turnId: null,
+      role: 'assistant',
+      parts,
+      createdAt: 1,
+    }
+    const { container } = render(
+      createElement(TranscriptView, { sessionId: 'sess_1', messages: [message] }),
+    )
+
+    expect(container.querySelectorAll('.ari-burst')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Ran ls · Ran 9 commands' })).toBeInTheDocument()
   })
 })

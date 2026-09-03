@@ -95,3 +95,89 @@
   border: none;
   border-top: 1px solid var(--ari-border);
 }
+
+/* Activity bursts — the hairline rail that carries a turn's tool timeline.
+   Paint and transform only; reduced motion freezes the travelling light. */
+
+.ari-burst {
+  position: relative;
+}
+
+.ari-burst::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ari-border);
+  transition: background var(--ari-dur-fast) ease-out;
+}
+
+.ari-burst:hover::before {
+  background: var(--ari-border-strong);
+}
+
+.ari-burst[data-activity='working']::before {
+  background: color-mix(in oklab, var(--ari-accent) 45%, transparent);
+}
+
+.ari-burst[data-activity='failed']::before {
+  background: color-mix(in oklab, var(--ari-warning) 40%, transparent);
+}
+
+/* A burst is alive only while a call is unanswered: light walks the rail. */
+.ari-burst[data-activity='working']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 42%;
+  border-radius: 1px;
+  background: linear-gradient(180deg, transparent, var(--ari-accent), transparent);
+  animation: ari-burst-flow 1.9s var(--ari-ease-out-expo) infinite;
+}
+
+@keyframes ari-burst-flow {
+  0% {
+    transform: translateY(-60%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(270%);
+    opacity: 0;
+  }
+}
+
+.ari-burst-steps {
+  animation: ari-burst-reveal var(--ari-dur-fast) ease-out;
+}
+
+@keyframes ari-burst-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-burst[data-activity='working']::after {
+    animation: none;
+    top: 3px;
+    bottom: 3px;
+    height: auto;
+    background: var(--ari-accent);
+    opacity: 0.75;
+  }
+
+  .ari-burst-steps {
+    animation: none;
+  }
+}
