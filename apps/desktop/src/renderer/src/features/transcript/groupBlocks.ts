@@ -4,8 +4,11 @@ import {
   effectiveToolName,
   humanizeToolName,
   parseToolArgs,
+  pastVerb,
+  toolSubject,
+  type ToolKind,
 } from './toolLabels'
-import { editFilePath } from './edit-diff'
+import { editDiffStat, editFilePath, type EditDiffStat } from './edit-diff'
 import type { ToolGroupRow, TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
 
 export type { TranscriptRow } from './types'
@@ -70,27 +73,20 @@ export function insertTurnDiffRows(
   return out
 }
 
-/** Long tool runs chunk into bursts of at most this many calls per row. */
-export const MAX_CALLS_PER_GROUP = 6
-
-function callsIn(run: TranscriptBlock[]): number {
-  let n = 0
-  for (const b of run) if (b.kind === 'tool-call') n++
-  return n
-}
-
 /**
  * Collapses each run of consecutive work blocks — tool calls, results, and the
- * reasoning between them — into activity rows ("Ran 3 commands · Edited 1
- * file"), leaving assistant prose and user bubbles as their own rows. Long
- * runs chunk into bursts of at most {@link MAX_CALLS_PER_GROUP} calls so an
- * expanded row stays a short step list instead of a fifty-line dropdown. A
- * burst carrying any tool traffic always becomes a group, even a single
- * in-flight call, so the row does not change shape as results stream in; a
- * lone thinking block stays a plain thinking row. Group keys span first→last
- * member so they stay stable while more parts arrive. When `turnDiffs` carries
- * an entry for a settled turn, a collapsed diff card is appended after that
- * turn's final row.
+ * reasoning between them — into one activity row per run, leaving assistant
+ * prose and user bubbles as their own rows. A run is bounded only by something
+ * the user said or the assistant wrote, which is the honest unit: one stretch
+ * of work between two utterances renders as one row no matter how many tools
+ * fired. (Chunking every N calls used to split that stretch at arbitrary
+ * points, so a single burst of work read as a dozen near-identical tally
+ * lines.) A run carrying any tool traffic always becomes a group, even a single
+ * in-flight call, so the row does not change shape as results stream in; a lone
+ * thinking block stays a plain thinking row. Group keys span first→last member
+ * so they stay stable while more parts arrive. When `turnDiffs` carries an
+ * entry for a settled turn, a collapsed diff card is appended after that turn's
+ * final row.
  */
 export function groupBlocks(
   blocks: TranscriptBlock[],
@@ -130,9 +126,6 @@ export function groupBlocks(
 
   for (const block of blocks) {
     if (isActivityBlock(block)) {
-      if (block.kind === 'tool-call' && hasToolTraffic(run) && callsIn(run) >= MAX_CALLS_PER_GROUP) {
-        flush()
-      }
       run.push(block)
     } else {
       flush()
@@ -144,15 +137,6 @@ export function groupBlocks(
     return insertTurnDiffRows(rows, turnDiffs)
   }
   return rows
-}
-
-/**
- * True for bursts holding exactly one tool call and no reasoning. The
- * transcript renders these as the bare step row instead of a group wrapper,
- * so short bursts read flat instead of nested.
- */
-export function isSingleStepGroup(row: ToolGroupRow): boolean {
-  return row.calls.length === 1 && row.blocks.every((b) => b.kind !== 'thinking')
 }
 
 export interface ToolActivitySummary {
@@ -215,40 +199,207 @@ export function summarizeToolRun(
   return summary
 }
 
-/** Renders the summary as a compact sentence; empty when nothing happened. */
-export function formatToolSummary(summary: ToolActivitySummary): string {
-  const parts: string[] = []
-  if (summary.ran > 0) parts.push(`Ran ${summary.ran} command${summary.ran === 1 ? '' : 's'}`)
-  if (summary.edited > 0) parts.push(`Edited ${summary.edited} file${summary.edited === 1 ? '' : 's'}`)
-  if (summary.read > 0) parts.push(`Read ${summary.read} file${summary.read === 1 ? '' : 's'}`)
-  if (summary.searched > 0)
-    parts.push(`Searched ${summary.searched} time${summary.searched === 1 ? '' : 's'}`)
-  if (summary.todos > 0)
-    parts.push(`Updated ${summary.todos} todo${summary.todos === 1 ? '' : 's'}`)
-  return parts.join(' · ')
+/**
+ * Ledger order — highest-signal bucket first, so the leftmost chip on a row is
+ * the one worth reading and the same kind always sits in the same relative
+ * position across rows. Shared by the tally sentence so both agree.
+ */
+const LEDGER_ORDER: readonly ToolKind[] = ['edit', 'run', 'search', 'read', 'todo']
+
+function kindCount(summary: ToolActivitySummary, kind: ToolKind): number {
+  switch (kind) {
+    case 'edit':
+      return summary.edited
+    case 'run':
+      return summary.ran
+    case 'search':
+      return summary.searched
+    case 'read':
+      return summary.read
+    case 'todo':
+      return summary.todos
+  }
+}
+
+/** One bucket's count phrase: `Ran 2 commands`, `Read 1 file`. */
+export function kindPhrase(kind: ToolKind, count: number): string {
+  const plural = count === 1 ? '' : 's'
+  switch (kind) {
+    case 'edit':
+      return `Edited ${count} file${plural}`
+    case 'run':
+      return `Ran ${count} command${plural}`
+    case 'search':
+      return `Searched ${count} time${plural}`
+    case 'read':
+      return `Read ${count} file${plural}`
+    case 'todo':
+      return `Updated ${count} todo${plural}`
+  }
+}
+
+/** One entry per bucket that actually did something, in {@link LEDGER_ORDER}. */
+export interface ActivityLedgerEntry {
+  kind: ToolKind
+  count: number
 }
 
 /**
- * Single-line headline for a collapsed activity row. While a call is in flight
- * it names that call ("Running git status") so the row doubles as the live
- * progress readout; once every call has answered it falls back to the settled
- * tally ("Ran 3 commands · Read 2 files"). Reasoning trailing a finished run
- * reads as "Thinking".
+ * The row's work as counted chips instead of a sentence. A row of glyph+count
+ * pairs is scannable in one glance where "Ran 2 commands · Read 3 files ·
+ * Updated 1 todo" has to be read word by word.
  */
-export function activityHeadline(row: Pick<ToolGroupRow, 'blocks' | 'calls' | 'resultsByCallId'>): string {
+export function activityLedger(summary: ToolActivitySummary): ActivityLedgerEntry[] {
+  const entries: ActivityLedgerEntry[] = []
+  for (const kind of LEDGER_ORDER) {
+    const count = kindCount(summary, kind)
+    if (count > 0) entries.push({ kind, count })
+  }
+  return entries
+}
+
+/** Renders the summary as a compact sentence; empty when nothing happened. */
+export function formatToolSummary(summary: ToolActivitySummary): string {
+  return activityLedger(summary)
+    .map((entry) => kindPhrase(entry.kind, entry.count))
+    .join(' · ')
+}
+
+/** The bucket a row leads with: the highest-signal kind that named something. */
+function headlineSubjects(
+  summary: ToolActivitySummary,
+  calls: TranscriptBlock[],
+): { kind: ToolKind; verb: string; subjects: string[] } {
+  let fallback: ToolKind | null = null
+  for (const kind of LEDGER_ORDER) {
+    if (kindCount(summary, kind) === 0) continue
+    if (fallback === null) fallback = kind
+    const subjects = subjectsOf(calls, kind)
+    if (subjects.length > 0) return { kind, verb: pastVerb(kind), subjects }
+  }
+  const kind = fallback ?? 'run'
+  return { kind, verb: kindPhrase(kind, kindCount(summary, kind)), subjects: [] }
+}
+
+/**
+ * Net size of every measurable edit in the burst. This is the number a reader
+ * of a settled turn actually wants — how much code moved — and no tally of
+ * nouns can express it. Null when no edit carries a diff to measure.
+ */
+export function burstDiffStat(calls: TranscriptBlock[]): EditDiffStat | null {
+  let added = 0
+  let removed = 0
+  let measured = false
+  for (const call of calls) {
+    if (classifyToolCall(call) !== 'edit') continue
+    const stat = editDiffStat(call.argsJson)
+    if (stat === null) continue
+    measured = true
+    added += stat.added
+    removed += stat.removed
+  }
+  return measured ? { added, removed } : null
+}
+
+/** The call still awaiting a result, newest first — what the row is doing now. */
+function liveCall(
+  row: Pick<ToolGroupRow, 'calls' | 'resultsByCallId'>,
+): TranscriptBlock | undefined {
+  for (let i = row.calls.length - 1; i >= 0; i--) {
+    const call = row.calls[i]
+    if (call === undefined) continue
+    if (call.callId !== undefined && row.resultsByCallId.has(call.callId)) continue
+    return call
+  }
+  return undefined
+}
+
+/** Distinct headline subjects for one bucket, in call order. */
+function subjectsOf(calls: TranscriptBlock[], kind: ToolKind): string[] {
+  const seen = new Set<string>()
+  const subjects: string[] = []
+  for (const call of calls) {
+    const label = describeToolCall(call)
+    if (label.kind !== kind) continue
+    const subject = toolSubject(label.kind, label.target)
+    if (subject.length === 0) continue
+    const dedupe = subject.toLowerCase()
+    if (seen.has(dedupe)) continue
+    seen.add(dedupe)
+    subjects.push(subject)
+  }
+  return subjects
+}
+
+/** Subjects a headline shows before collapsing the rest into `+N`. */
+const MAX_HEADLINE_SUBJECTS = 2
+
+/** Everything one activity row needs to render itself, derived in one pass. */
+export interface ActivityHeadline {
+  /** Sans-serif lead — a verb, or the whole phrase when no subject shows. */
+  verb: string
+  /** Monospace subjects (`groupBlocks.ts, types.ts`); may be empty. */
+  subject: string
+  /** Subjects the headline could not fit. */
+  more: number
+  /** The headline as one line, for accessible names and tooltips. */
+  label: string
+  working: boolean
+  summary: ToolActivitySummary
+  /** Buckets the headline does not already name, for the glyph ledger. */
+  ledger: ActivityLedgerEntry[]
+  /** Net lines the burst's edits moved, when measurable. */
+  stat: EditDiffStat | null
+}
+
+/**
+ * Describes one activity row: what it is doing, or what it did. While a call is
+ * in flight the row names that call ("Reading tokens.css") so it doubles as the
+ * live progress readout. Settled, it leads with the *subjects* of the
+ * highest-signal bucket ("Edited groupBlocks.ts, types.ts +1") rather than a
+ * tally of nouns — counting what happened tells you the shape of the work,
+ * naming it tells you the work. The `ledger` then carries only the buckets the
+ * headline left unsaid, so nothing is stated twice, and `summary` keeps the full
+ * tally for the accessible sentence. A bucket whose calls expose no showable
+ * argument falls back to its count phrase ("Read 6 files").
+ */
+export function describeActivity(
+  row: Pick<ToolGroupRow, 'blocks' | 'calls' | 'resultsByCallId'>,
+): ActivityHeadline {
   const summary = summarizeToolRun(row.calls, row.resultsByCallId)
+  const ledger = activityLedger(summary)
+  const stat = burstDiffStat(row.calls)
+  const base = { more: 0, working: false, summary, ledger, stat }
   if (summary.pending > 0) {
-    for (let i = row.calls.length - 1; i >= 0; i--) {
-      const call = row.calls[i]
-      if (call === undefined) continue
-      if (call.callId && row.resultsByCallId.has(call.callId)) continue
+    const call = liveCall(row)
+    if (call !== undefined) {
       const { verb, target } = describeToolCall(call, true)
-      if (target.length > 0) return `${verb} ${target}`
-      return humanizeToolName(effectiveToolName(call.name, call.argsJson))
+      if (target.length === 0) {
+        const name = humanizeToolName(effectiveToolName(call.name, call.argsJson))
+        return { ...base, working: true, verb: name, subject: '', label: name }
+      }
+      // The live row shows one target and has the width for it, so it keeps the
+      // step's full path or command rather than the headline's short subject.
+      return { ...base, working: true, verb, subject: target, label: `${verb} ${target}` }
     }
   }
-  if (row.blocks[row.blocks.length - 1]?.kind === 'thinking') return 'Thinking'
-  const settled = formatToolSummary(summary)
-  if (settled.length > 0) return settled
-  return `${row.calls.length} tool call${row.calls.length === 1 ? '' : 's'}`
+  if (row.calls.length === 0) {
+    return { ...base, verb: 'Thinking', subject: '', label: 'Thinking' }
+  }
+  const { kind, verb, subjects } = headlineSubjects(summary, row.calls)
+  const rest = ledger.filter((entry) => entry.kind !== kind)
+  if (subjects.length === 0) {
+    return { ...base, ledger: rest, verb, subject: '', label: verb }
+  }
+  const shown = subjects.slice(0, MAX_HEADLINE_SUBJECTS)
+  const more = subjects.length - shown.length
+  const subject = shown.join(', ')
+  return {
+    ...base,
+    ledger: rest,
+    verb,
+    subject,
+    more,
+    label: `${verb} ${subject}${more > 0 ? ` +${more}` : ''}`,
+  }
 }

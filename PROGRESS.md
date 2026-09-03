@@ -708,6 +708,29 @@ Before/After text dumps instead of diffs.
       diffstat; single-call bursts render as flat step rows; edits tally
       distinct files; pending steps use the live verb (`Reading`, not `Read`)
 
+- [x] M35.4 Activity rows name the work instead of counting it. Why (user
+      feedback, screenshot): a session read as twenty interchangeable rows —
+      `Ran 2 commands · Read 3 files · Updated 1 todo`, `Edited 4 files ·
+      Searched 2 times`, `Thinking`, `read` — identical in shape, none saying
+      what was touched. Three causes: the 6-call chunk cap sliced one stretch of
+      work into a dozen rows (and orphaned the reasoning between chunks into bare
+      `Thinking` rows), the headline was a tally of nouns, and targetless
+      single-call bursts rendered as lowercase tool names.
+      Now: one run of consecutive work = one row (`MAX_CALLS_PER_GROUP` and
+      `isSingleStepGroup` are gone); `describeActivity` leads with the subjects of
+      the highest-signal bucket (`Edited groupBlocks.ts, types.ts +1`, live
+      `Reading src/tokens.css`) and demotes the tally to a right-aligned glyph
+      ledger that omits whatever the headline already named; the burst advertises
+      the net `+A −R` its edits moved (`burstDiffStat`, now also reading
+      `diff`/`patch` payloads); state lives on a hairline rail — accent with a
+      travelling light while a call is unanswered, warning-tinted on failure,
+      near-invisible once settled — so color stays out of history. Expanding
+      reveals a column-aligned timeline (`ActivityStep`), each step ending in a
+      parsed readout (`exit 1`, `391 lines`, `7 matches`, or a failure's own first
+      line) via `result-hint.ts`, which flattens bare strings, ACP content
+      blocks, `{output,exitCode}` and `{matches:[]}` before counting anything.
+      A lone call opens straight to its body instead of a one-item list.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
