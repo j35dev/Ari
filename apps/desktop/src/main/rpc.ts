@@ -19,7 +19,12 @@ import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
 import { createPullRequest } from './gh-pr'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
-import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
+import {
+  TerminalService,
+  ptyUnavailableReason,
+  type PtyFactory,
+  type PtyLike,
+} from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
 import { applyThemeToWindow } from './window'
 import { themeOf } from '@ari/ui/themes'
@@ -395,17 +400,20 @@ const FS_READ_MAX_BYTES = 512 * 1024
 const FS_BINARY_SNIFF_BYTES = 2048
 
 /**
- * Cached loader for node-pty. The module is ABI-coupled to Electron and can
- * genuinely fail to load (missing prebuilds); the failure is captured once and
- * surfaced as a descriptive terminal error instead of hanging forever.
+ * Cached loader for node-pty. `@lydell/node-pty` is only a resolver stub for the
+ * platform-specific `@lydell/node-pty-<platform>-<arch>` package, so a packaging
+ * slip leaves it genuinely unloadable. Keep the reason: the terminal reports it
+ * verbatim rather than opening to a dead cursor.
  */
 let ptyModule: NodePtyModule | null = null
+let ptyLoadError: string | null = null
 let ptyLoadPromise: Promise<NodePtyModule | null> | null = null
 function loadPtyModule(): Promise<NodePtyModule | null> {
   ptyLoadPromise ??= import('@lydell/node-pty').then(
     (m) => m,
     (error: unknown) => {
-      log.error('node-pty failed to load', { error: String(error) })
+      ptyLoadError = error instanceof Error ? error.message : String(error)
+      log.error('node-pty failed to load', { error: ptyLoadError })
       return null
     },
   )
@@ -479,7 +487,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   const ptyFactory: PtyFactory = (file, args, options) => {
-    if (!ptyModule) throw new Error('terminal backend still loading')
+    if (!ptyModule) throw new Error(ptyUnavailableReason(ptyLoadError))
     const raw = ptyModule.spawn(file, args, {
       name: options.name,
       cwd: options.cwd,

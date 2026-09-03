@@ -157,6 +157,25 @@ importers:
       vite:
         specifier: ^7.3.6
         version: 7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.33.0)
+    optionalDependencies:
+      '@lydell/node-pty-darwin-arm64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-darwin-x64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-linux-arm64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-linux-x64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-win32-arm64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
+      '@lydell/node-pty-win32-x64':
+        specifier: 1.2.0-beta.15
+        version: 1.2.0-beta.15
 
   packages/ari-core:
     dependencies:
