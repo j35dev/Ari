@@ -4,9 +4,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { QuestionPanel } from './QuestionPanel'
 
 describe('QuestionPanel', () => {
-  const setup = (onRespond: (value: string) => void, choicesJson: string | null) => {
+  const setup = (onRespond: (value: string) => void, choicesJson: string | null, onCancel?: () => void) => {
     const user = userEvent.setup()
-    render(<QuestionPanel prompt="Proceed?" choicesJson={choicesJson} onRespond={onRespond} />)
+    render(<QuestionPanel prompt="Proceed?" choicesJson={choicesJson} onRespond={onRespond} onCancel={onCancel} />)
     return user
   }
 
@@ -56,15 +56,54 @@ describe('QuestionPanel', () => {
     expect(screen.getByLabelText('Answer')).toBeInTheDocument()
   })
 
+  it('skips a free-text question via Skip', async () => {
+    const onCancel = vi.fn()
+    const user = setup(vi.fn(), null, onCancel)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+
   it('offers Other on a choice list and submits the custom text', async () => {
     const onRespond = vi.fn()
     const user = setup(onRespond, JSON.stringify(['Yes', 'No']))
     expect(screen.getByRole('button', { name: /Other/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Other/ }))
-    await user.type(screen.getByLabelText('Other'), '  maybe later  ')
+    expect(screen.getByLabelText('Custom answer')).toBeInTheDocument()
+    expect(screen.getByText(/sent as the answer/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Custom answer'), '  maybe later  ')
     await user.click(screen.getByRole('button', { name: 'Submit' }))
     expect(onRespond).toHaveBeenCalledOnce()
     expect(onRespond).toHaveBeenCalledWith('maybe later')
+  })
+
+  it('toggles the custom-answer box closed on a second Other click', async () => {
+    const user = setup(vi.fn(), JSON.stringify(['Yes', 'No']))
+    await user.click(screen.getByRole('button', { name: /Other/ }))
+    expect(screen.getByLabelText('Custom answer')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Other/ }))
+    expect(screen.queryByLabelText('Custom answer')).not.toBeInTheDocument()
+  })
+
+  it('skips the question via the Skip button without answering', async () => {
+    const onRespond = vi.fn()
+    const onCancel = vi.fn()
+    const user = setup(onRespond, JSON.stringify(['Yes', 'No']), onCancel)
+    await user.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(onCancel).toHaveBeenCalledOnce()
+    expect(onRespond).not.toHaveBeenCalled()
+  })
+
+  it('hides Skip when no cancel handler is provided', () => {
+    setup(vi.fn(), JSON.stringify(['Yes', 'No']))
+    expect(screen.queryByRole('button', { name: 'Skip' })).not.toBeInTheDocument()
+  })
+
+  it('skips the question on Escape', async () => {
+    const onCancel = vi.fn()
+    const user = setup(vi.fn(), JSON.stringify(['Yes', 'No']), onCancel)
+    screen.getByRole('region', { name: 'Agent question' }).focus()
+    await user.keyboard('{Escape}')
+    expect(onCancel).toHaveBeenCalledOnce()
   })
 
   it('asks one questionnaire item at a time and encodes the map', async () => {
