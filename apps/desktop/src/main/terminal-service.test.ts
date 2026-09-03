@@ -1,15 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
-import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
+import {
+  TerminalService,
+  ptyUnavailableReason,
+  type PtyFactory,
+  type PtyLike,
+} from './terminal-service'
 
 type FakePty = PtyLike & {
   write: ReturnType<typeof vi.fn>
   resize: ReturnType<typeof vi.fn>
   kill: ReturnType<typeof vi.fn>
   emitData: (data: string) => void
+  emitExit: (code?: number) => void
 }
 
 function fakePty(): FakePty {
   const dataCbs: ((d: string) => void)[] = []
+  const exitCbs: ((code: number) => void)[] = []
   const pty = {
     pid: Math.floor(Math.random() * 100000),
     write: vi.fn(),
@@ -18,8 +25,11 @@ function fakePty(): FakePty {
     onData: (cb: (d: string) => void): void => {
       dataCbs.push(cb)
     },
-    onExit: (_cb: (code: number) => void): void => undefined,
+    onExit: (cb: (code: number) => void): void => {
+      exitCbs.push(cb)
+    },
     emitData: (data: string): void => dataCbs.forEach((cb) => cb(data)),
+    emitExit: (code = 0): void => exitCbs.forEach((cb) => cb(code)),
   }
   return pty
 }
@@ -78,6 +88,7 @@ describe('TerminalService', () => {
     const pty = ptys[0]
     expect(pty?.write.mock.calls[0]).toEqual(['ls\r'])
     expect(pty?.resize.mock.calls[0]).toEqual([120, 30])
+    expect(pty?.kill.mock.calls).toHaveLength(1)
     expect(service.has('t3')).toBe(false)
   })
 
@@ -86,5 +97,24 @@ describe('TerminalService', () => {
     service.create('dup', '.')
     service.create('dup', '.')
     expect(ptys).toHaveLength(1)
+  })
+
+  it('forwards pty exit so the host can name it instead of hanging blank', () => {
+    const { service, ptys, exits } = makeService()
+    service.create('t4', '.')
+    ptys[0]?.emitExit()
+    expect(exits).toEqual(['t4'])
+  })
+})
+
+describe('ptyUnavailableReason', () => {
+  it('quotes a load failure so the pane can name the real cause', () => {
+    expect(ptyUnavailableReason('could not find @lydell/node-pty-win32-x64')).toBe(
+      'terminal backend unavailable — could not find @lydell/node-pty-win32-x64',
+    )
+  })
+
+  it('reports a cold start separately, since that one does resolve', () => {
+    expect(ptyUnavailableReason(null)).toBe('terminal backend still loading')
   })
 })
