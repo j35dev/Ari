@@ -51,14 +51,14 @@ describe('ToolActivityGroup collapsed state', () => {
     expect(screen.queryByText('weighing the options')).not.toBeInTheDocument()
   })
 
-  it('starts a working burst expanded as a live timeline', () => {
+  it('stays collapsed while working, naming the in-flight call', () => {
     render(<ToolActivityGroup row={row(RUN.slice(0, 5))} />)
 
-    expect(screen.getByRole('button', { expanded: true })).toHaveTextContent(
+    expect(screen.getByRole('button', { expanded: false })).toHaveTextContent(
       'Reading desktop/main.ts',
     )
     expect(screen.getByLabelText('working')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Ran git status --short' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ran git status --short' })).not.toBeInTheDocument()
   })
 
   it('compacts a settled burst until the user expands it', () => {
