@@ -15,11 +15,51 @@ describe('PlanPanel', () => {
     rpcMocks.invoke.mockReset()
   })
 
+  // Paths stay forward-slashed: esbuild (the vitest JSX transform here)
+  // double-escapes backslashes inside JSX string attributes, so a
+  // `C:\repo` prop literal would arrive as `C:\\repo` at runtime.
+
   it('renders nothing when no plan file exists', async () => {
     rpcMocks.invoke.mockResolvedValue({ items: null })
-    const { container } = render(<PlanPanel path="C:\\repo" />)
+    const { container } = render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
     await waitFor(() => expect(rpcMocks.invoke).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('requests the plan scoped to the session', async () => {
+    rpcMocks.invoke.mockResolvedValue({ items: null })
+    render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    await waitFor(() =>
+      expect(rpcMocks.invoke).toHaveBeenCalledWith('plan.get', {
+        path: 'C:/repo',
+        sessionId: 'ses-1',
+      }),
+    )
+  })
+
+  it('refetches when the session changes so siblings never share a plan', async () => {
+    rpcMocks.invoke.mockResolvedValue({ items: null })
+    const { rerender } = render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    await waitFor(() =>
+      expect(rpcMocks.invoke).toHaveBeenCalledWith('plan.get', {
+        path: 'C:/repo',
+        sessionId: 'ses-1',
+      }),
+    )
+    rerender(<PlanPanel path="C:/repo" sessionId="ses-2" />)
+    await waitFor(() =>
+      expect(rpcMocks.invoke).toHaveBeenCalledWith('plan.get', {
+        path: 'C:/repo',
+        sessionId: 'ses-2',
+      }),
+    )
+    expect(rpcMocks.invoke).toHaveBeenCalledTimes(2)
+  })
+
+  it('renders nothing without fetching when the session is unknown', async () => {
+    const { container } = render(<PlanPanel path="C:/repo" sessionId={null} />)
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
   })
 
   it('renders items with status icons and a progress count', async () => {
@@ -30,7 +70,7 @@ describe('PlanPanel', () => {
         { text: 'write tests', status: 'pending' },
       ],
     })
-    render(<PlanPanel path="C:\\repo" />)
+    render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
 
     expect(await screen.findByText('parse input')).toBeInTheDocument()
     expect(screen.getByText('refactor loop')).toBeInTheDocument()
@@ -43,7 +83,7 @@ describe('PlanPanel', () => {
       items: [{ text: 'only step', status: 'pending' }],
     })
     const user = userEvent.setup()
-    render(<PlanPanel path="C:\\repo" />)
+    render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
 
     await screen.findByText('only step')
     await user.click(screen.getByRole('button', { name: /plan/i }))
@@ -55,7 +95,7 @@ describe('PlanPanel', () => {
 
   it('survives invoke failures silently', async () => {
     rpcMocks.invoke.mockRejectedValue(new Error('ipc gone'))
-    const { container } = render(<PlanPanel path="C:\\repo" />)
+    const { container } = render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
     await waitFor(() => expect(rpcMocks.invoke).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
   })

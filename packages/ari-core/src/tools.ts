@@ -22,6 +22,12 @@ const log = createLogger('ari-core:tools')
 export interface ToolContext {
   workspacePath: string
   /**
+   * Ari-side session id owning this turn. Tools with per-session side
+   * effects (todo_write's plan file) scope their state by it so sibling
+   * sessions sharing one workspace folder never see each other's state.
+   */
+  sessionId?: string
+  /**
    * Session permission mode (`ask` | `allow-edits` | `full`). Bash and file
    * writes are gated by it — an absent mode is treated as `ask` (fail-closed).
    */
