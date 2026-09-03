@@ -16,6 +16,14 @@ export interface TurnErrorView {
 /** Ordered families — the first match wins. */
 const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
   [
+    // Ari Core reports an over-long request in these words because the status
+    // it arrives with (a plain 400) says nothing useful. Matched first: the
+    // quoted endpoint body often also mentions tokens or limits.
+    /longer than this model|context length|context window/i,
+    'Conversation too long',
+    'The transcript no longer fits the model’s context window — start a new session, or pick a model with a larger window in the model selector.',
+  ],
+  [
     // Ari Core's own transport prefix, matched before the families below so an
     // endpoint's quoted error body cannot relabel the failure — a gateway that
     // returns "invalid api key" inside a 500 is still a failing gateway, and a

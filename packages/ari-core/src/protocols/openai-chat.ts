@@ -6,6 +6,7 @@ import {
   faultMessage,
   guardStream,
   MAX_ERROR_BODY_CHARS,
+  withIdleDeadline,
   withRetry,
   type StreamFetch,
 } from './http-retry'
@@ -93,7 +94,7 @@ const sseFetchOnce: SseFetch = async (url, init) => {
     }
   }
   return {
-    body: readSseLines(response.body),
+    body: withIdleDeadline(readSseLines(response.body)),
     status: response.status,
     statusText: response.statusText,
     retryAfter,
