@@ -21,6 +21,11 @@ export interface AgentLoopOptions {
   userPrompt: string
   workspacePath: string
   /**
+   * Ari-side session id. Handed to the tool context so per-session tools
+   * (todo_write) scope their files instead of sharing one workspace file.
+   */
+  sessionId?: string
+  /**
    * Staged images for this turn, attached to the user message. History
    * messages may carry their own `images` from earlier turns.
    */
@@ -210,6 +215,7 @@ export async function* runAgentLoop(
   const ctx: ToolContext = {
     workspacePath,
     permissionMode,
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options.allowlist ? { allowlist: options.allowlist } : {}),
   }
   // Tools cleared by an `always-allow` decision run mode-unrestricted for the

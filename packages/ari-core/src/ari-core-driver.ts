@@ -432,6 +432,7 @@ export class AriCoreDriver implements Driver {
           userPrompt,
           ...(userImages.length > 0 ? { userImages } : {}),
           workspacePath: session.workspacePath,
+          sessionId: session.sessionId,
           permissionMode: session.permissionMode,
           history,
           onTranscript: (messages) => {
