@@ -794,6 +794,37 @@ already holding.
       the connection and then goes quiet still hangs the turn until the user
       interrupts), and the OpenAI-compat path still sends no `max_tokens`.
 
+- [x] M36.5 Stalled streams and over-long requests stop being mysteries — the
+      two gaps M36.4 left open, minus `max_tokens`, which needs a value decided
+      rather than guessed.
+
+      `withIdleDeadline` gives every streaming transport a 120s silence budget
+      between lines. A gateway that accepts the connection and then goes away
+      used to hang the turn until the user noticed and interrupted by hand; it
+      now ends as a stall through M36.4's mid-stream handler, keeping whatever
+      arrived and closing the abandoned iterator so the socket does not outlive
+      the turn. The budget is deliberately generous: a reasoning model behind a
+      buffering proxy can be slow to its first token, and killing a turn that
+      was about to answer is the worse failure.
+
+      A context overflow arrives as a plain 400, so it used to read as a
+      malformed request — `isContextOverflow` recognises the phrasings endpoints
+      actually use (`maximum context length`, `prompt is too long`, `reduce the
+      length`, `too many input tokens`) on 400/413/422 and leads the message
+      with the fix instead of the status. `turnError.ts` gains a
+      `Conversation too long` family, matched ahead of the transport families
+      because the quoted body usually mentions tokens and limits too.
+
+      Still open, and none of them small: the context budget is a hardcoded
+      500k-token assumption (`DEFAULT_CONTEXT_WINDOW_TOKENS`) that no discovered
+      model overrides — the gateways in use report no `context_length`, which
+      `normalizeRow` would otherwise read — so compaction cannot fire before a
+      smaller model hits its own ceiling, and an overflow is now legible but
+      still fatal rather than triggering an emergency compaction and retry.
+      Thinking blocks are still dropped between rounds, which for Anthropic
+      needs `signature_delta` captured off the stream before it can be fixed
+      correctly. No sub-agent tool. No prompt caching on the OpenAI-compat path.
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support

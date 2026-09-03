@@ -3,10 +3,12 @@ import {
   backoffDelayMs,
   describeFailure,
   guardStream,
+  isContextOverflow,
   isRetryableStatus,
   parseRetryAfter,
   sleep,
   summarizeErrorBody,
+  withIdleDeadline,
   withRetry,
   type RetryPolicy,
   type StreamFetch,
@@ -276,5 +278,108 @@ describe('guardStream', () => {
     }
     expect(seen).toEqual(['a'])
     expect(String(fault)).toContain('socket hang up')
+  })
+})
+
+describe('withIdleDeadline', () => {
+  it('passes a stream that keeps talking straight through', async () => {
+    const seen: string[] = []
+    for await (const line of withIdleDeadline(
+      (async function* () {
+        yield 'a'
+        yield 'b'
+      })(),
+      1000,
+    )) {
+      seen.push(line)
+    }
+    expect(seen).toEqual(['a', 'b'])
+  })
+
+  it('raises once the endpoint goes quiet for longer than the deadline', async () => {
+    const seen: string[] = []
+    const stalling = (async function* () {
+      yield 'a'
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      yield 'never read'
+    })()
+    await expect(async () => {
+      for await (const line of withIdleDeadline(stalling, 20)) seen.push(line)
+    }).rejects.toThrow('endpoint sent nothing for 1s')
+    // Whatever arrived before the silence is still delivered.
+    expect(seen).toEqual(['a'])
+  })
+
+  it('closes the stalled iterator so the socket does not outlive the turn', async () => {
+    let closed = false
+    const body: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<string>>(() => {}),
+        return: () => {
+          closed = true
+          return Promise.resolve({ done: true, value: undefined })
+        },
+      }),
+    }
+    await expect(async () => {
+      for await (const _ of withIdleDeadline(body, 10)) void _
+    }).rejects.toThrow('endpoint sent nothing')
+    expect(closed).toBe(true)
+  })
+
+  it('reports the deadline in whole seconds, never as zero', async () => {
+    const never: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<string>>(() => {}) }),
+    }
+    await expect(async () => {
+      for await (const _ of withIdleDeadline(never, 1)) void _
+    }).rejects.toThrow('endpoint sent nothing for 1s')
+  })
+})
+
+describe('isContextOverflow', () => {
+  it('recognises the phrasings endpoints use for an over-long request', () => {
+    for (const body of [
+      '{"error":{"message":"This model\'s maximum context length is 200000 tokens"}}',
+      '{"error":"prompt is too long: 250000 tokens > 200000"}',
+      '{"error":{"message":"reduce the length of the messages"}}',
+      '{"error":{"message":"too many input tokens"}}',
+    ]) {
+      expect(isContextOverflow({ body: null, status: 400, statusText: 'Bad Request', errorBody: body })).toBe(true)
+    }
+  })
+
+  it('leaves an ordinary bad request alone', () => {
+    expect(
+      isContextOverflow({
+        body: null,
+        status: 400,
+        statusText: 'Bad Request',
+        errorBody: '{"error":"unknown field: temperture"}',
+      }),
+    ).toBe(false)
+  })
+
+  it('never reads a 500 as an overflow, whatever the body says', () => {
+    expect(
+      isContextOverflow({
+        body: null,
+        status: 500,
+        statusText: 'Internal Server Error',
+        errorBody: 'maximum context length exceeded upstream',
+      }),
+    ).toBe(false)
+  })
+
+  it('tells the user what to do instead of quoting a bare status', () => {
+    const message = describeFailure({
+      body: null,
+      status: 400,
+      statusText: 'Bad Request',
+      errorBody: '{"error":"prompt is too long"}',
+    })
+    expect(message).toContain('longer than this model')
+    expect(message).toContain('start a new session')
+    expect(message).not.toContain('Bad Request')
   })
 })
