@@ -124,4 +124,34 @@ describe('ToolActivityGroup expanded state', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Edited Edit' })).not.toBeInTheDocument()
   })
+
+  it('advertises edit size and tenses pending steps live', async () => {
+    const user = userEvent.setup()
+    const edit = call(
+      'c9',
+      'Edit',
+      JSON.stringify({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' }),
+    )
+    render(<ToolActivityGroup row={row([edit])} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getAllByRole('button', { name: /Editing src\/a\.ts/ })).toHaveLength(2)
+    expect(screen.getByText('+1 −1')).toBeInTheDocument()
+  })
+
+  it('labels plan steps as done/total progress', async () => {
+    const user = userEvent.setup()
+    const args = JSON.stringify({
+      items: [
+        { text: 'a', status: 'done' },
+        { text: 'b', status: 'pending' },
+      ],
+    })
+    render(<ToolActivityGroup row={row([call('c1', 'todo_write', args), result('c1')])} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getByRole('button', { name: 'Updated 1/2' })).toBeInTheDocument()
+  })
 })

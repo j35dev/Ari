@@ -57,6 +57,31 @@ describe('ToolCallDetails', () => {
     expect(screen.getByText('scope')).toBeInTheDocument()
   })
 
+  it('renders plans as a checklist with states', () => {
+    render(
+      <ToolCallDetails
+        call={call(
+          'todo_write',
+          JSON.stringify({
+            items: [
+              { text: 'first', status: 'done' },
+              { text: 'second', status: 'in_progress' },
+              { text: 'third', status: 'pending' },
+            ],
+          }),
+        )}
+      />,
+    )
+
+    expect(screen.getByText('Ari Todo')).toBeInTheDocument()
+    expect(screen.getByText('first')).toBeInTheDocument()
+    expect(screen.getByText('second')).toBeInTheDocument()
+    expect(screen.getByText('third')).toBeInTheDocument()
+    expect(screen.getByLabelText('done')).toBeInTheDocument()
+    expect(screen.getByLabelText('in progress')).toBeInTheDocument()
+    expect(screen.getByLabelText('pending')).toBeInTheDocument()
+  })
+
   it('sends diff-bearing edit args through the diff viewer', () => {
     const diff =
       'diff --git a/a.ts b/a.ts\nindex 111..222 100644\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n'

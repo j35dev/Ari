@@ -695,6 +695,12 @@ Before/After text dumps instead of diffs.
       `Editing Edit`; target keys widened (`file`, `filename`, `filepath`,
       `directory`, `dir`)
 
+- [x] M35.3 Patterns ported from t3code / deepseek-harness / comet: a `todo`
+      tool kind (`Ari Todo`, `Updated 1/2`, checklist body, `Updated N todos`
+      tally); search steps read `query in scope`; edit steps advertise `+A −R`
+      diffstat; single-call bursts render as flat step rows; edits tally
+      distinct files; pending steps use the live verb (`Reading`, not `Read`)
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support

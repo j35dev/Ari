@@ -196,3 +196,28 @@ describe('TranscriptView per-turn diff cards', () => {
     expect(screen.getByText('old')).toBeInTheDocument()
   })
 })
+
+describe('TranscriptView tool bursts', () => {
+  function toolMessage(id: string): Message {
+    return {
+      id,
+      sessionId: 'sess_1',
+      turnId: null,
+      role: 'assistant',
+      parts: [
+        { type: 'tool-call', callId: 'c1', name: 'Read', argsJson: '{"path":"src/a.ts"}' },
+        { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+      ],
+      createdAt: 1,
+    }
+  }
+
+  it('renders a lone tool call as a flat step row without group chrome', async () => {
+    const user = userEvent.setup()
+    render(createElement(TranscriptView, { sessionId: 'sess_1', messages: [toolMessage('m1')] }))
+
+    expect(screen.getByRole('button', { name: 'Read src/a.ts' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Read src/a.ts' }))
+    expect(screen.getByText('Ari Read')).toBeInTheDocument()
+  })
+})
