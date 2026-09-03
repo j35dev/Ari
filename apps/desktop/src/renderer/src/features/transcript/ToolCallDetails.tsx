@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
+import { Check } from 'lucide-react'
 import { CopyButton } from './CopyButton'
 import { CodeBlock } from './CodeBlock'
 import { DiffViewer } from '../diffs'
@@ -10,6 +11,7 @@ import {
   parseToolArgs,
   shortenPath,
   stringArg,
+  todoItems,
 } from './toolLabels'
 import type { ToolKind } from './toolLabels'
 import type { TranscriptBlock } from './types'
@@ -149,14 +151,47 @@ const KIND_BODY: Record<ToolKind, (payload: Record<string, unknown>) => ReactNod
       </div>
     )
   },
+  todo: (payload) => {
+    const items = todoItems(payload)
+    if (items === null) return null
+    return (
+      <div className="space-y-1">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-start gap-1.5">
+            {item.done ? (
+              <Check size={11} aria-label="done" className="mt-0.5 shrink-0 text-fg-muted" />
+            ) : item.active ? (
+              <span
+                aria-label="in progress"
+                className="mt-1 size-1.5 shrink-0 animate-pulse rounded-full bg-warning"
+              />
+            ) : (
+              <span
+                aria-label="pending"
+                className="mt-1 size-1.5 shrink-0 rounded-full border border-fg-subtle"
+              />
+            )}
+            <span
+              className={`min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-2xs ${
+                item.done ? 'text-fg-subtle line-through' : 'text-fg-muted'
+              }`}
+            >
+              {item.text}
+            </span>
+          </div>
+        ))}
+      </div>
+    )
+  },
 }
 
 /**
  * Expanded body of one tool step, branded as an Ari tool: a header naming the
  * Ari identity ("Ari Run") beside the provider's own tool name, then the
  * arguments rendered per kind — highlighted command for runs, a synthesized
- * unified diff for edits, labeled fields for reads and searches. Anything the
- * structured views cannot express falls back to the raw pretty-printed JSON.
+ * unified diff for edits, checklists for plans, labeled fields for reads and
+ * searches. Anything the structured views cannot express falls back to the
+ * raw pretty-printed JSON.
  */
 export function ToolCallDetails({ call }: { call: TranscriptBlock }) {
   const kind = useMemo(() => classifyToolCall(call), [call])

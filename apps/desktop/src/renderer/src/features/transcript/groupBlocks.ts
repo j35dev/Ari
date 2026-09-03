@@ -1,4 +1,11 @@
-import { classifyToolCall, describeToolCall, effectiveToolName, humanizeToolName } from './toolLabels'
+import {
+  classifyToolCall,
+  describeToolCall,
+  effectiveToolName,
+  humanizeToolName,
+  parseToolArgs,
+} from './toolLabels'
+import { editFilePath } from './edit-diff'
 import type { ToolGroupRow, TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
 
 export type { TranscriptRow } from './types'
@@ -139,18 +146,29 @@ export function groupBlocks(
   return rows
 }
 
+/**
+ * True for bursts holding exactly one tool call and no reasoning. The
+ * transcript renders these as the bare step row instead of a group wrapper,
+ * so short bursts read flat instead of nested.
+ */
+export function isSingleStepGroup(row: ToolGroupRow): boolean {
+  return row.calls.length === 1 && row.blocks.every((b) => b.kind !== 'thinking')
+}
+
 export interface ToolActivitySummary {
   ran: number
   edited: number
   read: number
   searched: number
+  todos: number
   errors: number
   pending: number
 }
 
 /**
  * Human summary of a tool run: "Ran 2 commands · Edited 3 files". Pure; used
- * by the activity row and its tests.
+ * by the activity row and its tests. Edits count distinct files so three
+ * replacements in two files read as two, not three.
  */
 export function summarizeToolRun(
   calls: TranscriptBlock[],
@@ -161,19 +179,29 @@ export function summarizeToolRun(
     edited: 0,
     read: 0,
     searched: 0,
+    todos: 0,
     errors: 0,
     pending: 0,
   }
+  const editedPaths = new Set<string>()
+  let editedUnknown = 0
   for (const call of calls) {
     switch (classifyToolCall(call)) {
-      case 'edit':
-        summary.edited += 1
+      case 'edit': {
+        const parsed = parseToolArgs(call.argsJson)
+        const path = parsed === null ? null : editFilePath(parsed.payload)
+        if (path === null) editedUnknown++
+        else editedPaths.add(path.toLowerCase())
         break
+      }
       case 'read':
         summary.read += 1
         break
       case 'search':
         summary.searched += 1
+        break
+      case 'todo':
+        summary.todos += 1
         break
       default:
         summary.ran += 1
@@ -183,6 +211,7 @@ export function summarizeToolRun(
     if (!result) summary.pending += 1
     else if (result.isError) summary.errors += 1
   }
+  summary.edited = editedPaths.size + editedUnknown
   return summary
 }
 
@@ -194,6 +223,8 @@ export function formatToolSummary(summary: ToolActivitySummary): string {
   if (summary.read > 0) parts.push(`Read ${summary.read} file${summary.read === 1 ? '' : 's'}`)
   if (summary.searched > 0)
     parts.push(`Searched ${summary.searched} time${summary.searched === 1 ? '' : 's'}`)
+  if (summary.todos > 0)
+    parts.push(`Updated ${summary.todos} todo${summary.todos === 1 ? '' : 's'}`)
   return parts.join(' · ')
 }
 

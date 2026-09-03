@@ -227,6 +227,30 @@ describe('summarizeToolRun + formatToolSummary', () => {
     expect(summary.pending).toBe(1)
   })
 
+  it('counts plan calls and formats the tally', () => {
+    const calls: TranscriptBlock[] = [
+      { key: 'k0', kind: 'tool-call', callId: 'c0', name: 'todo_write', argsJson: '{"items":[]}' },
+    ]
+    expect(formatToolSummary(summarizeToolRun(calls, new Map()))).toBe('Updated 1 todo')
+  })
+
+  it('dedupes edits to the same file', () => {
+    const a = (id: string, argsJson: string): TranscriptBlock => ({
+      key: `k-${id}`,
+      kind: 'tool-call',
+      callId: id,
+      name: 'Edit',
+      argsJson,
+    })
+    const same = 'src/a.ts'
+    const calls = [
+      a('c1', JSON.stringify({ file_path: same, old_string: 'x', new_string: 'y' })),
+      a('c2', JSON.stringify({ file_path: 'SRC/A.TS', old_string: 'y', new_string: 'z' })),
+      a('c3', '{}'),
+    ]
+    expect(summarizeToolRun(calls, new Map()).edited).toBe(2)
+  })
+
   it('formats singular and empty cases', () => {
     const { calls, resultsByCallId } = callsOf(['Edit'], 1)
     expect(formatToolSummary(summarizeToolRun(calls, resultsByCallId))).toBe('Edited 1 file')

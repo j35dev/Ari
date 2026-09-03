@@ -110,3 +110,37 @@ export function editArgsToDiff(argsJson: string | undefined): EditDiff | null {
   if (parsed === null) return null
   return editPayloadToDiff(parsed.payload)
 }
+
+export interface EditDiffStat {
+  added: number
+  removed: number
+}
+
+/**
+ * Counts added/removed lines in a call's synthesized diff so step rows can
+ * advertise size (`+2 −3`) without opening. Null when no diff synthesizes.
+ */
+export function editDiffStat(argsJson: string | undefined): EditDiffStat | null {
+  const diff = editArgsToDiff(argsJson)
+  if (diff === null) return null
+  let added = 0
+  let removed = 0
+  for (const line of diff.diffText.split('\n')) {
+    if (
+      line.startsWith('diff --git ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('@@')
+    ) {
+      continue
+    }
+    if (line.startsWith('+')) added++
+    else if (line.startsWith('-')) removed++
+  }
+  return { added, removed }
+}
+
+/** File path carried by an edit payload, if any. */
+export function editFilePath(payload: Record<string, unknown>): string | null {
+  return stringArg(payload, PATH_KEYS)
+}
