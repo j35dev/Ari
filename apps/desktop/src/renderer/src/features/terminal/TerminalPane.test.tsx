@@ -2,9 +2,10 @@ import { render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPane } from './TerminalPane'
 
-const { ctorOptions, invokeFn } = vi.hoisted(() => ({
+const { ctorOptions, invokeFn, writelnFn } = vi.hoisted(() => ({
   ctorOptions: [] as Record<string, unknown>[],
   invokeFn: vi.fn(),
+  writelnFn: vi.fn(),
 }))
 
 vi.mock('@xterm/xterm', () => ({
@@ -19,6 +20,9 @@ vi.mock('@xterm/xterm', () => ({
     loadAddon(): void {}
     open(): void {}
     write(): void {}
+    writeln(data: string): void {
+      writelnFn(data)
+    }
     focus(): void {}
     dispose(): void {}
     onData(): { dispose: () => void } {
@@ -51,6 +55,7 @@ describe('TerminalPane', () => {
     ctorOptions.length = 0
     invokeFn.mockReset()
     invokeFn.mockResolvedValue(undefined)
+    writelnFn.mockClear()
   })
 
   it('hands xterm a concrete font stack, never a CSS variable', () => {
@@ -81,5 +86,15 @@ describe('TerminalPane', () => {
 
     expect(ctorOptions).toHaveLength(0)
     expect(invokeFn).not.toHaveBeenCalled()
+  })
+
+  it('names a rejected create in the pane and reports it for retry', async () => {
+    invokeFn.mockRejectedValueOnce(new Error('terminal backend unavailable'))
+    const onError = vi.fn()
+    render(<TerminalPane terminalId="term_3" cwd="/repo" active onError={onError} />)
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith('terminal backend unavailable'))
+    expect(writelnFn).toHaveBeenCalledOnce()
+    expect(String(writelnFn.mock.calls[0]?.[0])).toContain('terminal backend unavailable')
   })
 })

@@ -6,16 +6,23 @@ How to build distributable installers for Windows, macOS, and Linux. Config live
 ## Prerequisites
 
 - Node >= 22 and pnpm; workspace installed (`pnpm install`).
-- **node-pty native rebuild**: node-pty is the only native dependency and must be compiled
-  against Electron's ABI (not the system Node). After every `pnpm install` or Electron
-  version bump, run from `apps/desktop`:
+- **node-pty ships prebuilt** — no ABI rebuild is needed. `@lydell/node-pty` is only a
+  resolver stub that `require`s `@lydell/node-pty-<platform>-<arch>`, and that sibling
+  package holds the implementation plus the prebuilt binaries (`conpty.node` /
+  `pty.node`, and on Windows `conpty.dll` + `OpenConsole.exe`).
 
-  ```sh
-  npx electron-builder install-app-deps
-  ```
+  Those platform packages are declared as explicit `optionalDependencies` of
+  `apps/desktop`. **Do not remove them.** They are reachable as transitive optional deps
+  too, but electron-builder only collects them reliably when they are direct: pnpm's
+  virtual store keeps transitive optional packages out of
+  `apps/desktop/node_modules/@lydell/`, and if electron-builder picks its npm collector
+  (it mis-detects the workspace on Windows) they are dropped from the package entirely.
+  pnpm links only the packages matching the current platform, so the extra entries cost
+  nothing per build.
 
-  If pnpm blocked the postinstall script (`Ignored build scripts: node-pty`), approve it
-  once via `pnpm approve-builds` first.
+  `build/after-pack.cjs` asserts after every pack that the target's platform package was
+  collected and unpacked; the build fails loudly rather than shipping a terminal that
+  opens to a dead cursor.
 - Renderer/main bundles must exist before packaging:
 
   ```sh
@@ -67,5 +74,7 @@ Run through this on a clean machine (or VM) per platform before shipping an arti
    settings (or use a detected CLI), send a message in a session, and confirm streamed
    output renders and the turn settles without errors.
 
-Any failure in step 3 almost always means node-pty ended up inside asar instead of
-unpacked, or was rebuilt for the wrong ABI — re-run `install-app-deps` and repackage.
+Any failure in step 3 means the pty backend did not load. The terminal now names the
+reason in the pane (with a retry), and `resources/app.asar.unpacked/node_modules/@lydell/`
+must contain both `node-pty` and `node-pty-<platform>-<arch>` with its prebuilds — see the
+node-pty note under Prerequisites.
