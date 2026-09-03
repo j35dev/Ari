@@ -133,6 +133,34 @@ describe('session projection', () => {
     expect(state.pendingInputs).toHaveLength(0)
   })
 
+  it('drops parked questions and approvals when the turn settles', () => {
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))
+    state = applyEvent(
+      state,
+      ev(2, { type: 'input.requested', inputId: 'q1', prompt: 'Proceed?', choicesJson: null }),
+    )
+    state = applyEvent(
+      state,
+      ev(3, {
+        type: 'approval.requested',
+        approvalId: 'ap_1',
+        toolName: 'bash',
+        summaryJson: '{}',
+      }),
+    )
+    expect(state.pendingInputs).toHaveLength(1)
+    expect(state.pendingApprovals).toHaveLength(1)
+    // Stopping mid-question settles the turn without answering it; the parked
+    // prompts must go away so a later answer is rejected instead of stuck.
+    state = applyEvent(
+      state,
+      ev(4, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'interrupted', errorMessage: null }),
+    )
+    expect(state.pendingInputs).toHaveLength(0)
+    expect(state.pendingApprovals).toHaveLength(0)
+  })
+
   it('restores the message queue from enqueued/dequeued events', () => {
     let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
     state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))

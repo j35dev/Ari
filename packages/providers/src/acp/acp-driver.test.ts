@@ -809,6 +809,84 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('treats an empty answer as a dismissal and replies cancelled', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9201,
+            method: '_x.ai/ask_user_question',
+            params: {
+              questions: [{ question: 'Which approach?', options: [{ label: 'Conservative' }] }],
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'input-requested') {
+        adapter.respondInput(next.value.inputId, '')
+      }
+    }
+    const reply = child.sent.find((m) => m['id'] === 9201 && m['method'] === undefined)
+    expect(reply).toMatchObject({ result: { outcome: 'cancelled' } })
+    await adapter.dispose()
+  }, 15000)
+
+  it('releases a parked question on interrupt so the turn can finish', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9202,
+            method: '_x.ai/ask_user_question',
+            params: {
+              questions: [{ question: 'Which approach?', options: [{ label: 'Conservative' }] }],
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    const seen: string[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'input-requested') {
+        seen.push(next.value.inputId)
+        adapter.interrupt()
+      }
+    }
+    expect(seen).toHaveLength(1)
+    const reply = child.sent.find((m) => m['id'] === 9202 && m['method'] === undefined)
+    expect(reply).toMatchObject({ result: { outcome: 'cancelled' } })
+    expect(child.sent.some((m) => m['method'] === 'session/cancel')).toBe(true)
+    await adapter.dispose()
+  }, 15000)
+
   it('answers exit_plan_mode with a success outcome instead of method-not-found', async () => {
     const child = fakeChild()
     script(child, (method, _params, id) => {
