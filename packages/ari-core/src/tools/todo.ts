@@ -6,9 +6,25 @@ import type { Tool } from '../tools'
  * Structured plan tracking for Ari Core. The todo list lives at a fixed
  * path inside the workspace so it can never escape the jail: no argument
  * influences the file location, only the file contents.
+ *
+ * The file is scoped per session — every session in a project shares the
+ * workspace folder, so a single shared file would leak one agent's plan
+ * into every other session's transcript header.
  */
 
 export const TODO_FILENAME = '.ari-todo.json'
+
+/**
+ * Workspace-relative plan filename for a session. Session ids come from
+ * the engine, but a path separator would escape the workspace — sanitize
+ * rather than trust (same shape as FileConversationStore's key mapping).
+ * An absent session keeps the legacy shared filename.
+ */
+export function todoFilenameFor(sessionId?: string | null): string {
+  if (!sessionId) return TODO_FILENAME
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
+  return `.ari-todo-${safe}.json`
+}
 
 export type TodoStatus = 'pending' | 'in_progress' | 'done'
 
@@ -74,9 +90,11 @@ export const todoWriteTool: Tool = {
   },
   execute: async (args, ctx) => {
     const items = parseItems(args)
-    // Fixed workspace-relative target — arguments cannot move it.
-    const target = path.join(ctx.workspacePath, TODO_FILENAME)
+    // Fixed workspace-relative target — arguments cannot move it. Scoped to
+    // the session so sibling sessions in one project never share a plan.
+    const filename = todoFilenameFor(ctx.sessionId)
+    const target = path.join(ctx.workspacePath, filename)
     await fs.writeFile(target, JSON.stringify(items, null, 2), 'utf8')
-    return `${formatChecklist(items)}\n(saved to ${TODO_FILENAME})`
+    return `${formatChecklist(items)}\n(saved to ${filename})`
   },
 }

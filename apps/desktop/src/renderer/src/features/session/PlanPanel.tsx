@@ -7,22 +7,31 @@ type PlanItems = RpcResults['plan.get']['items']
 
 /**
  * Live plan surface (research gap: "what is it doing / what's left"): renders
- * the `.ari-todo.json` checklist that Ari Core's todo_write maintains. Pinned
- * above the transcript; collapses to a one-line progress summary once the
- * user has seen it.
+ * the per-session `.ari-todo-<sessionId>.json` checklist that Ari Core's
+ * todo_write maintains. Pinned above the transcript; collapses to a one-line
+ * progress summary once the user has seen it. Scoped by session id so two
+ * sessions in one project never render each other's plan.
  */
-export function PlanPanel({ path, refreshNonce }: { path: string | null; refreshNonce?: number }) {
+export function PlanPanel({
+  path,
+  sessionId,
+  refreshNonce,
+}: {
+  path: string | null
+  sessionId: string | null
+  refreshNonce?: number
+}) {
   const [items, setItems] = useState<PlanItems>(null)
   const [expanded, setExpanded] = useState(true)
 
   useEffect(() => {
-    if (path === null) {
+    if (path === null || sessionId === null) {
       setItems(null)
       return
     }
     let cancelled = false
     void rpc
-      .invoke('plan.get', { path })
+      .invoke('plan.get', { path, sessionId })
       .then((result) => {
         if (!cancelled) setItems(result.items)
       })
@@ -30,7 +39,7 @@ export function PlanPanel({ path, refreshNonce }: { path: string | null; refresh
     return () => {
       cancelled = true
     }
-  }, [path, refreshNonce])
+  }, [path, sessionId, refreshNonce])
 
   if (items === null || items.length === 0) return null
 

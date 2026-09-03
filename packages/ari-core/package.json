@@ -16,7 +16,8 @@
     "./mcp": "./src/mcp.ts",
     "./mcp-servers": "./src/mcp-servers.ts",
     "./mcp-tools": "./src/mcp-tools.ts",
-    "./conversation-store": "./src/conversation-store.ts"
+    "./conversation-store": "./src/conversation-store.ts",
+    "./todo": "./src/tools/todo.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
