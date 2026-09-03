@@ -107,6 +107,33 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByRole('region', { name: 'Ari' })).toHaveTextContent('2')
   })
 
+  it('shows folder icons on project groups and inbox on Unfiled', () => {
+    renderSidebar([session('a', 1, 'proj-1'), session('loose', 1)])
+
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    expect(
+      ari.querySelector('svg.lucide-folder, svg.lucide-folder-open'),
+    ).not.toBeNull()
+    const unfiled = screen.getByRole('region', { name: 'Unfiled' })
+    expect(unfiled.querySelector('svg.lucide-inbox')).not.toBeNull()
+  })
+
+  it('shows a chat icon on idle session rows', () => {
+    renderSidebar([session('a', 1, 'proj-1')])
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    expect(ari.querySelector('svg.lucide-message-square-text')).not.toBeNull()
+  })
+
+  it('shows an archive icon on the Archived shelf header', async () => {
+    const archived = { ...session('old', 2, 'proj-1'), archived: true }
+    renderSidebar([session('live', 1, 'proj-1'), archived])
+    const user = userEvent.setup()
+    const shelf = screen.getByRole('button', { name: /archived/i })
+    expect(shelf.querySelector('svg.lucide-archive')).not.toBeNull()
+    await user.click(shelf)
+    expect(screen.getByText('Session old')).toBeInTheDocument()
+  })
+
   it('floats pinned sessions to the top inside their own group', () => {
     const pinned = { ...session('p1', 40, 'proj-2'), pinned: true }
     renderSidebar([session('a', 2, 'proj-1'), session('fresh', 1, 'proj-2'), pinned])

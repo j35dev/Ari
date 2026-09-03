@@ -22,16 +22,12 @@ export interface ActivityEvent {
   at?: number
 }
 
-/** How long the done lock-in stays on a row before fading to idle. */
-export const DONE_LINGER_MS = 4_200
-/** Errors linger longer so a failure in a background chat is still findable. */
-export const ERROR_LINGER_MS = 8_000
-
-export function lingerMsFor(phase: SessionActivityPhase): number | null {
-  if (phase === 'done') return DONE_LINGER_MS
-  if (phase === 'error') return ERROR_LINGER_MS
-  return null
-}
+/**
+ * Settle lock-in for the session already on screen: the check/X plays, then
+ * fades. Background sessions never take this path — their done/error badge
+ * sticks until the user visits them (see `useSessionActivity`).
+ */
+export const ACTIVE_SETTLE_LINGER_MS = 4_200
 
 /**
  * Fold one journal event into the row's live mark. `idle`/`settled` status

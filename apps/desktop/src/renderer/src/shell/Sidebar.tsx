@@ -5,11 +5,14 @@ import {
   ArchiveRestore,
   Check,
   ChevronRight,
+  Folder,
   FolderGit2,
   FolderOpen,
   FolderPlus,
   FolderX,
   Import as ImportIcon,
+  Inbox,
+  MessageSquareText,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
@@ -19,6 +22,7 @@ import {
   Search,
   Trash2,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -202,8 +206,10 @@ function SessionRow({
           ) : session.pinned ? (
             <Pin size={10} aria-hidden className="text-accent" />
           ) : (
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-accent' : 'bg-transparent group-hover:bg-surface-3'}`}
+            <MessageSquareText
+              size={11}
+              aria-hidden
+              className={isActive ? 'text-accent' : 'text-fg-subtle'}
             />
           )}
         </span>
@@ -319,12 +325,15 @@ function CollapsibleSessions({
   sessions,
   projectNameOf,
   handlers,
+  icon,
 }: {
   label: string
   sessions: SessionSummary[]
   projectNameOf: (projectId: string) => string | null
   handlers: SessionRowHandlers
+  icon?: LucideIcon
 }) {
+  const Icon = icon
   const [open, setOpen] = useState(sessions.some((s) => s.id === handlers.activeSessionId))
 
   // Auto-open when the active session moves into this bucket.
@@ -344,6 +353,7 @@ function CollapsibleSessions({
           size={11}
           className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
+        {Icon ? <Icon size={12} aria-hidden className="shrink-0 text-fg-subtle" /> : null}
         <span className="text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
           {label}
         </span>
@@ -414,6 +424,7 @@ function ProjectGroupSection({
   const menu = useContextMenu()
   const missing = project?.status === 'missing'
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
+  const GroupIcon: LucideIcon = project === null ? Inbox : missing ? FolderX : expanded ? FolderOpen : Folder
 
   return (
     <section className="group/project" aria-label={name}>
@@ -432,9 +443,11 @@ function ProjectGroupSection({
             aria-hidden
             className={`shrink-0 text-fg-subtle transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
           />
-          {missing ? (
-            <FolderX size={11} aria-hidden className="shrink-0 text-warning" />
-          ) : null}
+          <GroupIcon
+            size={12}
+            aria-hidden
+            className={`shrink-0 ${missing ? 'text-warning' : 'text-fg-subtle'}`}
+          />
           <span
             className={`min-w-0 flex-1 truncate text-2xs font-semibold uppercase tracking-[0.14em] ${
               missing ? 'text-fg-subtle line-through' : 'text-fg-subtle'
@@ -655,6 +668,7 @@ export function SessionsUnderProjects({
             sessions={archived}
             projectNameOf={projectNameOf}
             handlers={handlers}
+            icon={Archive}
           />
         ) : null}
       </>
