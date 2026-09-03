@@ -30,6 +30,7 @@ class FakeAudioContext {
   destination = { toString: () => 'destination' }
   oscillators: FakeOscillator[] = []
   closed = false
+  resume = vi.fn(() => Promise.resolve())
 
   constructor() {
     if (FakeAudioContext.ctorError) throw FakeAudioContext.ctorError
@@ -95,6 +96,18 @@ describe('playSettleSound', () => {
     const ctx = soleContext()
     expect(ctx.oscillators).toHaveLength(2)
     expect(scheduledFreqs(ctx)).toEqual([392, 311.13])
+  })
+
+  it('plays a distinct higher fifth when the agent needs attention', () => {
+    playSettleSound('attention')
+    const ctx = soleContext()
+    expect(ctx.oscillators).toHaveLength(2)
+    expect(scheduledFreqs(ctx)).toEqual([783.99, 1174.66])
+  })
+
+  it('resumes the context so a suspended start still sounds', () => {
+    playSettleSound('complete')
+    expect(soleContext().resume).toHaveBeenCalledTimes(1)
   })
 
   it('swallows a missing AudioContext without throwing', () => {
