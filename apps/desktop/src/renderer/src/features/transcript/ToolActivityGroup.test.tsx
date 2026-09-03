@@ -51,13 +51,22 @@ describe('ToolActivityGroup collapsed state', () => {
     expect(screen.queryByText('weighing the options')).not.toBeInTheDocument()
   })
 
-  it('names the in-flight call while a result is outstanding', () => {
+  it('stays collapsed while working, naming the in-flight call', () => {
     render(<ToolActivityGroup row={row(RUN.slice(0, 5))} />)
 
     expect(screen.getByRole('button', { expanded: false })).toHaveTextContent(
       'Reading desktop/main.ts',
     )
     expect(screen.getByLabelText('working')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ran git status --short' })).not.toBeInTheDocument()
+  })
+
+  it('compacts a settled burst until the user expands it', () => {
+    render(<ToolActivityGroup row={row(RUN)} />)
+
+    expect(screen.getByRole('button', { expanded: false })).toHaveTextContent(
+      'Ran 1 command · Read 1 file',
+    )
   })
 
   it('badges failures on the collapsed row', () => {
@@ -104,5 +113,45 @@ describe('ToolActivityGroup expanded state', () => {
 
     await user.click(screen.getAllByRole('button', { name: 'Reasoning' })[0]!)
     expect(screen.getByText(/deeper detail here/)).toBeInTheDocument()
+  })
+
+  it('names a targetless step by its tool instead of doubling verb + name', async () => {
+    const user = userEvent.setup()
+    render(<ToolActivityGroup row={row([call('c1', 'Edit', '{}'), result('c1')])} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edited Edit' })).not.toBeInTheDocument()
+  })
+
+  it('advertises edit size and tenses pending steps live', async () => {
+    const user = userEvent.setup()
+    const edit = call(
+      'c9',
+      'Edit',
+      JSON.stringify({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' }),
+    )
+    render(<ToolActivityGroup row={row([edit])} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getAllByRole('button', { name: /Editing src\/a\.ts/ })).toHaveLength(2)
+    expect(screen.getByText('+1 −1')).toBeInTheDocument()
+  })
+
+  it('labels plan steps as done/total progress', async () => {
+    const user = userEvent.setup()
+    const args = JSON.stringify({
+      items: [
+        { text: 'a', status: 'done' },
+        { text: 'b', status: 'pending' },
+      ],
+    })
+    render(<ToolActivityGroup row={row([call('c1', 'todo_write', args), result('c1')])} />)
+
+    await user.click(screen.getByRole('button', { expanded: false }))
+
+    expect(screen.getByRole('button', { name: 'Updated 1/2' })).toBeInTheDocument()
   })
 })

@@ -1,4 +1,11 @@
-import { classifyToolCall, describeToolCall } from './toolLabels'
+import {
+  classifyToolCall,
+  describeToolCall,
+  effectiveToolName,
+  humanizeToolName,
+  parseToolArgs,
+} from './toolLabels'
+import { editFilePath } from './edit-diff'
 import type { ToolGroupRow, TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
 
 export type { TranscriptRow } from './types'
@@ -63,11 +70,22 @@ export function insertTurnDiffRows(
   return out
 }
 
+/** Long tool runs chunk into bursts of at most this many calls per row. */
+export const MAX_CALLS_PER_GROUP = 6
+
+function callsIn(run: TranscriptBlock[]): number {
+  let n = 0
+  for (const b of run) if (b.kind === 'tool-call') n++
+  return n
+}
+
 /**
  * Collapses each run of consecutive work blocks — tool calls, results, and the
- * reasoning between them — into a single activity row ("Ran 3 commands ·
- * Edited 1 file"), leaving assistant prose and user bubbles as their own rows.
- * A run carrying any tool traffic always becomes a group, even a single
+ * reasoning between them — into activity rows ("Ran 3 commands · Edited 1
+ * file"), leaving assistant prose and user bubbles as their own rows. Long
+ * runs chunk into bursts of at most {@link MAX_CALLS_PER_GROUP} calls so an
+ * expanded row stays a short step list instead of a fifty-line dropdown. A
+ * burst carrying any tool traffic always becomes a group, even a single
  * in-flight call, so the row does not change shape as results stream in; a
  * lone thinking block stays a plain thinking row. Group keys span first→last
  * member so they stay stable while more parts arrive. When `turnDiffs` carries
@@ -112,6 +130,9 @@ export function groupBlocks(
 
   for (const block of blocks) {
     if (isActivityBlock(block)) {
+      if (block.kind === 'tool-call' && hasToolTraffic(run) && callsIn(run) >= MAX_CALLS_PER_GROUP) {
+        flush()
+      }
       run.push(block)
     } else {
       flush()
@@ -125,18 +146,29 @@ export function groupBlocks(
   return rows
 }
 
+/**
+ * True for bursts holding exactly one tool call and no reasoning. The
+ * transcript renders these as the bare step row instead of a group wrapper,
+ * so short bursts read flat instead of nested.
+ */
+export function isSingleStepGroup(row: ToolGroupRow): boolean {
+  return row.calls.length === 1 && row.blocks.every((b) => b.kind !== 'thinking')
+}
+
 export interface ToolActivitySummary {
   ran: number
   edited: number
   read: number
   searched: number
+  todos: number
   errors: number
   pending: number
 }
 
 /**
  * Human summary of a tool run: "Ran 2 commands · Edited 3 files". Pure; used
- * by the activity row and its tests.
+ * by the activity row and its tests. Edits count distinct files so three
+ * replacements in two files read as two, not three.
  */
 export function summarizeToolRun(
   calls: TranscriptBlock[],
@@ -147,19 +179,29 @@ export function summarizeToolRun(
     edited: 0,
     read: 0,
     searched: 0,
+    todos: 0,
     errors: 0,
     pending: 0,
   }
+  const editedPaths = new Set<string>()
+  let editedUnknown = 0
   for (const call of calls) {
     switch (classifyToolCall(call)) {
-      case 'edit':
-        summary.edited += 1
+      case 'edit': {
+        const parsed = parseToolArgs(call.argsJson)
+        const path = parsed === null ? null : editFilePath(parsed.payload)
+        if (path === null) editedUnknown++
+        else editedPaths.add(path.toLowerCase())
         break
+      }
       case 'read':
         summary.read += 1
         break
       case 'search':
         summary.searched += 1
+        break
+      case 'todo':
+        summary.todos += 1
         break
       default:
         summary.ran += 1
@@ -169,6 +211,7 @@ export function summarizeToolRun(
     if (!result) summary.pending += 1
     else if (result.isError) summary.errors += 1
   }
+  summary.edited = editedPaths.size + editedUnknown
   return summary
 }
 
@@ -179,7 +222,9 @@ export function formatToolSummary(summary: ToolActivitySummary): string {
   if (summary.edited > 0) parts.push(`Edited ${summary.edited} file${summary.edited === 1 ? '' : 's'}`)
   if (summary.read > 0) parts.push(`Read ${summary.read} file${summary.read === 1 ? '' : 's'}`)
   if (summary.searched > 0)
-    parts.push(`Searched ×${summary.searched}`)
+    parts.push(`Searched ${summary.searched} time${summary.searched === 1 ? '' : 's'}`)
+  if (summary.todos > 0)
+    parts.push(`Updated ${summary.todos} todo${summary.todos === 1 ? '' : 's'}`)
   return parts.join(' · ')
 }
 
@@ -198,7 +243,8 @@ export function activityHeadline(row: Pick<ToolGroupRow, 'blocks' | 'calls' | 'r
       if (call === undefined) continue
       if (call.callId && row.resultsByCallId.has(call.callId)) continue
       const { verb, target } = describeToolCall(call, true)
-      return target.length > 0 ? `${verb} ${target}` : verb
+      if (target.length > 0) return `${verb} ${target}`
+      return humanizeToolName(effectiveToolName(call.name, call.argsJson))
     }
   }
   if (row.blocks[row.blocks.length - 1]?.kind === 'thinking') return 'Thinking'

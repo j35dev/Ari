@@ -20,7 +20,7 @@ describe('ToolCallDetails', () => {
     expect(screen.getByLabelText('Copy')).toBeInTheDocument()
   })
 
-  it('renders edits as Before/After panels', () => {
+  it('renders edits as a unified diff, not Before/After panels', () => {
     render(
       <ToolCallDetails
         call={call(
@@ -31,10 +31,12 @@ describe('ToolCallDetails', () => {
     )
 
     expect(screen.getByText('Ari Edit')).toBeInTheDocument()
-    expect(screen.getByText('Before')).toBeInTheDocument()
+    expect(screen.getByText('changes')).toBeInTheDocument()
+    expect(screen.getByText('src/a.ts')).toBeInTheDocument()
     expect(screen.getByText('const a = 1')).toBeInTheDocument()
-    expect(screen.getByText('After')).toBeInTheDocument()
     expect(screen.getByText('const a = 2')).toBeInTheDocument()
+    expect(screen.queryByText('Before')).not.toBeInTheDocument()
+    expect(screen.queryByText('After')).not.toBeInTheDocument()
   })
 
   it('labels read and search fields with shortened paths', () => {
@@ -53,6 +55,31 @@ describe('ToolCallDetails', () => {
     expect(screen.getByText('query')).toBeInTheDocument()
     expect(screen.getByText('settle')).toBeInTheDocument()
     expect(screen.getByText('scope')).toBeInTheDocument()
+  })
+
+  it('renders plans as a checklist with states', () => {
+    render(
+      <ToolCallDetails
+        call={call(
+          'todo_write',
+          JSON.stringify({
+            items: [
+              { text: 'first', status: 'done' },
+              { text: 'second', status: 'in_progress' },
+              { text: 'third', status: 'pending' },
+            ],
+          }),
+        )}
+      />,
+    )
+
+    expect(screen.getByText('Ari Todo')).toBeInTheDocument()
+    expect(screen.getByText('first')).toBeInTheDocument()
+    expect(screen.getByText('second')).toBeInTheDocument()
+    expect(screen.getByText('third')).toBeInTheDocument()
+    expect(screen.getByLabelText('done')).toBeInTheDocument()
+    expect(screen.getByLabelText('in progress')).toBeInTheDocument()
+    expect(screen.getByLabelText('pending')).toBeInTheDocument()
   })
 
   it('sends diff-bearing edit args through the diff viewer', () => {
