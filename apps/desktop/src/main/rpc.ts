@@ -453,6 +453,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     cachePath: join(app.getPath('userData'), 'model-catalog.json'),
     probeModels: (kind) => probeAcpModels(kind),
     probeKinds: acpProbeKinds(),
+    // The composer mounts before the six background ACP handshakes finish.
+    // Invalidate its first empty read when those config options land.
+    onUpdated: (at) =>
+      rpcRegistry.publish('providers.updates', {
+        type: 'catalog',
+        at,
+      } satisfies ProvidersUpdateFrame),
   })
   catalogService.start()
 

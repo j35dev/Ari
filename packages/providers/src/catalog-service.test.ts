@@ -63,6 +63,23 @@ describe('CatalogService', () => {
     expect(service.lastRefreshAt).toBe(0)
   })
 
+  it('notifies consumers after live ACP probes have settled', async () => {
+    const onUpdated = vi.fn()
+    const probeModels = vi.fn().mockResolvedValue([{ id: 'gpt-live', label: 'GPT Live' }])
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+      onUpdated,
+    })
+
+    await service.refresh()
+
+    expect(probeModels).toHaveBeenCalledWith('codex')
+    expect(onUpdated).toHaveBeenCalledOnce()
+    expect(onUpdated).toHaveBeenCalledWith(expect.any(Number))
+  })
+
   it('persists a successful round to the disk cache and reloads it cold', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
     const cachePath = join(dir, 'cache', 'models.json')
