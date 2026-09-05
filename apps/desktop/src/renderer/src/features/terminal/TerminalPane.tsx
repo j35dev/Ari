@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { rpc } from '../../lib/rpc'
+import { bindTerminalClipboard } from './terminal-clipboard'
 
 function readToken(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -77,6 +78,9 @@ export function TerminalPane({
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
+    const disposeClipboard = bindTerminalClipboard(term, (message) => {
+      term.writeln(`\r\n[${message}]`)
+    })
     try {
       fit.fit()
     } catch {
@@ -141,6 +145,7 @@ export function TerminalPane({
       observer.disconnect()
       dataSub()
       inputSub.dispose()
+      disposeClipboard()
       term.dispose()
     }
     // initialCommand is consumed once at spawn; excluding it from these deps

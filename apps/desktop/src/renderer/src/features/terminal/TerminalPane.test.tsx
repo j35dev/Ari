@@ -25,6 +25,13 @@ vi.mock('@xterm/xterm', () => ({
     }
     focus(): void {}
     dispose(): void {}
+    getSelection(): string { return '' }
+    paste(): void {}
+    input(): void {}
+    attachCustomKeyEventHandler(): void {}
+    onSelectionChange(): { dispose: () => void } {
+      return { dispose: () => undefined }
+    }
     onData(): { dispose: () => void } {
       return { dispose: () => undefined }
     }
