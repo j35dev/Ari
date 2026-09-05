@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
-import { modelsFor, setDynamicModels } from './catalogs'
+import { catalogSource, modelsFor, setDynamicModels } from './catalogs'
 import type { CatalogModel } from './catalogs'
 
 const log = createLogger('providers:catalog')
@@ -92,6 +92,7 @@ export class CatalogService {
   readonly #probeKinds: DriverKind[]
   readonly #onUpdated: ((at: number) => void) | null
   #lastRefreshAt = 0
+  #lastAttemptAt: number | null = null
   #refreshing: Promise<void> | null = null
   #boot: Promise<void> | null = null
 
@@ -134,9 +135,19 @@ export class CatalogService {
    */
   refresh(): Promise<void> {
     this.#refreshing ??= this.#refresh().finally(() => {
+      this.#lastAttemptAt = Date.now()
       this.#refreshing = null
     })
     return this.#refreshing
+  }
+
+  /** Rechecks catalogs on demand, throttling failed probes as well as successful ones. */
+  refreshIfStale(): Promise<void> {
+    if (this.#refreshing !== null) return this.#refreshing
+    if (this.#lastAttemptAt !== null && Date.now() - this.#lastAttemptAt < 60_000) {
+      return Promise.resolve()
+    }
+    return this.refresh()
   }
 
   async #refresh(): Promise<void> {
@@ -150,7 +161,9 @@ export class CatalogService {
       for (const [kind, providerId] of Object.entries(REGISTRY_PROVIDER)) {
         const models = toCatalogModels(body[providerId]?.models ?? {})
         if (models.length === 0) continue
-        setDynamicModels(kind as DriverKind, 'cache', models)
+        if (catalogSource(kind as DriverKind) !== 'live') {
+          setDynamicModels(kind as DriverKind, 'cache', models)
+        }
         applied++
       }
       this.#lastRefreshAt = Date.now()
