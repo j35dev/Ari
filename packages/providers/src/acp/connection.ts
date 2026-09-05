@@ -33,6 +33,8 @@ export interface AcpLaunch {
   label: string
   command: string
   args: string[]
+  /** Provider-specific overrides merged into the inherited process environment. */
+  env?: Record<string, string>
   /** True when the agent rides `npx -y <pkg>` — enables npm exit decoding. */
   viaNpx?: boolean
 }
@@ -214,6 +216,7 @@ export class AcpConnection {
         options.spawn !== undefined
           ? options.spawn(launch, options.cwd)
           : spawnCli(launch.command, launch.args, {
+              ...(launch.env !== undefined ? { env: { ...process.env, ...launch.env } } : {}),
               cwd: options.cwd,
               stdio: ['pipe', 'pipe', 'pipe'],
               windowsHide: true,

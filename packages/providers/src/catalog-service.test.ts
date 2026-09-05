@@ -11,6 +11,7 @@ const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'h
 
 afterEach(() => {
   for (const kind of ALL_KINDS) clearDynamicModels(kind)
+  vi.useRealTimers()
 })
 
 /** Snapshot-backed value for a kind before any test mutates module state. */
@@ -27,6 +28,44 @@ function registryResponse(providers: Record<string, { models: Record<string, unk
 }
 
 describe('CatalogService', () => {
+  it('retries discovery on a later read without spawning a probe for every read', async () => {
+    vi.useFakeTimers()
+    const probeModels = vi.fn()
+      .mockRejectedValueOnce(new Error('adapter not cached'))
+      .mockResolvedValue([{ id: 'future-cli-model', label: 'New CLI model' }])
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+    })
+    await Promise.all([service.refreshIfStale(), service.refreshIfStale()])
+    await service.refreshIfStale()
+    expect(probeModels).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await service.refreshIfStale()
+    expect(probeModels).toHaveBeenCalledTimes(2)
+    expect(modelsFor('codex')).toEqual([{ id: 'future-cli-model', label: 'New CLI model' }])
+    await service.refreshIfStale()
+    expect(probeModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('retains the live catalog if a later probe fails after a registry refresh', async () => {
+    const probeModels = vi.fn()
+      .mockResolvedValueOnce([{ id: 'future-cli-model', label: 'New CLI model' }])
+      .mockRejectedValueOnce(new Error('temporarily unavailable'))
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockResolvedValue(registryResponse({
+        openai: { models: { 'gpt-5.5': { name: 'Old fallback' } } },
+      })) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+    })
+    await service.refresh()
+    await service.refresh()
+    expect(catalogSource('codex')).toBe('live')
+    expect(modelsFor('codex')).toEqual([{ id: 'future-cli-model', label: 'New CLI model' }])
+  })
+
   it('maps registry providers onto kinds and reports the cache source', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       registryResponse({
