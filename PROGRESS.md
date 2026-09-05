@@ -880,6 +880,12 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       a selection and still interrupts without one. Clipboard failures surface in the pane;
       deferred reads cannot paste into a disposed terminal.
 
+## M41 — Sidebar hierarchy spacing
+
+- [x] M41.1 Project session rows are inset by 20px so titles align with project names
+      and read as children instead of sitting against the sidebar edge. Empty-project text
+      follows the same inset; row actions and rename/delete states stay together.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |
