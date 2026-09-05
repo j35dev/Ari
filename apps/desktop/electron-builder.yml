@@ -14,6 +14,13 @@ files:
   - package.json
   # Debug symbols for the pty prebuilds: ~10MB per win32 arch, never loaded.
   - '!**/node_modules/@lydell/node-pty-*/prebuilds/**/*.pdb'
+extraResources:
+  # Runtime tray assets. Windows gets a multi-resolution ICO so the Ari mark
+  # stays sharp at every notification-area DPI scale.
+  - from: build/icon.ico
+    to: icon.ico
+  - from: build/icon.png
+    to: icon.png
 # node-pty is the only native dependency; it must stay physical on disk
 # (ConPTY needs to dlopen conpty.node and spawn OpenConsole.exe, neither of
 # which works from inside an asar archive). `@lydell/node-pty` is only a
