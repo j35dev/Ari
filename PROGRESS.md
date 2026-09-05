@@ -825,6 +825,12 @@ already holding.
       needs `signature_delta` captured off the stream before it can be fixed
       correctly. No sub-agent tool. No prompt caching on the OpenAI-compat path.
 
+## M37 — ACP capability surfacing
+
+- [x] M37.1 Codex effort selector appears when its background ACP probe settles: the catalog
+      service now publishes a post-probe invalidation instead of leaving the composer stuck on
+      its mount-time empty read while `session/new` was still fetching config options
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support
