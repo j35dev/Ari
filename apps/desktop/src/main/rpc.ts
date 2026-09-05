@@ -760,8 +760,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   )
 
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
-  r.register('providers.models', () =>
-    ALL_PROVIDER_KINDS.map((kind) => {
+  r.register('providers.models', () => {
+    void catalogService.refreshIfStale()
+    return ALL_PROVIDER_KINDS.map((kind) => {
       const catalog = effortsFor(kind)
       const modeCatalog = modesFor(kind)
       return {
@@ -786,8 +787,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             ...(modeCatalog.currentId === option.id ? { current: true as const } : {}),
           })),
       }
-    }),
-  )
+    })
+  })
 
   r.register('window.minimize', () => {
     BrowserWindow.fromWebContents(contents)?.minimize()

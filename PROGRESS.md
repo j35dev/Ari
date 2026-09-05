@@ -857,6 +857,16 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
 | Code-block language chips (M5.10) | Copy button shipped; language chip deferred | low |
 | Post-revert undo (M8.8) | Inline confirm + result toast only | low |
 
+## M39 — Live provider catalog freshness
+
+- [x] M39.1 ACP uses Ari's detected Codex via CODEX_PATH instead of the adapter's bundled
+      CLI. Catalog reads retry discovery after a one-minute cooldown, including failed probes;
+      the model picker subscribes to PR #147's catalog notifications and retains live models
+      through transient probe failures. Verified with future-model regression tests and a real
+      Codex ACP handshake returning Astra. Both bundled 0.148.0 and installed 0.153.4 returned
+      Astra during the audit, so the version mismatch alone did not reproduce the missing entry.
+      Claude's subscription-specific catalog remains unverified.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |

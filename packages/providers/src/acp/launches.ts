@@ -139,6 +139,8 @@ export function resolveAcpLaunch(
       command: npx,
       args: ['-y', spec],
       viaNpx: true,
+      // Otherwise codex-acp runs its bundled Codex, which can lag the user's CLI.
+      ...(kind === 'codex' ? { env: { CODEX_PATH: options.cliBinaryPath } } : {}),
     }
   }
 
