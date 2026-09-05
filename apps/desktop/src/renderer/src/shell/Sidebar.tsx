@@ -558,9 +558,11 @@ function ProjectGroupSection({
       ) : null}
       {expanded ? (
         sessions.length > 0 ? (
-          <SessionList sessions={sessions} handlers={handlers} />
+          <div className="pl-5">
+            <SessionList sessions={sessions} handlers={handlers} />
+          </div>
         ) : (
-          <p className="px-4 py-1.5 text-2xs text-fg-subtle">No sessions yet.</p>
+          <p className="pl-12 pr-2 py-1.5 text-2xs text-fg-subtle">No sessions yet.</p>
         )
       ) : null}
     </section>
@@ -730,5 +732,4 @@ export type SidebarNavId =
   | 'settings'
   | 'files'
   | 'usage'
-
 
