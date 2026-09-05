@@ -831,6 +831,12 @@ already holding.
       service now publishes a post-probe invalidation instead of leaving the composer stuck on
       its mount-time empty read while `session/new` was still fetching config options
 
+## M38 — Desktop shell branding
+
+- [x] M38.1 The notification-area tray uses Ari's shipped app mark instead of the M2 placeholder;
+      packaged builds carry a multi-resolution ICO for sharp Windows DPI scaling and the PNG used
+      by macOS/Linux; the menu links to GitHub without implying that unsigned builds are signed
+
 ## Stretch backlog (post-V1, unplanned)
 
 - MCP client support

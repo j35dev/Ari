@@ -1,13 +1,6 @@
-import { Menu, Tray, app, nativeImage } from 'electron'
+import { Menu, Tray, app, nativeImage, shell } from 'electron'
+import { trayIconPath } from './tray-icon'
 import { trayTooltip, type TrayStatusSink } from './tray-status'
-
-/**
- * 16x16 base64 PNG: rounded accent square with a dark 'A' notch — a
- * placeholder mark until brand icons land in M14.
- */
-const ICON_DATA_URL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9uAAAAKklEQVR4nGNkYGD4z0BFwAri' +
-  'YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmIAAL1UA2FbX+yAAAAAAElFTkSuQmCC'
 
 export interface TrayHandle extends TrayStatusSink {
   destroy(): void
@@ -18,6 +11,12 @@ function buildMenu(onShow: () => void, runningCount: number) {
     { label: trayTooltip(runningCount), enabled: false },
     { type: 'separator' },
     { label: 'Show Ari', click: onShow },
+    {
+      label: 'GitHub',
+      click: () => {
+        void shell.openExternal('https://github.com/tahacore/Ari')
+      },
+    },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -30,7 +29,16 @@ function buildMenu(onShow: () => void, runningCount: number) {
 
 /** System tray with quick actions; tooltip doubles as a status surface. */
 export function createTray(onShow: () => void): TrayHandle {
-  const tray = new Tray(nativeImage.createFromDataURL(ICON_DATA_URL))
+  const iconPath = trayIconPath(
+    process.platform,
+    app.isPackaged,
+    app.getAppPath(),
+    process.resourcesPath,
+  )
+  const icon = nativeImage.createFromPath(iconPath)
+  if (icon.isEmpty()) throw new Error(`Ari tray icon could not be loaded from ${iconPath}`)
+
+  const tray = new Tray(icon)
   tray.setToolTip(trayTooltip(0))
 
   tray.setContextMenu(buildMenu(onShow, 0))
