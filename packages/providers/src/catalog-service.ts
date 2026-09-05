@@ -58,6 +58,8 @@ export interface CatalogServiceOptions {
   probeModels?: ModelProbe
   /** Kinds the probe is allowed to run for; empty disables probing. */
   probeKinds?: DriverKind[]
+  /** Called after registry refresh and live ACP probes have settled. */
+  onUpdated?: (at: number) => void
 }
 
 function toCatalogModels(models: Record<string, RegistryModel>): CatalogModel[] {
@@ -88,6 +90,7 @@ export class CatalogService {
   readonly #ttlMs: number
   readonly #probeModels: ModelProbe | null
   readonly #probeKinds: DriverKind[]
+  readonly #onUpdated: ((at: number) => void) | null
   #lastRefreshAt = 0
   #refreshing: Promise<void> | null = null
   #boot: Promise<void> | null = null
@@ -99,6 +102,7 @@ export class CatalogService {
     this.#ttlMs = options.ttlMs ?? REFRESH_TTL_MS
     this.#probeModels = options.probeModels ?? null
     this.#probeKinds = options.probeKinds ?? []
+    this.#onUpdated = options.onUpdated ?? null
   }
 
   /**
@@ -167,6 +171,7 @@ export class CatalogService {
       log.debug('registry refresh failed (snapshot stays active)', { error: String(error) })
     }
     await this.#runProbes()
+    this.#onUpdated?.(Date.now())
   }
 
   async #runProbes(): Promise<void> {
