@@ -867,6 +867,13 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       Astra during the audit, so the version mismatch alone did not reproduce the missing entry.
       Claude's subscription-specific catalog remains unverified.
 
+## M40 — Terminal clipboard
+
+- [x] M40.1 Selecting terminal output copies it automatically. Ctrl+V, Ctrl+Shift+V,
+      Cmd+V and Shift+Insert paste text through xterm's bracketed-paste path. Ctrl+C copies
+      a selection and still interrupts without one. Clipboard failures surface in the pane;
+      deferred reads cannot paste into a disposed terminal.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |
