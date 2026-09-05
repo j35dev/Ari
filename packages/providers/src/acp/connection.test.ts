@@ -128,6 +128,34 @@ async function drain(ms = 15): Promise<void> {
 }
 
 describe('AcpConnection', () => {
+  it('passes launch overrides and inherited environment to the real child', async () => {
+    const connection = await AcpConnection.connect({
+      cwd: process.cwd(),
+      launch: {
+        label: 'environment fixture',
+        command: process.execPath,
+        env: { CODEX_PATH: '/fixture/CLI with spaces/codex' },
+        args: ['-e', `
+          require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+            const message = JSON.parse(line);
+            if (message.method === 'initialize') {
+              console.log(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {
+                protocolVersion: 1,
+                agentInfo: { name: process.env.CODEX_PATH, version: process.env.PATH ?? process.env.Path }
+              } }));
+            }
+          });
+        `],
+      },
+    })
+    try {
+      expect(connection.initialize.agentInfo?.name).toBe('/fixture/CLI with spaces/codex')
+      expect(connection.initialize.agentInfo?.version).toBe(process.env['PATH'] ?? process.env['Path'])
+    } finally {
+      await connection.shutdown()
+    }
+  })
+
   it('completes the initialize handshake and exposes agent info', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
