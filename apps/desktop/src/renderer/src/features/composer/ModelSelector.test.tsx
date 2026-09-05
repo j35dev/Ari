@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
@@ -6,7 +6,7 @@ import { ModelSelector } from './ModelSelector'
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
-  subscribe: vi.fn(() => () => undefined),
+  subscribe: vi.fn((_name: string, _params: unknown, _listener: (payload: unknown) => void) => () => undefined),
 }))
 
 vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
@@ -27,6 +27,7 @@ function setup(
 
 describe('ModelSelector', () => {
   beforeEach(() => {
+    rpcMocks.subscribe.mockClear()
     rpcMocks.invoke.mockReset()
     rpcMocks.invoke.mockImplementation(async (method: string) => {
       switch (method) {
@@ -79,6 +80,23 @@ describe('ModelSelector', () => {
       expect(trigger.querySelector('svg')).not.toBeNull()
       expect(trigger).toHaveTextContent('Sonnet 4.5')
     })
+  })
+
+  it('updates an open picker when a late live catalog arrives', async () => {
+    setup('codex', 'gpt-5.6')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    const list = screen.getByRole('listbox', { name: 'Models' })
+    expect(within(list).getByText('GPT-5.6')).toBeInTheDocument()
+    const invoke = rpcMocks.invoke.getMockImplementation()!
+    rpcMocks.invoke.mockImplementation(async (method: string) => method === 'providers.models'
+      ? [{ kind: 'codex', source: 'live', models: [{ id: 'future-cli-model', label: 'New CLI model' }] }]
+      : invoke(method) as Promise<unknown>)
+    const listener = rpcMocks.subscribe.mock.calls.find(([name]) => name === 'providers.updates')?.[2]
+    expect(listener).toBeDefined()
+    await act(async () => listener?.({ type: 'catalog', at: Date.now() }))
+    expect(await within(list).findByText('New CLI model')).toBeInTheDocument()
+    expect(within(list).queryByText('GPT-5.6')).not.toBeInTheDocument()
   })
 
   it('opens straight onto the current provider with its active model checked', async () => {

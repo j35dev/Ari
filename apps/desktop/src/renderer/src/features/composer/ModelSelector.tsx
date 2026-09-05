@@ -119,6 +119,10 @@ export function ModelSelector({
 
   useEffect(() => {
     loadCatalogs()
+    return rpc.subscribe('providers.updates', {}, (payload) => {
+      const frame = payload as { type?: string }
+      if (frame.type === 'catalog' || frame.type === 'detections') loadCatalogs()
+    })
   }, [loadCatalogs])
 
   /** Models for one provider — the right-hand pane. */

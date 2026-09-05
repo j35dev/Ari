@@ -33,6 +33,16 @@ describe('resolveAcpLaunch', () => {
     expect(grok?.args).toEqual(['agent', 'stdio'])
   })
 
+  it('uses the detected Codex for both ACP sessions and background probes', async () => {
+    const npxPath = await makeFakeNpx()
+    const cliBinaryPath = join(dirname(npxPath), 'CLI with spaces', 'codex.cmd')
+    const launch = resolveAcpLaunch('codex', { cliBinaryPath }, { ...ENV, pathEnv: dirname(npxPath) })
+    expect(launch?.env).toEqual({ CODEX_PATH: cliBinaryPath })
+    expect(probeLaunch(launch!).env).toEqual({ CODEX_PATH: cliBinaryPath })
+    const claude = resolveAcpLaunch('claude', { cliBinaryPath: '/bin/claude' }, { ...ENV, pathEnv: dirname(npxPath) })
+    expect(claude?.env).toBeUndefined()
+  })
+
   it('returns null when the CLI itself is not installed', () => {
     expect(resolveAcpLaunch('claude', { cliBinaryPath: null }, ENV)).toBeNull()
     expect(resolveAcpLaunch('opencode', { cliBinaryPath: null }, ENV)).toBeNull()
