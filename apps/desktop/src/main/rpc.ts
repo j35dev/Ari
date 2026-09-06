@@ -14,6 +14,7 @@ import { commit as gitCommit, performGitAction, push as gitPush, stage as gitSta
 import { writeTextFile } from './fs-write'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
+import { ProviderAllowanceReader } from './provider-allowance'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
@@ -606,6 +607,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
+  const allowanceReader = new ProviderAllowanceReader()
+  r.register('providers.allowance', async ({ kind }) => {
+    const detections = await probeAllDetections()
+    return allowanceReader.read(kind, detections.find((row) => row.kind === kind)?.binaryPath ?? null)
+  })
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.
   // argv only; npx resolves/downloads the package so nothing is preinstalled.
@@ -1262,6 +1268,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     'sessions.importable',
     'sessions.import',
     'usage.summary',
+    'providers.allowance',
     'usage.ccusage',
     'command.dispatch',
     'attachments.stage',

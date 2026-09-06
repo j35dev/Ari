@@ -128,6 +128,29 @@ async function drain(ms = 15): Promise<void> {
 }
 
 describe('AcpConnection', () => {
+  it('bounds a usage prompt even when the agent never answers', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => method === 'session/prompt' ? NO_REPLY : STANDARD_AGENT(method, params, id))
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/', spawn: () => child })
+    try {
+      await expect(connection.prompt('probe', '/usage', { timeoutMs: 25, stallSilenceMs: 0 }))
+        .rejects.toThrow('timed out after 25ms')
+    } finally {
+      await connection.shutdown()
+    }
+  })
+
+  it('reads namespaced billing extensions through the response multiplexer', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => method === '_x.ai/billing' ? { config: { creditUsagePercent: 23 } } : STANDARD_AGENT(method, params, id))
+    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/', spawn: () => child })
+    try {
+      await expect(connection.requestExtension('_x.ai/billing', {})).resolves.toEqual({ config: { creditUsagePercent: 23 } })
+    } finally {
+      await connection.shutdown()
+    }
+  })
+
   it('passes launch overrides and inherited environment to the real child', async () => {
     const connection = await AcpConnection.connect({
       cwd: process.cwd(),
