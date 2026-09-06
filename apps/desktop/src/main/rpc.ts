@@ -8,6 +8,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
+import { IPC_METHODS } from './ipc-methods'
 import { Engine } from './engine'
 import { AttachmentStore } from './attachments'
 import { commit as gitCommit, performGitAction, push as gitPush, stage as gitStage } from './git-actions'
@@ -880,6 +881,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { removed }
   })
 
+  // The registry's array order is the sidebar order; move slots a project
+  // ahead of `beforeId` (or last) so a drag-reorder survives restarts.
+  r.register('project.move', async (params) => getProjectStore().move(params.id, params.beforeId))
+
   r.register('dialog.pickFolder', async (params) => {
     const options: Electron.OpenDialogOptions = { properties: ['openDirectory'] }
     if (params?.defaultPath) options.defaultPath = params.defaultPath
@@ -1258,75 +1263,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { unsubscribed: true }
   })
 
-  const methods = [
-    'ping',
-    'app.info',
-    'session.list',
-    'session.create',
-    'session.load',
-    'session.destroy',
-    'sessions.importable',
-    'sessions.import',
-    'usage.summary',
-    'providers.allowance',
-    'usage.ccusage',
-    'command.dispatch',
-    'attachments.stage',
-    'attachments.read',
-    'providers.detect',
-    'providers.models',
-    'providers.plan',
-    'providers.install',
-    'providers.cancelInstall',
-    'providers.authProbe',
-    'providers.login',
-    'providers.configFiles',
-    'providers.readConfig',
-    'providers.writeConfig',
-    'window.minimize',
-    'window.toggleMaximize',
-    'window.close',
-    'theme.apply',
-    'terminal.create',
-    'terminal.write',
-    'terminal.resize',
-    'terminal.kill',
-    'project.list',
-    'project.add',
-    'project.open',
-    'project.close',
-    'project.remove',
-    'dialog.pickFolder',
-    'shell.revealPath',
-    'shell.openUrl',
-    'files.index',
-    'search.content',
-    'endpoints.list',
-    'endpoints.upsert',
-    'endpoints.remove',
-    'endpoints.test',
-    'endpoints.discoverModels',
-    'endpoints.setModels',
-    'settings.get',
-    'settings.update',
-    'git.status',
-    'git.diffWorktree',
-    'git.turnDiff',
-    'git.add',
-    'git.commit',
-    'git.push',
-    'git.createPr',
-    'plan.get',
-    'scripts.list',
-    'ping',
-    'fs.list',
-    'fs.readTextFile',
-    'fs.writeTextFile',
-    'stream.subscribe',
-    'stream.unsubscribe',
-  ] as const
-
-  for (const method of methods) {
+  for (const method of IPC_METHODS) {
     ipcMain.removeHandler(`ari:${method}`)
     ipcMain.handle(`ari:${method}`, (_event, payload) => {
       return rpcRegistry.invoke(method, payload).catch((error: unknown) => {
