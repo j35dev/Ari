@@ -172,6 +172,20 @@ export class Engine {
         }
         consumed.add(command.text)
         await this.#append(command.sessionId, { type: 'message.dequeued', text: command.text, attachments })
+        // Dequeue used to make the follow-up vanish: it left the queue and
+        // never became a transcript row. Journal it as a user message so the
+        // session shows what the adapter just consumed.
+        await this.#append(command.sessionId, {
+          type: 'user.message.added',
+          message: {
+            id: ids.messageId,
+            sessionId: command.sessionId,
+            turnId: model.activeTurnId,
+            role: 'user',
+            parts: command.text.length > 0 ? [{ type: 'text', text: command.text }] : [],
+            createdAt: Date.now(),
+          },
+        })
       }
     }
 
