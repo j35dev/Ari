@@ -453,6 +453,12 @@ describe('engine end-to-end with scripted driver', () => {
       await new Promise((r) => setTimeout(r, 20))
     }
     expect(steered).toEqual(['focus on the parser instead'])
+    const folded = await store.load(sessionId)
+    expect(
+      folded.messages
+        .filter((m) => m.role === 'user')
+        .flatMap((m) => m.parts.filter((p) => p.type === 'text').map((p) => ('text' in p ? p.text : ''))),
+    ).toEqual(['long task', 'focus on the parser instead'])
   }, 10000)
 
   it('never steers an imaged message; it stays queued with its images', async () => {
@@ -973,9 +979,17 @@ describe('Engine durable queue continuation', () => {
     expect(enqueued.accepted).toBe(true)
 
     // The steering-capable transport consumed the text; the journal must
-    // reflect that the queue is empty again.
+    // reflect that the queue is empty again, and the follow-up must still
+    // appear as a user message so it doesn't vanish from the session.
     const model = await store.load(sessionId)
     expect(model.queuedMessages).toEqual([])
+    expect(
+      model.messages.some(
+        (m) =>
+          m.role === 'user' &&
+          m.parts.some((part) => part.type === 'text' && part.text === 'steer away'),
+      ),
+    ).toBe(true)
 
     releaseRef.current?.()
   }, 10000)
