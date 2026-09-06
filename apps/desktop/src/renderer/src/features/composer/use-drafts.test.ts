@@ -102,4 +102,28 @@ describe('useDrafts', () => {
     const { result } = renderHook(() => useDrafts('s1'))
     expect(result.current.draft).toBe('')
   })
+
+  it('applies a functional updater against the latest draft', () => {
+    vi.useFakeTimers()
+    const { result } = renderHook(() => useDrafts('s1'))
+    act(() => result.current.setDraft('see '))
+    act(() => result.current.setDraft((prev) => `${prev}@src/app.ts `))
+    expect(result.current.draft).toBe('see @src/app.ts ')
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(stored()).toEqual({ s1: 'see @src/app.ts ' })
+  })
+
+  it('does not write when the session id is empty', () => {
+    vi.useFakeTimers()
+    const { result, unmount } = renderHook(() => useDrafts(''))
+    act(() => result.current.setDraft('ephemeral'))
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(localStorage.getItem(DRAFTS_STORAGE_KEY)).toBeNull()
+    unmount()
+    expect(localStorage.getItem(DRAFTS_STORAGE_KEY)).toBeNull()
+  })
 })

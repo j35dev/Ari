@@ -879,6 +879,7 @@ export function SessionView({
         </div>
       ) : null}
       <Composer
+        sessionId={sessionId}
         onSend={handleSend}
         onStop={handleStop}
         running={running}
