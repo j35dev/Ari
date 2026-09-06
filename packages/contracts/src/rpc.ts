@@ -275,6 +275,8 @@ export const rpcParams = {
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.close': z.object({ id: z.string().min(1) }),
   'project.remove': z.object({ id: z.string().min(1) }),
+  /** Slots a project ahead of `beforeId` in the sidebar (null = last). */
+  'project.move': z.object({ id: z.string().min(1), beforeId: z.string().min(1).nullable() }),
   'dialog.pickFolder': z.object({ defaultPath: z.string().min(1).optional() }),
   'shell.revealPath': z.object({ path: z.string().min(1) }),
   /** Opens a URL in the OS browser; only http/https/mailto reach openExternal. */
@@ -531,6 +533,7 @@ export interface RpcResults {
   'project.open': Project
   'project.close': Project | null
   'project.remove': { removed: boolean }
+  'project.move': Project | null
   /** Native folder picker; `path` is null when the user cancels (clean no-op). */
   'dialog.pickFolder': { path: string | null }
   'shell.revealPath': { revealed: boolean }
