@@ -1,11 +1,13 @@
 import type { Readable, Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import { spawnCli } from '../spawn-cli'
+import { teardownChild } from '../teardown'
 
 const log = createLogger('providers:codex')
 
 /** Structural child surface; real spawns satisfy it, tests fake it. */
 export interface CodexChildProcess {
+  pid?: number | undefined
   stdin: Writable | null
   stdout: Readable
   stderr: Readable
@@ -149,6 +151,22 @@ export class AppServerConnection {
 
   kill(): void {
     if (!this.#child.killed) this.#child.kill()
+  }
+
+  /** Ends a background reader and its subprocess tree after its final request. */
+  async shutdown(): Promise<void> {
+    if (this.#closed) return
+    await teardownChild(
+      {
+        pid: this.#child.pid,
+        stdin: this.#child.stdin,
+        kill: () => this.#child.kill(),
+        once: (event, listener) => {
+          if (event === 'close') void this.#closeWaiter.then(listener, listener)
+        },
+      },
+      { eofGraceMs: 400, termGraceMs: 600 },
+    )
   }
 
   #handleLine(line: string): void {
