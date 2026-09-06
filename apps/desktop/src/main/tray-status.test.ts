@@ -11,6 +11,11 @@ describe('trayTooltip', () => {
     expect(trayTooltip(2)).toBe('Ari — 2 running')
     expect(trayTooltip(12)).toBe('Ari — 12 running')
   })
+
+  it('prefixes the unpackaged product name so two trays stay distinguishable', () => {
+    expect(trayTooltip(0, 'Ari Dev')).toBe('Ari Dev — idle')
+    expect(trayTooltip(1, 'Ari Dev')).toBe('Ari Dev — 1 running')
+  })
 })
 
 describe('updateTrayStatus', () => {
