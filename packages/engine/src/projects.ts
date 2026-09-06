@@ -118,6 +118,24 @@ export class ProjectStore {
     return this.#patch(id, { open: false })
   }
 
+  /**
+   * Moves a project within the registry — the stored array order *is* the
+   * sidebar order. `beforeId` inserts ahead of that project (closed ones
+   * included, they are invisible anyway); null appends last. Returns null
+   * when either id is unknown, leaving the order untouched.
+   */
+  async move(id: string, beforeId: string | null): Promise<Project | null> {
+    const moved = this.#projects.find((p) => p.id === id)
+    if (!moved) return null
+    const without = this.#projects.filter((p) => p.id !== id)
+    const index =
+      beforeId === null ? without.length : without.findIndex((p) => p.id === beforeId)
+    if (index === -1) return null
+    this.#projects = [...without.slice(0, index), moved, ...without.slice(index)]
+    await this.#persist()
+    return withStatus(moved)
+  }
+
   /** Destructive: forgets the project entirely. */
   async remove(id: string): Promise<boolean> {
     const before = this.#projects.length

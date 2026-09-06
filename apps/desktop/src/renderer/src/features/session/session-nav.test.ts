@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { sidebarGroups, sidebarOrder, UNFILED_GROUP_ID } from './session-nav'
+import {
+  moveProjectInList,
+  projectMoveForDelta,
+  projectMoveFromOrder,
+  sidebarGroups,
+  sidebarOrder,
+  UNFILED_GROUP_ID,
+} from './session-nav'
 
 function row(id: string, updatedAt: number, flags: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -17,6 +24,68 @@ const projects = [
   { id: 'p1', name: 'Ari' },
   { id: 'p2', name: 'Sketch' },
 ]
+
+describe('projectMoveFromOrder', () => {
+  it('slots the dragged project ahead of its new successor', () => {
+    expect(projectMoveFromOrder(['a', 'b', 'c'], ['a', 'c', 'b'], 'b')).toEqual({
+      id: 'b',
+      beforeId: null,
+    })
+    expect(projectMoveFromOrder(['a', 'b', 'c'], ['c', 'a', 'b'], 'c')).toEqual({
+      id: 'c',
+      beforeId: 'a',
+    })
+  })
+
+  it('returns null for a press or a drop back onto the original slot', () => {
+    expect(projectMoveFromOrder(['a', 'b', 'c'], ['a', 'b', 'c'], 'b')).toBeNull()
+    expect(projectMoveFromOrder(['a', 'b', 'c'], ['a', 'b', 'c'], 'gone')).toBeNull()
+  })
+})
+
+describe('projectMoveForDelta', () => {
+  const ids = ['a', 'b', 'c']
+
+  it('swaps with the neighbour above and below', () => {
+    expect(projectMoveForDelta(ids, 'b', -1)).toEqual({ id: 'b', beforeId: 'a' })
+    expect(projectMoveForDelta(ids, 'b', 1)).toEqual({ id: 'b', beforeId: null })
+    expect(projectMoveForDelta(ids, 'a', 1)).toEqual({ id: 'a', beforeId: 'c' })
+    expect(projectMoveForDelta(ids, 'c', -1)).toEqual({ id: 'c', beforeId: 'b' })
+  })
+
+  it('refuses to nudge past the edges', () => {
+    expect(projectMoveForDelta(ids, 'a', -1)).toBeNull()
+    expect(projectMoveForDelta(ids, 'c', 1)).toBeNull()
+    expect(projectMoveForDelta(ids, 'gone', 1)).toBeNull()
+  })
+})
+
+describe('moveProjectInList', () => {
+  const list = [
+    { id: 'a', open: true },
+    { id: 'closed', open: false },
+    { id: 'b', open: true },
+  ]
+
+  it('mirrors the stored splice, closed projects included', () => {
+    expect(moveProjectInList(list, 'b', 'a').map((p) => p.id)).toEqual(['b', 'a', 'closed'])
+    expect(moveProjectInList(list, 'b', null).map((p) => p.id)).toEqual([
+      'a',
+      'closed',
+      'b',
+    ])
+    expect(moveProjectInList(list, 'b', 'closed').map((p) => p.id)).toEqual([
+      'a',
+      'b',
+      'closed',
+    ])
+  })
+
+  it('leaves the list untouched for unknown ids', () => {
+    expect(moveProjectInList(list, 'gone', 'a')).toBe(list)
+    expect(moveProjectInList(list, 'a', 'gone')).toBe(list)
+  })
+})
 
 describe('sidebarGroups', () => {
   it('buckets sessions under each project in project order', () => {

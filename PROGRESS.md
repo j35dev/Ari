@@ -897,6 +897,23 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       60 seconds, on session/provider changes and on open. Prefers 5h then weekly, shows reset
       times and unavailable/stale states. Component tests cover polling, switching and races.
 
+## M43 — Sidebar project reordering
+
+- [x] M43.1 Drag a project group's header to reorder the sidebar (spring-settled
+      like the session rows; a clean click still toggles the group), with Move up /
+      Move down in the project menu as the keyboard path. Order is the stored
+      registry order: `project.move` slots a project before a sibling (or last) in
+      `projects.json`, the renderer splices optimistically so the drop tracks the
+      cursor, and Mod+1..9 / Ctrl+Tab follow automatically via `sidebarOrder`.
+      Unfiled stays a derived trailing group and is never draggable.
+      First cut shipped the reorder dead in the running app: `ipcMain.handle` is
+      registered per-method from a list in `main/rpc.ts`, and `project.move` had a
+      registry handler but no bridge entry, so every invoke rejected and the
+      failure path reverted the optimistic splice. The list now lives in
+      `main/ipc-methods.ts` with a guard test pinning it to the contracts channel
+      map; verified live via CDP (invoke, real pointer drag, menu Move up, and
+      the persisted `projects.json` order).
+
 ## M44 — Composer draft persistence
 
 - [x] M44.1 Unsent composer text survives session switches. The existing
