@@ -1,4 +1,5 @@
 import { app, BrowserWindow, shell } from 'electron'
+import { isolateDevInstance } from './dev-instance'
 import { registerRpc } from './rpc'
 import { createTray, type TrayHandle } from './tray'
 import { updateTrayStatus } from './tray-status'
@@ -9,6 +10,11 @@ import { isAppUrl, isExternalOpenable } from './external-links'
 // The launch animation's signature sound is Web Audio; without this switch
 // Chromium blocks it until the first user gesture.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
+// Unpackaged `pnpm dev` must take this identity before the lock: Electron keys
+// the mutex (and every userData store) off app name. Installed Ari stays on
+// its own profile so both can run at once.
+isolateDevInstance(app)
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
