@@ -1,8 +1,9 @@
 import { join } from 'node:path'
-import { BrowserWindow, nativeTheme } from 'electron'
+import { app, BrowserWindow, nativeTheme } from 'electron'
 import { oklchToHex } from '@ari/ui/color'
 import { themeOf } from '@ari/ui/themes'
 import type { Theme } from '@ari/ui/themes'
+import { appDisplayName } from './dev-instance'
 import { getSettingsStore } from './store'
 
 /**
@@ -85,6 +86,7 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     show: false,
+    title: appDisplayName(app.isPackaged),
     backgroundColor: chrome.backgroundColor,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay:

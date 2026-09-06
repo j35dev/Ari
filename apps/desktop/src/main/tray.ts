@@ -1,4 +1,5 @@
 import { Menu, Tray, app, nativeImage, shell } from 'electron'
+import { appDisplayName } from './dev-instance'
 import { trayIconPath } from './tray-icon'
 import { trayTooltip, type TrayStatusSink } from './tray-status'
 
@@ -6,11 +7,11 @@ export interface TrayHandle extends TrayStatusSink {
   destroy(): void
 }
 
-function buildMenu(onShow: () => void, runningCount: number) {
+function buildMenu(onShow: () => void, runningCount: number, productName: string) {
   return Menu.buildFromTemplate([
-    { label: trayTooltip(runningCount), enabled: false },
+    { label: trayTooltip(runningCount, productName), enabled: false },
     { type: 'separator' },
-    { label: 'Show Ari', click: onShow },
+    { label: `Show ${productName}`, click: onShow },
     {
       label: 'GitHub',
       click: () => {
@@ -29,6 +30,7 @@ function buildMenu(onShow: () => void, runningCount: number) {
 
 /** System tray with quick actions; tooltip doubles as a status surface. */
 export function createTray(onShow: () => void): TrayHandle {
+  const productName = appDisplayName(app.isPackaged)
   const iconPath = trayIconPath(
     process.platform,
     app.isPackaged,
@@ -39,17 +41,17 @@ export function createTray(onShow: () => void): TrayHandle {
   if (icon.isEmpty()) throw new Error(`Ari tray icon could not be loaded from ${iconPath}`)
 
   const tray = new Tray(icon)
-  tray.setToolTip(trayTooltip(0))
+  tray.setToolTip(trayTooltip(0, productName))
 
-  tray.setContextMenu(buildMenu(onShow, 0))
+  tray.setContextMenu(buildMenu(onShow, 0, productName))
   tray.on('click', onShow)
 
   return {
     destroy: () => tray.destroy(),
     // Menus are immutable once built; rebuilding swaps the status label in.
     setStatus: (runningCount) => {
-      tray.setToolTip(trayTooltip(runningCount))
-      tray.setContextMenu(buildMenu(onShow, runningCount))
+      tray.setToolTip(trayTooltip(runningCount, productName))
+      tray.setContextMenu(buildMenu(onShow, runningCount, productName))
     },
   }
 }
