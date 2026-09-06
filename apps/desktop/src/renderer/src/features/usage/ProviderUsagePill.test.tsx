@@ -48,27 +48,27 @@ describe('provider allowance pill', () => {
   it('prefers 5h in the closed pill and lists all providers with weekly fallback', async () => {
     const view = render(<ProviderUsagePill sessionId="one" kind="codex" />)
     await settle()
-    fireEvent.click(screen.getByRole('button', { name: 'Codex usage: 5h 88% remaining' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Codex usage: 5h 12% used' }))
     await settle()
     expect(screen.getByRole('dialog', { name: 'Provider usage' })).toBeInTheDocument()
-    expect(screen.getByRole('progressbar', { name: 'Codex 5h remaining' })).toHaveAttribute(
+    expect(screen.getByRole('progressbar', { name: 'Codex 5h used' })).toHaveAttribute(
       'aria-valuenow',
-      '88',
+      '12',
     )
-    expect(screen.getByRole('progressbar', { name: 'Grok Weekly remaining' })).toHaveAttribute(
+    expect(screen.getByRole('progressbar', { name: 'Grok Weekly used' })).toHaveAttribute(
       'aria-valuenow',
-      '77',
+      '23',
     )
     expect(screen.getByText('Usage unavailable')).toBeInTheDocument()
     view.rerender(<ProviderUsagePill sessionId="two" kind="grok" />)
     await settle()
     expect(
-      screen.getByRole('button', { name: 'Grok usage: Weekly 77% remaining' }),
+      screen.getByRole('button', { name: 'Grok usage: Weekly 23% used' }),
     ).toBeInTheDocument()
     fireEvent.keyDown(document, { key: 'Escape' })
     await settle()
     expect(
-      screen.getByRole('button', { name: 'Grok usage: Weekly 77% remaining' }),
+      screen.getByRole('button', { name: 'Grok usage: Weekly 23% used' }),
     ).toHaveAttribute('aria-expanded', 'false')
   })
 
@@ -101,7 +101,7 @@ describe('provider allowance pill', () => {
       await vi.advanceTimersByTimeAsync(60_000)
     })
     expect(
-      screen.getByRole('button', { name: 'Codex usage: 5h 88% remaining, stale' }),
+      screen.getByRole('button', { name: 'Codex usage: 5h 12% used, stale' }),
     ).toBeInTheDocument()
   })
 
