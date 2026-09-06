@@ -893,7 +893,9 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
 - [x] M42.2 Bounded live readers, coalesced refresh and stale retention: Grok ACP billing,
       Codex native account limits (pinned ACP does not refresh), and advertised Claude ACP /usage.
       Installed Codex/Grok reads verified; Claude currently reports no quota windows.
-- [ ] M42.3 Minimal header pill and compact provider list; 60-second and session-change refresh (claimed @ feat/m42-provider-usage)
+- [x] M42.3 Minimal header pill (including Settings) and compact provider list; refreshes every
+      60 seconds, on session/provider changes and on open. Prefers 5h then weekly, shows reset
+      times and unavailable/stale states. Component tests cover polling, switching and races.
 
 ## Blockers
 
