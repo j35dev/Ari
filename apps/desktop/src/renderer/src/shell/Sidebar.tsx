@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion, Reorder, useDragControls } from 'motion/react'
+import type { DragControls } from 'motion/react'
 import {
   Archive,
   ArchiveRestore,
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronRight,
   Folder,
@@ -29,15 +32,20 @@ import type { SessionSummary } from '@ari/contracts/rpc'
 import { SessionActivityMark } from '../features/moment'
 import { peakActivity, type SessionActivity } from '../features/session/session-activity'
 import {
+  projectMoveFromOrder,
   sidebarGroups,
   sidebarOrder,
   UNFILED_GROUP_ID,
+  type SidebarGroup,
 } from '../features/session/session-nav'
 import { useProjectExpand } from './use-project-expand'
 import { ContextMenu, useContextMenu } from './ContextMenu'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
 const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
+
+/** Pointer travel (px) beyond which a header press is a drag, not a click. */
+const DRAG_CLICK_SLOP_PX = 4
 
 /** Sidebar top: wordmark + one-click new session (T3 brand row). */
 export function SidebarHeader({
@@ -395,6 +403,10 @@ export interface ProjectActions {
   onRemoveProject?: (projectId: string) => void
   /** Re-pick the folder of a project whose path went missing. */
   onLocateProject?: (projectId: string) => void
+  /** Persist a drag: slot `projectId` immediately before `beforeId` (null = last). */
+  onReorderProject?: (projectId: string, beforeId: string | null) => void
+  /** Keyboard path (project menu): nudge a project one slot up (-1) or down (+1). */
+  onMoveProject?: (projectId: string, delta: -1 | 1) => void
 }
 
 /**
@@ -411,6 +423,9 @@ function ProjectGroupSection({
   onToggle,
   handlers,
   actions,
+  drag,
+  canMoveUp,
+  canMoveDown,
 }: {
   name: string
   project: SidebarProject | null
@@ -419,9 +434,16 @@ function ProjectGroupSection({
   onToggle: () => void
   handlers: SessionRowHandlers
   actions: ProjectActions
+  /** Present on reorderable project groups; Unfiled is a derived trailing group. */
+  drag?: { controls: DragControls; onPressStart: () => void }
+  canMoveUp?: boolean
+  canMoveDown?: boolean
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false)
   const menu = useContextMenu()
+  // Distinguishes the click that follows a header release from the drag that
+  // started on it: only a press that did not travel toggles the group.
+  const pressOrigin = useRef<{ x: number; y: number } | null>(null)
   const missing = project?.status === 'missing'
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
   const GroupIcon: LucideIcon = project === null ? Inbox : missing ? FolderX : expanded ? FolderOpen : Folder
@@ -432,7 +454,23 @@ function ProjectGroupSection({
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={onToggle}
+          onClick={(e) => {
+            const origin = pressOrigin.current
+            pressOrigin.current = null
+            if (
+              origin &&
+              Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > DRAG_CLICK_SLOP_PX
+            ) {
+              return
+            }
+            onToggle()
+          }}
+          onPointerDown={(e) => {
+            if (e.button !== 0 || !drag) return
+            pressOrigin.current = { x: e.clientX, y: e.clientY }
+            drag.onPressStart()
+            drag.controls.start(e)
+          }}
           onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
           className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
             project ? 'pr-7' : ''
@@ -496,6 +534,22 @@ function ProjectGroupSection({
               label: 'Reveal in file manager',
               icon: FolderOpen,
               onSelect: () => actions.onRevealProject?.(project.id),
+            },
+            {
+              id: 'move-up',
+              label: 'Move up',
+              icon: ArrowUp,
+              disabled: !canMoveUp,
+              disabledReason: canMoveUp ? undefined : 'Already the top project',
+              onSelect: () => actions.onMoveProject?.(project.id, -1),
+            },
+            {
+              id: 'move-down',
+              label: 'Move down',
+              icon: ArrowDown,
+              disabled: !canMoveDown,
+              disabledReason: canMoveDown ? undefined : 'Already the last project',
+              onSelect: () => actions.onMoveProject?.(project.id, 1),
             },
             {
               id: 'close',
@@ -570,11 +624,65 @@ function ProjectGroupSection({
 }
 
 /**
+ * One project group wrapped for drag-reorder. The drag starts on the group
+ * header (`dragListener={false}` keeps session rows and nested controls
+ * undraggable); `onPressStart` records which group the press began on so the
+ * reorder callback can derive the persisted move.
+ */
+function DraggableProjectGroup({
+  group,
+  project,
+  sessions,
+  expanded,
+  onToggle,
+  handlers,
+  actions,
+  canMoveUp,
+  canMoveDown,
+  onPressStart,
+}: {
+  group: SidebarGroup
+  project: SidebarProject | null
+  sessions: SessionSummary[]
+  expanded: boolean
+  onToggle: () => void
+  handlers: SessionRowHandlers
+  actions: ProjectActions
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onPressStart: () => void
+}) {
+  const controls = useDragControls()
+  return (
+    <Reorder.Item
+      value={group.id}
+      dragListener={false}
+      dragControls={controls}
+      transition={RESORT_TRANSITION}
+    >
+      <ProjectGroupSection
+        name={group.name}
+        project={project}
+        sessions={sessions}
+        expanded={expanded}
+        onToggle={onToggle}
+        handlers={handlers}
+        actions={actions}
+        canMoveUp={canMoveUp}
+        canMoveDown={canMoveDown}
+        drag={{ controls, onPressStart }}
+      />
+    </Reorder.Item>
+  )
+}
+
+/**
  * Sidebar body: search, an Open-project action, then one collapsible group per
  * open project with its sessions nested inside (pinned first within the
  * group), a trailing Unfiled group for ad-hoc sessions, and the global
  * Archived shelf at the bottom. Searching flattens matches across every
- * project into one list.
+ * project into one list. Project groups drag-reorder among themselves; Unfiled
+ * is derived and always trails.
  */
 export function SessionsUnderProjects({
   sessions,
@@ -619,6 +727,26 @@ export function SessionsUnderProjects({
 
   // Same grouping the keyboard traversal walks (sidebarOrder flattens it).
   const groups = useMemo(() => sidebarGroups(sessions, projects), [sessions, projects])
+  // Projects reorder among themselves; Unfiled stays a derived, trailing group.
+  const projectGroups = useMemo(
+    () => groups.filter((g) => g.id !== UNFILED_GROUP_ID),
+    [groups],
+  )
+  const unfiled = groups.find((g) => g.id === UNFILED_GROUP_ID)
+  // Set on header pointer-down, consumed by the reorder it may trigger.
+  const pressedGroupId = useRef<string | null>(null)
+
+  const reorderFromDrag = (nextIds: string[]): void => {
+    const draggedId = pressedGroupId.current
+    pressedGroupId.current = null
+    if (!draggedId) return
+    const move = projectMoveFromOrder(
+      projectGroups.map((g) => g.id),
+      nextIds,
+      draggedId,
+    )
+    if (move) actions.onReorderProject?.(move.id, move.beforeId)
+  }
   const matches = useMemo(
     () =>
       trimmed
@@ -649,21 +777,38 @@ export function SessionsUnderProjects({
       </p>
     ) : (
       <>
-        {groups.map((group) => {
-          const project = projects.find((p) => p.id === group.id) ?? null
-          return (
-            <ProjectGroupSection
+        <Reorder.Group
+          axis="y"
+          values={projectGroups.map((g) => g.id)}
+          onReorder={reorderFromDrag}
+        >
+          {projectGroups.map((group, index) => (
+            <DraggableProjectGroup
               key={group.id}
-              name={group.name}
-              project={project}
+              group={group}
+              project={projects.find((p) => p.id === group.id) ?? null}
               sessions={group.sessions}
               expanded={isExpanded(group.id)}
               onToggle={() => toggle(group.id)}
               handlers={handlers}
               actions={actions}
+              canMoveUp={index > 0}
+              canMoveDown={index < projectGroups.length - 1}
+              onPressStart={() => (pressedGroupId.current = group.id)}
             />
-          )
-        })}
+          ))}
+        </Reorder.Group>
+        {unfiled ? (
+          <ProjectGroupSection
+            name={unfiled.name}
+            project={null}
+            sessions={unfiled.sessions}
+            expanded={isExpanded(UNFILED_GROUP_ID)}
+            onToggle={() => toggle(UNFILED_GROUP_ID)}
+            handlers={handlers}
+            actions={actions}
+          />
+        ) : null}
         {archived.length > 0 ? (
           <CollapsibleSessions
             label="Archived"

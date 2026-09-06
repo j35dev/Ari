@@ -13,7 +13,11 @@ import { themePersistence } from './lib/theme-persistence'
 import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
-import { sidebarOrder } from './features/session/session-nav'
+import {
+  moveProjectInList,
+  projectMoveForDelta,
+  sidebarOrder,
+} from './features/session/session-nav'
 import { TerminalDock } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
@@ -250,6 +254,22 @@ function Shell() {
       .catch((error: unknown) => log.warn("rpc call failed", error))
   }, [])
 
+  // Sidebar order is the stored registry order: slot the project before
+  // `beforeId` (null = last). Applied optimistically so the spring tracks the
+  // drop, then persisted; a failed persist resyncs from disk.
+  const moveProject = useCallback(
+    (id: string, beforeId: string | null): void => {
+      setProjects((prev) => moveProjectInList(prev, id, beforeId))
+      void rpc
+        .invoke('project.move', { id, beforeId })
+        .catch((error: unknown) => {
+          log.warn("rpc call failed", error)
+          refreshProjects()
+        })
+    },
+    [refreshProjects],
+  )
+
   // Native picker → open; a cancelled picker resolves to null (silent no-op).
   // With a project id, the picker starts near that project's folder (Locate).
   const openProjectViaDialog = useCallback(
@@ -471,6 +491,15 @@ function Shell() {
                 .invoke('project.remove', { id: projectId })
                 .then(refreshProjects)
                 .catch((error: unknown) => log.warn("rpc call failed", error))
+            }}
+            onReorderProject={moveProject}
+            onMoveProject={(projectId, delta) => {
+              const move = projectMoveForDelta(
+                openProjects.map((p) => p.id),
+                projectId,
+                delta,
+              )
+              if (move) moveProject(move.id, move.beforeId)
             }}
             onLocateProject={openProjectViaDialog}
             activeSessionId={activeSessionId}

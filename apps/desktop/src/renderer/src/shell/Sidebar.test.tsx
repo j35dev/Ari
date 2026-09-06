@@ -38,6 +38,7 @@ type Handlers = Partial<{
   onCloseProject: (id: string) => void
   onRemoveProject: (id: string) => void
   onLocateProject: (id: string) => void
+  onMoveProject: (id: string, delta: -1 | 1) => void
   activityOf: (id: string) => SessionActivity | undefined
 }>
 
@@ -239,6 +240,36 @@ describe('SessionsUnderProjects', () => {
 
     await user.click(within(await openMenu()).getByRole('menuitem', { name: 'Close project' }))
     expect(onCloseProject).toHaveBeenCalledWith('proj-1')
+  })
+
+  it('nudges a project one slot from the menu, refused at the edges', async () => {
+    const onMoveProject = vi.fn()
+    renderSidebar([session('a', 1, 'proj-1')], null, { onMoveProject })
+    const user = userEvent.setup()
+
+    const openMenu = async (projectName: string): Promise<HTMLElement> => {
+      await user.pointer({
+        keys: '[MouseRight]',
+        target: screen.getByRole('button', { name: new RegExp(`^${projectName}\\d$`) }),
+      })
+      return screen.getByRole('menu', { name: `Project actions for ${projectName}` })
+    }
+
+    // Ari is the top project: Move up is refused, Move down reports +1.
+    const ariMenu = await openMenu('Ari')
+    expect(
+      within(ariMenu).getByRole('menuitem', { name: /^Move up/ }),
+    ).toHaveAttribute('aria-disabled', 'true')
+    await user.click(within(await openMenu('Ari')).getByRole('menuitem', { name: 'Move down' }))
+    expect(onMoveProject).toHaveBeenCalledWith('proj-1', 1)
+
+    // Sketch is last: Move down is refused, Move up reports -1.
+    const sketchMenu = await openMenu('Sketch')
+    expect(
+      within(sketchMenu).getByRole('menuitem', { name: /^Move down/ }),
+    ).toHaveAttribute('aria-disabled', 'true')
+    await user.click(within(await openMenu('Sketch')).getByRole('menuitem', { name: 'Move up' }))
+    expect(onMoveProject).toHaveBeenCalledWith('proj-2', -1)
   })
 
   it('keeps Import discoverable but disabled for a missing project', async () => {
