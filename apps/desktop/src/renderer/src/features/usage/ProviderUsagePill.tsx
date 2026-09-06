@@ -51,14 +51,14 @@ export function ProviderUsagePill({
     selected?.windows.find((window) => window.label === '5h') ??
     selected?.windows.find((window) => window.label === 'Weekly') ??
     selected?.windows[0]
-  const remaining = primary ? Math.round(100 - primary.usedPercent) : null
+  const used = primary ? Math.round(primary.usedPercent) : null
   const outdated = stale(selected, now)
   const label = NAMES[kind] ?? kind
   const tone = outdated
     ? 'text-fg-subtle'
-    : remaining !== null && remaining <= 10
+    : used !== null && used >= 90
       ? 'text-danger'
-      : remaining !== null && remaining <= 25
+      : used !== null && used >= 75
         ? 'text-warning'
         : 'text-accent'
 
@@ -72,7 +72,7 @@ export function ProviderUsagePill({
         }}
       >
         <Popover.Trigger
-          aria-label={`${label} usage: ${remaining === null ? 'unavailable' : `${primary?.label} ${remaining}% remaining${outdated ? ', stale' : ''}`}`}
+          aria-label={`${label} usage: ${used === null ? 'unavailable' : `${primary?.label} ${used}% used${outdated ? ', stale' : ''}`}`}
           className="flex h-6 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2 text-[11px] text-fg-muted transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <svg viewBox="0 0 16 16" className={`size-3.5 ${tone}`} aria-hidden="true">
@@ -93,7 +93,7 @@ export function ProviderUsagePill({
               stroke="currentColor"
               strokeWidth="2"
               pathLength="100"
-              strokeDasharray={`${remaining ?? 0} 100`}
+              strokeDasharray={`${used ?? 0} 100`}
               strokeLinecap="round"
               transform="rotate(-90 8 8)"
             />
@@ -101,7 +101,7 @@ export function ProviderUsagePill({
           <span>{label}</span>
           <span className="font-mono tabular-nums text-fg">
             {primary
-              ? `${primary.label} · ${remaining}% left`
+              ? `${primary.label} · ${used}% used`
               : refreshing && !selected?.checkedAt
                 ? '…'
                 : '—'}
@@ -152,20 +152,20 @@ export function ProviderUsagePill({
                       <div className="mb-1 flex justify-between text-[11px] text-fg-muted">
                         <span>{window.label}</span>
                         <span className="font-mono tabular-nums">
-                          {Math.round(100 - window.usedPercent)}% left
+                          {Math.round(window.usedPercent)}% used
                         </span>
                       </div>
                       <div
                         role="progressbar"
-                        aria-label={`${NAMES[row.kind] ?? row.kind} ${window.label} remaining`}
-                        aria-valuenow={100 - window.usedPercent}
+                        aria-label={`${NAMES[row.kind] ?? row.kind} ${window.label} used`}
+                        aria-valuenow={window.usedPercent}
                         aria-valuemin={0}
                         aria-valuemax={100}
                         className="h-1 overflow-hidden rounded-full bg-surface-3"
                       >
                         <div
                           className={`h-full rounded-full ${stale(row, now) ? 'bg-fg-subtle' : window.usedPercent >= 90 ? 'bg-danger' : 'bg-accent'}`}
-                          style={{ width: `${100 - window.usedPercent}%` }}
+                          style={{ width: `${window.usedPercent}%` }}
                         />
                       </div>
                       <div className="mt-1 text-[10px] text-fg-subtle">
@@ -203,7 +203,7 @@ export function ProviderUsagePill({
             ) : null}
           </div>
           <p className="border-t border-border px-3 py-2 text-[10px] text-fg-subtle">
-            Remaining allowance · refreshes every minute
+            Allowance used · refreshes every minute
           </p>
         </Popover.Content>
       </Popover>
