@@ -18,6 +18,7 @@ import {
   stashPrompt,
   type StashEntry,
 } from './prompt-stash'
+import { useDrafts } from './use-drafts'
 
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
@@ -51,6 +52,11 @@ export interface ComposerProps {
   disabled?: boolean
   /** Draft injection from outside (edit a transcript message); see {@link ComposerSeed}. */
   seed?: ComposerSeed
+  /**
+   * Session the unsent draft is keyed to. Switching away and back restores
+   * the text; omitted keeps the field in memory only.
+   */
+  sessionId?: string
 }
 
 const MIN_HEIGHT = 52
@@ -75,8 +81,9 @@ export function Composer({
   placeholder = 'Ask Ari…',
   disabled = false,
   seed,
+  sessionId,
 }: ComposerProps) {
-  const [text, setText] = useState('')
+  const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
   const [dismissed, setDismissed] = useState(false)
   const [stash, setStash] = useState<StashEntry[]>(() => loadStash())
