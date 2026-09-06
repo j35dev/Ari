@@ -69,6 +69,9 @@ pnpm approve-builds        # once — approves the node-pty native postinstall
 pnpm dev                   # launch the desktop app
 ```
 
+`pnpm dev` runs as **Ari Dev** with its own profile (Windows: `%APPDATA%\Ari Dev`),
+so it can sit next to an installed Ari. Sessions and settings are not shared.
+
 First launch detects installed CLIs automatically; anything missing is simply not
 offered. Point Ari at a project folder and start a session.
 
