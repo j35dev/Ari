@@ -393,7 +393,7 @@ function Shell() {
   if (settingsOpen) {
     return (
       <div className="ari-glass-pane flex h-full flex-col">
-        <Titlebar projectLabel="" />
+        <Titlebar projectLabel="" usage={{ sessionId: activeSessionId, kind: defaults.driverKind }} />
         <SettingsWorkspace
           section={settingsSection}
           onSectionChange={setSettingsSection}
@@ -439,6 +439,7 @@ function Shell() {
         projectLabel={activeProjectName}
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
+        usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
       />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
