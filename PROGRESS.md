@@ -890,7 +890,9 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
 
 - [x] M42.1 Account allowance contracts and normalization for real provider windows;
       weekly/monthly periods remain distinct and token/cost totals never imply quota.
-- [ ] M42.2 Bounded live readers, coalesced refresh and stale retention (claimed @ feat/m42-provider-usage)
+- [x] M42.2 Bounded live readers, coalesced refresh and stale retention: Grok ACP billing,
+      Codex native account limits (pinned ACP does not refresh), and advertised Claude ACP /usage.
+      Installed Codex/Grok reads verified; Claude currently reports no quota windows.
 - [ ] M42.3 Minimal header pill and compact provider list; 60-second and session-change refresh (claimed @ feat/m42-provider-usage)
 
 ## Blockers
