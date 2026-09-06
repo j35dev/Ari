@@ -923,6 +923,15 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       remount, and send/stash clear the stored entry. Empty `sessionId`
       (tests) stays in memory only.
 
+## M45 — Steered follow-ups stay visible
+
+- [x] M45.1 A prompt sent while a turn is running no longer vanishes. Providers
+      that can steer (claude stdin, ACP) consume the extra text mid-turn and
+      used to dequeue it with no transcript row — queued chip flashes then
+      nothing. The engine now journals `user.message.added` for a steered
+      follow-up so it shows in the session like any other user message.
+      Transports without steering still keep it queued until settle.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |

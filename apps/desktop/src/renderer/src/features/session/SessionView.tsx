@@ -445,8 +445,8 @@ export function SessionView({
           }
           // Queue continuation is the engine's job now: after a clean settle
           // it dequeues the oldest message and runs it as the next turn.
-          // The renderer only mirrors the queue as enqueued/dequeued events
-          // arrive, so a steered-away message disappears here immediately.
+          // Steered follow-ups dequeue immediately and arrive as
+          // user.message.added so they stay visible in the transcript.
           break
         }
         case 'message.enqueued':
