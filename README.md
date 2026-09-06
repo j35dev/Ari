@@ -1,5 +1,7 @@
 # Ari
 
+[![Stars](https://img.shields.io/github/stars/j35dev/Ari?style=social)](https://github.com/j35dev/Ari/stargazers) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 **Ari** — an open, local-first **agent development environment (ADE)** for Windows, macOS and Linux.
 
 Ari is a fast, beautiful control surface for the coding agents already installed and
@@ -62,7 +64,7 @@ An agent you don't use simply stays unlisted — detection is passive and offlin
 Prerequisites: **Node ≥ 22** and **pnpm**.
 
 ```sh
-git clone https://github.com/tahacore/Ari.git
+git clone https://github.com/j35dev/Ari.git
 cd Ari
 pnpm install
 pnpm approve-builds        # once — approves the node-pty native postinstall
@@ -137,11 +139,11 @@ Ari is built in the open, milestone by milestone. Current state and history:
 
 - [PLAN.md](./PLAN.md) — the architecture and milestone plan
 - [PROGRESS.md](./PROGRESS.md) — every shipped task with its design notes
-- [Releases](https://github.com/tahacore/Ari/releases) — installers for each platform
+- [Releases](https://github.com/j35dev/Ari/releases) — installers for each platform
 
 ## Contributing
 
-Issues and PRs are welcome. For substantial work, open an issue first so it can be slotted
+Issues and PRs are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md). For substantial work, open an issue first so it can be slotted
 into the plan. Keep diffs small, match the existing style, and make sure `pnpm verify` is
 green before pushing.
 
