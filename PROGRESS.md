@@ -897,6 +897,15 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       60 seconds, on session/provider changes and on open. Prefers 5h then weekly, shows reset
       times and unavailable/stale states. Component tests cover polling, switching and races.
 
+## M45 — Steered follow-ups stay visible
+
+- [x] M45.1 A prompt sent while a turn is running no longer vanishes. Providers
+      that can steer (claude stdin, ACP) consume the extra text mid-turn and
+      used to dequeue it with no transcript row — queued chip flashes then
+      nothing. The engine now journals `user.message.added` for a steered
+      follow-up so it shows in the session like any other user message.
+      Transports without steering still keep it queued until settle.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |

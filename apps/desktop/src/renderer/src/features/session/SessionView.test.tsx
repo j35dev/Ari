@@ -1061,6 +1061,61 @@ describe('SessionView queued messages', () => {
       expect(screen.queryByText(/queued message/)).not.toBeInTheDocument()
     })
   })
+
+  it('renders a steered follow-up as a user message after it is dequeued', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'long task' }],
+        createdAt: 2,
+      },
+    })
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'focus on the parser instead',
+    })
+    emitSessionEvent({
+      seq: 4,
+      at: 4,
+      sessionId: 'sess_1',
+      type: 'message.dequeued',
+      text: 'focus on the parser instead',
+    })
+    emitSessionEvent({
+      seq: 5,
+      at: 5,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm2',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'focus on the parser instead' }],
+        createdAt: 5,
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText(/queued message/)).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('long task')).toBeInTheDocument()
+    expect(screen.getByText('focus on the parser instead')).toBeInTheDocument()
+  })
 })
 
 describe('SessionView image attachments', () => {
