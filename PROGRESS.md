@@ -886,6 +886,17 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       and read as children instead of sitting against the sidebar edge. Empty-project text
       follows the same inset; row actions and rename/delete states stay together.
 
+## M42 — Provider allowance pill
+
+- [x] M42.1 Account allowance contracts and normalization for real provider windows;
+      weekly/monthly periods remain distinct and token/cost totals never imply quota.
+- [x] M42.2 Bounded live readers, coalesced refresh and stale retention: Grok ACP billing,
+      Codex native account limits (pinned ACP does not refresh), and advertised Claude ACP /usage.
+      Installed Codex/Grok reads verified; Claude currently reports no quota windows.
+- [x] M42.3 Minimal header pill (including Settings) and compact provider list; refreshes every
+      60 seconds, on session/provider changes and on open. Prefers 5h then weekly, shows reset
+      times and unavailable/stale states. Component tests cover polling, switching and races.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |

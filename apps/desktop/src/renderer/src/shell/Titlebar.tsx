@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Folder, Gauge, GitPullRequest, Settings, TerminalSquare } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import type { SidebarNavId } from './Sidebar'
+import type { DriverKind } from '@ari/contracts/common'
+import { ProviderUsagePill } from '../features/usage/ProviderUsagePill'
 
 const TITLEBAR_TOOLS: { id: Exclude<SidebarNavId, 'session'>; label: string; icon: typeof Folder }[] = [
   { id: 'changes', label: 'Changes', icon: GitPullRequest },
@@ -33,10 +35,12 @@ export function Titlebar({
   projectLabel,
   activeTool,
   onSelectTool,
+  usage,
 }: {
   projectLabel: string
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
+  usage?: { sessionId: string | null; kind: DriverKind }
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -53,6 +57,7 @@ export function Titlebar({
       </div>
 
       <div className="flex-1" />
+      {usage ? <ProviderUsagePill {...usage} /> : null}
 
       {onSelectTool ? (
         <nav
