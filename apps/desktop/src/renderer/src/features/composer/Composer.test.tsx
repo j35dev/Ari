@@ -366,6 +366,44 @@ describe('Composer file drag-drop', () => {
   })
 })
 
+describe('Composer session drafts', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('restores unsent text after unmount for the same session', async () => {
+    const user = userEvent.setup()
+    const first = render(<Composer sessionId="s1" onSend={vi.fn()} />)
+    await user.type(screen.getByLabelText('Message'), 'unsent thought')
+    first.unmount()
+
+    render(<Composer sessionId="s1" onSend={vi.fn()} />)
+    expect(screen.getByLabelText('Message')).toHaveValue('unsent thought')
+  })
+
+  it('does not leak a draft into a different session', async () => {
+    const user = userEvent.setup()
+    const first = render(<Composer sessionId="s1" onSend={vi.fn()} />)
+    await user.type(screen.getByLabelText('Message'), 'only for s1')
+    first.unmount()
+
+    render(<Composer sessionId="s2" onSend={vi.fn()} />)
+    expect(screen.getByLabelText('Message')).toHaveValue('')
+  })
+
+  it('clears the stored draft after send', async () => {
+    const user = userEvent.setup()
+    const first = render(<Composer sessionId="s1" onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'ship it')
+    await user.type(input, '{Enter}')
+    first.unmount()
+
+    render(<Composer sessionId="s1" onSend={vi.fn()} />)
+    expect(screen.getByLabelText('Message')).toHaveValue('')
+  })
+})
+
 describe('Composer mention highlight', () => {
   it('renders a highlighted mark behind the field for each reference', async () => {
     const user = userEvent.setup()

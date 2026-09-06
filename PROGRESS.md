@@ -914,6 +914,15 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       map; verified live via CDP (invoke, real pointer drag, menu Move up, and
       the persisted `projects.json` order).
 
+## M44 — Composer draft persistence
+
+- [x] M44.1 Unsent composer text survives session switches. The existing
+      per-session `useDrafts` cache was never wired into the prompt box, so
+      `SessionView`'s `key={activeSessionId}` remount wiped anything typed
+      but not sent. Composer now keys drafts on `sessionId`, restores on
+      remount, and send/stash clear the stored entry. Empty `sessionId`
+      (tests) stays in memory only.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |
