@@ -567,7 +567,7 @@ export class AcpConnection {
   async prompt(
     sessionId: string,
     text: string,
-    options: { images?: { data: string; mimeType: string }[]; stallSilenceMs?: number } = {},
+    options: { images?: { data: string; mimeType: string }[]; stallSilenceMs?: number; timeoutMs?: number } = {},
   ): Promise<string> {
     const { images = [], stallSilenceMs = acpPromptStallMs() } = options
     const blocks: { type: string; text?: string; data?: string; mimeType?: string }[] = []
@@ -581,7 +581,7 @@ export class AcpConnection {
         sessionId,
         prompt: blocks,
       },
-      undefined,
+      options.timeoutMs,
       stallSilenceMs,
     )) as { stopReason?: string } | null
     return typeof result?.stopReason === 'string' ? result.stopReason : 'end_turn'
@@ -589,6 +589,11 @@ export class AcpConnection {
 
   cancel(sessionId: string): void {
     this.#notify('session/cancel', { sessionId })
+  }
+
+  /** Calls a provider's namespaced ACP extension with a bounded deadline. */
+  requestExtension(method: `_${string}`, params: unknown): Promise<unknown> {
+    return this.#request(method, params, 10_000)
   }
 
   async setConfigOption(

@@ -28,6 +28,42 @@ export const sessionSummarySchema = z.object({
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
+/** Subscription allowance, separate from session token and cost accounting. */
+export interface ProviderAllowance {
+  kind: string
+  status: 'available' | 'unavailable' | 'error'
+  windows: { label: string; usedPercent: number; resetsAt: number | null; resetText?: string }[]
+  updatedAt: number | null
+  checkedAt: number
+  detail: string
+}
+
+const percentSchema = z.number().finite().min(0).max(100)
+const codexWindowSchema = z.object({
+  usedPercent: percentSchema,
+  windowDurationMins: z.number().positive().nullable(),
+  resetsAt: z.number().finite().nullable(),
+})
+/** Native Codex account/read limits response; unknown fields are ignored. */
+export const codexAllowanceSchema = z.object({
+  rateLimits: z.object({
+    primary: codexWindowSchema.nullable(),
+    secondary: codexWindowSchema.nullable(),
+  }),
+})
+/** Read-only Grok billing extension used by its terminal's /usage view. */
+export const grokAllowanceSchema = z.object({
+  config: z
+    .object({
+      creditUsagePercent: percentSchema.optional(),
+      currentPeriod: z.object({ type: z.string(), end: z.string().optional() }).optional(),
+      monthlyLimit: z.object({ val: z.number().nonnegative().default(0) }).optional(),
+      used: z.object({ val: z.number().nonnegative().default(0) }).optional(),
+      billingPeriodEnd: z.string().optional(),
+    })
+    .nullable(),
+})
+
 export const sessionCreateParamsSchema = z.object({
   projectId: z.string(),
   title: z.string(),
@@ -184,6 +220,7 @@ export const rpcParams = {
     projectId: z.string().min(1).optional(),
   }),
   'usage.summary': z.undefined(),
+  'providers.allowance': z.object({ kind: driverKindSchema }),
   'usage.ccusage': z.object({ subcommand: z.enum(['daily', 'monthly', 'blocks']).optional() }),
   'command.dispatch': z.object({ command: commandSchema }),
   /**
@@ -379,6 +416,7 @@ export interface RpcResults {
     | { ok: true; sessionId: string; title: string; messageCount: number }
     | { ok: false; error: string }
   'usage.summary': UsageSummary
+  'providers.allowance': ProviderAllowance
   /**
    * Output of `npx ccusage` (the community Claude Code usage analyzer) run
    * out-of-process. `ok` false carries the failure reason; `output` holds the
