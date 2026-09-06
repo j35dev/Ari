@@ -143,7 +143,7 @@ Ari is built in the open, milestone by milestone. Current state and history:
 
 ## Contributing
 
-Issues and PRs are welcome. For substantial work, open an issue first so it can be slotted
+Issues and PRs are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md). For substantial work, open an issue first so it can be slotted
 into the plan. Keep diffs small, match the existing style, and make sure `pnpm verify` is
 green before pushing.
 
