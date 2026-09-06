@@ -78,6 +78,48 @@ describe('ProjectStore', () => {
     expect(store.list()).toHaveLength(0)
   })
 
+  it('move slots a project before a sibling and persists the order', async () => {
+    const store = new ProjectStore({ dir })
+    const a = await store.add(join(dir, 'a'))
+    const b = await store.add(join(dir, 'b'))
+    const c = await store.add(join(dir, 'c'))
+
+    expect((await store.move(c.id, a.id))?.id).toBe(c.id)
+    expect(store.list().map((p) => p.id)).toEqual([c.id, a.id, b.id])
+
+    // beforeId null appends last.
+    await store.move(c.id, null)
+    expect(store.list().map((p) => p.id)).toEqual([a.id, b.id, c.id])
+
+    // The sidebar order survives a restart.
+    const reloaded = await new ProjectStore({ dir }).load()
+    expect(reloaded.map((p) => p.id)).toEqual([a.id, b.id, c.id])
+  })
+
+  it('move reorders among open projects without disturbing closed ones', async () => {
+    const store = new ProjectStore({ dir })
+    const open = await store.open(join(dir, 'open'))
+    const hidden = await store.add(join(dir, 'hidden'))
+    const other = await store.open(join(dir, 'other'))
+    await store.close(hidden.id)
+
+    // Inserting before `other` lands ahead of it even with a closed project
+    // in between — only the relative order of open projects is visible.
+    await store.move(open.id, other.id)
+    expect(store.listOpen().map((p) => p.id)).toEqual([open.id, other.id])
+    expect(store.list().map((p) => p.id)).toEqual([hidden.id, open.id, other.id])
+  })
+
+  it('move is a no-op for unknown ids', async () => {
+    const store = new ProjectStore({ dir })
+    const a = await store.add(join(dir, 'a'))
+    const b = await store.add(join(dir, 'b'))
+
+    expect(await store.move('proj_none', null)).toBeNull()
+    expect(await store.move(a.id, 'proj_none')).toBeNull()
+    expect(store.list().map((p) => p.id)).toEqual([a.id, b.id])
+  })
+
   it('persists open state across instances', async () => {
     const store = new ProjectStore({ dir })
     const project = await store.open(existingFolder)

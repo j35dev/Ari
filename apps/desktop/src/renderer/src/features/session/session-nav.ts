@@ -59,3 +59,63 @@ export function sidebarOrder(
   }
   return sidebarGroups(sessions, projects).flatMap((g) => g.sessions)
 }
+
+/** One sidebar-reorder step: place `id` immediately before `beforeId` (null = last). */
+export interface ProjectMove {
+  id: string
+  beforeId: string | null
+}
+
+/**
+ * The move a drag produced: `draggedId` landed at a new spot in `to`, so it
+ * slots ahead of whatever follows it there. Null when the gesture never
+ * changed the order (a press, or a drop back onto the original slot).
+ */
+export function projectMoveFromOrder(
+  from: string[],
+  to: string[],
+  draggedId: string,
+): ProjectMove | null {
+  const nextIndex = to.indexOf(draggedId)
+  if (nextIndex === -1) return null
+  const beforeId = to[nextIndex + 1] ?? null
+  const previousIndex = from.indexOf(draggedId)
+  if (previousIndex === -1 || (from[previousIndex + 1] ?? null) === beforeId) return null
+  return { id: draggedId, beforeId }
+}
+
+/**
+ * The move for a one-slot nudge (the project menu's Move up / Move down, the
+ * keyboard path). Null at the edges where there is no neighbour to swap with.
+ */
+export function projectMoveForDelta(
+  openIds: string[],
+  id: string,
+  delta: -1 | 1,
+): ProjectMove | null {
+  const index = openIds.indexOf(id)
+  const target = index + delta
+  if (index === -1 || target < 0 || target >= openIds.length) return null
+  return delta === -1
+    ? { id, beforeId: openIds[target] as string }
+    : { id, beforeId: openIds[target + 1] ?? null }
+}
+
+/**
+ * New array with `id` slotted before `beforeId` (null = last) — the same
+ * splice `ProjectStore.move` persists, applied locally so the drop tracks the
+ * cursor instead of waiting for the round-trip. Returns the input untouched
+ * for unknown ids.
+ */
+export function moveProjectInList<T extends { id: string }>(
+  projects: T[],
+  id: string,
+  beforeId: string | null,
+): T[] {
+  const dragged = projects.find((p) => p.id === id)
+  if (!dragged) return projects
+  const without = projects.filter((p) => p.id !== id)
+  const index = beforeId === null ? without.length : without.findIndex((p) => p.id === beforeId)
+  if (index === -1) return projects
+  return [...without.slice(0, index), dragged, ...without.slice(index)]
+}
