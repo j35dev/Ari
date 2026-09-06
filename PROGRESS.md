@@ -906,6 +906,13 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       `projects.json`, the renderer splices optimistically so the drop tracks the
       cursor, and Mod+1..9 / Ctrl+Tab follow automatically via `sidebarOrder`.
       Unfiled stays a derived trailing group and is never draggable.
+      First cut shipped the reorder dead in the running app: `ipcMain.handle` is
+      registered per-method from a list in `main/rpc.ts`, and `project.move` had a
+      registry handler but no bridge entry, so every invoke rejected and the
+      failure path reverted the optimistic splice. The list now lives in
+      `main/ipc-methods.ts` with a guard test pinning it to the contracts channel
+      map; verified live via CDP (invoke, real pointer drag, menu Move up, and
+      the persisted `projects.json` order).
 
 ## Blockers
 
