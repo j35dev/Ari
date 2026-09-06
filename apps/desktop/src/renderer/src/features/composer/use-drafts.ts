@@ -8,11 +8,13 @@ const WRITE_DEBOUNCE_MS = 300
 
 type DraftMap = Record<string, string>
 
+export type DraftUpdater = string | ((prev: string) => string)
+
 export interface UseDraftsResult {
   /** Current draft text for the session. */
   draft: string
   /** Update the draft; persists to localStorage after the debounce window. */
-  setDraft: (text: string) => void
+  setDraft: (text: DraftUpdater) => void
 }
 
 function readDrafts(): DraftMap {
@@ -31,7 +33,14 @@ function readDrafts(): DraftMap {
   }
 }
 
+function loadDraft(sessionId: string): string {
+  if (sessionId === '') return ''
+  return readDrafts()[sessionId] ?? ''
+}
+
 function writeDraft(sessionId: string, text: string): void {
+  // Tests (and any caller without a session) keep the field in memory only.
+  if (sessionId === '') return
   const drafts = readDrafts()
   if (text === '') {
     delete drafts[sessionId]
@@ -49,7 +58,9 @@ function writeDraft(sessionId: string, text: string): void {
  * lost. An empty draft clears the session's entry.
  */
 export function useDrafts(sessionId: string): UseDraftsResult {
-  const [draft, setDraft] = useState(() => readDrafts()[sessionId] ?? '')
+  const [draft, setDraft] = useState(() => loadDraft(sessionId))
+  const draftRef = useRef(draft)
+  draftRef.current = draft
   const pendingRef = useRef<{ sessionId: string; text: string } | null>(null)
   const timerRef = useRef<number | undefined>(undefined)
 
@@ -63,7 +74,9 @@ export function useDrafts(sessionId: string): UseDraftsResult {
   }, [])
 
   const setDraftDebounced = useCallback(
-    (text: string) => {
+    (next: DraftUpdater) => {
+      const text = typeof next === 'function' ? next(draftRef.current) : next
+      draftRef.current = text
       setDraft(text)
       pendingRef.current = { sessionId, text }
       window.clearTimeout(timerRef.current)
@@ -75,7 +88,9 @@ export function useDrafts(sessionId: string): UseDraftsResult {
   // Switching sessions: flush the old session's pending edit, then load the
   // new session's stored draft.
   useEffect(() => {
-    setDraft(readDrafts()[sessionId] ?? '')
+    const stored = loadDraft(sessionId)
+    draftRef.current = stored
+    setDraft(stored)
     return flush
   }, [sessionId, flush])
 

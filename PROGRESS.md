@@ -897,6 +897,15 @@ shipped explicitly partial. Recorded here so a ticked box never reads as "the us
       60 seconds, on session/provider changes and on open. Prefers 5h then weekly, shows reset
       times and unavailable/stale states. Component tests cover polling, switching and races.
 
+## M44 — Composer draft persistence
+
+- [x] M44.1 Unsent composer text survives session switches. The existing
+      per-session `useDrafts` cache was never wired into the prompt box, so
+      `SessionView`'s `key={activeSessionId}` remount wiped anything typed
+      but not sent. Composer now keys drafts on `sessionId`, restores on
+      remount, and send/stash clear the stored entry. Empty `sessionId`
+      (tests) stays in memory only.
+
 ## Blockers
 
 | Task | Tried | Error essence | Status |
