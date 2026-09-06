@@ -880,6 +880,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { removed }
   })
 
+  // The registry's array order is the sidebar order; move slots a project
+  // ahead of `beforeId` (or last) so a drag-reorder survives restarts.
+  r.register('project.move', async (params) => getProjectStore().move(params.id, params.beforeId))
+
   r.register('dialog.pickFolder', async (params) => {
     const options: Electron.OpenDialogOptions = { properties: ['openDirectory'] }
     if (params?.defaultPath) options.defaultPath = params.defaultPath
