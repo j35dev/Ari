@@ -1105,11 +1105,34 @@ describe('pickAgentMode', () => {
     expect(pickAgentMode(modes, 'full')).toBe('build')
   })
 
-  it('falls back to any non-planning mode for the build modes', () => {
+  it('falls back to unknown non-planning modes only for full permissions', () => {
     const modes = ['plan', 'somethingUnnamed']
-    expect(pickAgentMode(modes, 'allow-edits')).toBe('somethingUnnamed')
+    expect(pickAgentMode(modes, 'allow-edits')).toBeNull()
     expect(pickAgentMode(modes, 'full')).toBe('somethingUnnamed')
   })
+
+  it.each([
+    'bypassPermissions',
+    'auto',
+    'yolo',
+    'danger-full-access',
+    'dontAsk',
+    'workspace-full-access',
+    'auto-edit',
+    'bypass-edits',
+    'read-only-workspace',
+    'plan-edit',
+  ])('never selects %s for allow-edits', (unsafeMode) => {
+    expect(pickAgentMode(['plan', unsafeMode], 'allow-edits')).toBeNull()
+    expect(pickAgentMode([unsafeMode, 'acceptEdits'], 'allow-edits')).toBe('acceptEdits')
+  })
+
+  it.each(['acceptEdits', 'workspace-write', 'build', 'code', 'editing'])(
+    'selects recognized edit mode %s without escalating',
+    (safeMode) => {
+      expect(pickAgentMode(['bypassPermissions', 'auto', safeMode], 'allow-edits')).toBe(safeMode)
+    },
+  )
 
   it('never guesses for ask, so an unknown agent keeps its default', () => {
     expect(pickAgentMode(['somethingUnnamed'], 'ask')).toBeNull()
