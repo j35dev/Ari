@@ -58,6 +58,9 @@ export async function startAgentRuntime(options: AgentRuntimeOptions) {
       throw new ControlFailure('managed_worktree_missing', 'Session workspace is unavailable.')
     return cwd
   }
+  let dropSession = (id: string): void => {
+    approvals.cancel(id)
+  }
   const service = new AgentControlService({
     store,
     version: options.version,
@@ -115,11 +118,17 @@ export async function startAgentRuntime(options: AgentRuntimeOptions) {
       return result
     },
     approve: (root) => approvals.request(root, options.policy().maxConcurrentChildren),
+    quiesce: (id) => engine.quiesce(id),
+    revoke: (id) => dropSession(id),
   })
   const server = new AgentControlServer({
     endpoint,
     invoke: (caller, method, params, signal) => service.invoke(caller, method, params, signal),
   })
+  dropSession = (id) => {
+    approvals.cancel(id)
+    server.revoke(id)
+  }
   await server.listen()
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
@@ -145,10 +154,7 @@ export async function startAgentRuntime(options: AgentRuntimeOptions) {
         ? 'Maximum concurrent child sessions reached.'
         : null
     },
-    revoke: (id: string) => {
-      approvals.cancel(id)
-      server.revoke(id)
-    },
+    revoke: (id: string) => dropSession(id),
     close: async () => {
       unsubscribe()
       approvals.close()
