@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { sessionHierarchySummarySchema, type SessionHierarchySummary } from '@ari/contracts/session'
 import type { JournalEvent } from '@ari/contracts/events'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
@@ -30,7 +31,8 @@ export interface SessionStoreOptions {
  * feed `usageSummary()` from the same sidecar.
  */
 interface SessionIndex {
-  version: 2
+  version: 3
+  hierarchy: SessionHierarchySummary
   lastSeq: number
   hasSession: boolean
   projectId: string
@@ -46,7 +48,7 @@ interface SessionIndex {
   journalBytes: number
 }
 
-export interface SessionListEntry {
+export interface SessionListEntry extends SessionHierarchySummary {
   id: string
   projectId: string
   title: string
@@ -73,11 +75,19 @@ export interface UsageSummary {
   totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
 }
 
-const INDEX_VERSION = 2
+const INDEX_VERSION = 3
 
 function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex {
   return {
     version: INDEX_VERSION,
+    hierarchy: {
+      parentSessionId: model.session?.parentSessionId ?? null,
+      rootSessionId: model.session?.rootSessionId ?? model.session?.id ?? null,
+      ...(model.session ? { driverKind: model.session.driverKind, status: model.session.status } : {}),
+      modelId: model.session?.modelId ?? null,
+      workspaceKind: model.session?.workspace?.kind ?? 'project',
+      branch: model.session?.workspace?.kind === 'managed-worktree' ? model.session.workspace.branch : null,
+    },
     lastSeq: model.lastSeq,
     hasSession: model.session !== null,
     projectId: model.session?.projectId ?? '',
@@ -102,8 +112,9 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   const cost = value['costUsd']
+  const hierarchy = sessionHierarchySummarySchema.safeParse(value['hierarchy'])
   if (
-    value['version'] !== INDEX_VERSION ||
+    value['version'] !== INDEX_VERSION || !hierarchy.success ||
     typeof value['lastSeq'] !== 'number' ||
     typeof value['hasSession'] !== 'boolean' ||
     typeof value['projectId'] !== 'string' ||
@@ -121,7 +132,8 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   return {
-    version: 2,
+    version: 3,
+    hierarchy: hierarchy.data,
     lastSeq: value['lastSeq'],
     hasSession: value['hasSession'],
     projectId: value['projectId'],
@@ -409,6 +421,7 @@ export class SessionStore {
 
   #fields(entry: SessionIndex): Omit<SessionListEntry, 'id'> {
     return {
+      ...entry.hierarchy,
       projectId: entry.projectId,
       title: entry.title,
       updatedAt: entry.updatedAt,

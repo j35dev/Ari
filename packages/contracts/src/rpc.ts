@@ -9,13 +9,14 @@ import type { DiscoveredModel, EndpointModel } from './endpoint'
 import type { Project } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
+import { sessionHierarchySummarySchema } from './session'
 
 /**
  * The RPC surface between renderer and engine. Method names are an allowlist;
  * every payload is validated in the main process before a handler runs.
  */
 
-export const sessionSummarySchema = z.object({
+export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
   id: z.string(),
   projectId: z.string(),
   title: z.string(),
