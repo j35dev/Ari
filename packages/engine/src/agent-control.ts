@@ -37,10 +37,16 @@ export interface ControlHost {
   isRunning?(id: string): boolean
   isolate(parent: Session, childId: string): Promise<SessionWorkspace>
   diff(child: Session, patch: boolean): Promise<unknown>
-  integrate(parent: Session, child: Session, snapshot: string): Promise<unknown>
+  integrate(
+    parent: Session,
+    child: Session,
+    snapshot: string,
+    options?: { allowStale?: boolean },
+  ): Promise<unknown>
   approve(root: Session): Promise<boolean>
   quiesce?(id: string): Promise<void>
   revoke?(id: string): void
+  release(child: Session): Promise<void>
 }
 
 /** Scoped control primitives shared by the desktop host, local CLI and deterministic tests. */
@@ -48,7 +54,9 @@ export class AgentControlService {
   readonly #receipts = new Map<string, { fingerprint: string; result: Promise<unknown> }>()
   readonly #roots = new Map<string, Promise<unknown>>()
   readonly #approved = new Set<string>()
+  readonly #approving = new Map<string, Promise<boolean>>()
   readonly #rates = new Map<string, { at: number; count: number }>()
+  readonly #gone = new Map<string, Set<() => void>>()
   constructor(readonly host: ControlHost) {}
 
   async #get(id: string): Promise<Session> {
@@ -95,13 +103,9 @@ export class AgentControlService {
       const params = parsed.data
       const run = () => this.#run(caller, method, params, signal)
       if (!('idempotencyKey' in params)) {
-        if (method !== 'session.diff') return { ok: true, result: await run() }
-        const root = (await this.#lineage(caller)).at(-1) as Session
-        const result = (this.#roots.get(root.id) ?? Promise.resolve())
-          .catch(() => undefined)
-          .then(run)
-        this.#roots.set(root.id, result)
-        return { ok: true, result: await result }
+        if (method !== 'session.diff' && method !== 'session.integrate')
+          return { ok: true, result: await run() }
+        return { ok: true, result: await this.#chain(caller, run) }
       }
       const receiptKey = `${caller.id}:${method}:${params.idempotencyKey}`
       const fingerprint = JSON.stringify(params)
@@ -119,8 +123,6 @@ export class AgentControlService {
           'delegation_limit',
           'Control operation limit reached for this runtime.',
         )
-      const chain = await this.#lineage(caller)
-      const root = chain.at(-1) as Session
       const raced = this.#receipts.get(receiptKey)
       if (raced) {
         if (raced.fingerprint !== fingerprint)
@@ -130,12 +132,14 @@ export class AgentControlService {
           )
         return { ok: true, result: await raced.result }
       }
-      const result = (this.#roots.get(root.id) ?? Promise.resolve())
-        .catch(() => undefined)
-        .then(run)
-      this.#roots.set(root.id, result)
+      const result = this.#chain(caller, run)
       this.#receipts.set(receiptKey, { fingerprint, result })
-      return { ok: true, result: await result }
+      try {
+        return { ok: true, result: await result }
+      } catch (error) {
+        if (this.#receipts.get(receiptKey)?.result === result) this.#receipts.delete(receiptKey)
+        throw error
+      }
     } catch (error) {
       if (error instanceof ControlFailure)
         return {
@@ -145,6 +149,35 @@ export class AgentControlService {
       log.error('control operation failed', { method })
       return { ok: false, error: { code: 'internal_error', message: 'Control operation failed.' } }
     }
+  }
+
+  async #chain(caller: Session, run: () => Promise<unknown>): Promise<unknown> {
+    const root = (await this.#lineage(caller)).at(-1) as Session
+    const next = (this.#roots.get(root.id) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(run)
+    this.#roots.set(root.id, next)
+    void next
+      .finally(() => {
+        if (this.#roots.get(root.id) === next) this.#roots.delete(root.id)
+      })
+      .catch(() => undefined)
+    return next
+  }
+
+  #watchGone(id: string, listener: () => void): () => void {
+    const set = this.#gone.get(id) ?? new Set<() => void>()
+    set.add(listener)
+    this.#gone.set(id, set)
+    return () => {
+      set.delete(listener)
+      if (set.size === 0) this.#gone.delete(id)
+    }
+  }
+
+  #notifyGone(id: string): void {
+    for (const listener of this.#gone.get(id) ?? []) listener()
+    this.#gone.delete(id)
   }
 
   async #run(
@@ -236,20 +269,30 @@ export class AgentControlService {
         if (signal?.aborted) controller.abort()
         try {
           return await Promise.all(
-            targets.map((s) =>
-              waitForTurn(
-                {
-                  load: (id) => this.host.store.load(id),
-                  subscribe: (listener) => this.host.subscribe(listener),
-                },
-                s.id,
-                p.timeoutMs,
-                controller.signal,
-              ),
-            ),
+            targets.map(async (s) => {
+              try {
+                return await waitForTurn(
+                  {
+                    load: (id) => this.host.store.load(id),
+                    subscribe: (listener) => this.host.subscribe(listener),
+                    onGone: (id, listener) => this.#watchGone(id, listener),
+                  },
+                  s.id,
+                  p.timeoutMs,
+                  controller.signal,
+                )
+              } catch (error) {
+                if (error instanceof ControlFailure && error.code === 'wait_timeout')
+                  return { status: 'timeout' as const, sessionId: s.id }
+                if (error instanceof ControlFailure && error.code === 'wait_cancelled')
+                  throw error
+                if (error instanceof ControlFailure && error.code === 'session_not_found')
+                  return { status: 'destroyed' as const, sessionId: s.id }
+                throw error
+              }
+            }),
           )
         } finally {
-          controller.abort()
           signal?.removeEventListener('abort', abort)
         }
       }
@@ -261,7 +304,7 @@ export class AgentControlService {
         const state = await this.host.store.load(target.id)
         if (state.activeTurnId)
           await this.host.dispatch({ type: 'turn.interrupt', sessionId: target.id })
-        if (target.id !== caller.id)
+        if (target.id !== caller.id && state.activeTurnId)
           await this.host.record(caller.id, {
             type: 'child.session.stopped',
             childSessionId: target.id,
@@ -275,18 +318,33 @@ export class AgentControlService {
         )
         if (target.id === caller.id)
           throw new ControlFailure('scope_denied', 'A session cannot destroy itself.')
-        const ids = [...descendantIds(await this.host.store.listSessions(), target.id), target.id]
+        const rows = await this.host.store.listSessions()
+        const ids = [...descendantIds(rows, target.id), target.id]
         for (const id of ids) {
-          const state = await this.host.store.load(id)
-          if (state.activeTurnId || this.host.isRunning?.(id)) {
+          const state = await this.host.store.load(id).catch(() => null)
+          if (state?.activeTurnId || this.host.isRunning?.(id)) {
             await this.host.dispatch({ type: 'turn.interrupt', sessionId: id })
             await this.host.quiesce?.(id)
           }
-          await this.host.store.destroy(id)
+          try {
+            await this.host.store.destroy(id)
+          } catch (error) {
+            if (
+              !(
+                error &&
+                typeof error === 'object' &&
+                'code' in error &&
+                error.code === 'session_not_found'
+              )
+            )
+              throw error
+          }
+          await this.host.release({ ...target, id }).catch(() => undefined)
           this.host.revoke?.(id)
+          this.#notifyGone(id)
         }
         await this.host.record(caller.id, {
-          type: 'child.session.stopped',
+          type: 'child.session.destroyed',
           childSessionId: target.id,
         })
         return { sessionId: target.id, destroyed: true, count: ids.length }
@@ -300,14 +358,14 @@ export class AgentControlService {
             'scope_denied',
             'Only direct child changes may be inspected or integrated.',
           )
-        if ((await this.host.store.load(child.id)).activeTurnId)
+        if ((await this.host.store.load(child.id)).activeTurnId || this.host.isRunning?.(child.id))
           throw new ControlFailure(
             'invalid_request',
             'Wait for the child to settle before inspecting its snapshot.',
           )
         return method === 'session.diff'
           ? this.host.diff(child, p.patch)
-          : this.host.integrate(caller, child, p.snapshotCommit)
+          : this.host.integrate(caller, child, p.snapshotCommit, { allowStale: p.allowStale })
       }
     }
   }
@@ -325,7 +383,38 @@ export class AgentControlService {
     return active
   }
 
+  async #existingSpawn(caller: Session, key: string): Promise<unknown> {
+    const spawned = (await this.host.store.load(caller.id)).childEvents?.find(
+      (event) => event.type === 'child.session.spawned' && event.idempotencyKey === key,
+    )
+    if (!spawned || spawned.type !== 'child.session.spawned') return null
+    try {
+      const child = await this.#get(spawned.childSessionId)
+      return {
+        child,
+        workspace: { ...child.workspace, path: await this.host.workspace(child) },
+        initialTurn: null,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  async #requestApproval(root: Session): Promise<boolean> {
+    const pending = this.#approving.get(root.id)
+    if (pending) return pending
+    const request = this.host.approve(root)
+    this.#approving.set(root.id, request)
+    try {
+      return await request
+    } finally {
+      if (this.#approving.get(root.id) === request) this.#approving.delete(root.id)
+    }
+  }
+
   async #spawn(caller: Session, p: ControlParams<'session.spawn'>): Promise<unknown> {
+    const existing = await this.#existingSpawn(caller, p.idempotencyKey)
+    if (existing) return existing
     const chain = await this.#lineage(caller)
     const root = chain.at(-1) as Session
     const policy = this.host.policy()
@@ -355,56 +444,67 @@ export class AgentControlService {
     const mode = p.workspaceMode ?? policy.defaultWorkspaceMode
     if (mode === 'shared' && !policy.allowSharedWorkspace)
       throw new ControlFailure('scope_denied', 'Shared workspaces are disabled.')
-    if (
-      policy.approvalMode !== 'never' &&
-      (policy.approvalMode === 'always' || !this.#approved.has(root.id))
-    ) {
-      if (!(await this.host.approve(root)))
-        throw new ControlFailure('delegation_approval_required', 'Delegation was not approved.')
+    if (policy.approvalMode !== 'never') {
+      const prior =
+        this.#approved.has(root.id) ||
+        ((await this.host.store.load(root.id)).childEvents ?? []).some(
+          (event) => event.type === 'child.session.spawned',
+        )
+      if (policy.approvalMode === 'always' || !prior) {
+        if (!(await this.#requestApproval(root)))
+          throw new ControlFailure('delegation_approval_required', 'Delegation was not approved.')
+      }
       this.#approved.add(root.id)
     }
-    checkDelegation(
-      this.host.policy(),
-      chain.length - 1,
-      (await this.host.store.listSessions()).filter((s) => s.parentSessionId === caller.id).length,
-      await this.#active(root.id),
-    )
-    if (mode === 'shared' && !this.host.policy().allowSharedWorkspace)
-      throw new ControlFailure('scope_denied', 'Shared workspaces are disabled.')
     const id = newTypedId('sess')
-    const workspace =
-      mode === 'isolated' ? await this.host.isolate(caller, id) : { kind: 'project' as const }
-    const child: Session = {
-      id,
-      projectId: caller.projectId,
-      parentSessionId: caller.id,
-      rootSessionId: root.id,
-      createdBy: { kind: 'session', sessionId: caller.id },
-      workspace,
-      title: p.title,
-      driverKind: p.driverKind,
-      modelId: p.modelId ?? null,
-      effort: p.effort ?? null,
-      permissionMode,
-      status: 'idle',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
-    await this.host.create(child)
-    await this.host.record(caller.id, {
-      type: 'child.session.spawned',
-      childSessionId: id,
-      title: child.title,
-      driverKind: child.driverKind,
-      modelId: child.modelId,
-      workspaceKind: workspace.kind,
-      branch: workspace.kind === 'managed-worktree' ? workspace.branch : null,
-    })
-    const initialTurn = p.prompt ? await this.#prompt(caller, child, p.prompt) : null
-    return {
-      child,
-      workspace: { ...workspace, path: await this.host.workspace(child) },
-      initialTurn,
+    let child: Session | undefined
+    let isolated = false
+    try {
+      const workspace =
+        mode === 'isolated' ? await this.host.isolate(caller, id) : { kind: 'project' as const }
+      isolated = mode === 'isolated'
+      child = {
+        id,
+        projectId: caller.projectId,
+        parentSessionId: caller.id,
+        rootSessionId: root.id,
+        createdBy: { kind: 'session', sessionId: caller.id },
+        workspace,
+        title: p.title,
+        driverKind: p.driverKind,
+        modelId: p.modelId ?? null,
+        effort: p.effort ?? null,
+        permissionMode,
+        status: 'idle',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      await this.host.create(child)
+      await this.host.record(caller.id, {
+        type: 'child.session.spawned',
+        childSessionId: id,
+        title: child.title,
+        driverKind: child.driverKind,
+        modelId: child.modelId,
+        workspaceKind: workspace.kind,
+        branch: workspace.kind === 'managed-worktree' ? workspace.branch : null,
+        idempotencyKey: p.idempotencyKey,
+      })
+      const initialTurn = p.prompt ? await this.#prompt(caller, child, p.prompt) : null
+      return {
+        child,
+        workspace: { ...workspace, path: await this.host.workspace(child) },
+        initialTurn,
+      }
+    } catch (error) {
+      if (child) {
+        await this.host.store.destroy(id).catch(() => undefined)
+        await this.host.release(child).catch(() => undefined)
+      } else if (isolated) {
+        await this.host.release({ ...caller, id }).catch(() => undefined)
+      }
+      this.host.revoke?.(id)
+      throw error
     }
   }
 
@@ -455,27 +555,31 @@ export class AgentControlService {
       .filter((m) => !turns || turns.has(m.turnId))
       .slice(-p.tailMessages)
     let remaining = p.maxChars
-    const messages = selected
-      .map((message) => ({
-        id: message.id,
-        role: message.role,
-        origin: message.origin,
-        turnId: message.turnId,
-        text: message.parts
+    const messages = [...selected]
+      .reverse()
+      .map((message) => {
+        const text = message.parts
           .flatMap((part) =>
             part.type === 'text'
               ? [part.text]
               : p.includeToolSummaries && part.type === 'tool-call'
                 ? [`[Tool: ${part.name}]`]
-                : [],
+                : p.includeToolSummaries && part.type === 'tool-result'
+                  ? [`[Result: ${part.resultJson.slice(0, 500)}]`]
+                  : [],
           )
-          .join('\n'),
-      }))
-      .map((message) => {
-        const text = message.text.slice(0, remaining)
-        remaining -= text.length
-        return { ...message, text }
+          .join('\n')
+        const clipped = text.slice(0, remaining)
+        remaining -= clipped.length
+        return {
+          id: message.id,
+          role: message.role,
+          origin: message.origin,
+          turnId: message.turnId,
+          text: clipped,
+        }
       })
+      .reverse()
     return {
       session: target,
       activeTurnId: state.activeTurnId,

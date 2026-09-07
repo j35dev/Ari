@@ -60,6 +60,7 @@ export const controlParams = {
     .object({
       targetSessionId: target,
       snapshotCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
+      allowStale: z.boolean().default(false),
       idempotencyKey: key,
     })
     .strict(),
