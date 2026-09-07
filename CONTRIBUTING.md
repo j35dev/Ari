@@ -5,8 +5,7 @@ Thanks for helping build Ari — a local-first agent development environment.
 ## Before you start
 
 1. Read [AGENTS.md](./AGENTS.md) — binding working protocol.
-2. Skim [PLAN.md](./PLAN.md) and [PROGRESS.md](./PROGRESS.md).
-3. For substantial work, open an issue first.
+2. For substantial work, open an issue first.
 
 ## Quick path
 
