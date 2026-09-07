@@ -12,8 +12,7 @@ journals and checkpoints live on your disk.
 <img width="1597" height="990" alt="Screenshot 2026-08-30 062458" src="https://github.com/user-attachments/assets/90b250d0-7530-4e78-b20c-56299873064d" />
 
 
-> Status: **pre-alpha, under active construction.** See [PLAN.md](./PLAN.md) for the build
-> plan and [PROGRESS.md](./PROGRESS.md) for live, task-by-task progress.
+> Status: **pre-alpha, under active construction.**
 
 ## Why Ari
 
@@ -135,10 +134,8 @@ task-by-task workflow) — it doubles as a contributor guide and is enforced by 
 
 ## Project status
 
-Ari is built in the open, milestone by milestone. Current state and history:
+Ari is built milestone by milestone. Current state and history:
 
-- [PLAN.md](./PLAN.md) — the architecture and milestone plan
-- [PROGRESS.md](./PROGRESS.md) — every shipped task with its design notes
 - [Releases](https://github.com/j35dev/Ari/releases) — installers for each platform
 
 ## Contributing
