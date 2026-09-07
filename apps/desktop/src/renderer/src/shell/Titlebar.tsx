@@ -47,13 +47,18 @@ export function Titlebar({
 
   return (
     <header
-      className="ari-glass flex h-[var(--ari-titlebar-height)] shrink-0 items-center"
+      className="ari-glass flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div
         className={`flex items-center gap-2 ${platform === 'darwin' ? MACOS_TRAFFIC_LIGHT_PAD : 'pl-3'}`}
       >
-        {projectLabel ? <span className="text-fg-muted text-xs">{projectLabel}</span> : null}
+        {projectLabel ? (
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-2/60 border border-border/60 text-2xs font-medium text-fg-muted shadow-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+            <span className="truncate max-w-[200px]">{projectLabel}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex-1" />
@@ -62,7 +67,7 @@ export function Titlebar({
       {onSelectTool ? (
         <nav
           aria-label="Workspace"
-          className="flex items-center gap-0.5 pr-2"
+          className="flex items-center gap-1 pr-2"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           {TITLEBAR_TOOLS.map((item) => {
@@ -76,13 +81,14 @@ export function Titlebar({
                 aria-pressed={selected}
                 title={item.label}
                 onClick={() => onSelectTool(item.id)}
-                className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                className={`group relative flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                   selected
-                    ? 'bg-accent-subtle text-accent'
-                    : 'text-fg-subtle hover:bg-glass-hover hover:text-fg'
+                    ? 'bg-accent/15 text-accent border border-accent/25 shadow-sm'
+                    : 'text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent'
                 }`}
               >
-                <Icon size={14} strokeWidth={1.8} aria-hidden />
+                <Icon size={13} strokeWidth={selected ? 2 : 1.7} aria-hidden />
+                <span className="hidden md:inline text-2xs">{item.label}</span>
               </button>
             )
           })}

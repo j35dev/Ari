@@ -33,6 +33,9 @@ html {
   --ari-radius-sm: 6px;
   --ari-radius-md: 10px;
   --ari-radius-lg: 14px;
+  --ari-radius-xl: 18px;
+  --ari-radius-2xl: 24px;
+  --ari-radius-full: 9999px;
   --ari-border-width: 1px;
 
   /* type */
