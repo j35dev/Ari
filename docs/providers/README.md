@@ -17,7 +17,7 @@ recorded fixtures in its `__fixtures__/` directory.
 Since M16 every CLI driver is wrapped in an `AcpDriver`: the Agent Client
 Protocol transport is preferred and the legacy one-shot CLI argv driver is
 used automatically whenever ACP is disabled (`ARI_ACP=0`) or its handshake
-fails. Model catalogs are no longer hardcoded — see `docs/arch-16.md`.
+fails. Model catalogs are probed live instead of hardcoded.
 
 ## Adding a driver
 
