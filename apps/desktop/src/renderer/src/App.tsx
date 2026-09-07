@@ -30,12 +30,9 @@ import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
 import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
-import {
-  SidebarHeader,
-  SessionsUnderProjects,
-  type SidebarNavId,
-} from './shell/Sidebar'
+import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import { useSessionCollapse } from './shell/use-session-collapse'
 import {
   DOCK_WIDTH_BOUNDS,
   SIDEBAR_WIDTH_BOUNDS,
@@ -81,15 +78,23 @@ function Shell() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
-  const [sessionWorkspace, setSessionWorkspace] = useState<{ id: string; path: string | null } | null>(null)
+  const [sessionWorkspace, setSessionWorkspace] = useState<{
+    id: string
+    path: string | null
+  } | null>(null)
   useEffect(() => {
     let cancelled = false
     if (activeSessionId) {
-      void rpc.invoke('session.workspace', { sessionId: activeSessionId }).then(({ path }) => {
-        if (!cancelled) setSessionWorkspace({ id: activeSessionId, path })
-      }).catch((error: unknown) => log.warn('workspace resolution failed', error))
+      void rpc
+        .invoke('session.workspace', { sessionId: activeSessionId })
+        .then(({ path }) => {
+          if (!cancelled) setSessionWorkspace({ id: activeSessionId, path })
+        })
+        .catch((error: unknown) => log.warn('workspace resolution failed', error))
     }
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [activeSessionId])
   const [defaults, setDefaults] = useState<SessionDefaults>({
     // Ari Core is the safe default: it works with a user-configured endpoint
@@ -109,7 +114,9 @@ function Shell() {
 
   // Sidebar collapse: ephemeral UI state, so localStorage (not engine settings)
   // is the right home. Ctrl+B toggles; a rail button restores it.
-  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('ari.sidebar.open') !== '0')
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem('ari.sidebar.open') !== '0',
+  )
   const sidebar = useSidebarWidth()
   const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
@@ -159,7 +166,7 @@ function Shell() {
     void rpc
       .invoke('session.list')
       .then(setSessions)
-      .catch((error: unknown) => log.warn("rpc call failed", error))
+      .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
   // Late-bound so the global key handler (registered before createSession
@@ -178,13 +185,14 @@ function Shell() {
       // The contract types frames loosely (`event?: unknown`); only the
       // journal event's discriminant is needed here.
       const event = (payload as Partial<SessionEventFrame> | null)?.event as
-        | { type?: string }
-        | undefined
+        { type?: string } | undefined
       if (
         !event ||
         (event.type !== 'user.message.added' &&
           event.type !== 'session.updated' &&
-          event.type !== 'turn.settled')
+          event.type !== 'turn.settled' &&
+          event.type !== 'session.created' &&
+          !event.type?.startsWith('child.session.'))
       ) {
         // Streaming deltas and per-turn noise must not refetch the list.
         return
@@ -205,7 +213,7 @@ function Shell() {
     void rpc
       .invoke('project.list')
       .then(setProjects)
-      .catch((error: unknown) => log.warn("rpc call failed", error))
+      .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
   // First available CLI becomes the default driver at boot; when none is
@@ -214,9 +222,7 @@ function Shell() {
     void rpc
       .invoke('providers.detect')
       .then((detections) => {
-        const installed = detections.find(
-          (d) => d.binaryPath !== null && d.kind !== 'ari-core',
-        )
+        const installed = detections.find((d) => d.binaryPath !== null && d.kind !== 'ari-core')
         if (installed) {
           setDefaults((prev) =>
             prev.driverKind === 'ari-core'
@@ -225,7 +231,7 @@ function Shell() {
           )
         }
       })
-      .catch((error: unknown) => log.warn("rpc call failed", error))
+      .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
   const commands = useCommands({
@@ -255,13 +261,17 @@ function Shell() {
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
   // Grouped by the open projects so keyboard order matches what is rendered.
   const openProjects = useMemo(() => projects.filter((p) => p.open), [projects])
-  const navOrder = useMemo(() => sidebarOrder(sessions, openProjects), [sessions, openProjects])
+  const { collapsed: collapsedChildren } = useSessionCollapse()
+  const navOrder = useMemo(
+    () => sidebarOrder(sessions, openProjects),
+    [sessions, openProjects, collapsedChildren],
+  )
 
   const refreshProjects = useCallback((): void => {
     void rpc
       .invoke('project.list')
       .then(setProjects)
-      .catch((error: unknown) => log.warn("rpc call failed", error))
+      .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
   // Sidebar order is the stored registry order: slot the project before
@@ -270,12 +280,10 @@ function Shell() {
   const moveProject = useCallback(
     (id: string, beforeId: string | null): void => {
       setProjects((prev) => moveProjectInList(prev, id, beforeId))
-      void rpc
-        .invoke('project.move', { id, beforeId })
-        .catch((error: unknown) => {
-          log.warn("rpc call failed", error)
-          refreshProjects()
-        })
+      void rpc.invoke('project.move', { id, beforeId }).catch((error: unknown) => {
+        log.warn('rpc call failed', error)
+        refreshProjects()
+      })
     },
     [refreshProjects],
   )
@@ -291,7 +299,7 @@ function Shell() {
         .then((project) => {
           if (project !== null) refreshProjects()
         })
-        .catch((error: unknown) => log.warn("rpc call failed", error))
+        .catch((error: unknown) => log.warn('rpc call failed', error))
     },
     [refreshProjects, projects],
   )
@@ -331,7 +339,9 @@ function Shell() {
           const next =
             index === -1
               ? // No active session: forward opens the newest, backward the oldest.
-                (delta === 1 ? navOrder[0] : navOrder[navOrder.length - 1])
+                delta === 1
+                ? navOrder[0]
+                : navOrder[navOrder.length - 1]
               : navOrder[(index + delta + navOrder.length) % navOrder.length]
           if (next) {
             selectSession(next.id)
@@ -382,7 +392,7 @@ function Shell() {
           clearTransientInspector()
           refreshSessions()
         })
-        .catch((error: unknown) => log.warn("rpc call failed", error))
+        .catch((error: unknown) => log.warn('rpc call failed', error))
     },
     [defaults, sessions, refreshSessions, clearTransientInspector],
   )
@@ -411,22 +421,23 @@ function Shell() {
   }, [])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
-  const activeProjectName =
-    projects.find((p) => p.id === activeSession?.projectId)?.name ?? ''
+  const activeProjectName = projects.find((p) => p.id === activeSession?.projectId)?.name ?? ''
   // The explorer roots at the active session's project, falling back to the
   // first registered project so the pane is never dead on arrival.
   const activeProjectPath =
     activeSessionId !== null
-      ? (sessionWorkspace?.id === activeSessionId ? sessionWorkspace.path : null)
-      :
-    projects.find((p) => p.id === activeSession?.projectId)?.path ??
-    projects[0]?.path ??
-    null
+      ? sessionWorkspace?.id === activeSessionId
+        ? sessionWorkspace.path
+        : null
+      : (projects.find((p) => p.id === activeSession?.projectId)?.path ?? projects[0]?.path ?? null)
 
   if (settingsOpen) {
     return (
       <div className="ari-glass-pane flex h-full flex-col">
-        <Titlebar projectLabel="" usage={{ sessionId: activeSessionId, kind: defaults.driverKind }} />
+        <Titlebar
+          projectLabel=""
+          usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
+        />
         <SettingsWorkspace
           section={settingsSection}
           onSectionChange={setSettingsSection}
@@ -437,7 +448,11 @@ function Shell() {
             setInspector('terminal')
           }}
         />
-        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          commands={commands}
+        />
         <KeyboardCheatSheet />
       </div>
     )
@@ -476,83 +491,82 @@ function Shell() {
       />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
-          <aside
-            className="ari-glass flex shrink-0 flex-col"
-            style={{ width: sidebar.width }}
-          >
+          <aside className="ari-glass flex shrink-0 flex-col" style={{ width: sidebar.width }}>
             <SidebarHeader onNewSession={() => createSession()} onCollapse={toggleSidebar} />
-          <SessionsUnderProjects
-            sessions={sessions}
-            projects={openProjects}
-            knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
-            onOpenProject={openProjectViaDialog}
-            onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
-            onImportSessions={setImportProjectId}
-            onRevealProject={(projectId) => {
-              const path = projects.find((p) => p.id === projectId)?.path
-              if (path === undefined) return
-              void rpc.invoke('shell.revealPath', { path }).catch((error: unknown) => log.warn("rpc call failed", error))
-            }}
-            onCloseProject={(projectId) => {
-              void rpc
-                .invoke('project.close', { id: projectId })
-                .then(refreshProjects)
-                .catch((error: unknown) => log.warn("rpc call failed", error))
-            }}
-            onRemoveProject={(projectId) => {
-              void rpc
-                .invoke('project.remove', { id: projectId })
-                .then(refreshProjects)
-                .catch((error: unknown) => log.warn("rpc call failed", error))
-            }}
-            onReorderProject={moveProject}
-            onMoveProject={(projectId, delta) => {
-              const move = projectMoveForDelta(
-                openProjects.map((p) => p.id),
-                projectId,
-                delta,
-              )
-              if (move) moveProject(move.id, move.beforeId)
-            }}
-            onLocateProject={openProjectViaDialog}
-            activeSessionId={activeSessionId}
-            activityOf={activityOf}
-            onSelect={selectSession}
-            onRename={(id, title) => {
-              void rpc
-                .invoke('command.dispatch', {
-                  command: { type: 'session.update', sessionId: id, title },
-                })
-                .then(refreshSessions)
-                .catch((error: unknown) => log.warn("rpc call failed", error))
-            }}
-            onDelete={(id) => {
-              forget(id)
-              void rpc
-                .invoke('session.destroy', { sessionId: id })
-                .then(() => {
-                  if (activeSessionId === id) setActiveSessionId(null)
-                  refreshSessions()
-                })
-                .catch((error: unknown) => log.warn("rpc call failed", error))
-            }}
-            onTogglePin={(id, pinned) => {
-              void rpc
-                .invoke('command.dispatch', {
-                  command: { type: 'session.update', sessionId: id, pinned },
-                })
-                .then(refreshSessions)
-                .catch((error: unknown) => log.warn("rpc call failed", error))
-            }}
-            onToggleArchive={(id, archived) => {
-              void rpc
-                .invoke('command.dispatch', {
-                  command: { type: 'session.update', sessionId: id, archived },
-                })
-                .then(refreshSessions)
-                .catch((error: unknown) => log.warn("rpc call failed", error))
-            }}
-          />
+            <SessionsUnderProjects
+              sessions={sessions}
+              projects={openProjects}
+              knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
+              onOpenProject={openProjectViaDialog}
+              onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
+              onImportSessions={setImportProjectId}
+              onRevealProject={(projectId) => {
+                const path = projects.find((p) => p.id === projectId)?.path
+                if (path === undefined) return
+                void rpc
+                  .invoke('shell.revealPath', { path })
+                  .catch((error: unknown) => log.warn('rpc call failed', error))
+              }}
+              onCloseProject={(projectId) => {
+                void rpc
+                  .invoke('project.close', { id: projectId })
+                  .then(refreshProjects)
+                  .catch((error: unknown) => log.warn('rpc call failed', error))
+              }}
+              onRemoveProject={(projectId) => {
+                void rpc
+                  .invoke('project.remove', { id: projectId })
+                  .then(refreshProjects)
+                  .catch((error: unknown) => log.warn('rpc call failed', error))
+              }}
+              onReorderProject={moveProject}
+              onMoveProject={(projectId, delta) => {
+                const move = projectMoveForDelta(
+                  openProjects.map((p) => p.id),
+                  projectId,
+                  delta,
+                )
+                if (move) moveProject(move.id, move.beforeId)
+              }}
+              onLocateProject={openProjectViaDialog}
+              activeSessionId={activeSessionId}
+              activityOf={activityOf}
+              onSelect={selectSession}
+              onRename={(id, title) => {
+                void rpc
+                  .invoke('command.dispatch', {
+                    command: { type: 'session.update', sessionId: id, title },
+                  })
+                  .then(refreshSessions)
+                  .catch((error: unknown) => log.warn('rpc call failed', error))
+              }}
+              onDelete={(id) => {
+                forget(id)
+                void rpc
+                  .invoke('session.destroy', { sessionId: id })
+                  .then(() => {
+                    if (activeSessionId === id) setActiveSessionId(null)
+                    refreshSessions()
+                  })
+                  .catch((error: unknown) => log.warn('rpc call failed', error))
+              }}
+              onTogglePin={(id, pinned) => {
+                void rpc
+                  .invoke('command.dispatch', {
+                    command: { type: 'session.update', sessionId: id, pinned },
+                  })
+                  .then(refreshSessions)
+                  .catch((error: unknown) => log.warn('rpc call failed', error))
+              }}
+              onToggleArchive={(id, archived) => {
+                void rpc
+                  .invoke('command.dispatch', {
+                    command: { type: 'session.update', sessionId: id, archived },
+                  })
+                  .then(refreshSessions)
+                  .catch((error: unknown) => log.warn('rpc call failed', error))
+              }}
+            />
           </aside>
         ) : null}
 
@@ -610,97 +624,98 @@ function Shell() {
               )}
             </div>
           ) : (
-          <div className="flex min-h-0 flex-1">
-            <div className="min-h-0 min-w-0 flex-1">
-              {activeSessionId ? (
-                <ErrorBoundary label="Session">
-                  <SessionView
-                    key={activeSessionId}
-                    sessionId={activeSessionId}
-                    defaults={defaults}
-                    onDefaultsChange={setDefaults}
+            <div className="flex min-h-0 flex-1">
+              <div className="min-h-0 min-w-0 flex-1">
+                {activeSessionId ? (
+                  <ErrorBoundary label="Session">
+                    <SessionView
+                      key={activeSessionId}
+                      sessionId={activeSessionId}
+                      defaults={defaults}
+                      onDefaultsChange={setDefaults}
+                      onOpenSession={selectSession}
+                    />
+                  </ErrorBoundary>
+                ) : (
+                  <ErrorBoundary label="Welcome">
+                    <WelcomePanel
+                      onCreateSession={() => createSession()}
+                      onConnect={(endpointId) =>
+                        createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
+                      }
+                    />
+                  </ErrorBoundary>
+                )}
+              </div>
+              {inspector ? (
+                <>
+                  <div
+                    role="separator"
+                    aria-label="Resize panel"
+                    aria-orientation="vertical"
+                    aria-valuenow={dock.width}
+                    aria-valuemin={DOCK_WIDTH_BOUNDS.min}
+                    aria-valuemax={DOCK_WIDTH_BOUNDS.max}
+                    tabIndex={0}
+                    title="Drag to resize · double-click to reset"
+                    {...dock.handleProps}
+                    className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
+                      dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
+                    }`}
                   />
-                </ErrorBoundary>
-              ) : (
-                <ErrorBoundary label="Welcome">
-                  <WelcomePanel
-                    onCreateSession={() => createSession()}
-                    onConnect={(endpointId) =>
-                      createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
-                    }
-                  />
-                </ErrorBoundary>
-              )}
-            </div>
-            {inspector ? (
-              <>
-                <div
-                  role="separator"
-                  aria-label="Resize panel"
-                  aria-orientation="vertical"
-                  aria-valuenow={dock.width}
-                  aria-valuemin={DOCK_WIDTH_BOUNDS.min}
-                  aria-valuemax={DOCK_WIDTH_BOUNDS.max}
-                  tabIndex={0}
-                  title="Drag to resize · double-click to reset"
-                  {...dock.handleProps}
-                  className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-                    dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
-                  }`}
-                />
-                <aside
-                  role="complementary"
-                  aria-label={INSPECTOR_TITLES[inspector]}
-                  className="flex shrink-0 flex-col border-l border-border"
-                  style={{ width: dock.width, maxWidth: '60vw' }}
-                >
-                  {inspector === 'terminal' ? (
-                    <div className="min-h-0 flex-1">
-                      <ErrorBoundary label="Terminal">
-                        <TerminalDock
-                          cwd={(activeProjectPath ?? workspaceCwd) || undefined}
-                          onClose={() => setInspector(null)}
-                        />
-                      </ErrorBoundary>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-                        <span className="text-xs font-medium text-fg">
-                          {INSPECTOR_TITLES[inspector]}
-                        </span>
-                        <div className="flex-1" />
-                        <button
-                          type="button"
-                          aria-label="Close inspector"
-                          onClick={() => setInspector(null)}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
+                  <aside
+                    role="complementary"
+                    aria-label={INSPECTOR_TITLES[inspector]}
+                    className="flex shrink-0 flex-col border-l border-border"
+                    style={{ width: dock.width, maxWidth: '60vw' }}
+                  >
+                    {inspector === 'terminal' ? (
                       <div className="min-h-0 flex-1">
-                        {inspector === 'changes' ? (
-                          <ErrorBoundary label="Changes">
-                            <ChangesView
-                              sessionId={activeSessionId}
-                              projectId={activeSession?.projectId ?? null}
-                            />
-                          </ErrorBoundary>
-                        ) : activeProjectPath ? (
-                          <FileExplorer root={activeProjectPath} />
-                        ) : (
-                          <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-                            Open a project first — the explorer browses its folder.
-                          </div>
-                        )}
+                        <ErrorBoundary label="Terminal">
+                          <TerminalDock
+                            cwd={(activeProjectPath ?? workspaceCwd) || undefined}
+                            onClose={() => setInspector(null)}
+                          />
+                        </ErrorBoundary>
                       </div>
-                    </>
-                  )}
-                </aside>
-              </>
-            ) : null}
-          </div>
+                    ) : (
+                      <>
+                        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+                          <span className="text-xs font-medium text-fg">
+                            {INSPECTOR_TITLES[inspector]}
+                          </span>
+                          <div className="flex-1" />
+                          <button
+                            type="button"
+                            aria-label="Close inspector"
+                            onClick={() => setInspector(null)}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                        <div className="min-h-0 flex-1">
+                          {inspector === 'changes' ? (
+                            <ErrorBoundary label="Changes">
+                              <ChangesView
+                                sessionId={activeSessionId}
+                                projectId={activeSession?.projectId ?? null}
+                              />
+                            </ErrorBoundary>
+                          ) : activeProjectPath ? (
+                            <FileExplorer root={activeProjectPath} />
+                          ) : (
+                            <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
+                              Open a project first — the explorer browses its folder.
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </aside>
+                </>
+              ) : null}
+            </div>
           )}
         </main>
       </div>
@@ -708,10 +723,12 @@ function Shell() {
       {importProjectId !== null ? (
         <SessionImportDialog
           open
-          project={projects.find((project) => project.id === importProjectId) ?? {
-            id: importProjectId,
-            name: 'Project',
-          }}
+          project={
+            projects.find((project) => project.id === importProjectId) ?? {
+              id: importProjectId,
+              name: 'Project',
+            }
+          }
           onClose={() => setImportProjectId(null)}
           onImported={(sessionId) => {
             refreshSessions()
@@ -719,8 +736,16 @@ function Shell() {
           }}
         />
       ) : null}
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
-      <ContentSearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} root={activeProjectPath} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        commands={commands}
+      />
+      <ContentSearchOverlay
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        root={activeProjectPath}
+      />
       <KeyboardCheatSheet />
     </div>
   )
@@ -781,7 +806,7 @@ export function BranchChip({ sessionId }: { sessionId: string | null }) {
           if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
         })
       })
-      .catch((error: unknown) => log.warn("rpc call failed", error))
+      .catch((error: unknown) => log.warn('rpc call failed', error))
     return () => {
       cancelled = true
     }

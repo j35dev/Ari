@@ -1,4 +1,6 @@
 import type { SessionSummary } from '@ari/contracts/rpc'
+import { sessionTree } from './session-tree'
+import { collapsedSessions } from '../../shell/use-session-collapse'
 
 /** Group id holding sessions that belong to no open project (`projectId: 'adhoc'`). */
 export const UNFILED_GROUP_ID = 'adhoc'
@@ -28,10 +30,7 @@ function byPinnedThenRecency(a: SessionSummary, b: SessionSummary): number {
  * closed, so closing a project never hides its work). Archived sessions are
  * excluded — they live in the global shelf.
  */
-export function sidebarGroups(
-  sessions: SessionSummary[],
-  projects: NavProject[],
-): SidebarGroup[] {
+export function sidebarGroups(sessions: SessionSummary[], projects: NavProject[]): SidebarGroup[] {
   const groups: SidebarGroup[] = projects.map((p) => ({ id: p.id, name: p.name, sessions: [] }))
   const byId = new Map(groups.map((g) => [g.id, g]))
   const unfiled: SidebarGroup = { id: UNFILED_GROUP_ID, name: 'Unfiled', sessions: [] }
@@ -55,9 +54,14 @@ export function sidebarOrder(
   projects: NavProject[] = [],
 ): SessionSummary[] {
   if (projects.length === 0) {
-    return [...sessions].filter((s) => !s.archived).sort(byPinnedThenRecency)
+    return sessionTree(
+      [...sessions].filter((s) => !s.archived).sort(byPinnedThenRecency),
+      collapsedSessions(),
+    ).map((row) => row.session)
   }
-  return sidebarGroups(sessions, projects).flatMap((g) => g.sessions)
+  return sidebarGroups(sessions, projects).flatMap((g) =>
+    sessionTree(g.sessions, collapsedSessions()).map((row) => row.session),
+  )
 }
 
 /** One sidebar-reorder step: place `id` immediately before `beforeId` (null = last). */
