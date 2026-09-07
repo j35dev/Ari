@@ -23,6 +23,32 @@ const eventBase = z.object({
 })
 
 export const journalEventSchema = z.discriminatedUnion('type', [
+  eventBase.extend({
+    type: z.literal('child.session.spawned'),
+    childSessionId: z.string().min(1),
+    title: z.string(),
+    driverKind: driverKindSchema,
+    modelId: z.string().nullable(),
+    workspaceKind: z.enum(['managed-worktree', 'project']),
+    branch: z.string().nullable(),
+  }),
+  eventBase.extend({
+    type: z.literal('child.session.settled'),
+    childSessionId: z.string().min(1),
+    turnId: z.string().min(1),
+    stopReason: z.enum(['completed', 'interrupted', 'error']),
+  }),
+  eventBase.extend({
+    type: z.literal('child.session.integrated'),
+    childSessionId: z.string().min(1),
+    snapshotCommit: z.string().min(1),
+    result: z.enum(['integrated', 'conflict', 'already_integrated']),
+    conflictFiles: z.array(z.string()).optional(),
+  }),
+  eventBase.extend({
+    type: z.literal('child.session.stopped'),
+    childSessionId: z.string().min(1),
+  }),
   eventBase.extend({ type: z.literal('session.created'), session: sessionSchema }),
   eventBase.extend({
     type: z.literal('session.status.changed'),
