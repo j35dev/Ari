@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agent-control": "./src/agent-control.ts",
     "./common": "./src/common.ts",
     "./session": "./src/session.ts",
     "./message": "./src/message.ts",

@@ -1,4 +1,5 @@
 export { DIFF_MAX_BYTES, GitService, newDefaultCapturer } from './git-service'
+export { ManagedWorkspaces } from './managed-workspaces'
 export type {
   CheckpointInfo,
   GitError,

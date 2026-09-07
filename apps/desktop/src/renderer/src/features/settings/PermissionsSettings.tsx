@@ -4,6 +4,7 @@ import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { SettingsPage } from './SettingsPage'
 import { useEngineSettings } from './useEngineSettings'
+import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 
 const log = createLogger('settings:permissions')
 
@@ -25,6 +26,7 @@ export function PermissionsSettings() {
   const [draft, setDraft] = useState('')
   const entries = settings?.permissions.allowlist ?? []
   const mode = settings?.sessions.defaultPermissionMode ?? 'ask'
+  const delegation = settings?.delegation ?? delegationSettingsSchema.parse({})
 
   const persist = (patch: Parameters<typeof update>[0]) => {
     void update(patch).catch((error: unknown) => {
@@ -78,6 +80,100 @@ export function PermissionsSettings() {
             </label>
           ))}
         </fieldset>
+      </section>
+
+      <section aria-labelledby="delegation-heading" className="space-y-3">
+        <h2 id="delegation-heading" className="text-sm font-medium">
+          Child session delegation
+        </h2>
+        <p className="text-xs text-fg-muted">
+          Agents may create ordinary child sessions. Isolated workers use separate Git worktrees;
+          changes return only after explicit integration.
+        </p>
+        {(
+          [
+            ['enabled', 'Enable delegation'],
+            ['allowSharedWorkspace', 'Allow shared workspaces (workers can edit parent files)'],
+            ['recursiveDelegation', 'Allow children to delegate'],
+          ] as const
+        ).map(([key, label]) => (
+          <label key={key} className="flex items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={delegation[key]}
+              onChange={(event) => persist({ delegation: { [key]: event.target.checked } })}
+              className="accent-accent"
+            />
+            {label}
+          </label>
+        ))}
+        {(
+          [
+            ['maxConcurrentChildren', 'Concurrent children per root', 32],
+            ['maxChildrenPerSession', 'Children per session', 100],
+            ['maxDepth', 'Maximum depth', 8],
+          ] as const
+        ).map(([key, label, max]) => (
+          <label key={key} className="flex items-center justify-between gap-3 text-sm">
+            {label}
+            <Input
+              aria-label={label}
+              type="number"
+              min={1}
+              max={max}
+              value={delegation[key]}
+              className="w-20"
+              onChange={(event) => {
+                const value = Number(event.target.value)
+                if (Number.isInteger(value) && value >= 1 && value <= max)
+                  persist({ delegation: { [key]: value } })
+              }}
+            />
+          </label>
+        ))}
+        <label className="flex items-center justify-between gap-3 text-sm">
+          Delegation approval
+          <select
+            aria-label="Delegation approval"
+            value={delegation.approvalMode}
+            className="rounded border border-border bg-surface-1 p-1"
+            onChange={(event) =>
+              persist({
+                delegation: {
+                  approvalMode: delegationSettingsSchema.shape.approvalMode.parse(
+                    event.target.value,
+                  ),
+                },
+              })
+            }
+          >
+            <option value="first-per-root">First request per root</option>
+            <option value="always">Every request</option>
+            <option value="never">No approval</option>
+          </select>
+        </label>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          Default child workspace
+          <select
+            aria-label="Default child workspace"
+            value={delegation.defaultWorkspaceMode}
+            className="rounded border border-border bg-surface-1 p-1"
+            onChange={(event) =>
+              persist({
+                delegation: {
+                  defaultWorkspaceMode: delegationSettingsSchema.shape.defaultWorkspaceMode.parse(
+                    event.target.value,
+                  ),
+                },
+              })
+            }
+          >
+            <option value="isolated">Isolated Git worktree</option>
+            <option value="shared" disabled={!delegation.allowSharedWorkspace}>
+              Shared workspace
+            </option>
+          </select>
+        </label>
       </section>
 
       <section aria-labelledby="permissions-allowlist-heading" className="space-y-3">

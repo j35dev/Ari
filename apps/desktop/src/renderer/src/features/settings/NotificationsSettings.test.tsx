@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '@ari/contracts/settings'
+import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import { NotificationsSettings } from './NotificationsSettings'
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ vi.mock('./useEngineSettings', () => ({
 
 const engineSettings: Settings = {
   version: 1,
+  delegation: delegationSettingsSchema.parse({}),
   appearance: {
     themeId: 'obsidian',
     mode: 'system',

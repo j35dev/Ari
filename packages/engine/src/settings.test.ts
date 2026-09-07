@@ -15,6 +15,19 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('persists delegation patches without resetting other limits', async () => {
+    const store = new SettingsStore({ dir })
+    await store.load()
+    await store.update({ delegation: { maxConcurrentChildren: 2 } })
+    await store.update({ delegation: { recursiveDelegation: true } })
+    const reloaded = await new SettingsStore({ dir }).load()
+    expect(reloaded.delegation).toMatchObject({
+      maxConcurrentChildren: 2,
+      maxChildrenPerSession: 8,
+      recursiveDelegation: true,
+      defaultWorkspaceMode: 'isolated',
+    })
+  })
   it('creates defaults on first load', async () => {
     const store = new SettingsStore({ dir })
     const settings = await store.load()
