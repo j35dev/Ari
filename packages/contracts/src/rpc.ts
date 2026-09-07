@@ -283,7 +283,12 @@ export const rpcParams = {
   'shell.revealPath': z.object({ path: z.string().min(1) }),
   /** Opens a URL in the OS browser; only http/https/mailto reach openExternal. */
   'shell.openUrl': z.object({ url: z.string().min(1).max(2048) }),
-  'files.index': z.object({ projectId: z.string().min(1) }),
+  'files.index': z
+    .object({ projectId: z.string().min(1).optional(), sessionId: z.string().min(1).optional() })
+    .refine(
+      (value) => value.projectId !== undefined || value.sessionId !== undefined,
+      'Project or session is required',
+    ),
   'search.content': z
     .object({
       /** Registered project id; resolved to its folder by the handler. */
@@ -339,45 +344,45 @@ export const rpcParams = {
   }),
   'settings.get': z.undefined(),
   'settings.update': settingsUpdateSchema,
-    'git.status': z.object({ path: z.string().min(1) }),
-    'git.diffWorktree': z.object({ path: z.string().min(1) }),
-    'git.turnDiff': z.object({
-      path: z.string().min(1),
-      sessionId: checkpointComponentSchema,
-      turnId: checkpointComponentSchema,
-    }),
-    'git.add': z.object({
-      path: z.string().min(1),
-      /** Repo-relative pathspecs passed to `git add --`; `['.']` stages everything. */
-      paths: z.array(z.string().min(1)).min(1),
-    }),
-    'git.commit': z.object({
-      path: z.string().min(1),
-      message: z.string().min(1),
-    }),
-    'git.push': z.object({
-      path: z.string().min(1),
-      /** Remote name; defaults to `origin` in the handler. */
-      remote: z.string().min(1).optional(),
-    }),
+  'git.status': z.object({ path: z.string().min(1) }),
+  'git.diffWorktree': z.object({ path: z.string().min(1) }),
+  'git.turnDiff': z.object({
+    path: z.string().min(1),
+    sessionId: checkpointComponentSchema,
+    turnId: checkpointComponentSchema,
+  }),
+  'git.add': z.object({
+    path: z.string().min(1),
+    /** Repo-relative pathspecs passed to `git add --`; `['.']` stages everything. */
+    paths: z.array(z.string().min(1)).min(1),
+  }),
+  'git.commit': z.object({
+    path: z.string().min(1),
+    message: z.string().min(1),
+  }),
+  'git.push': z.object({
+    path: z.string().min(1),
+    /** Remote name; defaults to `origin` in the handler. */
+    remote: z.string().min(1).optional(),
+  }),
   'git.createPr': z.object({
     path: z.string().min(1),
     title: z.string().min(1).max(300),
     body: z.string().max(8000).optional(),
     base: z.string().min(1).max(200).optional(),
   }),
-    'fs.list': z.object({ path: z.string().min(1) }),
-    'fs.readTextFile': z.object({
-      path: z.string().min(1),
-      maxBytes: z.number().int().positive().optional(),
-    }),
-    'fs.writeTextFile': z.object({
-      path: z.string().min(1),
-      content: z.string(),
-    }),
+  'fs.list': z.object({ path: z.string().min(1) }),
+  'fs.readTextFile': z.object({
+    path: z.string().min(1),
+    maxBytes: z.number().int().positive().optional(),
+  }),
+  'fs.writeTextFile': z.object({
+    path: z.string().min(1),
+    content: z.string(),
+  }),
   'plan.get': z.object({ path: z.string().min(1), sessionId: z.string().min(1).optional() }),
   'scripts.list': z.object({ path: z.string().min(1) }),
-    'stream.subscribe': z.object({
+  'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
     params: z.record(z.string(), z.unknown()),
@@ -566,31 +571,34 @@ export interface RpcResults {
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
   'settings.update': Settings
-    'git.status': {
-      isRepo: boolean
-      branch: string | null
-      files: { path: string; staged: boolean; kind: string }[]
-      error?: string
-    }
-    'git.diffWorktree': { diffText: string; error?: string }
-    'git.turnDiff': { diffText: string | null; error?: string }
-    'git.add': GitActionResult
-    'git.commit': GitActionResult
-    'git.push': GitActionResult
+  'git.status': {
+    isRepo: boolean
+    branch: string | null
+    files: { path: string; staged: boolean; kind: string }[]
+    error?: string
+  }
+  'git.diffWorktree': { diffText: string; error?: string }
+  'git.turnDiff': { diffText: string | null; error?: string }
+  'git.add': GitActionResult
+  'git.commit': GitActionResult
+  'git.push': GitActionResult
   /** `url` is null when gh succeeded without printing one; error explains failures. */
   'git.createPr': { ok: boolean; url: string | null; error?: string }
-    'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
-    'fs.readTextFile': { content: string; truncated: boolean }
-    'fs.writeTextFile': { bytesWritten: number }
+  'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
+  'fs.readTextFile': { content: string; truncated: boolean }
+  'fs.writeTextFile': { bytesWritten: number }
   /**
    * One session's structured plan (per-session `.ari-todo-<sessionId>.json`
    * written by Ari Core's `todo_write`). `items: null` when no plan exists.
    * Without `sessionId` the legacy shared `.ari-todo.json` is read.
    */
-  'plan.get': { items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] | null; error?: string }
+  'plan.get': {
+    items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] | null
+    error?: string
+  }
   /** npm-style scripts declared in the folder's package.json (M21.3). */
   'scripts.list': { scripts: { name: string; command: string }[]; error?: string }
-    'stream.subscribe': { subscribed: boolean }
+  'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
 

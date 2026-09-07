@@ -28,7 +28,8 @@ beforeEach(async () => {
 afterEach(async () => {
   // Windows keeps a brief handle on journal files after the engine closes, so a
   // plain recursive rm intermittently hits ENOTEMPTY. Retry instead of flaking.
-  const wipe = (target: string) => rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  const wipe = (target: string) =>
+    rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   await wipe(dir)
   await Promise.all(dirs.map(wipe))
 })
@@ -121,7 +122,8 @@ describe('engine end-to-end with scripted driver', () => {
 
     const model = await store.load(sessionId)
     expect(model.status).toBe('idle')
-    if (model.messages.length !== 2) throw new Error('DEBUG events=' + JSON.stringify(published.map((p) => p.event.type)))
+    if (model.messages.length !== 2)
+      throw new Error('DEBUG events=' + JSON.stringify(published.map((p) => p.event.type)))
     expect(
       model.messages[1]?.parts.some((p) => p.type === 'text' && p.text.includes('hello')),
     ).toBe(true)
@@ -301,7 +303,11 @@ describe('engine end-to-end with scripted driver', () => {
     function failingDriver(): Driver {
       function makeAdapter(): ProviderAdapter {
         async function* start(): AsyncGenerator<AgentEvent> {
-          yield { type: 'error', message: 'authentication_failed: Not logged in · Please run /login', rawJson: null }
+          yield {
+            type: 'error',
+            message: 'authentication_failed: Not logged in · Please run /login',
+            rawJson: null,
+          }
           yield { type: 'done' }
         }
         return {
@@ -457,7 +463,9 @@ describe('engine end-to-end with scripted driver', () => {
     expect(
       folded.messages
         .filter((m) => m.role === 'user')
-        .flatMap((m) => m.parts.filter((p) => p.type === 'text').map((p) => ('text' in p ? p.text : ''))),
+        .flatMap((m) =>
+          m.parts.filter((p) => p.type === 'text').map((p) => ('text' in p ? p.text : '')),
+        ),
     ).toEqual(['long task', 'focus on the parser instead'])
   }, 10000)
 
@@ -522,7 +530,12 @@ describe('engine end-to-end with scripted driver', () => {
         Promise.resolve({
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
-              yield { type: 'input-requested', inputId: 'q1', prompt: 'Proceed?', choicesJson: null }
+              yield {
+                type: 'input-requested',
+                inputId: 'q1',
+                prompt: 'Proceed?',
+                choicesJson: null,
+              }
               await new Promise<string>((resolve) => {
                 finish = resolve
               })
@@ -587,7 +600,12 @@ describe('engine end-to-end with scripted driver', () => {
         Promise.resolve({
           start: () => ({
             async *[Symbol.asyncIterator]() {
-              yield { type: 'approval-requested', approvalId: 'ap_1', toolName: 'bash', summaryJson: '{}' }
+              yield {
+                type: 'approval-requested',
+                approvalId: 'ap_1',
+                toolName: 'bash',
+                summaryJson: '{}',
+              }
               const decision = await new Promise<string>((resolve) => {
                 release = resolve
               })
@@ -865,7 +883,11 @@ describe('turn workspace', () => {
 
     const sessionId = 'sess_ws_project'
     await seedSession(store, sessionId)
-    const result = await engine.dispatch({ type: 'turn.start', sessionId, text: 'build it' } as Command)
+    const result = await engine.dispatch({
+      type: 'turn.start',
+      sessionId,
+      text: 'build it',
+    } as Command)
     expect(result.accepted).toBe(true)
     await waitSettled(store, sessionId)
 
@@ -875,9 +897,14 @@ describe('turn workspace', () => {
     expect(created).toHaveLength(1)
     expect(created[0]?.workspacePath).toBe(projectDir)
     expect(existsSync(join(projectDir, '.ari'))).toBe(false)
-    const worktrees = execFileSync('git', ['worktree', 'list'], { cwd: projectDir, encoding: 'utf8' })
+    const worktrees = execFileSync('git', ['worktree', 'list'], {
+      cwd: projectDir,
+      encoding: 'utf8',
+    })
     expect(worktrees.trim().split(/\r?\n/)).toHaveLength(1) // the main checkout only
-    expect(execFileSync('git', ['branch', '--list', 'ari/*'], { cwd: projectDir, encoding: 'utf8' })).toBe('')
+    expect(
+      execFileSync('git', ['branch', '--list', 'ari/*'], { cwd: projectDir, encoding: 'utf8' }),
+    ).toBe('')
   }, 10000)
 
   it('keeps ad-hoc sessions on the home directory', async () => {
@@ -931,8 +958,6 @@ describe('turn workspace', () => {
     }
   }, 10000)
 })
-
-
 
 describe('Engine durable queue continuation', () => {
   it('dequeues a steered message immediately so it never re-runs as a turn', async () => {
@@ -1038,7 +1063,7 @@ describe('Engine durable queue continuation', () => {
     // Wait for the turn to actually register rather than a blind sleep.
     for (let i = 0; i < 200; i++) {
       const running = await store.load(sessionId)
-      if (running.activeTurnId !== null) break
+      if (running.activeTurnId !== null && releaseRef.current !== null) break
       if (i === 199) throw new Error('first turn never registered')
       await new Promise((r) => setTimeout(r, 10))
     }
@@ -1067,8 +1092,12 @@ describe('Engine durable queue continuation', () => {
     const userTexts = published
       .map((p) => p.event)
       .filter(
-        (e): e is JournalEvent & { type: 'user.message.added'; message: { parts: { type: string; text?: string }[] } } =>
-          e.type === 'user.message.added',
+        (
+          e,
+        ): e is JournalEvent & {
+          type: 'user.message.added'
+          message: { parts: { type: string; text?: string }[] }
+        } => e.type === 'user.message.added',
       )
     expect(
       userTexts.some((e) =>

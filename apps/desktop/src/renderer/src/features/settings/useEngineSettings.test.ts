@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '@ari/contracts/settings'
+import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import { useEngineSettings } from './useEngineSettings'
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }))
@@ -11,6 +12,7 @@ vi.mock('../../lib/rpc', () => ({
 
 const baseSettings: Settings = {
   version: 1,
+  delegation: delegationSettingsSchema.parse({}),
   appearance: {
     themeId: 'obsidian',
     mode: 'system',

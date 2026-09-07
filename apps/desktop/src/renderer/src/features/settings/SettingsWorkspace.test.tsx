@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '@ari/contracts/settings'
+import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { SettingsWorkspace, SETTINGS_SECTIONS } from './SettingsWorkspace'
 
@@ -24,6 +25,7 @@ vi.mock('../../lib/rpc', () => ({
 
 const engineSettings: Settings = {
   version: 1,
+  delegation: delegationSettingsSchema.parse({}),
   appearance: {
     themeId: 'obsidian',
     mode: 'system',

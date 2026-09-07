@@ -38,6 +38,11 @@ export interface SessionReadModel {
   providerSessionId: string | null
   usage: UsageTotals
   lastSeq: number
+  lastTurn?: {
+    turnId: string
+    stopReason: 'completed' | 'interrupted' | 'error'
+    settledAt: number
+  }
   childEvents?: Extract<JournalEvent, { type: `child.session.${string}` }>[]
 }
 
@@ -123,6 +128,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       break
 
     case 'turn.settled':
+      next.lastTurn = { turnId: event.turnId, stopReason: event.stopReason, settledAt: event.at }
       next.activeTurnId = null
       next.streamingMessageId = null
       // A settled turn owns no live prompts: stopping (or failing) while a
@@ -137,9 +143,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
         inputTokens: state.usage.inputTokens + event.inputTokens,
         outputTokens: state.usage.outputTokens + event.outputTokens,
         costUsd:
-          event.costUsd === null
-            ? state.usage.costUsd
-            : (state.usage.costUsd ?? 0) + event.costUsd,
+          event.costUsd === null ? state.usage.costUsd : (state.usage.costUsd ?? 0) + event.costUsd,
       }
       break
 
@@ -151,9 +155,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       break
 
     case 'approval.responded':
-      next.pendingApprovals = next.pendingApprovals.filter(
-        (a) => a.approvalId !== event.approvalId,
-      )
+      next.pendingApprovals = next.pendingApprovals.filter((a) => a.approvalId !== event.approvalId)
       break
 
     case 'input.requested':
@@ -171,7 +173,11 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       next.queuedMessages = [
         ...next.queuedMessages,
         // Pre-attachment journals carry no attachments field.
-        { text: event.text, attachments: event.attachments ?? [] },
+        {
+          text: event.text,
+          attachments: event.attachments ?? [],
+          ...(event.origin ? { origin: event.origin } : {}),
+        },
       ]
       break
 
@@ -181,7 +187,10 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       const idsOf = (ids: readonly { id: string }[]): string => ids.map((a) => a.id).join(',')
       const want = idsOf(event.attachments ?? [])
       const idx = next.queuedMessages.findIndex(
-        (m) => m.text === event.text && (event.attachments === undefined || idsOf(m.attachments) === want),
+        (m) =>
+          m.text === event.text &&
+          JSON.stringify(m.origin) === JSON.stringify(event.origin) &&
+          (event.attachments === undefined || idsOf(m.attachments) === want),
       )
       if (idx === -1) break
       next.queuedMessages = [
