@@ -38,6 +38,7 @@ export interface SessionReadModel {
   providerSessionId: string | null
   usage: UsageTotals
   lastSeq: number
+  childEvents?: Extract<JournalEvent, { type: `child.session.${string}` }>[]
 }
 
 export function initialReadModel(): SessionReadModel {
@@ -68,6 +69,12 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
   }
 
   switch (event.type) {
+    case 'child.session.spawned':
+    case 'child.session.settled':
+    case 'child.session.integrated':
+    case 'child.session.stopped':
+      next.childEvents = [...(state.childEvents ?? []), event]
+      break
     case 'session.created':
       // Normalize the optional sidebar flags so every read model carries
       // concrete booleans even when folding pre-M18.2 journals.
