@@ -2,20 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { activeTokenAt } from './active-token'
 
 describe('activeTokenAt', () => {
-  it('detects a slash token at the start of the text', () => {
-    expect(activeTokenAt('/mo', 3)).toEqual({ kind: 'slash', raw: '/mo', start: 0 })
-  })
-
-  it('detects a slash token after whitespace', () => {
-    expect(activeTokenAt('run /cle', 8)).toEqual({ kind: 'slash', raw: '/cle', start: 4 })
-  })
-
-  it('ignores a slash glued to a preceding word', () => {
+  it('ignores slash text now that the slash popup is removed', () => {
+    expect(activeTokenAt('/mo', 3)).toBeNull()
+    expect(activeTokenAt('run /cle', 8)).toBeNull()
     expect(activeTokenAt('abc/', 4)).toBeNull()
-  })
-
-  it('ignores uppercase slash queries', () => {
-    expect(activeTokenAt('/MO', 3)).toBeNull()
   })
 
   it('detects a mention token with path characters', () => {
@@ -31,9 +21,13 @@ describe('activeTokenAt', () => {
   })
 
   it('returns the token only when the caret sits at its end', () => {
-    expect(activeTokenAt('run /cle', 4)).toBeNull()
-    expect(activeTokenAt('run /cle done', 8)).toEqual({ kind: 'slash', raw: '/cle', start: 4 })
-    expect(activeTokenAt('run /cle done', 13)).toBeNull()
+    expect(activeTokenAt('see @src/app', 4)).toBeNull()
+    expect(activeTokenAt('see @src/app now', 12)).toEqual({
+      kind: 'mention',
+      raw: '@src/app',
+      start: 4,
+    })
+    expect(activeTokenAt('see @src/app now', 16)).toBeNull()
   })
 
   it('returns null for plain text', () => {
