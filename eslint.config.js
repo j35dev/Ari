@@ -14,6 +14,7 @@ export default tseslint.config(
       '**/coverage/**',
       '.ari/**',
       '.worktrees/**',
+      '.claude/worktrees/**',
     ],
   },
   js.configs.recommended,
