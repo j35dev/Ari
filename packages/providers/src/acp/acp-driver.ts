@@ -210,6 +210,7 @@ export async function createAcpAdapter(
   try {
     connection = await AcpConnection.connect({
       launch: effectiveLaunch,
+      ...(session.runtimeEnv ? { runtimeEnv: session.runtimeEnv } : {}),
       cwd: session.workspacePath,
       ...(spawn !== undefined ? { spawn } : {}),
     })

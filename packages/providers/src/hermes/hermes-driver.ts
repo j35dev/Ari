@@ -42,6 +42,7 @@ export class HermesDriver implements Driver {
   create(session: AdapterSession): Promise<ProviderAdapter> {
     const child = spawnCli(this.binaryPath, buildHermesArgs(session), {
       cwd: session.workspacePath,
+      ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     })

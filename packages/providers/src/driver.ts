@@ -15,6 +15,8 @@ export interface AdapterSession {
   /** Ari-side session id (journal owner). */
   sessionId: string
   workspacePath: string
+  /** Complete per-session process environment; never mutate process.env. */
+  runtimeEnv?: Record<string, string | undefined>
   prompt: string
   modelId: string | null
   permissionMode: PermissionMode
