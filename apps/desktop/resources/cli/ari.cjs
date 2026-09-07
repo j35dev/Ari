@@ -14,7 +14,7 @@ const failure = (code, message) => ({ ok: false, error: { code, message } })
 function parse(argv) {
   const positional = []
   const flags = {}
-  const boolean = new Set(['json', 'wait', 'patch', 'stat', 'recursive'])
+  const boolean = new Set(['json', 'wait', 'patch', 'stat', 'recursive', 'allow-stale'])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
     if (!item.startsWith('--')) {
@@ -120,7 +120,12 @@ function parse(argv) {
         params = { targetSessionId: target, patch: Boolean(flags.patch) }
         break
       case 'integrate':
-        params = { targetSessionId: target, snapshotCommit: flags.snapshot, idempotencyKey: key }
+        params = {
+          targetSessionId: target,
+          snapshotCommit: flags.snapshot,
+          idempotencyKey: key,
+          ...(flags['allow-stale'] ? { allowStale: true } : {}),
+        }
         break
       default:
         throw new Error('Unknown session command')
@@ -145,7 +150,7 @@ function request(method, params, timeoutMs, env = process.env) {
       resolve(value)
     }
     const timer = setTimeout(
-      () => finish(failure('wait_timeout', 'Control request timed out.')),
+      () => finish(failure('control_timeout', 'Control request timed out.')),
       timeoutMs + 5000,
     )
     socket.on('connect', () =>

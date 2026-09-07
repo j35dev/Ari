@@ -650,7 +650,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         await engine.quiesce(id)
       }
       await store.destroy(id)
-      runtime?.revoke(id)
+      await runtime?.release(id)
     }
     return { destroyed: true }
   })
@@ -748,6 +748,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             })
           }
         }
+      }
+      if (command.archived) {
+        for (const id of parents) runtime?.revoke(id)
       }
     }
     return result

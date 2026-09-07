@@ -145,25 +145,63 @@ export class AgentControlServer {
           fail('invalid_request')
           return
         }
-        if (++requests > 1000 || pending >= 8) {
-          fail('delegation_limit')
-          return
+        const { id, method, params } = request.data
+        if (++requests > 1000) {
+          send({
+            type: 'response',
+            id,
+            ok: false,
+            error: { code: 'delegation_limit', message: 'Control operation limit reached.' },
+          })
+          continue
+        }
+        if (pending >= 8) {
+          send({
+            type: 'response',
+            id,
+            ok: false,
+            error: {
+              code: 'delegation_limit',
+              message: 'Too many in-flight control requests.',
+            },
+          })
+          continue
         }
         pending++
         socket.setTimeout(3_660_000)
-        const { id, method, params } = request.data
+        let answered = false
+        const requestController = new AbortController()
+        const signal = AbortSignal.any([controller.signal, requestController.signal])
+        const timer = setTimeout(() => {
+          if (answered) return
+          answered = true
+          requestController.abort()
+          send({
+            type: 'response',
+            id,
+            ok: false,
+            error: { code: 'control_timeout', message: 'Control request timed out.' },
+          })
+        }, 3_660_000)
         void this.options
-          .invoke(caller, method, params, controller.signal)
-          .then((result) => send({ type: 'response', id, ...result }))
-          .catch(() =>
+          .invoke(caller, method, params, signal)
+          .then((result) => {
+            if (answered) return
+            answered = true
+            send({ type: 'response', id, ...result })
+          })
+          .catch(() => {
+            if (answered) return
+            answered = true
             send({
               type: 'response',
               id,
               ok: false,
               error: { code: 'internal_error', message: 'Control request failed.' },
-            }),
-          )
+            })
+          })
           .finally(() => {
+            clearTimeout(timer)
             if (--pending === 0) socket.setTimeout(15_000)
           })
       }

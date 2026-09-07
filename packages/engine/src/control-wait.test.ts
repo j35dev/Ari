@@ -86,3 +86,82 @@ it('releases timeout and cancellation subscriptions without polling', async () =
     vi.useRealTimers()
   }
 })
+
+it('returns a settle that landed while load observed an idle session', async () => {
+  let listener: ((event: JournalEvent) => void) | null = null
+  const event: JournalEvent = {
+    type: 'turn.settled',
+    sessionId: 's',
+    turnId: 't',
+    seq: 2,
+    at: 2,
+    stopReason: 'completed',
+    errorMessage: null,
+  }
+  const session = {
+    id: 's',
+    projectId: 'p',
+    title: 'S',
+    driverKind: 'claude' as const,
+    modelId: null,
+    permissionMode: 'ask' as const,
+    status: 'idle' as const,
+    createdAt: 1,
+    updatedAt: 1,
+  }
+  expect(
+    await waitForTurn(
+      {
+        subscribe: (fn) => {
+          listener = fn
+          return () => {
+            listener = null
+          }
+        },
+        load: async () => {
+          listener?.(event)
+          return {
+            ...initialReadModel(),
+            activeTurnId: null,
+            lastTurn: { turnId: 't', stopReason: 'completed' as const, settledAt: 2 },
+            session,
+          }
+        },
+      },
+      's',
+      100,
+    ),
+  ).toMatchObject({ status: 'settled', turnId: 't', stopReason: 'completed' })
+})
+
+it('wakes as destroyed when onGone fires', async () => {
+  let gone: (() => void) | undefined
+  const waiting = waitForTurn(
+    {
+      subscribe: () => () => undefined,
+      load: async () => ({
+        ...initialReadModel(),
+        activeTurnId: 't',
+        session: {
+          id: 's',
+          projectId: 'p',
+          title: 'S',
+          driverKind: 'claude',
+          modelId: null,
+          permissionMode: 'ask',
+          status: 'running',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      }),
+      onGone: (_id, listener) => {
+        gone = listener
+        return () => undefined
+      },
+    },
+    's',
+    1_000,
+  )
+  gone?.()
+  expect(await waiting).toMatchObject({ status: 'destroyed', sessionId: 's' })
+})
