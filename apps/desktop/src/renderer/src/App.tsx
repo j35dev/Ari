@@ -18,6 +18,7 @@ import {
   projectMoveForDelta,
   sidebarOrder,
 } from './features/session/session-nav'
+import { descendantIds } from './features/session/session-tree'
 import { TerminalDock } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
@@ -541,11 +542,12 @@ function Shell() {
                   .catch((error: unknown) => log.warn('rpc call failed', error))
               }}
               onDelete={(id) => {
-                forget(id)
+                const dropped = new Set([id, ...descendantIds(sessions, id)])
+                for (const gone of dropped) forget(gone)
                 void rpc
                   .invoke('session.destroy', { sessionId: id })
                   .then(() => {
-                    if (activeSessionId === id) setActiveSessionId(null)
+                    if (activeSessionId && dropped.has(activeSessionId)) setActiveSessionId(null)
                     refreshSessions()
                   })
                   .catch((error: unknown) => log.warn('rpc call failed', error))
@@ -634,6 +636,11 @@ function Shell() {
                       defaults={defaults}
                       onDefaultsChange={setDefaults}
                       onOpenSession={selectSession}
+                      activityOf={activityOf}
+                      childSessions={sessions.filter(
+                        (session) =>
+                          session.parentSessionId === activeSessionId && !session.archived,
+                      )}
                     />
                   </ErrorBoundary>
                 ) : (
