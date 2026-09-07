@@ -1,7 +1,3 @@
-export { SLASH_COMMANDS, matchSlash } from './slash-commands'
-export type { SlashCommand } from './slash-commands'
-export { SlashPopup } from './SlashPopup'
-export type { SlashPopupProps } from './SlashPopup'
 export { FilePopup } from './FilePopup'
 export type { FilePopupProps } from './FilePopup'
 export { activeTokenAt } from './active-token'
