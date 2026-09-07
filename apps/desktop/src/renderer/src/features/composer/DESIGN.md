@@ -40,7 +40,7 @@ Two-pane popover: provider rail left (vendor logo where official art exists — 
 
 ## States
 
-- Composer: empty (placeholder, send disabled), typing (send armed), running (stop), queued banner, slash/mention popovers, stash empty/full, disabled.
+- Composer: empty (placeholder, send disabled), typing (send armed), running (stop), queued banner, @file mention popover, stash empty/full, disabled.
 - Picker: closed, open + loading, grouped list, search filter, no-match, selected + keyboard active, Escape / outside pointer close.
 - Permission: Ask / Edits / Full auto, current indicated, keyboard focus-visible.
 - Pointer vs keyboard: chips and send use `:focus-visible` only; plate has no `:focus-within` halo.
