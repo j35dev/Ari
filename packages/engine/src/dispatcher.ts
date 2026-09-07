@@ -1,7 +1,12 @@
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
-import type { MessagePart } from '@ari/contracts/message'
-import { applyEvent, initialReadModel, type DistributiveOmit, type SessionReadModel } from './projection'
+import type { MessagePart, MessageOrigin } from '@ari/contracts/message'
+import {
+  applyEvent,
+  initialReadModel,
+  type DistributiveOmit,
+  type SessionReadModel,
+} from './projection'
 import { deriveSliceTitle } from './title'
 
 export type UnstampedJournalEvent = DistributiveOmit<JournalEvent, 'seq' | 'at' | 'sessionId'>
@@ -27,6 +32,7 @@ export function decideCommand(
   model: SessionReadModel,
   command: Command,
   ids: DispatchIds,
+  origin?: MessageOrigin,
 ): DispatchDecision {
   if (!model.session) {
     return reject('unknown session')
@@ -59,6 +65,7 @@ export function decideCommand(
             sessionId: model.session.id,
             turnId: ids.turnId,
             role: 'user',
+            ...(origin ? { origin } : {}),
             parts,
             createdAt: Date.now(),
           },
@@ -84,7 +91,12 @@ export function decideCommand(
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       if (!model.activeTurnId) return reject('no active turn to queue behind; use turn.start')
       return accept([
-        { type: 'message.enqueued', text: command.text, attachments: command.attachments ?? [] },
+        {
+          type: 'message.enqueued',
+          text: command.text,
+          attachments: command.attachments ?? [],
+          ...(origin ? { origin } : {}),
+        },
       ])
     }
 
@@ -109,9 +121,7 @@ export function decideCommand(
 
     case 'approval.respond': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
-      const pending = model.pendingApprovals.find(
-        (a) => a.approvalId === command.approvalId,
-      )
+      const pending = model.pendingApprovals.find((a) => a.approvalId === command.approvalId)
       if (!pending) return reject('unknown or already-answered approval')
       return accept([
         { type: 'approval.responded', approvalId: command.approvalId, decision: command.decision },
@@ -178,7 +188,12 @@ export function previewDispatch(
 ): SessionReadModel {
   let next = model
   for (const event of decision.events) {
-    next = applyEvent(next, { ...event, seq: next.lastSeq + 1, at: Date.now(), sessionId: model.session?.id ?? '' })
+    next = applyEvent(next, {
+      ...event,
+      seq: next.lastSeq + 1,
+      at: Date.now(),
+      sessionId: model.session?.id ?? '',
+    })
   }
   return next
 }

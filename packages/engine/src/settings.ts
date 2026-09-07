@@ -51,6 +51,7 @@ export class SettingsStore {
 
   /** Shallow-per-section merge update, persisted atomically. */
   async update(patch: {
+    delegation?: Partial<Settings['delegation']>
     appearance?: Partial<Settings['appearance']>
     sessions?: Partial<Settings['sessions']>
     notifications?: Partial<Settings['notifications']>
@@ -58,6 +59,7 @@ export class SettingsStore {
     window?: Settings['window']
   }): Promise<Settings> {
     const next: Settings = {
+      delegation: { ...this.#current.delegation, ...patch.delegation },
       version: 1,
       appearance: { ...this.#current.appearance, ...patch.appearance },
       sessions: { ...this.#current.sessions, ...patch.sessions },
