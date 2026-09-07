@@ -23,15 +23,22 @@ extraResources:
     to: icon.ico
   - from: build/icon.png
     to: icon.png
-# node-pty is the only native dependency; it must stay physical on disk
-# (ConPTY needs to dlopen conpty.node and spawn OpenConsole.exe, neither of
-# which works from inside an asar archive). `@lydell/node-pty` is only a
+# node-pty and the ACP provider runtimes must stay physical on disk
+# (ConPTY needs to dlopen conpty.node and spawn OpenConsole.exe; the provider
+# adapters spawn their platform binaries, none of which can rely on asar).
+# `@lydell/node-pty` is only a
 # resolver stub — the implementation and the binaries live in the
 # platform-specific `@lydell/node-pty-<platform>-<arch>` package it requires,
 # so both must be unpacked.
 asarUnpack:
   - '**/node_modules/@lydell/node-pty/**'
   - '**/node_modules/@lydell/node-pty-*/**'
+  # ACP entrypoints stay available to Electron's Node runtime and the
+  # provider binaries they resolve must be real files, not asar members.
+  - '**/node_modules/@agentclientprotocol/**'
+  - '**/node_modules/@anthropic-ai/**'
+  - '**/node_modules/@modelcontextprotocol/**'
+  - '**/node_modules/@openai/**'
 # Fails the build if the platform pty package did not survive dependency
 # collection — that regression ships a terminal that opens to a dead cursor.
 afterPack: ./packaging/after-pack.js
@@ -63,7 +70,13 @@ mac:
   # Mach-O in both slices unless it is declared here. These are single-arch
   # addons that the resolver stub picks at runtime, so copying them verbatim is
   # exactly right; there is nothing to lipo together.
-  x64ArchFiles: '**/node_modules/@lydell/node-pty-*/**'
+  # The optional ACP runtime packages are installed for both universal slices
+  # by pnpm's supportedArchitectures matrix; preserve their x64 files in the
+  # x64 half just like the single-arch pty addons above.
+  x64ArchFiles:
+    - '**/node_modules/@lydell/node-pty-*/**'
+    - '**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
+    - '**/node_modules/@openai/codex-*/**'
 linux:
   target:
     - AppImage
