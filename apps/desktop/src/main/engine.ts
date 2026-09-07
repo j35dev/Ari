@@ -7,6 +7,7 @@ import { decideCommand } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
+import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { deterministicTitleStrategy, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -50,6 +51,7 @@ export interface EngineDeps {
    * literal path.
    */
   resolveWorkspace?: (projectId: string) => Promise<string | null>
+  runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
   /**
    * Resolves a staged attachment id to its disk path for adapters. Absent
    * for tests: attachments resolve as unavailable and are named in text.
@@ -192,7 +194,7 @@ export class Engine {
     if (command.type === 'checkpoint.revert') {
       const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
       const session = model.session
-      const ws = session === null ? null : await this.#workspaceFor(session.projectId)
+      const ws = session === null ? null : await this.workspace(session)
       if (ref !== undefined && ws !== null) {
         const { GitService } = await import('@ari/engine/git')
         const result = await new GitService().revertToRef(ws, ref)
@@ -222,6 +224,12 @@ export class Engine {
     return resolved
   }
 
+  /** Authoritative cwd for providers, checkpoints, control operations and the UI. */
+  workspace(session: Session): Promise<string | null> {
+    return resolveSessionWorkspace(session, (id) => this.#workspaceFor(id), async (id) =>
+      (await this.#deps.store.load(id)).session)
+  }
+
   /**
    * Runs one provider turn: spawns the adapter, maps normalized agent events
    * into journal parts (coalescing text), and settles the turn. `resumeOf`
@@ -241,11 +249,7 @@ export class Engine {
       return
     }
 
-    // Turns run in the workspace the user opened. Ari never relocates an agent
-    // into a checkout of its own — branching or worktrees are the agent's call,
-    // asked for in the prompt — so the Changes rail, terminal, editor, and
-    // checkpoints all read the same tree the agent writes to.
-    const workspacePath = await this.#workspaceFor(session.projectId)
+    const workspacePath = await this.workspace(session)
     if (workspacePath === null) {
       await this.#settle(
         session.id,
@@ -285,6 +289,7 @@ export class Engine {
     let adapter
     try {
       adapter = await driver.create({
+        ...(this.#deps.runtimeEnvironment ? { runtimeEnv: await this.#deps.runtimeEnvironment(session) } : {}),
         sessionId: session.id,
         workspacePath,
         prompt,

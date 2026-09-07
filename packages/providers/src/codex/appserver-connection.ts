@@ -19,6 +19,7 @@ export interface CodexChildProcess {
 export interface AppServerStartOptions {
   binaryPath: string
   cwd: string
+  env?: Record<string, string | undefined>
   /** Process factory seam for tests; defaults to the Windows-safe spawner. */
   spawn?: (binaryPath: string, cwd: string) => CodexChildProcess
 }
@@ -66,6 +67,7 @@ export class AppServerConnection {
           ? options.spawn(options.binaryPath, options.cwd)
           : spawnCli(options.binaryPath, ['app-server'], {
               cwd: options.cwd,
+              ...(options.env ? { env: options.env } : {}),
               stdio: ['pipe', 'pipe', 'pipe'],
               windowsHide: true,
             })

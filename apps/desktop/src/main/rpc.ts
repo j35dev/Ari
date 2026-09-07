@@ -581,6 +581,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return model.session ? model : null
   })
 
+  r.register('session.workspace', async ({ sessionId }) => {
+    const { session } = await getSessionStore().load(sessionId)
+    return { path: session ? await engine.workspace(session) : null }
+  })
+
   r.register('session.destroy', async (params) => {
     await getSessionStore().destroy(params.sessionId)
     return { destroyed: true }
@@ -1173,6 +1178,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // (symlinks included) inside a registered project folder.
     await getProjectStore().load()
     const roots = getProjectStore().list().map((p) => p.path)
+    for (const summary of await getSessionStore().listSessions()) {
+      if (summary.workspaceKind !== 'managed-worktree') continue
+      const { session } = await getSessionStore().load(summary.id)
+      const path = session ? await engine.workspace(session) : null
+      if (path) roots.push(path)
+    }
     const bytesWritten = await writeTextFile(params, roots)
     return { bytesWritten }
   })

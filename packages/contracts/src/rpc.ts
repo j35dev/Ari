@@ -212,6 +212,7 @@ export const rpcParams = {
   'session.list': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
+  'session.workspace': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
   /** Sessions another agent already has on disk; `projectId` scopes to one registered project. */
   'sessions.importable': z.object({ projectId: z.string().min(1).optional() }),
@@ -397,6 +398,7 @@ export interface RpcResults {
   'session.list': SessionSummary[]
   'session.create': { sessionId: string }
   'session.load': unknown
+  'session.workspace': { path: string | null }
   'session.destroy': { destroyed: boolean }
   /**
    * Sessions another agent has on disk and Ari could replay. `imported` is

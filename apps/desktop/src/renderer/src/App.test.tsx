@@ -44,7 +44,7 @@ describe('BranchChip', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
-      if (method === 'session.load') return { session: { projectId: 'proj_1' } }
+      if (method === 'session.workspace') return { path: 'C:\\repos\\demo' }
       if (method === 'project.list')
         return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
       if (method === 'git.status') return { isRepo: true, branch: 'feat/demo', files: [] }
@@ -66,14 +66,14 @@ describe('BranchChip', () => {
 
   it('stays hidden when the session has no registered project folder', async () => {
     invokeMock.mockImplementation(async (method) => {
-      if (method === 'session.load') return { session: { projectId: 'adhoc' } }
+      if (method === 'session.workspace') return { path: null }
       if (method === 'project.list') return []
       throw new Error(`unexpected method: ${String(method)}`)
     })
 
     render(<BranchChip sessionId="sess_1" />)
     await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('project.list')
+      expect(invokeMock).toHaveBeenCalledWith('session.workspace', { sessionId: 'sess_1' })
     })
 
     expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
@@ -81,7 +81,7 @@ describe('BranchChip', () => {
 
   it('stays hidden outside a git repo', async () => {
     invokeMock.mockImplementation(async (method) => {
-      if (method === 'session.load') return { session: { projectId: 'proj_1' } }
+      if (method === 'session.workspace') return { path: 'C:\\repos\\demo' }
       if (method === 'project.list')
         return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
       if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
