@@ -2,7 +2,11 @@ import { homedir } from 'node:os'
 import type { DriverKind } from '@ari/contracts/common'
 import type { ProviderAllowance } from '@ari/contracts/rpc'
 import { AcpConnection } from '@ari/providers/acp/connection'
-import { probeLaunch, resolveAcpLaunch } from '@ari/providers/acp/launches'
+import {
+  probeLaunch,
+  resolveAcpLaunch,
+  type BundledAcpRuntime,
+} from '@ari/providers/acp/launches'
 import { AppServerConnection } from '@ari/providers/codex/appserver-connection'
 import { createLogger } from '@ari/shared/logger'
 
@@ -12,7 +16,11 @@ const log = createLogger('desktop:allowance')
 type Windows = ProviderAllowance['windows']
 
 /** Fetches account usage without starting a model turn in the user's session. */
-export async function fetchAllowance(kind: DriverKind, binaryPath: string): Promise<Windows> {
+export async function fetchAllowance(
+  kind: DriverKind,
+  binaryPath: string,
+  bundledRuntime?: BundledAcpRuntime,
+): Promise<Windows> {
   if (kind === 'codex') {
     // Ari's pinned ACP /status reads a stale snapshot. The underlying native
     // account request actively fetches limits, even without an active turn.
@@ -28,7 +36,7 @@ export async function fetchAllowance(kind: DriverKind, binaryPath: string): Prom
       await connection.shutdown()
     }
   }
-  const launch = resolveAcpLaunch(kind, { cliBinaryPath: binaryPath })
+  const launch = resolveAcpLaunch(kind, { cliBinaryPath: binaryPath, bundledRuntime })
   if (!launch || (kind !== 'grok' && kind !== 'claude')) return []
   const connection = await AcpConnection.connect({
     launch: probeLaunch(launch),
