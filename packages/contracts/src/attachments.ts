@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { messageOriginSchema } from './message'
 
 /** Maximum images carried by one message (mirrors the composer's cap). */
 export const MAX_ATTACHMENTS = 4
@@ -28,6 +29,7 @@ export type AttachmentRef = z.infer<typeof attachmentRefSchema>
  * delivers them to the agent.
  */
 export const queuedMessageSchema = z.object({
+  origin: messageOriginSchema.optional(),
   text: z.string(),
   attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
 })

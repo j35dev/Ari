@@ -3,10 +3,12 @@ import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
+import type { MessageOrigin } from '@ari/contracts/message'
 import { decideCommand } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
+import { resolveSessionWorkspace } from '@ari/engine/workspace'
 import { deterministicTitleStrategy, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -15,6 +17,16 @@ import type { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterApprovalDecision } from '@ari/providers/driver'
 
 const log = createLogger('desktop:engine')
+
+function attributedInput(text: string, origin?: MessageOrigin): string {
+  return origin?.kind === 'session'
+    ? `[Ari message from session ${origin.sessionId}]\n\n${text}`
+    : text
+}
+
+function inputKey(text: string, origin?: MessageOrigin): string {
+  return JSON.stringify([text, origin ?? null])
+}
 
 export interface CheckpointCapturer {
   captureCheckpoint(
@@ -50,6 +62,9 @@ export interface EngineDeps {
    * literal path.
    */
   resolveWorkspace?: (projectId: string) => Promise<string | null>
+  runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
+  respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
+  authorizeTurn?: (session: Session) => Promise<string | null>
   /**
    * Resolves a staged attachment id to its disk path for adapters. Absent
    * for tests: attachments resolve as unavailable and are named in text.
@@ -86,8 +101,20 @@ interface ActiveTurn {
  * streams every appended event to subscribers.
  */
 export class Engine {
+  readonly #commands = new Map<string, Promise<unknown>>()
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
+  readonly #turnTasks = new Map<string, Promise<void>>()
+
+  /** Waits for provider disposal, including interrupted startup, before reading worker files. */
+  async quiesce(sessionId: string): Promise<void> {
+    await this.#turnTasks.get(sessionId)
+  }
+
+  /** Includes providers still disposing after a durable settle. */
+  hasLiveTurn(sessionId: string): boolean {
+    return this.#turnTasks.has(sessionId)
+  }
   /**
    * Texts consumed as mid-turn steering, per session. Consulted when the
    * turn settles so an already-steered message is never re-run as a
@@ -103,16 +130,52 @@ export class Engine {
     this.#deps = deps
   }
 
-  async dispatch(command: Command): Promise<{ accepted: boolean; reason?: string }> {
+  async dispatch(
+    command: Command,
+    origin?: MessageOrigin,
+  ): Promise<{ accepted: boolean; reason?: string }> {
+    const target =
+      'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
+    const id = target?.rootSessionId ?? ('sessionId' in command ? command.sessionId : '-')
+    const result = (this.#commands.get(id) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.#dispatch(command, origin))
+    this.#commands.set(id, result)
+    void result
+      .finally(() => {
+        if (this.#commands.get(id) === result) this.#commands.delete(id)
+      })
+      .catch(() => undefined)
+    return result
+  }
+
+  /** Creates a normal session through the same journal and publication path as turns. */
+  async createSession(session: Session): Promise<void> {
+    await this.#append(session.id, { type: 'session.created', session })
+  }
+
+  /** Durable lifecycle write for the scoped control service. */
+  record(sessionId: string, event: UnstampedEvent): Promise<JournalEvent> {
+    return this.#append(sessionId, event)
+  }
+
+  async #dispatch(
+    command: Command,
+    origin?: MessageOrigin,
+  ): Promise<{ accepted: boolean; reason?: string }> {
     if (!('sessionId' in command)) {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
     const model = await this.#deps.store.load(command.sessionId)
+    if (command.type === 'turn.start' && model.session && this.#deps.authorizeTurn) {
+      const reason = await this.#deps.authorizeTurn(model.session)
+      if (reason) return { accepted: false, reason }
+    }
     const ids: DispatchIds = {
       turnId: newTypedId('turn'),
       messageId: newTypedId('msg'),
     }
-    const decision = decideCommand(model, command, ids)
+    const decision = decideCommand(model, command, ids, origin)
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
@@ -122,14 +185,24 @@ export class Engine {
     }
 
     if (command.type === 'turn.start') {
-      void this.#runTurn(
-        model.session as Session,
-        command.text,
-        command.attachments ?? [],
-        ids.turnId,
-        model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
-      ).catch((e) => {
-        log.error('turn execution crashed', { error: String(e) })
+      const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
+      const task = previous
+        .then(() =>
+          this.#runTurn(
+            model.session as Session,
+            attributedInput(command.text, origin),
+            command.attachments ?? [],
+            ids.turnId,
+            model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
+          ),
+        )
+        .catch((e) => {
+          log.error('turn execution crashed', { error: String(e) })
+        })
+      this.#turnTasks.set(command.sessionId, task)
+      void task.then(() => {
+        if (this.#turnTasks.get(command.sessionId) === task)
+          this.#turnTasks.delete(command.sessionId)
       })
     }
 
@@ -139,6 +212,8 @@ export class Engine {
     }
 
     if (command.type === 'approval.respond') {
+      if (this.#deps.respondControlApproval?.(command.approvalId, command.decision))
+        return { accepted: true }
       // Route the decision to the live adapter so in-band approval protocols
       // (claude stdin control, ACP request_permission) actually proceed —
       // previously the decision was only journaled and the provider hung.
@@ -162,7 +237,9 @@ export class Engine {
       const attachments = command.attachments ?? []
       const steered =
         attachments.length === 0
-          ? (this.#activeTurns.get(command.sessionId)?.steer(command.text) ?? false)
+          ? (this.#activeTurns
+              .get(command.sessionId)
+              ?.steer(attributedInput(command.text, origin)) ?? false)
           : false
       if (steered) {
         let consumed = this.#steeredTexts.get(command.sessionId)
@@ -170,8 +247,13 @@ export class Engine {
           consumed = new Set()
           this.#steeredTexts.set(command.sessionId, consumed)
         }
-        consumed.add(command.text)
-        await this.#append(command.sessionId, { type: 'message.dequeued', text: command.text, attachments })
+        consumed.add(inputKey(command.text, origin))
+        await this.#append(command.sessionId, {
+          type: 'message.dequeued',
+          text: command.text,
+          attachments,
+          ...(origin ? { origin } : {}),
+        })
         // Dequeue used to make the follow-up vanish: it left the queue and
         // never became a transcript row. Journal it as a user message so the
         // session shows what the adapter just consumed.
@@ -182,6 +264,7 @@ export class Engine {
             sessionId: command.sessionId,
             turnId: model.activeTurnId,
             role: 'user',
+            ...(origin ? { origin } : {}),
             parts: command.text.length > 0 ? [{ type: 'text', text: command.text }] : [],
             createdAt: Date.now(),
           },
@@ -192,7 +275,7 @@ export class Engine {
     if (command.type === 'checkpoint.revert') {
       const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
       const session = model.session
-      const ws = session === null ? null : await this.#workspaceFor(session.projectId)
+      const ws = session === null ? null : await this.workspace(session)
       if (ref !== undefined && ws !== null) {
         const { GitService } = await import('@ari/engine/git')
         const result = await new GitService().revertToRef(ws, ref)
@@ -208,6 +291,16 @@ export class Engine {
   async #append(sessionId: string, event: UnstampedEvent): Promise<JournalEvent> {
     const stamped = await this.#deps.store.append(sessionId, event)
     this.#deps.publish(sessionId, stamped)
+    if (event.type === 'turn.settled') {
+      const parentId = (await this.#deps.store.load(sessionId)).session?.parentSessionId
+      if (parentId)
+        await this.#append(parentId, {
+          type: 'child.session.settled',
+          childSessionId: sessionId,
+          turnId: event.turnId,
+          stopReason: event.stopReason,
+        })
+    }
     return stamped
   }
 
@@ -220,6 +313,15 @@ export class Engine {
     const resolved = await this.#deps.resolveWorkspace(projectId)
     if (resolved !== null && !existsSync(resolved)) return null
     return resolved
+  }
+
+  /** Authoritative cwd for providers, checkpoints, control operations and the UI. */
+  workspace(session: Session): Promise<string | null> {
+    return resolveSessionWorkspace(
+      session,
+      (id) => this.#workspaceFor(id),
+      async (id) => (await this.#deps.store.load(id)).session,
+    )
   }
 
   /**
@@ -237,15 +339,16 @@ export class Engine {
   ): Promise<void> {
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
-      await this.#settle(session.id, turnId, 'error', `no driver registered for ${session.driverKind}`)
+      await this.#settle(
+        session.id,
+        turnId,
+        'error',
+        `no driver registered for ${session.driverKind}`,
+      )
       return
     }
 
-    // Turns run in the workspace the user opened. Ari never relocates an agent
-    // into a checkout of its own — branching or worktrees are the agent's call,
-    // asked for in the prompt — so the Changes rail, terminal, editor, and
-    // checkpoints all read the same tree the agent writes to.
-    const workspacePath = await this.#workspaceFor(session.projectId)
+    const workspacePath = await this.workspace(session)
     if (workspacePath === null) {
       await this.#settle(
         session.id,
@@ -284,18 +387,32 @@ export class Engine {
 
     let adapter
     try {
+      if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) return
+      const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
       adapter = await driver.create({
+        ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt,
+        prompt:
+          runtimeEnv?.ARI_ENV === '1'
+            ? `[Ari environment: use ari --skill for scoped child-session tools. Run ari agents before choosing provider/model IDs. Never disclose control credentials.]\n\n${prompt}`
+            : prompt,
         modelId: session.modelId,
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,
         resumeOf,
-        ...(attachments.length > 0 ? { attachments: await this.#resolveAttachments(attachments) } : {}),
+        ...(attachments.length > 0
+          ? { attachments: await this.#resolveAttachments(attachments) }
+          : {}),
       })
     } catch (e) {
       await this.#settle(session.id, turnId, 'error', String(e))
+      return
+    }
+
+    if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
+      adapter.interrupt()
+      await adapter.dispose()
       return
     }
 
@@ -353,7 +470,10 @@ export class Engine {
         switch (event.type) {
           case 'text-delta':
           case 'thinking-delta': {
-            buffer.push({ type: event.type === 'text-delta' ? 'text' : 'thinking', text: event.text })
+            buffer.push({
+              type: event.type === 'text-delta' ? 'text' : 'thinking',
+              text: event.text,
+            })
             if (Date.now() - lastFlush >= 120) await flush()
             break
           }
@@ -364,7 +484,12 @@ export class Engine {
               type: 'assistant.parts.appended',
               messageId,
               parts: [
-                { type: 'tool-call', callId: event.callId, name: event.name, argsJson: event.argsJson },
+                {
+                  type: 'tool-call',
+                  callId: event.callId,
+                  name: event.name,
+                  argsJson: event.argsJson,
+                },
               ],
             })
             break
@@ -442,14 +567,19 @@ export class Engine {
       // errors) must settle the turn as `error`, never as a completed chat —
       // otherwise the failure is invisible and the UI looks broken.
       if (!interrupted) {
-        await this.#settle(session.id, turnId, firstErrorMessage === null ? 'completed' : 'error', firstErrorMessage)
+        await this.#settle(
+          session.id,
+          turnId,
+          firstErrorMessage === null ? 'completed' : 'error',
+          firstErrorMessage,
+        )
       }
     } catch (e) {
       await flush().catch(() => undefined)
       if (!interrupted) await this.#settle(session.id, turnId, 'error', String(e))
     } finally {
       this.#activeTurns.delete(session.id)
-      void adapter.dispose()
+      await adapter.dispose()
     }
   }
 
@@ -460,6 +590,7 @@ export class Engine {
     errorMessage: string | null,
   ): Promise<void> {
     const model = await this.#deps.store.load(sessionId)
+    if (model.activeTurnId !== turnId) return
     const nextStatus = stopReason === 'error' ? 'error' : 'idle'
     // Fold status before publishing turn.settled so subscribers that load
     // the read model on settle already see idle/error, not a stale `running`.
@@ -491,16 +622,24 @@ export class Engine {
     this.#steeredTexts.delete(sessionId)
     if (stopReason === 'completed') {
       const next = model.queuedMessages.find(
-        (queued) => steered === undefined || !steered.has(queued.text),
+        (queued) => steered === undefined || !steered.has(inputKey(queued.text, queued.origin)),
       )
       if (next !== undefined) {
-        await this.#append(sessionId, { type: 'message.dequeued', text: next.text, attachments: next.attachments })
-        void this.dispatch({
-          type: 'turn.start',
-          sessionId,
+        await this.#append(sessionId, {
+          type: 'message.dequeued',
           text: next.text,
           attachments: next.attachments,
-        }).catch((e) => {
+          ...(next.origin ? { origin: next.origin } : {}),
+        })
+        void this.dispatch(
+          {
+            type: 'turn.start',
+            sessionId,
+            text: next.text,
+            attachments: next.attachments,
+          },
+          next.origin,
+        ).catch((e) => {
           log.error('queued-turn dispatch failed', { error: String(e) })
         })
       }

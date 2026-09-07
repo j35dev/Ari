@@ -4,6 +4,12 @@ import { timestampSchema } from './common'
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system'])
 export type MessageRole = z.infer<typeof messageRoleSchema>
 
+export const messageOriginSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('human') }),
+  z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
+])
+export type MessageOrigin = z.infer<typeof messageOriginSchema>
+
 export const textPartSchema = z.object({
   type: z.literal('text'),
   text: z.string(),
@@ -56,6 +62,7 @@ export const messageSchema = z.object({
   sessionId: z.string(),
   turnId: z.string().nullable(),
   role: messageRoleSchema,
+  origin: messageOriginSchema.optional(),
   parts: z.array(messagePartSchema),
   createdAt: timestampSchema,
 })

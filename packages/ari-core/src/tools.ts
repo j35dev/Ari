@@ -21,6 +21,7 @@ const log = createLogger('ari-core:tools')
 
 export interface ToolContext {
   workspacePath: string
+  runtimeEnv?: Record<string, string | undefined>
   /**
    * Ari-side session id owning this turn. Tools with per-session side
    * effects (todo_write's plan file) scope their state by it so sibling
@@ -406,7 +407,7 @@ async function executeBash(args: BashArgs, ctx: ToolContext): Promise<string> {
       execFile(
         shell,
         shellArg,
-        { cwd: ctx.workspacePath, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+        { cwd: ctx.workspacePath, env: ctx.runtimeEnv, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
         (error, stdout, stderr) => {
           const raw = [stdout.toString(), stderr.toString()].filter(Boolean).join('\n')
           const truncation = truncateTail(raw)
