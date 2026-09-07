@@ -33,13 +33,15 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    void rpc
-      .invoke('project.list')
-      .then((projects) => {
-        setProjectPath(projects[0]?.path ?? null)
-      })
-      .catch(() => undefined)
-  }, [])
+    let cancelled = false
+    setProjectPath(null)
+    const workspace = sessionId
+      ? rpc.invoke('session.workspace', { sessionId }).then((value) => value.path)
+      : rpc.invoke('project.list').then((projects) => projects.find((p) => p.id === projectId)?.path ?? projects[0]?.path ?? null)
+    void workspace.then((path) => { if (!cancelled) setProjectPath(path) })
+      .catch(() => { if (!cancelled) setProjectPath(null) })
+    return () => { cancelled = true }
+  }, [sessionId, projectId])
 
   const refresh = useCallback(() => {
     if (!projectPath) return

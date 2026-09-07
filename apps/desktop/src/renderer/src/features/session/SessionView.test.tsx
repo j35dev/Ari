@@ -108,6 +108,7 @@ describe('SessionView question panel', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -210,6 +211,7 @@ describe('SessionView question panel', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -240,6 +242,7 @@ describe('SessionView question panel', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -372,6 +375,7 @@ describe('SessionView edit and resend', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
+      if (method === 'session.workspace') return { path: null }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -453,6 +457,7 @@ describe('SessionView regenerate and retry', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
+      if (method === 'session.workspace') return { path: null }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -624,6 +629,7 @@ describe('SessionView per-turn diff cards', () => {
     invokeMock.mockImplementation(async (method, params) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -744,6 +750,7 @@ describe('SessionView context meter', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
+      if (method === 'session.workspace') return { path: null }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -804,6 +811,7 @@ describe('SessionView context meter', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return []
+      if (method === 'session.workspace') return { path: null }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -877,6 +885,7 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -970,6 +979,7 @@ describe('SessionView queued messages', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -1132,6 +1142,7 @@ describe('SessionView image attachments', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -1213,6 +1224,7 @@ describe('SessionView image attachments', () => {
       if (method === 'attachments.stage') throw new Error('disk full')
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -1306,6 +1318,7 @@ describe('SessionView mode change preserves the picked model', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -1451,6 +1464,7 @@ describe('SessionView settle sound', () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []
@@ -1591,6 +1605,7 @@ describe('SessionView settle sound', () => {
         return { ...SETTINGS, notifications: { settleSound: false } }
       }
       if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
       if (method === 'files.index') return { paths: [] }
       if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
       if (method === 'providers.detect') return []

@@ -542,6 +542,7 @@ export class AriCoreDriver implements Driver {
           userPrompt,
           ...(userImages.length > 0 ? { userImages } : {}),
           workspacePath: session.workspacePath,
+          ...(session.runtimeEnv ? { runtimeEnv: session.runtimeEnv } : {}),
           sessionId: session.sessionId,
           permissionMode: session.permissionMode,
           history,

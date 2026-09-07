@@ -81,6 +81,16 @@ function Shell() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
+  const [sessionWorkspace, setSessionWorkspace] = useState<{ id: string; path: string | null } | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    if (activeSessionId) {
+      void rpc.invoke('session.workspace', { sessionId: activeSessionId }).then(({ path }) => {
+        if (!cancelled) setSessionWorkspace({ id: activeSessionId, path })
+      }).catch((error: unknown) => log.warn('workspace resolution failed', error))
+    }
+    return () => { cancelled = true }
+  }, [activeSessionId])
   const [defaults, setDefaults] = useState<SessionDefaults>({
     // Ari Core is the safe default: it works with a user-configured endpoint
     // and never depends on an installed CLI. Detection below upgrades this.
@@ -406,6 +416,9 @@ function Shell() {
   // The explorer roots at the active session's project, falling back to the
   // first registered project so the pane is never dead on arrival.
   const activeProjectPath =
+    activeSessionId !== null
+      ? (sessionWorkspace?.id === activeSessionId ? sessionWorkspace.path : null)
+      :
     projects.find((p) => p.id === activeSession?.projectId)?.path ??
     projects[0]?.path ??
     null
@@ -761,13 +774,8 @@ export function BranchChip({ sessionId }: { sessionId: string | null }) {
     if (sessionId === null) return
     let cancelled = false
     void rpc
-      .invoke('session.load', { sessionId })
-      .then(async (model) => {
-        const session = (model as { session?: { projectId?: string } | null } | null)?.session
-        const projectId = session?.projectId
-        if (!projectId) return
-        const projects = await rpc.invoke('project.list')
-        const projectPath = resolveProjectPath(projects, projectId)
+      .invoke('session.workspace', { sessionId })
+      .then(async ({ path: projectPath }) => {
         if (!projectPath) return
         return rpc.invoke('git.status', { path: projectPath }).then((status) => {
           if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
