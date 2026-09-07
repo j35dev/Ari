@@ -15,6 +15,8 @@ files:
   # Debug symbols for the pty prebuilds: ~10MB per win32 arch, never loaded.
   - '!**/node_modules/@lydell/node-pty-*/prebuilds/**/*.pdb'
 extraResources:
+  - from: resources/cli
+    to: agent-cli
   # Runtime tray assets. Windows gets a multi-resolution ICO so the Ari mark
   # stays sharp at every notification-area DPI scale.
   - from: build/icon.ico

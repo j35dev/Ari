@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { delegationSettingsSchema } from './agent-control'
 import { driverKindSchema, permissionModeSchema } from './common'
 
 /**
@@ -38,15 +39,18 @@ const defaultAppearance = {
 
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
   version: z.literal(1),
   appearance: z
     .object({
       /** Theme resolved and applied on last run; the paint source before boot. */
-      themeId: z.preprocess(
-        // Pre-M16 files stored 'comet-glass'; map anything unknown to the default.
-        (v) => (themeIdSchema.safeParse(v).success ? v : defaultAppearance.themeId),
-        themeIdSchema,
-      ).default(defaultAppearance.themeId),
+      themeId: z
+        .preprocess(
+          // Pre-M16 files stored 'comet-glass'; map anything unknown to the default.
+          (v) => (themeIdSchema.safeParse(v).success ? v : defaultAppearance.themeId),
+          themeIdSchema,
+        )
+        .default(defaultAppearance.themeId),
       /** User's selection: 'system' tracks the OS, otherwise a pinned theme. */
       mode: themeModeSchema.default(defaultAppearance.mode),
       /** Opt-in translucent chrome; only honored by glass-capable themes. */
@@ -94,6 +98,7 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  delegation: delegationSettingsSchema.partial().optional(),
   appearance: z
     .object({
       themeId: themeIdSchema,
@@ -137,6 +142,7 @@ export const settingsUpdateSchema = z.object({
 export type SettingsUpdate = z.input<typeof settingsUpdateSchema>
 
 export const defaultSettings: Settings = {
+  delegation: delegationSettingsSchema.parse({}),
   version: 1,
   appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
