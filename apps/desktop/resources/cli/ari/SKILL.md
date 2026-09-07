@@ -12,9 +12,12 @@ to discover your session, available providers/models, delegation policy and rema
 If `ari` is absent from PATH, invoke the executable in `ARI_CLI`.
 Never print `ARI_CONTROL_TOKEN` or include it in prompts, files or messages.
 
-You remain responsible for the user's task. Delegate independently useful work when
-it helps, within the user's scope and the runtime limits. Do not invent a fixed team.
-Children are normal Ari sessions and remain available for follow-up turns.
+You remain responsible for the user's task. Delegate independently useful work
+when it helps — parallelizable slices in different directories, long-pole
+subtasks, or work that benefits from another model. Do not invent a fixed team.
+Do not fan out two children onto the same files; those are dependent and should
+stay serial or stay with you. Children are normal Ari sessions and remain
+available for follow-up turns.
 
 Create a child with a concise title, real catalog model ID and a concrete assignment:
 
@@ -42,9 +45,12 @@ ari session destroy CHILD_ID --key done-1 --json
 ```
 
 Wait through `session wait`, which observes the captured turns; do not sleep/poll.
-A completed turn is not proof the entire task is correct. Read results and inspect
-the diff before integration; request corrections when needed. Ask the parent for
-decisions it can resolve before escalating to the human.
+Each target returns `{ status: settled|idle|timeout|destroyed, sessionId, ... }`.
+A `timeout` status means that child is still running — re-wait. `control_timeout`
+means the control socket stalled — retry the command. A completed turn is not
+proof the entire task is correct. Read results and inspect the diff before
+integration; request corrections when needed. Ask the parent for decisions it
+can resolve before escalating to the human.
 
 `session stop` interrupts the child's current turn and keeps the session for
 follow-up. `session destroy` removes that child (and any of its descendants)
@@ -57,9 +63,11 @@ ari session diff CHILD_ID --patch --json
 ari session integrate CHILD_ID --snapshot SNAPSHOT_COMMIT --key integrate-1 --json
 ```
 
-Use the exact `currentSnapshotCommit` returned by diff. Integration is explicit;
-completion never auto-merges. Conflicts return structured file names and leave the
-parent workspace unchanged. Retrying an already integrated snapshot is a no-op.
+Use the exact `currentSnapshotCommit` returned by a fresh diff. Integration of
+that current snapshot is the default. Historical snapshots require an explicit
+`--allow-stale`. Integration is explicit; completion never auto-merges. Conflicts
+return structured file names and leave the parent workspace unchanged. Retrying
+an already integrated snapshot is a no-op.
 Run final tests in the parent workspace after integrating related work. Stop unused
 workers when you may still need them; destroy them when the work is finished.
 
