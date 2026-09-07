@@ -9,12 +9,7 @@ import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
 import { FILE_MIME, readDragFilePath } from './drag-file'
 import { mentionRanges } from './mention-ranges'
-import {
-  loadStash,
-  persistStash,
-  stashPrompt,
-  type StashEntry,
-} from './prompt-stash'
+import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
 import { useDrafts } from './use-drafts'
 
 /**
@@ -52,6 +47,8 @@ export interface ComposerProps {
    * the text; omitted keeps the field in memory only.
    */
   sessionId?: string
+  /** Sits on the plate's top edge (child-session rail). */
+  above?: React.ReactNode
 }
 
 const MIN_HEIGHT = 52
@@ -76,6 +73,7 @@ export function Composer({
   disabled = false,
   seed,
   sessionId,
+  above,
 }: ComposerProps) {
   const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
@@ -277,7 +275,14 @@ export function Composer({
         ) : null}
       </AnimatePresence>
 
-      <div className="relative rounded-lg border border-border bg-glass-input shadow-2">
+      {above ? (
+        <div className="rounded-t-lg border border-b-0 border-border bg-glass-input">{above}</div>
+      ) : null}
+      <div
+        className={`relative border border-border bg-glass-input shadow-2 ${
+          above ? 'rounded-b-lg rounded-t-none' : 'rounded-lg'
+        }`}
+      >
         {token?.kind === 'mention' && !dismissed && mentionItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
@@ -330,9 +335,7 @@ export function Composer({
                 aria-label={`Prompt stash (${stash.length})`}
                 title="Stash this prompt (Mod+S) or reuse a stashed one"
                 onClick={() => setStashOpen((o) => !o)}
-                animate={
-                  stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined
-                }
+                animate={stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined}
                 transition={{ duration: 0.35, ease: 'easeOut' }}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
               >

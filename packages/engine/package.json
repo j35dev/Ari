@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agent-control": "./src/agent-control.ts",
+    "./control-server": "./src/control-server.ts",
+    "./workspace": "./src/workspace.ts",
     "./journal": "./src/journal.ts",
     "./dispatcher": "./src/dispatcher.ts",
     "./title": "./src/title.ts",

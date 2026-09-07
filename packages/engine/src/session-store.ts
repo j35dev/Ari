@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { sessionHierarchySummarySchema, type SessionHierarchySummary } from '@ari/contracts/session'
 import type { JournalEvent } from '@ari/contracts/events'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
@@ -30,7 +31,8 @@ export interface SessionStoreOptions {
  * feed `usageSummary()` from the same sidecar.
  */
 interface SessionIndex {
-  version: 2
+  version: 3
+  hierarchy: SessionHierarchySummary
   lastSeq: number
   hasSession: boolean
   projectId: string
@@ -46,7 +48,7 @@ interface SessionIndex {
   journalBytes: number
 }
 
-export interface SessionListEntry {
+export interface SessionListEntry extends SessionHierarchySummary {
   id: string
   projectId: string
   title: string
@@ -73,11 +75,24 @@ export interface UsageSummary {
   totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
 }
 
-const INDEX_VERSION = 2
+const INDEX_VERSION = 3
 
 function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex {
   return {
     version: INDEX_VERSION,
+    hierarchy: {
+      parentSessionId: model.session?.parentSessionId ?? null,
+      rootSessionId: model.session?.rootSessionId ?? model.session?.id ?? null,
+      ...(model.session
+        ? { driverKind: model.session.driverKind, status: model.session.status }
+        : {}),
+      modelId: model.session?.modelId ?? null,
+      workspaceKind: model.session?.workspace?.kind ?? 'project',
+      branch:
+        model.session?.workspace?.kind === 'managed-worktree'
+          ? model.session.workspace.branch
+          : null,
+    },
     lastSeq: model.lastSeq,
     hasSession: model.session !== null,
     projectId: model.session?.projectId ?? '',
@@ -102,8 +117,10 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   const cost = value['costUsd']
+  const hierarchy = sessionHierarchySummarySchema.safeParse(value['hierarchy'])
   if (
     value['version'] !== INDEX_VERSION ||
+    !hierarchy.success ||
     typeof value['lastSeq'] !== 'number' ||
     typeof value['hasSession'] !== 'boolean' ||
     typeof value['projectId'] !== 'string' ||
@@ -121,7 +138,8 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   return {
-    version: 2,
+    version: 3,
+    hierarchy: hierarchy.data,
     lastSeq: value['lastSeq'],
     hasSession: value['hasSession'],
     projectId: value['projectId'],
@@ -144,6 +162,29 @@ function parseSessionIndex(raw: string): SessionIndex | null {
  * read model via {@link applyEvent}.
  */
 export class SessionStore {
+  readonly #operations = new Map<string, Promise<unknown>>()
+  readonly #listeners = new Set<(event: JournalEvent) => void>()
+
+  /** Event-driven observation; subscriptions never load or duplicate transcripts. */
+  subscribe(listener: (event: JournalEvent) => void): () => void {
+    this.#listeners.add(listener)
+    return () => {
+      this.#listeners.delete(listener)
+    }
+  }
+
+  #serial<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const result = (this.#operations.get(id) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(operation)
+    this.#operations.set(id, result)
+    void result
+      .finally(() => {
+        if (this.#operations.get(id) === result) this.#operations.delete(id)
+      })
+      .catch(() => undefined)
+    return result
+  }
   readonly #rootDir: string
   readonly #journals = new Map<string, Journal<JournalEvent>>()
   /** In-memory mirror of the sidecar index; disk copy stays authoritative. */
@@ -167,6 +208,7 @@ export class SessionStore {
   }
 
   #dirFor(sessionId: string): string {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(sessionId)) throw new Error('invalid session id')
     return join(this.#rootDir, sessionId)
   }
 
@@ -192,7 +234,7 @@ export class SessionStore {
   /** Cached read model when fresh in this process; otherwise a full replay. */
   async #modelFor(sessionId: string): Promise<SessionReadModel> {
     const cached = this.#models.get(sessionId)
-    return cached ?? this.load(sessionId)
+    return cached ?? this.#load(sessionId)
   }
 
   /** Next sequence number for a session (max known seq + 1). */
@@ -209,6 +251,13 @@ export class SessionStore {
    * journal, which the byte-mismatch replay path repairs.
    */
   async append(
+    sessionId: string,
+    event: UnstampedEvent & { seq?: number; at?: number },
+  ): Promise<JournalEvent> {
+    return this.#serial(sessionId, () => this.#append(sessionId, event))
+  }
+
+  async #append(
     sessionId: string,
     event: UnstampedEvent & { seq?: number; at?: number },
   ): Promise<JournalEvent> {
@@ -229,6 +278,13 @@ export class SessionStore {
     await journal.append(stamped)
     this.#indexCache.set(sessionId, entry)
     this.#models.set(sessionId, post)
+    for (const listener of this.#listeners) {
+      try {
+        listener(stamped)
+      } catch {
+        log.error('session event observer failed')
+      }
+    }
     return stamped
   }
 
@@ -239,6 +295,10 @@ export class SessionStore {
    * by {@link replayDiagnostics} while the valid lines still fold.
    */
   async load(sessionId: string): Promise<SessionReadModel> {
+    return this.#serial(sessionId, () => this.#load(sessionId))
+  }
+
+  async #load(sessionId: string): Promise<SessionReadModel> {
     const journal = await this.openJournal(sessionId)
     const entries = await journal.readAll()
     const { model, rejected } = replayEntries(entries)
@@ -409,6 +469,7 @@ export class SessionStore {
 
   #fields(entry: SessionIndex): Omit<SessionListEntry, 'id'> {
     return {
+      ...entry.hierarchy,
       projectId: entry.projectId,
       title: entry.title,
       updatedAt: entry.updatedAt,

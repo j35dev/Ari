@@ -18,24 +18,14 @@ const NAME_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SAFE_REV = /^[A-Za-z0-9._/-]+$/
 
 export type GitErrorCode =
-  | 'git_missing'
-  | 'command_failed'
-  | 'invalid_ref'
-  | 'output_overflow'
-  | 'diff_too_large'
+  'git_missing' | 'command_failed' | 'invalid_ref' | 'output_overflow' | 'diff_too_large'
 
 export interface GitError {
   code: GitErrorCode
   message: string
 }
 
-export type StatusKind =
-  | 'added'
-  | 'modified'
-  | 'deleted'
-  | 'renamed'
-  | 'untracked'
-  | 'conflicted'
+export type StatusKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflicted'
 
 export interface StatusEntry {
   /** Repo-relative path (rename target when applicable). */
@@ -137,7 +127,10 @@ export class GitService {
   }
 
   /** Lists captured checkpoints for a session in git's refname sort order. */
-  async listCheckpoints(cwd: string, sessionId: string): Promise<Result<CheckpointInfo[], GitError>> {
+  async listCheckpoints(
+    cwd: string,
+    sessionId: string,
+  ): Promise<Result<CheckpointInfo[], GitError>> {
     if (!NAME_COMPONENT.test(sessionId)) {
       return err({ code: 'invalid_ref', message: `invalid session id: ${sessionId}` })
     }
@@ -243,13 +236,17 @@ export class GitService {
     path: string,
     branch?: string,
     mode: 'create-branch' | 'checkout-branch' = 'create-branch',
+    baseCommit?: string,
   ): Promise<Result<void, GitError>> {
     if (path.startsWith('-')) {
       return err({ code: 'invalid_ref', message: `unsafe worktree path: ${path}` })
     }
     if (
       branch !== undefined &&
-      (branch.startsWith('-') || branch.includes('..') || branch.includes('\\') || !SAFE_REV.test(branch))
+      (branch.startsWith('-') ||
+        branch.includes('..') ||
+        branch.includes('\\') ||
+        !SAFE_REV.test(branch))
     ) {
       return err({ code: 'invalid_ref', message: `unsafe worktree branch: ${branch}` })
     }
@@ -259,6 +256,12 @@ export class GitService {
         : mode === 'create-branch'
           ? ['worktree', 'add', '-b', branch, path]
           : ['worktree', 'add', path, branch]
+    if (baseCommit !== undefined) {
+      if (!/^[a-f0-9]{40,64}$/.test(baseCommit) || mode !== 'create-branch') {
+        return err({ code: 'invalid_ref', message: 'invalid worktree base commit' })
+      }
+      args.push(baseCommit)
+    }
     const run = await this.#run(repo, args)
     return run.ok ? ok(undefined) : run
   }
@@ -298,15 +301,26 @@ export class GitService {
     return ok(resolve(cwd, raw))
   }
 
+  /** Engine-only snapshot plumbing; argv never comes from the public control client. */
+  runPlumbing(
+    cwd: string,
+    args: string[],
+    env?: NodeJS.ProcessEnv,
+    acceptConflict = false,
+  ): Promise<Result<{ stdout: string; conflict?: boolean }, GitError>> {
+    return this.#run(cwd, args, DIFF_MAX_BYTES, { env, acceptConflict, quiet: true })
+  }
+
   async #run(
     cwd: string,
     args: string[],
     maxBytes: number = DEFAULT_MAX_BYTES,
-    opts: { quiet?: boolean } = {},
-  ): Promise<Result<{ stdout: string }, GitError>> {
+    opts: { quiet?: boolean; env?: NodeJS.ProcessEnv | undefined; acceptConflict?: boolean } = {},
+  ): Promise<Result<{ stdout: string; conflict?: boolean }, GitError>> {
     try {
       const { stdout } = await execFileP(this.#gitPath, args, {
         cwd,
+        ...(opts.env ? { env: opts.env } : {}),
         timeout: this.#timeoutMs,
         shell: false,
         windowsHide: true,
@@ -315,6 +329,17 @@ export class GitService {
       })
       return ok({ stdout })
     } catch (e) {
+      if (
+        opts.acceptConflict &&
+        typeof e === 'object' &&
+        e !== null &&
+        'code' in e &&
+        e.code === 1 &&
+        'stdout' in e &&
+        typeof e.stdout === 'string'
+      ) {
+        return ok({ stdout: e.stdout, conflict: true })
+      }
       if (opts.quiet !== true) {
         // execFile errors embed git's full stderr (a `diff` misuse dumps the
         // entire usage page); log one actionable line, not the flood.

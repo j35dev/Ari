@@ -11,6 +11,9 @@
 
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import process from 'node:process'
 
 /** electron-builder's Arch enum, which reaches hooks as a bare ordinal. */
 const ARCH_NAMES = ['ia32', 'x64', 'armv7l', 'arm64', 'universal']
@@ -37,6 +40,10 @@ function hasNativeAddon(packageDir) {
 }
 
 export default async function afterPack(context) {
+  const cli = join(resourcesDir(context), 'agent-cli', 'ari.cjs')
+  const skill = join(resourcesDir(context), 'agent-cli', 'ari', 'SKILL.md')
+  if (!existsSync(cli) || !existsSync(skill))
+    throw new Error('Agent CLI or bundled Ari skill is missing from packaged resources.')
   const unpacked = join(resourcesDir(context), 'app.asar.unpacked', 'node_modules')
   const platform = context.electronPlatformName
   const problems = []
@@ -60,5 +67,19 @@ export default async function afterPack(context) {
         'apps/desktop/package.json, and that asarUnpack still covers them.',
       ].join('\n'),
     )
+  }
+  if (process.platform === platform && ARCH_NAMES[context.arch] === process.arch) {
+    const product = context.packager.appInfo.productFilename
+    const executable =
+      platform === 'darwin'
+        ? join(context.appOutDir, `${product}.app`, 'Contents', 'MacOS', product)
+        : join(context.appOutDir, platform === 'win32' ? `${product}.exe` : 'ari')
+    const { stdout } = await promisify(execFile)(executable, [cli, '--skill'], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      windowsHide: true,
+      timeout: 15_000,
+    })
+    if (!stdout.includes('protocol-version:'))
+      throw new Error('Packaged Ari CLI did not return its versioned skill.')
   }
 }

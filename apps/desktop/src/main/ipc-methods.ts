@@ -13,6 +13,7 @@ export const IPC_METHODS = [
   'session.list',
   'session.create',
   'session.load',
+  'session.workspace',
   'session.destroy',
   'sessions.importable',
   'sessions.import',

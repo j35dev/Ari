@@ -179,7 +179,7 @@ describe('SessionStore', () => {
 
     // The repair persisted as a v2 index carrying the token pair.
     const migrated = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
-    expect(migrated['version']).toBe(2)
+    expect(migrated['version']).toBe(3)
     expect(migrated['inputTokens']).toBe(7)
     expect(migrated['outputTokens']).toBe(3)
   })
@@ -249,7 +249,7 @@ describe('SessionStore', () => {
       'utf8',
     )
 
-    // The stale version forces one authoritative replay that repairs to v2.
+    // The stale version forces one authoritative replay that repairs to v3.
     const fresh = new SessionStore({ rootDir })
     const list = await fresh.listSessions()
     expect(list).toHaveLength(1)

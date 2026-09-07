@@ -13,6 +13,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderX,
+  GitBranch,
   Import as ImportIcon,
   Inbox,
   MessageSquareText,
@@ -34,11 +35,12 @@ import { peakActivity, type SessionActivity } from '../features/session/session-
 import {
   projectMoveFromOrder,
   sidebarGroups,
-  sidebarOrder,
   UNFILED_GROUP_ID,
   type SidebarGroup,
 } from '../features/session/session-nav'
 import { useProjectExpand } from './use-project-expand'
+import { useSessionCollapse } from './use-session-collapse'
+import { sessionTree, searchSessionTree } from '../features/session/session-tree'
 import { ContextMenu, useContextMenu } from './ContextMenu'
 
 /** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
@@ -46,6 +48,41 @@ const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as con
 
 /** Pointer travel (px) beyond which a header press is a drag, not a click. */
 const DRAG_CLICK_SLOP_PX = 4
+
+/** One indent column; children sit clearly under the parent orchestrator. */
+const TREE_COL_PX = 22
+
+/** Vertical rail + elbow for nested child sessions. */
+function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] }) {
+  if (lastAtDepth.length === 0) return null
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none relative shrink-0 self-stretch"
+      style={{ width: lastAtDepth.length * TREE_COL_PX }}
+    >
+      {lastAtDepth.map((isLast, i) => {
+        const current = i === lastAtDepth.length - 1
+        return (
+          <span key={i} className="absolute inset-y-0" style={{ left: i * TREE_COL_PX + 7 }}>
+            {current || !isLast ? (
+              <span
+                className="absolute left-0 w-px bg-border-strong"
+                style={{
+                  top: -2,
+                  height: current && isLast ? 'calc(50% + 2px)' : 'calc(100% + 4px)',
+                }}
+              />
+            ) : null}
+            {current ? (
+              <span className="absolute left-0 top-1/2 h-px w-2 bg-border-strong" />
+            ) : null}
+          </span>
+        )
+      })}
+    </span>
+  )
+}
 
 /** Sidebar top: wordmark + one-click new session (T3 brand row). */
 export function SidebarHeader({
@@ -101,6 +138,8 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
 
 function SessionRow({
   session,
+  hasChildren = false,
+  nested = false,
   projectName,
   isActive,
   activity,
@@ -111,6 +150,8 @@ function SessionRow({
   onToggleArchive,
 }: {
   session: SessionSummary
+  hasChildren?: boolean
+  nested?: boolean
   projectName: string | null
   isActive: boolean
   activity?: SessionActivity
@@ -173,7 +214,9 @@ function SessionRow({
   if (confirmDelete) {
     return (
       <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-2xs text-danger">Delete session?</span>
+        <span className="min-w-0 flex-1 truncate text-2xs text-danger">
+          {hasChildren ? 'Delete this session and its children?' : 'Delete session?'}
+        </span>
         <button
           type="button"
           aria-label="Confirm delete"
@@ -211,6 +254,12 @@ function SessionRow({
         <span className="flex size-2.5 shrink-0 items-center justify-center">
           {activity !== undefined ? (
             <SessionActivityMark activity={activity} />
+          ) : hasChildren ? (
+            <GitBranch
+              size={11}
+              aria-hidden
+              className={isActive ? 'text-accent' : 'text-fg-muted'}
+            />
           ) : session.pinned ? (
             <Pin size={10} aria-hidden className="text-accent" />
           ) : (
@@ -221,7 +270,13 @@ function SessionRow({
             />
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
+        <span
+          className={`min-w-0 flex-1 truncate ${
+            hasChildren ? 'text-[13px] font-medium' : nested ? 'text-xs' : 'text-[13px]'
+          }`}
+        >
+          {session.title}
+        </span>
         {projectName ? (
           <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle lg:flex">
             <FolderGit2 size={10} aria-hidden />
@@ -266,13 +321,19 @@ function SessionRow({
             },
             {
               id: 'archive',
-              label: session.archived ? 'Unarchive' : 'Archive',
+              label: hasChildren
+                ? session.archived
+                  ? 'Unarchive subtree'
+                  : 'Archive subtree'
+                : session.archived
+                  ? 'Unarchive'
+                  : 'Archive',
               icon: session.archived ? ArchiveRestore : Archive,
               onSelect: () => onToggleArchive(session.id, !session.archived),
             },
             {
               id: 'delete',
-              label: 'Delete session',
+              label: hasChildren ? 'Delete session and children' : 'Delete session',
               icon: Trash2,
               danger: true,
               onSelect: () => setConfirmDelete(true),
@@ -299,30 +360,71 @@ interface SessionRowHandlers {
 /** FLIP-animated session list; shared by groups, the archived shelf and search. */
 function SessionList({
   sessions,
+  searching = false,
   projectNameOf,
   handlers,
 }: {
   sessions: SessionSummary[]
+  searching?: boolean
   projectNameOf?: (projectId: string) => string | null
   handlers: SessionRowHandlers
 }) {
+  const { collapsed, toggle } = useSessionCollapse()
   return (
     <motion.ul layout className="flex flex-col gap-0.5" transition={RESORT_TRANSITION}>
-      {sessions.map((s) => (
-        <motion.li key={s.id} layoutId={s.id} transition={RESORT_TRANSITION}>
-          <SessionRow
-            session={s}
-            projectName={projectNameOf?.(s.projectId) ?? null}
-            isActive={s.id === handlers.activeSessionId}
-            activity={handlers.activityOf?.(s.id)}
-            onSelect={handlers.onSelect}
-            onRename={handlers.onRename}
-            onDelete={handlers.onDelete}
-            onTogglePin={handlers.onTogglePin}
-            onToggleArchive={handlers.onToggleArchive}
-          />
-        </motion.li>
-      ))}
+      {sessionTree(sessions, searching ? new Set() : collapsed).map(
+        ({ session: s, childCount, lastAtDepth }) => {
+          const expanded = !collapsed.has(s.id)
+          return (
+            <motion.li key={s.id} layoutId={s.id} transition={RESORT_TRANSITION}>
+              <div className="flex items-center">
+                <SessionTreeGuides lastAtDepth={lastAtDepth} />
+                {childCount > 0 && !searching ? (
+                  <button
+                    type="button"
+                    aria-label={
+                      expanded ? `Collapse children of ${s.title}` : `Expand children of ${s.title}`
+                    }
+                    aria-expanded={expanded}
+                    className="flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    onClick={() => toggle(s.id)}
+                    onKeyDown={(event) => {
+                      if (
+                        (event.key === 'ArrowLeft' && expanded) ||
+                        (event.key === 'ArrowRight' && !expanded)
+                      ) {
+                        event.preventDefault()
+                        toggle(s.id)
+                      }
+                    }}
+                  >
+                    <ChevronRight
+                      size={10}
+                      aria-hidden
+                      className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
+                    />
+                  </button>
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <SessionRow
+                    session={s}
+                    hasChildren={childCount > 0}
+                    nested={lastAtDepth.length > 0}
+                    projectName={projectNameOf?.(s.projectId) ?? null}
+                    isActive={s.id === handlers.activeSessionId}
+                    activity={handlers.activityOf?.(s.id)}
+                    onSelect={handlers.onSelect}
+                    onRename={handlers.onRename}
+                    onDelete={handlers.onDelete}
+                    onTogglePin={handlers.onTogglePin}
+                    onToggleArchive={handlers.onToggleArchive}
+                  />
+                </div>
+              </div>
+            </motion.li>
+          )
+        },
+      )}
     </motion.ul>
   )
 }
@@ -446,7 +548,8 @@ function ProjectGroupSection({
   const pressOrigin = useRef<{ x: number; y: number } | null>(null)
   const missing = project?.status === 'missing'
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
-  const GroupIcon: LucideIcon = project === null ? Inbox : missing ? FolderX : expanded ? FolderOpen : Folder
+  const GroupIcon: LucideIcon =
+    project === null ? Inbox : missing ? FolderX : expanded ? FolderOpen : Folder
 
   return (
     <section className="group/project" aria-label={name}>
@@ -728,10 +831,7 @@ export function SessionsUnderProjects({
   // Same grouping the keyboard traversal walks (sidebarOrder flattens it).
   const groups = useMemo(() => sidebarGroups(sessions, projects), [sessions, projects])
   // Projects reorder among themselves; Unfiled stays a derived, trailing group.
-  const projectGroups = useMemo(
-    () => groups.filter((g) => g.id !== UNFILED_GROUP_ID),
-    [groups],
-  )
+  const projectGroups = useMemo(() => groups.filter((g) => g.id !== UNFILED_GROUP_ID), [groups])
   const unfiled = groups.find((g) => g.id === UNFILED_GROUP_ID)
   // Set on header pointer-down, consumed by the reorder it may trigger.
   const pressedGroupId = useRef<string | null>(null)
@@ -748,11 +848,8 @@ export function SessionsUnderProjects({
     if (move) actions.onReorderProject?.(move.id, move.beforeId)
   }
   const matches = useMemo(
-    () =>
-      trimmed
-        ? sidebarOrder(sessions, projects).filter((s) => s.title.toLowerCase().includes(trimmed))
-        : [],
-    [sessions, projects, trimmed],
+    () => (trimmed ? searchSessionTree(sessions, trimmed) : []),
+    [sessions, trimmed],
   )
   // Newest-first shelf of everything archived (the groups exclude them).
   const archived = useMemo(
@@ -767,7 +864,12 @@ export function SessionsUnderProjects({
           No sessions match “{query.trim()}”.
         </p>
       ) : (
-        <SessionList sessions={matches} projectNameOf={projectNameOf} handlers={handlers} />
+        <SessionList
+          sessions={matches}
+          searching
+          projectNameOf={projectNameOf}
+          handlers={handlers}
+        />
       )
     ) : groups.length === 0 && archived.length === 0 ? (
       <p className="px-2 py-8 text-center text-xs leading-relaxed text-fg-subtle">
@@ -777,11 +879,7 @@ export function SessionsUnderProjects({
       </p>
     ) : (
       <>
-        <Reorder.Group
-          axis="y"
-          values={projectGroups.map((g) => g.id)}
-          onReorder={reorderFromDrag}
-        >
+        <Reorder.Group axis="y" values={projectGroups.map((g) => g.id)} onReorder={reorderFromDrag}>
           {projectGroups.map((group, index) => (
             <DraggableProjectGroup
               key={group.id}
@@ -870,11 +968,4 @@ export function SidebarSearch({
   )
 }
 
-export type SidebarNavId =
-  | 'session'
-  | 'terminal'
-  | 'changes'
-  | 'settings'
-  | 'files'
-  | 'usage'
-
+export type SidebarNavId = 'session' | 'terminal' | 'changes' | 'settings' | 'files' | 'usage'
