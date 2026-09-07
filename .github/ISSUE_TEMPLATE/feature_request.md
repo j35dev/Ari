@@ -13,4 +13,4 @@ labels: ["enhancement"]
 
 ## Related
 
-- PLAN.md / PROGRESS.md task id (if any):
+- Related issue (if any):

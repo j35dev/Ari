@@ -23,3 +23,13 @@ recordings/
 # repo living inside it.
 .ari/
 .worktrees/
+
+# Internal planning docs: maintained locally, never published.
+PLAN.md
+PROGRESS.md
+docs/arch-*.md
+
+# Local-only scratch: agent workspaces, todos, pnpm store.
+.claude/
+.ari-todo.json
+.pnpm-store/
