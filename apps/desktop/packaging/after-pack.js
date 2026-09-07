@@ -9,11 +9,13 @@
 // the terminal opens to a dead blinking cursor. Assert the invariant here so the
 // build fails instead of shipping.
 
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import process from 'node:process'
+import { URL } from 'node:url'
+import { clearTimeout, setTimeout } from 'node:timers'
 
 /** electron-builder's Arch enum, which reaches hooks as a bare ordinal. */
 const ARCH_NAMES = ['ia32', 'x64', 'armv7l', 'arm64', 'universal']
@@ -39,6 +41,144 @@ function hasNativeAddon(packageDir) {
   return readdirSync(prebuilds, { recursive: true }).some((it) => String(it).endsWith('.node'))
 }
 
+const ACP_ADAPTERS = Object.entries(
+  JSON.parse(readFileSync(new URL('./acp-adapters.json', import.meta.url), 'utf8')),
+).map(([kind, adapter]) => ({ kind, ...adapter }))
+
+const ACP_PLATFORM_PACKAGES = {
+  claude: '@anthropic-ai/claude-agent-sdk',
+  codex: '@openai/codex',
+}
+const ACP_SHARED_PACKAGES = [
+  '@agentclientprotocol/sdk',
+  '@anthropic-ai/sdk',
+  '@modelcontextprotocol/sdk',
+]
+
+const CODEX_TARGETS = {
+  'linux-x64': 'x86_64-unknown-linux-musl',
+  'linux-arm64': 'aarch64-unknown-linux-musl',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'win32-x64': 'x86_64-pc-windows-msvc',
+  'win32-arm64': 'aarch64-pc-windows-msvc',
+}
+
+export function packageDir(nodeModules, packageName) {
+  return join(nodeModules, ...packageName.split('/'))
+}
+
+export function platformPackageName(kind, platform, arch) {
+  const suffix = `${platform}-${arch}`
+  return kind === 'claude'
+    ? `${ACP_PLATFORM_PACKAGES.claude}-${suffix}`
+    : `${ACP_PLATFORM_PACKAGES.codex}-${suffix}`
+}
+
+export function expectedAdapterPackages(platform, arch) {
+  const archNames = ARCH_NAMES[arch] === 'universal' ? ['x64', 'arm64'] : [ARCH_NAMES[arch]]
+  return [
+    ...ACP_SHARED_PACKAGES,
+    ...ACP_ADAPTERS.flatMap(({ kind, packageName }) => [
+      packageName,
+      ACP_PLATFORM_PACKAGES[kind],
+      ...archNames.map((it) => platformPackageName(kind, platform, it)),
+    ]),
+  ]
+}
+
+/** Native files that prove the platform package is usable, not merely present. */
+export function expectedAdapterBinaries(kind, platform, arch) {
+  const archName = ARCH_NAMES[arch]
+  const archNames = archName === 'universal' ? ['x64', 'arm64'] : [archName]
+  return archNames.flatMap((it) => {
+    const packageName = platformPackageName(kind, platform, it)
+    if (kind === 'claude') {
+      return [join(packageName, platform === 'win32' ? 'claude.exe' : 'claude')]
+    }
+    const target = CODEX_TARGETS[`${platform}-${it}`]
+    if (target === undefined) return []
+    const executable = platform === 'win32' ? 'codex.exe' : 'codex'
+    const helper = platform === 'win32' ? 'codex-code-mode-host.exe' : 'codex-code-mode-host'
+    const ripgrep = platform === 'win32' ? 'rg.exe' : 'rg'
+    return [
+      join(packageName, 'vendor', target, 'bin', executable),
+      join(packageName, 'vendor', target, 'bin', helper),
+      join(packageName, 'vendor', target, 'codex-path', ripgrep),
+    ]
+  })
+}
+
+/**
+ * Starts each locally-built adapter through the exact Electron Node-mode
+ * command used at runtime. The initialize reply proves asar unpacking,
+ * module resolution, and the platform binary are all usable together.
+ */
+async function smokeBundledAdapter(executable, entrypoint, env, cwd) {
+  await new Promise((resolve, reject) => {
+    const child = spawn(executable, [entrypoint], {
+      cwd,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      child.kill()
+      if (error === undefined) resolve()
+      else reject(error)
+    }
+    const timeout = setTimeout(() => {
+      finish(new Error(`initialize response timed out; stderr: ${stderr.slice(-800)}`))
+    }, 15_000)
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+      for (const line of stdout.split('\n').slice(0, -1)) {
+        try {
+          const message = JSON.parse(line)
+          if (message?.id === 1 && (message.result !== undefined || message.error !== undefined)) {
+            finish()
+            return
+          }
+        } catch {
+          // Adapter logs are allowed on stdout during startup; keep scanning.
+        }
+      }
+      stdout = stdout.slice(stdout.lastIndexOf('\n') + 1)
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    child.on('error', (error) => finish(error))
+    child.on('close', (code) => {
+      if (!settled) finish(new Error(`adapter exited before initialize (code ${code}); stderr: ${stderr.slice(-800)}`))
+    })
+    child.stdin.write(`${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: 1,
+        clientInfo: { name: 'ari-packaging-smoke', version: '0.0.0' },
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false,
+          auth: { terminal: false },
+          elicitation: { form: {} },
+          _meta: { 'terminal-auth': true },
+        },
+      },
+    })}\n`)
+  })
+}
+
 export default async function afterPack(context) {
   const cli = join(resourcesDir(context), 'agent-cli', 'ari.cjs')
   const skill = join(resourcesDir(context), 'agent-cli', 'ari', 'SKILL.md')
@@ -47,6 +187,28 @@ export default async function afterPack(context) {
   const unpacked = join(resourcesDir(context), 'app.asar.unpacked', 'node_modules')
   const platform = context.electronPlatformName
   const problems = []
+
+  // These packages are unpacked as a unit so the adapters' provider binaries
+  // are spawnable from the Electron Node-mode child process. Other ordinary JS
+  // dependencies remain in app.asar and are loaded through Electron's asar
+  // module support.
+  for (const packageName of expectedAdapterPackages(platform, context.arch)) {
+    if (!existsSync(packageDir(unpacked, packageName))) {
+      problems.push(`${packageName} is missing from the bundled ACP runtime`)
+    }
+  }
+  for (const { packageName } of ACP_ADAPTERS) {
+    if (!existsSync(join(packageDir(unpacked, packageName), 'dist', 'index.js'))) {
+      problems.push(`${packageName}/dist/index.js is missing from the bundled ACP runtime`)
+    }
+  }
+  for (const { kind } of ACP_ADAPTERS) {
+    for (const relativePath of expectedAdapterBinaries(kind, platform, context.arch)) {
+      if (!existsSync(join(unpacked, relativePath))) {
+        problems.push(`${relativePath} is missing from the bundled ACP runtime`)
+      }
+    }
+  }
 
   if (!existsSync(join(unpacked, '@lydell', 'node-pty'))) {
     problems.push('@lydell/node-pty (resolver stub) is not unpacked')
@@ -60,11 +222,11 @@ export default async function afterPack(context) {
   if (problems.length > 0) {
     throw new Error(
       [
-        `Terminal would ship broken for ${platform}/${ARCH_NAMES[context.arch]}:`,
+        `Packaged runtime is incomplete for ${platform}/${ARCH_NAMES[context.arch]}:`,
         ...problems.map((it) => `  - ${it}`),
-        'Check that the @lydell/node-pty-* packages are still plain dependencies (not',
-        'optional — electron-builder platform-filters those against the build host) in',
-        'apps/desktop/package.json, and that asarUnpack still covers them.',
+        'Check apps/desktop/package.json, pnpm supportedArchitectures, and asarUnpack',
+        'for the adapter/runtime packages. For the terminal, also check the @lydell/node-pty',
+        'entries and unpack rules.',
       ].join('\n'),
     )
   }
@@ -81,5 +243,17 @@ export default async function afterPack(context) {
     })
     if (!stdout.includes('protocol-version:'))
       throw new Error('Packaged Ari CLI did not return its versioned skill.')
+
+    const moduleRoots = [unpacked, join(resourcesDir(context), 'app.asar', 'node_modules')]
+    for (const { packageName, entrypoint } of ACP_ADAPTERS) {
+      const adapterEntrypoint = join(packageDir(unpacked, packageName), entrypoint)
+      const smokeEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: moduleRoots.join(process.platform === 'win32' ? ';' : ':') }
+      delete smokeEnv.CODEX_PATH
+      try {
+        await smokeBundledAdapter(executable, adapterEntrypoint, smokeEnv, context.appOutDir)
+      } catch (error) {
+        throw new Error(`${packageName} packaged startup smoke test failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+      }
+    }
   }
 }
