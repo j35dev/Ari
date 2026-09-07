@@ -44,11 +44,12 @@
 }
 
 .ari-md pre {
-  margin: 0.6rem 0;
-  padding: 0.7rem 0.9rem;
-  background: var(--ari-surface-1);
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  background: var(--ari-surface-0);
   border: 1px solid var(--ari-border);
-  border-radius: var(--ari-radius-md);
+  border-radius: var(--ari-radius-lg);
+  box-shadow: var(--ari-shadow-1);
   overflow-x: auto;
 }
 
@@ -69,9 +70,11 @@
 .ari-md a:hover { color: var(--ari-accent-hover); }
 
 .ari-md blockquote {
-  margin: 0.6rem 0;
-  padding-left: 0.8rem;
-  border-left: 3px solid var(--ari-border-strong);
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.85rem;
+  border-left: 2px solid var(--ari-accent);
+  background: var(--ari-accent-subtle);
+  border-radius: 0 var(--ari-radius-md) var(--ari-radius-md) 0;
   color: var(--ari-fg-muted);
 }
 

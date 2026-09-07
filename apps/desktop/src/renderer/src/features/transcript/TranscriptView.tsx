@@ -437,7 +437,7 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
             onClick={() => onEdit(text)}
             aria-label="Edit message"
             title="Edit and resend"
-            className="mb-1 shrink-0 rounded-sm p-0.5 text-fg-subtle opacity-0 transition-opacity duration-150 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+            className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-all duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
           >
             <Pencil size={12} />
           </button>
@@ -446,11 +446,11 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
           type="button"
           onClick={() => void copy()}
           aria-label={copied ? 'Copied' : 'Copy message'}
-          className="mb-1 shrink-0 rounded-sm p-0.5 text-fg-subtle opacity-0 transition-opacity duration-150 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+          className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-all duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
         </button>
-        <div className="whitespace-pre-wrap break-words rounded-xl bg-surface-2 px-3.5 py-2 text-sm leading-relaxed text-fg">
+        <div className="whitespace-pre-wrap break-words rounded-2xl border border-border/70 bg-surface-2/90 px-4 py-2.5 text-sm leading-relaxed text-fg shadow-sm">
           {text}
         </div>
       </div>

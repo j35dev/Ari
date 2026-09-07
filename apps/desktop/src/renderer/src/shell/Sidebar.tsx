@@ -93,32 +93,52 @@ export function SidebarHeader({
   onCollapse?: () => void
 }) {
   return (
-    <div className="flex items-center justify-between px-3 pb-1 pt-3">
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-sm font-semibold tracking-tight text-fg">Ari</span>
-        <span className="text-2xs text-fg-subtle">beta</span>
+    <div className="flex flex-col gap-2 px-3 pt-3 pb-2 border-b border-border/40">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-accent/20 border border-accent/30 shadow-sm text-accent">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </div>
+          <span className="text-sm font-semibold tracking-tight text-fg">Ari</span>
+          <span className="rounded-full bg-surface-2/80 px-1.5 py-0.5 text-[10px] font-medium text-fg-subtle border border-border/50">
+            beta
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          {onCollapse !== undefined && (
+            <button
+              type="button"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar (Ctrl+B)"
+              onClick={onCollapse}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <PanelLeftClose size={14} />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          aria-label="New session"
-          onClick={onNewSession}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-        >
-          <Plus size={14} />
-        </button>
-        {onCollapse !== undefined && (
-          <button
-            type="button"
-            aria-label="Collapse sidebar"
-            title="Collapse sidebar (Ctrl+B)"
-            onClick={onCollapse}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <PanelLeftClose size={14} />
-          </button>
-        )}
-      </div>
+
+      <button
+        type="button"
+        aria-label="New session"
+        onClick={onNewSession}
+        className="group relative flex h-8 w-full items-center justify-between rounded-lg border border-border/70 bg-surface-1/90 px-2.5 text-xs font-medium text-fg shadow-sm transition-all duration-150 hover:border-accent/40 hover:bg-surface-2 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        <div className="flex items-center gap-2">
+          <div className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-fg-on-accent transition-transform group-hover:scale-110">
+            <Plus size={11} strokeWidth={2.5} />
+          </div>
+          <span>New session</span>
+        </div>
+        <span className="font-mono text-[10px] text-fg-subtle rounded border border-border/60 bg-surface-2 px-1.5 py-0.5">
+          Mod+N
+        </span>
+      </button>
     </div>
   )
 }
@@ -243,12 +263,12 @@ function SessionRow({
         type="button"
         onClick={() => onSelect(session.id)}
         onContextMenu={(e) => menu.open(session.id, e)}
-        className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 pr-7 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-1.5 pr-7 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           isActive
-            ? 'bg-glass-active text-fg'
+            ? 'bg-accent/15 text-fg font-medium border border-accent/25 shadow-sm'
             : activity !== undefined
-              ? 'text-fg hover:bg-glass-hover'
-              : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
+              ? 'text-fg hover:bg-surface-2/60 border border-transparent'
+              : 'text-fg-muted hover:bg-surface-2/60 hover:text-fg border border-transparent'
         }`}
       >
         <span className="flex size-2.5 shrink-0 items-center justify-center">

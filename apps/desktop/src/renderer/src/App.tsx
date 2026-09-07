@@ -602,8 +602,8 @@ function Shell() {
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border">
-          <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
+        <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border/50">
+          <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border/50 px-4 bg-surface-0/25 backdrop-blur-md">
             {!sidebarOpen ? (
               <button
                 type="button"
@@ -781,12 +781,17 @@ function WorkspaceBreadcrumb({
   sessionTitle: string
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-xs">
-      <span className="max-w-40 truncate font-medium text-fg">{projectName || 'Workspace'}</span>
+    <div className="flex min-w-0 items-center gap-2 text-xs">
+      <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface-1/80 border border-border/60 text-xs font-medium text-fg">
+        <span className="h-1.5 w-1.5 rounded-full bg-accent/80" />
+        <span className="max-w-40 truncate">{projectName || 'Workspace'}</span>
+      </span>
       {sessionTitle ? (
         <>
-          <span className="text-fg-subtle">/</span>
-          <span className="max-w-72 truncate text-fg-muted">{sessionTitle}</span>
+          <span className="text-fg-subtle/60 text-2xs">/</span>
+          <span className="max-w-72 truncate font-medium text-fg-muted hover:text-fg transition-colors">
+            {sessionTitle}
+          </span>
         </>
       ) : null}
     </div>
@@ -834,11 +839,11 @@ export function BranchChip({ sessionId }: { sessionId: string | null }) {
   if (branch === null) return null
   return (
     <span
-      className="mr-1 flex h-7 items-center gap-1 rounded-full border border-border bg-surface-1 px-2.5 font-mono text-2xs text-fg-muted"
+      className="mr-1 flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-surface-1/90 px-2.5 font-mono text-2xs text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:text-fg"
       title="Active branch"
     >
-      <GitBranch size={11} aria-hidden="true" />
-      <span className="max-w-40 truncate">{branch}</span>
+      <GitBranch size={12} className="text-accent" aria-hidden="true" />
+      <span className="max-w-40 truncate font-semibold">{branch}</span>
     </span>
   )
 }
