@@ -3,10 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, Bookmark, Clock, Square, Trash2 } from 'lucide-react'
 import { transitions } from '@ari/ui/motion'
 import { activeTokenAt } from './active-token'
-import type { SlashCommand } from './slash-commands'
-import { matchSlash } from './slash-commands'
 import { matchSuggestions } from './match-suggestions'
-import { SlashPopup } from './SlashPopup'
 import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
@@ -39,8 +36,6 @@ export interface ComposerProps {
   running?: boolean
   /** Messages waiting behind the active turn. */
   queued?: string[]
-  /** Called with the chosen command name when the user commits a slash command. */
-  onSlashCommand?: (name: string) => void
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
   /**
@@ -65,7 +60,7 @@ const MAX_HEIGHT = 260
 /**
  * Message composer: one glass plate. Draft on top; agent + permission on
  * the left of the foot, stash + send on the right. Enter sends, Shift+Enter
- * breaks the line. Slash and @file popovers sit above the field. Pasted or
+ * breaks the line. The @file popover sits above the field. Pasted or
  * dropped images land in an attachment strip inside the plate and are handed
  * to `onSend` alongside the text — the session view stages them in the main
  * process before dispatching the turn.
@@ -75,7 +70,6 @@ export function Composer({
   onStop,
   running = false,
   queued = [],
-  onSlashCommand,
   suggestions,
   leading,
   placeholder = 'Ask Ari…',
@@ -143,7 +137,6 @@ export function Composer({
     setDismissed(false)
   }, [tokenKey])
 
-  const slashItems = useMemo(() => (token?.kind === 'slash' ? matchSlash(token.raw) : []), [token])
   const mentionItems = useMemo(
     () =>
       token?.kind === 'mention' && suggestions
@@ -251,21 +244,6 @@ export function Composer({
 
   const closePopup = useCallback(() => setDismissed(true), [])
 
-  /** Remove the `/command` token under the caret and commit the command. */
-  const handleSlashSelect = useCallback(
-    (command: SlashCommand) => {
-      if (token?.kind !== 'slash') return
-      const rest = text.slice(caret)
-      const next = (text.slice(0, token.start) + rest).replace(/^\s+/, '')
-      const nextCaret = next.length - rest.length
-      setText(next)
-      setCaret(nextCaret)
-      onSlashCommand?.(command.name)
-      refocus(nextCaret)
-    },
-    [token, text, caret, onSlashCommand, refocus],
-  )
-
   /** Replace the `@partial` token with the chosen path plus a word break. */
   const handleMentionSelect = useCallback(
     (path: string) => {
@@ -300,11 +278,6 @@ export function Composer({
       </AnimatePresence>
 
       <div className="relative rounded-lg border border-border bg-glass-input shadow-2">
-        {token?.kind === 'slash' && !dismissed && slashItems.length > 0 && (
-          <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
-            <SlashPopup query={token.raw} onSelect={handleSlashSelect} onClose={closePopup} />
-          </div>
-        )}
         {token?.kind === 'mention' && !dismissed && mentionItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
