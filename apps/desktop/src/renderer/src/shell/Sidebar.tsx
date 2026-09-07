@@ -13,6 +13,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderX,
+  GitBranch,
   Import as ImportIcon,
   Inbox,
   MessageSquareText,
@@ -48,8 +49,8 @@ const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as con
 /** Pointer travel (px) beyond which a header press is a drag, not a click. */
 const DRAG_CLICK_SLOP_PX = 4
 
-/** One indent column; matches the parent-row chevron gutter so icons line up. */
-const TREE_COL_PX = 16
+/** One indent column; children sit clearly under the parent orchestrator. */
+const TREE_COL_PX = 22
 
 /** Vertical rail + elbow for nested child sessions. */
 function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] }) {
@@ -138,6 +139,7 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
 function SessionRow({
   session,
   hasChildren = false,
+  nested = false,
   projectName,
   isActive,
   activity,
@@ -149,6 +151,7 @@ function SessionRow({
 }: {
   session: SessionSummary
   hasChildren?: boolean
+  nested?: boolean
   projectName: string | null
   isActive: boolean
   activity?: SessionActivity
@@ -211,7 +214,9 @@ function SessionRow({
   if (confirmDelete) {
     return (
       <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-2xs text-danger">Delete session?</span>
+        <span className="min-w-0 flex-1 truncate text-2xs text-danger">
+          {hasChildren ? 'Delete this session and its children?' : 'Delete session?'}
+        </span>
         <button
           type="button"
           aria-label="Confirm delete"
@@ -249,6 +254,12 @@ function SessionRow({
         <span className="flex size-2.5 shrink-0 items-center justify-center">
           {activity !== undefined ? (
             <SessionActivityMark activity={activity} />
+          ) : hasChildren ? (
+            <GitBranch
+              size={11}
+              aria-hidden
+              className={isActive ? 'text-accent' : 'text-fg-muted'}
+            />
           ) : session.pinned ? (
             <Pin size={10} aria-hidden className="text-accent" />
           ) : (
@@ -259,7 +270,13 @@ function SessionRow({
             />
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
+        <span
+          className={`min-w-0 flex-1 truncate ${
+            hasChildren ? 'text-[13px] font-medium' : nested ? 'text-xs' : 'text-[13px]'
+          }`}
+        >
+          {session.title}
+        </span>
         {projectName ? (
           <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle lg:flex">
             <FolderGit2 size={10} aria-hidden />
@@ -316,7 +333,7 @@ function SessionRow({
             },
             {
               id: 'delete',
-              label: 'Delete session',
+              label: hasChildren ? 'Delete session and children' : 'Delete session',
               icon: Trash2,
               danger: true,
               onSelect: () => setConfirmDelete(true),
@@ -392,6 +409,7 @@ function SessionList({
                   <SessionRow
                     session={s}
                     hasChildren={childCount > 0}
+                    nested={lastAtDepth.length > 0}
                     projectName={projectNameOf?.(s.projectId) ?? null}
                     isActive={s.id === handlers.activeSessionId}
                     activity={handlers.activityOf?.(s.id)}

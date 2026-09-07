@@ -74,6 +74,7 @@ describe('formatRelativeTime', () => {
     const toggle = screen.getByRole('button', { name: /children of Session tree-root/i })
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(screen.queryByText(/child sessions/i)).not.toBeInTheDocument()
+    expect(document.querySelector('svg.lucide-git-branch')).not.toBeNull()
     await user.click(toggle)
     expect(screen.queryByText('Session tree-child')).not.toBeInTheDocument()
     await user.click(toggle)

@@ -51,6 +51,30 @@ export function sessionTree(
   return rows
 }
 
+/** Descendants of `rootId`, deepest first — same order a cascaded delete must use. */
+export function descendantIds(
+  sessions: readonly { id: string; parentSessionId?: string | null }[],
+  rootId: string,
+): string[] {
+  const children = new Map<string, string[]>()
+  for (const session of sessions) {
+    const parent = session.parentSessionId
+    if (!parent) continue
+    const nested = children.get(parent) ?? []
+    nested.push(session.id)
+    children.set(parent, nested)
+  }
+  const ids: string[] = []
+  const visit = (id: string): void => {
+    for (const child of children.get(id) ?? []) {
+      visit(child)
+      ids.push(child)
+    }
+  }
+  visit(rootId)
+  return ids
+}
+
 /** Search keeps ancestor context, even when the match is archived or its parent is collapsed. */
 export function searchSessionTree(sessions: SessionSummary[], query: string): SessionSummary[] {
   const byId = new Map(sessions.map((session) => [session.id, session]))

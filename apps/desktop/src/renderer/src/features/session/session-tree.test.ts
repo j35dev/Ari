@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { sessionTree, searchSessionTree } from './session-tree'
+import { descendantIds, sessionTree, searchSessionTree } from './session-tree'
 
 const row = (id: string, parentSessionId?: string): SessionSummary => ({
   id,
@@ -22,6 +22,12 @@ it('nests recent children under their parent, including after collapse and searc
     'other',
   ])
   expect(searchSessionTree(sessions, 'child').map((r) => r.id)).toEqual(['child', 'root'])
+})
+
+it('lists descendants deepest-first so a parent can be deleted as a tree', () => {
+  const sessions = [row('root'), row('a', 'root'), row('b', 'root'), row('a1', 'a')]
+  expect(descendantIds(sessions, 'root')).toEqual(['a1', 'a', 'b'])
+  expect(descendantIds(sessions, 'other')).toEqual([])
 })
 
 it('marks last siblings so the sidebar can draw elbows', () => {
