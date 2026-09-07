@@ -4,6 +4,53 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApprovalCard } from './ApprovalCard'
 
 describe('ApprovalCard', () => {
+  it.each([
+    [{ command: 'pnpm test' }, 'Command', 'pnpm test'],
+    [{ file_path: 'src/app.ts' }, 'File', 'src/app.ts'],
+  ])('shows ACP raw input details: %j', (rawInput, label, detail) => {
+    render(
+      <ApprovalCard
+        approvalId="acp-1"
+        toolName="tool"
+        summaryJson={JSON.stringify({ kind: 'execute', rawInput, options: [] })}
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByText(detail)).toBeInTheDocument()
+  })
+
+  it('does not offer or shortcut persistent approval when ACP only allows once', async () => {
+    const user = userEvent.setup()
+    const onRespond = vi.fn()
+    render(
+      <ApprovalCard
+        approvalId="acp-1"
+        toolName="tool"
+        summaryJson={JSON.stringify({ options: [{ kind: 'allow_once', optionId: 'once' }] })}
+        onRespond={onRespond}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Always allow' })).not.toBeInTheDocument()
+    screen.getByRole('group', { name: 'Approval requested: tool' }).focus()
+    await user.keyboard('a')
+    expect(onRespond).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Allow' }))
+    expect(onRespond).toHaveBeenCalledWith('allow')
+  })
+
+  it('offers persistent approval when ACP advertises it', () => {
+    render(
+      <ApprovalCard
+        approvalId="acp-1"
+        toolName="tool"
+        summaryJson={JSON.stringify({ options: [{ kind: 'allow_always', optionId: 'always' }] })}
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Always allow' })).toBeInTheDocument()
+  })
+
   it('renders tool name and pretty-printed summary JSON', () => {
     render(
       <ApprovalCard
@@ -20,7 +67,9 @@ describe('ApprovalCard', () => {
   it('calls onRespond("allow") when Allow is clicked', async () => {
     const user = userEvent.setup()
     const onRespond = vi.fn()
-    render(<ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />)
+    render(
+      <ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />,
+    )
     await user.click(screen.getByRole('button', { name: 'Allow' }))
     expect(onRespond).toHaveBeenCalledOnce()
     expect(onRespond).toHaveBeenCalledWith('allow')
@@ -34,7 +83,9 @@ describe('ApprovalCard', () => {
   it('calls onRespond("always_allow") when Always allow is clicked', async () => {
     const user = userEvent.setup()
     const onRespond = vi.fn()
-    render(<ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />)
+    render(
+      <ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />,
+    )
     await user.click(screen.getByRole('button', { name: 'Always allow' }))
     expect(onRespond).toHaveBeenCalledWith('always_allow')
   })
@@ -42,7 +93,9 @@ describe('ApprovalCard', () => {
   it('responds to y/a/n keys while the card is focused', async () => {
     const user = userEvent.setup()
     const onRespond = vi.fn()
-    render(<ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />)
+    render(
+      <ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />,
+    )
     const card = screen.getByRole('group', { name: 'Approval requested: bash' })
     card.focus()
     await user.keyboard('y')
