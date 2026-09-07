@@ -49,6 +49,11 @@ describe('Composer', () => {
     expect(screen.getByText(/2 queued messages/)).toBeInTheDocument()
   })
 
+  it('sits extra chrome on the top of the plate', () => {
+    render(<Composer onSend={vi.fn()} above={<div>2 children</div>} />)
+    expect(screen.getByText('2 children')).toBeInTheDocument()
+  })
+
   it('keeps stash and send as the trailing actions in the foot', () => {
     render(<Composer onSend={vi.fn()} leading={<span>agent</span>} />)
     const stash = screen.getByRole('button', { name: /prompt stash/i })
@@ -75,9 +80,9 @@ describe('Composer prompt stash', () => {
     await user.click(screen.getByRole('button', { name: /prompt stash/i }))
     await user.click(screen.getByRole('menuitem', { name: /remember this prompt/ }))
 
-    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue(
-      'remember this prompt',
-    ))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Message')).toHaveValue('remember this prompt'),
+    )
   })
 
   it('stash entries persist for a fresh composer mount', async () => {
@@ -125,9 +130,7 @@ describe('Composer draft seeding', () => {
   })
 
   it('applies a new nonce over both user edits and earlier seeds', async () => {
-    const { rerender } = render(
-      <Composer onSend={vi.fn()} seed={{ text: 'one', nonce: 1 }} />,
-    )
+    const { rerender } = render(<Composer onSend={vi.fn()} seed={{ text: 'one', nonce: 1 }} />)
     const input = screen.getByLabelText('Message')
     await waitFor(() => expect(input).toHaveValue('one'))
     rerender(<Composer onSend={vi.fn()} seed={{ text: 'two', nonce: 2 }} />)

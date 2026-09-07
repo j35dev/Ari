@@ -10,6 +10,7 @@ import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS } from './ipc-methods'
 import { Engine } from './engine'
+import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
 import { ProjectFileIndex } from './file-index'
@@ -640,18 +641,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('session.destroy', async (params) => {
-    const model = await getSessionStore().load(params.sessionId)
-    if (model.activeTurnId || engine.hasLiveTurn(params.sessionId))
-      throw new Error('Stop the session and wait for its provider to exit before deleting it.')
-    if (
-      (await getSessionStore().listSessions()).some(
-        (session) => session.parentSessionId === params.sessionId,
-      )
-    ) {
-      throw new Error('Delete child sessions first. Their worktrees are retained for recovery.')
+    const store = getSessionStore()
+    const ids = [...descendantIds(await store.listSessions(), params.sessionId), params.sessionId]
+    for (const id of ids) {
+      const model = await store.load(id)
+      if (model.activeTurnId || engine.hasLiveTurn(id)) {
+        await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
+        await engine.quiesce(id)
+      }
+      await store.destroy(id)
+      runtime?.revoke(id)
     }
-    await getSessionStore().destroy(params.sessionId)
-    runtime?.revoke(params.sessionId)
     return { destroyed: true }
   })
 

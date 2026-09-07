@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChildSessionActivity, type ChildEvent } from './ChildSessionActivity'
+import { ChildSessionActivity } from './ChildSessionActivity'
+import type { SessionActivity } from './session-activity'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
-import type { CatalogModelInfo, SessionEventFrame } from '@ari/contracts/rpc'
+import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
@@ -188,14 +189,17 @@ export function SessionView({
   defaults,
   onDefaultsChange,
   onOpenSession,
+  childSessions = [],
+  activityOf,
 }: {
   sessionId: string
   defaults: SessionDefaults
   onDefaultsChange: (next: SessionDefaults) => void
   onOpenSession?: (id: string) => void
+  childSessions?: SessionSummary[]
+  activityOf?: (id: string) => SessionActivity | undefined
 }) {
   const [messages, setMessages] = useState<Message[]>([])
-  const [childEvents, setChildEvents] = useState<ChildEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<{ text: string; attachments: AttachmentRef[] }[]>([])
@@ -269,7 +273,6 @@ export function SessionView({
   useEffect(() => {
     let cancelled = false
     setMessages([])
-    setChildEvents([])
     setLoading(true)
     setRunning(false)
     setQueued([])
@@ -388,7 +391,6 @@ export function SessionView({
       case 'child.session.settled':
       case 'child.session.integrated':
       case 'child.session.stopped':
-        setChildEvents((previous) => [...previous, event])
         break
       case 'user.message.added':
         setMessages((prev) => [...prev, event.message])
@@ -781,7 +783,6 @@ export function SessionView({
           <TranscriptView
             sessionId={sessionId}
             messages={messages}
-            activity={<ChildSessionActivity events={childEvents} onOpen={onOpenSession} />}
             loading={loading}
             turnDiffs={turnDiffs}
             onEditUserMessage={handleEditMessage}
@@ -901,6 +902,15 @@ export function SessionView({
           queued={queued.map((q) => q.text)}
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
+          above={
+            childSessions.length > 0 ? (
+              <ChildSessionActivity
+                sessions={childSessions}
+                activityOf={activityOf}
+                onOpen={onOpenSession}
+              />
+            ) : null
+          }
           leading={
             <>
               <ModelSelector
