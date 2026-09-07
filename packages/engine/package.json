@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./workspace": "./src/workspace.ts",
     "./journal": "./src/journal.ts",
     "./dispatcher": "./src/dispatcher.ts",
     "./title": "./src/title.ts",

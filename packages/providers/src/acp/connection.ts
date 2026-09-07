@@ -66,6 +66,7 @@ export interface AcpConnectOptions {
   onRequestPermission?: (request: AcpRequestPermission) => Promise<unknown>
   /** Process factory seam for tests; defaults to the real Windows-safe spawner. */
   spawn?: (launch: AcpLaunch, cwd: string) => AcpChildProcess
+  runtimeEnv?: Record<string, string | undefined>
 }
 
 export class AcpConnectionError extends Error {
@@ -216,7 +217,7 @@ export class AcpConnection {
         options.spawn !== undefined
           ? options.spawn(launch, options.cwd)
           : spawnCli(launch.command, launch.args, {
-              ...(launch.env !== undefined ? { env: { ...process.env, ...launch.env } } : {}),
+              env: { ...process.env, ...launch.env, ...options.runtimeEnv },
               cwd: options.cwd,
               stdio: ['pipe', 'pipe', 'pipe'],
               windowsHide: true,

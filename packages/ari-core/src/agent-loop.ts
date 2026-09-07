@@ -20,6 +20,7 @@ export interface AgentLoopOptions {
   systemPrompt: string
   userPrompt: string
   workspacePath: string
+  runtimeEnv?: Record<string, string | undefined>
   /**
    * Ari-side session id. Handed to the tool context so per-session tools
    * (todo_write) scope their files instead of sharing one workspace file.
@@ -236,6 +237,7 @@ export async function* runAgentLoop(
   )
   const ctx: ToolContext = {
     workspacePath,
+    ...(options.runtimeEnv ? { runtimeEnv: options.runtimeEnv } : {}),
     permissionMode,
     ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     ...(options.allowlist ? { allowlist: options.allowlist } : {}),

@@ -359,9 +359,9 @@ export function SessionView({
           permissionMode: m.session.permissionMode,
           effort: m.session.effort ?? null,
         })
-        const projects = await rpc.invoke('project.list').catch(() => [])
+        const workspace = await rpc.invoke('session.workspace', { sessionId })
         if (cancelled) return
-        projectPathRef.current = projects.find((p) => p.id === m.session.projectId)?.path ?? null
+        projectPathRef.current = workspace.path
         setPlanPath(projectPathRef.current)
         const pending = [...queuedDiffTurnIdsRef.current]
         queuedDiffTurnIdsRef.current.clear()

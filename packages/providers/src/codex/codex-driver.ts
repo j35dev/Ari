@@ -98,6 +98,7 @@ export class CodexDriver implements Driver {
         ? this.options.spawnLegacy(this.binaryPath, buildCodexArgs(session))
         : spawnCli(this.binaryPath, buildCodexArgs(session), {
             cwd: session.workspacePath,
+            ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
           })
@@ -159,6 +160,7 @@ export async function createCodexAppServerAdapter(
   const mapper = createAppServerMapper()
   const connection = AppServerConnection.start({
     binaryPath,
+    ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
     cwd: session.workspacePath,
     ...(spawn !== undefined ? { spawn } : {}),
   })

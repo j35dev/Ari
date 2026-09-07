@@ -254,6 +254,7 @@ export class ClaudeDriver implements Driver {
   create(session: AdapterSession): Promise<ProviderAdapter> {
     const child = spawnCli(this.binaryPath, buildClaudeArgs(session), {
       cwd: session.workspacePath,
+      ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
