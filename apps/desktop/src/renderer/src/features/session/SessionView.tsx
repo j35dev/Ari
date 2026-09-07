@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChildSessionActivity } from './ChildSessionActivity'
+import type { SessionActivity } from './session-activity'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
-import type { CatalogModelInfo, SessionEventFrame } from '@ari/contracts/rpc'
+import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
@@ -158,7 +160,9 @@ export function ContextMeter({
           <span className={`block h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
         </span>
       ) : null}
-      <span aria-label={`Token usage: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}>
+      <span
+        aria-label={`Token usage: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}
+      >
         {formatCompactTokens(used)}
         {contextWindow !== null ? ` / ${formatCompactTokens(contextWindow)}` : ''}
       </span>
@@ -184,10 +188,16 @@ export function SessionView({
   sessionId,
   defaults,
   onDefaultsChange,
+  onOpenSession,
+  childSessions = [],
+  activityOf,
 }: {
   sessionId: string
   defaults: SessionDefaults
   onDefaultsChange: (next: SessionDefaults) => void
+  onOpenSession?: (id: string) => void
+  childSessions?: SessionSummary[]
+  activityOf?: (id: string) => SessionActivity | undefined
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
@@ -209,7 +219,9 @@ export function SessionView({
   const [planPath, setPlanPath] = useState<string | null>(null)
   const [planNonce, setPlanNonce] = useState(0)
   // Review notes (M21.1): inline diff comments attached to the next message.
-  const [reviewNotes, setReviewNotes] = useState<{ path: string; line: number | null; text: string }[]>([])
+  const [reviewNotes, setReviewNotes] = useState<
+    { path: string; line: number | null; text: string }[]
+  >([])
   const sessionTitleRef = useRef('Session')
   // Workspace path of the session's project — needed by git.turnDiff. Held in
   // a ref so the stable event applier can read it without re-subscribing.
@@ -241,19 +253,14 @@ export function SessionView({
   // Model catalogs feed the context-window meter's denominator.
   useEffect(() => {
     void rpc
-      .invoke('project.list')
-      .then(async (projects) => {
-        const first = projects[0]
-        if (!first) return { paths: [] }
-        return rpc.invoke('files.index', { projectId: first.id })
-      })
+      .invoke('files.index', { sessionId })
       .then((r) => setFileSuggestions(r.paths))
       .catch(() => undefined)
     void rpc
       .invoke('providers.models')
       .then(setCatalogModels)
       .catch(() => undefined)
-  }, [])
+  }, [sessionId])
 
   // Window size for the meter: the session model's contextHint from the live
   // catalog, when the catalog carries one. Absent → used-count-only chip.
@@ -359,9 +366,9 @@ export function SessionView({
           permissionMode: m.session.permissionMode,
           effort: m.session.effort ?? null,
         })
-        const projects = await rpc.invoke('project.list').catch(() => [])
+        const workspace = await rpc.invoke('session.workspace', { sessionId })
         if (cancelled) return
-        projectPathRef.current = projects.find((p) => p.id === m.session.projectId)?.path ?? null
+        projectPathRef.current = workspace.path
         setPlanPath(projectPathRef.current)
         const pending = [...queuedDiffTurnIdsRef.current]
         queuedDiffTurnIdsRef.current.clear()
@@ -378,164 +385,162 @@ export function SessionView({
     }
   }, [sessionId])
 
-  const applyEvent = useCallback(
-    (event: JournalEvent, live: boolean) => {
-      switch (event.type) {
-        case 'user.message.added':
-          setMessages((prev) => [...prev, event.message])
-          break
-        case 'assistant.parts.appended':
-          setMessages((prev) => {
-            const existing = prev.find((m) => m.id === event.messageId)
-            if (existing) {
-              return prev.map((m) =>
-                m.id === event.messageId ? { ...m, parts: [...m.parts, ...event.parts] } : m,
-              )
-            }
-            return [
-              ...prev,
-              {
-                id: event.messageId,
-                sessionId: event.sessionId,
-                turnId: activeTurnIdRef.current,
-                role: 'assistant',
-                parts: [...event.parts],
-                createdAt: event.at,
-              },
-            ]
-          })
-          break
-        case 'turn.started':
-          // A fresh turn supersedes any stale failure banner.
-          setTurnError(null)
-          setRunning(true)
-          activeTurnIdRef.current = event.turnId
-          setTelemetry((t) => ({
-            ...t,
-            turnCount: t.turnCount + 1,
-            startedAt: event.at,
-          }))
-          break
-        case 'turn.settled': {
-          setRunning(false)
-          // A settled turn owns no live prompts: stopping (or failing) while
-          // a question or approval is parked unmounts its card at once, so a
-          // later answer can never strand a card no dispatch can satisfy.
-          setPendingQuestion(null)
-          setApprovals([])
-          activeTurnIdRef.current = null
-          setTelemetry((t) => ({
-            ...t,
-            lastDurationMs: t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
-            startedAt: null,
-          }))
-          fetchTurnDiffRef.current(event.turnId)
-          setPlanNonce((n) => n + 1)
-          if (event.stopReason === 'error' && event.errorMessage) {
-            // Raw text is kept: the banner's Details disclosure shows it verbatim.
-            setTurnError(event.errorMessage)
-            notifySettledRef.current({ error: event.errorMessage })
-          } else {
-            notifySettledRef.current()
-          }
-          // Settle chime — live settles only, so remounting a session never
-          // replays the cue for turns that finished while it was closed.
-          if (live && settleSoundRef.current) {
-            playSettleSound(event.stopReason === 'error' ? 'error' : 'complete')
-          }
-          // Queue continuation is the engine's job now: after a clean settle
-          // it dequeues the oldest message and runs it as the next turn.
-          // Steered follow-ups dequeue immediately and arrive as
-          // user.message.added so they stay visible in the transcript.
-          break
-        }
-        case 'message.enqueued':
-          setQueued((prev) => [
-            ...prev,
-            { text: event.text, attachments: event.attachments ?? [] },
-          ])
-          break
-        case 'message.dequeued':
-          setQueued((prev) => {
-            const want = (event.attachments ?? []).map((a) => a.id).join(',')
-            const idx = prev.findIndex(
-              (q) =>
-                q.text === event.text &&
-                (event.attachments === undefined ||
-                  q.attachments.map((a) => a.id).join(',') === want),
+  const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
+    switch (event.type) {
+      case 'child.session.spawned':
+      case 'child.session.settled':
+      case 'child.session.integrated':
+      case 'child.session.stopped':
+        break
+      case 'user.message.added':
+        setMessages((prev) => [...prev, event.message])
+        break
+      case 'assistant.parts.appended':
+        setMessages((prev) => {
+          const existing = prev.find((m) => m.id === event.messageId)
+          if (existing) {
+            return prev.map((m) =>
+              m.id === event.messageId ? { ...m, parts: [...m.parts, ...event.parts] } : m,
             )
-            return idx < 0 ? prev : [...prev.slice(0, idx), ...prev.slice(idx + 1)]
-          })
-          break
-        case 'approval.requested':
-          setApprovals((prev) => [
-            ...prev.filter((a) => a.approvalId !== event.approvalId),
+          }
+          return [
+            ...prev,
             {
-              approvalId: event.approvalId,
-              toolName: event.toolName,
-              summaryJson: event.summaryJson,
+              id: event.messageId,
+              sessionId: event.sessionId,
+              turnId: activeTurnIdRef.current,
+              role: 'assistant',
+              parts: [...event.parts],
+              createdAt: event.at,
             },
-          ])
-          // An approval blocks the turn silently while away — say so.
+          ]
+        })
+        break
+      case 'turn.started':
+        // A fresh turn supersedes any stale failure banner.
+        setTurnError(null)
+        setRunning(true)
+        activeTurnIdRef.current = event.turnId
+        setTelemetry((t) => ({
+          ...t,
+          turnCount: t.turnCount + 1,
+          startedAt: event.at,
+        }))
+        break
+      case 'turn.settled': {
+        setRunning(false)
+        // A settled turn owns no live prompts: stopping (or failing) while
+        // a question or approval is parked unmounts its card at once, so a
+        // later answer can never strand a card no dispatch can satisfy.
+        setPendingQuestion(null)
+        setApprovals([])
+        activeTurnIdRef.current = null
+        setTelemetry((t) => ({
+          ...t,
+          lastDurationMs:
+            t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
+          startedAt: null,
+        }))
+        fetchTurnDiffRef.current(event.turnId)
+        setPlanNonce((n) => n + 1)
+        if (event.stopReason === 'error' && event.errorMessage) {
+          // Raw text is kept: the banner's Details disclosure shows it verbatim.
+          setTurnError(event.errorMessage)
+          notifySettledRef.current({ error: event.errorMessage })
+        } else {
+          notifySettledRef.current()
+        }
+        // Settle chime — live settles only, so remounting a session never
+        // replays the cue for turns that finished while it was closed.
+        if (live && settleSoundRef.current) {
+          playSettleSound(event.stopReason === 'error' ? 'error' : 'complete')
+        }
+        // Queue continuation is the engine's job now: after a clean settle
+        // it dequeues the oldest message and runs it as the next turn.
+        // Steered follow-ups dequeue immediately and arrive as
+        // user.message.added so they stay visible in the transcript.
+        break
+      }
+      case 'message.enqueued':
+        setQueued((prev) => [...prev, { text: event.text, attachments: event.attachments ?? [] }])
+        break
+      case 'message.dequeued':
+        setQueued((prev) => {
+          const want = (event.attachments ?? []).map((a) => a.id).join(',')
+          const idx = prev.findIndex(
+            (q) =>
+              q.text === event.text &&
+              (event.attachments === undefined ||
+                q.attachments.map((a) => a.id).join(',') === want),
+          )
+          return idx < 0 ? prev : [...prev.slice(0, idx), ...prev.slice(idx + 1)]
+        })
+        break
+      case 'approval.requested':
+        setApprovals((prev) => [
+          ...prev.filter((a) => a.approvalId !== event.approvalId),
+          {
+            approvalId: event.approvalId,
+            toolName: event.toolName,
+            summaryJson: event.summaryJson,
+          },
+        ])
+        // An approval blocks the turn silently while away — say so.
+        notifyNeedsAttention(sessionTitleRef.current, {
+          detail: `${event.toolName} approval`,
+        })
+        // Attention cue — live blocks only, so journal replay on remount
+        // never replays it. Fires even when focused: the card is visible
+        // but the user may be looking away.
+        if (live && settleSoundRef.current) {
+          playSettleSound('attention')
+        }
+        break
+      case 'approval.responded':
+        setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
+        break
+      case 'usage.recorded':
+        setTelemetry((t) => ({
+          ...t,
+          inputTokens: t.inputTokens + (event.inputTokens ?? 0),
+          outputTokens: t.outputTokens + (event.outputTokens ?? 0),
+          turnInputTokens: t.turnInputTokens + (event.inputTokens ?? 0),
+          turnOutputTokens: t.turnOutputTokens + (event.outputTokens ?? 0),
+        }))
+        break
+      default: {
+        const question = asInputRequested(event)
+        if (question) {
+          setPendingQuestion(question)
           notifyNeedsAttention(sessionTitleRef.current, {
-            detail: `${event.toolName} approval`,
+            detail: question.prompt.slice(0, 80),
           })
-          // Attention cue — live blocks only, so journal replay on remount
-          // never replays it. Fires even when focused: the card is visible
-          // but the user may be looking away.
           if (live && settleSoundRef.current) {
             playSettleSound('attention')
           }
           break
-        case 'approval.responded':
-          setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
-          break
-        case 'usage.recorded':
-          setTelemetry((t) => ({
-            ...t,
-            inputTokens: t.inputTokens + (event.inputTokens ?? 0),
-            outputTokens: t.outputTokens + (event.outputTokens ?? 0),
-            turnInputTokens: t.turnInputTokens + (event.inputTokens ?? 0),
-            turnOutputTokens: t.turnOutputTokens + (event.outputTokens ?? 0),
-          }))
-          break
-        default: {
-          const question = asInputRequested(event)
-          if (question) {
-            setPendingQuestion(question)
-            notifyNeedsAttention(sessionTitleRef.current, {
-              detail: question.prompt.slice(0, 80),
-            })
-            if (live && settleSoundRef.current) {
-              playSettleSound('attention')
-            }
-            break
-          }
-          const respondedId = respondedInputId(event)
-          if (respondedId !== null) {
-            setPendingQuestion((prev) => (prev?.inputId === respondedId ? null : prev))
-          }
+        }
+        const respondedId = respondedInputId(event)
+        if (respondedId !== null) {
+          setPendingQuestion((prev) => (prev?.inputId === respondedId ? null : prev))
         }
       }
-    },
-    [],
-  )
+    }
+  }, [])
 
   // Command dispatches used to fail silently (.catch(() => undefined)); a
   // rejected dispatch — e.g. the decider declining while a turn is active —
   // now toasts so sending never looks like a no-op.
   const dispatch = useCallback(
     (command: Record<string, unknown>, failureTitle: string): void => {
-      void rpc
-        .invoke('command.dispatch', { command })
-        .catch((err: unknown) => {
-          toast({
-            title: failureTitle,
-            description: err instanceof Error ? err.message : String(err),
-            tone: 'danger',
-            durationMs: 6000,
-          })
+      void rpc.invoke('command.dispatch', { command }).catch((err: unknown) => {
+        toast({
+          title: failureTitle,
+          description: err instanceof Error ? err.message : String(err),
+          tone: 'danger',
+          durationMs: 6000,
         })
+      })
     },
     [toast],
   )
@@ -564,7 +569,10 @@ export function SessionView({
         return
       }
       setTurnError(null)
-      dispatch({ type: 'turn.start', sessionId, text: outgoing, attachments }, 'Couldn’t send message')
+      dispatch(
+        { type: 'turn.start', sessionId, text: outgoing, attachments },
+        'Couldn’t send message',
+      )
     },
     [sessionId, running, dispatch],
   )
@@ -596,9 +604,12 @@ export function SessionView({
   )
 
   /** M21.1 review loop: a saved diff line note joins the next message. */
-  const handleDiffComment = useCallback((comment: { path: string; line: number | null; text: string }) => {
-    setReviewNotes((prev) => [...prev, comment])
-  }, [])
+  const handleDiffComment = useCallback(
+    (comment: { path: string; line: number | null; text: string }) => {
+      setReviewNotes((prev) => [...prev, comment])
+    },
+    [],
+  )
 
   const handleStop = useCallback(() => {
     dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
@@ -768,145 +779,159 @@ export function SessionView({
   return (
     <div className="flex h-full min-h-0">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1">
-        <TranscriptView
-          sessionId={sessionId}
-          messages={messages}
-          loading={loading}
-          turnDiffs={turnDiffs}
-          onEditUserMessage={handleEditMessage}
-          onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
-          regenerateDisabled={running}
-          header={<PlanPanel path={planPath} sessionId={sessionId} refreshNonce={planNonce} />}
-          onDiffComment={handleDiffComment}
-          working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
-        />
-      </div>
-      <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
-        {telemetry.turnCount > 0 ? (
-          <>
-            <span>
-              {telemetry.turnCount} turn{telemetry.turnCount === 1 ? '' : 's'}
-            </span>
-            <span aria-hidden>·</span>
-            <span>
-              last{' '}
-              {telemetry.lastDurationMs !== null ? `${(telemetry.lastDurationMs / 1000).toFixed(1)}s` : '—'}
-            </span>
-            <span aria-hidden>·</span>
-            <span title="Input tokens">↑ {formatTokens(telemetry.inputTokens)}</span>
-            <span aria-hidden>·</span>
-            <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
-          </>
-        ) : (
-          <span>{running ? null : 'no turns yet'}</span>
-        )}
-        <div className="flex-1" />
-        {/* Context meter shows the ACTIVE/last turn's footprint, not the
+        <div className="min-h-0 flex-1">
+          <TranscriptView
+            sessionId={sessionId}
+            messages={messages}
+            loading={loading}
+            turnDiffs={turnDiffs}
+            onEditUserMessage={handleEditMessage}
+            onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
+            regenerateDisabled={running}
+            header={<PlanPanel path={planPath} sessionId={sessionId} refreshNonce={planNonce} />}
+            onDiffComment={handleDiffComment}
+            working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
+          />
+        </div>
+        <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
+          {telemetry.turnCount > 0 ? (
+            <>
+              <span>
+                {telemetry.turnCount} turn{telemetry.turnCount === 1 ? '' : 's'}
+              </span>
+              <span aria-hidden>·</span>
+              <span>
+                last{' '}
+                {telemetry.lastDurationMs !== null
+                  ? `${(telemetry.lastDurationMs / 1000).toFixed(1)}s`
+                  : '—'}
+              </span>
+              <span aria-hidden>·</span>
+              <span title="Input tokens">↑ {formatTokens(telemetry.inputTokens)}</span>
+              <span aria-hidden>·</span>
+              <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
+            </>
+          ) : (
+            <span>{running ? null : 'no turns yet'}</span>
+          )}
+          <div className="flex-1" />
+          {/* Context meter shows the ACTIVE/last turn's footprint, not the
             lifetime total — the window is per-turn, so lifetime totals would
             lie about headroom (DSH token-meter semantics). */}
-        {telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
-          <ContextMeter
-            used={telemetry.turnInputTokens + telemetry.turnOutputTokens}
-            contextWindow={contextWindow}
+          {telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
+            <ContextMeter
+              used={telemetry.turnInputTokens + telemetry.turnOutputTokens}
+              contextWindow={contextWindow}
+            />
+          ) : null}
+        </div>
+        {pendingQuestion && pendingPlan === null ? (
+          <div className="ari-glass-overlay border-t border-border p-3">
+            <QuestionPanel
+              prompt={pendingQuestion.prompt}
+              choicesJson={pendingQuestion.choicesJson}
+              onRespond={respondQuestion}
+              onCancel={cancelQuestion}
+            />
+          </div>
+        ) : null}
+        {approvals.length > 0 ? (
+          <div className="ari-glass-overlay max-h-56 space-y-2 overflow-y-auto border-t border-border p-3">
+            {approvals.map((a, i) => (
+              <ApprovalCard
+                key={a.approvalId}
+                approvalId={a.approvalId}
+                toolName={a.toolName}
+                summaryJson={a.summaryJson}
+                position={i + 1}
+                total={approvals.length}
+                onRespond={(decision) =>
+                  respondApproval(
+                    a.approvalId,
+                    decision === 'always_allow' ? 'always-allow' : decision,
+                  )
+                }
+              />
+            ))}
+          </div>
+        ) : null}
+        {turnError ? (
+          <TurnErrorBanner
+            message={turnError}
+            canRetry={lastUserMessage !== null}
+            retryDisabled={running}
+            onRetry={resendLastPrompt}
+            onDismiss={() => setTurnError(null)}
           />
         ) : null}
-
-      </div>
-      {pendingQuestion && pendingPlan === null ? (
-        <div className="ari-glass-overlay border-t border-border p-3">
-          <QuestionPanel
-            prompt={pendingQuestion.prompt}
-            choicesJson={pendingQuestion.choicesJson}
-            onRespond={respondQuestion}
-            onCancel={cancelQuestion}
-          />
-        </div>
-      ) : null}
-      {approvals.length > 0 ? (
-        <div className="ari-glass-overlay max-h-56 space-y-2 overflow-y-auto border-t border-border p-3">
-          {approvals.map((a, i) => (
-            <ApprovalCard
-              key={a.approvalId}
-              approvalId={a.approvalId}
-              toolName={a.toolName}
-              summaryJson={a.summaryJson}
-              position={i + 1}
-              total={approvals.length}
-              onRespond={(decision) =>
-                respondApproval(
-                  a.approvalId,
-                  decision === 'always_allow' ? 'always-allow' : decision,
-                )
-              }
-            />
-          ))}
-        </div>
-      ) : null}
-      {turnError ? (
-        <TurnErrorBanner
-          message={turnError}
-          canRetry={lastUserMessage !== null}
-          retryDisabled={running}
-          onRetry={resendLastPrompt}
-          onDismiss={() => setTurnError(null)}
-        />
-      ) : null}
-      {reviewNotes.length > 0 ? (
-        <div className="mx-4 mb-1 flex flex-wrap items-center gap-1" aria-label="Review notes attached to next message">
-          <span className="text-2xs text-fg-subtle">
-            {reviewNotes.length} note{reviewNotes.length > 1 ? 's' : ''} with your next message:
-          </span>
-          {reviewNotes.map((note, i) => (
-            <span
-              key={`${i}-${note.path}-${note.line ?? 'x'}-${note.text.slice(0, 8)}`}
-              className="flex max-w-64 items-center gap-1 rounded-full border border-accent-subtle bg-accent-subtle px-2 py-0.5 text-2xs text-fg-muted"
-              title={note.text}
-            >
-              <span className="min-w-0 truncate font-mono">
-                {note.path.split(/[\\/]/).pop()}{note.line !== null ? `:${note.line}` : ''}
-              </span>
-              <button
-                type="button"
-                aria-label={`Remove note ${note.text}`}
-                onClick={() => setReviewNotes((prev) => prev.filter((_, idx) => idx !== i))}
-                className="shrink-0 rounded-full text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <X size={10} />
-              </button>
+        {reviewNotes.length > 0 ? (
+          <div
+            className="mx-4 mb-1 flex flex-wrap items-center gap-1"
+            aria-label="Review notes attached to next message"
+          >
+            <span className="text-2xs text-fg-subtle">
+              {reviewNotes.length} note{reviewNotes.length > 1 ? 's' : ''} with your next message:
             </span>
-          ))}
-        </div>
-      ) : null}
-      <Composer
-        sessionId={sessionId}
-        onSend={handleSend}
-        onStop={handleStop}
-        running={running}
-        queued={queued.map((q) => q.text)}
-        seed={composerSeed ?? undefined}
-        suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
-        leading={
-          <>
-            <ModelSelector
-              driverKind={defaults.driverKind}
-              modelId={defaults.modelId}
-              onChange={changeModel}
-              lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
-            />
-            <EffortChip
-              driverKind={defaults.driverKind}
-              effort={defaults.effort}
-              onChange={changeEffort}
-            />
-            <PermissionModeChip
-              driverKind={defaults.driverKind}
-              mode={defaults.permissionMode}
-              onChange={changePermissionMode}
-            />
-          </>
-        }
-      />
+            {reviewNotes.map((note, i) => (
+              <span
+                key={`${i}-${note.path}-${note.line ?? 'x'}-${note.text.slice(0, 8)}`}
+                className="flex max-w-64 items-center gap-1 rounded-full border border-accent-subtle bg-accent-subtle px-2 py-0.5 text-2xs text-fg-muted"
+                title={note.text}
+              >
+                <span className="min-w-0 truncate font-mono">
+                  {note.path.split(/[\\/]/).pop()}
+                  {note.line !== null ? `:${note.line}` : ''}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove note ${note.text}`}
+                  onClick={() => setReviewNotes((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="shrink-0 rounded-full text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <Composer
+          sessionId={sessionId}
+          onSend={handleSend}
+          onStop={handleStop}
+          running={running}
+          queued={queued.map((q) => q.text)}
+          seed={composerSeed ?? undefined}
+          suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
+          above={
+            childSessions.length > 0 ? (
+              <ChildSessionActivity
+                sessions={childSessions}
+                activityOf={activityOf}
+                onOpen={onOpenSession}
+              />
+            ) : null
+          }
+          leading={
+            <>
+              <ModelSelector
+                driverKind={defaults.driverKind}
+                modelId={defaults.modelId}
+                onChange={changeModel}
+                lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
+              />
+              <EffortChip
+                driverKind={defaults.driverKind}
+                effort={defaults.effort}
+                onChange={changeEffort}
+              />
+              <PermissionModeChip
+                driverKind={defaults.driverKind}
+                mode={defaults.permissionMode}
+                onChange={changePermissionMode}
+              />
+            </>
+          }
+        />
       </div>
       {pendingPlan !== null ? (
         <PlanReviewRail
@@ -954,12 +979,15 @@ export function EffortChip({
       setLoaded(true)
     }
     const load = (): void => {
-      void rpc.invoke('providers.models').then(apply).catch(() => {
-        if (!cancelled) {
-          setOptions([])
-          setLoaded(true)
-        }
-      })
+      void rpc
+        .invoke('providers.models')
+        .then(apply)
+        .catch(() => {
+          if (!cancelled) {
+            setOptions([])
+            setLoaded(true)
+          }
+        })
     }
     load()
     const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
@@ -998,7 +1026,11 @@ export function EffortChip({
         className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span>{current.label}</span>
-        <ChevronDown size={11} aria-hidden className={`text-fg-subtle ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={11}
+          aria-hidden
+          className={`text-fg-subtle ${open ? 'rotate-180' : ''}`}
+        />
       </button>
       {open ? (
         <>
@@ -1110,9 +1142,12 @@ export function PermissionModeChip({
       setDiscovered(rows.find((r) => r.kind === driverKind)?.modes ?? [])
     }
     const load = (): void => {
-      void rpc.invoke('providers.models').then(apply).catch(() => {
-        if (!cancelled) setDiscovered([])
-      })
+      void rpc
+        .invoke('providers.models')
+        .then(apply)
+        .catch(() => {
+          if (!cancelled) setDiscovered([])
+        })
     }
     load()
     const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {

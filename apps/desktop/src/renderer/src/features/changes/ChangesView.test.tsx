@@ -20,6 +20,7 @@ describe('ChangesView', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
+      if (method === 'session.workspace') return { path: 'C:\\worktrees\\child' }
       if (method === 'project.list')
         return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
       if (method === 'git.status') return { isRepo: true, branch: 'main', files: [] }
@@ -50,11 +51,11 @@ describe('ChangesView', () => {
     expect(invokeMock).not.toHaveBeenCalledWith('session.load', expect.anything())
   })
 
-  it('keeps asking for the first registered project worktree', async () => {
+  it('reviews the selected child worktree instead of the project checkout', async () => {
     render(<ToastProvider><ChangesView sessionId="sess_1" projectId="proj_1" /></ToastProvider>)
 
     await screen.findByRole('button', { name: 'Revert turn t1' })
-    expect(invokeMock).toHaveBeenCalledWith('git.status', { path: 'C:\\repos\\demo' })
+    expect(invokeMock).toHaveBeenCalledWith('git.status', { path: 'C:\\worktrees\\child' })
   })
 
   it('changed-file chips drag as mention sources with their repo-relative path', async () => {

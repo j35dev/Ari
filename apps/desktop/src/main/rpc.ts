@@ -10,8 +10,16 @@ import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS } from './ipc-methods'
 import { Engine } from './engine'
+import { descendantIds } from './subtree-ids'
+import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
-import { commit as gitCommit, performGitAction, push as gitPush, stage as gitStage } from './git-actions'
+import { ProjectFileIndex } from './file-index'
+import {
+  commit as gitCommit,
+  performGitAction,
+  push as gitPush,
+  stage as gitStage,
+} from './git-actions'
 import { writeTextFile } from './fs-write'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
@@ -69,11 +77,7 @@ import {
   toLoginMethods,
 } from './provider-auth'
 import type { AuthProbeConnection, AuthProbeDeps } from './provider-auth'
-import {
-  listProviderConfigFiles,
-  readProviderConfig,
-  writeProviderConfig,
-} from './provider-config'
+import { listProviderConfigFiles, readProviderConfig, writeProviderConfig } from './provider-config'
 import { importPiSessionCandidate, listImportableSessions } from './session-import'
 import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
@@ -105,7 +109,9 @@ function acpProbeKinds(): DriverKind[] {
  * model list (session config options, category `model`) — models fetched
  * from the provider itself instead of a bundled list (M16).
  */
-async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.models'][number]['models'] | null> {
+async function probeAcpModels(
+  kind: DriverKind,
+): Promise<RpcResults['providers.models'][number]['models'] | null> {
   const { detectDriver } = await import('@ari/providers/detector')
   const detection = await detectDriver(kind)
   if (!detection.binaryPath) return null
@@ -121,7 +127,9 @@ async function probeAcpModels(kind: DriverKind): Promise<RpcResults['providers.m
   })
   try {
     const created = await connection.newSession(homedir())
-    const modelOption = (created.configOptions ?? []).find((o) => o.category === 'model' && o.type === 'select')
+    const modelOption = (created.configOptions ?? []).find(
+      (o) => o.category === 'model' && o.type === 'select',
+    )
     const models = (modelOption?.options ?? [])
       .filter((v) => typeof v.value === 'string' && v.value.length > 0)
       .map((v) => ({
@@ -248,7 +256,9 @@ function publishDetections(detections: RpcResults['providers.detect']): void {
   } satisfies ProvidersUpdateFrame)
 }
 
-function startEnrichment(detections: RpcResults['providers.detect']): Promise<RpcResults['providers.detect']> {
+function startEnrichment(
+  detections: RpcResults['providers.detect'],
+): Promise<RpcResults['providers.detect']> {
   const generation = ++enrichGeneration
   const promise = updateChecker
     .enrich(detections as Detection[])
@@ -315,7 +325,10 @@ let driverRegistryRef: DriverRegistry | null = null
  * turn can offer the agent's own sign-in instead of only reporting failure.
  * The wall outranks any cached preflight verdict.
  */
-function publishAuthWall(kind: DriverKind, wall: { label: string; logins: AcpTerminalLogin[] }): void {
+function publishAuthWall(
+  kind: DriverKind,
+  wall: { label: string; logins: AcpTerminalLogin[] },
+): void {
   providerAuth.recordWall(kind, wall.label, wall.logins)
   log.info('provider needs a login', { kind, logins: wall.logins.map((l) => l.methodId) })
   rpcRegistryRef?.publish('providers.updates', {
@@ -344,32 +357,31 @@ function hydrateDrivers(registry: DriverRegistry): void {
     { kind: 'pi', make: (bin) => new PiDriver(bin) },
     { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
   ]
-  void resolveDetectionEnvironment()
-    .then((env) =>
-      Promise.all(
-        candidates.map(async (candidate) => {
-          try {
-            const detection = await detectDriver(candidate.kind, env)
-            if (!detection.binaryPath) return
-            const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
-              cliBinaryPath: detection.binaryPath,
-            })
-            registry.register(
-              new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath), (wall) =>
-                publishAuthWall(candidate.kind, wall),
-              ),
-            )
-            log.info('driver registered', {
-              kind: candidate.kind,
-              version: detection.version,
-              transport: launch === null ? 'cli' : 'acp+fallback',
-            })
-          } catch (error) {
-            log.error('driver detection failed', { kind: candidate.kind, error: String(error) })
-          }
-        }),
-      ),
-    )
+  void resolveDetectionEnvironment().then((env) =>
+    Promise.all(
+      candidates.map(async (candidate) => {
+        try {
+          const detection = await detectDriver(candidate.kind, env)
+          if (!detection.binaryPath) return
+          const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
+            cliBinaryPath: detection.binaryPath,
+          })
+          registry.register(
+            new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath), (wall) =>
+              publishAuthWall(candidate.kind, wall),
+            ),
+          )
+          log.info('driver registered', {
+            kind: candidate.kind,
+            version: detection.version,
+            transport: launch === null ? 'cli' : 'acp+fallback',
+          })
+        } catch (error) {
+          log.error('driver detection failed', { kind: candidate.kind, error: String(error) })
+        }
+      }),
+    ),
+  )
 }
 
 /**
@@ -480,6 +492,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // refs cross IPC and journals, so history replay never replays megabytes.
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
 
+  let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
@@ -493,6 +506,51 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return getProjectStore().get(projectId)?.path ?? null
     },
     resolveAttachmentPath: (id) => attachmentStore.pathFor(id),
+    runtimeEnvironment: async (session) => (await controlReady).environment(session),
+    respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
+    authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+  })
+  const controlReady = Promise.all([resolveDetectionEnvironment(), getSettingsStore().load()]).then(
+    async ([environment]) => {
+      runtime = await startAgentRuntime({
+        userData: app.getPath('userData'),
+        cliPath: app.isPackaged
+          ? join(process.resourcesPath, 'agent-cli', 'ari.cjs')
+          : join(app.getAppPath(), 'resources', 'cli', 'ari.cjs'),
+        executable: process.execPath,
+        version: app.getVersion(),
+        engine,
+        store: getSessionStore(),
+        baseEnv: processEnvWithPath(environment.pathEnv),
+        policy: () => getSettingsStore().current.delegation,
+        providers: async () => {
+          const detections = await probeAllDetections()
+          const endpoints = await getEndpointStore().load()
+          return ALL_PROVIDER_KINDS.map((kind) => ({
+            driverKind: kind,
+            available:
+              driverRegistry.get(kind) !== null &&
+              (kind === 'ari-core'
+                ? endpoints.length > 0
+                : detections.some((d) => d.kind === kind && d.binaryPath !== null)),
+            models:
+              kind === 'ari-core'
+                ? endpoints.flatMap((endpoint) =>
+                    endpoint.models.map((model) => ({
+                      id: `ep:${endpoint.id}:${model.id}`,
+                      label: `${endpoint.name} / ${model.label}`,
+                    })),
+                  )
+                : modelsFor(kind).map((model) => ({ id: model.id, label: model.label })),
+          }))
+        },
+      })
+      return runtime
+    },
+  )
+  void controlReady.catch(() => log.error('Agent control runtime failed to start'))
+  app.once('before-quit', () => {
+    void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
 
   const ptyFactory: PtyFactory = (file, args, options) => {
@@ -556,22 +614,18 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.list', async () => getSessionStore().listSessions())
 
   r.register('session.create', async (params) => {
-    const store = getSessionStore()
     const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-    await store.append(sessionId, {
-      type: 'session.created',
-      session: {
-        id: sessionId,
-        projectId: params.projectId,
-        title: params.title,
-        driverKind: params.driverKind,
-        modelId: params.modelId,
-        permissionMode: params.permissionMode,
-        ...(params.effort !== undefined ? { effort: params.effort } : {}),
-        status: 'idle',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
+    await engine.createSession({
+      id: sessionId,
+      projectId: params.projectId,
+      title: params.title,
+      driverKind: params.driverKind,
+      modelId: params.modelId,
+      permissionMode: params.permissionMode,
+      ...(params.effort !== undefined ? { effort: params.effort } : {}),
+      status: 'idle',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     })
     return { sessionId }
   })
@@ -581,8 +635,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return model.session ? model : null
   })
 
+  r.register('session.workspace', async ({ sessionId }) => {
+    const { session } = await getSessionStore().load(sessionId)
+    return { path: session ? await engine.workspace(session) : null }
+  })
+
   r.register('session.destroy', async (params) => {
-    await getSessionStore().destroy(params.sessionId)
+    const store = getSessionStore()
+    const ids = [...descendantIds(await store.listSessions(), params.sessionId), params.sessionId]
+    for (const id of ids) {
+      const model = await store.load(id)
+      if (model.activeTurnId || engine.hasLiveTurn(id)) {
+        await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
+        await engine.quiesce(id)
+      }
+      await store.destroy(id)
+      runtime?.revoke(id)
+    }
     return { destroyed: true }
   })
 
@@ -611,7 +680,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const allowanceReader = new ProviderAllowanceReader()
   r.register('providers.allowance', async ({ kind }) => {
     const detections = await probeAllDetections()
-    return allowanceReader.read(kind, detections.find((row) => row.kind === kind)?.binaryPath ?? null)
+    return allowanceReader.read(
+      kind,
+      detections.find((row) => row.kind === kind)?.binaryPath ?? null,
+    )
   })
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.
@@ -622,7 +694,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const CCUSAGE_CACHE_TTL_MS = 10 * 60 * 1000
   r.register('usage.ccusage', (params) => {
     const sub = params.subcommand ?? 'daily'
-    if (sub === 'daily' && ccusageCache !== null && Date.now() - ccusageCache.at < CCUSAGE_CACHE_TTL_MS) {
+    if (
+      sub === 'daily' &&
+      ccusageCache !== null &&
+      Date.now() - ccusageCache.at < CCUSAGE_CACHE_TTL_MS
+    ) {
       return Promise.resolve(ccusageCache.result)
     }
     return new Promise<RpcResults['usage.ccusage']>((resolvePromise) => {
@@ -637,14 +713,45 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         { timeoutMs: 90_000, outputTailBytes: 64 * 1024 },
       )
       void handle.done.then(() => {
-        const result: RpcResults['usage.ccusage'] = { ok: failure === null, output: chunks.join('\n'), error: failure }
+        const result: RpcResults['usage.ccusage'] = {
+          ok: failure === null,
+          output: chunks.join('\n'),
+          error: failure,
+        }
         if (sub === 'daily' && result.ok) ccusageCache = { at: Date.now(), result }
         resolvePromise(result)
       })
     })
   })
 
-  r.register('command.dispatch', async (params) => engine.dispatch(params.command))
+  r.register('command.dispatch', async (params) => {
+    const command = params.command
+    const result = await engine.dispatch(command)
+    if (result.accepted && command.type === 'session.update' && command.archived !== undefined) {
+      const sessions = await getSessionStore().listSessions()
+      const parents = new Set([command.sessionId])
+      let found = true
+      while (found) {
+        found = false
+        for (const child of sessions) {
+          if (
+            !parents.has(child.id) &&
+            child.parentSessionId &&
+            parents.has(child.parentSessionId)
+          ) {
+            parents.add(child.id)
+            found = true
+            await engine.dispatch({
+              type: 'session.update',
+              sessionId: child.id,
+              archived: command.archived,
+            })
+          }
+        }
+      }
+    }
+    return result
+  })
 
   r.register('attachments.stage', async (params) => ({
     attachments: await attachmentStore.stage(params.files),
@@ -685,25 +792,29 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     let exitCode: number | null = null
     let failure: string | null = null
 
-    const handle = runInstall(argv, (event) => {
-      if (event.type === 'progress') {
-        publish({
-          type: 'install.progress',
-          kind: params.kind,
-          stream: event.line.stream,
-          text: event.line.text,
-        })
-        return
-      }
-      if (event.type === 'exit') {
-        truncated = event.truncated
-        exitCode = event.code
-        if (event.timedOut) failure = 'Timed out after 5 minutes.'
-        else if (event.code !== 0) failure = `Exited with code ${String(event.code)}.`
-        return
-      }
-      if (event.type === 'failed') failure = event.reason
-    }, { env: processEnvWithPath(detectEnv.pathEnv) })
+    const handle = runInstall(
+      argv,
+      (event) => {
+        if (event.type === 'progress') {
+          publish({
+            type: 'install.progress',
+            kind: params.kind,
+            stream: event.line.stream,
+            text: event.line.text,
+          })
+          return
+        }
+        if (event.type === 'exit') {
+          truncated = event.truncated
+          exitCode = event.code
+          if (event.timedOut) failure = 'Timed out after 5 minutes.'
+          else if (event.code !== 0) failure = `Exited with code ${String(event.code)}.`
+          return
+        }
+        if (event.type === 'failed') failure = event.reason
+      },
+      { env: processEnvWithPath(detectEnv.pathEnv) },
+    )
     installsInFlight.set(params.kind, handle)
     publish({ type: 'install.started', kind: params.kind, operation: params.operation })
 
@@ -889,7 +1000,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const options: Electron.OpenDialogOptions = { properties: ['openDirectory'] }
     if (params?.defaultPath) options.defaultPath = params.defaultPath
     const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
-    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options)
     // Cancel must be a clean no-op, not an error the renderer has to catch.
     if (result.canceled) return { path: null }
     return { path: result.filePaths[0] ?? null }
@@ -920,6 +1033,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('files.index', async (params) => {
+    if (params.sessionId) {
+      const { session } = await getSessionStore().load(params.sessionId)
+      const workspace = session ? await engine.workspace(session) : null
+      if (!workspace) return { paths: [] }
+      const index = new ProjectFileIndex(workspace)
+      await index.init()
+      return { paths: index.paths() }
+    }
+    if (!params.projectId) throw new Error('Project or session is required')
     await getProjectStore().load()
     const project = getProjectStore().get(params.projectId)
     if (!project) throw new Error(`unknown project: ${params.projectId}`)
@@ -1059,7 +1181,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         ok: true,
         latencyMs,
         message:
-          response.status === 200 ? 'connected' : `reachable (HTTP ${response.status} ${response.statusText})`,
+          response.status === 200
+            ? 'connected'
+            : `reachable (HTTP ${response.status} ${response.statusText})`,
       }
     } catch (error) {
       const latencyMs = Date.now() - startedAt
@@ -1138,7 +1262,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       if (dirent.isDirectory()) {
         listed.push({ name: dirent.name, type: 'dir', size: 0 })
       } else if (dirent.isFile()) {
-        const size = await stat(join(params.path, dirent.name)).then((s) => s.size, () => 0)
+        const size = await stat(join(params.path, dirent.name)).then(
+          (s) => s.size,
+          () => 0,
+        )
         listed.push({ name: dirent.name, type: 'file', size })
       }
     }
@@ -1172,7 +1299,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // Writes are jailed harder than reads: the target must canonicalize
     // (symlinks included) inside a registered project folder.
     await getProjectStore().load()
-    const roots = getProjectStore().list().map((p) => p.path)
+    const roots = getProjectStore()
+      .list()
+      .map((p) => p.path)
+    for (const summary of await getSessionStore().listSessions()) {
+      if (summary.workspaceKind !== 'managed-worktree') continue
+      const { session } = await getSessionStore().load(summary.id)
+      const path = session ? await engine.workspace(session) : null
+      if (path) roots.push(path)
+    }
     const bytesWritten = await writeTextFile(params, roots)
     return { bytesWritten }
   })
@@ -1194,7 +1329,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         if (
           typeof record?.text === 'string' &&
           record.text.length > 0 &&
-          (record.status === 'pending' || record.status === 'in_progress' || record.status === 'done')
+          (record.status === 'pending' ||
+            record.status === 'in_progress' ||
+            record.status === 'done')
         ) {
           items.push({ text: record.text, status: record.status })
         }
@@ -1226,11 +1363,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           .replaySession(sessionId)
           .then((events) => {
             for (const event of events) {
-              rpcRegistry.publish('session.events', { sessionId, event, replay: true } satisfies SessionEventFrame)
+              rpcRegistry.publish('session.events', {
+                sessionId,
+                event,
+                replay: true,
+              } satisfies SessionEventFrame)
             }
-            rpcRegistry.publish('session.events', { sessionId, replayDone: true } satisfies SessionEventFrame)
+            rpcRegistry.publish('session.events', {
+              sessionId,
+              replayDone: true,
+            } satisfies SessionEventFrame)
           })
-          .catch((error: unknown) => log.warn('journal replay failed', { sessionId, error: String(error) }))
+          .catch((error: unknown) =>
+            log.warn('journal replay failed', { sessionId, error: String(error) }),
+          )
       }
     }
     if (params.name === 'terminal.data') {

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type WheelEvent,
+} from 'react'
 import { Check, Copy, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { pinnedAfterScroll } from './transcript-pin'
@@ -72,9 +80,11 @@ export function TranscriptView({
   header,
   onDiffComment,
   working,
+  activity,
 }: {
   sessionId: string
   messages: Message[]
+  activity?: React.ReactNode
   loading?: boolean
   /** Settled turns' unified diffs (turnId → diffText); cards render inline. */
   turnDiffs?: Readonly<Record<string, string>>
@@ -93,14 +103,15 @@ export function TranscriptView({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
+  const origins = useMemo(
+    () => new Map(messages.map((message) => [message.id, message.origin])),
+    [messages],
+  )
   const lastScrollTopRef = useRef<number | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const atBottomRef = useRef(true)
 
-  const rows = useMemo(
-    () => groupBlocks(splitBlocks(messages), turnDiffs),
-    [messages, turnDiffs],
-  )
+  const rows = useMemo(() => groupBlocks(splitBlocks(messages), turnDiffs), [messages, turnDiffs])
 
   // Message rail (T3 minimap): one entry per user bubble row, with its row
   // index for jump-scrolling. Image-only prompts have no markdown row, so
@@ -111,8 +122,7 @@ export function TranscriptView({
       rows
         .map((row, index) => ({ row, index }))
         .filter(
-          ({ row }) =>
-            (row.kind === 'markdown' || row.kind === 'image') && row.role === 'user',
+          ({ row }) => (row.kind === 'markdown' || row.kind === 'image') && row.role === 'user',
         )
         .map(({ row, index }) => ({ key: String(index), text: railText(row) })),
     [rows],
@@ -215,6 +225,7 @@ export function TranscriptView({
             <TranscriptRowView
               key={row.key}
               row={row}
+              origin={'messageId' in row && row.messageId ? origins.get(row.messageId) : undefined}
               index={index}
               lastAssistantMessageId={lastAssistantMessageId}
               onEditUserMessage={onEditUserMessage}
@@ -225,6 +236,7 @@ export function TranscriptView({
           ))}
         </div>
 
+        {activity}
         {loading && rows.length === 0 ? (
           <div className="mx-auto flex max-w-3xl flex-col gap-4" aria-hidden="true">
             {LOADING_ROW_WIDTHS.map((width) => (
@@ -270,6 +282,7 @@ export function TranscriptView({
 
 function TranscriptRowView({
   row,
+  origin,
   index,
   lastAssistantMessageId,
   onEditUserMessage,
@@ -278,6 +291,7 @@ function TranscriptRowView({
   onDiffComment,
 }: {
   row: TranscriptRow
+  origin?: Message['origin']
   index: number
   lastAssistantMessageId: string | null
   onEditUserMessage?: (text: string) => void
@@ -301,7 +315,17 @@ function TranscriptRowView({
         <UserImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (
         row.role === 'user' ? (
-          <UserBubble text={row.text ?? ''} onEdit={onEditUserMessage} />
+          <div>
+            {origin?.kind === 'session' ? (
+              <p className="text-right font-mono text-2xs text-fg-subtle">
+                From session {origin.sessionId}
+              </p>
+            ) : null}
+            <UserBubble
+              text={row.text ?? ''}
+              onEdit={origin?.kind === 'session' ? undefined : onEditUserMessage}
+            />
+          </div>
         ) : (
           <div>
             <MarkdownBlock text={row.text ?? ''} />
@@ -316,7 +340,9 @@ function TranscriptRowView({
                   createdAt: row.messageCreatedAt ?? Date.now(),
                 }}
                 onRegenerate={
-                  onRegenerate && row.messageId === lastAssistantMessageId ? onRegenerate : undefined
+                  onRegenerate && row.messageId === lastAssistantMessageId
+                    ? onRegenerate
+                    : undefined
                 }
                 actionDisabled={regenerateDisabled}
               />
@@ -356,11 +382,7 @@ function UserImageRow({ images, right }: { images: TranscriptImage[]; right: boo
   if (images.length === 0) return null
   return (
     <div className={`my-2 flex ${right ? 'justify-end' : 'justify-start'}`}>
-      <div
-        role="list"
-        aria-label="Attached images"
-        className="flex max-w-[85%] flex-wrap gap-2"
-      >
+      <div role="list" aria-label="Attached images" className="flex max-w-[85%] flex-wrap gap-2">
         {images.map((image) => {
           const url = urls[image.attachmentId]
           return (
