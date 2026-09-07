@@ -39,6 +39,8 @@ export interface ControlHost {
   diff(child: Session, patch: boolean): Promise<unknown>
   integrate(parent: Session, child: Session, snapshot: string): Promise<unknown>
   approve(root: Session): Promise<boolean>
+  quiesce?(id: string): Promise<void>
+  revoke?(id: string): void
 }
 
 /** Scoped control primitives shared by the desktop host, local CLI and deterministic tests. */
@@ -266,6 +268,29 @@ export class AgentControlService {
           })
         return { sessionId: target.id, stopped: state.activeTurnId !== null }
       }
+      case 'session.destroy': {
+        const target = await this.#target(
+          caller,
+          (raw as ControlParams<'session.destroy'>).targetSessionId,
+        )
+        if (target.id === caller.id)
+          throw new ControlFailure('scope_denied', 'A session cannot destroy itself.')
+        const ids = [...descendantIds(await this.host.store.listSessions(), target.id), target.id]
+        for (const id of ids) {
+          const state = await this.host.store.load(id)
+          if (state.activeTurnId || this.host.isRunning?.(id)) {
+            await this.host.dispatch({ type: 'turn.interrupt', sessionId: id })
+            await this.host.quiesce?.(id)
+          }
+          await this.host.store.destroy(id)
+          this.host.revoke?.(id)
+        }
+        await this.host.record(caller.id, {
+          type: 'child.session.stopped',
+          childSessionId: target.id,
+        })
+        return { sessionId: target.id, destroyed: true, count: ids.length }
+      }
       case 'session.diff':
       case 'session.integrate': {
         const p = raw as ControlParams<'session.integrate'> & ControlParams<'session.diff'>
@@ -465,4 +490,27 @@ export class AgentControlService {
       truncated: remaining === 0 || selected.length < state.messages.length,
     }
   }
+}
+
+function descendantIds(
+  sessions: readonly { id: string; parentSessionId?: string | null }[],
+  rootId: string,
+): string[] {
+  const children = new Map<string, string[]>()
+  for (const session of sessions) {
+    const parent = session.parentSessionId
+    if (!parent) continue
+    const nested = children.get(parent) ?? []
+    nested.push(session.id)
+    children.set(parent, nested)
+  }
+  const ids: string[] = []
+  const visit = (id: string): void => {
+    for (const child of children.get(id) ?? []) {
+      visit(child)
+      ids.push(child)
+    }
+  }
+  visit(rootId)
+  return ids
 }

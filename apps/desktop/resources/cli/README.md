@@ -14,8 +14,8 @@ more permission than its parent. Siblings and unrelated roots are outside its
 control scope; a child can send an attributed message to its direct parent.
 
 Children are ordinary persisted sessions. Archive/unarchive applies to a subtree.
-Deleting a parent with children or a session with a live provider is refused.
-Deleting a leaf retains its worktree and hidden Git refs for manual recovery.
+Deleting a parent (UI or `ari session destroy`) stops live turns and removes the
+whole subtree. `session stop` keeps the child for follow-up; destroy removes it.
 Nothing is automatically merged, committed, pushed or removed from Git.
 
 ## Snapshots and integration
