@@ -6,8 +6,8 @@ This file governs every agent (human or AI) working on Ari. It is binding.
 
 Ari is a cross-platform (Win/mac/Linux) Electron + React + TypeScript desktop ADE that
 drives locally-installed coding agents through their native JSON protocols, plus a built-in
-harness for custom endpoints. Read `PLAN.md` for the full architecture before your first
-task.
+harness for custom endpoints. Read `PLAN.md` (local-only) for the full architecture
+before your first task.
 
 ## Golden rules
 
@@ -26,11 +26,12 @@ task.
 
 ## Resume ritual (start of every session)
 
-1. Read `PROGRESS.md`. Find the first unticked task assigned to you (or unassigned if you
-   are picking freely).
-2. Read that task's spec section in `PLAN.md`.
+1. Read `PROGRESS.md` (local-only, gitignored). Find the first unticked task assigned to
+   you (or unassigned if you are picking freely).
+2. Read that task's spec section in `PLAN.md` (local-only, gitignored).
 3. `git fetch origin && git rebase origin/main` on your branch.
-4. Work the task. Tick the box in `PROGRESS.md` **in the same commit** as the work.
+4. Work the task. Tick the box in `PROGRESS.md` locally — it is gitignored and never
+   committed.
 
 ## Task workflow
 
@@ -54,13 +55,13 @@ gh pr create --fill                                    # small PR, self-review f
 - [ ] `pnpm verify` green (typecheck + lint + tests)
 - [ ] Feature runs via `pnpm dev` (or unit-proven where UI can't run headless)
 - [ ] Tests added/updated for all new logic paths
-- [ ] `PROGRESS.md` checkbox ticked in the same commit
-- [ ] If architecture shifted: note added to `docs/arch-<milestone>.md`
+- [ ] `PROGRESS.md` checkbox ticked locally (gitignored, not committed)
+- [ ] If architecture shifted: note added to `docs/arch-<milestone>.md` (local-only, gitignored)
 
 ## Blocked protocol
 
 After **two** failed attempts at an approach: stop. Record in `PROGRESS.md › Blockers`
-(task id, what you tried, error essence), open a draft PR with `[blocked]` prefix
+(local-only, gitignored) (task id, what you tried, error essence), open a draft PR with `[blocked]` prefix
 describing the state, pick the next independent task. Never leave `main` broken and never
 force-push shared branches.
 
@@ -90,8 +91,9 @@ pnpm format        # prettier write
 
 ## Fleet notes (orchestrator-managed workers)
 
-- Claim a task by writing `(claimed @ <branch>)` next to its line in PROGRESS.md before
-  starting; remove when merged.
+- Claim a task by writing `(claimed @ <branch>)` next to its line in the local
+  PROGRESS.md (gitignored, so claims are invisible to other workers — the orchestrator
+  confirms ownership at PR review) before starting; remove when merged.
 - Workers must not merge their own PRs. Orchestrator reviews and merges.
 - If two tasks touch the same directory, they are dependent by definition — take one, not
   both.
@@ -109,5 +111,5 @@ pristine:
 4. Re-run `pnpm verify` on `main` after every merge batch.
 
 Workers never perform these steps themselves and never force-push; only the orchestrator
-rebases PR branches to resolve shared-file conflicts (PROGRESS.md, package.json exports,
+rebases PR branches to resolve shared-file conflicts (package.json exports,
 styles/index.css).
