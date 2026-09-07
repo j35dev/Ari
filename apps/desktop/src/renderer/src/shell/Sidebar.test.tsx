@@ -65,6 +65,20 @@ function renderSidebar(
 }
 
 describe('formatRelativeTime', () => {
+  it('keeps children nested, collapsible and discoverable with ancestor search context', async () => {
+    const user = userEvent.setup()
+    renderSidebar([
+      { ...session('tree-child', 0), parentSessionId: 'tree-root' },
+      session('tree-root', 2),
+    ])
+    const toggle = screen.getByRole('button', { name: /children of Session tree-root/i })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.queryByText(/child sessions/i)).not.toBeInTheDocument()
+    await user.click(toggle)
+    expect(screen.queryByText('Session tree-child')).not.toBeInTheDocument()
+    await user.click(toggle)
+    expect(screen.getByText('Session tree-child')).toBeInTheDocument()
+  })
   it('compacts recency into now/m/h/d/date buckets', () => {
     const now = Date.now()
     expect(formatRelativeTime(now - 30_000, now)).toBe('now')
@@ -112,9 +126,7 @@ describe('SessionsUnderProjects', () => {
     renderSidebar([session('a', 1, 'proj-1'), session('loose', 1)])
 
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(
-      ari.querySelector('svg.lucide-folder, svg.lucide-folder-open'),
-    ).not.toBeNull()
+    expect(ari.querySelector('svg.lucide-folder, svg.lucide-folder-open')).not.toBeNull()
     const unfiled = screen.getByRole('region', { name: 'Unfiled' })
     expect(unfiled.querySelector('svg.lucide-inbox')).not.toBeNull()
   })
@@ -257,17 +269,19 @@ describe('SessionsUnderProjects', () => {
 
     // Ari is the top project: Move up is refused, Move down reports +1.
     const ariMenu = await openMenu('Ari')
-    expect(
-      within(ariMenu).getByRole('menuitem', { name: /^Move up/ }),
-    ).toHaveAttribute('aria-disabled', 'true')
+    expect(within(ariMenu).getByRole('menuitem', { name: /^Move up/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
     await user.click(within(await openMenu('Ari')).getByRole('menuitem', { name: 'Move down' }))
     expect(onMoveProject).toHaveBeenCalledWith('proj-1', 1)
 
     // Sketch is last: Move down is refused, Move up reports -1.
     const sketchMenu = await openMenu('Sketch')
-    expect(
-      within(sketchMenu).getByRole('menuitem', { name: /^Move down/ }),
-    ).toHaveAttribute('aria-disabled', 'true')
+    expect(within(sketchMenu).getByRole('menuitem', { name: /^Move down/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
     await user.click(within(await openMenu('Sketch')).getByRole('menuitem', { name: 'Move up' }))
     expect(onMoveProject).toHaveBeenCalledWith('proj-2', -1)
   })
