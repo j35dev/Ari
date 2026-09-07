@@ -54,6 +54,7 @@ export const controlParams = {
     .object({ targetSessionIds: z.array(target).min(1).max(100), timeoutMs: timeout })
     .strict(),
   'session.stop': z.object({ targetSessionId: target, idempotencyKey: key }).strict(),
+  'session.destroy': z.object({ targetSessionId: target, idempotencyKey: key }).strict(),
   'session.diff': z.object({ targetSessionId: target, patch: z.boolean().default(false) }).strict(),
   'session.integrate': z
     .object({

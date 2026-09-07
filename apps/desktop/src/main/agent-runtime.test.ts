@@ -157,12 +157,17 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     expect(parentJournal.some((event) => event.type === 'child.session.spawned')).toBe(true)
     expect(parentJournal.some((event) => event.type === 'child.session.integrated')).toBe(true)
     expect(JSON.stringify(parentJournal)).not.toContain(env.ARI_CONTROL_TOKEN)
-    const replay = new SessionStore({ rootDir: join(dir, 'sessions') })
-    expect((await replay.load(child.id)).session?.workspace).toEqual(child.workspace)
-    expect((await replay.load(child.id)).messages[0]?.origin).toEqual({
+    expect((await store.load(child.id)).messages[0]?.origin).toEqual({
       kind: 'session',
       sessionId: 'root',
     })
+    expect(await cli('session', 'destroy', child.id, '--key', 'done')).toMatchObject({
+      ok: true,
+      result: { destroyed: true },
+    })
+    expect((await store.listSessions()).map((session) => session.id)).toEqual(['root'])
+    const replay = new SessionStore({ rootDir: join(dir, 'sessions') })
+    expect((await replay.load(child.id)).session).toBeNull()
   } finally {
     await runtime.close()
     for (const session of await store.listSessions()) {

@@ -111,6 +111,11 @@ function parse(argv) {
       case 'stop':
         params = { targetSessionId: target, idempotencyKey: key }
         break
+      case 'destroy':
+      case 'delete':
+        method = 'session.destroy'
+        params = { targetSessionId: target, idempotencyKey: key }
+        break
       case 'diff':
         params = { targetSessionId: target, patch: Boolean(flags.patch) }
         break

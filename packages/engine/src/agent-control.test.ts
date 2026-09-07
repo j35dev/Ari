@@ -210,3 +210,40 @@ it('waits for a captured child set and cancels on disconnect', async () => {
   controller.abort()
   expect(await cancelled).toMatchObject({ error: { code: 'wait_cancelled' } })
 })
+
+it('lets a parent destroy a child and refuses self or unrelated sessions', async () => {
+  await service.invoke('root', 'session.spawn', spawn)
+  const child = (await store.listSessions()).find((s) => s.parentSessionId === 'root')!
+  await host.create({
+    ...root,
+    id: 'grand',
+    parentSessionId: child.id,
+    rootSessionId: 'root',
+  })
+  expect(
+    await service.invoke('root', 'session.destroy', {
+      targetSessionId: 'self',
+      idempotencyKey: 'me',
+    }),
+  ).toMatchObject({ error: { code: 'scope_denied' } })
+  await host.create({ ...root, id: 'other' })
+  expect(
+    await service.invoke('root', 'session.destroy', {
+      targetSessionId: 'other',
+      idempotencyKey: 'foreign',
+    }),
+  ).toMatchObject({ error: { code: 'scope_denied' } })
+  expect(
+    await service.invoke('root', 'session.destroy', {
+      targetSessionId: child.id,
+      idempotencyKey: 'done',
+    }),
+  ).toMatchObject({ ok: true, result: { destroyed: true, count: 2 } })
+  expect((await store.listSessions()).map((s) => s.id).sort()).toEqual(['other', 'root'])
+  expect(
+    await service.invoke('root', 'session.destroy', {
+      targetSessionId: child.id,
+      idempotencyKey: 'done',
+    }),
+  ).toMatchObject({ ok: true, result: { destroyed: true, count: 2 } })
+})

@@ -38,12 +38,18 @@ ari session wait --children CHILD_A,CHILD_B --timeout 1800 --json
 ari session message CHILD_ID "Use SettingsStore." --key answer-1 --json
 ari parent message "Which persistence API should I target?" --key question-1 --json
 ari session stop CHILD_ID --key stop-1 --json
+ari session destroy CHILD_ID --key done-1 --json
 ```
 
 Wait through `session wait`, which observes the captured turns; do not sleep/poll.
 A completed turn is not proof the entire task is correct. Read results and inspect
 the diff before integration; request corrections when needed. Ask the parent for
 decisions it can resolve before escalating to the human.
+
+`session stop` interrupts the child's current turn and keeps the session for
+follow-up. `session destroy` removes that child (and any of its descendants)
+from Ari when you are done with it. Do not ask the human to delete workers
+you spawned. You cannot destroy yourself.
 
 ```sh
 ari session diff CHILD_ID --stat --json
@@ -55,7 +61,7 @@ Use the exact `currentSnapshotCommit` returned by diff. Integration is explicit;
 completion never auto-merges. Conflicts return structured file names and leave the
 parent workspace unchanged. Retrying an already integrated snapshot is a no-op.
 Run final tests in the parent workspace after integrating related work. Stop unused
-workers when appropriate; stop preserves their sessions and worktrees.
+workers when you may still need them; destroy them when the work is finished.
 
 JSON errors have stable `error.code` values. Respect scope, concurrency and depth
 limits. Do not work around a denial by extracting another session's credential.
