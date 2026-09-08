@@ -179,22 +179,24 @@ export class Engine {
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
-    let releaseTurn: (() => void) | undefined
+    let releaseTurn: ((persisted: boolean) => void) | undefined
     if (command.type === 'turn.start') {
       const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
-      const gate = new Promise<void>((resolve) => {
+      const gate = new Promise<boolean>((resolve) => {
         releaseTurn = resolve
       })
       const task = previous
         .then(() => gate)
-        .then(() =>
-          this.#runTurn(
-            model.session as Session,
-            attributedInput(command.text, origin),
-            command.attachments ?? [],
-            ids.turnId,
-            model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
-          ),
+        .then((persisted) =>
+          persisted
+            ? this.#runTurn(
+                model.session as Session,
+                attributedInput(command.text, origin),
+                command.attachments ?? [],
+                ids.turnId,
+                model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
+              )
+            : undefined,
         )
         .catch((e) => {
           log.error('turn execution crashed', { error: String(e) })
@@ -211,10 +213,10 @@ export class Engine {
         await this.#append(command.sessionId, event)
       }
     } catch (error) {
-      releaseTurn?.()
+      releaseTurn?.(false)
       throw error
     }
-    releaseTurn?.()
+    releaseTurn?.(true)
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
