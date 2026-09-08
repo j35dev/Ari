@@ -1087,6 +1087,123 @@ describe('Engine durable queue continuation', () => {
     releaseRef.current?.()
   }, 10000)
 
+  it('retries a sibling queue when a live turn releases root capacity', async () => {
+    const started: string[] = []
+    let waitingRuns = 0
+    let busyDisposeEntered = false
+    let enforceCapacity = false
+    let releaseBusyDispose!: () => void
+    let releaseWaitingTurn!: () => void
+    const busyDisposeGate = new Promise<void>((resolve) => {
+      releaseBusyDispose = resolve
+    })
+    const waitingTurnGate = new Promise<void>((resolve) => {
+      releaseWaitingTurn = resolve
+    })
+    const driver: Driver = {
+      kind: 'claude',
+      create: (session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              started.push(session.sessionId)
+              if (session.sessionId === 'sess_waiting' && ++waitingRuns === 1) {
+                yield { type: 'status', status: 'running' as const }
+                await waitingTurnGate
+              }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => {
+            if (session.sessionId !== 'sess_busy') return Promise.resolve()
+            busyDisposeEntered = true
+            return busyDisposeGate
+          },
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(driver)
+    const engine: Engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      authorizeTurn: async (session): Promise<string | null> =>
+        enforceCapacity &&
+        ['sess_busy', 'sess_waiting'].some(
+          (id) => id !== session.id && engine.hasLiveTurn(id),
+        )
+          ? 'Maximum concurrent child sessions reached.'
+          : null,
+    })
+    await seedSession(store, 'sess_root')
+    for (const id of ['sess_busy', 'sess_waiting']) {
+      await store.append(id, {
+        type: 'session.created',
+        session: {
+          id,
+          projectId: 'proj_1',
+          parentSessionId: 'sess_root',
+          rootSessionId: 'sess_root',
+          title: id,
+          driverKind: 'claude',
+          modelId: null,
+          permissionMode: 'ask',
+          status: 'idle',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      })
+    }
+
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_busy',
+      text: 'busy',
+      attachments: [],
+    })
+    for (let i = 0; i < 200; i++) {
+      if (busyDisposeEntered && engine.hasLiveTurn('sess_busy')) break
+      if (i === 199) throw new Error('busy turn did not enter disposal')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_waiting',
+      text: 'first waiting turn',
+      attachments: [],
+    })
+    for (let i = 0; i < 200; i++) {
+      if (waitingRuns === 1) break
+      if (i === 199) throw new Error('waiting turn did not start')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    enforceCapacity = true
+    await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId: 'sess_waiting',
+      text: 'run after capacity frees',
+      attachments: [],
+    })
+    releaseWaitingTurn()
+    await engine.quiesce('sess_waiting')
+    expect(waitingRuns).toBe(1)
+    expect((await store.load('sess_waiting')).queuedMessages).toHaveLength(1)
+
+    releaseBusyDispose()
+    await engine.quiesce('sess_busy')
+    for (let i = 0; i < 300; i++) {
+      const waiting = await store.load('sess_waiting')
+      if (waitingRuns === 2 && waiting.activeTurnId === null) break
+      if (i === 299) throw new Error('waiting queue was not retried')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+
+    expect(started).toEqual(['sess_busy', 'sess_waiting', 'sess_waiting'])
+    expect((await store.load('sess_waiting')).queuedMessages).toEqual([])
+  }, 10000)
+
   it('after a clean settle the engine runs the oldest queued message itself', async () => {
     const startedPrompts: string[] = []
     let runCount = 0
