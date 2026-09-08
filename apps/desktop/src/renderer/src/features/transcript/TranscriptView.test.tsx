@@ -52,9 +52,7 @@ describe('TranscriptView loading state', () => {
 
   it('keeps every row in document flow so long sessions scroll as one page', () => {
     const messages = Array.from({ length: 24 }, (_, i) => message(`m${i}`))
-    const { container } = render(
-      createElement(TranscriptView, { sessionId: 'sess_1', messages }),
-    )
+    const { container } = render(createElement(TranscriptView, { sessionId: 'sess_1', messages }))
     expect(container.querySelectorAll('[data-index]')).toHaveLength(24)
   })
 
@@ -198,7 +196,7 @@ describe('TranscriptView per-turn diff cards', () => {
 })
 
 describe('TranscriptView tool bursts', () => {
-  function toolMessage(id: string): Message {
+  function toolMessage(id: string, settled = true): Message {
     return {
       id,
       sessionId: 'sess_1',
@@ -206,7 +204,11 @@ describe('TranscriptView tool bursts', () => {
       role: 'assistant',
       parts: [
         { type: 'tool-call', callId: 'c1', name: 'Read', argsJson: '{"path":"src/a.ts"}' },
-        { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+        ...(settled
+          ? ([
+              { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+            ] satisfies Message['parts'])
+          : []),
       ],
       createdAt: 1,
     }
@@ -219,6 +221,36 @@ describe('TranscriptView tool bursts', () => {
     const burst = screen.getByRole('button', { name: 'Read a.ts · Read 1 file' })
     await user.click(burst)
     expect(screen.getByText('Ari Read')).toBeInTheDocument()
+  })
+
+  it('opens live work automatically, then compacts it as soon as the result arrives', () => {
+    const { rerender } = render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [toolMessage('m1', false)],
+      }),
+    )
+
+    expect(screen.getByRole('button', { name: /Working: Reading src\/a\.ts/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    expect(screen.getByText('live')).toBeInTheDocument()
+    expect(screen.getByText('Ari Read')).toBeInTheDocument()
+
+    rerender(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [toolMessage('m1')],
+      }),
+    )
+
+    expect(screen.getByRole('button', { name: 'Read a.ts · Read 1 file' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.queryByText('live')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ari Read')).not.toBeInTheDocument()
   })
 
   it('keeps a whole stretch of work in one row instead of a wall of tallies', () => {
@@ -241,5 +273,30 @@ describe('TranscriptView tool bursts', () => {
 
     expect(container.querySelectorAll('.ari-burst')).toHaveLength(1)
     expect(screen.getByRole('button', { name: 'Ran ls · Ran 9 commands' })).toBeInTheDocument()
+  })
+})
+
+describe('TranscriptView failure history', () => {
+  it('keeps raw provider errors collapsed until details are requested', async () => {
+    const user = userEvent.setup()
+    const failed: Message = {
+      id: 'a1',
+      sessionId: 'sess_1',
+      turnId: 'turn_1',
+      role: 'assistant',
+      parts: [{ type: 'text', text: '\n\n⚠ Error: spawn claude ENOENT' }],
+      createdAt: 1,
+    }
+    render(createElement(TranscriptView, { sessionId: 'sess_1', messages: [failed] }))
+
+    const disclosure = screen.getByRole('button', {
+      name: 'Turn failed: Agent could not start',
+    })
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText(/spawn claude ENOENT/)).not.toBeInTheDocument()
+
+    await user.click(disclosure)
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText(/spawn claude ENOENT/)).toBeInTheDocument()
   })
 })
