@@ -160,14 +160,19 @@ export class AgentControlServer {
           fail('invalid_request')
           return
         }
+        const { id, method, params } = request.data
         if (++requests > 1000) {
-          fail('delegation_limit')
-          return
+          send({
+            type: 'response',
+            id,
+            ok: false,
+            error: { code: 'delegation_limit', message: 'Control operation limit reached.' },
+          })
+          continue
         }
         // Failure isolation: every request gets its own accounting and
         // deadline. A hung invoke fails ITSELF with `control_timeout` —
         // never the socket, never its neighbors.
-        const { id, method, params } = request.data
         if (pending >= (this.options.maxInFlightRequests ?? 8)) {
           send({
             type: 'response',

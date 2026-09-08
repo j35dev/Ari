@@ -1,6 +1,6 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { acpAdapterSpec, findNpxCommand, probeLaunch, resolveAcpLaunch } from './launches'
 import type { DetectEnvironment } from '../types'
@@ -12,6 +12,92 @@ const ENV: DetectEnvironment = {
 }
 
 describe('resolveAcpLaunch', () => {
+  it('prefers a packaged Claude adapter without requiring npx', async () => {
+    const runtime = await makeBundledRuntime('claude')
+    const launch = resolveAcpLaunch(
+      'claude',
+      { cliBinaryPath: join(runtime.nodeModulesDir, 'claude'), bundledRuntime: runtime },
+      { ...ENV, pathEnv: '' },
+    )
+    expect(launch).toMatchObject({
+      command: runtime.executable,
+      args: [
+        join(
+          runtime.nodeModulesDir,
+          '@agentclientprotocol',
+          'claude-agent-acp',
+          'dist',
+          'index.js',
+        ),
+      ],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      viaBundled: true,
+    })
+    expect(launch?.viaNpx).toBeUndefined()
+  })
+
+  it('passes the detected Codex CLI path to the packaged Codex adapter', async () => {
+    const runtime = await makeBundledRuntime('codex')
+    const cliBinaryPath = join(runtime.nodeModulesDir, 'CLI with spaces', 'codex.cmd')
+    const launch = resolveAcpLaunch(
+      'codex',
+      { cliBinaryPath, bundledRuntime: runtime },
+      { ...ENV, pathEnv: '' },
+    )
+    expect(launch?.command).toBe(runtime.executable)
+    expect(launch?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', CODEX_PATH: cliBinaryPath })
+    expect(probeLaunch(launch!).args).toEqual(launch?.args)
+    expect(probeLaunch(launch!).env).toEqual(launch?.env)
+  })
+
+  it('propagates both packaged module roots to Electron Node mode', async () => {
+    const runtime = await makeBundledRuntime('claude')
+    const modulePaths = [runtime.nodeModulesDir, join(runtime.nodeModulesDir, 'app.asar', 'node_modules')]
+    const launch = resolveAcpLaunch(
+      'claude',
+      { cliBinaryPath: '/usr/bin/claude', bundledRuntime: { ...runtime, modulePaths } },
+      { ...ENV, pathEnv: '' },
+    )
+    expect(launch?.env).toMatchObject({
+      ELECTRON_RUN_AS_NODE: '1',
+      NODE_PATH: modulePaths.join(delimiter),
+    })
+  })
+
+  it('uses an explicit adapter override through npx even when bundled assets exist', async () => {
+    const runtime = await makeBundledRuntime('claude')
+    const npxPath = await makeFakeNpx()
+    process.env['ARI_ACP_ADAPTER_CLAUDE'] = 'my-fork/claude-acp'
+    try {
+      const launch = resolveAcpLaunch(
+        'claude',
+        { cliBinaryPath: join(runtime.nodeModulesDir, 'claude'), bundledRuntime: runtime },
+        { ...ENV, pathEnv: dirname(npxPath) },
+      )
+      expect(launch?.viaNpx).toBe(true)
+      expect(launch?.command).toBe(npxPath)
+      expect(launch?.args).toEqual(['-y', 'my-fork/claude-acp'])
+    } finally {
+      delete process.env['ARI_ACP_ADAPTER_CLAUDE']
+    }
+  })
+
+  it('reports no ACP launch when the packaged entrypoint is missing and npx is unavailable', () => {
+    expect(
+      resolveAcpLaunch(
+        'claude',
+        {
+          cliBinaryPath: '/usr/bin/claude',
+          bundledRuntime: {
+            executable: '/opt/Ari/Ari',
+            nodeModulesDir: '/opt/Ari/resources/app.asar/node_modules',
+          },
+        },
+        { ...ENV, pathEnv: '' },
+      ),
+    ).toBeNull()
+  })
+
   it('launches npx adapters at a pinned version for kinds that need one', async () => {
     const npxPath = await makeFakeNpx()
     const env: DetectEnvironment = { ...ENV, pathEnv: dirname(npxPath) }
@@ -151,6 +237,20 @@ async function makeFakeNpx(): Promise<string> {
   return path
 }
 
+async function makeBundledRuntime(kind: 'claude' | 'codex') {
+  const root = await mkdtemp(join(tmpdir(), 'ari-acp-runtime-'))
+  const packageName = kind === 'claude' ? 'claude-agent-acp' : 'codex-acp'
+  const entry = join(root, '@agentclientprotocol', packageName, 'dist', 'index.js')
+  await mkdir(dirname(entry), { recursive: true })
+  await writeFile(entry, '// fixture entrypoint\n', 'utf8')
+  return {
+    executable: join(root, 'Electron with spaces.exe'),
+    nodeModulesDir: root,
+  }
+}
+
 afterEach(() => {
   delete process.env['ARI_ACP']
+  delete process.env['ARI_ACP_ADAPTER_CLAUDE']
+  delete process.env['ARI_ACP_ADAPTER_CODEX']
 })

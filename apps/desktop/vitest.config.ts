@@ -5,7 +5,7 @@ export default defineConfig({
     // jsdom for component tests; node-side suites don't touch DOM APIs.
     environment: 'jsdom',
     globals: true,
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'packaging/**/*.test.js'],
     setupFiles: ['./src/test-setup.ts'],
     // Component tests drive real timers and async IPC mocks; under a fully
     // parallel `pnpm verify` the default 5s is not enough on a loaded machine.

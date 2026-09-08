@@ -217,11 +217,21 @@ export class SessionStore {
     if (existing) return existing
     const journal = new Journal<JournalEvent>({ dir: this.#dirFor(sessionId), name: 'journal' })
     await journal.open()
+    try {
+      if ((await journal.ensureTrailingNewline()) > 0) this.#indexCache.delete(sessionId)
+    } catch (error) {
+      await journal.close()
+      throw error
+    }
     this.#journals.set(sessionId, journal)
     return journal
   }
 
   async closeJournal(sessionId: string): Promise<void> {
+    return this.#serial(sessionId, () => this.#closeJournal(sessionId))
+  }
+
+  async #closeJournal(sessionId: string): Promise<void> {
     const journal = this.#journals.get(sessionId)
     if (!journal) return
     await journal.close()
@@ -524,11 +534,22 @@ export class SessionStore {
   }
 
   async destroy(sessionId: string): Promise<void> {
-    await this.closeJournal(sessionId)
+    return this.#serial(sessionId, () => this.#destroy(sessionId))
+  }
+
+  async #destroy(sessionId: string): Promise<void> {
+    await this.#closeJournal(sessionId)
     this.#indexCache.delete(sessionId)
     this.#diagnostics.delete(sessionId)
     this.#quarantined.delete(sessionId)
-    const { rm } = await import('node:fs/promises')
+    const { rm, stat } = await import('node:fs/promises')
+    try {
+      await stat(this.#dirFor(sessionId))
+    } catch {
+      const error = new Error('Session not found.') as Error & { code: string }
+      error.code = 'session_not_found'
+      throw error
+    }
     await rm(this.#dirFor(sessionId), { recursive: true, force: true })
   }
 }

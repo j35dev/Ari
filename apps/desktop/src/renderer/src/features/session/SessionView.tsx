@@ -65,6 +65,76 @@ function respondedInputId(event: JournalEvent): string | null {
   return e.type === 'input.responded' && typeof e.inputId === 'string' ? e.inputId : null
 }
 
+function childLifecycleMessage(event: JournalEvent): Message | null {
+  switch (event.type) {
+    case 'child.session.spawned':
+      return {
+        id: `child-notice-${event.seq}`,
+        sessionId: event.sessionId,
+        turnId: null,
+        role: 'system',
+        parts: [
+          {
+            type: 'text',
+            text: `Spawned child “${event.title}” (${event.driverKind}).`,
+          },
+        ],
+        createdAt: event.at,
+      }
+    case 'child.session.settled':
+      return {
+        id: `child-notice-${event.seq}`,
+        sessionId: event.sessionId,
+        turnId: null,
+        role: 'system',
+        parts: [
+          {
+            type: 'text',
+            text: `Child ${event.childSessionId} settled (${event.stopReason}).`,
+          },
+        ],
+        createdAt: event.at,
+      }
+    case 'child.session.integrated':
+      return {
+        id: `child-notice-${event.seq}`,
+        sessionId: event.sessionId,
+        turnId: null,
+        role: 'system',
+        parts: [
+          {
+            type: 'text',
+            text:
+              event.result === 'conflict'
+                ? `Child ${event.childSessionId} integration conflicted.`
+                : `Integrated child ${event.childSessionId} (${event.result}).`,
+          },
+        ],
+        createdAt: event.at,
+      }
+    case 'child.session.stopped':
+    case 'child.session.destroyed':
+      return {
+        id: `child-notice-${event.seq}`,
+        sessionId: event.sessionId,
+        turnId: null,
+        role: 'system',
+        parts: [
+          {
+            type: 'text',
+            text:
+              event.type === 'child.session.destroyed'
+                ? `Destroyed child ${event.childSessionId}.`
+                : `Stopped child ${event.childSessionId}.`,
+          },
+        ],
+        createdAt: event.at,
+      }
+    default:
+      return null
+  }
+}
+
 /** Per-session telemetry shown under the transcript (latency + token counts). */
 interface Telemetry {
   turnCount: number
@@ -391,7 +461,11 @@ export function SessionView({
       case 'child.session.settled':
       case 'child.session.integrated':
       case 'child.session.stopped':
+      case 'child.session.destroyed': {
+        const notice = childLifecycleMessage(event)
+        if (notice) setMessages((prev) => [...prev, notice])
         break
+      }
       case 'user.message.added':
         setMessages((prev) => [...prev, event.message])
         break

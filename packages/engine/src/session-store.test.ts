@@ -286,4 +286,33 @@ describe('SessionStore', () => {
     expect(await store.nextSeq(session.id)).toBe(27) // then folds in memory
     expect(spy2).toHaveBeenCalledTimes(1)
   })
+
+  it('serializes destroy against an in-flight append so the session cannot resurrect', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.closeJournal(session.id)
+    const original = store.openJournal.bind(store)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    store.openJournal = async (id) => {
+      await gate
+      return original(id)
+    }
+    const appending = store.append(session.id, {
+      type: 'turn.started',
+      turnId: 'turn_race',
+    })
+    await Promise.resolve()
+    const destroying = store.destroy(session.id)
+    release()
+    await Promise.all([appending, destroying])
+    const { readdir } = await import('node:fs/promises')
+    expect(await readdir(rootDir)).toEqual([])
+    expect(await store.listSessions()).toEqual([])
+  })
+
+  it('rejects destroy of a missing session', async () => {
+    await expect(store.destroy('sess_missing')).rejects.toMatchObject({ code: 'session_not_found' })
+  })
 })
