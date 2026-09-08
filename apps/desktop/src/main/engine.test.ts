@@ -1087,6 +1087,123 @@ describe('Engine durable queue continuation', () => {
     releaseRef.current?.()
   }, 10000)
 
+  it('retries a sibling queue when a live turn releases root capacity', async () => {
+    const started: string[] = []
+    let waitingRuns = 0
+    let busyDisposeEntered = false
+    let enforceCapacity = false
+    let releaseBusyDispose!: () => void
+    let releaseWaitingTurn!: () => void
+    const busyDisposeGate = new Promise<void>((resolve) => {
+      releaseBusyDispose = resolve
+    })
+    const waitingTurnGate = new Promise<void>((resolve) => {
+      releaseWaitingTurn = resolve
+    })
+    const driver: Driver = {
+      kind: 'claude',
+      create: (session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              started.push(session.sessionId)
+              if (session.sessionId === 'sess_waiting' && ++waitingRuns === 1) {
+                yield { type: 'status', status: 'running' as const }
+                await waitingTurnGate
+              }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => {
+            if (session.sessionId !== 'sess_busy') return Promise.resolve()
+            busyDisposeEntered = true
+            return busyDisposeGate
+          },
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(driver)
+    const engine: Engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      authorizeTurn: async (session): Promise<string | null> =>
+        enforceCapacity &&
+        ['sess_busy', 'sess_waiting'].some(
+          (id) => id !== session.id && engine.hasLiveTurn(id),
+        )
+          ? 'Maximum concurrent child sessions reached.'
+          : null,
+    })
+    await seedSession(store, 'sess_root')
+    for (const id of ['sess_busy', 'sess_waiting']) {
+      await store.append(id, {
+        type: 'session.created',
+        session: {
+          id,
+          projectId: 'proj_1',
+          parentSessionId: 'sess_root',
+          rootSessionId: 'sess_root',
+          title: id,
+          driverKind: 'claude',
+          modelId: null,
+          permissionMode: 'ask',
+          status: 'idle',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      })
+    }
+
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_busy',
+      text: 'busy',
+      attachments: [],
+    })
+    for (let i = 0; i < 200; i++) {
+      if (busyDisposeEntered && engine.hasLiveTurn('sess_busy')) break
+      if (i === 199) throw new Error('busy turn did not enter disposal')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    await engine.dispatch({
+      type: 'turn.start',
+      sessionId: 'sess_waiting',
+      text: 'first waiting turn',
+      attachments: [],
+    })
+    for (let i = 0; i < 200; i++) {
+      if (waitingRuns === 1) break
+      if (i === 199) throw new Error('waiting turn did not start')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    enforceCapacity = true
+    await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId: 'sess_waiting',
+      text: 'run after capacity frees',
+      attachments: [],
+    })
+    releaseWaitingTurn()
+    await engine.quiesce('sess_waiting')
+    expect(waitingRuns).toBe(1)
+    expect((await store.load('sess_waiting')).queuedMessages).toHaveLength(1)
+
+    releaseBusyDispose()
+    await engine.quiesce('sess_busy')
+    for (let i = 0; i < 300; i++) {
+      const waiting = await store.load('sess_waiting')
+      if (waitingRuns === 2 && waiting.activeTurnId === null) break
+      if (i === 299) throw new Error('waiting queue was not retried')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+
+    expect(started).toEqual(['sess_busy', 'sess_waiting', 'sess_waiting'])
+    expect((await store.load('sess_waiting')).queuedMessages).toEqual([])
+  }, 10000)
+
   it('after a clean settle the engine runs the oldest queued message itself', async () => {
     const startedPrompts: string[] = []
     let runCount = 0
@@ -1172,5 +1289,104 @@ describe('Engine durable queue continuation', () => {
         e.message.parts.some((part) => part.type === 'text' && part.text === 'queued follow-up'),
       ),
     ).toBe(true)
+  }, 30000)
+
+  it('does not strand a message enqueued while the turn is settling', async () => {
+    const startedPrompts: string[] = []
+    let runCount = 0
+    const releaseRef: { current: (() => void) | null } = { current: null }
+    const plainDriver: Driver = {
+      kind: 'claude',
+      create: (session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              runCount++
+              startedPrompts.push(session.prompt)
+              if (runCount === 1) {
+                yield { type: 'status', status: 'running' as const }
+                await new Promise<void>((resolve) => {
+                  releaseRef.current = resolve
+                })
+                yield { type: 'done' }
+              } else {
+                yield { type: 'text-delta', text: 'continued turn output' }
+                yield { type: 'done' }
+              }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(plainDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_queue_settle_race'
+    await seedSession(store, sessionId)
+
+    // Block the first turn.settled append: once blocked, settle has loaded
+    // its snapshot with an EMPTY queue, so an enqueue now lands exactly in
+    // the stale-snapshot window (after settle's load, before its queue
+    // check). Old code strands it idle; the serialized drain must run it.
+    let releaseSettled!: () => void
+    const settledGate = new Promise<void>((resolve) => {
+      releaseSettled = resolve
+    })
+    let settledEntered!: () => void
+    const settledStarted = new Promise<void>((resolve) => {
+      settledEntered = resolve
+    })
+    let settledBlocked = false
+    const originalAppend = store.append.bind(store)
+    const appendSpy = vi.spyOn(store, 'append').mockImplementation(async (sid, event) => {
+      if (sid === sessionId && event.type === 'turn.settled' && !settledBlocked) {
+        settledBlocked = true
+        settledEntered()
+        await settledGate
+      }
+      return originalAppend(sid, event)
+    })
+
+    try {
+      await engine.dispatch({ type: 'turn.start', sessionId, text: 'first prompt' } as Command)
+      for (let i = 0; i < 200; i++) {
+        const running = await store.load(sessionId)
+        if (running.activeTurnId !== null && releaseRef.current !== null) break
+        if (i === 199) throw new Error('first turn never registered')
+        await new Promise((r) => setTimeout(r, 10))
+      }
+
+      releaseRef.current?.()
+      await settledStarted
+
+      const racing = await engine.dispatch({
+        type: 'message.enqueue',
+        sessionId,
+        text: 'racing message',
+        attachments: [],
+      })
+      expect(racing.accepted).toBe(true)
+
+      releaseSettled()
+
+      for (let i = 0; i < 600; i++) {
+        const after = await store.load(sessionId)
+        if (runCount >= 2 && after.activeTurnId === null) break
+        if (i === 599) throw new Error('racing continuation never ran or never settled')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+
+      const model = await store.load(sessionId)
+      expect(model.queuedMessages).toEqual([])
+      expect(startedPrompts).toContain('racing message')
+    } finally {
+      appendSpy.mockRestore()
+    }
   }, 30000)
 })
