@@ -56,24 +56,23 @@ describe('BranchChip', () => {
     vi.clearAllMocks()
   })
 
-  it('asks git.status for the registered project folder, not the raw id', async () => {
+  it('asks git.status with the session scope, never a resolved path', async () => {
     render(<BranchChip sessionId="sess_1" />)
 
     expect(await screen.findByText('feat/demo')).toBeInTheDocument()
-    expect(invokeMock).toHaveBeenCalledWith('git.status', { path: 'C:\\repos\\demo' })
-    expect(invokeMock).not.toHaveBeenCalledWith('git.status', { path: 'proj_1' })
+    expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
+    expect(invokeMock).not.toHaveBeenCalledWith('session.workspace', expect.anything())
   })
 
-  it('stays hidden when the session has no registered project folder', async () => {
+  it('stays hidden when the session workspace is unavailable', async () => {
     invokeMock.mockImplementation(async (method) => {
-      if (method === 'session.workspace') return { path: null }
-      if (method === 'project.list') return []
+      if (method === 'git.status') throw new Error('session workspace is unavailable')
       throw new Error(`unexpected method: ${String(method)}`)
     })
 
     render(<BranchChip sessionId="sess_1" />)
     await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('session.workspace', { sessionId: 'sess_1' })
+      expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
     })
 
     expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
@@ -81,16 +80,13 @@ describe('BranchChip', () => {
 
   it('stays hidden outside a git repo', async () => {
     invokeMock.mockImplementation(async (method) => {
-      if (method === 'session.workspace') return { path: 'C:\\repos\\demo' }
-      if (method === 'project.list')
-        return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
       if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
       throw new Error(`unexpected method: ${String(method)}`)
     })
 
     render(<BranchChip sessionId="sess_1" />)
     await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('git.status', { path: 'C:\\repos\\demo' })
+      expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
     })
 
     expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
