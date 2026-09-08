@@ -105,6 +105,7 @@ export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #turnTasks = new Map<string, Promise<void>>()
+  readonly #capacityBlockedQueues = new Map<string, Set<string>>()
 
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
   async quiesce(sessionId: string): Promise<void> {
@@ -184,40 +185,34 @@ export class Engine {
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
-
-    // Fencing: register the turn task BEFORE the async appends below so
-    // quiesce() cannot observe the dispatch window (turn.started journaled
-    // but no task tracked yet) and return early while a turn is starting.
-    // The task gates on the appends completing, so registration order — not
-    // execution order — is what closes the window.
-    let openTurnGate: (() => void) | null = null
-    let cancelTurnGate = false
+    let releaseTurn: ((persisted: boolean) => void) | undefined
     if (command.type === 'turn.start') {
       const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
-      let releaseGate!: () => void
-      const gate = new Promise<void>((resolve) => {
-        releaseGate = resolve
+      const gate = new Promise<boolean>((resolve) => {
+        releaseTurn = resolve
       })
-      openTurnGate = releaseGate
       const task = previous
         .then(() => gate)
-        .then(() => {
-          if (cancelTurnGate) return
-          return this.#runTurn(
-            model.session as Session,
-            attributedInput(command.text, origin),
-            command.attachments ?? [],
-            ids.turnId,
-            model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
-          )
-        })
+        .then((persisted) =>
+          persisted
+            ? this.#runTurn(
+                model.session as Session,
+                attributedInput(command.text, origin),
+                command.attachments ?? [],
+                ids.turnId,
+                model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
+              )
+            : undefined,
+        )
         .catch((e) => {
           log.error('turn execution crashed', { error: String(e) })
         })
       this.#turnTasks.set(command.sessionId, task)
       void task.then(() => {
-        if (this.#turnTasks.get(command.sessionId) === task)
+        if (this.#turnTasks.get(command.sessionId) === task) {
           this.#turnTasks.delete(command.sessionId)
+          this.#retryCapacityBlockedQueues(model.session?.rootSessionId ?? command.sessionId)
+        }
       })
     }
 
@@ -226,13 +221,10 @@ export class Engine {
         await this.#append(command.sessionId, event)
       }
     } catch (error) {
-      // Appends failed: never run the gated turn, release its gate so the
-      // tracked task settles, and let the failure propagate as before.
-      cancelTurnGate = true
-      openTurnGate?.()
+      releaseTurn?.(false)
       throw error
     }
-    openTurnGate?.()
+    releaseTurn?.(true)
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
@@ -429,7 +421,7 @@ export class Engine {
         workspacePath,
         prompt:
           runtimeEnv?.ARI_ENV === '1'
-            ? `[Ari environment: use ari --skill for scoped child-session tools. Run ari agents before choosing provider/model IDs. Never disclose control credentials.]\n\n${prompt}`
+            ? `[Ari control surface: this session can operate Ari. Commands: ari env, ari agents, ari session spawn|prompt|wait|read|diff|integrate|stop|destroy. Full protocol: ari --skill. Never disclose ARI_CONTROL_TOKEN.]\n\n${prompt}`
             : prompt,
         modelId: session.modelId,
         permissionMode: session.permissionMode,
@@ -661,6 +653,14 @@ export class Engine {
     })
   }
 
+  /** Retries queues that were held only by root-level concurrency capacity. */
+  #retryCapacityBlockedQueues(rootId: string): void {
+    const blocked = this.#capacityBlockedQueues.get(rootId)
+    if (!blocked) return
+    this.#capacityBlockedQueues.delete(rootId)
+    for (const sessionId of blocked) this.#scheduleQueueDrain(sessionId, rootId)
+  }
+
   /**
    * Runs inside the per-root chain: reloads a fresh snapshot, and after a
    * clean settle starts the oldest non-steered queued message as the next
@@ -682,8 +682,15 @@ export class Engine {
     }
     if (this.#deps.authorizeTurn) {
       const reason = await this.#deps.authorizeTurn(session)
-      if (reason) return
+      if (reason) {
+        const rootId = session.rootSessionId ?? session.id
+        const blocked = this.#capacityBlockedQueues.get(rootId) ?? new Set<string>()
+        blocked.add(sessionId)
+        this.#capacityBlockedQueues.set(rootId, blocked)
+        return
+      }
     }
+    this.#capacityBlockedQueues.get(session.rootSessionId ?? session.id)?.delete(sessionId)
     const ids: DispatchIds = { turnId: newTypedId('turn'), messageId: newTypedId('msg') }
     const decision = decideCommand(
       fresh,
@@ -693,31 +700,33 @@ export class Engine {
     )
     if (!decision.accepted) return
 
-    let cancelTurnGate = false
     const previous = this.#turnTasks.get(sessionId) ?? Promise.resolve()
-    let releaseGate!: () => void
-    const gate = new Promise<void>((resolve) => {
+    let releaseGate!: (persisted: boolean) => void
+    const gate = new Promise<boolean>((resolve) => {
       releaseGate = resolve
     })
-    const openTurnGate = releaseGate
     const task = previous
       .then(() => gate)
-      .then(() => {
-        if (cancelTurnGate) return
-        return this.#runTurn(
-          session,
-          attributedInput(next.text, next.origin),
-          next.attachments,
-          ids.turnId,
-          fresh.providerSessionId?.startsWith('imported:') ? null : fresh.providerSessionId,
-        )
-      })
+      .then((persisted) =>
+        persisted
+          ? this.#runTurn(
+              session,
+              attributedInput(next.text, next.origin),
+              next.attachments,
+              ids.turnId,
+              fresh.providerSessionId?.startsWith('imported:') ? null : fresh.providerSessionId,
+            )
+          : undefined,
+      )
       .catch((e) => {
         log.error('turn execution crashed', { error: String(e) })
       })
     this.#turnTasks.set(sessionId, task)
     void task.then(() => {
-      if (this.#turnTasks.get(sessionId) === task) this.#turnTasks.delete(sessionId)
+      if (this.#turnTasks.get(sessionId) === task) {
+        this.#turnTasks.delete(sessionId)
+        this.#retryCapacityBlockedQueues(session.rootSessionId ?? session.id)
+      }
     })
 
     try {
@@ -731,11 +740,10 @@ export class Engine {
         await this.#append(sessionId, event)
       }
     } catch (error) {
-      cancelTurnGate = true
-      openTurnGate()
+      releaseGate(false)
       throw error
     }
-    openTurnGate()
+    releaseGate(true)
     this.#steeredTexts.delete(sessionId)
   }
 

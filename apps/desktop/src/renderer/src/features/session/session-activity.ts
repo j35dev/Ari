@@ -82,6 +82,21 @@ export function reduceSessionActivity(
       return undefined
     }
 
+    case 'child.session.spawned':
+      if (prev?.phase === 'working' || prev?.phase === 'paused') return prev
+      return { phase: 'working', startedAt: event.at ?? now }
+
+    case 'child.session.settled': {
+      if (prev?.phase === 'working' || prev?.phase === 'paused') return prev
+      if (event.stopReason === 'error') {
+        return { phase: 'error', startedAt: null, settledAt: event.at ?? now }
+      }
+      return { phase: 'done', startedAt: null, settledAt: event.at ?? now }
+    }
+
+    case 'child.session.destroyed':
+      return prev?.phase === 'working' || prev?.phase === 'paused' ? prev : undefined
+
     default:
       return prev
   }

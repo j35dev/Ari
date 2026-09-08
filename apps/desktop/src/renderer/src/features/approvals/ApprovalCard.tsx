@@ -40,6 +40,10 @@ export function approvalHeadline(summaryJson: string): { label: string; detail: 
     return null
   }
   if (parsed === null || typeof parsed !== 'object') return null
+  const rawInput = parsed['rawInput']
+  if (rawInput !== null && typeof rawInput === 'object' && !Array.isArray(rawInput)) {
+    parsed = rawInput as Record<string, unknown>
+  }
   const command = parsed['command'] ?? parsed['cmd']
   if (typeof command === 'string' && command.trim().length > 0) {
     return { label: 'Command', detail: command }
@@ -49,6 +53,23 @@ export function approvalHeadline(summaryJson: string): { label: string; detail: 
     return { label: 'File', detail: path }
   }
   return null
+}
+
+function supportsAlwaysAllow(summaryJson: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(summaryJson)
+    if (parsed === null || typeof parsed !== 'object') return true
+    const options = (parsed as Record<string, unknown>)['options']
+    if (!Array.isArray(options)) return true
+    return options.some(
+      (option: unknown) =>
+        option !== null &&
+        typeof option === 'object' &&
+        (option as Record<string, unknown>)['kind'] === 'allow_always',
+    )
+  } catch {
+    return true
+  }
 }
 
 /**
@@ -64,11 +85,19 @@ export function ApprovalCard({
   position,
   total,
 }: ApprovalCardProps) {
+  const canAlwaysAllow = supportsAlwaysAllow(summaryJson)
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return
     const decision: ApprovalDecision | null =
-      event.key === 'y' ? 'allow' : event.key === 'a' ? 'always_allow' : event.key === 'n' ? 'deny' : null
+      event.key === 'y'
+        ? 'allow'
+        : event.key === 'a'
+          ? 'always_allow'
+          : event.key === 'n'
+            ? 'deny'
+            : null
     if (decision) {
+      if (decision === 'always_allow' && !canAlwaysAllow) return
       event.preventDefault()
       onRespond(decision)
     }
@@ -99,7 +128,10 @@ export function ApprovalCard({
           <span className="shrink-0 text-2xs uppercase tracking-[0.12em] text-fg-subtle">
             {headline.label}
           </span>
-          <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg" title={headline.detail}>
+          <code
+            className="min-w-0 flex-1 truncate font-mono text-xs text-fg"
+            title={headline.detail}
+          >
             {headline.detail}
           </code>
         </div>
@@ -116,9 +148,11 @@ export function ApprovalCard({
         <Button variant="primary" size="sm" onClick={() => onRespond('allow')}>
           Allow
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => onRespond('always_allow')}>
-          Always allow
-        </Button>
+        {canAlwaysAllow ? (
+          <Button variant="secondary" size="sm" onClick={() => onRespond('always_allow')}>
+            Always allow
+          </Button>
+        ) : null}
         <Button variant="danger" size="sm" onClick={() => onRespond('deny')}>
           Deny
         </Button>

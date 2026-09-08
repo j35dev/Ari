@@ -77,6 +77,27 @@ export class Journal<T> {
     this.#activeSize += buffer.byteLength
   }
 
+  /**
+   * Adds a missing final newline without discarding any bytes, including corrupt
+   * tails that callers need to quarantine. Returns the number of bytes added.
+   */
+  async ensureTrailingNewline(): Promise<number> {
+    if (!this.#handle) throw new Error('journal not opened')
+    if (this.#activeSize === 0) return 0
+    const reader = await open(this.#activePath, 'r')
+    const lastByte = Buffer.alloc(1)
+    try {
+      await reader.read(lastByte, 0, 1, this.#activeSize - 1)
+    } finally {
+      await reader.close()
+    }
+    if (lastByte[0] === 0x0a) return 0
+    await this.#handle.write(Buffer.from('\n'))
+    this.#activeSize += 1
+    if (this.#opts.fsync === 'always') await this.#handle.sync()
+    return 1
+  }
+
   /** Durability barrier for `fsync: 'batch'` mode; no-op in `always` mode. */
   async flush(): Promise<void> {
     if (this.#handle && this.#opts.fsync === 'batch') await this.#handle.sync()
@@ -106,13 +127,16 @@ export class Journal<T> {
   }
 
   /**
-   * Drops a corrupt trailing partial line so future appends stay parseable.
-   * Returns how many bytes were truncated from the active segment.
+   * Drops a corrupt trailing partial line or terminates a valid final record
+   * so future appends stay parseable. Returns the number of bytes truncated.
    */
   async repairTail(): Promise<number> {
     const entries = await this.readAll()
     const last = entries[entries.length - 1]
-    if (!last || last.kind !== 'error') return 0
+    if (!last || last.kind !== 'error') {
+      await this.ensureTrailingNewline()
+      return 0
+    }
     const content = await readFile(this.#activePath, 'utf8')
     const cut = content.lastIndexOf('\n')
     let truncatedBytes: number
