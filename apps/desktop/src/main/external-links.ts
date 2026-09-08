@@ -33,7 +33,12 @@ export function isExternalOpenable(rawUrl: string): boolean {
  * the app window) and `data:` URLs (attacker HTML running in the app
  * context with IPC access) are never the app.
  */
-export function isAppUrl(rawUrl: string, devServerUrl?: string, appFileUrl?: string): boolean {
+export function isAppUrl(
+  rawUrl: string,
+  devServerUrl?: string,
+  appFileUrl?: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
@@ -49,10 +54,11 @@ export function isAppUrl(rawUrl: string, devServerUrl?: string, appFileUrl?: str
     } catch {
       return false
     }
-    if (entry.protocol !== 'file:') return false
+    if (entry.protocol !== 'file:' || parsed.host !== entry.host) return false
     // Same entry file: SPA hash routes (`index.html#/settings`) stay.
-    // Compare case-insensitively — Windows paths are case-insensitive.
-    return parsed.pathname.toLowerCase() === entry.pathname.toLowerCase()
+    const pathname = (url: URL): string =>
+      platform === 'win32' ? url.pathname.toLowerCase() : url.pathname
+    return pathname(parsed) === pathname(entry)
   }
   if (devServerUrl) {
     try {
