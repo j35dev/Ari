@@ -161,6 +161,7 @@ function SessionRow({
   projectName,
   colorIndex = 0,
   isActive,
+  quietActive = false,
   activity,
   onSelect,
   onRename,
@@ -174,6 +175,8 @@ function SessionRow({
   projectName: string | null
   colorIndex?: number
   isActive: boolean
+  /** True when the parent project already paints the selection plate. */
+  quietActive?: boolean
   activity?: SessionActivity
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -263,12 +266,14 @@ function SessionRow({
         type="button"
         onClick={() => onSelect(session.id)}
         onContextMenu={(e) => menu.open(session.id, e)}
-        className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-1.5 pr-7 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-1.5 pr-7 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           isActive
-            ? 'bg-accent/15 text-fg font-medium border border-accent/25 shadow-sm'
+            ? quietActive
+              ? 'text-fg font-medium'
+              : 'bg-accent/15 text-fg font-medium'
             : activity !== undefined
-              ? 'text-fg hover:bg-surface-2/60 border border-transparent'
-              : 'text-fg-muted hover:bg-surface-2/60 hover:text-fg border border-transparent'
+              ? 'text-fg hover:bg-glass-hover'
+              : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
         }`}
       >
         <span className="flex size-2.5 shrink-0 items-center justify-center">
@@ -385,12 +390,14 @@ function SessionList({
   searching = false,
   projectNameOf,
   projectColorOf,
+  quietActive = false,
   handlers,
 }: {
   sessions: SessionSummary[]
   searching?: boolean
   projectNameOf?: (projectId: string) => string | null
   projectColorOf?: (projectId: string) => number
+  quietActive?: boolean
   handlers: SessionRowHandlers
 }) {
   const { collapsed, toggle } = useSessionCollapse()
@@ -437,6 +444,7 @@ function SessionList({
                     projectName={projectNameOf?.(s.projectId) ?? null}
                     colorIndex={projectColorOf?.(s.projectId) ?? 0}
                     isActive={s.id === handlers.activeSessionId}
+                    quietActive={quietActive}
                     activity={handlers.activityOf?.(s.id)}
                     onSelect={handlers.onSelect}
                     onRename={handlers.onRename}
@@ -587,197 +595,205 @@ function ProjectGroupSection({
 
   return (
     <section className="group/project" aria-label={name}>
-      <div className="relative flex items-center">
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={(e) => {
-            const origin = pressOrigin.current
-            pressOrigin.current = null
-            if (
-              origin &&
-              Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > DRAG_CLICK_SLOP_PX
-            ) {
-              return
-            }
-            onToggle()
-          }}
-          onPointerDown={(e) => {
-            if (e.button !== 0 || !drag) return
-            pressOrigin.current = { x: e.clientX, y: e.clientY }
-            drag.onPressStart()
-            drag.controls.start(e)
-          }}
-          onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
-          className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-            project ? 'pr-7' : ''
-          } ${missing ? 'opacity-60' : ''} ${
-            isActiveGroup
-              ? 'font-medium text-fg'
-              : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
-          }`}
-          style={
-            isActiveGroup
-              ? {
-                  background: `oklch(0.67 0.18 ${hue} / 0.12)`,
-                  boxShadow: `inset 0 0 0 1px oklch(0.67 0.18 ${hue} / 0.22)`,
-                }
-              : undefined
-          }
-        >
-          {project ? (
-            <IrisTile
-              seed={project.id}
-              colorIndex={project.colorIndex}
-              running={running}
-              name={name}
-            />
-          ) : (
-            <Inbox size={13} aria-hidden className="shrink-0 text-fg-subtle" />
-          )}
-          <span
-            className={`min-w-0 flex-1 truncate text-sm ${
-              missing
-                ? 'text-fg-subtle line-through'
-                : isActiveGroup
-                  ? 'font-semibold'
-                  : 'font-medium'
+      <div
+        data-active-group={isActiveGroup ? '' : undefined}
+        className={`rounded-lg ${isActiveGroup && expanded ? 'pb-1' : ''}`}
+        style={
+          isActiveGroup
+            ? {
+                background: `oklch(0.67 0.18 ${hue} / 0.12)`,
+                boxShadow: `inset 0 0 0 1px oklch(0.67 0.18 ${hue} / 0.22)`,
+              }
+            : undefined
+        }
+      >
+        <div className="relative flex items-center">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={(e) => {
+              const origin = pressOrigin.current
+              pressOrigin.current = null
+              if (
+                origin &&
+                Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > DRAG_CLICK_SLOP_PX
+              ) {
+                return
+              }
+              onToggle()
+            }}
+            onPointerDown={(e) => {
+              if (e.button !== 0 || !drag) return
+              pressOrigin.current = { x: e.clientX, y: e.clientY }
+              drag.onPressStart()
+              drag.controls.start(e)
+            }}
+            onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
+            className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+              project ? 'pr-7' : ''
+            } ${missing ? 'opacity-60' : ''} ${
+              isActiveGroup
+                ? 'font-medium text-fg'
+                : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
             }`}
           >
-            {name}
-          </span>
-          {groupActivity !== undefined && !running ? (
-            <SessionActivityMark activity={groupActivity} />
-          ) : null}
-          <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
-            {sessions.length}
-          </span>
-        </button>
-        {project ? (
-          <button
-            type="button"
-            aria-label={`Project actions for ${name}`}
-            onClick={(e) => menu.open(project.id, e)}
-            className="absolute right-1 flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover/project:opacity-100"
-          >
-            <MoreHorizontal size={13} aria-hidden />
+            {project ? (
+              <IrisTile
+                seed={project.id}
+                colorIndex={project.colorIndex}
+                running={running}
+                name={name}
+              />
+            ) : (
+              <Inbox size={13} aria-hidden className="shrink-0 text-fg-subtle" />
+            )}
+            <span
+              className={`min-w-0 flex-1 truncate text-sm ${
+                missing
+                  ? 'text-fg-subtle line-through'
+                  : isActiveGroup
+                    ? 'font-semibold'
+                    : 'font-medium'
+              }`}
+            >
+              {name}
+            </span>
+            {groupActivity !== undefined && !running ? (
+              <SessionActivityMark activity={groupActivity} />
+            ) : null}
+            <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
+              {sessions.length}
+            </span>
           </button>
+          {project ? (
+            <button
+              type="button"
+              aria-label={`Project actions for ${name}`}
+              onClick={(e) => menu.open(project.id, e)}
+              className="absolute right-1 flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover/project:opacity-100"
+            >
+              <MoreHorizontal size={13} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+        {project && menu.openFor === project.id ? (
+          <ContextMenu
+            anchor={menu.anchor}
+            label={`Project actions for ${name}`}
+            onClose={menu.close}
+            items={[
+              {
+                id: 'new',
+                label: 'New session here',
+                icon: Plus,
+                onSelect: () => actions.onNewSessionInProject?.(project.id),
+              },
+              {
+                id: 'import',
+                label: 'Import',
+                icon: ImportIcon,
+                disabled: missing,
+                disabledReason: missing
+                  ? 'Locate this project before importing sessions'
+                  : undefined,
+                onSelect: () => actions.onImportSessions?.(project.id),
+              },
+              {
+                id: 'reveal',
+                label: 'Reveal in file manager',
+                icon: FolderOpen,
+                onSelect: () => actions.onRevealProject?.(project.id),
+              },
+              {
+                id: 'move-up',
+                label: 'Move up',
+                icon: ArrowUp,
+                disabled: !canMoveUp,
+                disabledReason: canMoveUp ? undefined : 'Already the top project',
+                onSelect: () => actions.onMoveProject?.(project.id, -1),
+              },
+              {
+                id: 'move-down',
+                label: 'Move down',
+                icon: ArrowDown,
+                disabled: !canMoveDown,
+                disabledReason: canMoveDown ? undefined : 'Already the last project',
+                onSelect: () => actions.onMoveProject?.(project.id, 1),
+              },
+              {
+                id: 'close',
+                label: 'Close project',
+                icon: X,
+                onSelect: () => actions.onCloseProject?.(project.id),
+              },
+              {
+                id: 'remove',
+                label: 'Remove project',
+                icon: Trash2,
+                danger: true,
+                onSelect: () => setConfirmRemove(true),
+              },
+            ]}
+          />
+        ) : null}
+        {project && confirmRemove ? (
+          <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
+            <span className="min-w-0 flex-1 truncate text-2xs text-danger">Remove project?</span>
+            <button
+              type="button"
+              aria-label={`Confirm remove ${name}`}
+              onClick={() => {
+                setConfirmRemove(false)
+                actions.onRemoveProject?.(project.id)
+              }}
+              className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+            >
+              Remove
+            </button>
+            <button
+              type="button"
+              aria-label={`Keep ${name}`}
+              onClick={() => setConfirmRemove(false)}
+              className="shrink-0 text-fg-subtle hover:text-fg"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ) : null}
+        {project && missing ? (
+          <div className="mx-2 mb-1 flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
+            <span className="min-w-0 flex-1 truncate text-2xs text-fg-muted">folder missing</span>
+            <button
+              type="button"
+              onClick={() => actions.onLocateProject?.(project.id)}
+              className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
+            >
+              Locate
+            </button>
+            <button
+              type="button"
+              onClick={() => actions.onCloseProject?.(project.id)}
+              className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
+            >
+              Close
+            </button>
+          </div>
+        ) : null}
+        {expanded ? (
+          sessions.length > 0 ? (
+            <div className="pl-7">
+              <SessionList
+                sessions={sessions}
+                projectColorOf={() => project?.colorIndex ?? 0}
+                quietActive={isActiveGroup}
+                handlers={handlers}
+              />
+            </div>
+          ) : (
+            <p className="px-2 py-1.5 pl-9 text-2xs text-fg-subtle">No sessions yet.</p>
+          )
         ) : null}
       </div>
-      {project && menu.openFor === project.id ? (
-        <ContextMenu
-          anchor={menu.anchor}
-          label={`Project actions for ${name}`}
-          onClose={menu.close}
-          items={[
-            {
-              id: 'new',
-              label: 'New session here',
-              icon: Plus,
-              onSelect: () => actions.onNewSessionInProject?.(project.id),
-            },
-            {
-              id: 'import',
-              label: 'Import',
-              icon: ImportIcon,
-              disabled: missing,
-              disabledReason: missing ? 'Locate this project before importing sessions' : undefined,
-              onSelect: () => actions.onImportSessions?.(project.id),
-            },
-            {
-              id: 'reveal',
-              label: 'Reveal in file manager',
-              icon: FolderOpen,
-              onSelect: () => actions.onRevealProject?.(project.id),
-            },
-            {
-              id: 'move-up',
-              label: 'Move up',
-              icon: ArrowUp,
-              disabled: !canMoveUp,
-              disabledReason: canMoveUp ? undefined : 'Already the top project',
-              onSelect: () => actions.onMoveProject?.(project.id, -1),
-            },
-            {
-              id: 'move-down',
-              label: 'Move down',
-              icon: ArrowDown,
-              disabled: !canMoveDown,
-              disabledReason: canMoveDown ? undefined : 'Already the last project',
-              onSelect: () => actions.onMoveProject?.(project.id, 1),
-            },
-            {
-              id: 'close',
-              label: 'Close project',
-              icon: X,
-              onSelect: () => actions.onCloseProject?.(project.id),
-            },
-            {
-              id: 'remove',
-              label: 'Remove project',
-              icon: Trash2,
-              danger: true,
-              onSelect: () => setConfirmRemove(true),
-            },
-          ]}
-        />
-      ) : null}
-      {project && confirmRemove ? (
-        <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
-          <span className="min-w-0 flex-1 truncate text-2xs text-danger">Remove project?</span>
-          <button
-            type="button"
-            aria-label={`Confirm remove ${name}`}
-            onClick={() => {
-              setConfirmRemove(false)
-              actions.onRemoveProject?.(project.id)
-            }}
-            className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
-          >
-            Remove
-          </button>
-          <button
-            type="button"
-            aria-label={`Keep ${name}`}
-            onClick={() => setConfirmRemove(false)}
-            className="shrink-0 text-fg-subtle hover:text-fg"
-          >
-            <X size={13} />
-          </button>
-        </div>
-      ) : null}
-      {project && missing ? (
-        <div className="mx-2 mb-1 flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
-          <span className="min-w-0 flex-1 truncate text-2xs text-fg-muted">folder missing</span>
-          <button
-            type="button"
-            onClick={() => actions.onLocateProject?.(project.id)}
-            className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
-          >
-            Locate
-          </button>
-          <button
-            type="button"
-            onClick={() => actions.onCloseProject?.(project.id)}
-            className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg-muted transition-colors hover:text-fg"
-          >
-            Close
-          </button>
-        </div>
-      ) : null}
-      {expanded ? (
-        sessions.length > 0 ? (
-          <div className="pl-7">
-            <SessionList
-              sessions={sessions}
-              projectColorOf={() => project?.colorIndex ?? 0}
-              handlers={handlers}
-            />
-          </div>
-        ) : (
-          <p className="px-2 py-1.5 pl-9 text-2xs text-fg-subtle">No sessions yet.</p>
-        )
-      ) : null}
     </section>
   )
 }
