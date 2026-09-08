@@ -144,6 +144,15 @@ describe('SessionsUnderProjects', () => {
     expect(toggle).toHaveTextContent('Ari')
   })
 
+  it('paints one selection plate around the active project instead of stacked pills', () => {
+    renderSidebar([session('a', 1, 'proj-1')], 'a')
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    expect(ari.querySelector('[data-active-group]')).not.toBeNull()
+    const row = ari.querySelector('[data-session-mark="idle"]')?.closest('button')
+    expect(row).not.toBeNull()
+    expect(row?.className).not.toMatch(/bg-accent/)
+  })
+
   it('shows a hue dot on idle session rows', () => {
     renderSidebar([session('a', 1, 'proj-1')])
     const ari = screen.getByRole('region', { name: 'Ari' })
