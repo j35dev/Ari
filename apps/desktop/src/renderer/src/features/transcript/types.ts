@@ -2,12 +2,7 @@ import type { Message } from '@ari/contracts/message'
 
 /** The visual row kinds the transcript renders. */
 export type TranscriptBlockKind =
-  | 'markdown'
-  | 'thinking'
-  | 'tool-call'
-  | 'tool-result'
-  | 'error-note'
-  | 'image'
+  'markdown' | 'thinking' | 'tool-call' | 'tool-result' | 'error-note' | 'image'
 
 /** One staged image inside an `image` row (all of a message's images share it). */
 export interface TranscriptImage {
@@ -55,7 +50,7 @@ export interface TranscriptBlock {
  */
 export interface ToolGroupRow {
   kind: 'tool-group'
-  /** Stable key spanning first→last member block. */
+  /** Stable key derived from the run's first block. */
   key: string
   /** Every member block in wire order; drives the expanded step list. */
   blocks: TranscriptBlock[]

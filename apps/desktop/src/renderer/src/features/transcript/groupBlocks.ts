@@ -83,8 +83,8 @@ export function insertTurnDiffRows(
  * points, so a single burst of work read as a dozen near-identical tally
  * lines.) A run carrying any tool traffic always becomes a group, even a single
  * in-flight call, so the row does not change shape as results stream in; a lone
- * thinking block stays a plain thinking row. Group keys span first→last member
- * so they stay stable while more parts arrive. When `turnDiffs` carries an
+ * thinking block stays a plain thinking row. A group's key comes from its
+ * first block so React keeps the live row mounted as results arrive. When `turnDiffs` carries an
  * entry for a settled turn, a collapsed diff card is appended after that turn's
  * final row.
  */
@@ -115,7 +115,7 @@ export function groupBlocks(
       }
       rows.push({
         kind: 'tool-group',
-        key: `${first.key}..${last.key}`,
+        key: `activity:${first.key}`,
         blocks: run,
         calls,
         resultsByCallId,
