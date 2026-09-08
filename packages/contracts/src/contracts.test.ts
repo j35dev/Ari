@@ -220,13 +220,22 @@ describe('contracts', () => {
   })
 
   it('validates git.turnDiff params and rejects unsafe checkpoint components', () => {
-    const params = { path: '/repo', sessionId: 'sess_1', turnId: 'turn_2' }
+    const params = { sessionId: 'sess_1', turnId: 'turn_2' }
     expect(rpcParams['git.turnDiff'].parse(params)).toEqual(params)
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, sessionId: '../escape' })).toThrow()
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, turnId: 'tu..rn' })).toThrow()
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, turnId: '-lead' })).toThrow()
     expect(() => rpcParams['git.turnDiff'].parse({ ...params, sessionId: 'turn.lock' })).toThrow()
-    expect(() => rpcParams['git.turnDiff'].parse({ path: '', sessionId: 's', turnId: 't' })).toThrow()
+    expect(() => rpcParams['git.turnDiff'].parse({ sessionId: 's', turnId: '' })).toThrow()
+  })
+
+  it('validates git scopes and rejects absolute working directories', () => {
+    expect(rpcParams['git.status'].parse({ projectId: 'proj_1' })).toEqual({ projectId: 'proj_1' })
+    expect(rpcParams['git.status'].parse({ sessionId: 'sess_1' })).toEqual({ sessionId: 'sess_1' })
+    // No working directory crosses IPC: scopes only.
+    expect(() => rpcParams['git.status'].parse({ path: '/repo' })).toThrow()
+    expect(() => rpcParams['git.status'].parse({ projectId: 'p', sessionId: 's' })).toThrow()
+    expect(() => rpcParams['git.status'].parse({})).toThrow()
   })
 
   it('validates the usage.summary payload and rejects malformed rows', () => {
@@ -275,25 +284,25 @@ describe('contracts', () => {
   })
 
   it('validates git action params and rejects empty messages/pathspecs', () => {
-    expect(rpcParams['git.add'].parse({ path: '/repo', paths: ['src/a.ts'] })).toEqual({
-      path: '/repo',
+    expect(rpcParams['git.add'].parse({ projectId: 'proj_1', paths: ['src/a.ts'] })).toEqual({
+      projectId: 'proj_1',
       paths: ['src/a.ts'],
     })
-    expect(rpcParams['git.commit'].parse({ path: '/repo', message: 'Ship it' })).toEqual({
-      path: '/repo',
+    expect(rpcParams['git.commit'].parse({ sessionId: 'sess_1', message: 'Ship it' })).toEqual({
+      sessionId: 'sess_1',
       message: 'Ship it',
     })
-    expect(rpcParams['git.push'].parse({ path: '/repo' })).toEqual({ path: '/repo' })
-    expect(rpcParams['git.push'].parse({ path: '/repo', remote: 'upstream' })).toEqual({
-      path: '/repo',
+    expect(rpcParams['git.push'].parse({ projectId: 'proj_1' })).toEqual({ projectId: 'proj_1' })
+    expect(rpcParams['git.push'].parse({ projectId: 'proj_1', remote: 'upstream' })).toEqual({
+      projectId: 'proj_1',
       remote: 'upstream',
     })
-    expect(() => rpcParams['git.add'].parse({ path: '/repo' })).toThrow()
-    expect(() => rpcParams['git.add'].parse({ path: '/repo', paths: [] })).toThrow()
-    expect(() => rpcParams['git.add'].parse({ path: '/repo', paths: [''] })).toThrow()
-    expect(() => rpcParams['git.commit'].parse({ path: '/repo' })).toThrow()
-    expect(() => rpcParams['git.commit'].parse({ path: '/repo', message: '' })).toThrow()
-    expect(() => rpcParams['git.push'].parse({ path: '', remote: 'origin' })).toThrow()
-    expect(() => rpcParams['git.push'].parse({ path: '/repo', remote: '' })).toThrow()
+    expect(() => rpcParams['git.add'].parse({ projectId: 'proj_1' })).toThrow()
+    expect(() => rpcParams['git.add'].parse({ projectId: 'proj_1', paths: [] })).toThrow()
+    expect(() => rpcParams['git.add'].parse({ projectId: 'proj_1', paths: [''] })).toThrow()
+    expect(() => rpcParams['git.commit'].parse({ sessionId: 'sess_1' })).toThrow()
+    expect(() => rpcParams['git.commit'].parse({ sessionId: 'sess_1', message: '' })).toThrow()
+    expect(() => rpcParams['git.push'].parse({ projectId: '', remote: 'origin' })).toThrow()
+    expect(() => rpcParams['git.push'].parse({ projectId: 'proj_1', remote: '' })).toThrow()
   })
 })

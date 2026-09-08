@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { GitScope } from '@ari/contracts/rpc'
 import { RefreshCw, FileText, GitBranch, GitPullRequest } from 'lucide-react'
 import { DiffViewer } from '../diffs'
 import { rpc } from '../../lib/rpc'
@@ -22,44 +23,59 @@ export interface ChangesViewProps {
 }
 
 /**
- * Changes rail view: worktree status for the first registered project plus
- * the full unified diff vs HEAD rendered by the shared diff viewer. When a
- * session is active its turn checkpoints (list + revert) mount underneath.
+ * Changes rail view: worktree status for the active session's workspace (or
+ * the project checkout) plus the full unified diff vs HEAD. Git calls carry
+ * a capability scope only — the working directory resolves server-side, so
+ * absolute paths never cross IPC. When a session is active its turn
+ * checkpoints (list + revert) mount underneath.
  */
 export function ChangesView({ sessionId = null, projectId = null }: ChangesViewProps) {
-  const [projectPath, setProjectPath] = useState<string | null>(null)
+  const [scope, setScope] = useState<GitScope | null>(null)
   const [status, setStatus] = useState<StatusState | null>(null)
   const [diffText, setDiffText] = useState<string>('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    setProjectPath(null)
-    const workspace = sessionId
-      ? rpc.invoke('session.workspace', { sessionId }).then((value) => value.path)
-      : rpc.invoke('project.list').then((projects) => projects.find((p) => p.id === projectId)?.path ?? projects[0]?.path ?? null)
-    void workspace.then((path) => { if (!cancelled) setProjectPath(path) })
-      .catch(() => { if (!cancelled) setProjectPath(null) })
-    return () => { cancelled = true }
+    setScope(null)
+    if (sessionId) {
+      // The session's workspace resolves server-side; no path round-trip.
+      setScope({ sessionId })
+    } else {
+      void rpc
+        .invoke('project.list')
+        .then((projects) => {
+          if (cancelled) return
+          const match = projectId ? projects.find((p) => p.id === projectId) : undefined
+          const first = match ?? projects[0]
+          setScope(first ? { projectId: first.id } : null)
+        })
+        .catch(() => {
+          if (!cancelled) setScope(null)
+        })
+    }
+    return () => {
+      cancelled = true
+    }
   }, [sessionId, projectId])
 
   const refresh = useCallback(() => {
-    if (!projectPath) return
+    if (!scope) return
     setLoading(true)
     void rpc
-      .invoke('git.status', { path: projectPath })
+      .invoke('git.status', scope)
       .then(setStatus)
       .catch(() => setStatus({ isRepo: false, branch: null, files: [], error: 'unreachable' }))
       .finally(() => setLoading(false))
     void rpc
-      .invoke('git.diffWorktree', { path: projectPath })
+      .invoke('git.diffWorktree', scope)
       .then((r) => setDiffText(r.diffText))
       .catch(() => undefined)
-  }, [projectPath])
+  }, [scope])
 
   useEffect(refresh, [refresh])
 
-  if (!projectPath) {
+  if (!scope) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
         Add a project first — Changes tracks its git worktree.
@@ -124,7 +140,7 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
 
         {status?.isRepo ? (
           <div className="mt-8 border-t border-border pt-6">
-            <ShipSection projectPath={projectPath} hasChanges={status.files.length > 0} onShipped={refresh} />
+            <ShipSection scope={scope} hasChanges={status.files.length > 0} onShipped={refresh} />
           </div>
         ) : null}
       </div>
@@ -138,11 +154,11 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
  * its failure inline; the PR link lands as plain text.
  */
 export function ShipSection({
-  projectPath,
+  scope,
   hasChanges,
   onShipped,
 }: {
-  projectPath: string
+  scope: GitScope
   hasChanges: boolean
   onShipped: () => void
 }) {
@@ -160,14 +176,14 @@ export function ShipSection({
     setBusy(true)
     setError(null)
     void rpc
-      .invoke('git.add', { path: projectPath, paths: ['.'] })
+      .invoke('git.add', { ...scope, paths: ['.'] })
       .then((r) => {
         if (!r.ok) throw new Error(r.error)
-        return rpc.invoke('git.commit', { path: projectPath, message: trimmed })
+        return rpc.invoke('git.commit', { ...scope, message: trimmed })
       })
       .then((r) => {
         if (!r.ok) throw new Error(r.error)
-        return rpc.invoke('git.push', { path: projectPath }).then((p) => {
+        return rpc.invoke('git.push', { ...scope }).then((p) => {
           if (!p.ok) throw new Error(p.error)
         })
       })
@@ -187,7 +203,7 @@ export function ShipSection({
     setError(null)
     void rpc
       .invoke('git.createPr', {
-        path: projectPath,
+        ...scope,
         title: prTitle.trim(),
         ...(prBody.trim().length > 0 ? { body: prBody.trim() } : {}),
       })
