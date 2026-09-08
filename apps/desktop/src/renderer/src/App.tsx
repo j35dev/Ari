@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitBranch, PanelLeftOpen, X } from 'lucide-react'
+import { GitBranch, X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
@@ -503,6 +503,7 @@ function Shell() {
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
+        onExpandSidebar={sidebarOpen ? undefined : toggleSidebar}
       />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
@@ -609,26 +610,6 @@ function Shell() {
         ) : null}
 
         <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border/50">
-          <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border/50 px-4 bg-surface-0/25 backdrop-blur-md">
-            {!sidebarOpen ? (
-              <button
-                type="button"
-                aria-label="Expand sidebar"
-                title="Expand sidebar (Ctrl+B)"
-                onClick={toggleSidebar}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <PanelLeftOpen size={15} />
-              </button>
-            ) : null}
-            <WorkspaceBreadcrumb
-              projectName={activeProjectName}
-              sessionTitle={sessions.find((s) => s.id === activeSessionId)?.title ?? ''}
-            />
-            <div className="flex-1" />
-            <BranchChip sessionId={activeSessionId} />
-          </header>
-
           {fullPage !== null ? (
             <div className="min-h-0 flex-1">
               {fullPage === 'usage' ? (
@@ -774,32 +755,6 @@ function Shell() {
         scope={activeScope}
       />
       <KeyboardCheatSheet />
-    </div>
-  )
-}
-
-/** Breadcrumb for the active workspace surface (T3's `Ari / thread` pattern). */
-function WorkspaceBreadcrumb({
-  projectName,
-  sessionTitle,
-}: {
-  projectName: string
-  sessionTitle: string
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 text-xs">
-      <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface-1/80 border border-border/60 text-xs font-medium text-fg">
-        <span className="h-1.5 w-1.5 rounded-full bg-accent/80" />
-        <span className="max-w-40 truncate">{projectName || 'Workspace'}</span>
-      </span>
-      {sessionTitle ? (
-        <>
-          <span className="text-fg-subtle/60 text-2xs">/</span>
-          <span className="max-w-72 truncate font-medium text-fg-muted hover:text-fg transition-colors">
-            {sessionTitle}
-          </span>
-        </>
-      ) : null}
     </div>
   )
 }
