@@ -217,6 +217,12 @@ export class SessionStore {
     if (existing) return existing
     const journal = new Journal<JournalEvent>({ dir: this.#dirFor(sessionId), name: 'journal' })
     await journal.open()
+    try {
+      if ((await journal.ensureTrailingNewline()) > 0) this.#indexCache.delete(sessionId)
+    } catch (error) {
+      await journal.close()
+      throw error
+    }
     this.#journals.set(sessionId, journal)
     return journal
   }
