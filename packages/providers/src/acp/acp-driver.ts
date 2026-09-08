@@ -23,7 +23,7 @@ import {
   replyPlanExit,
 } from './client-requests'
 import { findThoughtOption, looksLikeThoughtAxis } from './thought'
-import { findModeOption, pickAgentMode } from './modes'
+import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
@@ -284,22 +284,27 @@ export async function createAcpAdapter(
   push([{ type: 'session-ref', ref: sessionId }])
 
   const selectors = resolveSelectors(launch.label, created, resumed)
-  await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
-  await applyPermissionMode(
-    connection,
-    sessionId,
-    selectors.configOptions,
-    selectors.availableModes,
-    session.permissionMode,
-  )
-  await applyThoughtLevel(
-    connection,
-    sessionId,
-    selectors.configOptions,
-    selectors.availableModes,
-    session.effort ?? null,
-    launch.label,
-  )
+  try {
+    await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+    await applyPermissionMode(
+      connection,
+      sessionId,
+      selectors.configOptions,
+      selectors.availableModes,
+      session.permissionMode,
+    )
+    await applyThoughtLevel(
+      connection,
+      sessionId,
+      selectors.configOptions,
+      selectors.availableModes,
+      session.effort ?? null,
+      launch.label,
+    )
+  } catch (error) {
+    connection.kill()
+    throw setupFailure(error)
+  }
 
   /**
    * Releases anything the turn was still waiting on. Parked permission
@@ -562,22 +567,41 @@ async function applyPermissionMode(
 ): Promise<void> {
   const option = findModeOption(configOptions)
   if (option !== null && option.options !== undefined && option.id !== undefined) {
-    const chosen = pickAgentMode(option.options.map((v) => v.value), mode)
+    const candidates = option.options.map((value) => value.value)
+    const chosen = safePermissionTarget(candidates, mode)
     if (chosen === null) return
     try {
       await connection.setConfigOption(sessionId, option.id, chosen)
     } catch (error) {
+      if (mode !== 'full') throw error
       log.debug('acp: set_config_option(mode) failed', { error: String(error) })
     }
     return
   }
-  const chosen = pickAgentMode(availableModes.map((m) => m.id), mode)
+  const candidates = availableModes.map((availableMode) => availableMode.id)
+  const chosen = safePermissionTarget(candidates, mode)
   if (chosen === null) return
   try {
     await connection.setMode(sessionId, chosen)
   } catch (error) {
+    if (mode !== 'full') throw error
     log.debug('acp: set_mode failed', { error: String(error) })
   }
+}
+
+function safePermissionTarget(
+  candidates: (string | undefined)[],
+  mode: PermissionMode,
+): string | null {
+  const chosen = pickAgentMode(candidates, mode)
+  if (chosen !== null || mode === 'full') return chosen
+  const conservative = pickAgentMode(candidates, 'ask')
+  if (conservative !== null) return conservative
+  const hasPermissionMode = candidates.some(
+    (candidate) => typeof candidate === 'string' && classifyAgentMode(candidate) !== null,
+  )
+  if (hasPermissionMode) throw new Error(`ACP agent offers no safe mode for ${mode}`)
+  return null
 }
 
 /** The `model`-category select option, if the agent exposes one. */
