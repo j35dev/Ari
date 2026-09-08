@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitBranch, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
@@ -756,56 +756,6 @@ function Shell() {
       />
       <KeyboardCheatSheet />
     </div>
-  )
-}
-
-/**
- * Resolves a project id to its registered filesystem path. `git.status`
- * expects a folder, and project ids are opaque — only `project.list` rows
- * carry the real path.
- */
-export function resolveProjectPath(
-  projects: { id: string; path: string }[],
-  projectId: string,
-): string | null {
-  return projects.find((p) => p.id === projectId)?.path ?? null
-}
-
-/**
- * Contextual branch readout in the workspace header: shows the active
- * session's git branch. Asks git.status with the session scope — the worktree
- * resolves server-side — and hides entirely outside repos or without an
- * active session.
- */
-export function BranchChip({ sessionId }: { sessionId: string | null }) {
-  const [branch, setBranch] = useState<string | null>(null)
-
-  useEffect(() => {
-    setBranch(null)
-    if (sessionId === null) return
-    let cancelled = false
-    // Session-scoped: the worktree resolves server-side, so no workspace
-    // path round-trip crosses IPC for a branch label.
-    void rpc
-      .invoke('git.status', { sessionId })
-      .then((status) => {
-        if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
-      })
-      .catch((error: unknown) => log.warn('rpc call failed', error))
-    return () => {
-      cancelled = true
-    }
-  }, [sessionId])
-
-  if (branch === null) return null
-  return (
-    <span
-      className="mr-1 flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-surface-1/90 px-2.5 font-mono text-2xs text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:text-fg"
-      title="Active branch"
-    >
-      <GitBranch size={12} className="text-accent" aria-hidden="true" />
-      <span className="max-w-40 truncate font-semibold">{branch}</span>
-    </span>
   )
 }
 
