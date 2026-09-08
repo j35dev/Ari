@@ -24,14 +24,15 @@ function session(id: string, ageHours: number, projectId = 'adhoc'): SessionSumm
 }
 
 const projects: SidebarProject[] = [
-  { id: 'proj-1', name: 'Ari', path: '/code/ari', status: 'ok' },
-  { id: 'proj-2', name: 'Sketch', path: '/code/sketch', status: 'ok' },
+  { id: 'proj-1', name: 'Ari', path: '/code/ari', status: 'ok', colorIndex: 0 },
+  { id: 'proj-2', name: 'Sketch', path: '/code/sketch', status: 'ok', colorIndex: 3 },
 ]
 
 type Handlers = Partial<{
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
   onOpenProject: () => void
+  onNewSession: () => void
   onNewSessionInProject: (id: string) => void
   onImportSessions: (id: string) => void
   onRevealProject: (id: string) => void
@@ -123,19 +124,40 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByRole('region', { name: 'Ari' })).toHaveTextContent('2')
   })
 
-  it('shows folder icons on project groups and inbox on Unfiled', () => {
+  it('shows iris tiles on project groups and inbox on Unfiled', () => {
     renderSidebar([session('a', 1, 'proj-1'), session('loose', 1)])
 
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('svg.lucide-folder, svg.lucide-folder-open')).not.toBeNull()
+    expect(ari.querySelector('[data-iris-tile]')).not.toBeNull()
+    expect(ari.querySelector('svg.lucide-folder, svg.lucide-folder-open')).toBeNull()
     const unfiled = screen.getByRole('region', { name: 'Unfiled' })
     expect(unfiled.querySelector('svg.lucide-inbox')).not.toBeNull()
+    expect(unfiled.querySelector('[data-iris-tile]')).toBeNull()
   })
 
-  it('shows a chat icon on idle session rows', () => {
+  it('keeps project names in sentence case', () => {
+    renderSidebar([session('a', 1, 'proj-1')])
+    const toggle = within(screen.getByRole('region', { name: 'Ari' })).getByRole('button', {
+      expanded: true,
+    })
+    expect(toggle.className).not.toMatch(/uppercase/)
+    expect(toggle).toHaveTextContent('Ari')
+  })
+
+  it('shows a hue dot on idle session rows', () => {
     renderSidebar([session('a', 1, 'proj-1')])
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('svg.lucide-message-square-text')).not.toBeNull()
+    expect(ari.querySelector('[data-session-mark="idle"]')).not.toBeNull()
+    expect(ari.querySelector('svg.lucide-message-square-text')).toBeNull()
+  })
+
+  it('chases the iris ring while a session in the group is working', () => {
+    const now = Date.now()
+    renderSidebar([session('a', 1, 'proj-1')], null, {
+      activityOf: (id) => (id === 'a' ? { phase: 'working', startedAt: now } : undefined),
+    })
+    const ari = screen.getByRole('region', { name: 'Ari' })
+    expect(ari.querySelector('[data-iris-tile]')).toHaveAttribute('data-running')
   })
 
   it('shows an archive icon on the Archived shelf header', async () => {
@@ -195,6 +217,17 @@ describe('SessionsUnderProjects', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Open project' }))
     expect(onOpenProject).toHaveBeenCalledOnce()
+  })
+
+  it('fires new-session from the labeled compose row', async () => {
+    const onNewSession = vi.fn()
+    renderSidebar([], null, { onNewSession })
+    const user = userEvent.setup()
+    const action = screen.getByRole('button', { name: 'New session' })
+    expect(action).toHaveAttribute('title', 'New session (Mod+N)')
+    expect(action.querySelector('svg.lucide-square-pen')).not.toBeNull()
+    await user.click(action)
+    expect(onNewSession).toHaveBeenCalledOnce()
   })
 
   it('renders a missing project muted with Locate and Close, keeping its sessions', async () => {
@@ -409,11 +442,22 @@ describe('SessionsUnderProjects', () => {
 })
 
 describe('SidebarHeader', () => {
-  it('fires new-session from the + affordance', async () => {
-    const onNewSession = vi.fn()
-    render(<SidebarHeader onNewSession={onNewSession} />)
+  it('keeps the wordmark quiet and focuses search from the header action', async () => {
+    const onSearch = vi.fn()
+    render(<SidebarHeader onSearch={onSearch} />)
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'New session' }))
-    expect(onNewSession).toHaveBeenCalledOnce()
+
+    expect(screen.getByLabelText('Ari')).toHaveTextContent('Ari.')
+    await user.click(screen.getByRole('button', { name: 'Search sessions' }))
+    expect(onSearch).toHaveBeenCalledOnce()
+  })
+
+  it('keeps collapse as a separate compact action', async () => {
+    const onCollapse = vi.fn()
+    render(<SidebarHeader onCollapse={onCollapse} />)
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(onCollapse).toHaveBeenCalledOnce()
   })
 })
