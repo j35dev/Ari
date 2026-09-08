@@ -105,6 +105,7 @@ export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #turnTasks = new Map<string, Promise<void>>()
+  readonly #capacityBlockedQueues = new Map<string, Set<string>>()
 
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
   async quiesce(sessionId: string): Promise<void> {
@@ -208,8 +209,10 @@ export class Engine {
         })
       this.#turnTasks.set(command.sessionId, task)
       void task.then(() => {
-        if (this.#turnTasks.get(command.sessionId) === task)
+        if (this.#turnTasks.get(command.sessionId) === task) {
           this.#turnTasks.delete(command.sessionId)
+          this.#retryCapacityBlockedQueues(model.session?.rootSessionId ?? command.sessionId)
+        }
       })
     }
 
@@ -650,6 +653,14 @@ export class Engine {
     })
   }
 
+  /** Retries queues that were held only by root-level concurrency capacity. */
+  #retryCapacityBlockedQueues(rootId: string): void {
+    const blocked = this.#capacityBlockedQueues.get(rootId)
+    if (!blocked) return
+    this.#capacityBlockedQueues.delete(rootId)
+    for (const sessionId of blocked) this.#scheduleQueueDrain(sessionId, rootId)
+  }
+
   /**
    * Runs inside the per-root chain: reloads a fresh snapshot, and after a
    * clean settle starts the oldest non-steered queued message as the next
@@ -671,8 +682,15 @@ export class Engine {
     }
     if (this.#deps.authorizeTurn) {
       const reason = await this.#deps.authorizeTurn(session)
-      if (reason) return
+      if (reason) {
+        const rootId = session.rootSessionId ?? session.id
+        const blocked = this.#capacityBlockedQueues.get(rootId) ?? new Set<string>()
+        blocked.add(sessionId)
+        this.#capacityBlockedQueues.set(rootId, blocked)
+        return
+      }
     }
+    this.#capacityBlockedQueues.get(session.rootSessionId ?? session.id)?.delete(sessionId)
     const ids: DispatchIds = { turnId: newTypedId('turn'), messageId: newTypedId('msg') }
     const decision = decideCommand(
       fresh,
@@ -682,31 +700,33 @@ export class Engine {
     )
     if (!decision.accepted) return
 
-    let cancelTurnGate = false
     const previous = this.#turnTasks.get(sessionId) ?? Promise.resolve()
-    let releaseGate!: () => void
-    const gate = new Promise<void>((resolve) => {
+    let releaseGate!: (persisted: boolean) => void
+    const gate = new Promise<boolean>((resolve) => {
       releaseGate = resolve
     })
-    const openTurnGate = releaseGate
     const task = previous
       .then(() => gate)
-      .then(() => {
-        if (cancelTurnGate) return
-        return this.#runTurn(
-          session,
-          attributedInput(next.text, next.origin),
-          next.attachments,
-          ids.turnId,
-          fresh.providerSessionId?.startsWith('imported:') ? null : fresh.providerSessionId,
-        )
-      })
+      .then((persisted) =>
+        persisted
+          ? this.#runTurn(
+              session,
+              attributedInput(next.text, next.origin),
+              next.attachments,
+              ids.turnId,
+              fresh.providerSessionId?.startsWith('imported:') ? null : fresh.providerSessionId,
+            )
+          : undefined,
+      )
       .catch((e) => {
         log.error('turn execution crashed', { error: String(e) })
       })
     this.#turnTasks.set(sessionId, task)
     void task.then(() => {
-      if (this.#turnTasks.get(sessionId) === task) this.#turnTasks.delete(sessionId)
+      if (this.#turnTasks.get(sessionId) === task) {
+        this.#turnTasks.delete(sessionId)
+        this.#retryCapacityBlockedQueues(session.rootSessionId ?? session.id)
+      }
     })
 
     try {
@@ -720,11 +740,10 @@ export class Engine {
         await this.#append(sessionId, event)
       }
     } catch (error) {
-      cancelTurnGate = true
-      openTurnGate()
+      releaseGate(false)
       throw error
     }
-    openTurnGate()
+    releaseGate(true)
     this.#steeredTexts.delete(sessionId)
   }
 
