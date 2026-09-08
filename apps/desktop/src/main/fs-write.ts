@@ -1,5 +1,6 @@
-import { lstat, open, realpath, rename, rm } from 'node:fs/promises'
+import { open, rename, rm } from 'node:fs/promises'
 import * as path from 'node:path'
+import { resolveInsideRoots } from './path-jail'
 
 /** Hard ceiling for a single `fs.writeTextFile` payload. */
 export const FS_WRITE_MAX_BYTES = 512 * 1024
@@ -9,39 +10,14 @@ export interface WriteTextFileParams {
   content: string
 }
 
-function isInside(target: string, root: string): boolean {
-  const t = process.platform === 'win32' ? target.toLowerCase() : target
-  const r = process.platform === 'win32' ? root.toLowerCase() : root
-  return t === r || t.startsWith(r + path.sep)
-}
-
 /**
  * Canonicalizes the write target through symlinks and requires it to land
  * inside one of the registered project folders; anything else is refused.
- *
- * An existing target resolves via its own realpath. An unresolvable final
- * segment is refused when it exists at all (a dangling symlink's target is
- * unknowable); only a genuinely absent file falls back to its parent
- * directory's realpath. Fail-closed: no resolvable location means no write.
+ * See {@link resolveInsideRoots} for the fail-closed resolution rules.
  */
 async function jailedTarget(resolved: string, roots: readonly string[]): Promise<string> {
-  if (roots.length === 0) throw new Error('no registered project folders')
-  let real = await realpath(resolved).catch(() => null)
-  if (real === null) {
-    // The final segment does not resolve. If it exists at all it is a dangling
-    // symlink (or similar) whose true target is unknowable — writing through
-    // it would land wherever the link points, outside any jail. Fail closed.
-    if ((await lstat(resolved).catch(() => null)) !== null) {
-      throw new Error(`path escapes registered project folders: ${resolved}`)
-    }
-    real = await realpath(path.dirname(resolved)).catch(() => null)
-  }
-  if (real === null) throw new Error('parent directory does not exist')
-  for (const root of roots) {
-    const rootReal = await realpath(root).catch(() => path.resolve(root))
-    if (isInside(real, rootReal)) return resolved
-  }
-  throw new Error(`path escapes registered project folders: ${resolved}`)
+  await resolveInsideRoots(resolved, roots)
+  return resolved
 }
 
 /**
