@@ -24,6 +24,15 @@ export interface ControlServerOptions {
    * in-flight request are unaffected. Defaults to 60s.
    */
   requestTimeoutMs?: number
+  /** Maximum concurrent requests accepted per socket. Defaults to 8. */
+  maxInFlightRequests?: number
+}
+
+function requestDeadlineMs(method: ControlMethod, params: unknown, fallbackMs: number): number {
+  if (method !== 'session.wait' || typeof params !== 'object' || params === null) return fallbackMs
+  const timeoutMs = 'timeoutMs' in params ? params.timeoutMs : undefined
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs)) return fallbackMs
+  return Math.max(fallbackMs, timeoutMs + 5_000)
 }
 
 /** Local-only authenticated control transport with per-runtime session credentials. */
@@ -158,24 +167,41 @@ export class AgentControlServer {
         // Failure isolation: every request gets its own accounting and
         // deadline. A hung invoke fails ITSELF with `control_timeout` —
         // never the socket, never its neighbors.
+        const { id, method, params } = request.data
+        if (pending >= (this.options.maxInFlightRequests ?? 8)) {
+          send({
+            type: 'response',
+            id,
+            ok: false,
+            error: { code: 'delegation_limit', message: 'Too many in-flight control requests.' },
+          })
+          continue
+        }
         pending++
         socket.setTimeout(3_660_000)
-        const { id, method, params } = request.data
         const requestController = new AbortController()
         const onSocketAbort = (): void => requestController.abort()
         controller.signal.addEventListener('abort', onSocketAbort, { once: true })
         let settled = false
+        let accounted = true
+        const releasePending = (): void => {
+          if (!accounted) return
+          accounted = false
+          controller.signal.removeEventListener('abort', onSocketAbort)
+          if (--pending === 0) socket.setTimeout(15_000)
+        }
         const timer = setTimeout(() => {
           if (settled) return
           settled = true
           requestController.abort()
+          releasePending()
           send({
             type: 'response',
             id,
             ok: false,
             error: { code: 'control_timeout', message: 'Control request timed out.' },
           })
-        }, this.options.requestTimeoutMs ?? 60_000)
+        }, requestDeadlineMs(method, params, this.options.requestTimeoutMs ?? 60_000))
         timer.unref?.()
         void this.options
           .invoke(caller, method, params, requestController.signal)
@@ -194,8 +220,7 @@ export class AgentControlServer {
           .finally(() => {
             settled = true
             clearTimeout(timer)
-            controller.signal.removeEventListener('abort', onSocketAbort)
-            if (--pending === 0) socket.setTimeout(15_000)
+            releasePending()
           })
       }
       if (buffer.length > CONTROL_MAX_FRAME_BYTES) fail('output_too_large')
