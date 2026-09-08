@@ -890,26 +890,6 @@ export function SessionView({
             />
           </div>
         ) : null}
-        {approvals.length > 0 ? (
-          <div className="ari-glass-overlay max-h-56 space-y-2 overflow-y-auto border-t border-border p-3">
-            {approvals.map((a, i) => (
-              <ApprovalCard
-                key={a.approvalId}
-                approvalId={a.approvalId}
-                toolName={a.toolName}
-                summaryJson={a.summaryJson}
-                position={i + 1}
-                total={approvals.length}
-                onRespond={(decision) =>
-                  respondApproval(
-                    a.approvalId,
-                    decision === 'always_allow' ? 'always-allow' : decision,
-                  )
-                }
-              />
-            ))}
-          </div>
-        ) : null}
         {turnError ? (
           <TurnErrorBanner
             message={turnError}
@@ -958,12 +938,36 @@ export function SessionView({
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
           above={
-            childSessions.length > 0 ? (
-              <ChildSessionActivity
-                sessions={childSessions}
-                activityOf={activityOf}
-                onOpen={onOpenSession}
-              />
+            approvals.length > 0 || childSessions.length > 0 ? (
+              <>
+                {approvals.length > 0 ? (
+                  <div className="max-h-40 space-y-px overflow-y-auto">
+                    {approvals.map((a, i) => (
+                      <ApprovalCard
+                        key={a.approvalId}
+                        approvalId={a.approvalId}
+                        toolName={a.toolName}
+                        summaryJson={a.summaryJson}
+                        position={i + 1}
+                        total={approvals.length}
+                        onRespond={(decision) =>
+                          respondApproval(
+                            a.approvalId,
+                            decision === 'always_allow' ? 'always-allow' : decision,
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {childSessions.length > 0 ? (
+                  <ChildSessionActivity
+                    sessions={childSessions}
+                    activityOf={activityOf}
+                    onOpen={onOpenSession}
+                  />
+                ) : null}
+              </>
             ) : null
           }
           leading={
