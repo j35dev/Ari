@@ -1,11 +1,22 @@
 import { useState } from 'react'
-import { Folder, Gauge, GitPullRequest, Settings, TerminalSquare } from 'lucide-react'
+import {
+  Folder,
+  Gauge,
+  GitPullRequest,
+  PanelLeftOpen,
+  Settings,
+  TerminalSquare,
+} from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import type { SidebarNavId } from './Sidebar'
 import type { DriverKind } from '@ari/contracts/common'
 import { ProviderUsagePill } from '../features/usage/ProviderUsagePill'
 
-const TITLEBAR_TOOLS: { id: Exclude<SidebarNavId, 'session'>; label: string; icon: typeof Folder }[] = [
+const TITLEBAR_TOOLS: {
+  id: Exclude<SidebarNavId, 'session'>
+  label: string
+  icon: typeof Folder
+}[] = [
   { id: 'changes', label: 'Changes', icon: GitPullRequest },
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
@@ -36,11 +47,13 @@ export function Titlebar({
   activeTool,
   onSelectTool,
   usage,
+  onExpandSidebar,
 }: {
   projectLabel: string
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
   usage?: { sessionId: string | null; kind: DriverKind }
+  onExpandSidebar?: () => void
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -53,11 +66,22 @@ export function Titlebar({
       <div
         className={`flex items-center gap-2 ${platform === 'darwin' ? MACOS_TRAFFIC_LIGHT_PAD : 'pl-3'}`}
       >
+        {onExpandSidebar !== undefined ? (
+          <button
+            type="button"
+            aria-label="Expand sidebar"
+            title="Expand sidebar (Ctrl+B)"
+            onClick={onExpandSidebar}
+            className="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            <PanelLeftOpen size={15} aria-hidden />
+          </button>
+        ) : null}
         {projectLabel ? (
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-2/60 border border-border/60 text-2xs font-medium text-fg-muted shadow-sm">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-            <span className="truncate max-w-[200px]">{projectLabel}</span>
-          </div>
+          <span className="truncate max-w-[200px] text-2xs font-medium text-fg-muted">
+            {projectLabel}
+          </span>
         ) : null}
       </div>
 
@@ -112,7 +136,15 @@ export function Titlebar({
             }}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-              <rect x="1.5" y="1.5" width="7" height="7" stroke="currentColor" fill="none" strokeWidth="1.2" />
+              <rect
+                x="1.5"
+                y="1.5"
+                width="7"
+                height="7"
+                stroke="currentColor"
+                fill="none"
+                strokeWidth="1.2"
+              />
             </svg>
           </WindowButton>
           <WindowButton label="Close" danger onClick={() => void rpc.invoke('window.close')}>
@@ -121,9 +153,11 @@ export function Titlebar({
             </svg>
           </WindowButton>
         </div>
+      ) : // Reserve space for native Windows overlay buttons.
+      platform === 'win32' ? (
+        <div style={{ width: 138 }} />
       ) : (
-        // Reserve space for native Windows overlay buttons.
-        platform === 'win32' ? <div style={{ width: 138 }} /> : <div className="w-16" />
+        <div className="w-16" />
       )}
     </header>
   )

@@ -43,4 +43,15 @@ describe('Titlebar workspace tools', () => {
     const { container } = render(<Titlebar projectLabel="demo" />)
     expect(container.querySelector('.pl-\\[76px\\]')).not.toBeNull()
   })
+
+  it('offers expand-sidebar only when the rail is collapsed', async () => {
+    const onExpand = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = render(<Titlebar projectLabel="demo" />)
+    expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
+
+    rerender(<Titlebar projectLabel="demo" onExpandSidebar={onExpand} />)
+    await user.click(screen.getByRole('button', { name: 'Expand sidebar' }))
+    expect(onExpand).toHaveBeenCalledOnce()
+  })
 })
