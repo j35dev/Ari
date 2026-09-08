@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile, realpath, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, rm, writeFile, realpath, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
@@ -87,6 +87,125 @@ export class ManagedWorkspaces {
     return { kind: 'managed-worktree', path, branch, baseRef, baseCommit }
   }
 
+  /**
+   * Removes every Ari-owned trace of a child session: the linked worktree
+   * (registration and directory), its `ari/…` branch, and all refs under
+   * `refs/ari/orchestration/<sessionId>/` (base, current and snapshots).
+   * Missing pieces are success, so destroy paths can call it unconditionally
+   * and repeat it safely.
+   */
+  async release(sessionId: string): Promise<void> {
+    const prefix = this.#ref(sessionId)
+    const paths = await this.#sessionPaths(sessionId)
+    const repos: string[] = []
+    for (const path of paths) {
+      const repo = await this.#mainRepo(path)
+      if (repo && !repos.includes(repo)) repos.push(repo)
+      if (repo) {
+        const removed = await this.git.removeWorktree(repo, path)
+        if (!removed.ok) {
+          await rm(path, { recursive: true, force: true })
+          await this.git.runPlumbing(repo, ['worktree', 'prune'])
+        }
+      } else {
+        await rm(path, { recursive: true, force: true })
+      }
+    }
+    for (const repo of repos) {
+      await this.#deleteSessionBranches(repo, sessionId)
+      const refs = await this.git.runPlumbing(repo, [
+        'for-each-ref',
+        '--format=%(refname)',
+        `${prefix}/`,
+      ])
+      if (!refs.ok) continue
+      for (const line of refs.value.stdout.split('\n')) {
+        const name = line.trim()
+        if (!name.startsWith(`${prefix}/`)) continue
+        await this.git.runPlumbing(repo, ['update-ref', '-d', name])
+      }
+    }
+  }
+
+  /**
+   * Deletes per-diff snapshot refs for a session, keeping only
+   * `snapshots/<keepCurrent>`. Base and current pointers are left alone, so
+   * repeated diffs collapse back to one snapshot ref.
+   */
+  async pruneSnapshots(sessionId: string, keepCurrent: string): Promise<void> {
+    if (!oid.test(keepCurrent))
+      throw new ControlFailure('invalid_request', 'Invalid snapshot commit.')
+    const prefix = this.#ref(sessionId)
+    const paths = await this.#sessionPaths(sessionId)
+    if (paths.length === 0)
+      throw new ControlFailure(
+        'managed_worktree_missing',
+        'Managed worktree is missing or relocated.',
+      )
+    const kept = `${prefix}/snapshots/${keepCurrent}`
+    for (const cwd of paths) {
+      const refs = await this.#run(cwd, [
+        'for-each-ref',
+        '--format=%(refname)',
+        `${prefix}/snapshots/`,
+      ])
+      for (const line of refs.split('\n')) {
+        const name = line.trim()
+        if (!name.startsWith(`${prefix}/snapshots/`) || name === kept) continue
+        await this.#run(cwd, ['update-ref', '-d', name])
+      }
+    }
+  }
+
+  /** Worktree directories owned by a session under the managed root. */
+  async #sessionPaths(sessionId: string): Promise<string[]> {
+    const projects = await readdir(this.rootDir, { withFileTypes: true }).catch(() => null)
+    if (!projects) return []
+    const paths: string[] = []
+    for (const entry of projects) {
+      if (!entry.isDirectory()) continue
+      const candidate = join(this.rootDir, entry.name, sessionId)
+      if (await stat(candidate).catch(() => null)) paths.push(candidate)
+    }
+    return paths
+  }
+
+  /** Main worktree of the repo a linked worktree belongs to, if discoverable. */
+  async #mainRepo(worktreePath: string): Promise<string | null> {
+    const list = await this.git.listWorktrees(worktreePath)
+    if (!list.ok) return null
+    const comparable = (path: string) =>
+      process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
+    const others = list.value.filter(
+      (worktree) => comparable(worktree.path) !== comparable(worktreePath),
+    )
+    return (others[0] ?? list.value[0])?.path ?? null
+  }
+
+  /** Deletes `ari/…/<sessionId>` branches left behind after worktree removal. */
+  async #deleteSessionBranches(repo: string, sessionId: string): Promise<void> {
+    const refs = await this.git.runPlumbing(repo, [
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/heads/ari/',
+    ])
+    if (!refs.ok) return
+    for (const line of refs.value.stdout.split('\n')) {
+      const name = line.trim()
+      const short = name.startsWith('refs/heads/') ? name.slice('refs/heads/'.length) : ''
+      if (
+        !short ||
+        !name.endsWith(`/${sessionId}`) ||
+        short.startsWith('-') ||
+        short.includes('..') ||
+        short.includes('\\') ||
+        !/^[A-Za-z0-9._/-]+$/.test(short)
+      )
+        continue
+      await this.git.runPlumbing(repo, ['branch', '-D', short])
+    }
+  }
+
   async #workspace(
     child: Session,
   ): Promise<Extract<NonNullable<Session['workspace']>, { kind: 'managed-worktree' }>> {
@@ -120,6 +239,12 @@ export class ManagedWorkspaces {
       )
     }
     return workspace
+  }
+
+  /** Latest snapshot oid for a child worktree (`refs/ari/orchestration/<id>/current`). */
+  async currentSnapshot(child: Session): Promise<string> {
+    const workspace = await this.#workspace(child)
+    return this.snapshot(workspace.path, `${this.#ref(child.id)}/current`, workspace.baseCommit)
   }
 
   async diff(child: Session, patch: boolean): Promise<unknown> {
