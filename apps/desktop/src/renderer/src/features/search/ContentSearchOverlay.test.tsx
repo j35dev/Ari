@@ -16,6 +16,7 @@ const invokeMock = rpcMocks.invoke as unknown as Mock<
 >
 
 const ROOT = 'C:\\demo'
+const SCOPE = { projectId: 'proj_1' }
 
 const MATCHES = [
   { path: 'src\\main.ts', line: 12, text: 'export const needle = true' },
@@ -53,7 +54,7 @@ describe('ContentSearchOverlay', () => {
 
   it('does not invoke the RPC while the query is empty', async () => {
     const onClose = vi.fn()
-    render(<ContentSearchOverlay open onClose={onClose} root={ROOT} />)
+    render(<ContentSearchOverlay open onClose={onClose} root={ROOT} scope={SCOPE} />)
     expect(await findHit(/Type to search across/)).toBeInTheDocument()
     expect(invokeMock).not.toHaveBeenCalled()
 
@@ -64,14 +65,14 @@ describe('ContentSearchOverlay', () => {
 
   it('debounces the query into one search.content invocation and lists hits', async () => {
     invokeMock.mockResolvedValue(structuredClone(MATCHES))
-    render(<ContentSearchOverlay open onClose={vi.fn()} root={ROOT} />)
+    render(<ContentSearchOverlay open onClose={vi.fn()} root={ROOT} scope={SCOPE} />)
 
     await userEvent.type(screen.getByLabelText('Search project files'), 'needle')
     expect(invokeMock).not.toHaveBeenCalled()
 
     expect(await findHit('export const needle = true')).toBeInTheDocument()
     await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('search.content', { path: ROOT, query: 'needle' })
+      expect(invokeMock).toHaveBeenCalledWith('search.content', { ...SCOPE, query: 'needle' })
     })
     // One debounced call for six keystrokes, not six calls.
     expect(invokeMock).toHaveBeenCalledTimes(1)
@@ -82,7 +83,7 @@ describe('ContentSearchOverlay', () => {
   it('copies absolute-path:line and closes when a hit is chosen', async () => {
     const onClose = vi.fn()
     invokeMock.mockResolvedValue(structuredClone(MATCHES))
-    render(<ContentSearchOverlay open onClose={onClose} root={ROOT} />)
+    render(<ContentSearchOverlay open onClose={onClose} root={ROOT} scope={SCOPE} />)
 
     await userEvent.type(screen.getByLabelText('Search project files'), 'needle')
     await findHit('needle in docs')
@@ -94,7 +95,7 @@ describe('ContentSearchOverlay', () => {
   it('keyboard: ArrowDown moves the highlight, Enter copies the active hit', async () => {
     const onClose = vi.fn()
     invokeMock.mockResolvedValue(structuredClone(MATCHES))
-    render(<ContentSearchOverlay open onClose={onClose} root={ROOT} />)
+    render(<ContentSearchOverlay open onClose={onClose} root={ROOT} scope={SCOPE} />)
 
     const input = screen.getByLabelText('Search project files')
     await userEvent.type(input, 'needle')
@@ -110,14 +111,14 @@ describe('ContentSearchOverlay', () => {
 
   it('surfaces search failures without leaving the dialog stuck', async () => {
     invokeMock.mockRejectedValue(new Error('path does not exist'))
-    render(<ContentSearchOverlay open onClose={vi.fn()} root={ROOT} />)
+    render(<ContentSearchOverlay open onClose={vi.fn()} root={ROOT} scope={SCOPE} />)
 
     await userEvent.type(screen.getByLabelText('Search project files'), 'x')
     expect(await screen.findByRole('alert')).toHaveTextContent('path does not exist')
   }, 30_000)
 
   it('renders a disabled hint when no project is registered', () => {
-    render(<ContentSearchOverlay open onClose={vi.fn()} root={null} />)
+    render(<ContentSearchOverlay open onClose={vi.fn()} root={null} scope={null} />)
     expect(screen.getByPlaceholderText('Add a project first')).toBeDisabled()
   })
 })
