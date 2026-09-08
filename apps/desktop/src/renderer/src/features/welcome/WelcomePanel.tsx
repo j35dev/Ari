@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { motion } from 'motion/react'
-import { ArrowRight, Check, Loader2, PlugZap } from 'lucide-react'
+import {
+  ArrowRight,
+  Check,
+  GitBranch,
+  Layers,
+  Loader2,
+  PlugZap,
+  Search,
+  Sparkles,
+  Terminal,
+} from 'lucide-react'
 import { useToast } from '@ari/ui/toast'
 import { transitions } from '@ari/ui/motion'
 import { rpc } from '../../lib/rpc'
@@ -117,45 +127,115 @@ export function WelcomePanel({
       setSaving(false)
     }
   }
+  const PROMPT_SUGGESTIONS = [
+    {
+      title: 'Explain architecture',
+      desc: 'Map module boundaries and data flow',
+      icon: Layers,
+    },
+    {
+      title: 'Audit git changes',
+      desc: 'Review modified files and diffs',
+      icon: GitBranch,
+    },
+    {
+      title: 'Run test suite',
+      desc: 'Execute tests and inspect regressions',
+      icon: Terminal,
+    },
+    {
+      title: 'Find dead code',
+      desc: 'Scan for unused exports and patterns',
+      icon: Search,
+    },
+  ]
 
   return (
-    <div className="ari-scroll flex h-full items-center justify-center overflow-y-auto p-6">
+    <div className="ari-scroll relative flex h-full items-center justify-center overflow-y-auto p-6">
+      {/* Ambient background glow */}
+      <div className="pointer-events-none absolute -top-16 left-1/2 -translate-x-1/2 h-80 w-80 rounded-full bg-accent/10 blur-[100px]" />
+
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={transitions.fadeUp}
-        className="flex w-full max-w-md flex-col gap-6"
+        className="relative z-10 flex w-full max-w-lg flex-col gap-6"
       >
-        <div className="flex flex-col gap-2 text-center">
-          <h1 className="bg-gradient-to-b from-fg to-fg-muted bg-clip-text text-3xl font-semibold tracking-tight text-transparent">
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <h1 className="text-[28px] font-semibold tracking-[-0.035em] text-fg">
             Ari
+            <span aria-hidden="true" className="text-accent">
+              .
+            </span>
           </h1>
-          <p className="text-sm text-fg-muted">
-            One surface for every coding agent on your machine — chat, steer, review diffs, run
-            terminals.
+          <p className="mx-auto max-w-sm text-xs leading-relaxed text-fg-muted">
+            One unified surface for every coding agent on your machine — chat, steer, review diffs,
+            and drive terminals.
           </p>
         </div>
 
+        {/* Quick prompt action grid */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+              Quick Actions
+            </span>
+            <span className="text-2xs text-fg-subtle">Click to start</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {PROMPT_SUGGESTIONS.map((item) => {
+              const Icon = item.icon
+              return (
+                <button
+                  key={item.title}
+                  type="button"
+                  onClick={onCreateSession}
+                  className="group relative flex flex-col items-start gap-1.5 rounded-xl border border-border/80 bg-surface-1/70 p-3 text-left shadow-sm transition-all duration-150 hover:border-accent/50 hover:bg-surface-2 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                >
+                  <div className="flex w-full items-center justify-between">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 border border-border/60 text-fg-muted transition-colors group-hover:border-accent/40 group-hover:text-accent">
+                      <Icon size={14} />
+                    </div>
+                    <ArrowRight
+                      size={13}
+                      className="text-fg-subtle opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-accent"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-fg group-hover:text-accent transition-colors">
+                      {item.title}
+                    </p>
+                    <p className="text-[11px] text-fg-subtle line-clamp-1">{item.desc}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Primary start button */}
         <button
           type="button"
           onClick={onCreateSession}
-          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-all duration-150 hover:bg-accent-hover active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          Start a session
+          <Sparkles size={15} />
+          <span>Start a new session</span>
           <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
         </button>
 
+        {/* Detected agents list */}
         {clis.length > 0 ? (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-surface-1/40 p-3">
             <p className="text-center text-2xs uppercase tracking-widest text-fg-subtle">
-              Detected agents
+              Detected local agents
             </p>
             <ul className="grid grid-cols-2 gap-1.5">
               {clis.map((cli) => (
                 <li
                   key={cli.kind}
-                  className={`flex items-center gap-2 rounded-lg border border-border bg-glass-input px-2.5 py-1.5 text-xs ${
-                    cli.installed ? 'text-fg-muted' : 'text-fg-subtle opacity-60'
+                  className={`flex items-center gap-2 rounded-lg border border-border/70 bg-surface-0/60 px-2.5 py-1.5 text-xs ${
+                    cli.installed ? 'text-fg-muted' : 'text-fg-subtle opacity-50'
                   }`}
                   title={
                     cli.installed
@@ -245,10 +325,33 @@ export function WelcomePanel({
           </form>
         ) : null}
 
-        <p className="text-center text-2xs text-fg-subtle">
-          Keys are stored encrypted on this machine only. CLIs keep their own sign-in state; Ari
-          never touches their credentials.
-        </p>
+        {/* Keyboard hints footer */}
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-2xs text-fg-subtle">
+          <span className="flex items-center gap-1">
+            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
+              Mod+N
+            </kbd>
+            <span>New session</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
+              Mod+K
+            </kbd>
+            <span>Palette</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
+              @
+            </kbd>
+            <span>Mention file</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <kbd className="rounded border border-border/80 bg-surface-1 px-1 py-0.5 font-mono text-[10px]">
+              /
+            </kbd>
+            <span>Commands</span>
+          </span>
+        </div>
       </motion.div>
     </div>
   )

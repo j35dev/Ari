@@ -21,7 +21,7 @@ it('hides when no live children remain', () => {
   expect(screen.queryByRole('button', { name: 'Child sessions' })).not.toBeInTheDocument()
 })
 
-it('opens a drop-up of live children and navigates on click', async () => {
+it('expands live children in the composer cap and navigates on click', async () => {
   const open = vi.fn()
   render(
     <ChildSessionActivity
@@ -30,10 +30,10 @@ it('opens a drop-up of live children and navigates on click', async () => {
       activityOf={(id) => (id === 'a' ? { phase: 'working', startedAt: 1 } : undefined)}
     />,
   )
-  expect(screen.queryByRole('menuitem', { name: /Audit A/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('list', { name: 'Child sessions' })).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Child sessions' }))
-  expect(screen.getByRole('menu', { name: 'Child sessions' })).toBeInTheDocument()
-  expect(screen.getByRole('menuitem', { name: /Audit A/ })).toHaveTextContent('working')
-  await userEvent.click(screen.getByRole('menuitem', { name: /Audit B/ }))
+  expect(screen.getByRole('list', { name: 'Child sessions' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Audit A/ })).toHaveTextContent('working')
+  await userEvent.click(screen.getByRole('button', { name: /Audit B/ }))
   expect(open).toHaveBeenCalledWith('b')
 })

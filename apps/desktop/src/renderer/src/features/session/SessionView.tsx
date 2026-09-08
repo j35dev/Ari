@@ -890,26 +890,6 @@ export function SessionView({
             />
           </div>
         ) : null}
-        {approvals.length > 0 ? (
-          <div className="ari-glass-overlay max-h-56 space-y-2 overflow-y-auto border-t border-border p-3">
-            {approvals.map((a, i) => (
-              <ApprovalCard
-                key={a.approvalId}
-                approvalId={a.approvalId}
-                toolName={a.toolName}
-                summaryJson={a.summaryJson}
-                position={i + 1}
-                total={approvals.length}
-                onRespond={(decision) =>
-                  respondApproval(
-                    a.approvalId,
-                    decision === 'always_allow' ? 'always-allow' : decision,
-                  )
-                }
-              />
-            ))}
-          </div>
-        ) : null}
         {turnError ? (
           <TurnErrorBanner
             message={turnError}
@@ -958,12 +938,36 @@ export function SessionView({
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
           above={
-            childSessions.length > 0 ? (
-              <ChildSessionActivity
-                sessions={childSessions}
-                activityOf={activityOf}
-                onOpen={onOpenSession}
-              />
+            approvals.length > 0 || childSessions.length > 0 ? (
+              <>
+                {approvals.length > 0 ? (
+                  <div className="max-h-40 space-y-px overflow-y-auto">
+                    {approvals.map((a, i) => (
+                      <ApprovalCard
+                        key={a.approvalId}
+                        approvalId={a.approvalId}
+                        toolName={a.toolName}
+                        summaryJson={a.summaryJson}
+                        position={i + 1}
+                        total={approvals.length}
+                        onRespond={(decision) =>
+                          respondApproval(
+                            a.approvalId,
+                            decision === 'always_allow' ? 'always-allow' : decision,
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
+                {childSessions.length > 0 ? (
+                  <ChildSessionActivity
+                    sessions={childSessions}
+                    activityOf={activityOf}
+                    onOpen={onOpenSession}
+                  />
+                ) : null}
+              </>
             ) : null
           }
           leading={
@@ -1078,7 +1082,7 @@ export function EffortChip({
         aria-label={`Effort: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-all hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span>{current.label}</span>
         <ChevronDown
@@ -1255,7 +1259,7 @@ export function PermissionModeChip({
         aria-label={`Permission mode: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-surface-1 pe-2 ps-2 text-xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-all hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span
           aria-hidden

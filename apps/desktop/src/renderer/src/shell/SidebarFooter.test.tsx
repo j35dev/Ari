@@ -22,6 +22,7 @@ describe('Titlebar workspace tools', () => {
     }
     expect(screen.queryByRole('button', { name: 'Sessions' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByText('Settings')).not.toBeInTheDocument()
   })
 
   it('reports the chosen tool', async () => {
@@ -42,5 +43,16 @@ describe('Titlebar workspace tools', () => {
     stubUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15')
     const { container } = render(<Titlebar projectLabel="demo" />)
     expect(container.querySelector('.pl-\\[76px\\]')).not.toBeNull()
+  })
+
+  it('offers expand-sidebar only when the rail is collapsed', async () => {
+    const onExpand = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = render(<Titlebar projectLabel="demo" />)
+    expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
+
+    rerender(<Titlebar projectLabel="demo" onExpandSidebar={onExpand} />)
+    await user.click(screen.getByRole('button', { name: 'Expand sidebar' }))
+    expect(onExpand).toHaveBeenCalledOnce()
   })
 })

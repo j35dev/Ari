@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitBranch, PanelLeftOpen, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
@@ -119,6 +119,7 @@ function Shell() {
     () => localStorage.getItem('ari.sidebar.open') !== '0',
   )
   const sidebar = useSidebarWidth()
+  const sidebarSearchRef = useRef<HTMLInputElement>(null)
   const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -502,15 +503,21 @@ function Shell() {
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
+        onExpandSidebar={sidebarOpen ? undefined : toggleSidebar}
       />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
           <aside className="ari-glass flex shrink-0 flex-col" style={{ width: sidebar.width }}>
-            <SidebarHeader onNewSession={() => createSession()} onCollapse={toggleSidebar} />
+            <SidebarHeader
+              onSearch={() => sidebarSearchRef.current?.focus()}
+              onCollapse={toggleSidebar}
+            />
             <SessionsUnderProjects
               sessions={sessions}
               projects={openProjects}
               knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
+              searchInputRef={sidebarSearchRef}
+              onNewSession={() => createSession()}
               onOpenProject={openProjectViaDialog}
               onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
               onImportSessions={setImportProjectId}
@@ -602,27 +609,7 @@ function Shell() {
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border">
-          <header className="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4">
-            {!sidebarOpen ? (
-              <button
-                type="button"
-                aria-label="Expand sidebar"
-                title="Expand sidebar (Ctrl+B)"
-                onClick={toggleSidebar}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <PanelLeftOpen size={15} />
-              </button>
-            ) : null}
-            <WorkspaceBreadcrumb
-              projectName={activeProjectName}
-              sessionTitle={sessions.find((s) => s.id === activeSessionId)?.title ?? ''}
-            />
-            <div className="flex-1" />
-            <BranchChip sessionId={activeSessionId} />
-          </header>
-
+        <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border/50">
           {fullPage !== null ? (
             <div className="min-h-0 flex-1">
               {fullPage === 'usage' ? (
@@ -769,77 +756,6 @@ function Shell() {
       />
       <KeyboardCheatSheet />
     </div>
-  )
-}
-
-/** Breadcrumb for the active workspace surface (T3's `Ari / thread` pattern). */
-function WorkspaceBreadcrumb({
-  projectName,
-  sessionTitle,
-}: {
-  projectName: string
-  sessionTitle: string
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-1.5 text-xs">
-      <span className="max-w-40 truncate font-medium text-fg">{projectName || 'Workspace'}</span>
-      {sessionTitle ? (
-        <>
-          <span className="text-fg-subtle">/</span>
-          <span className="max-w-72 truncate text-fg-muted">{sessionTitle}</span>
-        </>
-      ) : null}
-    </div>
-  )
-}
-
-/**
- * Resolves a project id to its registered filesystem path. `git.status`
- * expects a folder, and project ids are opaque — only `project.list` rows
- * carry the real path.
- */
-export function resolveProjectPath(
-  projects: { id: string; path: string }[],
-  projectId: string,
-): string | null {
-  return projects.find((p) => p.id === projectId)?.path ?? null
-}
-
-/**
- * Contextual branch readout in the workspace header: shows the active
- * session's git branch. Asks git.status with the session scope — the worktree
- * resolves server-side — and hides entirely outside repos or without an
- * active session.
- */
-export function BranchChip({ sessionId }: { sessionId: string | null }) {
-  const [branch, setBranch] = useState<string | null>(null)
-
-  useEffect(() => {
-    setBranch(null)
-    if (sessionId === null) return
-    let cancelled = false
-    // Session-scoped: the worktree resolves server-side, so no workspace
-    // path round-trip crosses IPC for a branch label.
-    void rpc
-      .invoke('git.status', { sessionId })
-      .then((status) => {
-        if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
-      })
-      .catch((error: unknown) => log.warn('rpc call failed', error))
-    return () => {
-      cancelled = true
-    }
-  }, [sessionId])
-
-  if (branch === null) return null
-  return (
-    <span
-      className="mr-1 flex h-7 items-center gap-1 rounded-full border border-border bg-surface-1 px-2.5 font-mono text-2xs text-fg-muted"
-      title="Active branch"
-    >
-      <GitBranch size={11} aria-hidden="true" />
-      <span className="max-w-40 truncate">{branch}</span>
-    </span>
   )
 }
 

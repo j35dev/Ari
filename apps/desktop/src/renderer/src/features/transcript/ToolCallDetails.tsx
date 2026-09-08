@@ -41,7 +41,7 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
 
 function MonoValue({ value }: { value: string }) {
   return (
-    <div className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-surface-0 p-1.5 font-mono text-2xs text-fg-muted">
+    <div className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/70 bg-surface-0/80 p-2 font-mono text-2xs text-fg-muted shadow-sm">
       {value.length > MAX_PANEL_CHARS ? `${value.slice(0, MAX_PANEL_CHARS)}…` : value}
     </div>
   )
