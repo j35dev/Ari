@@ -276,13 +276,11 @@ export function Composer({
       </AnimatePresence>
 
       {above ? (
-        <div className="rounded-t-2xl border border-b-0 border-border/80 bg-surface-1/90">{above}</div>
+        <div className="relative z-0 -mb-3 rounded-t-2xl border border-b-0 border-border bg-surface-2/70 pt-0.5">
+          <div className="pb-5">{above}</div>
+        </div>
       ) : null}
-      <div
-        className={`ari-composer-shell relative ${
-          above ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'
-        }`}
-      >
+      <div className="ari-composer-shell relative z-10 rounded-2xl">
         {token?.kind === 'mention' && !dismissed && mentionItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />

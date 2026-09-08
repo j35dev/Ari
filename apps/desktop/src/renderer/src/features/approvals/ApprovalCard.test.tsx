@@ -157,7 +157,7 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByText('1/3 pending')).toBeInTheDocument()
+    expect(screen.getByText('1/3')).toBeInTheDocument()
 
     rerender(
       <ApprovalCard
@@ -169,6 +169,6 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/pending/)).not.toBeInTheDocument()
+    expect(screen.queryByText('1/1')).not.toBeInTheDocument()
   })
 })
