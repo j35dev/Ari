@@ -31,6 +31,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     modelId: z.string().nullable(),
     workspaceKind: z.enum(['managed-worktree', 'project']),
     branch: z.string().nullable(),
+    idempotencyKey: z.string().min(1).max(128).optional(),
   }),
   eventBase.extend({
     type: z.literal('child.session.settled'),
@@ -47,6 +48,10 @@ export const journalEventSchema = z.discriminatedUnion('type', [
   }),
   eventBase.extend({
     type: z.literal('child.session.stopped'),
+    childSessionId: z.string().min(1),
+  }),
+  eventBase.extend({
+    type: z.literal('child.session.destroyed'),
     childSessionId: z.string().min(1),
   }),
   eventBase.extend({ type: z.literal('session.created'), session: sessionSchema }),

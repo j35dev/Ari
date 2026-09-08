@@ -179,22 +179,24 @@ export class Engine {
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
-
-    for (const event of decision.events) {
-      await this.#append(command.sessionId, event)
-    }
-
+    let releaseTurn: ((persisted: boolean) => void) | undefined
     if (command.type === 'turn.start') {
       const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
+      const gate = new Promise<boolean>((resolve) => {
+        releaseTurn = resolve
+      })
       const task = previous
-        .then(() =>
-          this.#runTurn(
-            model.session as Session,
-            attributedInput(command.text, origin),
-            command.attachments ?? [],
-            ids.turnId,
-            model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
-          ),
+        .then(() => gate)
+        .then((persisted) =>
+          persisted
+            ? this.#runTurn(
+                model.session as Session,
+                attributedInput(command.text, origin),
+                command.attachments ?? [],
+                ids.turnId,
+                model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
+              )
+            : undefined,
         )
         .catch((e) => {
           log.error('turn execution crashed', { error: String(e) })
@@ -205,6 +207,16 @@ export class Engine {
           this.#turnTasks.delete(command.sessionId)
       })
     }
+
+    try {
+      for (const event of decision.events) {
+        await this.#append(command.sessionId, event)
+      }
+    } catch (error) {
+      releaseTurn?.(false)
+      throw error
+    }
+    releaseTurn?.(true)
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
@@ -395,7 +407,7 @@ export class Engine {
         workspacePath,
         prompt:
           runtimeEnv?.ARI_ENV === '1'
-            ? `[Ari environment: use ari --skill for scoped child-session tools. Run ari agents before choosing provider/model IDs. Never disclose control credentials.]\n\n${prompt}`
+            ? `[Ari control surface: this session can operate Ari. Commands: ari env, ari agents, ari session spawn|prompt|wait|read|diff|integrate|stop|destroy. Full protocol: ari --skill. Never disclose ARI_CONTROL_TOKEN.]\n\n${prompt}`
             : prompt,
         modelId: session.modelId,
         permissionMode: session.permissionMode,
