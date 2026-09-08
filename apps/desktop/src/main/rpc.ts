@@ -8,7 +8,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
-import { IPC_METHODS } from './ipc-methods'
+import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
@@ -1445,7 +1445,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   for (const method of IPC_METHODS) {
     ipcMain.removeHandler(`ari:${method}`)
-    ipcMain.handle(`ari:${method}`, (_event, payload) => {
+    ipcMain.handle(`ari:${method}`, (event, payload) => {
+      if (!isTrustedIpcSender(event.sender, contents)) {
+        throw new Error(`rejected IPC sender for ${method}`)
+      }
       return rpcRegistry.invoke(method, payload).catch((error: unknown) => {
         throw error instanceof Error ? error : new Error(String(error))
       })
