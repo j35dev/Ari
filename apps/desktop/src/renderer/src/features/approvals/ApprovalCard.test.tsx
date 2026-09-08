@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { ApprovalCard } from './ApprovalCard'
+import { ApprovalCard, formatApprovalToolName } from './ApprovalCard'
 
 describe('ApprovalCard', () => {
   it.each([
@@ -77,7 +77,20 @@ describe('ApprovalCard', () => {
 
   it('styles Deny with the danger token', () => {
     render(<ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Deny' }).className).toContain('bg-danger')
+    expect(screen.getByRole('button', { name: 'Deny' }).className).toContain('text-danger')
+  })
+
+  it('humanizes underscored tool names', () => {
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="Ari_delegation"
+        summaryJson="{}"
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Ari delegation')).toBeInTheDocument()
+    expect(formatApprovalToolName('Ari_delegation')).toBe('Ari delegation')
   })
 
   it('calls onRespond("always_allow") when Always allow is clicked', async () => {
@@ -144,7 +157,7 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.getByText('1/3 pending')).toBeInTheDocument()
+    expect(screen.getByText('1/3')).toBeInTheDocument()
 
     rerender(
       <ApprovalCard
@@ -156,6 +169,6 @@ describe('ApprovalCard', () => {
         onRespond={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/pending/)).not.toBeInTheDocument()
+    expect(screen.queryByText('1/1')).not.toBeInTheDocument()
   })
 })

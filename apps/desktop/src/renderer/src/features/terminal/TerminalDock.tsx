@@ -158,8 +158,10 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
             return (
               <span
                 key={tab.id}
-                className={`group flex h-6 shrink-0 items-center gap-0.5 rounded-md pl-2 pr-1 transition-colors ${
-                  active ? 'bg-accent-subtle text-accent' : 'text-fg-subtle hover:bg-surface-2'
+                className={`group flex h-6 shrink-0 items-center gap-1 rounded-md pl-2 pr-1 transition-all duration-150 ${
+                  active
+                    ? 'bg-accent/15 text-accent border border-accent/25 shadow-sm font-medium'
+                    : 'text-fg-subtle hover:bg-surface-2/70 border border-transparent hover:text-fg'
                 }`}
               >
                 <button

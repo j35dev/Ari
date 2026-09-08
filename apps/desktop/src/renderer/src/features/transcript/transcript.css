@@ -20,9 +20,15 @@
   letter-spacing: -0.01em;
 }
 
-.ari-md h1 { font-size: var(--ari-text-xl); }
-.ari-md h2 { font-size: var(--ari-text-lg); }
-.ari-md h3 { font-size: var(--ari-text-md); }
+.ari-md h1 {
+  font-size: var(--ari-text-xl);
+}
+.ari-md h2 {
+  font-size: var(--ari-text-lg);
+}
+.ari-md h3 {
+  font-size: var(--ari-text-md);
+}
 
 .ari-md ul,
 .ari-md ol {
@@ -30,9 +36,15 @@
   padding-left: 1.4rem;
 }
 
-.ari-md ul { list-style: disc; }
-.ari-md ol { list-style: decimal; }
-.ari-md li { margin: 0.15rem 0; }
+.ari-md ul {
+  list-style: disc;
+}
+.ari-md ol {
+  list-style: decimal;
+}
+.ari-md li {
+  margin: 0.15rem 0;
+}
 
 .ari-md code {
   font-family: var(--ari-font-mono);
@@ -44,11 +56,12 @@
 }
 
 .ari-md pre {
-  margin: 0.6rem 0;
-  padding: 0.7rem 0.9rem;
-  background: var(--ari-surface-1);
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  background: var(--ari-surface-0);
   border: 1px solid var(--ari-border);
-  border-radius: var(--ari-radius-md);
+  border-radius: var(--ari-radius-lg);
+  box-shadow: var(--ari-shadow-1);
   overflow-x: auto;
 }
 
@@ -66,12 +79,16 @@
   text-underline-offset: 2px;
 }
 
-.ari-md a:hover { color: var(--ari-accent-hover); }
+.ari-md a:hover {
+  color: var(--ari-accent-hover);
+}
 
 .ari-md blockquote {
-  margin: 0.6rem 0;
-  padding-left: 0.8rem;
-  border-left: 3px solid var(--ari-border-strong);
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.85rem;
+  border-left: 2px solid var(--ari-accent);
+  background: var(--ari-accent-subtle);
+  border-radius: 0 var(--ari-radius-md) var(--ari-radius-md) 0;
   color: var(--ari-fg-muted);
 }
 
@@ -88,7 +105,10 @@
   text-align: left;
 }
 
-.ari-md th { background: var(--ari-surface-1); font-weight: 600; }
+.ari-md th {
+  background: var(--ari-surface-1);
+  font-weight: 600;
+}
 
 .ari-md hr {
   margin: 1rem 0;
@@ -125,6 +145,20 @@
 
 .ari-burst[data-activity='failed']::before {
   background: color-mix(in oklab, var(--ari-warning) 40%, transparent);
+}
+
+.ari-error-note {
+  position: relative;
+}
+
+.ari-error-note::before {
+  content: '';
+  position: absolute;
+  inset-block: 3px;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--ari-danger) 42%, transparent);
 }
 
 /* A burst is alive only while a call is unanswered: light walks the rail. */

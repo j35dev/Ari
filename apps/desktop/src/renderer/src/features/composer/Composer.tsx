@@ -69,7 +69,7 @@ export function Composer({
   queued = [],
   suggestions,
   leading,
-  placeholder = 'Ask Ari…',
+  placeholder = 'Ask anything, @ for files, / for commands…',
   disabled = false,
   seed,
   sessionId,
@@ -276,13 +276,11 @@ export function Composer({
       </AnimatePresence>
 
       {above ? (
-        <div className="rounded-t-lg border border-b-0 border-border bg-glass-input">{above}</div>
+        <div className="relative z-0 -mb-3 rounded-t-2xl border border-b-0 border-border bg-surface-2/70 pt-0.5">
+          <div className="pb-5">{above}</div>
+        </div>
       ) : null}
-      <div
-        className={`relative border border-border bg-glass-input shadow-2 ${
-          above ? 'rounded-b-lg rounded-t-none' : 'rounded-lg'
-        }`}
-      >
+      <div className="ari-composer-shell relative z-10 rounded-2xl">
         {token?.kind === 'mention' && !dismissed && mentionItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
@@ -312,7 +310,7 @@ export function Composer({
             disabled={disabled}
             rows={1}
             aria-label="Message"
-            className="block max-h-[260px] w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-fg placeholder:text-fg-subtle focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable]"
+            className="block max-h-[260px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm leading-relaxed text-fg placeholder:text-fg-subtle/70 focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable]"
           />
         </div>
         <div className="flex items-center gap-1 px-2.5 pb-2 pt-1">
@@ -473,12 +471,12 @@ function SendStopButton({
       disabled={!running && !canSend}
       whileTap={{ scale: 0.96 }}
       transition={transitions.morph}
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm ${
         running
-          ? 'bg-busy text-fg-on-accent hover:brightness-110'
+          ? 'bg-busy text-fg-on-accent hover:brightness-110 shadow-busy/20'
           : canSend
-            ? 'bg-accent text-fg-on-accent hover:bg-accent-hover'
-            : 'bg-surface-3 text-fg-subtle'
+            ? 'bg-accent text-fg-on-accent hover:bg-accent-hover hover:scale-105 active:scale-95 shadow-accent/25'
+            : 'bg-surface-3/50 text-fg-subtle opacity-60'
       }`}
     >
       <AnimatePresence mode="wait" initial={false}>

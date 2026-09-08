@@ -43,7 +43,7 @@ describe('groupBlocks', () => {
     expect(rows[0]?.kind).toBe('tool-group')
   })
 
-  it('collapses a consecutive run into one tool-group with stable span key', () => {
+  it('collapses a consecutive run into one tool-group with a stable first-block key', () => {
     const rows = groupBlocks(
       splitBlocks([
         assistantMessage([
@@ -58,9 +58,28 @@ describe('groupBlocks', () => {
     const row = rows[0]
     expect(row?.kind).toBe('tool-group')
     if (row?.kind !== 'tool-group') return
-    expect(row.key).toBe('m2#0..m2#3')
+    expect(row.key).toBe('activity:m2#0')
     expect(row.calls.map((c) => c.callId)).toEqual(['c1', 'c2'])
     expect(row.resultsByCallId.get('c1')?.kind).toBe('tool-result')
+  })
+
+  it('keeps the row key stable as streamed results and later calls extend the run', () => {
+    const before = groupBlocks(
+      splitBlocks([
+        assistantMessage([{ type: 'tool-call', callId: 'c1', name: 'Bash', argsJson: '{}' }]),
+      ]),
+    )
+    const after = groupBlocks(
+      splitBlocks([
+        assistantMessage([
+          { type: 'tool-call', callId: 'c1', name: 'Bash', argsJson: '{}' },
+          { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+          { type: 'tool-call', callId: 'c2', name: 'Read', argsJson: '{}' },
+        ]),
+      ]),
+    )
+
+    expect(after[0]?.key).toBe(before[0]?.key)
   })
 
   it('keeps one long run whole so a stretch of work is one row', () => {
@@ -119,13 +138,18 @@ describe('groupBlocks', () => {
   })
 
   it('carries the owning message role on blocks', () => {
-    const rows = groupBlocks(splitBlocks([userMessage('hello'), assistantMessage([{ type: 'text', text: 'hi' }])]))
+    const rows = groupBlocks(
+      splitBlocks([userMessage('hello'), assistantMessage([{ type: 'text', text: 'hi' }])]),
+    )
     const roles = rows.map((r) => (r.kind === 'markdown' ? r.role : undefined))
     expect(roles).toEqual(['user', 'assistant'])
   })
 
   it('stamps every block with its message turn id', () => {
-    const turnMessage: Message = { ...assistantMessage([{ type: 'text', text: 'hi' }]), turnId: 'turn_1' }
+    const turnMessage: Message = {
+      ...assistantMessage([{ type: 'text', text: 'hi' }]),
+      turnId: 'turn_1',
+    }
     const rows = groupBlocks(splitBlocks([turnMessage]))
     expect(rows.every((r) => r.kind !== 'tool-group' && r.turnId === 'turn_1')).toBe(true)
   })
@@ -135,7 +159,11 @@ describe('turn diff cards', () => {
   const DIFF = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n'
 
   it('appends one card after the last row of the matching turn', () => {
-    const withTurn: Message = { ...assistantMessage([{ type: 'text', text: 'done' }]), id: 'm2', turnId: 'turn_9' }
+    const withTurn: Message = {
+      ...assistantMessage([{ type: 'text', text: 'done' }]),
+      id: 'm2',
+      turnId: 'turn_9',
+    }
     const rows = groupBlocks(
       splitBlocks([
         userMessage('hello'),
@@ -167,7 +195,10 @@ describe('turn diff cards', () => {
   })
 
   it('leaves turns without an entry untouched and skips empty diffs', () => {
-    const base = splitBlocks([userMessage('hello'), assistantMessage([{ type: 'text', text: 'hi' }])])
+    const base = splitBlocks([
+      userMessage('hello'),
+      assistantMessage([{ type: 'text', text: 'hi' }]),
+    ])
     expect(groupBlocks(base)).toHaveLength(2)
     expect(groupBlocks(base, {})).toHaveLength(2)
     expect(groupBlocks(base, { turn_missing: DIFF })).toHaveLength(2)
@@ -175,9 +206,17 @@ describe('turn diff cards', () => {
   })
 
   it('emits at most one card per turn even across disjoint segments', () => {
-    const segA: Message = { ...assistantMessage([{ type: 'text', text: 'a' }]), id: 'm2', turnId: 'turn_5' }
+    const segA: Message = {
+      ...assistantMessage([{ type: 'text', text: 'a' }]),
+      id: 'm2',
+      turnId: 'turn_5',
+    }
     const gap: Message = { ...userMessage('go on'), id: 'm3', turnId: null }
-    const segB: Message = { ...assistantMessage([{ type: 'text', text: 'b' }]), id: 'm4', turnId: 'turn_5' }
+    const segB: Message = {
+      ...assistantMessage([{ type: 'text', text: 'b' }]),
+      id: 'm4',
+      turnId: 'turn_5',
+    }
     const rows = groupBlocks(splitBlocks([segA, gap, segB]), { turn_5: DIFF })
     expect(rows.filter((r) => r.kind === 'turn-diff')).toHaveLength(1)
   })
@@ -214,7 +253,9 @@ describe('summarizeToolRun + formatToolSummary', () => {
     expect(summary.edited).toBe(2)
     expect(summary.read).toBe(1)
     expect(summary.searched).toBe(2)
-    expect(formatToolSummary(summary)).toBe('Edited 2 files · Ran 2 commands · Searched 2 times · Read 1 file')
+    expect(formatToolSummary(summary)).toBe(
+      'Edited 2 files · Ran 2 commands · Searched 2 times · Read 1 file',
+    )
   })
 
   it('counts errors and pending calls', () => {
@@ -286,9 +327,8 @@ describe('describeActivity', () => {
   it('names a targetless in-flight call by its tool, never verb + name', () => {
     expect(describeActivity(group([call('c1', 'Edit', '{}')])).label).toBe('Edit')
     expect(
-      describeActivity(
-        group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]),
-      ).label,
+      describeActivity(group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]))
+        .label,
     ).toBe('run terminal command')
   })
 
