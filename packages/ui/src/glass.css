@@ -66,27 +66,27 @@
 .ari-double-bezel {
   position: relative;
   box-shadow:
-    inset 0 1px 0 0 oklch(1 0 0 / 10%),
-    0 8px 32px -4px oklch(0 0 0 / 30%);
+    inset 0 1px 0 0 var(--ari-inner-stroke),
+    var(--ari-shadow-3);
 }
 
 .ari-composer-shell {
   background: var(--ari-surface-1);
   border: 1px solid var(--ari-border);
   box-shadow:
-    inset 0 1px 0 0 oklch(1 0 0 / 12%),
-    0 12px 36px -6px oklch(0 0 0 / 40%),
-    0 2px 8px -2px oklch(0 0 0 / 25%);
-  transition: border-color var(--ari-dur-fast) var(--ari-ease-out-expo),
-              box-shadow var(--ari-dur-fast) var(--ari-ease-out-expo);
+    inset 0 1px 0 0 var(--ari-inner-stroke),
+    var(--ari-shadow-3);
+  transition:
+    border-color var(--ari-dur-fast) var(--ari-ease-out-expo),
+    box-shadow var(--ari-dur-fast) var(--ari-ease-out-expo);
 }
 
 .ari-composer-shell:focus-within {
   border-color: var(--ari-border-strong);
   box-shadow:
-    inset 0 1px 0 0 oklch(1 0 0 / 18%),
+    inset 0 1px 0 0 var(--ari-border),
     0 0 0 1px var(--ari-accent-ring),
-    0 16px 48px -8px oklch(0 0 0 / 50%);
+    var(--ari-shadow-3);
 }
 
 [data-ari-glass='on'] .ari-composer-shell {
@@ -98,14 +98,21 @@
 .ari-card-elevated {
   background: var(--ari-surface-1);
   border: 1px solid var(--ari-border);
-  box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 8%), var(--ari-shadow-1);
-  transition: all var(--ari-dur-fast) var(--ari-ease-out-expo);
+  box-shadow:
+    inset 0 1px 0 0 var(--ari-inner-stroke),
+    var(--ari-shadow-1);
+  transition:
+    background-color var(--ari-dur-fast) var(--ari-ease-out-expo),
+    border-color var(--ari-dur-fast) var(--ari-ease-out-expo),
+    box-shadow var(--ari-dur-fast) var(--ari-ease-out-expo);
 }
 
 .ari-card-elevated:hover {
   border-color: var(--ari-border-strong);
   background: var(--ari-surface-2);
-  box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 12%), var(--ari-shadow-2);
+  box-shadow:
+    inset 0 1px 0 0 var(--ari-border),
+    var(--ari-shadow-2);
 }
 
 .ari-glow-pill {
