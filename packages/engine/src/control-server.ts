@@ -18,6 +18,21 @@ export interface ControlServerOptions {
     params: unknown,
     signal: AbortSignal,
   ): Promise<ControlResult>
+  /**
+   * Per-request ceiling for a hung invoke. When it elapses the request
+   * alone fails with `control_timeout`; the socket and every other
+   * in-flight request are unaffected. Defaults to 60s.
+   */
+  requestTimeoutMs?: number
+  /** Maximum concurrent requests accepted per socket. Defaults to 8. */
+  maxInFlightRequests?: number
+}
+
+function requestDeadlineMs(method: ControlMethod, params: unknown, fallbackMs: number): number {
+  if (method !== 'session.wait' || typeof params !== 'object' || params === null) return fallbackMs
+  const timeoutMs = 'timeoutMs' in params ? params.timeoutMs : undefined
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs)) return fallbackMs
+  return Math.max(fallbackMs, timeoutMs + 5_000)
 }
 
 /** Local-only authenticated control transport with per-runtime session credentials. */
@@ -155,54 +170,62 @@ export class AgentControlServer {
           })
           continue
         }
-        if (pending >= 8) {
+        // Failure isolation: every request gets its own accounting and
+        // deadline. A hung invoke fails ITSELF with `control_timeout` —
+        // never the socket, never its neighbors.
+        if (pending >= (this.options.maxInFlightRequests ?? 8)) {
           send({
             type: 'response',
             id,
             ok: false,
-            error: {
-              code: 'delegation_limit',
-              message: 'Too many in-flight control requests.',
-            },
+            error: { code: 'delegation_limit', message: 'Too many in-flight control requests.' },
           })
           continue
         }
         pending++
         socket.setTimeout(3_660_000)
-        let answered = false
         const requestController = new AbortController()
-        const signal = AbortSignal.any([controller.signal, requestController.signal])
+        const onSocketAbort = (): void => requestController.abort()
+        controller.signal.addEventListener('abort', onSocketAbort, { once: true })
+        let settled = false
+        let accounted = true
+        const releasePending = (): void => {
+          if (!accounted) return
+          accounted = false
+          controller.signal.removeEventListener('abort', onSocketAbort)
+          if (--pending === 0) socket.setTimeout(15_000)
+        }
         const timer = setTimeout(() => {
-          if (answered) return
-          answered = true
+          if (settled) return
+          settled = true
           requestController.abort()
+          releasePending()
           send({
             type: 'response',
             id,
             ok: false,
             error: { code: 'control_timeout', message: 'Control request timed out.' },
           })
-        }, 3_660_000)
+        }, requestDeadlineMs(method, params, this.options.requestTimeoutMs ?? 60_000))
+        timer.unref?.()
         void this.options
-          .invoke(caller, method, params, signal)
+          .invoke(caller, method, params, requestController.signal)
           .then((result) => {
-            if (answered) return
-            answered = true
-            send({ type: 'response', id, ...result })
+            if (!settled) send({ type: 'response', id, ...result })
           })
           .catch(() => {
-            if (answered) return
-            answered = true
-            send({
-              type: 'response',
-              id,
-              ok: false,
-              error: { code: 'internal_error', message: 'Control request failed.' },
-            })
+            if (!settled)
+              send({
+                type: 'response',
+                id,
+                ok: false,
+                error: { code: 'internal_error', message: 'Control request failed.' },
+              })
           })
           .finally(() => {
+            settled = true
             clearTimeout(timer)
-            if (--pending === 0) socket.setTimeout(15_000)
+            releasePending()
           })
       }
       if (buffer.length > CONTROL_MAX_FRAME_BYTES) fail('output_too_large')
