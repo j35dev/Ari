@@ -8,7 +8,6 @@ import {
   ArrowUp,
   Check,
   ChevronRight,
-  FolderGit2,
   FolderOpen,
   FolderPlus,
   GitBranch,
@@ -36,12 +35,14 @@ import { IrisTile } from './IrisTile'
 import { irisHue } from './iris-tile'
 import {
   projectMoveFromOrder,
+  recencyGroups,
   sidebarGroups,
   UNFILED_GROUP_ID,
   type SidebarGroup,
 } from '../features/session/session-nav'
 import { useProjectExpand } from './use-project-expand'
 import { useSessionCollapse } from './use-session-collapse'
+import { useSidebarView, type SidebarView } from './use-sidebar-view'
 import { sessionTree, searchSessionTree } from '../features/session/session-tree'
 import { ContextMenu, useContextMenu } from './ContextMenu'
 
@@ -96,6 +97,13 @@ function SessionTreeGuides({ lastAtDepth, hue }: { lastAtDepth: readonly boolean
 const ICON_BTN =
   'flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg active:bg-glass-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
+/** Small trailing affordance (session / project menu) revealed on row hover. */
+const ROW_ACTION_BTN =
+  'absolute right-1.5 flex size-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-glass-active hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
+/** Quiet section caption shared by the view switch, recency buckets and shelves. */
+const SECTION_LABEL = 'text-[11px] font-medium tracking-[0.01em] text-fg-subtle'
+
 /** Compact product wordmark; search and collapse sit as icon actions. */
 export function SidebarHeader({
   onSearch,
@@ -105,15 +113,14 @@ export function SidebarHeader({
   onCollapse?: () => void
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center border-b border-border/40 px-3">
+    <header className="flex h-12 shrink-0 items-center px-3">
       <div className="flex min-w-0 flex-1 items-baseline gap-2">
-        <span aria-label="Ari" className="text-base font-semibold tracking-[-0.035em] text-fg">
+        <span aria-label="Ari" className="text-[15px] font-semibold tracking-[-0.03em] text-fg">
           Ari
           <span aria-hidden="true" className="text-accent">
             .
           </span>
         </span>
-        <span className="font-mono text-[9px] tracking-[0.08em] text-fg-subtle">beta</span>
       </div>
 
       <div className="flex items-center gap-0.5">
@@ -165,7 +172,6 @@ function SessionRow({
   projectName,
   colorIndex = 0,
   isActive,
-  quietActive = false,
   activity,
   onSelect,
   onRename,
@@ -177,11 +183,10 @@ function SessionRow({
   hasChildren?: boolean
   childCount?: number
   nested?: boolean
+  /** Origin project, surfaced as a tooltip in flat lists (search, archived, sessions view). */
   projectName: string | null
   colorIndex?: number
   isActive: boolean
-  /** True when the parent project already paints the selection plate. */
-  quietActive?: boolean
   activity?: SessionActivity
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -274,19 +279,16 @@ function SessionRow({
         type="button"
         onClick={() => onSelect(session.id)}
         onContextMenu={(e) => menu.open(session.id, e)}
-        className={`flex min-w-0 flex-1 items-center rounded-md pr-7 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-          nested ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2.5 py-1.5'
-        } ${
+        title={projectName ?? undefined}
+        className={`flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           isActive
-            ? quietActive
-              ? 'text-fg font-medium'
-              : 'bg-accent/15 text-fg font-medium'
+            ? 'bg-glass-active text-fg'
             : activity !== undefined
               ? 'text-fg hover:bg-glass-hover'
               : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
         }`}
       >
-        <span className="flex size-2.5 shrink-0 items-center justify-center">
+        <span className="flex size-3 shrink-0 items-center justify-center">
           {activity !== undefined ? (
             <SessionActivityMark activity={activity} />
           ) : hasChildren ? (
@@ -300,45 +302,38 @@ function SessionRow({
           ) : (
             <span
               data-session-mark="idle"
-              className={nested ? 'size-1 rounded-[1px]' : 'size-1 rounded-full'}
+              className={`rounded-full ${nested ? 'size-1' : 'size-1.5'}`}
               style={{
                 background: `oklch(0.67 0.18 ${irisHue(colorIndex)} / ${
-                  isActive ? 0.9 : nested ? 0.4 : 0.55
+                  isActive ? 0.9 : nested ? 0.35 : 0.5
                 })`,
               }}
             />
           )}
         </span>
         <span
-          className={`min-w-0 flex-1 truncate ${
-            hasChildren ? 'text-[13px] font-medium text-fg' : nested ? 'text-xs' : 'text-[13px]'
+          className={`min-w-0 flex-1 truncate text-[13px] ${
+            hasChildren ? 'font-medium text-fg' : nested && !isActive ? 'text-fg-muted' : ''
           }`}
         >
           {session.title}
         </span>
         {hasChildren && childCount > 0 ? (
-          <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 tabular-nums text-fg-subtle">
-            {childCount}
-          </span>
+          <span className="shrink-0 text-2xs tabular-nums text-fg-subtle">{childCount}</span>
         ) : null}
-        {projectName && !nested ? (
-          <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle lg:flex">
-            <FolderGit2 size={10} aria-hidden />
-            {projectName}
-          </span>
-        ) : null}
-        <span className="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">
+        <span className="shrink-0 text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0">
           {formatRelativeTime(session.updatedAt)}
         </span>
       </button>
       {/* Sibling, not nested: a control inside a <button> is invalid HTML and
           breaks keyboard semantics. Right-click anywhere on the row opens the
-          same menu; this is just the discoverable affordance. */}
+          same menu; this is just the discoverable affordance. It takes over the
+          timestamp slot while the row is hovered. */}
       <button
         type="button"
         aria-label={`Session actions for ${session.title}`}
         onClick={(e) => menu.open(session.id, e)}
-        className="absolute right-1 flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover:opacity-100"
+        className={`${ROW_ACTION_BTN} group-hover:opacity-100`}
       >
         <MoreHorizontal size={13} aria-hidden />
       </button>
@@ -407,14 +402,12 @@ function SessionList({
   searching = false,
   projectNameOf,
   projectColorOf,
-  quietActive = false,
   handlers,
 }: {
   sessions: SessionSummary[]
   searching?: boolean
   projectNameOf?: (projectId: string) => string | null
   projectColorOf?: (projectId: string) => number
-  quietActive?: boolean
   handlers: SessionRowHandlers
 }) {
   const { collapsed, toggle } = useSessionCollapse()
@@ -465,7 +458,6 @@ function SessionList({
                     projectName={projectNameOf?.(s.projectId) ?? null}
                     colorIndex={projectColorOf?.(s.projectId) ?? 0}
                     isActive={s.id === handlers.activeSessionId}
-                    quietActive={quietActive}
                     activity={handlers.activityOf?.(s.id)}
                     onSelect={handlers.onSelect}
                     onRename={handlers.onRename}
@@ -513,19 +505,16 @@ function CollapsibleSessions({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
+        {Icon ? <Icon size={12} aria-hidden className="shrink-0" /> : null}
+        <span className={SECTION_LABEL}>{label}</span>
+        <span className="text-2xs tabular-nums">{sessions.length}</span>
         <ChevronRight
           size={11}
-          className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+          aria-hidden
+          className={`ml-auto shrink-0 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
-        {Icon ? <Icon size={13} aria-hidden className="shrink-0 text-fg-subtle" /> : null}
-        <span className="text-sm font-medium uppercase tracking-[0.14em] text-fg-subtle">
-          {label}
-        </span>
-        <span className="rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
-          {sessions.length}
-        </span>
       </button>
       <AnimatePresence initial={false}>
         {open ? (
@@ -536,12 +525,14 @@ function CollapsibleSessions({
             exit={{ opacity: 0 }}
             transition={transitions.morph}
           >
-            <SessionList
-              sessions={sessions}
-              projectNameOf={projectNameOf}
-              projectColorOf={projectColorOf}
-              handlers={handlers}
-            />
+            <div className="pt-0.5">
+              <SessionList
+                sessions={sessions}
+                projectNameOf={projectNameOf}
+                projectColorOf={projectColorOf}
+                handlers={handlers}
+              />
+            </div>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -612,22 +603,10 @@ function ProjectGroupSection({
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
   const running = groupActivity?.phase === 'working'
   const isActiveGroup = sessions.some((s) => s.id === handlers.activeSessionId)
-  const hue = irisHue(project?.colorIndex ?? 0)
 
   return (
     <section className="group/project" aria-label={name}>
-      <div
-        data-active-group={isActiveGroup ? '' : undefined}
-        className={`rounded-lg ${isActiveGroup && expanded ? 'pb-1' : ''}`}
-        style={
-          isActiveGroup
-            ? {
-                background: `oklch(0.67 0.18 ${hue} / 0.12)`,
-                boxShadow: `inset 0 0 0 1px oklch(0.67 0.18 ${hue} / 0.22)`,
-              }
-            : undefined
-        }
-      >
+      <div data-active-group={isActiveGroup ? '' : undefined}>
         <div className="relative flex items-center">
           <button
             type="button"
@@ -650,13 +629,9 @@ function ProjectGroupSection({
               drag.controls.start(e)
             }}
             onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
-            className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-              project ? 'pr-7' : ''
-            } ${missing ? 'opacity-60' : ''} ${
-              isActiveGroup
-                ? 'font-medium text-fg'
-                : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
-            }`}
+            className={`flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+              missing ? 'opacity-60' : ''
+            } ${isActiveGroup ? 'text-fg' : 'text-fg-muted hover:text-fg'}`}
           >
             {project ? (
               <IrisTile
@@ -666,15 +641,13 @@ function ProjectGroupSection({
                 name={name}
               />
             ) : (
-              <Inbox size={13} aria-hidden className="shrink-0 text-fg-subtle" />
+              <span className="grid size-5 shrink-0 place-content-center rounded-md bg-glass-hover">
+                <Inbox size={12} aria-hidden className="text-fg-subtle" />
+              </span>
             )}
             <span
-              className={`min-w-0 flex-1 truncate text-sm ${
-                missing
-                  ? 'text-fg-subtle line-through'
-                  : isActiveGroup
-                    ? 'font-semibold'
-                    : 'font-medium'
+              className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
+                missing ? 'text-fg-subtle line-through' : ''
               }`}
             >
               {name}
@@ -682,7 +655,11 @@ function ProjectGroupSection({
             {groupActivity !== undefined && !running ? (
               <SessionActivityMark activity={groupActivity} />
             ) : null}
-            <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
+            <span
+              className={`shrink-0 text-2xs tabular-nums text-fg-subtle transition-opacity ${
+                project ? 'group-hover/project:opacity-0' : ''
+              }`}
+            >
               {sessions.length}
             </span>
           </button>
@@ -691,7 +668,7 @@ function ProjectGroupSection({
               type="button"
               aria-label={`Project actions for ${name}`}
               onClick={(e) => menu.open(project.id, e)}
-              className="absolute right-1 flex h-5 w-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-surface-3 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover/project:opacity-100"
+              className={`${ROW_ACTION_BTN} group-hover/project:opacity-100`}
             >
               <MoreHorizontal size={13} aria-hidden />
             </button>
@@ -802,16 +779,15 @@ function ProjectGroupSection({
         ) : null}
         {expanded ? (
           sessions.length > 0 ? (
-            <div className="pl-7">
+            <div className="pb-1 pl-5">
               <SessionList
                 sessions={sessions}
                 projectColorOf={() => project?.colorIndex ?? 0}
-                quietActive={isActiveGroup}
                 handlers={handlers}
               />
             </div>
           ) : (
-            <p className="px-2 py-1.5 pl-9 text-2xs text-fg-subtle">No sessions yet.</p>
+            <p className="py-1 pl-9 text-2xs text-fg-subtle">No sessions yet.</p>
           )
         ) : null}
       </div>
@@ -874,11 +850,11 @@ function DraggableProjectGroup({
 }
 
 /**
- * Sidebar body: labeled create actions, then one collapsible group per open
- * project with its sessions nested inside (pinned first within the group), a
- * trailing Unfiled group for ad-hoc sessions, and the global Archived shelf.
- * Searching flattens matches across every project into one list. Project
- * groups drag-reorder among themselves; Unfiled is derived and always trails.
+ * Sidebar body: a compose row, then either the Projects view (one collapsible
+ * group per open project with its sessions nested inside, pinned first, a
+ * trailing Unfiled group, drag-reorderable) or the Sessions view (every live
+ * session in one flat list bucketed by recency), plus the global Archived
+ * shelf. Searching flattens matches across every project into one list.
  */
 export function SessionsUnderProjects({
   sessions,
@@ -909,6 +885,7 @@ export function SessionsUnderProjects({
   const [query, setQuery] = useState('')
   const trimmed = query.trim().toLowerCase()
   const { isExpanded, toggle } = useProjectExpand()
+  const { view, setView } = useSidebarView()
   const handlers: SessionRowHandlers = {
     activeSessionId,
     onSelect,
@@ -958,6 +935,24 @@ export function SessionsUnderProjects({
     () => [...sessions].filter((s) => s.archived).sort((a, b) => b.updatedAt - a.updatedAt),
     [sessions],
   )
+  const recent = useMemo(
+    () => (view === 'sessions' ? recencyGroups(sessions) : []),
+    [sessions, view],
+  )
+
+  const archivedShelf =
+    archived.length > 0 ? (
+      <div className="mt-2">
+        <CollapsibleSessions
+          label="Archived"
+          sessions={archived}
+          projectNameOf={projectNameOf}
+          projectColorOf={projectColorOf}
+          handlers={handlers}
+          icon={Archive}
+        />
+      </div>
+    ) : null
 
   const body =
     trimmed !== '' ? (
@@ -980,6 +975,27 @@ export function SessionsUnderProjects({
         <br />
         Open a project or start a session.
       </p>
+    ) : view === 'sessions' ? (
+      <>
+        {recent.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-fg-subtle">No sessions yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {recent.map((group) => (
+              <section key={group.id} aria-label={group.name}>
+                <h3 className={`${SECTION_LABEL} h-6 px-2 leading-6`}>{group.name}</h3>
+                <SessionList
+                  sessions={group.sessions}
+                  projectNameOf={projectNameOf}
+                  projectColorOf={projectColorOf}
+                  handlers={handlers}
+                />
+              </section>
+            ))}
+          </div>
+        )}
+        {archivedShelf}
+      </>
     ) : (
       <>
         <Reorder.Group
@@ -987,6 +1003,7 @@ export function SessionsUnderProjects({
           values={projectGroups.map((g) => g.id)}
           onReorder={reorderFromDrag}
           layout="position"
+          className="flex flex-col gap-0.5"
         >
           {projectGroups.map((group, index) => (
             <DraggableProjectGroup
@@ -1005,72 +1022,97 @@ export function SessionsUnderProjects({
           ))}
         </Reorder.Group>
         {unfiled ? (
-          <ProjectGroupSection
-            name={unfiled.name}
-            project={null}
-            sessions={unfiled.sessions}
-            expanded={isExpanded(UNFILED_GROUP_ID)}
-            onToggle={() => toggle(UNFILED_GROUP_ID)}
-            handlers={handlers}
-            actions={actions}
-          />
+          <div className="mt-0.5">
+            <ProjectGroupSection
+              name={unfiled.name}
+              project={null}
+              sessions={unfiled.sessions}
+              expanded={isExpanded(UNFILED_GROUP_ID)}
+              onToggle={() => toggle(UNFILED_GROUP_ID)}
+              handlers={handlers}
+              actions={actions}
+            />
+          </div>
         ) : null}
-        {archived.length > 0 ? (
-          <CollapsibleSessions
-            label="Archived"
-            sessions={archived}
-            projectNameOf={projectNameOf}
-            projectColorOf={projectColorOf}
-            handlers={handlers}
-            icon={Archive}
-          />
-        ) : null}
+        {archivedShelf}
       </>
     )
 
   return (
     <>
-      <div className="flex flex-col gap-0.5 px-2 pt-2">
+      <div className="px-2 pt-1">
         <button
           type="button"
           aria-label="New session"
           title="New session (Mod+N)"
           onClick={() => onNewSession?.()}
-          className="flex h-[30px] w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-glass-input px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="text-fg-subtle" />
+          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
           New session
           <Kbd className="ml-auto h-4 border-border/60 px-1 text-[10px] text-fg-subtle">Mod+N</Kbd>
         </button>
-        <button
-          type="button"
-          onClick={() => onOpenProject?.()}
-          className="flex h-[30px] w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-        >
-          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="text-fg-subtle" />
-          Open project
-        </button>
       </div>
       <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />
-      {trimmed === '' && projectGroups.length > 0 ? (
-        <div className="flex items-center px-3.5 pb-1 pt-2">
-          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-fg-subtle">
-            Projects
-          </span>
-          <button
-            type="button"
-            aria-label="Open another project"
-            onClick={() => onOpenProject?.()}
-            className="ml-auto flex size-[18px] items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <Plus size={12} strokeWidth={2} aria-hidden />
-          </button>
-        </div>
+      {trimmed === '' ? (
+        <SidebarViewSwitch view={view} onChange={setView} onOpenProject={onOpenProject} />
       ) : null}
       <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
         {body}
       </nav>
     </>
+  )
+}
+
+/**
+ * Section caption doubling as the Projects / Sessions view switch, with the
+ * open-project affordance trailing. Sits between the compose row and the list
+ * so the list itself carries no chrome.
+ */
+function SidebarViewSwitch({
+  view,
+  onChange,
+  onOpenProject,
+}: {
+  view: SidebarView
+  onChange: (view: SidebarView) => void
+  onOpenProject?: () => void
+}) {
+  const tab = (id: SidebarView, label: string) => {
+    const selected = view === id
+    return (
+      <button
+        key={id}
+        type="button"
+        aria-pressed={selected}
+        onClick={() => onChange(id)}
+        className={`rounded-sm px-1 text-[11px] font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+          selected ? 'text-fg' : 'text-fg-subtle hover:text-fg-muted'
+        }`}
+      >
+        {label}
+      </button>
+    )
+  }
+  return (
+    <div className="flex h-8 items-center gap-1 px-3">
+      <div role="group" aria-label="Sidebar view" className="flex items-center gap-1">
+        {tab('projects', 'Projects')}
+        <span aria-hidden className="text-[11px] text-fg-subtle/60">
+          ·
+        </span>
+        {tab('sessions', 'Sessions')}
+      </div>
+      <button
+        type="button"
+        aria-label="Open project"
+        title="Open project"
+        onClick={() => onOpenProject?.()}
+        className="ml-auto flex size-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        <FolderPlus size={13} strokeWidth={1.8} aria-hidden />
+      </button>
+    </div>
   )
 }
 
