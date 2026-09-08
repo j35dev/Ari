@@ -2,7 +2,7 @@ import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolveInsideRoots } from './path-jail'
+import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 
 const dirs: string[] = []
 
@@ -78,6 +78,46 @@ describe('resolveInsideRoots', () => {
 
     await expect(resolveInsideRoots(resolve(anywhere), [])).rejects.toThrow(
       'no registered project folders',
+    )
+  })
+})
+
+describe('resolveScopedPath', () => {
+  it('resolves a relative path inside its scope root', async () => {
+    const project = await makeRoot()
+    const target = join(project, 'notes.txt')
+    await writeFile(target, 'hi', 'utf8')
+
+    await expect(resolveScopedPath(project, 'notes.txt')).resolves.toBe(resolve(target))
+    await expect(resolveScopedPath(project, '.')).resolves.toBe(resolve(project))
+  })
+
+  it('refuses absolute paths that would discard the scope root', async () => {
+    const project = await makeRoot()
+
+    await expect(resolveScopedPath(project, join(project, 'notes.txt'))).rejects.toThrow(
+      'workspace-relative',
+    )
+  })
+
+  it('refuses dot-dot escapes above the scope root', async () => {
+    const project = await makeRoot()
+
+    await expect(resolveScopedPath(project, '..')).rejects.toThrow(
+      'path escapes registered project folders',
+    )
+  })
+
+  it('refuses symlinks inside the scope that point outside it', async () => {
+    if (process.platform === 'win32') return // symlink creation needs privileges
+    const project = await makeRoot()
+    const outside = await makeRoot()
+    const secret = join(outside, 'real.md')
+    await writeFile(secret, 'top secret', 'utf8')
+    await symlink(secret, join(project, 'door.md'))
+
+    await expect(resolveScopedPath(project, 'door.md')).rejects.toThrow(
+      'path escapes registered project folders',
     )
   })
 })

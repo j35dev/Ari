@@ -431,6 +431,19 @@ function Shell() {
         ? sessionWorkspace.path
         : null
       : (projects.find((p) => p.id === activeSession?.projectId)?.path ?? projects[0]?.path ?? null)
+  // Capability scope matching activeProjectPath above: a session workspace
+  // resolves by session id, a project folder by project id. The explorer
+  // sends this scope plus relative paths only — absolute paths never cross
+  // IPC for fs.* calls.
+  const activeScopeProjectId = activeSession?.projectId ?? projects[0]?.id
+  const activeScope =
+    activeSessionId !== null
+      ? sessionWorkspace?.id === activeSessionId
+        ? { sessionId: activeSessionId }
+        : null
+      : activeScopeProjectId !== undefined
+        ? { projectId: activeScopeProjectId }
+        : null
 
   if (settingsOpen) {
     return (
@@ -709,8 +722,8 @@ function Shell() {
                                 projectId={activeSession?.projectId ?? null}
                               />
                             </ErrorBoundary>
-                          ) : activeProjectPath ? (
-                            <FileExplorer root={activeProjectPath} />
+                          ) : activeProjectPath && activeScope ? (
+                            <FileExplorer root={activeProjectPath} scope={activeScope} />
                           ) : (
                             <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
                               Open a project first — the explorer browses its folder.
