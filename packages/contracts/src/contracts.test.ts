@@ -192,12 +192,31 @@ describe('contracts', () => {
     expect(parsed.appearance).not.toHaveProperty('wallpaperLook')
   })
 
-  it('validates fs.writeTextFile params and rejects malformed payloads', () => {
-    const params = { path: '/proj/src/main.ts', content: 'export {}\n' }
+  it('validates fs.writeTextFile scope params and rejects malformed payloads', () => {
+    const params = { projectId: 'proj_1', path: 'src/main.ts', content: 'export {}\n' }
     expect(rpcParams['fs.writeTextFile'].parse(params)).toEqual(params)
-    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '', content: 'hi' })).toThrow()
-    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '/a.txt' })).toThrow()
-    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 7 })).toThrow()
+    expect(
+      rpcParams['fs.writeTextFile'].parse({ sessionId: 'sess_1', path: '.', content: 'hi' }),
+    ).toEqual({ sessionId: 'sess_1', path: '.', content: 'hi' })
+    expect(() =>
+      rpcParams['fs.writeTextFile'].parse({ projectId: 'proj_1', path: '', content: 'hi' }),
+    ).toThrow()
+    // Absolute paths are never capabilities: scope-relative only.
+    expect(() =>
+      rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 'hi' }),
+    ).toThrow()
+    // Exactly one scope: neither zero nor both.
+    expect(() =>
+      rpcParams['fs.writeTextFile'].parse({
+        projectId: 'proj_1',
+        sessionId: 'sess_1',
+        path: 'a.txt',
+        content: 'hi',
+      }),
+    ).toThrow()
+    expect(() =>
+      rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 7 }),
+    ).toThrow()
   })
 
   it('validates git.turnDiff params and rejects unsafe checkpoint components', () => {

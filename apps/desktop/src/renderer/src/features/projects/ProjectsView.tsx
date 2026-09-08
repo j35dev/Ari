@@ -31,10 +31,15 @@ export function pickRunner(entries: { name: string }[]): 'pnpm' | 'yarn' | 'npm'
 }
 
 /** Loads the project's scripts plus the runner implied by its lockfiles. */
-async function loadScripts(path: string): Promise<{ scripts: ScriptInfo[]; runner: 'pnpm' | 'yarn' | 'npm' }> {
+async function loadScripts(project: {
+  id: string
+  path: string
+}): Promise<{ scripts: ScriptInfo[]; runner: 'pnpm' | 'yarn' | 'npm' }> {
   const [scriptResult, files] = await Promise.all([
-    rpc.invoke('scripts.list', { path }),
-    rpc.invoke('fs.list', { path }).catch(() => [] as { name: string; type: string; size: number }[]),
+    rpc.invoke('scripts.list', { path: project.path }),
+    rpc
+      .invoke('fs.list', { projectId: project.id, path: '.' })
+      .catch(() => [] as { name: string; type: string; size: number }[]),
   ])
   return {
     scripts: scriptResult.scripts.slice(0, MAX_SCRIPT_BUTTONS),
@@ -72,7 +77,7 @@ function ProjectCard({
 
   useEffect(() => {
     let cancelled = false
-    void loadScripts(project.path)
+    void loadScripts(project)
       .then((result) => {
         if (cancelled) return
         setScripts(result.scripts)
