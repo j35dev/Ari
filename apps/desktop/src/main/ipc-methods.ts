@@ -1,3 +1,4 @@
+import type { WebContents } from 'electron'
 import type { RpcMethod } from '@ari/contracts/rpc'
 
 /**
@@ -75,3 +76,15 @@ export const IPC_METHODS = [
   'stream.subscribe',
   'stream.unsubscribe',
 ] as const satisfies readonly RpcMethod[]
+
+/**
+ * Phase-A trust boundary: only the main window's own webContents may invoke
+ * privileged RPC handlers. The preload bridge (`window.ari`) is exposed to
+ * every document hosted in the window, so a cross-context caller — a popup
+ * that escaped the window-open guard, a stray webContents, a second window —
+ * must never reach the registry. Compares by identity against the contents
+ * `registerRpc` was given; a destroyed window serves nothing.
+ */
+export function isTrustedIpcSender(sender: WebContents, contents: WebContents): boolean {
+  return sender === contents && !contents.isDestroyed()
+}
