@@ -22,6 +22,7 @@ describe('Titlebar workspace tools', () => {
     }
     expect(screen.queryByRole('button', { name: 'Sessions' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByText('Settings')).not.toBeInTheDocument()
   })
 
   it('reports the chosen tool', async () => {
