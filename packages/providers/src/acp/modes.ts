@@ -42,7 +42,7 @@ const FULL_PATTERNS = [...BYPASS_PATTERNS, ...AUTO_PATTERNS]
 /** Preference chain per Ari mode: first tier with a matching value wins. */
 const MODE_PREFERENCE: Record<PermissionMode, RegExp[][]> = {
   ask: [ASK_PATTERNS],
-  'allow-edits': [EDIT_PATTERNS, BYPASS_PATTERNS, AUTO_PATTERNS],
+  'allow-edits': [EDIT_PATTERNS],
   full: [BYPASS_PATTERNS, AUTO_PATTERNS, EDIT_PATTERNS],
 }
 
@@ -65,12 +65,9 @@ function looksLikePermissionAxis(values: string[]): boolean {
  * advertises, in candidate order. Returns null when nothing safe matches, which
  * the caller reads as "leave the agent alone".
  *
- * The two build modes take a last-resort escape hatch that `ask` deliberately
- * does not: any advertised mode that is not a planning/read-only mode. Agents
- * whose write mode Ari cannot name (opencode's `build` before it was listed
- * here) would otherwise be stranded in the planning mode a previous Ask-mode
- * turn selected, with no way out from inside Ari. Guessing in the other
- * direction would silently escalate permissions, so `ask` never falls back.
+ * Only `full` takes a last-resort escape hatch: any advertised mode that is
+ * not planning/read-only. Guessing for `ask` or `allow-edits` could silently
+ * escalate permissions; limited modes require a recognized safe match.
  *
  * The hatch is gated on {@link looksLikePermissionAxis}: applied to a list that
  * is not about permissions it picks the first entry, which is how an
@@ -83,10 +80,15 @@ export function pickAgentMode(
 ): string | null {
   const values = candidates.filter((v): v is string => typeof v === 'string' && v.length > 0)
   for (const patterns of MODE_PREFERENCE[mode]) {
-    const match = values.find((v) => matchesAny(v, patterns))
+    const match = values.find(
+      (v) =>
+        matchesAny(v, patterns) &&
+        (mode !== 'allow-edits' ||
+          (!matchesAny(v, FULL_PATTERNS) && !matchesAny(v, PLANNING_PATTERNS))),
+    )
     if (match !== undefined) return match
   }
-  if (mode === 'ask') return null
+  if (mode !== 'full') return null
   if (!looksLikePermissionAxis(values)) return null
   return values.find((v) => !matchesAny(v, PLANNING_PATTERNS)) ?? null
 }
