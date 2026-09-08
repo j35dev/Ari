@@ -34,6 +34,17 @@ describe('isAppUrl', () => {
     expect(isAppUrl(entry)).toBe(false)
   })
 
+  it('rejects a file URL with the entry pathname on a remote host', () => {
+    expect(isAppUrl('file://attacker.example/app/renderer/index.html', undefined, entry)).toBe(
+      false,
+    )
+  })
+
+  it('uses platform-correct path casing', () => {
+    expect(isAppUrl('file:///APP/renderer/index.html', undefined, entry, 'linux')).toBe(false)
+    expect(isAppUrl('file:///APP/renderer/index.html', undefined, entry, 'win32')).toBe(true)
+  })
+
   it('never treats data: URLs as the app', () => {
     expect(isAppUrl('data:text/html,<script>alert(1)</script>', undefined, entry)).toBe(false)
     expect(isAppUrl('data:text/html,hi')).toBe(false)
