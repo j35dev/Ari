@@ -119,6 +119,7 @@ function Shell() {
     () => localStorage.getItem('ari.sidebar.open') !== '0',
   )
   const sidebar = useSidebarWidth()
+  const sidebarSearchRef = useRef<HTMLInputElement>(null)
   const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -506,11 +507,16 @@ function Shell() {
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
           <aside className="ari-glass flex shrink-0 flex-col" style={{ width: sidebar.width }}>
-            <SidebarHeader onNewSession={() => createSession()} onCollapse={toggleSidebar} />
+            <SidebarHeader
+              onSearch={() => sidebarSearchRef.current?.focus()}
+              onCollapse={toggleSidebar}
+            />
             <SessionsUnderProjects
               sessions={sessions}
               projects={openProjects}
               knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
+              searchInputRef={sidebarSearchRef}
+              onNewSession={() => createSession()}
               onOpenProject={openProjectViaDialog}
               onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
               onImportSessions={setImportProjectId}
