@@ -20,7 +20,6 @@ describe('ChangesView', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
-      if (method === 'session.workspace') return { path: 'C:\\worktrees\\child' }
       if (method === 'project.list')
         return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
       if (method === 'git.status') return { isRepo: true, branch: 'main', files: [] }
@@ -49,13 +48,17 @@ describe('ChangesView', () => {
     expect(await screen.findByText(/Worktree clean/)).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Checkpoints' })).not.toBeInTheDocument()
     expect(invokeMock).not.toHaveBeenCalledWith('session.load', expect.anything())
+    // Project scope: no working directory crosses IPC.
+    expect(invokeMock).toHaveBeenCalledWith('git.status', { projectId: 'proj_1' })
   })
 
   it('reviews the selected child worktree instead of the project checkout', async () => {
     render(<ToastProvider><ChangesView sessionId="sess_1" projectId="proj_1" /></ToastProvider>)
 
     await screen.findByRole('button', { name: 'Revert turn t1' })
-    expect(invokeMock).toHaveBeenCalledWith('git.status', { path: 'C:\\worktrees\\child' })
+    // Session scope: the worktree resolves server-side, no path round-trip.
+    expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
+    expect(invokeMock).not.toHaveBeenCalledWith('session.workspace', expect.anything())
   })
 
   it('changed-file chips drag as mention sources with their repo-relative path', async () => {
