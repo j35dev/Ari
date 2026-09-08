@@ -2,7 +2,7 @@ import { Check, Monitor } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
 import { useTheme } from '@ari/ui/theme-provider'
-import { themeChipRoles, themeList } from '@ari/ui/themes'
+import { themeList } from '@ari/ui/themes'
 import type { Theme, ThemeId } from '@ari/ui/themes'
 import { wallpapers } from '@ari/ui/wallpapers'
 import type { Wallpaper } from '@ari/ui/wallpapers'
@@ -12,16 +12,40 @@ import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:appearance')
 
-function ThemeChips({ theme }: { theme: Theme }) {
+/**
+ * Miniature window painted from the registry palette: a sidebar with one
+ * active row, a transcript with an accent reply. Shows how the theme actually
+ * reads instead of four abstract dots.
+ */
+function ThemePreview({ theme }: { theme: Theme }) {
+  const { colors } = theme
+  const line = (width: string, color: string) => (
+    <span className="block h-0.5 rounded-full" style={{ width, background: color }} />
+  )
   return (
-    <span className="flex shrink-0 gap-1" aria-hidden="true">
-      {themeChipRoles.map((role) => (
+    <span
+      aria-hidden="true"
+      className="flex h-14 w-24 shrink-0 overflow-hidden rounded border border-border"
+      style={{ background: colors.bg, color: colors.fg }}
+    >
+      <span
+        className="flex w-8 shrink-0 flex-col gap-1 p-1.5"
+        style={{ background: colors['surface-0'], borderRight: `1px solid ${colors.border}` }}
+      >
+        {line('60%', colors['fg-subtle'])}
+        <span className="mt-0.5 h-1.5 rounded-sm" style={{ background: colors['glass-active'] }} />
+        {line('80%', colors['surface-3'])}
+        {line('65%', colors['surface-3'])}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1 p-1.5">
+        {line('70%', colors['fg-muted'])}
+        {line('45%', colors['fg-subtle'])}
         <span
-          key={role}
-          className="size-3.5 rounded-full border border-border"
-          style={{ background: theme.colors[role] }}
+          className="mt-auto h-2.5 w-4/5 self-end rounded-sm"
+          style={{ background: colors['surface-1'], border: `1px solid ${colors.border}` }}
         />
-      ))}
+        <span className="h-1 w-2/5 rounded-full" style={{ background: colors.accent }} />
+      </span>
     </span>
   )
 }
@@ -45,10 +69,10 @@ function ThemeCard({
       role="radio"
       aria-checked={selected}
       onClick={onSelect}
-      className={`flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition-colors ${
+      className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         selected
-          ? 'border-accent bg-accent-subtle'
-          : 'border-border bg-surface-1 hover:border-border-strong'
+          ? 'border-accent/60 bg-accent-subtle'
+          : 'border-border bg-glass-input hover:border-border-strong hover:bg-glass-hover'
       }`}
     >
       {chips}
@@ -75,14 +99,14 @@ function ThemeGroup({
   return (
     <section className="mt-4" aria-label={title}>
       <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">{title}</h3>
-      <div role="radiogroup" aria-label={title} className="grid gap-2">
+      <div role="radiogroup" aria-label={title} className="grid gap-2 md:grid-cols-2">
         {themes.map((theme) => (
           <ThemeCard
             key={theme.id}
             label={theme.label}
             description={theme.description}
             selected={selectedMode === theme.id}
-            chips={<ThemeChips theme={theme} />}
+            chips={<ThemePreview theme={theme} />}
             onSelect={() => onSelect(theme.id)}
           />
         ))}

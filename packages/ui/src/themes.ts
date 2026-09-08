@@ -74,9 +74,6 @@ export interface Theme {
 
 export const defaultThemeId: ThemeId = 'obsidian'
 
-/** Roles previewed as swatches in the theme picker, in paint order. */
-export const themeChipRoles = ['bg', 'surface-2', 'accent', 'fg'] as const
-
 const obsidian: Theme = {
   id: 'obsidian',
   label: 'Obsidian',
@@ -115,8 +112,8 @@ const obsidian: Theme = {
     'glass-scrim': 'oklch(0.08 0 0 / 76%)',
     'glass-overlay': 'oklch(0.33 0 0 / 34%)',
     'glass-input': 'oklch(1 0 0 / 4%)',
-    'glass-hover': 'oklch(0.92 0 0 / 11%)',
-    'glass-active': 'oklch(0.92 0 0 / 16%)',
+    'glass-hover': 'oklch(0.92 0 0 / 8%)',
+    'glass-active': 'oklch(0.92 0 0 / 13%)',
     'shadow-1': '0 1px 2px oklch(0 0 0 / 35%)',
     'shadow-2': '0 4px 16px oklch(0 0 0 / 40%)',
     'shadow-3': '0 12px 40px oklch(0 0 0 / 50%)',
@@ -207,8 +204,8 @@ const nocturne: Theme = {
     'glass-scrim': 'oklch(0.13 0.032 271 / 78%)',
     'glass-overlay': 'oklch(0.32 0.05 268 / 38%)',
     'glass-input': 'oklch(0.9 0.04 250 / 6%)',
-    'glass-hover': 'oklch(0.92 0.03 250 / 12%)',
-    'glass-active': 'oklch(0.92 0.03 250 / 18%)',
+    'glass-hover': 'oklch(0.92 0.03 250 / 9%)',
+    'glass-active': 'oklch(0.92 0.03 250 / 14%)',
     'shadow-1': '0 1px 2px oklch(0.05 0.03 270 / 45%)',
     'shadow-2': '0 4px 16px oklch(0.05 0.03 270 / 50%)',
     'shadow-3': '0 12px 40px oklch(0.04 0.03 270 / 60%)',
