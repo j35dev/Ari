@@ -126,54 +126,48 @@ export function ApprovalCard({
       aria-label={`Approval requested: ${toolName}`}
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="rounded-lg border border-border bg-surface-1 p-3 shadow-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      className="px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-start gap-2">
         <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-baseline gap-2">
             <p className="text-xs font-medium text-fg">Permission needed</p>
+            <p className="min-w-0 truncate text-2xs text-fg-muted">{displayName}</p>
             {position !== undefined && total !== undefined && total > 1 ? (
-              <span className="ml-auto rounded-full bg-surface-2 px-1.5 text-2xs leading-4 tabular-nums text-fg-subtle">
-                {position}/{total} pending
+              <span className="ml-auto shrink-0 text-2xs tabular-nums text-fg-subtle">
+                {position}/{total}
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 text-2xs text-fg-muted">{displayName}</p>
 
           {headline ? (
-            <div className="mt-2.5 rounded-md bg-surface-2/70 px-2.5 py-2">
-              <p className="text-2xs uppercase tracking-[0.12em] text-fg-subtle">
+            <p className="mt-1 min-w-0 truncate font-mono text-xs text-fg" title={headline.detail}>
+              <span className="mr-1.5 text-2xs uppercase tracking-[0.1em] text-fg-subtle">
                 {headline.label}
-              </p>
-              <code
-                className="mt-0.5 block truncate font-mono text-xs leading-5 text-fg"
-                title={headline.detail}
-              >
-                {headline.detail}
-              </code>
-            </div>
+              </span>
+              {headline.detail}
+            </p>
           ) : null}
 
-          <details className="mt-2">
+          <details className="mt-1">
             <summary className="cursor-pointer select-none text-2xs text-fg-subtle transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring">
               Raw request
             </summary>
-            <pre className="mt-1.5 max-h-32 overflow-auto rounded-md bg-surface-2/50 p-2 font-mono text-2xs text-fg-muted">
+            <pre className="mt-1 max-h-24 overflow-auto font-mono text-2xs text-fg-muted">
               {prettySummary(summaryJson)}
             </pre>
           </details>
 
-          <div className="mt-3 flex items-center justify-end gap-1.5">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <Button
-              variant="ghost"
+              variant="primary"
               size="sm"
-              title="Deny (N)"
-              className="text-danger hover:bg-danger-subtle"
-              onClick={() => onRespond('deny')}
+              title="Allow (Y)"
+              onClick={() => onRespond('allow')}
             >
-              Deny
-              <ShortcutHint>N</ShortcutHint>
+              Allow
+              <ShortcutHint>Y</ShortcutHint>
             </Button>
             {canAlwaysAllow ? (
               <Button
@@ -187,13 +181,14 @@ export function ApprovalCard({
               </Button>
             ) : null}
             <Button
-              variant="primary"
+              variant="ghost"
               size="sm"
-              title="Allow (Y)"
-              onClick={() => onRespond('allow')}
+              title="Deny (N)"
+              className="text-danger hover:bg-danger-subtle"
+              onClick={() => onRespond('deny')}
             >
-              Allow
-              <ShortcutHint>Y</ShortcutHint>
+              Deny
+              <ShortcutHint>N</ShortcutHint>
             </Button>
           </div>
         </div>
