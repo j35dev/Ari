@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { fireEvent } from '@testing-library/react'
 import { useToast } from '@ari/ui/toast'
-import { BranchChip, AppProviders, App } from './App'
+import { AppProviders, App } from './App'
+import { BranchChip } from './shell/Titlebar'
 
 function ToastProbe() {
   const { toast } = useToast()
