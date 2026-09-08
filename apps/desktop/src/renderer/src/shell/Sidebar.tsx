@@ -56,14 +56,16 @@ const LIST_LAYOUT = { layout: 'position' as const, transition: transitions.resor
 const DRAG_CLICK_SLOP_PX = 4
 
 /** One indent column; children sit clearly under the parent orchestrator. */
-const TREE_COL_PX = 22
+const TREE_COL_PX = 16
 
-/** Vertical rail + elbow for nested child sessions. */
-function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] }) {
+/** Vertical rail + elbow for nested child sessions, tinted with the project hue. */
+function SessionTreeGuides({ lastAtDepth, hue }: { lastAtDepth: readonly boolean[]; hue: number }) {
   if (lastAtDepth.length === 0) return null
+  const stroke = `oklch(0.67 0.18 ${hue} / 0.4)`
   return (
     <span
       aria-hidden
+      data-tree-guides=""
       className="pointer-events-none relative shrink-0 self-stretch"
       style={{ width: lastAtDepth.length * TREE_COL_PX }}
     >
@@ -73,15 +75,16 @@ function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] })
           <span key={i} className="absolute inset-y-0" style={{ left: i * TREE_COL_PX + 7 }}>
             {current || !isLast ? (
               <span
-                className="absolute left-0 w-px bg-border-strong"
+                className="absolute left-0 w-px"
                 style={{
+                  background: stroke,
                   top: -2,
                   height: current && isLast ? 'calc(50% + 2px)' : 'calc(100% + 4px)',
                 }}
               />
             ) : null}
             {current ? (
-              <span className="absolute left-0 top-1/2 h-px w-2 bg-border-strong" />
+              <span className="absolute left-0 top-1/2 h-px w-2.5" style={{ background: stroke }} />
             ) : null}
           </span>
         )
@@ -157,6 +160,7 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
 function SessionRow({
   session,
   hasChildren = false,
+  childCount = 0,
   nested = false,
   projectName,
   colorIndex = 0,
@@ -171,6 +175,7 @@ function SessionRow({
 }: {
   session: SessionSummary
   hasChildren?: boolean
+  childCount?: number
   nested?: boolean
   projectName: string | null
   colorIndex?: number
@@ -261,12 +266,17 @@ function SessionRow({
   }
 
   return (
-    <div className="group relative flex items-center">
+    <div
+      className="group relative flex items-center"
+      data-session-role={hasChildren ? 'parent' : nested ? 'child' : undefined}
+    >
       <button
         type="button"
         onClick={() => onSelect(session.id)}
         onContextMenu={(e) => menu.open(session.id, e)}
-        className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-1.5 pr-7 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`flex min-w-0 flex-1 items-center rounded-md pr-7 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+          nested ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2.5 py-1.5'
+        } ${
           isActive
             ? quietActive
               ? 'text-fg font-medium'
@@ -290,21 +300,28 @@ function SessionRow({
           ) : (
             <span
               data-session-mark="idle"
-              className="size-1 rounded-full"
+              className={nested ? 'size-1 rounded-[1px]' : 'size-1 rounded-full'}
               style={{
-                background: `oklch(0.67 0.18 ${irisHue(colorIndex)} / ${isActive ? 0.9 : 0.55})`,
+                background: `oklch(0.67 0.18 ${irisHue(colorIndex)} / ${
+                  isActive ? 0.9 : nested ? 0.4 : 0.55
+                })`,
               }}
             />
           )}
         </span>
         <span
           className={`min-w-0 flex-1 truncate ${
-            hasChildren ? 'text-[13px] font-medium' : nested ? 'text-xs' : 'text-[13px]'
+            hasChildren ? 'text-[13px] font-medium text-fg' : nested ? 'text-xs' : 'text-[13px]'
           }`}
         >
           {session.title}
         </span>
-        {projectName ? (
+        {hasChildren && childCount > 0 ? (
+          <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 tabular-nums text-fg-subtle">
+            {childCount}
+          </span>
+        ) : null}
+        {projectName && !nested ? (
           <span className="hidden shrink-0 items-center gap-0.5 text-2xs text-fg-subtle lg:flex">
             <FolderGit2 size={10} aria-hidden />
             {projectName}
@@ -409,7 +426,10 @@ function SessionList({
           return (
             <motion.li key={s.id} {...LIST_LAYOUT}>
               <div className="flex items-center">
-                <SessionTreeGuides lastAtDepth={lastAtDepth} />
+                <SessionTreeGuides
+                  lastAtDepth={lastAtDepth}
+                  hue={irisHue(projectColorOf?.(s.projectId) ?? 0)}
+                />
                 {childCount > 0 && !searching ? (
                   <button
                     type="button"
@@ -440,6 +460,7 @@ function SessionList({
                   <SessionRow
                     session={s}
                     hasChildren={childCount > 0}
+                    childCount={childCount}
                     nested={lastAtDepth.length > 0}
                     projectName={projectNameOf?.(s.projectId) ?? null}
                     colorIndex={projectColorOf?.(s.projectId) ?? 0}
