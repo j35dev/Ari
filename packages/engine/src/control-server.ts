@@ -18,6 +18,12 @@ export interface ControlServerOptions {
     params: unknown,
     signal: AbortSignal,
   ): Promise<ControlResult>
+  /**
+   * Per-request ceiling for a hung invoke. When it elapses the request
+   * alone fails with `control_timeout`; the socket and every other
+   * in-flight request are unaffected. Defaults to 60s.
+   */
+  requestTimeoutMs?: number
 }
 
 /** Local-only authenticated control transport with per-runtime session credentials. */
@@ -145,25 +151,50 @@ export class AgentControlServer {
           fail('invalid_request')
           return
         }
-        if (++requests > 1000 || pending >= 8) {
+        if (++requests > 1000) {
           fail('delegation_limit')
           return
         }
+        // Failure isolation: every request gets its own accounting and
+        // deadline. A hung invoke fails ITSELF with `control_timeout` —
+        // never the socket, never its neighbors.
         pending++
         socket.setTimeout(3_660_000)
         const { id, method, params } = request.data
+        const requestController = new AbortController()
+        const onSocketAbort = (): void => requestController.abort()
+        controller.signal.addEventListener('abort', onSocketAbort, { once: true })
+        let settled = false
+        const timer = setTimeout(() => {
+          if (settled) return
+          settled = true
+          requestController.abort()
+          send({
+            type: 'response',
+            id,
+            ok: false,
+            error: { code: 'control_timeout', message: 'Control request timed out.' },
+          })
+        }, this.options.requestTimeoutMs ?? 60_000)
+        timer.unref?.()
         void this.options
-          .invoke(caller, method, params, controller.signal)
-          .then((result) => send({ type: 'response', id, ...result }))
-          .catch(() =>
-            send({
-              type: 'response',
-              id,
-              ok: false,
-              error: { code: 'internal_error', message: 'Control request failed.' },
-            }),
-          )
+          .invoke(caller, method, params, requestController.signal)
+          .then((result) => {
+            if (!settled) send({ type: 'response', id, ...result })
+          })
+          .catch(() => {
+            if (!settled)
+              send({
+                type: 'response',
+                id,
+                ok: false,
+                error: { code: 'internal_error', message: 'Control request failed.' },
+              })
+          })
           .finally(() => {
+            settled = true
+            clearTimeout(timer)
+            controller.signal.removeEventListener('abort', onSocketAbort)
             if (--pending === 0) socket.setTimeout(15_000)
           })
       }

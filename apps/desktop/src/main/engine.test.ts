@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Command } from '@ari/contracts/commands'
@@ -83,6 +83,50 @@ async function seedSession(
 }
 
 describe('engine end-to-end with scripted driver', () => {
+  it('keeps quiesce fenced while turn-start events are being journaled', async () => {
+    let releaseAppend!: () => void
+    const appendEntered = new Promise<void>((resolve) => {
+      releaseAppend = resolve
+    })
+    let appendBlocked!: () => void
+    const appendGate = new Promise<void>((resolve) => {
+      appendBlocked = resolve
+    })
+    const originalAppend = store.append.bind(store)
+    vi.spyOn(store, 'append').mockImplementation(async (sessionId, event) => {
+      if (event.type === 'turn.started') {
+        releaseAppend()
+        await appendGate
+      }
+      return originalAppend(sessionId, event)
+    })
+
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'finished' }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_quiesce_fence'
+    await seedSession(store, sessionId)
+
+    const dispatching = engine.dispatch({ type: 'turn.start', sessionId, text: 'start' } as Command)
+    await appendEntered
+    let quiesced = false
+    const quiescing = engine.quiesce(sessionId).then(() => {
+      quiesced = true
+    })
+    await Promise.resolve()
+    expect(quiesced).toBe(false)
+
+    appendBlocked()
+    await dispatching
+    await quiescing
+    expect(quiesced).toBe(true)
+  }, 10000)
+
   it('runs a full turn: journal events land and subscribers see them', async () => {
     const registry = new DriverRegistry()
     registry.register(scriptedDriver({ echo: 'hello world' }))
