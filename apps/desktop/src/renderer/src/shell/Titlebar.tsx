@@ -105,14 +105,13 @@ export function Titlebar({
                 aria-pressed={selected}
                 title={item.label}
                 onClick={() => onSelectTool(item.id)}
-                className={`group relative flex h-7 items-center gap-1.5 px-2.5 rounded-lg text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                className={`flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                   selected
                     ? 'bg-accent/15 text-accent border border-accent/25 shadow-sm'
                     : 'text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent'
                 }`}
               >
-                <Icon size={13} strokeWidth={selected ? 2 : 1.7} aria-hidden />
-                <span className="hidden md:inline text-2xs">{item.label}</span>
+                <Icon size={14} strokeWidth={selected ? 2 : 1.7} aria-hidden />
               </button>
             )
           })}
