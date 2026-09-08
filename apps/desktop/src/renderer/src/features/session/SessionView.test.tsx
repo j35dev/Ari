@@ -701,7 +701,6 @@ describe('SessionView per-turn diff cards', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('git.turnDiff', {
-        path: PROJECT.path,
         sessionId: 'sess_1',
         turnId: 'turn_1',
       })

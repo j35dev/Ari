@@ -28,7 +28,7 @@ describe('ShipSection', () => {
       }
     })
     const onShipped = vi.fn()
-    render(<ShipSection projectPath={'C:\\repo'} hasChanges onShipped={onShipped} />)
+    render(<ShipSection scope={{ projectId: 'proj_1' }} hasChanges onShipped={onShipped} />)
 
     await user.type(screen.getByLabelText('Commit message'), 'feat: add widget{Enter}')
 
@@ -49,7 +49,7 @@ describe('ShipSection', () => {
       if (method === 'git.createPr') return { ok: true, url: 'https://github.com/o/r/pull/1' }
       return { ok: true }
     })
-    render(<ShipSection projectPath={'C:\\repo'} hasChanges onShipped={() => undefined} />)
+    render(<ShipSection scope={{ projectId: 'proj_1' }} hasChanges onShipped={() => undefined} />)
 
     await user.type(screen.getByLabelText('Commit message'), 'work')
     await user.click(screen.getByRole('button', { name: 'Commit & push' }))
@@ -57,7 +57,7 @@ describe('ShipSection', () => {
 
     expect(await screen.findByText(/github.com\/o\/r\/pull\/1/)).toBeInTheDocument()
     expect(rpcMocks.invoke).toHaveBeenCalledWith('git.createPr', {
-      path: 'C:\\repo',
+      projectId: 'proj_1',
       title: 'work',
     })
   })
@@ -68,7 +68,7 @@ describe('ShipSection', () => {
       if (method === 'git.push') return { ok: false, error: 'no upstream' }
       return { ok: true }
     })
-    render(<ShipSection projectPath={'C:\\repo'} hasChanges onShipped={() => undefined} />)
+    render(<ShipSection scope={{ projectId: 'proj_1' }} hasChanges onShipped={() => undefined} />)
 
     await user.type(screen.getByLabelText('Commit message'), 'work')
     await user.click(screen.getByRole('button', { name: 'Commit & push' }))
@@ -84,7 +84,7 @@ describe('ShipSection', () => {
         return { ok: false, url: null, error: 'the GitHub CLI (gh) is not installed' }
       return { ok: true }
     })
-    render(<ShipSection projectPath={'C:\\repo'} hasChanges onShipped={() => undefined} />)
+    render(<ShipSection scope={{ projectId: 'proj_1' }} hasChanges onShipped={() => undefined} />)
 
     await user.type(screen.getByLabelText('Commit message'), 'work')
     await user.click(screen.getByRole('button', { name: 'Commit & push' }))
