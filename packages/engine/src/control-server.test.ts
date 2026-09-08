@@ -106,6 +106,85 @@ it('authenticates session tokens, rejects versions and cancels disconnected requ
   }
 })
 
+it('rejects excess in-flight requests without closing the socket', async () => {
+  const endpoint =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\ari-test-${randomUUID()}`
+      : join(tmpdir(), `ari-${randomUUID()}.sock`)
+  const server = new AgentControlServer({
+    endpoint,
+    requestTimeoutMs: 25,
+    maxInFlightRequests: 1,
+    invoke: async (_caller, method) => {
+      if (method === 'session.get') await new Promise<never>(() => undefined)
+      return { ok: true, result: { method } }
+    },
+  })
+  await server.listen()
+  const socket = connect(endpoint)
+  const replies: unknown[] = []
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let buffer = ''
+      let sentAfterTimeout = false
+      socket.on('error', reject)
+      socket.on('connect', () => {
+        const token = server.tokenFor('root')
+        socket.write(
+          [
+            { type: 'hello', version: 1, token },
+            {
+              type: 'request',
+              id: 'hung',
+              method: 'session.get',
+              params: { targetSessionId: 's' },
+            },
+            { type: 'request', id: 'excess', method: 'runtime.info', params: {} },
+          ]
+            .map((frame) => JSON.stringify(frame))
+            .join('\n') + '\n',
+        )
+      })
+      socket.on('data', (data) => {
+        buffer += data.toString()
+        while (buffer.includes('\n')) {
+          const end = buffer.indexOf('\n')
+          replies.push(JSON.parse(buffer.slice(0, end)) as unknown)
+          buffer = buffer.slice(end + 1)
+        }
+        if (replies.length === 3 && !sentAfterTimeout) {
+          sentAfterTimeout = true
+          socket.write(
+            `${JSON.stringify({ type: 'request', id: 'after', method: 'runtime.info', params: {} })}\n`,
+          )
+        }
+        if (replies.length === 4) resolve()
+      })
+    })
+    expect(replies).toContainEqual({
+      type: 'response',
+      id: 'excess',
+      ok: false,
+      error: { code: 'delegation_limit', message: 'Too many in-flight control requests.' },
+    })
+    expect(replies).toContainEqual({
+      type: 'response',
+      id: 'hung',
+      ok: false,
+      error: { code: 'control_timeout', message: 'Control request timed out.' },
+    })
+    expect(replies).toContainEqual({
+      type: 'response',
+      id: 'after',
+      ok: true,
+      result: { method: 'runtime.info' },
+    })
+  } finally {
+    socket.destroy()
+    await server.close()
+  }
+})
+
 it('times out one request without closing the socket or cancelling its sibling', async () => {
   const endpoint =
     process.platform === 'win32'
@@ -119,6 +198,9 @@ it('times out one request without closing the socket or cancelling its sibling',
         await new Promise<void>((resolve) =>
           signal.addEventListener('abort', () => resolve(), { once: true }),
         )
+      }
+      if (method === 'session.wait') {
+        await new Promise((resolve) => setTimeout(resolve, 50))
       }
       return { ok: true, result: { method } }
     },
@@ -142,6 +224,12 @@ it('times out one request without closing the socket or cancelling its sibling',
               params: { targetSessionId: 's' },
             },
             { type: 'request', id: 'fast', method: 'runtime.info', params: {} },
+            {
+              type: 'request',
+              id: 'wait',
+              method: 'session.wait',
+              params: { targetSessionIds: ['s'], timeoutMs: 100 },
+            },
           ]
             .map((frame) => JSON.stringify(frame))
             .join('\n') + '\n',
@@ -154,7 +242,7 @@ it('times out one request without closing the socket or cancelling its sibling',
           replies.push(JSON.parse(buffer.slice(0, end)) as unknown)
           buffer = buffer.slice(end + 1)
         }
-        if (replies.length === 3) resolve()
+        if (replies.length === 4) resolve()
       })
     })
     expect(replies).toContainEqual({ type: 'ready', version: 1 })
@@ -169,6 +257,12 @@ it('times out one request without closing the socket or cancelling its sibling',
       id: 'slow',
       ok: false,
       error: { code: 'control_timeout', message: 'Control request timed out.' },
+    })
+    expect(replies).toContainEqual({
+      type: 'response',
+      id: 'wait',
+      ok: true,
+      result: { method: 'session.wait' },
     })
   } finally {
     socket.destroy()
