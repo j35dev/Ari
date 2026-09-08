@@ -39,6 +39,22 @@ describe('installExternalLinkInterceptor', () => {
     }
   })
 
+  it('blocks data: and blob: payload links instead of navigating', () => {
+    const cleanup = installExternalLinkInterceptor()
+    try {
+      document.body.innerHTML =
+        '<a href="data:text/html,<script>alert(1)</script>">evil</a><a href="blob:abc">payload</a>'
+      for (const anchor of document.querySelectorAll('a')) {
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+        anchor.dispatchEvent(event)
+        expect(event.defaultPrevented).toBe(true)
+      }
+      expect(invoke).not.toHaveBeenCalled()
+    } finally {
+      cleanup()
+    }
+  })
+
   it('leaves downloads and in-page anchors on their default path', () => {
     const cleanup = installExternalLinkInterceptor()
     try {

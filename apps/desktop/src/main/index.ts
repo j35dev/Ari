@@ -1,4 +1,6 @@
 import { app, BrowserWindow, shell } from 'electron'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { isolateDevInstance } from './dev-instance'
 import { registerRpc } from './rpc'
 import { createTray, type TrayHandle } from './tray'
@@ -69,10 +71,15 @@ if (!gotLock) {
       return { action: 'deny' }
     })
     // Same-window clicks (bare <a href> from transcript markdown) never
-    // navigate the ADE: app URLs stay, everything openable goes to the OS
-    // browser, everything else is dropped.
+    // navigate the ADE: the app entry stays, everything openable goes to the
+    // OS browser, everything else is dropped. Only the packaged renderer's
+    // own entry file counts as the app — never an arbitrary file:/data: URL.
+    const devServerUrl = process.env['ELECTRON_RENDERER_URL']
+    const appFileUrl = devServerUrl
+      ? undefined
+      : pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href
     const guardNavigation = (_navEvent: { preventDefault(): void }, url: string): void => {
-      if (isAppUrl(url, process.env['ELECTRON_RENDERER_URL'])) return
+      if (isAppUrl(url, devServerUrl, appFileUrl)) return
       _navEvent.preventDefault()
       if (isExternalOpenable(url)) void shell.openExternal(url)
     }

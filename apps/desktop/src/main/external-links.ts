@@ -26,11 +26,19 @@ export function isExternalOpenable(rawUrl: string): boolean {
 }
 
 /**
- * True when the URL is the app itself: the packaged `file://` renderer, the
- * Vite dev-server origin, or an internal `about:`/`devtools:` navigation.
- * Everything else must never become a top-level document navigation.
+ * True when the URL is the app itself: the packaged renderer's entry file,
+ * the Vite dev-server origin, or an internal `about:`/`devtools:`
+ * navigation. Everything else must never become a top-level document
+ * navigation — notably arbitrary `file:` URLs (local file read rendered in
+ * the app window) and `data:` URLs (attacker HTML running in the app
+ * context with IPC access) are never the app.
  */
-export function isAppUrl(rawUrl: string, devServerUrl?: string): boolean {
+export function isAppUrl(
+  rawUrl: string,
+  devServerUrl?: string,
+  appFileUrl?: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
   let parsed: URL
   try {
     parsed = new URL(rawUrl)
@@ -38,8 +46,20 @@ export function isAppUrl(rawUrl: string, devServerUrl?: string): boolean {
     return false
   }
   if (APP_PROTOCOLS.has(parsed.protocol)) return true
-  if (parsed.protocol === 'file:') return true
-  if (parsed.protocol === 'data:') return true
+  if (parsed.protocol === 'file:') {
+    if (!appFileUrl) return false
+    let entry: URL
+    try {
+      entry = new URL(appFileUrl)
+    } catch {
+      return false
+    }
+    if (entry.protocol !== 'file:' || parsed.host !== entry.host) return false
+    // Same entry file: SPA hash routes (`index.html#/settings`) stay.
+    const pathname = (url: URL): string =>
+      platform === 'win32' ? url.pathname.toLowerCase() : url.pathname
+    return pathname(parsed) === pathname(entry)
+  }
   if (devServerUrl) {
     try {
       if (parsed.origin === new URL(devServerUrl).origin) return true
