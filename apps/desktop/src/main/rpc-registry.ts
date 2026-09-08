@@ -75,7 +75,12 @@ export class RpcRegistry {
   /** Publishes to every subscriber of that stream. */
   publish<P>(name: StreamName, payload: P): void {
     for (const sub of this.#subscribers.values()) {
-      if (sub.name === name) this.#deps.send({ id: sub.id, name, payload })
+      if (sub.name !== name) continue
+      try {
+        this.#deps.send({ id: sub.id, name, payload })
+      } catch {
+        // One dead renderer must not starve the rest or back-pressure journals.
+      }
     }
   }
 }

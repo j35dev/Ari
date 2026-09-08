@@ -80,6 +80,27 @@ describe('reduceSessionActivity', () => {
     const working: SessionActivity = { phase: 'working', startedAt: NOW }
     expect(apply([{ type: 'assistant.parts.appended' }], working)).toEqual(working)
   })
+
+  it('marks an idle parent working when a child spawns', () => {
+    expect(apply([{ type: 'child.session.spawned', at: NOW }])).toEqual({
+      phase: 'working',
+      startedAt: NOW,
+    })
+  })
+
+  it('flashes done when a child settles on an idle parent', () => {
+    expect(
+      apply([{ type: 'child.session.settled', stopReason: 'completed', at: NOW + 5 }]),
+    ).toEqual({ phase: 'done', startedAt: null, settledAt: NOW + 5 })
+  })
+
+  it('does not override a parent that is already working', () => {
+    const working: SessionActivity = { phase: 'working', startedAt: NOW }
+    expect(apply([{ type: 'child.session.spawned' }], working)).toEqual(working)
+    expect(apply([{ type: 'child.session.settled', stopReason: 'completed' }], working)).toEqual(
+      working,
+    )
+  })
 })
 
 describe('peakActivity', () => {
