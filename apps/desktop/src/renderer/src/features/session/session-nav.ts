@@ -43,6 +43,56 @@ export function sidebarGroups(sessions: SessionSummary[], projects: NavProject[]
   return unfiled.sessions.length > 0 ? [...groups, unfiled] : groups
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const RECENCY_BUCKETS = [
+  { id: 'pinned', name: 'Pinned' },
+  { id: 'today', name: 'Today' },
+  { id: 'yesterday', name: 'Yesterday' },
+  { id: 'week', name: 'Previous 7 days' },
+  { id: 'older', name: 'Older' },
+] as const
+
+function recencyBucketOf(session: SessionSummary, startOfToday: number): string {
+  if (session.pinned) return 'pinned'
+  if (session.updatedAt >= startOfToday) return 'today'
+  if (session.updatedAt >= startOfToday - DAY_MS) return 'yesterday'
+  if (session.updatedAt >= startOfToday - 7 * DAY_MS) return 'week'
+  return 'older'
+}
+
+/**
+ * The flat "sessions only" presentation: every live session across all
+ * projects, pinned first, then bucketed by recency (Today / Yesterday /
+ * Previous 7 days / Older). Child sessions follow their root so a thread never
+ * splits across buckets; the concatenated buckets equal `sidebarOrder` with no
+ * projects, which is what keyboard traversal walks in this view.
+ */
+export function recencyGroups(sessions: SessionSummary[], now = Date.now()): SidebarGroup[] {
+  const live = sessions.filter((s) => !s.archived)
+  const ids = new Set(live.map((s) => s.id))
+  const rootOf = new Map<string, SessionSummary>()
+  const byId = new Map(live.map((s) => [s.id, s]))
+  for (const session of live) {
+    let root = session
+    const seen = new Set<string>()
+    while (root.parentSessionId && ids.has(root.parentSessionId) && !seen.has(root.id)) {
+      seen.add(root.id)
+      root = byId.get(root.parentSessionId) ?? root
+    }
+    rootOf.set(session.id, root)
+  }
+  const startOfToday = new Date(now).setHours(0, 0, 0, 0)
+  const buckets = new Map<string, SidebarGroup>(
+    RECENCY_BUCKETS.map((b) => [b.id, { id: b.id, name: b.name, sessions: [] }]),
+  )
+  for (const session of [...live].sort(byPinnedThenRecency)) {
+    const root = rootOf.get(session.id) ?? session
+    buckets.get(recencyBucketOf(root, startOfToday))?.sessions.push(session)
+  }
+  return [...buckets.values()].filter((g) => g.sessions.length > 0)
+}
+
 /**
  * Canonical visible-session order. Without projects it is pinned-first then
  * newest; with open projects it walks the rendered groups top to bottom so
