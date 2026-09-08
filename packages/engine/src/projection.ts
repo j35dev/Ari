@@ -78,7 +78,8 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'child.session.settled':
     case 'child.session.integrated':
     case 'child.session.stopped':
-      next.childEvents = [...(state.childEvents ?? []), event]
+    case 'child.session.destroyed':
+      next.childEvents = [...(state.childEvents ?? []), event].slice(-200)
       break
     case 'session.created':
       // Normalize the optional sidebar flags so every read model carries

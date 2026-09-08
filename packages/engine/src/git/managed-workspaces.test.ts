@@ -135,3 +135,69 @@ it('returns conflicts while preserving parent working files and index', async ()
   expect(await readFile(join(repo, 'file.txt'), 'utf8')).toBe('parent\n')
   expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
 }, 20_000)
+
+it('releases the worktree, branch and orchestration refs and is idempotent', async () => {
+  const workspace = await manager.isolate(root, repo, 'child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
+  await writeFile(join(workspace.path, 'new.txt'), 'worker\n')
+  await manager.diff(child, false)
+  expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/child/')).not.toBe('')
+  await manager.release('child')
+  await expect(readFile(join(workspace.path, 'new.txt'))).rejects.toThrow()
+  expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain(workspace.path)
+  expect(git(repo, 'branch', '--list', workspace.branch)).toBe('')
+  expect(git(repo, 'for-each-ref', 'refs/ari/orchestration/child/')).toBe('')
+  await manager.release('child')
+  await manager.release('missing-child')
+}, 30_000)
+
+it('prunes snapshots keeping only the current commit', async () => {
+  const workspace = await manager.isolate(root, repo, 'child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
+  await writeFile(join(workspace.path, 'new.txt'), 'v1\n')
+  const first = (await manager.diff(child, false)) as { currentSnapshotCommit: string }
+  await writeFile(join(workspace.path, 'new.txt'), 'v2\n')
+  const second = (await manager.diff(child, false)) as { currentSnapshotCommit: string }
+  expect(second.currentSnapshotCommit).not.toBe(first.currentSnapshotCommit)
+  await manager.pruneSnapshots('child', second.currentSnapshotCommit)
+  const snapshots = git(
+    repo,
+    'for-each-ref',
+    '--format=%(refname)',
+    'refs/ari/orchestration/child/snapshots/',
+  )
+    .split('\n')
+    .filter(Boolean)
+  expect(snapshots).toEqual([
+    `refs/ari/orchestration/child/snapshots/${second.currentSnapshotCommit}`,
+  ])
+  expect(git(repo, 'rev-parse', '--verify', 'refs/ari/orchestration/child/base')).toBeTruthy()
+  expect(git(repo, 'rev-parse', '--verify', 'refs/ari/orchestration/child/current')).toBe(
+    second.currentSnapshotCommit,
+  )
+}, 30_000)
+
+it('leaves a single snapshot ref after many diffs and prune', async () => {
+  const workspace = await manager.isolate(root, repo, 'child')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  const child = { ...root, id: 'child', parentSessionId: root.id, workspace }
+  let current = ''
+  for (let i = 0; i < 5; i++) {
+    await writeFile(join(workspace.path, 'new.txt'), `v${i}\n`)
+    current = (
+      (await manager.diff(child, false)) as { currentSnapshotCommit: string }
+    ).currentSnapshotCommit
+  }
+  await manager.pruneSnapshots('child', current)
+  const snapshots = git(
+    repo,
+    'for-each-ref',
+    '--format=%(refname)',
+    'refs/ari/orchestration/child/snapshots/',
+  )
+    .split('\n')
+    .filter(Boolean)
+  expect(snapshots).toEqual([`refs/ari/orchestration/child/snapshots/${current}`])
+}, 30_000)
