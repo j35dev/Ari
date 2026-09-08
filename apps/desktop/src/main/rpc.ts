@@ -1,6 +1,6 @@
 import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -21,6 +21,7 @@ import {
   stage as gitStage,
 } from './git-actions'
 import { writeTextFile } from './fs-write'
+import { resolveInsideRoots } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
 import { ProviderAllowanceReader } from './provider-allowance'
@@ -592,6 +593,31 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const r = rpcRegistry
   r.register('ping', () => ({ pong: true, at: Date.now() }))
 
+  // P0 path jail: renderer-supplied absolute paths are untrusted input. Every
+  // privileged handler below that touches the disk resolves its path through
+  // the registered project folders plus managed session worktrees (the same
+  // roots writes use) and refuses anything outside — canonicalized through
+  // symlinks, fail-closed. `project.add`/`project.open` define roots and the
+  // OS picker sources them, so they stay outside the jail by construction.
+  async function collectFsRoots(): Promise<string[]> {
+    await getProjectStore().load()
+    const roots = getProjectStore()
+      .list()
+      .map((p) => p.path)
+    for (const summary of await getSessionStore().listSessions()) {
+      if (summary.workspaceKind !== 'managed-worktree') continue
+      const { session } = await getSessionStore().load(summary.id)
+      const workspace = session ? await engine.workspace(session) : null
+      if (workspace) roots.push(workspace)
+    }
+    return roots
+  }
+
+  /** Resolves a renderer-supplied path inside the jail; throws when outside. */
+  async function jailPath(target: string): Promise<string> {
+    return resolveInsideRoots(resolve(target), await collectFsRoots())
+  }
+
   r.register('app.info', () => ({
     platform: process.platform,
     homeDir: homedir(),
@@ -942,7 +968,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const mod = await loadPtyModule()
     if (!mod) throw new Error('terminal backend unavailable (native module failed to load)')
     ptyModule = mod
-    terminals.create(params.id, params.cwd)
+    // The pty inherits the app's full environment by design (a local dev
+    // shell cannot run without it), so its working directory must stay
+    // inside the jail — otherwise any renderer compromise becomes a shell
+    // anywhere on the machine.
+    terminals.create(params.id, await jailPath(params.cwd))
     return { created: true }
   })
 
@@ -1008,8 +1038,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { path: result.filePaths[0] ?? null }
   })
 
-  r.register('shell.revealPath', (params) => {
-    shell.showItemInFolder(params.path)
+  r.register('shell.revealPath', async (params) => {
+    shell.showItemInFolder(await jailPath(params.path))
     return { revealed: true }
   })
 
@@ -1063,6 +1093,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       root = project.path
     }
     if (root === null) throw new Error('projectId or path is required')
+    // An explicit path is renderer-controlled: jail it like every other read.
+    if (params.projectId === undefined) root = await jailPath(root)
     return searchProjectContent(root, params.query, { maxResults: params.maxResults })
   })
 
@@ -1195,7 +1227,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('git.status', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    const result = await new GitService().status(params.path)
+    const result = await new GitService().status(await jailPath(params.path))
     if (!result.ok) return { isRepo: false, branch: null, files: [], error: result.error.message }
     return {
       isRepo: true,
@@ -1206,7 +1238,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('git.diffWorktree', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    const result = await new GitService().diffForRef(params.path, 'HEAD')
+    const result = await new GitService().diffForRef(await jailPath(params.path), 'HEAD')
     if (!result.ok) return { diffText: '', error: result.error.message }
     return { diffText: result.value }
   })
@@ -1214,31 +1246,39 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Per-turn diff (M8.4): worktree vs the turn's hidden checkpoint ref.
   r.register('git.turnDiff', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    return queryTurnDiff((cwd, gitRef) => new GitService().diffForRef(cwd, gitRef), params)
+    return queryTurnDiff((cwd, gitRef) => new GitService().diffForRef(cwd, gitRef), {
+      ...params,
+      path: await jailPath(params.path),
+    })
   })
 
   // Mutating git actions (M19.5): performGitAction jails `path` to an existing
   // directory and maps every failure into a `{ ok: false, error }` result so
-  // nothing throws across IPC.
-  r.register('git.add', async (params) =>
-    performGitAction(params.path, () => gitStage(params.path, params.paths)),
-  )
+  // nothing throws across IPC. The jail check first pins that directory
+  // inside the registered roots.
+  r.register('git.add', async (params) => {
+    const cwd = await jailPath(params.path)
+    return performGitAction(cwd, () => gitStage(cwd, params.paths))
+  })
 
-  r.register('git.commit', async (params) =>
-    performGitAction(params.path, () => gitCommit(params.path, params.message)),
-  )
+  r.register('git.commit', async (params) => {
+    const cwd = await jailPath(params.path)
+    return performGitAction(cwd, () => gitCommit(cwd, params.message))
+  })
 
-  r.register('git.push', async (params) =>
-    performGitAction(params.path, () => gitPush(params.path, params.remote)),
-  )
+  r.register('git.push', async (params) => {
+    const cwd = await jailPath(params.path)
+    return performGitAction(cwd, () => gitPush(cwd, params.remote))
+  })
 
   // Ship flow (M21.4): open a PR through the GitHub CLI.
   r.register('git.createPr', async (params) => {
-    const info = await stat(params.path).catch(() => null)
+    const cwd = await jailPath(params.path)
+    const info = await stat(cwd).catch(() => null)
     if (info === null || !info.isDirectory()) {
       return { ok: false, url: null, error: 'path must be an existing project directory' }
     }
-    const result = await createPullRequest(params.path, {
+    const result = await createPullRequest(cwd, {
       title: params.title,
       ...(params.body !== undefined ? { body: params.body } : {}),
       ...(params.base !== undefined ? { base: params.base } : {}),
@@ -1249,20 +1289,21 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('fs.list', async (params) => {
-    // Path jail: the caller passes an absolute directory; it must exist and
-    // be a directory, and only regular files/dirs directly inside are
-    // returned (symlinks and special entries are skipped so listings cannot
-    // escape the tree).
-    const info = await stat(params.path).catch(() => null)
+    // Jailed to registered roots first: the caller passes an absolute
+    // directory, and it must canonicalize inside the jail before anything is
+    // stat'ed. Only regular files/dirs directly inside are returned
+    // (symlinks and special entries are skipped so listings cannot escape).
+    const root = await jailPath(params.path)
+    const info = await stat(root).catch(() => null)
     if (info === null) throw new Error('path does not exist')
     if (!info.isDirectory()) throw new Error('not a directory')
-    const dirents = await readdir(params.path, { withFileTypes: true })
+    const dirents = await readdir(root, { withFileTypes: true })
     const listed: RpcResults['fs.list'] = []
     for (const dirent of dirents) {
       if (dirent.isDirectory()) {
         listed.push({ name: dirent.name, type: 'dir', size: 0 })
       } else if (dirent.isFile()) {
-        const size = await stat(join(params.path, dirent.name)).then(
+        const size = await stat(join(root, dirent.name)).then(
           (s) => s.size,
           () => 0,
         )
@@ -1276,7 +1317,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('fs.readTextFile', async (params) => {
     const cap = Math.min(params.maxBytes ?? FS_READ_MAX_BYTES, FS_READ_MAX_BYTES)
-    const handle = await open(params.path, 'r')
+    // Reads are jailed exactly like writes: an arbitrary renderer path must
+    // canonicalize inside the registered roots before it is opened.
+    const handle = await open(await jailPath(params.path), 'r')
     try {
       const { size } = await handle.stat()
       if (size === 0) return { content: '', truncated: false }
@@ -1298,17 +1341,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('fs.writeTextFile', async (params) => {
     // Writes are jailed harder than reads: the target must canonicalize
     // (symlinks included) inside a registered project folder.
-    await getProjectStore().load()
-    const roots = getProjectStore()
-      .list()
-      .map((p) => p.path)
-    for (const summary of await getSessionStore().listSessions()) {
-      if (summary.workspaceKind !== 'managed-worktree') continue
-      const { session } = await getSessionStore().load(summary.id)
-      const path = session ? await engine.workspace(session) : null
-      if (path) roots.push(path)
-    }
-    const bytesWritten = await writeTextFile(params, roots)
+    const bytesWritten = await writeTextFile(params, await collectFsRoots())
     return { bytesWritten }
   })
 
@@ -1320,7 +1353,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('plan.get', async (params) => {
     try {
       const filename = params.sessionId ? todoFilenameFor(params.sessionId) : TODO_FILENAME
-      const raw = await readFile(join(params.path, filename), 'utf8')
+      // The containing folder is renderer-supplied: jail it before reading.
+      const raw = await readFile(join(await jailPath(params.path), filename), 'utf8')
       const parsed: unknown = JSON.parse(raw)
       if (!Array.isArray(parsed)) return { items: null }
       const items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] = []
@@ -1343,7 +1377,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   // Run scripts (M21.3): npm-style `scripts` from the folder's package.json.
-  r.register('scripts.list', async (params) => listScripts(params.path))
+  r.register('scripts.list', async (params) => listScripts(await jailPath(params.path)))
 
   r.register('stream.subscribe', (params) => {
     rpcRegistry.subscribe({
