@@ -49,9 +49,10 @@ function ActivityLedger({ entries }: { entries: ActivityLedgerEntry[] }) {
  * straight to that call's body.
  */
 export function ActivityBurst({ row }: { row: ToolGroupRow }) {
-  const [open, setOpen] = useState(false)
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null)
   const activity = useMemo(() => describeActivity(row), [row])
   const { verb, subject, more, label, working, summary, ledger, stat } = activity
+  const open = openOverride ?? working
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
   const lone = steps.length === 1 && steps[0]?.kind === 'tool-call' ? steps[0] : undefined
   const failed = summary.errors > 0
@@ -68,17 +69,21 @@ export function ActivityBurst({ row }: { row: ToolGroupRow }) {
     >
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpenOverride(!open)}
         aria-expanded={open}
         aria-label={named.join(' · ')}
         className="group flex w-full items-center gap-2 rounded-md px-1 py-[3px] text-left transition-colors hover:bg-surface-1/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
       >
+        {working ? (
+          <span className="flex shrink-0 items-center gap-1 font-mono text-2xs text-accent">
+            <span className="ari-pulse size-1 rounded-full bg-accent" aria-hidden="true" />
+            live
+          </span>
+        ) : null}
         <span className="min-w-0 flex-1 truncate">
           <span className={`text-xs ${working ? 'text-fg' : 'text-fg-subtle'}`}>{verb}</span>
           {subject.length > 0 ? (
-            <span
-              className={`ml-1.5 font-mono text-2xs ${working ? 'text-fg' : 'text-fg-muted'}`}
-            >
+            <span className={`ml-1.5 font-mono text-2xs ${working ? 'text-fg' : 'text-fg-muted'}`}>
               {subject}
             </span>
           ) : null}
@@ -134,6 +139,6 @@ function BurstStep({
   step: TranscriptBlock
   results: Map<string, TranscriptBlock>
 }) {
-  if (step.kind === 'thinking') return <ThinkingBlock text={step.text ?? ''} />
+  if (step.kind === 'thinking') return <ThinkingBlock text={step.text ?? ''} compact />
   return <ActivityStep call={step} result={step.callId ? results.get(step.callId) : undefined} />
 }
