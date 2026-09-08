@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from '@ari/ui/dialog'
 import { rpc } from '../../lib/rpc'
+import type { FsTreeScope } from './FileExplorer'
 
 function fileName(path: string): string {
   const parts = path.split(/[\\/]/)
@@ -14,7 +15,9 @@ function fileName(path: string): string {
 }
 
 interface FileEditorProps {
-  /** Absolute path of the file being edited (inside the explorer root). */
+  /** Capability scope the file lives in (project or session workspace). */
+  scope: FsTreeScope
+  /** Workspace-relative path of the file being edited. */
   path: string
   /** Closes the editor; unsaved edits are discarded. */
   onClose: () => void
@@ -24,11 +27,12 @@ interface FileEditorProps {
 
 /**
  * Modal text editor for files opened from the FileExplorer. Loads via
- * `fs.readTextFile`, saves through `fs.writeTextFile`; Escape, the scrim and
- * Cancel all close without writing. Files over the edit cap or binary ones
- * render an error instead of an editable buffer.
+ * `fs.readTextFile`, saves through `fs.writeTextFile` — both scoped to the
+ * file's project/session plus a relative path, so absolute paths never cross
+ * IPC. Escape, the scrim and Cancel all close without writing. Files over
+ * the edit cap or binary ones render an error instead of an editable buffer.
  */
-export function FileEditor({ path, onClose, onSaved }: FileEditorProps) {
+export function FileEditor({ scope, path, onClose, onSaved }: FileEditorProps) {
   const [original, setOriginal] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +44,7 @@ export function FileEditor({ path, onClose, onSaved }: FileEditorProps) {
     setDraft('')
     setError(null)
     void rpc
-      .invoke('fs.readTextFile', { path })
+      .invoke('fs.readTextFile', { ...scope, path })
       .then((result) => {
         if (cancelled) return
         // A truncated read means the file is larger than we hold in memory;
@@ -58,7 +62,7 @@ export function FileEditor({ path, onClose, onSaved }: FileEditorProps) {
     return () => {
       cancelled = true
     }
-  }, [path])
+  }, [path, scope])
 
   const dirty = original !== null && draft !== original
 
@@ -67,7 +71,7 @@ export function FileEditor({ path, onClose, onSaved }: FileEditorProps) {
     setSaving(true)
     setError(null)
     void rpc
-      .invoke('fs.writeTextFile', { path, content: draft })
+      .invoke('fs.writeTextFile', { ...scope, path, content: draft })
       .then(() => {
         setOriginal(draft)
         onSaved?.()
@@ -78,7 +82,7 @@ export function FileEditor({ path, onClose, onSaved }: FileEditorProps) {
       .finally(() => {
         setSaving(false)
       })
-  }, [dirty, draft, onSaved, path, saving])
+  }, [dirty, draft, onSaved, path, saving, scope])
 
   const loaded = original !== null
 
