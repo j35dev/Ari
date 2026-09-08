@@ -214,19 +214,14 @@ export function SessionView({
   const [catalogModels, setCatalogModels] = useState<
     { kind: string; models: CatalogModelInfo[] }[]
   >([])
-  // Workspace path + refresh tick driving the plan panel (per-session
+  // Refresh tick driving the plan panel (per-session
   // `.ari-todo-<sessionId>.json`, keyed by this view's session id).
-  const [planPath, setPlanPath] = useState<string | null>(null)
   const [planNonce, setPlanNonce] = useState(0)
   // Review notes (M21.1): inline diff comments attached to the next message.
   const [reviewNotes, setReviewNotes] = useState<
     { path: string; line: number | null; text: string }[]
   >([])
   const sessionTitleRef = useRef('Session')
-  // Workspace path of the session's project — still needed by plan.get.
-  // git.turnDiff is capability-scoped ({sessionId, turnId}) and resolves its
-  // checkpoint workspace server-side, so diffs no longer wait on this ref.
-  const projectPathRef = useRef<string | null>(null)
   const fetchedTurnIdsRef = useRef(new Set<string>())
   const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
   // Stream ordering guards (M23.12): the journal replay on (re)subscribe races
@@ -281,7 +276,6 @@ export function SessionView({
     setTurnError(null)
     setTelemetry(EMPTY_TELEMETRY)
     setTurnDiffs({})
-    projectPathRef.current = null
     fetchedTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
 
@@ -346,7 +340,7 @@ export function SessionView({
     // stream above, so this can never clobber or duplicate it.
     void rpc
       .invoke('session.load', { sessionId })
-      .then(async (model) => {
+      .then((model) => {
         if (cancelled || !model) return
         const m = model as {
           session: Session
@@ -360,10 +354,6 @@ export function SessionView({
           permissionMode: m.session.permissionMode,
           effort: m.session.effort ?? null,
         })
-        const workspace = await rpc.invoke('session.workspace', { sessionId })
-        if (cancelled) return
-        projectPathRef.current = workspace.path
-        setPlanPath(projectPathRef.current)
       })
       .catch(() => undefined)
       .finally(() => {
@@ -779,7 +769,7 @@ export function SessionView({
             onEditUserMessage={handleEditMessage}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
             regenerateDisabled={running}
-            header={<PlanPanel path={planPath} sessionId={sessionId} refreshNonce={planNonce} />}
+            header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
           />
