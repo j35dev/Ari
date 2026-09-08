@@ -21,7 +21,7 @@ import {
   stage as gitStage,
 } from './git-actions'
 import { writeTextFile } from './fs-write'
-import { resolveInsideRoots } from './path-jail'
+import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowance, ProviderAllowanceReader } from './provider-allowance'
@@ -643,6 +643,35 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   /** Resolves a renderer-supplied path inside the jail; throws when outside. */
   async function jailPath(target: string): Promise<string> {
     return resolveInsideRoots(resolve(target), await collectFsRoots())
+  }
+
+  /**
+   * Resolves an `fs.*` capability scope to a trusted root — a registered
+   * project by id, or a session's workspace — then jails the relative path
+   * inside that root only (never the union of all roots). Unknown scopes
+   * and unavailable workspaces throw instead of touching the disk.
+   */
+  async function resolveFsScope(params: {
+    projectId?: string
+    sessionId?: string
+    path: string
+  }): Promise<string> {
+    let root: string
+    if (params.projectId !== undefined) {
+      await getProjectStore().load()
+      const project = getProjectStore().get(params.projectId)
+      if (!project) throw new Error(`unknown project: ${params.projectId}`)
+      root = project.path
+    } else if (params.sessionId !== undefined) {
+      const { session } = await getSessionStore().load(params.sessionId)
+      if (!session) throw new Error('unknown session')
+      const workspace = await engine.workspace(session)
+      if (!workspace) throw new Error('session workspace is unavailable')
+      root = workspace
+    } else {
+      throw new Error('projectId or sessionId is required')
+    }
+    return resolveScopedPath(root, params.path)
   }
 
   r.register('app.info', () => ({
@@ -1321,11 +1350,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('fs.list', async (params) => {
-    // Jailed to registered roots first: the caller passes an absolute
-    // directory, and it must canonicalize inside the jail before anything is
-    // stat'ed. Only regular files/dirs directly inside are returned
-    // (symlinks and special entries are skipped so listings cannot escape).
-    const root = await jailPath(params.path)
+    // Capability-scoped: the renderer sends a scope plus a relative path;
+    // the root comes from the main process's own stores, never the caller.
+    // Only regular files/dirs directly inside are returned (symlinks and
+    // special entries are skipped so listings cannot escape the tree).
+    const root = await resolveFsScope(params)
     const info = await stat(root).catch(() => null)
     if (info === null) throw new Error('path does not exist')
     if (!info.isDirectory()) throw new Error('not a directory')
@@ -1349,9 +1378,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('fs.readTextFile', async (params) => {
     const cap = Math.min(params.maxBytes ?? FS_READ_MAX_BYTES, FS_READ_MAX_BYTES)
-    // Reads are jailed exactly like writes: an arbitrary renderer path must
-    // canonicalize inside the registered roots before it is opened.
-    const handle = await open(await jailPath(params.path), 'r')
+    // Reads are scoped exactly like writes: a scope plus a relative path,
+    // resolved against the main process's own stores before it is opened.
+    const handle = await open(await resolveFsScope(params), 'r')
     try {
       const { size } = await handle.stat()
       if (size === 0) return { content: '', truncated: false }
@@ -1371,9 +1400,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('fs.writeTextFile', async (params) => {
-    // Writes are jailed harder than reads: the target must canonicalize
-    // (symlinks included) inside a registered project folder.
-    const bytesWritten = await writeTextFile(params, await collectFsRoots())
+    // Writes carry the same capability scope as reads: the target resolves
+    // inside one trusted scope root first, then the write jail below
+    // re-verifies it against the registered folders as defense in depth.
+    const target = await resolveFsScope(params)
+    const bytesWritten = await writeTextFile(
+      { path: target, content: params.content },
+      await collectFsRoots(),
+    )
     return { bytesWritten }
   })
 

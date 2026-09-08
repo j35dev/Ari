@@ -17,7 +17,7 @@ const invokeMock = rpcMocks.invoke as unknown as Mock<
 >
 
 const ROOT = 'C:\\demo'
-const SRC_DIR = 'C:\\demo\\src'
+const SCOPE = { projectId: 'proj_1' }
 
 const ROOT_ENTRIES = [
   { name: 'src', type: 'dir' as const, size: 0 },
@@ -29,9 +29,12 @@ const SRC_ENTRIES = [{ name: 'main.ts', type: 'file' as const, size: 120 }]
 function mockFs(): void {
   invokeMock.mockImplementation(async (method, params) => {
     if (method !== 'fs.list') throw new Error(`unexpected method: ${String(method)}`)
-    const path = (params as { path: string }).path
-    if (path === ROOT) return structuredClone(ROOT_ENTRIES)
-    if (path === SRC_DIR) return structuredClone(SRC_ENTRIES)
+    const { projectId, path } = params as { projectId?: string; path: string }
+    // The tree is capability-scoped: a project id plus a relative path.
+    // Absolute paths must never cross IPC.
+    if (projectId !== SCOPE.projectId) throw new Error('missing scope')
+    if (path === '.') return structuredClone(ROOT_ENTRIES)
+    if (path === 'src') return structuredClone(SRC_ENTRIES)
     throw new Error('path does not exist')
   })
 }
@@ -47,23 +50,23 @@ describe('FileExplorer', () => {
   })
 
   it('renders root entries from fs.list on mount', async () => {
-    render(<FileExplorer root={ROOT} />)
+    render(<FileExplorer root={ROOT} scope={SCOPE} />)
 
     expect(await screen.findByRole('treeitem', { name: 'src' })).toBeInTheDocument()
     expect(screen.getByRole('treeitem', { name: /^README\.md/ })).toBeInTheDocument()
     expect(screen.getByText('42 B')).toBeInTheDocument()
     expect(invokeMock).toHaveBeenCalledTimes(1)
-    expect(invokeMock).toHaveBeenCalledWith('fs.list', { path: ROOT })
+    expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: '.' })
   })
 
   it('expands a directory on click, listing its path once', async () => {
     const user = userEvent.setup()
-    render(<FileExplorer root={ROOT} />)
+    render(<FileExplorer root={ROOT} scope={SCOPE} />)
     await screen.findByRole('treeitem', { name: /^README\.md/ })
 
     await user.click(screen.getByRole('button', { name: 'src' }))
     expect(await screen.findByRole('treeitem', { name: /^main\.ts/ })).toBeInTheDocument()
-    expect(invokeMock).toHaveBeenCalledWith('fs.list', { path: SRC_DIR })
+    expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: 'src' })
 
     // Collapsing and re-expanding serves from cache.
     await user.click(screen.getByRole('button', { name: 'src' }))
@@ -76,7 +79,7 @@ describe('FileExplorer', () => {
 
   it('refresh re-lists the root plus every expanded directory', async () => {
     const user = userEvent.setup()
-    render(<FileExplorer root={ROOT} />)
+    render(<FileExplorer root={ROOT} scope={SCOPE} />)
     await screen.findByRole('treeitem', { name: /^README\.md/ })
     await user.click(screen.getByRole('button', { name: 'src' }))
     await screen.findByRole('treeitem', { name: /^main\.ts/ })
@@ -86,14 +89,14 @@ describe('FileExplorer', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledTimes(2)
-      expect(invokeMock).toHaveBeenNthCalledWith(1, 'fs.list', { path: ROOT })
-      expect(invokeMock).toHaveBeenNthCalledWith(2, 'fs.list', { path: SRC_DIR })
+      expect(invokeMock).toHaveBeenNthCalledWith(1, 'fs.list', { ...SCOPE, path: '.' })
+      expect(invokeMock).toHaveBeenNthCalledWith(2, 'fs.list', { ...SCOPE, path: 'src' })
     })
   })
 
   it('surfaces fs.list failures in an alert region', async () => {
     invokeMock.mockRejectedValue(new Error('path does not exist'))
-    render(<FileExplorer root="/missing" />)
+    render(<FileExplorer root="/missing" scope={SCOPE} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('path does not exist')
   })
@@ -103,21 +106,21 @@ describe('FileExplorer', () => {
     invokeMock.mockImplementation(async (method: string, params?: unknown) => {
       if (method === 'fs.list') {
         const path = (params as { path: string }).path
-        if (path === ROOT) return structuredClone(ROOT_ENTRIES)
+        if (path === '.') return structuredClone(ROOT_ENTRIES)
         throw new Error('path does not exist')
       }
       if (method === 'fs.readTextFile') return { content: 'saved version', truncated: false }
       if (method === 'fs.writeTextFile') return { bytesWritten: 5 }
       throw new Error(`unexpected method: ${String(method)}`)
     })
-    render(<FileExplorer root={ROOT} />)
+    render(<FileExplorer root={ROOT} scope={SCOPE} />)
     await screen.findByRole('treeitem', { name: /^README\.md/ })
     invokeMock.mockClear()
 
     await user.click(screen.getByRole('button', { name: /^README\.md/ }))
     const buffer = await screen.findByRole('textbox', { name: 'File contents' })
     await waitFor(() => expect(buffer).toHaveValue('saved version'))
-    expect(invokeMock).toHaveBeenCalledWith('fs.readTextFile', { path: `${ROOT}\\README.md` })
+    expect(invokeMock).toHaveBeenCalledWith('fs.readTextFile', { ...SCOPE, path: 'README.md' })
 
     await user.type(buffer, '!')
 
@@ -126,7 +129,7 @@ describe('FileExplorer', () => {
     invokeMock.mockImplementation(async (method: string, params?: unknown) => {
       if (method === 'fs.list') {
         const path = (params as { path: string }).path
-        if (path === ROOT) return structuredClone(ROOT_ENTRIES)
+        if (path === '.') return structuredClone(ROOT_ENTRIES)
         throw new Error('path does not exist')
       }
       return { bytesWritten: 6 }
@@ -135,15 +138,18 @@ describe('FileExplorer', () => {
 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('fs.writeTextFile', {
-        path: `${ROOT}\\README.md`,
+        ...SCOPE,
+        path: 'README.md',
         content: 'saved version!',
       }),
     )
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('fs.list', { path: ROOT }))
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('fs.list', { ...SCOPE, path: '.' }),
+    )
   })
 
   it('file rows drag with a workspace-relative mention payload', async () => {
-    render(<FileExplorer root={ROOT} />)
+    render(<FileExplorer root={ROOT} scope={SCOPE} />)
     await screen.findByRole('treeitem', { name: /^README\.md/ })
 
     const setData = vi.fn()
@@ -156,7 +162,7 @@ describe('FileExplorer', () => {
 
   it('nested file rows carry their path below the root', async () => {
     const user = userEvent.setup()
-    render(<FileExplorer root={ROOT} />)
+    render(<FileExplorer root={ROOT} scope={SCOPE} />)
     await screen.findByRole('treeitem', { name: /^README\.md/ })
     await user.click(screen.getByRole('button', { name: 'src' }))
     await screen.findByRole('treeitem', { name: /^main\.ts/ })
