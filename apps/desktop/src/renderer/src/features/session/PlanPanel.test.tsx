@@ -21,17 +21,16 @@ describe('PlanPanel', () => {
 
   it('renders nothing when no plan file exists', async () => {
     rpcMocks.invoke.mockResolvedValue({ items: null })
-    const { container } = render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    const { container } = render(<PlanPanel sessionId="ses-1" />)
     await waitFor(() => expect(rpcMocks.invoke).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
   })
 
   it('requests the plan scoped to the session', async () => {
     rpcMocks.invoke.mockResolvedValue({ items: null })
-    render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    render(<PlanPanel sessionId="ses-1" />)
     await waitFor(() =>
       expect(rpcMocks.invoke).toHaveBeenCalledWith('plan.get', {
-        path: 'C:/repo',
         sessionId: 'ses-1',
       }),
     )
@@ -39,17 +38,15 @@ describe('PlanPanel', () => {
 
   it('refetches when the session changes so siblings never share a plan', async () => {
     rpcMocks.invoke.mockResolvedValue({ items: null })
-    const { rerender } = render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    const { rerender } = render(<PlanPanel sessionId="ses-1" />)
     await waitFor(() =>
       expect(rpcMocks.invoke).toHaveBeenCalledWith('plan.get', {
-        path: 'C:/repo',
         sessionId: 'ses-1',
       }),
     )
-    rerender(<PlanPanel path="C:/repo" sessionId="ses-2" />)
+    rerender(<PlanPanel sessionId="ses-2" />)
     await waitFor(() =>
       expect(rpcMocks.invoke).toHaveBeenCalledWith('plan.get', {
-        path: 'C:/repo',
         sessionId: 'ses-2',
       }),
     )
@@ -57,7 +54,7 @@ describe('PlanPanel', () => {
   })
 
   it('renders nothing without fetching when the session is unknown', async () => {
-    const { container } = render(<PlanPanel path="C:/repo" sessionId={null} />)
+    const { container } = render(<PlanPanel sessionId={null} />)
     await waitFor(() => expect(container).toBeEmptyDOMElement())
     expect(rpcMocks.invoke).not.toHaveBeenCalled()
   })
@@ -70,7 +67,7 @@ describe('PlanPanel', () => {
         { text: 'write tests', status: 'pending' },
       ],
     })
-    render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    render(<PlanPanel sessionId="ses-1" />)
 
     expect(await screen.findByText('parse input')).toBeInTheDocument()
     expect(screen.getByText('refactor loop')).toBeInTheDocument()
@@ -83,7 +80,7 @@ describe('PlanPanel', () => {
       items: [{ text: 'only step', status: 'pending' }],
     })
     const user = userEvent.setup()
-    render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    render(<PlanPanel sessionId="ses-1" />)
 
     await screen.findByText('only step')
     await user.click(screen.getByRole('button', { name: /plan/i }))
@@ -95,7 +92,7 @@ describe('PlanPanel', () => {
 
   it('survives invoke failures silently', async () => {
     rpcMocks.invoke.mockRejectedValue(new Error('ipc gone'))
-    const { container } = render(<PlanPanel path="C:/repo" sessionId="ses-1" />)
+    const { container } = render(<PlanPanel sessionId="ses-1" />)
     await waitFor(() => expect(rpcMocks.invoke).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
   })

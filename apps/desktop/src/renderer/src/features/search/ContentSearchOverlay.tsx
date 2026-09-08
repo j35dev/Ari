@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { FileText, LoaderCircle, Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
 import { Kbd } from '@ari/ui/kbd'
-import type { RpcResults } from '@ari/contracts/rpc'
+import type { GitScope, RpcResults } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
 
 export interface ContentSearchOverlayProps {
@@ -13,6 +13,8 @@ export interface ContentSearchOverlayProps {
   onClose: () => void
   /** Project folder searched (path jail boundary); null disables searching. */
   root: string | null
+  /** Capability scope for the search RPC; null disables searching. */
+  scope: GitScope | null
 }
 
 type ContentMatch = RpcResults['search.content'][number]
@@ -39,7 +41,7 @@ export function toAbsolutePath(root: string, relative: string): string {
  * highlighted hit as `absolute-path:line` (no file editor exists yet), and
  * Escape or the backdrop closes.
  */
-export function ContentSearchOverlay({ open, onClose, root }: ContentSearchOverlayProps) {
+export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSearchOverlayProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ContentMatch[]>([])
   const [searching, setSearching] = useState(false)
@@ -61,8 +63,10 @@ export function ContentSearchOverlay({ open, onClose, root }: ContentSearchOverl
   }, [open])
 
   // Debounced live search; stale responses are dropped via the cancelled flag.
+  // The RPC carries the capability scope only — `root` stays local for
+  // rendering clipboard paths.
   useEffect(() => {
-    if (!open || root === null) return
+    if (!open || root === null || scope === null) return
     const trimmed = query.trim()
     if (trimmed.length === 0) {
       setResults([])
@@ -74,7 +78,7 @@ export function ContentSearchOverlay({ open, onClose, root }: ContentSearchOverl
     setSearching(true)
     const timer = setTimeout(() => {
       void rpc
-        .invoke('search.content', { path: root, query: trimmed })
+        .invoke('search.content', { ...scope, query: trimmed })
         .then((matches) => {
           if (cancelled) return
           setResults(matches)
@@ -92,7 +96,7 @@ export function ContentSearchOverlay({ open, onClose, root }: ContentSearchOverl
       cancelled = true
       clearTimeout(timer)
     }
-  }, [open, query, root])
+  }, [open, query, root, scope])
 
   // Keep the highlight valid as the result set changes per keystroke.
   useEffect(() => {
@@ -181,10 +185,12 @@ export function ContentSearchOverlay({ open, onClose, root }: ContentSearchOverl
                 ref={inputRef}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={root === null ? 'Add a project first' : `Search in ${basename(root)}…`}
+                placeholder={
+                  root === null || scope === null ? 'Add a project first' : `Search in ${basename(root)}…`
+                }
                 aria-label="Search project files"
                 spellCheck={false}
-                disabled={root === null}
+                disabled={root === null || scope === null}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
               />
               {searching ? (
