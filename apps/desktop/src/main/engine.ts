@@ -105,6 +105,7 @@ export class Engine {
   readonly #deps: EngineDeps
   readonly #activeTurns = new Map<string, ActiveTurn>()
   readonly #turnTasks = new Map<string, Promise<void>>()
+  readonly #capacityBlockedQueues = new Map<string, Set<string>>()
 
   /** Waits for provider disposal, including interrupted startup, before reading worker files. */
   async quiesce(sessionId: string): Promise<void> {
@@ -116,11 +117,11 @@ export class Engine {
     return this.#turnTasks.has(sessionId)
   }
   /**
-   * Texts consumed as mid-turn steering, per session. Consulted when the
-   * turn settles so an already-steered message is never re-run as a
-   * follow-up turn — the journal's dequeued event may still be in flight
-   * when settle reads its queue snapshot (single-process synchronous ledger,
-   * immune to append-ordering races).
+   * Texts consumed as mid-turn steering, per session. The queue-drain runs
+   * serialized with command dispatch (same per-root chain), so a steered
+   * message's dequeue is always ordered with the drain's queue snapshot —
+   * the drain skips these keys and can never re-run an already-steered
+   * message as a follow-up turn.
    */
   readonly #steeredTexts = new Map<string, Set<string>>()
   /** Sessions whose first non-error settle already ran title generation. */
@@ -137,9 +138,14 @@ export class Engine {
     const target =
       'sessionId' in command ? (await this.#deps.store.load(command.sessionId)).session : null
     const id = target?.rootSessionId ?? ('sessionId' in command ? command.sessionId : '-')
+    return this.#chain(id, () => this.#dispatch(command, origin))
+  }
+
+  /** Serializes work per root session tree: commands and queue drains share one chain. */
+  #chain<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const result = (this.#commands.get(id) ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() => this.#dispatch(command, origin))
+      .then(fn)
     this.#commands.set(id, result)
     void result
       .finally(() => {
@@ -203,8 +209,10 @@ export class Engine {
         })
       this.#turnTasks.set(command.sessionId, task)
       void task.then(() => {
-        if (this.#turnTasks.get(command.sessionId) === task)
+        if (this.#turnTasks.get(command.sessionId) === task) {
           this.#turnTasks.delete(command.sessionId)
+          this.#retryCapacityBlockedQueues(model.session?.rootSessionId ?? command.sessionId)
+        }
       })
     }
 
@@ -281,6 +289,12 @@ export class Engine {
             createdAt: Date.now(),
           },
         })
+      } else {
+        // The turn may have settled concurrently after this dispatch's
+        // snapshot saw it active: the message is journaled as queued but no
+        // settle-drain will cover it. Schedule a serialized drain so a
+        // post-settle enqueue self-heals instead of stranding.
+        this.#scheduleQueueDrain(command.sessionId, model.session?.rootSessionId ?? null)
       }
     }
 
@@ -622,40 +636,115 @@ export class Engine {
     })
     if (stopReason !== 'error') this.#onFirstSettle(sessionId)
 
-    // Durable queue continuation (comet command-plane pattern): after a
-    // clean settle, the engine itself dispatches the oldest queued message
-    // as the next turn — through the normal command path so user.message,
-    // turn.started, and title events all fold exactly like a manual send.
-    // Error/interrupted settles hold the queue so the user can inspect
-    // before continuing (M15.10 semantics). Texts already consumed as
-    // steering are skipped: settle's queue snapshot may predate their
-    // journal dequeue.
+    // Durable queue continuation: never decide from the pre-settle snapshot
+    // above — a message.enqueued may land between that load and this append
+    // and would strand. Schedule a drain on the per-root chain instead, so
+    // the fresh queue snapshot is ordered with every concurrent enqueue.
+    // Error/interrupted settles hold the queue (M15.10); the drain re-checks
+    // the stop reason and no-ops for those.
+    this.#scheduleQueueDrain(sessionId, model.session?.rootSessionId ?? null)
+  }
+
+  /** Queues a serialized queue-drain; fire-and-forget, never rejects. */
+  #scheduleQueueDrain(sessionId: string, rootSessionId: string | null): void {
+    const id = rootSessionId ?? sessionId
+    void this.#chain(id, () => this.#drainQueue(sessionId)).catch((e) => {
+      log.error('queued-turn drain failed', { error: String(e) })
+    })
+  }
+
+  /** Retries queues that were held only by root-level concurrency capacity. */
+  #retryCapacityBlockedQueues(rootId: string): void {
+    const blocked = this.#capacityBlockedQueues.get(rootId)
+    if (!blocked) return
+    this.#capacityBlockedQueues.delete(rootId)
+    for (const sessionId of blocked) this.#scheduleQueueDrain(sessionId, rootId)
+  }
+
+  /**
+   * Runs inside the per-root chain: reloads a fresh snapshot, and after a
+   * clean settle starts the oldest non-steered queued message as the next
+   * turn — dequeue plus turn.started appends atomically in this slot, so no
+   * concurrent enqueue can slip between the snapshot and the decision.
+   */
+  async #drainQueue(sessionId: string): Promise<void> {
+    const fresh = await this.#deps.store.load(sessionId)
+    const session = fresh.session
+    if (!session || fresh.activeTurnId !== null) return
+    if (fresh.lastTurn && fresh.lastTurn.stopReason !== 'completed') return
     const steered = this.#steeredTexts.get(sessionId)
-    this.#steeredTexts.delete(sessionId)
-    if (stopReason === 'completed') {
-      const next = model.queuedMessages.find(
-        (queued) => steered === undefined || !steered.has(inputKey(queued.text, queued.origin)),
-      )
-      if (next !== undefined) {
-        await this.#append(sessionId, {
-          type: 'message.dequeued',
-          text: next.text,
-          attachments: next.attachments,
-          ...(next.origin ? { origin: next.origin } : {}),
-        })
-        void this.dispatch(
-          {
-            type: 'turn.start',
-            sessionId,
-            text: next.text,
-            attachments: next.attachments,
-          },
-          next.origin,
-        ).catch((e) => {
-          log.error('queued-turn dispatch failed', { error: String(e) })
-        })
+    const next = fresh.queuedMessages.find(
+      (queued) => steered === undefined || !steered.has(inputKey(queued.text, queued.origin)),
+    )
+    if (next === undefined) {
+      if (fresh.queuedMessages.length === 0) this.#steeredTexts.delete(sessionId)
+      return
+    }
+    if (this.#deps.authorizeTurn) {
+      const reason = await this.#deps.authorizeTurn(session)
+      if (reason) {
+        const rootId = session.rootSessionId ?? session.id
+        const blocked = this.#capacityBlockedQueues.get(rootId) ?? new Set<string>()
+        blocked.add(sessionId)
+        this.#capacityBlockedQueues.set(rootId, blocked)
+        return
       }
     }
+    this.#capacityBlockedQueues.get(session.rootSessionId ?? session.id)?.delete(sessionId)
+    const ids: DispatchIds = { turnId: newTypedId('turn'), messageId: newTypedId('msg') }
+    const decision = decideCommand(
+      fresh,
+      { type: 'turn.start', sessionId, text: next.text, attachments: next.attachments },
+      ids,
+      next.origin,
+    )
+    if (!decision.accepted) return
+
+    const previous = this.#turnTasks.get(sessionId) ?? Promise.resolve()
+    let releaseGate!: (persisted: boolean) => void
+    const gate = new Promise<boolean>((resolve) => {
+      releaseGate = resolve
+    })
+    const task = previous
+      .then(() => gate)
+      .then((persisted) =>
+        persisted
+          ? this.#runTurn(
+              session,
+              attributedInput(next.text, next.origin),
+              next.attachments,
+              ids.turnId,
+              fresh.providerSessionId?.startsWith('imported:') ? null : fresh.providerSessionId,
+            )
+          : undefined,
+      )
+      .catch((e) => {
+        log.error('turn execution crashed', { error: String(e) })
+      })
+    this.#turnTasks.set(sessionId, task)
+    void task.then(() => {
+      if (this.#turnTasks.get(sessionId) === task) {
+        this.#turnTasks.delete(sessionId)
+        this.#retryCapacityBlockedQueues(session.rootSessionId ?? session.id)
+      }
+    })
+
+    try {
+      await this.#append(sessionId, {
+        type: 'message.dequeued',
+        text: next.text,
+        attachments: next.attachments,
+        ...(next.origin ? { origin: next.origin } : {}),
+      })
+      for (const event of decision.events) {
+        await this.#append(sessionId, event)
+      }
+    } catch (error) {
+      releaseGate(false)
+      throw error
+    }
+    releaseGate(true)
+    this.#steeredTexts.delete(sessionId)
   }
 
   /**
