@@ -646,6 +646,31 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   }
 
   /**
+   * Resolves a capability scope (git/fs RPCs) to a trusted root — a
+   * registered project by id, or a session's workspace. Unknown scopes and
+   * unavailable workspaces throw instead of touching the disk.
+   */
+  async function resolveScopeRoot(params: {
+    projectId?: string
+    sessionId?: string
+  }): Promise<string> {
+    if (params.projectId !== undefined) {
+      await getProjectStore().load()
+      const project = getProjectStore().get(params.projectId)
+      if (!project) throw new Error(`unknown project: ${params.projectId}`)
+      return project.path
+    }
+    if (params.sessionId !== undefined) {
+      const { session } = await getSessionStore().load(params.sessionId)
+      if (!session) throw new Error('unknown session')
+      const workspace = await engine.workspace(session)
+      if (!workspace) throw new Error('session workspace is unavailable')
+      return workspace
+    }
+    throw new Error('projectId or sessionId is required')
+  }
+
+  /**
    * Resolves an `fs.*` capability scope to a trusted root — a registered
    * project by id, or a session's workspace — then jails the relative path
    * inside that root only (never the union of all roots). Unknown scopes
@@ -656,22 +681,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     sessionId?: string
     path: string
   }): Promise<string> {
-    let root: string
-    if (params.projectId !== undefined) {
-      await getProjectStore().load()
-      const project = getProjectStore().get(params.projectId)
-      if (!project) throw new Error(`unknown project: ${params.projectId}`)
-      root = project.path
-    } else if (params.sessionId !== undefined) {
-      const { session } = await getSessionStore().load(params.sessionId)
-      if (!session) throw new Error('unknown session')
-      const workspace = await engine.workspace(session)
-      if (!workspace) throw new Error('session workspace is unavailable')
-      root = workspace
-    } else {
-      throw new Error('projectId or sessionId is required')
-    }
-    return resolveScopedPath(root, params.path)
+    return resolveScopedPath(await resolveScopeRoot(params), params.path)
   }
 
   r.register('app.info', () => ({
@@ -1288,7 +1298,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('git.status', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    const result = await new GitService().status(await jailPath(params.path))
+    const result = await new GitService().status(await resolveScopeRoot(params))
     if (!result.ok) return { isRepo: false, branch: null, files: [], error: result.error.message }
     return {
       isRepo: true,
@@ -1299,42 +1309,48 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('git.diffWorktree', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    const result = await new GitService().diffForRef(await jailPath(params.path), 'HEAD')
+    const result = await new GitService().diffForRef(await resolveScopeRoot(params), 'HEAD')
     if (!result.ok) return { diffText: '', error: result.error.message }
     return { diffText: result.value }
   })
 
-  // Per-turn diff (M8.4): worktree vs the turn's hidden checkpoint ref.
+  // Per-turn diff (M8.4): worktree vs the turn's hidden checkpoint ref. The
+  // checkpoint lives in the session's own workspace, so the session id is
+  // both the scope and the ref namespace — no working directory crosses IPC.
   r.register('git.turnDiff', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    return queryTurnDiff((cwd, gitRef) => new GitService().diffForRef(cwd, gitRef), {
-      ...params,
-      path: await jailPath(params.path),
-    })
+    const { session } = await getSessionStore().load(params.sessionId)
+    if (!session) return { diffText: null, error: 'unknown session' }
+    const workspace = await engine.workspace(session)
+    if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
+    return queryTurnDiff(
+      (cwd, gitRef) => new GitService().diffForRef(cwd, gitRef),
+      { path: workspace, sessionId: params.sessionId, turnId: params.turnId },
+    )
   })
 
-  // Mutating git actions (M19.5): performGitAction jails `path` to an existing
+  // Mutating git actions (M19.5): performGitAction jails `cwd` to an existing
   // directory and maps every failure into a `{ ok: false, error }` result so
-  // nothing throws across IPC. The jail check first pins that directory
-  // inside the registered roots.
+  // nothing throws across IPC. The scope check first pins that directory to
+  // one trusted root.
   r.register('git.add', async (params) => {
-    const cwd = await jailPath(params.path)
+    const cwd = await resolveScopeRoot(params)
     return performGitAction(cwd, () => gitStage(cwd, params.paths))
   })
 
   r.register('git.commit', async (params) => {
-    const cwd = await jailPath(params.path)
+    const cwd = await resolveScopeRoot(params)
     return performGitAction(cwd, () => gitCommit(cwd, params.message))
   })
 
   r.register('git.push', async (params) => {
-    const cwd = await jailPath(params.path)
+    const cwd = await resolveScopeRoot(params)
     return performGitAction(cwd, () => gitPush(cwd, params.remote))
   })
 
   // Ship flow (M21.4): open a PR through the GitHub CLI.
   r.register('git.createPr', async (params) => {
-    const cwd = await jailPath(params.path)
+    const cwd = await resolveScopeRoot(params)
     const info = await stat(cwd).catch(() => null)
     if (info === null || !info.isDirectory()) {
       return { ok: false, url: null, error: 'path must be an existing project directory' }

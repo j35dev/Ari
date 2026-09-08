@@ -216,6 +216,22 @@ export const fsScopeSchema = z
 export type FsScope = z.infer<typeof fsScopeSchema>
 
 /**
+ * Capability scope for the git RPCs: exactly one of a registered project or
+ * a session. Operations run at the scope root — the renderer never sends a
+ * working directory. Repo-relative pathspecs (e.g. `git.add` paths) stay
+ * caller-supplied; git itself refuses ones escaping the worktree.
+ */
+export const gitScopeSchema = z
+  .object({
+    projectId: z.string().min(1).optional(),
+    sessionId: z.string().min(1).optional(),
+  })
+  .refine((v) => (v.projectId !== undefined) !== (v.sessionId !== undefined), {
+    message: 'exactly one of projectId or sessionId is required',
+  })
+export type GitScope = z.infer<typeof gitScopeSchema>
+
+/**
  * Outcome for the mutating git RPCs (`git.add` / `git.commit` / `git.push`):
  * failures come back as data instead of being thrown across IPC.
  */
@@ -362,29 +378,24 @@ export const rpcParams = {
   }),
   'settings.get': z.undefined(),
   'settings.update': settingsUpdateSchema,
-  'git.status': z.object({ path: z.string().min(1) }),
-  'git.diffWorktree': z.object({ path: z.string().min(1) }),
+  'git.status': gitScopeSchema,
+  'git.diffWorktree': gitScopeSchema,
   'git.turnDiff': z.object({
-    path: z.string().min(1),
     sessionId: checkpointComponentSchema,
     turnId: checkpointComponentSchema,
   }),
-  'git.add': z.object({
-    path: z.string().min(1),
+  'git.add': gitScopeSchema.extend({
     /** Repo-relative pathspecs passed to `git add --`; `['.']` stages everything. */
     paths: z.array(z.string().min(1)).min(1),
   }),
-  'git.commit': z.object({
-    path: z.string().min(1),
+  'git.commit': gitScopeSchema.extend({
     message: z.string().min(1),
   }),
-  'git.push': z.object({
-    path: z.string().min(1),
+  'git.push': gitScopeSchema.extend({
     /** Remote name; defaults to `origin` in the handler. */
     remote: z.string().min(1).optional(),
   }),
-  'git.createPr': z.object({
-    path: z.string().min(1),
+  'git.createPr': gitScopeSchema.extend({
     title: z.string().min(1).max(300),
     body: z.string().max(8000).optional(),
     base: z.string().min(1).max(200).optional(),

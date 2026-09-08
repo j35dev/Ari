@@ -293,11 +293,11 @@ export function SessionView({
     { path: string; line: number | null; text: string }[]
   >([])
   const sessionTitleRef = useRef('Session')
-  // Workspace path of the session's project — needed by git.turnDiff. Held in
-  // a ref so the stable event applier can read it without re-subscribing.
+  // Workspace path of the session's project — still needed by plan.get.
+  // git.turnDiff is capability-scoped ({sessionId, turnId}) and resolves its
+  // checkpoint workspace server-side, so diffs no longer wait on this ref.
   const projectPathRef = useRef<string | null>(null)
   const fetchedTurnIdsRef = useRef(new Set<string>())
-  const queuedDiffTurnIdsRef = useRef(new Set<string>())
   const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
   // Stream ordering guards (M23.12): the journal replay on (re)subscribe races
   // live events, so frames are sequenced by journal `seq` — replayed frames
@@ -353,7 +353,6 @@ export function SessionView({
     setTurnDiffs({})
     projectPathRef.current = null
     fetchedTurnIdsRef.current = new Set()
-    queuedDiffTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
 
     appliedSeqsRef.current = new Set()
@@ -396,18 +395,13 @@ export function SessionView({
 
     // Per-turn diff cards (M18.1): after a turn settles, query its checkpoint
     // diff once. Fire-and-forget — streaming is never blocked; null/empty or
-    // failed queries simply render no card. Turns that settle before the
-    // workspace path resolves (journal replay) queue and flush on resolve.
+    // failed queries simply render no card. The checkpoint workspace resolves
+    // server-side from the session id, so no path round-trip gates this.
     const fetchTurnDiff = (turnId: string): void => {
       if (fetchedTurnIdsRef.current.has(turnId)) return
-      const path = projectPathRef.current
-      if (!path) {
-        queuedDiffTurnIdsRef.current.add(turnId)
-        return
-      }
       fetchedTurnIdsRef.current.add(turnId)
       void rpc
-        .invoke('git.turnDiff', { path, sessionId, turnId })
+        .invoke('git.turnDiff', { sessionId, turnId })
         .then((result) => {
           const diffText = result.diffText
           if (!cancelled && typeof diffText === 'string' && diffText.length > 0) {
@@ -440,9 +434,6 @@ export function SessionView({
         if (cancelled) return
         projectPathRef.current = workspace.path
         setPlanPath(projectPathRef.current)
-        const pending = [...queuedDiffTurnIdsRef.current]
-        queuedDiffTurnIdsRef.current.clear()
-        for (const turnId of pending) fetchTurnDiff(turnId)
       })
       .catch(() => undefined)
       .finally(() => {
