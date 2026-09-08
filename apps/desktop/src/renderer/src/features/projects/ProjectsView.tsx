@@ -33,10 +33,9 @@ export function pickRunner(entries: { name: string }[]): 'pnpm' | 'yarn' | 'npm'
 /** Loads the project's scripts plus the runner implied by its lockfiles. */
 async function loadScripts(project: {
   id: string
-  path: string
 }): Promise<{ scripts: ScriptInfo[]; runner: 'pnpm' | 'yarn' | 'npm' }> {
   const [scriptResult, files] = await Promise.all([
-    rpc.invoke('scripts.list', { path: project.path }),
+    rpc.invoke('scripts.list', { projectId: project.id }),
     rpc
       .invoke('fs.list', { projectId: project.id, path: '.' })
       .catch(() => [] as { name: string; type: string; size: number }[]),

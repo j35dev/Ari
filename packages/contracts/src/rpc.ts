@@ -323,18 +323,10 @@ export const rpcParams = {
       (value) => value.projectId !== undefined || value.sessionId !== undefined,
       'Project or session is required',
     ),
-  'search.content': z
-    .object({
-      /** Registered project id; resolved to its folder by the handler. */
-      projectId: z.string().min(1).optional(),
-      /** Explicit folder to search (jail boundary); used when projectId is absent. */
-      path: z.string().min(1).optional(),
-      query: z.string().min(1),
-      maxResults: z.number().int().positive().max(SEARCH_CONTENT_MAX_RESULTS).optional(),
-    })
-    .refine((v) => v.projectId !== undefined || v.path !== undefined, {
-      message: 'projectId or path is required',
-    }),
+  'search.content': gitScopeSchema.extend({
+    query: z.string().min(1),
+    maxResults: z.number().int().positive().max(SEARCH_CONTENT_MAX_RESULTS).optional(),
+  }),
   'endpoints.list': z.undefined(),
   'endpoints.upsert': z.object({
     id: z.string(),
@@ -407,8 +399,8 @@ export const rpcParams = {
   'fs.writeTextFile': fsScopeSchema.extend({
     content: z.string(),
   }),
-  'plan.get': z.object({ path: z.string().min(1), sessionId: z.string().min(1).optional() }),
-  'scripts.list': z.object({ path: z.string().min(1) }),
+  'plan.get': z.object({ sessionId: z.string().min(1) }),
+  'scripts.list': gitScopeSchema,
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),

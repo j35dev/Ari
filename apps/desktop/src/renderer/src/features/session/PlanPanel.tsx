@@ -13,11 +13,9 @@ type PlanItems = RpcResults['plan.get']['items']
  * sessions in one project never render each other's plan.
  */
 export function PlanPanel({
-  path,
   sessionId,
   refreshNonce,
 }: {
-  path: string | null
   sessionId: string | null
   refreshNonce?: number
 }) {
@@ -25,13 +23,13 @@ export function PlanPanel({
   const [expanded, setExpanded] = useState(true)
 
   useEffect(() => {
-    if (path === null || sessionId === null) {
+    if (sessionId === null) {
       setItems(null)
       return
     }
     let cancelled = false
     void rpc
-      .invoke('plan.get', { path, sessionId })
+      .invoke('plan.get', { sessionId })
       .then((result) => {
         if (!cancelled) setItems(result.items)
       })
@@ -39,7 +37,7 @@ export function PlanPanel({
     return () => {
       cancelled = true
     }
-  }, [path, sessionId, refreshNonce])
+  }, [sessionId, refreshNonce])
 
   if (items === null || items.length === 0) return null
 

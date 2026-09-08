@@ -84,7 +84,7 @@ import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
-import { TODO_FILENAME, todoFilenameFor } from '@ari/ari-core/todo'
+import { todoFilenameFor } from '@ari/ari-core/todo'
 
 const log = createLogger('desktop:rpc')
 
@@ -1120,20 +1120,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { paths: getIndexedFiles(params.projectId) ?? [] }
   })
 
-  // Project-wide content search (M18.4): resolves the folder from the project
-  // registry or an explicit path, then delegates to the jailed, capped,
-  // time-boxed searcher in ./content-search.
+  // Project-wide content search (M18.4): the scope resolves server-side to
+  // its folder, then delegates to the jailed, capped, time-boxed searcher
+  // in ./content-search. No working directory crosses IPC.
   r.register('search.content', async (params) => {
-    let root = params.path ?? null
-    if (params.projectId !== undefined) {
-      await getProjectStore().load()
-      const project = getProjectStore().get(params.projectId)
-      if (!project) throw new Error(`unknown project: ${params.projectId}`)
-      root = project.path
-    }
-    if (root === null) throw new Error('projectId or path is required')
-    // An explicit path is renderer-controlled: jail it like every other read.
-    if (params.projectId === undefined) root = await jailPath(root)
+    const root = await resolveScopeRoot(params)
     return searchProjectContent(root, params.query, { maxResults: params.maxResults })
   })
 
@@ -1397,14 +1388,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Structured plan surface (research wave M20): reads the per-session
   // `.ari-todo-<sessionId>.json` that Ari Core's todo_write tool maintains
-  // in the session workspace. Siblings share the project folder, so a
-  // session-scoped read never surfaces another agent's plan; without a
-  // sessionId the legacy shared file answers (old renderer compat).
+  // in the session workspace. The workspace resolves server-side from the
+  // session id — no working directory crosses IPC — and a missing file or
+  // workspace answers null rather than throwing.
   r.register('plan.get', async (params) => {
     try {
-      const filename = params.sessionId ? todoFilenameFor(params.sessionId) : TODO_FILENAME
-      // The containing folder is renderer-supplied: jail it before reading.
-      const raw = await readFile(join(await jailPath(params.path), filename), 'utf8')
+      const { session } = await getSessionStore().load(params.sessionId)
+      if (!session) throw new Error(`unknown session: ${params.sessionId}`)
+      const workspace = await engine.workspace(session)
+      if (!workspace) return { items: null }
+      const raw = await readFile(join(workspace, todoFilenameFor(params.sessionId)), 'utf8')
       const parsed: unknown = JSON.parse(raw)
       if (!Array.isArray(parsed)) return { items: null }
       const items: { text: string; status: 'pending' | 'in_progress' | 'done' }[] = []
@@ -1426,8 +1419,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     }
   })
 
-  // Run scripts (M21.3): npm-style `scripts` from the folder's package.json.
-  r.register('scripts.list', async (params) => listScripts(await jailPath(params.path)))
+  // Run scripts (M21.3): npm-style `scripts` from the scope's package.json.
+  r.register('scripts.list', async (params) => listScripts(await resolveScopeRoot(params)))
 
   r.register('stream.subscribe', (params) => {
     rpcRegistry.subscribe({

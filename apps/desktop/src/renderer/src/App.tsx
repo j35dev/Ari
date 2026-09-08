@@ -765,6 +765,7 @@ function Shell() {
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         root={activeProjectPath}
+        scope={activeScope}
       />
       <KeyboardCheatSheet />
     </div>
