@@ -74,17 +74,37 @@ export interface Tool {
 /** Resolves a user-supplied path inside the jail; throws on escape. */
 async function jailed(ctx: ToolContext, input: unknown): Promise<string> {
   const rel = typeof input === 'string' ? input : ''
-  const root = await fs.realpath(ctx.workspacePath).catch(() => path.resolve(ctx.workspacePath))
+  const root = await fs.realpath(ctx.workspacePath)
   const resolved = path.resolve(root, rel)
-  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
-    throw new Error(`path escapes workspace: ${rel}`)
+  const contains = (target: string): boolean => {
+    const relative = path.relative(root, target)
+    return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
   }
-  // Resolve symlinks on the final target (if it exists) and re-check.
-  const real = await fs.realpath(resolved).catch(() => resolved)
-  if (real !== root && !real.startsWith(root + path.sep)) {
-    throw new Error(`symlink escapes workspace: ${rel}`)
+  if (!contains(resolved)) throw new Error(`path escapes workspace: ${rel}`)
+
+  // A new file has no realpath yet; check its nearest existing ancestor
+  // before mkdir/write can follow a directory link outside the workspace.
+  let ancestor = resolved
+  for (;;) {
+    let real: string
+    try {
+      real = await fs.realpath(ancestor)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const entry = await fs.lstat(ancestor).catch((statError: NodeJS.ErrnoException) => {
+        if (statError.code !== 'ENOENT') throw statError
+        return null
+      })
+      // A dangling link is not a missing path component we can safely create.
+      if (entry !== null) throw error
+      const parent = path.dirname(ancestor)
+      if (parent === ancestor) throw error
+      ancestor = parent
+      continue
+    }
+    if (!contains(real)) throw new Error(`symlink escapes workspace: ${rel}`)
+    return resolved
   }
-  return resolved
 }
 
 function str(args: Record<string, unknown>, key: string): string {

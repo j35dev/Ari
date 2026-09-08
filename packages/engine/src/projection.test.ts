@@ -218,4 +218,20 @@ describe('session projection', () => {
     expect(model.messages).toHaveLength(1)
     expect(model.lastSeq).toBe(1)
   })
+
+  it('folds child.session.destroyed and caps childEvents at 200', () => {
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    state = applyEvent(
+      state,
+      ev(1, { type: 'child.session.destroyed', childSessionId: 'child_1' }),
+    )
+    expect(state.childEvents?.at(-1)?.type).toBe('child.session.destroyed')
+    for (let i = 0; i < 210; i++) {
+      state = applyEvent(
+        state,
+        ev(2 + i, { type: 'child.session.stopped', childSessionId: `c${i}` }),
+      )
+    }
+    expect(state.childEvents).toHaveLength(200)
+  })
 })

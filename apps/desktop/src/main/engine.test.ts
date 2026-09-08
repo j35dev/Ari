@@ -175,6 +175,30 @@ describe('engine end-to-end with scripted driver', () => {
     expect(published[0]?.event.type).toBe('turn.started')
   }, 10000)
 
+  it('does not start the provider when turn-start persistence fails', async () => {
+    const delegate = scriptedDriver({ echo: 'must not run' })
+    const create = vi.fn((session: AdapterSession) => delegate.create(session))
+    const registry = new DriverRegistry()
+    registry.register({ kind: 'claude', create })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_failed_start'
+    await seedSession(store, sessionId)
+    vi.spyOn(store, 'append').mockRejectedValueOnce(new Error('disk full'))
+
+    await expect(
+      engine.dispatch({ type: 'turn.start', sessionId, text: 'do not run', attachments: [] }),
+    ).rejects.toThrow('disk full')
+    await engine.quiesce(sessionId)
+
+    expect(create).not.toHaveBeenCalled()
+    expect(engine.hasLiveTurn(sessionId)).toBe(false)
+  })
+
   it('resolves staged attachments for the adapter and journals image parts', async () => {
     const seen: AdapterSession[] = []
     const capturing: Driver = {

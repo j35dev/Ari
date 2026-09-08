@@ -75,20 +75,28 @@ export async function startAgentRuntime(options: AgentRuntimeOptions) {
     isolate: async (parent, id) => workspaces.isolate(parent, await workspace(parent), id),
     diff: async (child, patch) => {
       await engine.quiesce(child.id)
-      if ((await store.load(child.id)).activeTurnId)
+      if ((await store.load(child.id)).activeTurnId || engine.hasLiveTurn(child.id))
         throw new ControlFailure(
           'invalid_request',
           'Child started another turn; wait before inspecting changes.',
         )
       return workspaces.diff(child, patch)
     },
-    integrate: async (parent, child, snapshot) => {
+    integrate: async (parent, child, snapshot, options) => {
       await engine.quiesce(child.id)
-      if ((await store.load(child.id)).activeTurnId)
+      if ((await store.load(child.id)).activeTurnId || engine.hasLiveTurn(child.id))
         throw new ControlFailure(
           'invalid_request',
           'Child started another turn; wait before integrating.',
         )
+      if (!options?.allowStale) {
+        const current = await workspaces.currentSnapshot(child)
+        if (current !== snapshot)
+          throw new ControlFailure(
+            'stale_snapshot',
+            'Snapshot is not the current child snapshot. Pass allowStale to integrate a historical snapshot.',
+          )
+      }
       const model = await store.load(parent.id)
       const records = (model.childEvents ?? []).filter(
         (e) =>
@@ -108,18 +116,27 @@ export async function startAgentRuntime(options: AgentRuntimeOptions) {
         snapshot,
         previous?.type === 'child.session.integrated' ? previous.snapshotCommit : undefined,
       )
-      await engine.record(parent.id, {
-        type: 'child.session.integrated',
+      const event = {
+        type: 'child.session.integrated' as const,
         childSessionId: child.id,
         snapshotCommit: snapshot,
         result: result.status,
         conflictFiles: result.status === 'conflict' ? result.files : [],
-      })
+      }
+      try {
+        await engine.record(parent.id, event)
+      } catch {
+        await engine.record(parent.id, event)
+      }
       return result
     },
     approve: (root) => approvals.request(root, options.policy().maxConcurrentChildren),
     quiesce: (id) => engine.quiesce(id),
     revoke: (id) => dropSession(id),
+    release: async (child) => {
+      await workspaces.release(child.id)
+      dropSession(child.id)
+    },
   })
   const server = new AgentControlServer({
     endpoint,
@@ -155,6 +172,10 @@ export async function startAgentRuntime(options: AgentRuntimeOptions) {
         : null
     },
     revoke: (id: string) => dropSession(id),
+    release: async (id: string) => {
+      await workspaces.release(id)
+      dropSession(id)
+    },
     close: async () => {
       unsubscribe()
       approvals.close()
