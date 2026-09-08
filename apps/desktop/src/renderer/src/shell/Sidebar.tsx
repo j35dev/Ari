@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Ref } from 'react'
 import { AnimatePresence, motion, Reorder, useDragControls } from 'motion/react'
 import type { DragControls } from 'motion/react'
 import {
@@ -8,15 +8,12 @@ import {
   ArrowUp,
   Check,
   ChevronRight,
-  Folder,
   FolderGit2,
   FolderOpen,
   FolderPlus,
-  FolderX,
   GitBranch,
   Import as ImportIcon,
   Inbox,
-  MessageSquareText,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
@@ -24,14 +21,18 @@ import {
   PinOff,
   Plus,
   Search,
+  SquarePen,
   Trash2,
   X,
   type LucideIcon,
 } from 'lucide-react'
+import { Kbd } from '@ari/ui/kbd'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { SessionActivityMark } from '../features/moment'
 import { peakActivity, type SessionActivity } from '../features/session/session-activity'
+import { IrisTile } from './IrisTile'
+import { irisHue } from './iris-tile'
 import {
   projectMoveFromOrder,
   sidebarGroups,
@@ -84,62 +85,54 @@ function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] })
   )
 }
 
-/** Sidebar top: wordmark + one-click new session (T3 brand row). */
+const ICON_BTN =
+  'flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg active:bg-glass-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
+/** Compact product wordmark; search and collapse sit as icon actions. */
 export function SidebarHeader({
-  onNewSession,
+  onSearch,
   onCollapse,
 }: {
-  onNewSession: () => void
+  onSearch?: () => void
   onCollapse?: () => void
 }) {
   return (
-    <div className="flex flex-col gap-2 px-3 pt-3 pb-2 border-b border-border/40">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-accent/20 border border-accent/30 shadow-sm text-accent">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-          <span className="text-sm font-semibold tracking-tight text-fg">Ari</span>
-          <span className="rounded-full bg-surface-2/80 px-1.5 py-0.5 text-[10px] font-medium text-fg-subtle border border-border/50">
-            beta
+    <header className="flex h-12 shrink-0 items-center border-b border-border/40 px-3">
+      <div className="flex min-w-0 flex-1 items-baseline gap-2">
+        <span aria-label="Ari" className="text-base font-semibold tracking-[-0.035em] text-fg">
+          Ari
+          <span aria-hidden="true" className="text-accent">
+            .
           </span>
-        </div>
-        <div className="flex items-center gap-1">
-          {onCollapse !== undefined && (
-            <button
-              type="button"
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar (Ctrl+B)"
-              onClick={onCollapse}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <PanelLeftClose size={14} />
-            </button>
-          )}
-        </div>
+        </span>
+        <span className="font-mono text-[9px] tracking-[0.08em] text-fg-subtle">beta</span>
       </div>
 
-      <button
-        type="button"
-        aria-label="New session"
-        onClick={onNewSession}
-        className="group relative flex h-8 w-full items-center justify-between rounded-lg border border-border/70 bg-surface-1/90 px-2.5 text-xs font-medium text-fg shadow-sm transition-all duration-150 hover:border-accent/40 hover:bg-surface-2 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-      >
-        <div className="flex items-center gap-2">
-          <div className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-fg-on-accent transition-transform group-hover:scale-110">
-            <Plus size={11} strokeWidth={2.5} />
-          </div>
-          <span>New session</span>
-        </div>
-        <span className="font-mono text-[10px] text-fg-subtle rounded border border-border/60 bg-surface-2 px-1.5 py-0.5">
-          Mod+N
-        </span>
-      </button>
-    </div>
+      <div className="flex items-center gap-0.5">
+        {onSearch !== undefined ? (
+          <button
+            type="button"
+            aria-label="Search sessions"
+            title="Search sessions"
+            onClick={onSearch}
+            className={ICON_BTN}
+          >
+            <Search size={14} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        ) : null}
+        {onCollapse !== undefined ? (
+          <button
+            type="button"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar (Ctrl+B)"
+            onClick={onCollapse}
+            className={ICON_BTN}
+          >
+            <PanelLeftClose size={14} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+    </header>
   )
 }
 
@@ -161,6 +154,7 @@ function SessionRow({
   hasChildren = false,
   nested = false,
   projectName,
+  colorIndex = 0,
   isActive,
   activity,
   onSelect,
@@ -173,6 +167,7 @@ function SessionRow({
   hasChildren?: boolean
   nested?: boolean
   projectName: string | null
+  colorIndex?: number
   isActive: boolean
   activity?: SessionActivity
   onSelect: (id: string) => void
@@ -283,10 +278,12 @@ function SessionRow({
           ) : session.pinned ? (
             <Pin size={10} aria-hidden className="text-accent" />
           ) : (
-            <MessageSquareText
-              size={10}
-              aria-hidden
-              className={isActive ? 'text-accent' : 'text-fg-subtle'}
+            <span
+              data-session-mark="idle"
+              className="size-1 rounded-full"
+              style={{
+                background: `oklch(0.67 0.18 ${irisHue(colorIndex)} / ${isActive ? 0.9 : 0.55})`,
+              }}
             />
           )}
         </span>
@@ -382,11 +379,13 @@ function SessionList({
   sessions,
   searching = false,
   projectNameOf,
+  projectColorOf,
   handlers,
 }: {
   sessions: SessionSummary[]
   searching?: boolean
   projectNameOf?: (projectId: string) => string | null
+  projectColorOf?: (projectId: string) => number
   handlers: SessionRowHandlers
 }) {
   const { collapsed, toggle } = useSessionCollapse()
@@ -431,6 +430,7 @@ function SessionList({
                     hasChildren={childCount > 0}
                     nested={lastAtDepth.length > 0}
                     projectName={projectNameOf?.(s.projectId) ?? null}
+                    colorIndex={projectColorOf?.(s.projectId) ?? 0}
                     isActive={s.id === handlers.activeSessionId}
                     activity={handlers.activityOf?.(s.id)}
                     onSelect={handlers.onSelect}
@@ -454,12 +454,14 @@ function CollapsibleSessions({
   label,
   sessions,
   projectNameOf,
+  projectColorOf,
   handlers,
   icon,
 }: {
   label: string
   sessions: SessionSummary[]
   projectNameOf: (projectId: string) => string | null
+  projectColorOf?: (projectId: string) => number
   handlers: SessionRowHandlers
   icon?: LucideIcon
 }) {
@@ -500,7 +502,12 @@ function CollapsibleSessions({
             exit={{ opacity: 0 }}
             transition={RESORT_TRANSITION}
           >
-            <SessionList sessions={sessions} projectNameOf={projectNameOf} handlers={handlers} />
+            <SessionList
+              sessions={sessions}
+              projectNameOf={projectNameOf}
+              projectColorOf={projectColorOf}
+              handlers={handlers}
+            />
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -514,6 +521,7 @@ export interface SidebarProject {
   name: string
   path?: string
   status?: ProjectStatus
+  colorIndex?: number
 }
 
 /** Per-project commands surfaced on group hover / in the degraded state. */
@@ -568,8 +576,9 @@ function ProjectGroupSection({
   const pressOrigin = useRef<{ x: number; y: number } | null>(null)
   const missing = project?.status === 'missing'
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
-  const GroupIcon: LucideIcon =
-    project === null ? Inbox : missing ? FolderX : expanded ? FolderOpen : Folder
+  const running = groupActivity?.phase === 'working'
+  const isActiveGroup = sessions.some((s) => s.id === handlers.activeSessionId)
+  const hue = irisHue(project?.colorIndex ?? 0)
 
   return (
     <section className="group/project" aria-label={name}>
@@ -595,28 +604,46 @@ function ProjectGroupSection({
             drag.controls.start(e)
           }}
           onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+          className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
             project ? 'pr-7' : ''
-          } ${missing ? 'opacity-60' : ''}`}
+          } ${missing ? 'opacity-60' : ''} ${
+            isActiveGroup
+              ? 'font-medium text-fg'
+              : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
+          }`}
+          style={
+            isActiveGroup
+              ? {
+                  background: `oklch(0.67 0.18 ${hue} / 0.12)`,
+                  boxShadow: `inset 0 0 0 1px oklch(0.67 0.18 ${hue} / 0.22)`,
+                }
+              : undefined
+          }
         >
-          <ChevronRight
-            size={11}
-            aria-hidden
-            className={`shrink-0 text-fg-subtle transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
-          />
-          <GroupIcon
-            size={13}
-            aria-hidden
-            className={`shrink-0 ${missing ? 'text-warning' : 'text-fg-subtle'}`}
-          />
+          {project ? (
+            <IrisTile
+              seed={project.id}
+              colorIndex={project.colorIndex}
+              running={running}
+              name={name}
+            />
+          ) : (
+            <Inbox size={13} aria-hidden className="shrink-0 text-fg-subtle" />
+          )}
           <span
-            className={`min-w-0 flex-1 truncate text-sm font-medium uppercase tracking-[0.14em] ${
-              missing ? 'text-fg-subtle line-through' : 'text-fg-subtle'
+            className={`min-w-0 flex-1 truncate text-sm ${
+              missing
+                ? 'text-fg-subtle line-through'
+                : isActiveGroup
+                  ? 'font-semibold'
+                  : 'font-medium'
             }`}
           >
             {name}
           </span>
-          {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
+          {groupActivity !== undefined && !running ? (
+            <SessionActivityMark activity={groupActivity} />
+          ) : null}
           <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
             {sessions.length}
           </span>
@@ -735,11 +762,15 @@ function ProjectGroupSection({
       ) : null}
       {expanded ? (
         sessions.length > 0 ? (
-          <div className="pl-5">
-            <SessionList sessions={sessions} handlers={handlers} />
+          <div className="pl-7">
+            <SessionList
+              sessions={sessions}
+              projectColorOf={() => project?.colorIndex ?? 0}
+              handlers={handlers}
+            />
           </div>
         ) : (
-          <p className="pl-12 pr-2 py-1.5 text-2xs text-fg-subtle">No sessions yet.</p>
+          <p className="px-2 py-1.5 pl-9 text-2xs text-fg-subtle">No sessions yet.</p>
         )
       ) : null}
     </section>
@@ -800,12 +831,11 @@ function DraggableProjectGroup({
 }
 
 /**
- * Sidebar body: search, an Open-project action, then one collapsible group per
- * open project with its sessions nested inside (pinned first within the
- * group), a trailing Unfiled group for ad-hoc sessions, and the global
- * Archived shelf at the bottom. Searching flattens matches across every
- * project into one list. Project groups drag-reorder among themselves; Unfiled
- * is derived and always trails.
+ * Sidebar body: labeled create actions, then one collapsible group per open
+ * project with its sessions nested inside (pinned first within the group), a
+ * trailing Unfiled group for ad-hoc sessions, and the global Archived shelf.
+ * Searching flattens matches across every project into one list. Project
+ * groups drag-reorder among themselves; Unfiled is derived and always trails.
  */
 export function SessionsUnderProjects({
   sessions,
@@ -818,6 +848,8 @@ export function SessionsUnderProjects({
   onToggleArchive,
   activityOf,
   onOpenProject,
+  onNewSession,
+  searchInputRef,
   knownProjectNames,
   ...actions
 }: SessionRowHandlers &
@@ -828,6 +860,8 @@ export function SessionsUnderProjects({
     knownProjectNames?: { id: string; name: string }[]
     /** Opens the native folder picker; a cancel is a silent no-op. */
     onOpenProject?: () => void
+    onNewSession?: () => void
+    searchInputRef?: Ref<HTMLInputElement>
   }) {
   const [query, setQuery] = useState('')
   const trimmed = query.trim().toLowerCase()
@@ -847,6 +881,11 @@ export function SessionsUnderProjects({
     return (projectId: string): string | null =>
       projectId === UNFILED_GROUP_ID ? null : (byId.get(projectId) ?? null)
   }, [projects, knownProjectNames])
+
+  const projectColorOf = useMemo(() => {
+    const byId = new Map(projects.map((p) => [p.id, p.colorIndex ?? 0]))
+    return (projectId: string): number => byId.get(projectId) ?? 0
+  }, [projects])
 
   // Same grouping the keyboard traversal walks (sidebarOrder flattens it).
   const groups = useMemo(() => sidebarGroups(sessions, projects), [sessions, projects])
@@ -888,6 +927,7 @@ export function SessionsUnderProjects({
           sessions={matches}
           searching
           projectNameOf={projectNameOf}
+          projectColorOf={projectColorOf}
           handlers={handlers}
         />
       )
@@ -895,7 +935,7 @@ export function SessionsUnderProjects({
       <p className="px-2 py-8 text-center text-xs leading-relaxed text-fg-subtle">
         No sessions yet.
         <br />
-        Open a project or start one with the + button.
+        Open a project or start a session.
       </p>
     ) : (
       <>
@@ -932,6 +972,7 @@ export function SessionsUnderProjects({
             label="Archived"
             sessions={archived}
             projectNameOf={projectNameOf}
+            projectColorOf={projectColorOf}
             handlers={handlers}
             icon={Archive}
           />
@@ -941,17 +982,43 @@ export function SessionsUnderProjects({
 
   return (
     <>
-      <SidebarSearch query={query} onQueryChange={setQuery} />
-      <div className="px-3 pb-1">
+      <div className="flex flex-col gap-0.5 px-2 pt-2">
+        <button
+          type="button"
+          aria-label="New session"
+          title="New session (Mod+N)"
+          onClick={() => onNewSession?.()}
+          className="flex h-[30px] w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="text-fg-subtle" />
+          New session
+          <Kbd className="ml-auto h-4 border-border/60 px-1 text-[10px] text-fg-subtle">Mod+N</Kbd>
+        </button>
         <button
           type="button"
           onClick={() => onOpenProject?.()}
-          className="flex h-7 w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-glass-input text-xs font-medium text-fg-muted transition-colors hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex h-[30px] w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          <FolderPlus size={12} aria-hidden />
+          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="text-fg-subtle" />
           Open project
         </button>
       </div>
+      <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />
+      {trimmed === '' && projectGroups.length > 0 ? (
+        <div className="flex items-center px-3.5 pb-1 pt-2">
+          <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-fg-subtle">
+            Projects
+          </span>
+          <button
+            type="button"
+            aria-label="Open another project"
+            onClick={() => onOpenProject?.()}
+            className="ml-auto flex size-[18px] items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            <Plus size={12} strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+      ) : null}
       <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
         {body}
       </nav>
@@ -959,16 +1026,23 @@ export function SessionsUnderProjects({
   )
 }
 
-/** T3-style sidebar search — icon inset, quiet border, glass plate. */
+/** Sidebar session search — icon inset, quiet until focused or filled. */
 export function SidebarSearch({
   query,
   onQueryChange,
+  inputRef,
+  collapsed = false,
 }: {
   query: string
   onQueryChange: (q: string) => void
+  inputRef?: Ref<HTMLInputElement>
+  collapsed?: boolean
 }) {
+  const [focused, setFocused] = useState(false)
+  const visible = !collapsed || focused || query.length > 0
+
   return (
-    <div className="px-3 pb-1 pt-2">
+    <div className={visible ? 'px-3 pb-1 pt-1' : 'sr-only'}>
       <div className="relative">
         <Search
           size={12}
@@ -976,9 +1050,18 @@ export function SidebarSearch({
           className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
         />
         <input
+          ref={inputRef}
           type="search"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              onQueryChange('')
+              e.currentTarget.blur()
+            }
+          }}
           placeholder="Search…"
           aria-label="Search sessions"
           className="h-7 w-full rounded-lg border border-border bg-glass-input pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
