@@ -67,6 +67,7 @@ beforeEach(async () => {
     diff: async () => ({}),
     integrate: async () => ({}),
     approve: async () => true,
+    release: async () => undefined,
   }
   service = new AgentControlService(host)
 })
@@ -246,4 +247,105 @@ it('lets a parent destroy a child and refuses self or unrelated sessions', async
       idempotencyKey: 'done',
     }),
   ).toMatchObject({ ok: true, result: { destroyed: true, count: 2 } })
+})
+
+it('compensates an isolated spawn when session create fails', async () => {
+  const released: string[] = []
+  host.isolate = async (_parent, id) => ({
+    kind: 'managed-worktree',
+    path: '/tmp/child',
+    branch: `ari/${id}`,
+    baseRef: 'refs/ari/child/base',
+    baseCommit: 'a'.repeat(40),
+  })
+  host.release = async (child) => {
+    released.push(child.id)
+  }
+  host.create = async () => {
+    throw new Error('create failed')
+  }
+  expect(
+    await service.invoke('root', 'session.spawn', {
+      ...spawn,
+      workspaceMode: 'isolated',
+      idempotencyKey: 'iso-fail',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'internal_error' } })
+  expect(released).toHaveLength(1)
+  expect((await store.listSessions()).map((s) => s.id)).toEqual(['root'])
+})
+
+it('retries the same spawn key after a transient provider failure', async () => {
+  let once = true
+  host.providers = async () => {
+    if (once) {
+      once = false
+      return []
+    }
+    return [{ driverKind: 'claude', available: true, models: [{ id: 'model', label: 'Model' }] }]
+  }
+  expect(await service.invoke('root', 'session.spawn', spawn)).toMatchObject({
+    error: { code: 'provider_unavailable' },
+  })
+  expect(await service.invoke('root', 'session.spawn', spawn)).toMatchObject({ ok: true })
+})
+
+it('replays a spawn from the parent journal after the service is reconstructed', async () => {
+  await service.invoke('root', 'session.spawn', spawn)
+  const child = (await store.listSessions()).find((s) => s.parentSessionId === 'root')!
+  const replayed = await new AgentControlService(host).invoke('root', 'session.spawn', spawn)
+  expect(replayed).toMatchObject({ ok: true, result: { child: { id: child.id } } })
+  expect((await store.listSessions()).filter((s) => s.parentSessionId === 'root')).toHaveLength(1)
+})
+
+it('returns per-target timeout instead of failing the whole wait', async () => {
+  await service.invoke('root', 'session.spawn', spawn)
+  const child = (await store.listSessions()).find((s) => s.parentSessionId === 'root')!
+  expect(
+    await service.invoke('root', 'session.wait', { targetSessionIds: [child.id], timeoutMs: 20 }),
+  ).toMatchObject({
+    ok: true,
+    result: [{ status: 'timeout', sessionId: child.id }],
+  })
+})
+
+it('records child.session.destroyed rather than stopped', async () => {
+  await service.invoke('root', 'session.spawn', spawn)
+  const child = (await store.listSessions()).find((s) => s.parentSessionId === 'root')!
+  await service.invoke('root', 'session.destroy', {
+    targetSessionId: child.id,
+    idempotencyKey: 'wipe',
+  })
+  expect((await store.load('root')).childEvents?.map((e) => e.type)).toContain(
+    'child.session.destroyed',
+  )
+  expect(
+    (await store.load('root')).childEvents?.some(
+      (e) => e.type === 'child.session.stopped' && e.childSessionId === child.id,
+    ),
+  ).toBe(false)
+})
+
+it('keeps the newest messages when read truncation hits the budget', async () => {
+  await service.invoke('root', 'session.spawn', spawn)
+  const child = (await store.listSessions()).find((s) => s.parentSessionId === 'root')!
+  await store.append(child.id, {
+    type: 'assistant.parts.appended',
+    messageId: 'old',
+    parts: [{ type: 'text', text: 'AAAAAAAAAA' }],
+  })
+  await store.append(child.id, {
+    type: 'assistant.parts.appended',
+    messageId: 'new',
+    parts: [{ type: 'text', text: 'BBBBBBBBBB' }],
+  })
+  const read = await service.invoke('root', 'session.read', {
+    targetSessionId: child.id,
+    maxChars: 10,
+    tailMessages: 10,
+  })
+  expect(read).toMatchObject({
+    ok: true,
+    result: { latestAssistantText: 'BBBBBBBBBB', truncated: true },
+  })
 })
