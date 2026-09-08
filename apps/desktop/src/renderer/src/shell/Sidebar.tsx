@@ -27,6 +27,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Kbd } from '@ari/ui/kbd'
+import { transitions } from '@ari/ui/motion'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { SessionActivityMark } from '../features/moment'
@@ -44,8 +45,12 @@ import { useSessionCollapse } from './use-session-collapse'
 import { sessionTree, searchSessionTree } from '../features/session/session-tree'
 import { ContextMenu, useContextMenu } from './ContextMenu'
 
-/** M13.1 session-resort spring: FLIP slides when sessions reorder or regroup. */
-const RESORT_TRANSITION = { type: 'spring', stiffness: 500, damping: 40 } as const
+/**
+ * Position-only FLIP for session reorder and project expand. A size layout
+ * (the default) scales the iris tile while the group height changes; a spring
+ * overshoots on large expands. Ease-slide keeps sibling rows translating.
+ */
+const LIST_LAYOUT = { layout: 'position' as const, transition: transitions.resort }
 
 /** Pointer travel (px) beyond which a header press is a drag, not a click. */
 const DRAG_CLICK_SLOP_PX = 4
@@ -390,12 +395,12 @@ function SessionList({
 }) {
   const { collapsed, toggle } = useSessionCollapse()
   return (
-    <motion.ul layout className="flex flex-col gap-0.5" transition={RESORT_TRANSITION}>
+    <ul className="flex flex-col gap-0.5">
       {sessionTree(sessions, searching ? new Set() : collapsed).map(
         ({ session: s, childCount, lastAtDepth }) => {
           const expanded = !collapsed.has(s.id)
           return (
-            <motion.li key={s.id} layoutId={s.id} transition={RESORT_TRANSITION}>
+            <motion.li key={s.id} {...LIST_LAYOUT}>
               <div className="flex items-center">
                 <SessionTreeGuides lastAtDepth={lastAtDepth} />
                 {childCount > 0 && !searching ? (
@@ -445,7 +450,7 @@ function SessionList({
           )
         },
       )}
-    </motion.ul>
+    </ul>
   )
 }
 
@@ -500,7 +505,7 @@ function CollapsibleSessions({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={RESORT_TRANSITION}
+            transition={transitions.morph}
           >
             <SessionList
               sessions={sessions}
@@ -812,7 +817,8 @@ function DraggableProjectGroup({
       value={group.id}
       dragListener={false}
       dragControls={controls}
-      transition={RESORT_TRANSITION}
+      layout="position"
+      transition={transitions.resort}
     >
       <ProjectGroupSection
         name={group.name}
@@ -939,7 +945,12 @@ export function SessionsUnderProjects({
       </p>
     ) : (
       <>
-        <Reorder.Group axis="y" values={projectGroups.map((g) => g.id)} onReorder={reorderFromDrag}>
+        <Reorder.Group
+          axis="y"
+          values={projectGroups.map((g) => g.id)}
+          onReorder={reorderFromDrag}
+          layout="position"
+        >
           {projectGroups.map((group, index) => (
             <DraggableProjectGroup
               key={group.id}
