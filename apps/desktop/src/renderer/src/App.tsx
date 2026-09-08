@@ -806,9 +806,8 @@ export function resolveProjectPath(
 
 /**
  * Contextual branch readout in the workspace header: shows the active
- * session's git branch. Resolves the session's project id through
- * session.load, maps it to the registered folder via project.list, then asks
- * git.status for the branch; hides entirely outside repos or without an
+ * session's git branch. Asks git.status with the session scope — the worktree
+ * resolves server-side — and hides entirely outside repos or without an
  * active session.
  */
 export function BranchChip({ sessionId }: { sessionId: string | null }) {
@@ -818,13 +817,12 @@ export function BranchChip({ sessionId }: { sessionId: string | null }) {
     setBranch(null)
     if (sessionId === null) return
     let cancelled = false
+    // Session-scoped: the worktree resolves server-side, so no workspace
+    // path round-trip crosses IPC for a branch label.
     void rpc
-      .invoke('session.workspace', { sessionId })
-      .then(async ({ path: projectPath }) => {
-        if (!projectPath) return
-        return rpc.invoke('git.status', { path: projectPath }).then((status) => {
-          if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
-        })
+      .invoke('git.status', { sessionId })
+      .then((status) => {
+        if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
       })
       .catch((error: unknown) => log.warn('rpc call failed', error))
     return () => {
