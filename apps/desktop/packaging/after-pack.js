@@ -114,7 +114,7 @@ export function expectedAdapterBinaries(kind, platform, arch) {
  * command used at runtime. The initialize reply proves asar unpacking,
  * module resolution, and the platform binary are all usable together.
  */
-async function smokeBundledAdapter(executable, entrypoint, env, cwd) {
+export async function smokeBundledAdapter(executable, entrypoint, env, cwd, timeoutMs = 15_000) {
   await new Promise((resolve, reject) => {
     const child = spawn(executable, [entrypoint], {
       cwd,
@@ -135,16 +135,27 @@ async function smokeBundledAdapter(executable, entrypoint, env, cwd) {
     }
     const timeout = setTimeout(() => {
       finish(new Error(`initialize response timed out; stderr: ${stderr.slice(-800)}`))
-    }, 15_000)
+    }, timeoutMs)
+    child.stdin.on('error', (error) => finish(error))
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
     child.stdout.on('data', (chunk) => {
       stdout += chunk
+      if (stdout.length > 1024 * 1024) {
+        finish(new Error('adapter initialize output exceeded 1 MiB'))
+        return
+      }
       for (const line of stdout.split('\n').slice(0, -1)) {
         try {
           const message = JSON.parse(line)
-          if (message?.id === 1 && (message.result !== undefined || message.error !== undefined)) {
-            finish()
+          if (message?.id === 1) {
+            if (message.error !== undefined) {
+              finish(new Error(`adapter rejected initialize: ${JSON.stringify(message.error)}`))
+            } else if (message.result?.protocolVersion === 1) {
+              finish()
+            } else {
+              finish(new Error('adapter returned an invalid initialize response'))
+            }
             return
           }
         } catch {
@@ -154,28 +165,35 @@ async function smokeBundledAdapter(executable, entrypoint, env, cwd) {
       stdout = stdout.slice(stdout.lastIndexOf('\n') + 1)
     })
     child.stderr.on('data', (chunk) => {
-      stderr += chunk
+      stderr = (stderr + chunk).slice(-800)
     })
     child.on('error', (error) => finish(error))
     child.on('close', (code) => {
-      if (!settled) finish(new Error(`adapter exited before initialize (code ${code}); stderr: ${stderr.slice(-800)}`))
+      if (!settled)
+        finish(
+          new Error(
+            `adapter exited before initialize (code ${code}); stderr: ${stderr.slice(-800)}`,
+          ),
+        )
     })
-    child.stdin.write(`${JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: {
-        protocolVersion: 1,
-        clientInfo: { name: 'ari-packaging-smoke', version: '0.0.0' },
-        clientCapabilities: {
-          fs: { readTextFile: false, writeTextFile: false },
-          terminal: false,
-          auth: { terminal: false },
-          elicitation: { form: {} },
-          _meta: { 'terminal-auth': true },
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: 1,
+          clientInfo: { name: 'ari-packaging-smoke', version: '0.0.0' },
+          clientCapabilities: {
+            fs: { readTextFile: false, writeTextFile: false },
+            terminal: false,
+            auth: { terminal: false },
+            elicitation: { form: {} },
+            _meta: { 'terminal-auth': true },
+          },
         },
-      },
-    })}\n`)
+      })}\n`,
+    )
   })
 }
 
@@ -247,12 +265,20 @@ export default async function afterPack(context) {
     const moduleRoots = [unpacked, join(resourcesDir(context), 'app.asar', 'node_modules')]
     for (const { packageName, entrypoint } of ACP_ADAPTERS) {
       const adapterEntrypoint = join(packageDir(unpacked, packageName), entrypoint)
-      const smokeEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: moduleRoots.join(process.platform === 'win32' ? ';' : ':') }
+      const smokeEnv = {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: '1',
+        NODE_PATH: moduleRoots.join(process.platform === 'win32' ? ';' : ':'),
+      }
       delete smokeEnv.CODEX_PATH
+      delete smokeEnv.CLAUDE_CODE_EXECUTABLE
       try {
         await smokeBundledAdapter(executable, adapterEntrypoint, smokeEnv, context.appOutDir)
       } catch (error) {
-        throw new Error(`${packageName} packaged startup smoke test failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+        throw new Error(
+          `${packageName} packaged startup smoke test failed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        )
       }
     }
   }

@@ -23,22 +23,11 @@ extraResources:
     to: icon.ico
   - from: build/icon.png
     to: icon.png
-# node-pty and the ACP provider runtimes must stay physical on disk
-# (ConPTY needs to dlopen conpty.node and spawn OpenConsole.exe; the provider
-# adapters spawn their platform binaries, none of which can rely on asar).
-# `@lydell/node-pty` is only a
-# resolver stub — the implementation and the binaries live in the
-# platform-specific `@lydell/node-pty-<platform>-<arch>` package it requires,
-# so both must be unpacked.
+# ACP adapters run as ESM through Electron's Node mode. Their entire runtime
+# dependency graph must be physical: ESM resolution does not use NODE_PATH to
+# find JS dependencies left in app.asar. This also covers pty and CLI binaries.
 asarUnpack:
-  - '**/node_modules/@lydell/node-pty/**'
-  - '**/node_modules/@lydell/node-pty-*/**'
-  # ACP entrypoints stay available to Electron's Node runtime and the
-  # provider binaries they resolve must be real files, not asar members.
-  - '**/node_modules/@agentclientprotocol/**'
-  - '**/node_modules/@anthropic-ai/**'
-  - '**/node_modules/@modelcontextprotocol/**'
-  - '**/node_modules/@openai/**'
+  - '**/node_modules/**'
 # Fails the build if the platform pty package did not survive dependency
 # collection — that regression ships a terminal that opens to a dead cursor.
 afterPack: ./packaging/after-pack.js
@@ -73,10 +62,7 @@ mac:
   # The optional ACP runtime packages are installed for both universal slices
   # by pnpm's supportedArchitectures matrix; preserve their x64 files in the
   # x64 half just like the single-arch pty addons above.
-  x64ArchFiles:
-    - '**/node_modules/@lydell/node-pty-*/**'
-    - '**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
-    - '**/node_modules/@openai/codex-*/**'
+  x64ArchFiles: '**/node_modules/{@lydell/node-pty-*,@anthropic-ai/claude-agent-sdk-*,@openai/codex-*}/**'
 linux:
   target:
     - AppImage
