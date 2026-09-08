@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { motion } from 'motion/react'
-import { ArrowRight, Check, GitBranch, Layers, Loader2, PlugZap, Search, Sparkles, Terminal } from 'lucide-react'
+import {
+  ArrowRight,
+  Check,
+  GitBranch,
+  Layers,
+  Loader2,
+  PlugZap,
+  Search,
+  Sparkles,
+  Terminal,
+} from 'lucide-react'
 import { useToast } from '@ari/ui/toast'
 import { transitions } from '@ari/ui/motion'
 import { rpc } from '../../lib/rpc'
@@ -151,35 +161,17 @@ export function WelcomePanel({
         transition={transitions.fadeUp}
         className="relative z-10 flex w-full max-w-lg flex-col gap-6"
       >
-        {/* Hero brand mark and heading */}
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-gradient-to-b from-accent/25 to-accent/5 text-accent shadow-lg shadow-accent/10">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <h1 className="text-2xl font-bold tracking-tight text-fg">
-              Welcome to Ari
-            </h1>
-            <p className="mx-auto max-w-sm text-xs leading-relaxed text-fg-muted">
-              One unified surface for every coding agent on your machine — chat, steer, review diffs,
-              and drive terminals.
-            </p>
-          </div>
+        <div className="flex flex-col items-center gap-1.5 text-center">
+          <h1 className="text-[28px] font-semibold tracking-[-0.035em] text-fg">
+            Ari
+            <span aria-hidden="true" className="text-accent">
+              .
+            </span>
+          </h1>
+          <p className="mx-auto max-w-sm text-xs leading-relaxed text-fg-muted">
+            One unified surface for every coding agent on your machine — chat, steer, review diffs,
+            and drive terminals.
+          </p>
         </div>
 
         {/* Quick prompt action grid */}
@@ -363,5 +355,4 @@ export function WelcomePanel({
       </motion.div>
     </div>
   )
-
 }
