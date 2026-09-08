@@ -1055,6 +1055,72 @@ describe('createAcpAdapter', () => {
     expect(modeCalls(second)).toEqual(['build'])
     await buildTurn.dispose()
   }, 20000)
+
+  it('downgrades a resumed full session when allow-edits has no safe native mode', async () => {
+    const fullAndPlanAgent: AgentHandler = (method, params, id) => {
+      if (method === 'session/new') {
+        return {
+          sessionId: 'sess_acp_1',
+          modes: {
+            currentModeId: 'plan',
+            availableModes: [
+              { id: 'bypassPermissions', name: 'Bypass permissions' },
+              { id: 'plan', name: 'Plan' },
+            ],
+          },
+        }
+      }
+      if (method === 'session/set_mode') return {}
+      return standardAgent()(method, params, id)
+    }
+    const first = fakeChild()
+    script(first, fullAndPlanAgent)
+    const fullTurn = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'full' },
+      () => first,
+    )
+    expect(modeCalls(first)).toEqual(['bypassPermissions'])
+    await fullTurn.dispose()
+
+    const second = fakeChild()
+    script(second, (method, params, id) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+      }
+      if (method === 'session/load') return null
+      if (method === 'session/new') throw new Error('must not create a fresh session')
+      return fullAndPlanAgent(method, params, id)
+    })
+    const editTurn = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, permissionMode: 'allow-edits', resumeOf: 'sess_acp_1' },
+      () => second,
+    )
+
+    expect(modeCalls(second)).toEqual(['plan'])
+    await editTurn.dispose()
+  }, 20000)
+
+  it('aborts a restrictive turn when the agent offers only full-access modes', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/new') {
+        return {
+          sessionId: 'sess_acp_1',
+          modes: {
+            currentModeId: 'bypassPermissions',
+            availableModes: [{ id: 'bypassPermissions', name: 'Bypass permissions' }],
+          },
+        }
+      }
+      return standardAgent()(method, params, id)
+    })
+
+    await expect(
+      createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: 'allow-edits' }, () => child),
+    ).rejects.toThrow('offers no safe mode')
+  }, 15000)
 })
 
 describe('launchWithEffort', () => {
