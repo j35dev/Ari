@@ -198,6 +198,24 @@ export const contentMatchSchema = z.object({
 export type ContentSearchMatch = z.infer<typeof contentMatchSchema>
 
 /**
+ * Capability scope for the file RPCs (`fs.list` / `fs.readTextFile` /
+ * `fs.writeTextFile`): exactly one of a registered project or a session,
+ * plus a workspace-relative path (`.` for the scope root). The renderer
+ * never sends an absolute path — the main process resolves the scope root
+ * from its own trusted stores and jails the relative path inside it.
+ */
+export const fsScopeSchema = z
+  .object({
+    projectId: z.string().min(1).optional(),
+    sessionId: z.string().min(1).optional(),
+    path: z.string().min(1),
+  })
+  .refine((v) => (v.projectId !== undefined) !== (v.sessionId !== undefined), {
+    message: 'exactly one of projectId or sessionId is required',
+  })
+export type FsScope = z.infer<typeof fsScopeSchema>
+
+/**
  * Outcome for the mutating git RPCs (`git.add` / `git.commit` / `git.push`):
  * failures come back as data instead of being thrown across IPC.
  */
@@ -371,13 +389,11 @@ export const rpcParams = {
     body: z.string().max(8000).optional(),
     base: z.string().min(1).max(200).optional(),
   }),
-  'fs.list': z.object({ path: z.string().min(1) }),
-  'fs.readTextFile': z.object({
-    path: z.string().min(1),
+  'fs.list': fsScopeSchema,
+  'fs.readTextFile': fsScopeSchema.extend({
     maxBytes: z.number().int().positive().optional(),
   }),
-  'fs.writeTextFile': z.object({
-    path: z.string().min(1),
+  'fs.writeTextFile': fsScopeSchema.extend({
     content: z.string(),
   }),
   'plan.get': z.object({ path: z.string().min(1), sessionId: z.string().min(1).optional() }),
