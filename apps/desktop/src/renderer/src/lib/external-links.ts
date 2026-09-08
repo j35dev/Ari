@@ -8,15 +8,13 @@ export function isExternalHref(href: string): boolean {
   return href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')
 }
 
-/** Local anchors, downloads, and blob/data payloads stay on their default path. */
+/** Local anchors and downloads stay on their default path. */
 function isBypassed(anchor: HTMLAnchorElement, href: string): boolean {
   if (anchor.hasAttribute('download')) return true
-  return (
-    href.startsWith('#') ||
-    href.startsWith('blob:') ||
-    href.startsWith('data:') ||
-    href.startsWith('about:')
-  )
+  // data:/blob: payloads must never navigate the ADE window top-level —
+  // they are attacker-controllable content, so they fall through to the
+  // block below instead of their default navigation path.
+  return href.startsWith('#') || href.startsWith('about:')
 }
 
 function openExternal(href: string): void {
