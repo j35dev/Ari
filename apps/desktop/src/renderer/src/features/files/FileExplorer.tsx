@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { RpcResults } from '@ari/contracts/rpc'
+import type { FsScope, RpcResults } from '@ari/contracts/rpc'
 import { IconButton } from '@ari/ui/icon-button'
 import { ChevronRight, FileText, Folder, FolderOpen, RotateCw } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
@@ -141,16 +141,29 @@ function ExplorerRow({
 }
 
 /**
+ * Capability scope for every `fs.*` call this tree makes: exactly one of a
+ * registered project or a session. The renderer only ever sends this scope
+ * plus workspace-relative paths — absolute paths never cross IPC.
+ */
+export type FsTreeScope = Omit<FsScope, 'path'>
+
+/**
  * Lazy-loading workspace file tree for the inspector pane. Only the root is
  * listed on mount; directories are listed via the `fs.list` RPC the first
  * time they expand and cached until refresh.
  */
-export function FileExplorer({ root }: { root: string }) {
+export function FileExplorer({ root, scope }: { root: string; scope: FsTreeScope }) {
   const [entries, setEntries] = useState<EntriesByDir>({})
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [selected, setSelected] = useState<string | null>(null)
   const [editingPath, setEditingPath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  /** Workspace-relative RPC path for an absolute tree path (`.` at the root). */
+  const scopedDir = useCallback(
+    (dir: string): string => (dir === root ? '.' : relativeToRoot(root, dir)),
+    [root],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -160,7 +173,7 @@ export function FileExplorer({ root }: { root: string }) {
     setEditingPath(null)
     setError(null)
     void rpc
-      .invoke('fs.list', { path: root })
+      .invoke('fs.list', { ...scope, path: '.' })
       .then((result) => {
         if (!cancelled) setEntries((prev) => ({ ...prev, [root]: result }))
       })
@@ -172,20 +185,23 @@ export function FileExplorer({ root }: { root: string }) {
     return () => {
       cancelled = true
     }
-  }, [root])
+  }, [root, scope])
 
   /** Lists a directory and caches it; surfaces failures in `error`. */
-  const listDir = useCallback((dir: string): void => {
-    void rpc
-      .invoke('fs.list', { path: dir })
-      .then((result) => {
-        setEntries((prev) => ({ ...prev, [dir]: result }))
-        setError(null)
-      })
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : String(cause))
-      })
-  }, [])
+  const listDir = useCallback(
+    (dir: string): void => {
+      void rpc
+        .invoke('fs.list', { ...scope, path: scopedDir(dir) })
+        .then((result) => {
+          setEntries((prev) => ({ ...prev, [dir]: result }))
+          setError(null)
+        })
+        .catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : String(cause))
+        })
+    },
+    [scope, scopedDir],
+  )
 
   const toggleDir = useCallback(
     (dir: string): void => {
@@ -270,7 +286,8 @@ export function FileExplorer({ root }: { root: string }) {
       </div>
       {editingPath !== null && (
         <FileEditor
-          path={editingPath}
+          scope={scope}
+          path={editingPath === root ? '.' : relativeToRoot(root, editingPath)}
           onClose={() => setEditingPath(null)}
           onSaved={refresh}
         />

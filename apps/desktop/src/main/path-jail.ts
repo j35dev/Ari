@@ -48,3 +48,14 @@ export async function resolveInsideRoots(
   }
   throw new Error(`path escapes registered project folders: ${resolved}`)
 }
+
+/**
+ * Resolves a capability-scoped relative path (`fs.*` RPCs): joins it onto
+ * the trusted scope `root` and requires the result to stay inside that same
+ * root. Absolute `relPath` values are refused outright — `path.resolve`
+ * would otherwise discard the root entirely.
+ */
+export async function resolveScopedPath(root: string, relPath: string): Promise<string> {
+  if (path.isAbsolute(relPath)) throw new Error('path must be workspace-relative')
+  return resolveInsideRoots(path.resolve(root, relPath), [root])
+}

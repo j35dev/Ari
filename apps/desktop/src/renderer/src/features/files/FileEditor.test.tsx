@@ -15,7 +15,8 @@ const invokeMock = rpcMocks.invoke as unknown as Mock<
   (method: string, params?: unknown) => Promise<unknown>
 >
 
-const PATH = 'C:\\demo\\README.md'
+const SCOPE = { projectId: 'proj_1' }
+const PATH = 'README.md'
 
 describe('FileEditor', () => {
   afterEach(() => {
@@ -24,11 +25,11 @@ describe('FileEditor', () => {
 
   it('loads the file contents into an editable buffer', async () => {
     invokeMock.mockResolvedValue({ content: 'hello world', truncated: false })
-    render(<FileEditor path={PATH} onClose={() => undefined} />)
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={() => undefined} />)
 
     const buffer = await screen.findByRole('textbox', { name: 'File contents' })
     await waitFor(() => expect(buffer).toHaveValue('hello world'))
-    expect(invokeMock).toHaveBeenCalledWith('fs.readTextFile', { path: PATH })
+    expect(invokeMock).toHaveBeenCalledWith('fs.readTextFile', { ...SCOPE, path: PATH })
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 
@@ -40,7 +41,7 @@ describe('FileEditor', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
     const onSaved = vi.fn()
-    render(<FileEditor path={PATH} onClose={() => undefined} onSaved={onSaved} />)
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={() => undefined} onSaved={onSaved} />)
 
     const buffer = await screen.findByRole('textbox', { name: 'File contents' })
     await waitFor(() => expect(buffer).toHaveValue('hello'))
@@ -51,6 +52,7 @@ describe('FileEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('fs.writeTextFile', {
+        ...SCOPE,
         path: PATH,
         content: 'hello!',
       }),
@@ -64,7 +66,7 @@ describe('FileEditor', () => {
     const user = userEvent.setup()
     invokeMock.mockResolvedValue({ content: 'saved version', truncated: false })
     const onClose = vi.fn()
-    render(<FileEditor path={PATH} onClose={onClose} />)
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={onClose} />)
     const buffer = await screen.findByRole('textbox', { name: 'File contents' })
     await waitFor(() => expect(buffer).toHaveValue('saved version'))
 
@@ -80,7 +82,7 @@ describe('FileEditor', () => {
 
   it('surfaces read failures (binary or over-cap files) as an alert', async () => {
     invokeMock.mockRejectedValue(new Error('binary file'))
-    render(<FileEditor path="C:\\demo\\logo.png" onClose={() => undefined} />)
+    render(<FileEditor scope={SCOPE} path="logo.png" onClose={() => undefined} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('binary file')
     expect(screen.queryByRole('textbox', { name: 'File contents' })).not.toBeInTheDocument()
@@ -88,7 +90,7 @@ describe('FileEditor', () => {
 
   it('refuses to edit a truncated read so saving cannot drop the tail', async () => {
     invokeMock.mockResolvedValue({ content: 'only the head', truncated: true })
-    render(<FileEditor path={PATH} onClose={() => undefined} />)
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={() => undefined} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('edit cap')
     expect(screen.queryByRole('textbox', { name: 'File contents' })).not.toBeInTheDocument()
@@ -101,7 +103,7 @@ describe('FileEditor', () => {
       if (method === 'fs.writeTextFile') throw new Error('path escapes registered project folders')
       throw new Error(`unexpected method: ${String(method)}`)
     })
-    render(<FileEditor path={PATH} onClose={() => undefined} />)
+    render(<FileEditor scope={SCOPE} path={PATH} onClose={() => undefined} />)
     const buffer = await screen.findByRole('textbox', { name: 'File contents' })
     await waitFor(() => expect(buffer).toHaveValue('x'))
 
