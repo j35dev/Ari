@@ -266,20 +266,22 @@ describe('contracts', () => {
     ).toThrow()
   })
 
-  it('validates search.content params and rejects empty/anchorless queries', () => {
-    expect(rpcParams['search.content'].parse({ path: '/proj', query: 'needle' })).toEqual({
-      path: '/proj',
+  it('validates search.content params and rejects path-based roots', () => {
+    expect(rpcParams['search.content'].parse({ projectId: 'proj_1', query: 'needle' })).toEqual({
+      projectId: 'proj_1',
       query: 'needle',
     })
-    expect(rpcParams['search.content'].parse({ projectId: 'proj_1', query: 'n', maxResults: 5 })).toEqual({
-      projectId: 'proj_1',
+    expect(rpcParams['search.content'].parse({ sessionId: 'sess_1', query: 'n', maxResults: 5 })).toEqual({
+      sessionId: 'sess_1',
       query: 'n',
       maxResults: 5,
     })
-    expect(() => rpcParams['search.content'].parse({ path: '/proj', query: '' })).toThrow()
+    // No working directory crosses IPC: scopes only.
+    expect(() => rpcParams['search.content'].parse({ path: '/proj', query: 'needle' })).toThrow()
+    expect(() => rpcParams['search.content'].parse({ projectId: 'proj_1', query: '' })).toThrow()
     expect(() => rpcParams['search.content'].parse({ query: 'no-root' })).toThrow()
     expect(() =>
-      rpcParams['search.content'].parse({ path: '/proj', query: 'n', maxResults: SEARCH_CONTENT_MAX_RESULTS + 1 }),
+      rpcParams['search.content'].parse({ projectId: 'proj_1', query: 'n', maxResults: SEARCH_CONTENT_MAX_RESULTS + 1 }),
     ).toThrow()
   })
 
