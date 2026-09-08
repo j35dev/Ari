@@ -37,6 +37,24 @@ describe('RpcRegistry', () => {
     expect(sent.map((f) => f.id).sort()).toEqual(['a', 'b'])
   })
 
+  it('continues publishing when one subscriber transport fails', () => {
+    const sent: StreamFrame[] = []
+    let calls = 0
+    const registry = new RpcRegistry({
+      send: (frame) => {
+        calls++
+        if (calls === 1) throw new Error('renderer closed')
+        sent.push(frame)
+      },
+    })
+    registry.subscribe({ id: 'a', name: 'session.events', params: {} })
+    registry.subscribe({ id: 'b', name: 'session.events', params: {} })
+
+    registry.publish('session.events', { seq: 1 })
+
+    expect(sent.map((frame) => frame.id)).toEqual(['b'])
+  })
+
   it('unsubscribe stops delivery and subscriberCount tracks by name', () => {
     const { registry } = makeRegistry()
     registry.subscribe({ id: 'a', name: 'session.events', params: {} })

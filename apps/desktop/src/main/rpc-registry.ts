@@ -72,10 +72,15 @@ export class RpcRegistry {
     return count
   }
 
-  /** Publishes to every subscriber of that stream. */
+  /** Publishes to every subscriber of that stream; one dead transport never starves the rest. */
   publish<P>(name: StreamName, payload: P): void {
     for (const sub of this.#subscribers.values()) {
-      if (sub.name === name) this.#deps.send({ id: sub.id, name, payload })
+      if (sub.name !== name) continue
+      try {
+        this.#deps.send({ id: sub.id, name, payload })
+      } catch {
+        // Dead renderer: skip it and keep delivering to everyone else.
+      }
     }
   }
 }
