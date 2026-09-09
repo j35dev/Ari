@@ -361,6 +361,21 @@ describe('Composer file drag-drop', () => {
     expect(input).toHaveValue('"/home/u/a\\"b.md" ')
   })
 
+  it('quotes paths that themselves start and end with quotes', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+
+    fireEvent.drop(input, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [osFile('q.md', 'text/markdown', '/home/u/"quoted".md')],
+        getData: () => '',
+      },
+    })
+
+    expect(input).toHaveValue('"/home/u/\\"quoted\\".md" ')
+  })
+
   it('quotes dropped paths containing spaces', () => {
     render(<Composer onSend={vi.fn()} />)
     const input = screen.getByLabelText('Message')
