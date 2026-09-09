@@ -1,0 +1,45 @@
+import { useEffect, useState } from 'react'
+import { GitBranch } from 'lucide-react'
+import { createLogger } from '@ari/shared/logger'
+import { rpc } from '../../lib/rpc'
+
+const log = createLogger('session:branch')
+
+/**
+ * Contextual branch readout inside the session space: shows the active
+ * session's git branch in a slim reserved strip at the top of the transcript.
+ * Asks git.status with the session scope — the worktree resolves server-side.
+ * The strip mounts only when a branch exists and reserves its own row, so the
+ * pill never overlays scrolling checkpoints; outside repos it stays hidden.
+ */
+export function SessionBranchChip({ sessionId }: { sessionId: string | null }) {
+  const [branch, setBranch] = useState<string | null>(null)
+
+  useEffect(() => {
+    setBranch(null)
+    if (sessionId === null) return
+    let cancelled = false
+    void rpc
+      .invoke('git.status', { sessionId })
+      .then((status) => {
+        if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
+      })
+      .catch((error: unknown) => log.warn('rpc call failed', error))
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
+
+  if (branch === null) return null
+  return (
+    <div className="flex h-7 shrink-0 items-center justify-end gap-2 px-3">
+      <span
+        className="flex h-6 items-center gap-1.5 rounded-full border border-border/80 bg-surface-1/90 px-2.5 font-mono text-2xs text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:text-fg"
+        title="Active branch"
+      >
+        <GitBranch size={11} className="text-accent" aria-hidden="true" />
+        <span className="max-w-40 truncate font-semibold">{branch}</span>
+      </span>
+    </div>
+  )
+}
