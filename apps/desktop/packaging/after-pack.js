@@ -283,6 +283,11 @@ export default async function afterPack(context) {
           problems.push(`${key} Cliamp binary is not executable`)
         }
       }
+      const toolsDir = join(resourcesDir(context), 'cliamp', 'bin', key)
+      const ytDlp = join(toolsDir, platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp')
+      const ffmpeg = join(toolsDir, platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+      if (!existsSync(ytDlp)) problems.push(`${key} yt-dlp is missing (run scripts/fetch-media-tools.mjs)`)
+      if (!existsSync(ffmpeg)) problems.push(`${key} ffmpeg is missing (run scripts/fetch-media-tools.mjs)`)
       // A foreign-arch binary cannot run here; version-check only the host match.
       if (key === `${process.platform}-${process.arch}` && platform === process.platform) {
         const { stdout } = await promisify(execFile)(binary, ['--version'], {

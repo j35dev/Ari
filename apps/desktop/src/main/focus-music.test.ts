@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  CLIAMP_DAEMON_ARGS,
   FocusMusicBackend,
   cliampBundleDir,
   cliampTargetKey,
@@ -43,6 +44,7 @@ function spawningBackend(
     searchTracks?: Record<string, { title: string; path: string }[]>
     playlists?: { id: string; name: string }[]
     playlistTracks?: { title: string; path: string; station?: string }[]
+    ytDlpDump?: unknown
     env?: CliampEnvironment
   } = {},
 ): {
@@ -113,7 +115,10 @@ function spawningBackend(
   const locateBinary = vi.fn(() =>
     Promise.resolve(options.binary === undefined ? '/bin/cliamp' : options.binary),
   )
-  const runner: FocusMusicRunner = { locateBinary, run }
+  const runYtDlp = vi.fn(async () => ({
+    stdout: JSON.stringify(options.ytDlpDump ?? {}),
+  }))
+  const runner: FocusMusicRunner = { locateBinary, run, runYtDlp }
   const backend = new FocusMusicBackend({
     env: options.env ?? ENV,
     runner,
@@ -156,13 +161,24 @@ describe('parseCliampStatus', () => {
         title: 'Live News',
         artist: 'France Info',
         station: 'France Info',
+        sourceUrl: 'http://example/stream.mp3',
+        artworkUrl: '',
+        durationMs: undefined,
       },
     })
     expect(
       parseCliampStatus(statusJson({ state: 'paused', track: { title: 'Song' } })),
     ).toEqual({
       playing: false,
-      track: { id: 'Song', title: 'Song', artist: '', station: '' },
+      track: {
+        id: 'Song',
+        title: 'Song',
+        artist: '',
+        station: '',
+        sourceUrl: '',
+        artworkUrl: '',
+        durationMs: undefined,
+      },
     })
   })
 
@@ -239,7 +255,7 @@ describe('bundled resolution', () => {
         binary: '/usr/bin/cliamp',
       })
       await expect(backend.status()).resolves.toMatchObject({ available: true })
-      expect(spawnDaemon).toHaveBeenCalledWith(binary, ['--daemon'])
+      expect(spawnDaemon).toHaveBeenCalledWith(binary, [...CLIAMP_DAEMON_ARGS])
       expect(locateBinary).not.toHaveBeenCalled()
     } finally {
       if (previous === undefined) delete process.env['CLIAMP_BIN']
@@ -305,7 +321,7 @@ describe('FocusMusicBackend', () => {
     const { backend, run, spawnDaemon, kill } = spawningBackend({})
     const state = await backend.status()
     expect(state).toMatchObject({ available: true })
-    expect(spawnDaemon).toHaveBeenCalledWith('/bin/cliamp', ['--daemon'])
+    expect(spawnDaemon).toHaveBeenCalledWith('/bin/cliamp', [...CLIAMP_DAEMON_ARGS])
     await expect(backend.control(['pause'])).resolves.toEqual({ ok: true })
     expect(run).toHaveBeenCalledWith(['pause'], expect.any(Number))
     backend.close()
@@ -389,5 +405,36 @@ describe('FocusMusicBackend', () => {
     expect(first).toMatchObject({ available: true })
     expect(second).toMatchObject({ available: true })
     expect(spawnDaemon).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolves a YouTube song URL and a playlist dump', async () => {
+    const song = spawningBackend({
+      daemonUp: true,
+      ytDlpDump: {
+        title: 'Nightcall',
+        artist: 'Kavinsky',
+        webpage_url: 'https://www.youtube.com/watch?v=abc',
+      },
+    })
+    await expect(song.backend.resolveUrl('https://www.youtube.com/watch?v=abc')).resolves.toMatchObject({
+      kind: 'track',
+      track: { title: 'Nightcall', artist: 'Kavinsky' },
+    })
+    const list = spawningBackend({
+      daemonUp: true,
+      ytDlpDump: {
+        title: 'Coding Mix',
+        entries: [
+          { title: 'Nightcall', webpage_url: 'https://www.youtube.com/watch?v=abc' },
+          { title: 'Midnight City', webpage_url: 'https://www.youtube.com/watch?v=def' },
+        ],
+      },
+    })
+    await expect(
+      list.backend.resolveUrl('https://www.youtube.com/playlist?list=PLxx'),
+    ).resolves.toMatchObject({ kind: 'playlist', name: 'Coding Mix' })
+    await expect(list.backend.resolveUrl('https://example.com/nope')).resolves.toMatchObject({
+      kind: 'invalid',
+    })
   })
 })

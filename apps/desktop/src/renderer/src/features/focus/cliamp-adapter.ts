@@ -1,4 +1,4 @@
-import type { FocusMusicState, FocusTrack } from '@ari/contracts/rpc'
+import type { AriPlaylist, FocusMusicState, FocusTrack, FocusUrlResolve } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
 import { DISCONNECTED_MUSIC, type MusicService } from './music-types'
@@ -81,6 +81,96 @@ export class CliampAdapter implements MusicService {
     } catch (error) {
       log.warn('music volume failed', error)
       return { ok: false, error: 'Music backend is unreachable.' }
+    }
+  }
+
+  async shuffle(enabled: boolean): Promise<{ ok: boolean; error?: string }> {
+    try {
+      return await rpc.invoke('focus.music.shuffle', { enabled })
+    } catch (error) {
+      log.warn('music shuffle failed', error)
+      return { ok: false, error: 'Music backend is unreachable.' }
+    }
+  }
+
+  async queue(trackId: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      return await rpc.invoke('focus.music.queue', { trackId })
+    } catch (error) {
+      log.warn('music queue failed', error)
+      return { ok: false, error: 'Music backend is unreachable.' }
+    }
+  }
+
+  async resolveUrl(url: string): Promise<FocusUrlResolve> {
+    try {
+      return await rpc.invoke('focus.music.resolve', { url })
+    } catch (error) {
+      log.warn('music resolve failed', error)
+      return { kind: 'invalid', error: 'Music backend is unreachable.' }
+    }
+  }
+
+  async listPlaylists(): Promise<{ playlists: AriPlaylist[] }> {
+    try {
+      return await rpc.invoke('focus.playlists.list')
+    } catch (error) {
+      log.warn('playlists list failed', error)
+      return { playlists: [] }
+    }
+  }
+
+  async createPlaylist(
+    name: string,
+    tracks?: FocusTrack[],
+  ): Promise<{ playlist: AriPlaylist | null; error?: string }> {
+    try {
+      return await rpc.invoke('focus.playlists.create', { name, tracks })
+    } catch (error) {
+      log.warn('playlists create failed', error)
+      return { playlist: null, error: 'Playlists are unavailable right now.' }
+    }
+  }
+
+  async renamePlaylist(
+    id: string,
+    name: string,
+  ): Promise<{ playlist: AriPlaylist | null; error?: string }> {
+    try {
+      return await rpc.invoke('focus.playlists.rename', { id, name })
+    } catch (error) {
+      log.warn('playlists rename failed', error)
+      return { playlist: null, error: 'Playlists are unavailable right now.' }
+    }
+  }
+
+  async removePlaylist(id: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      return await rpc.invoke('focus.playlists.remove', { id })
+    } catch (error) {
+      log.warn('playlists remove failed', error)
+      return { ok: false, error: 'Playlists are unavailable right now.' }
+    }
+  }
+
+  async updatePlaylist(
+    id: string,
+    tracks: FocusTrack[],
+  ): Promise<{ playlist: AriPlaylist | null; error?: string }> {
+    try {
+      return await rpc.invoke('focus.playlists.update', { id, tracks })
+    } catch (error) {
+      log.warn('playlists update failed', error)
+      return { playlist: null, error: 'Playlists are unavailable right now.' }
+    }
+  }
+
+  async playPlaylist(id: string, shuffle?: boolean): Promise<{ ok: boolean; error?: string }> {
+    try {
+      return await rpc.invoke('focus.playlists.play', { id, shuffle })
+    } catch (error) {
+      log.warn('playlists play failed', error)
+      return { ok: false, error: 'Playlists are unavailable right now.' }
     }
   }
 }

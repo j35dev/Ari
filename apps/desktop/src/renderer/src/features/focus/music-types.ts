@@ -1,6 +1,6 @@
-import type { FocusMusicState, FocusTrack } from '@ari/contracts/rpc'
+import type { AriPlaylist, FocusMusicState, FocusTrack, FocusUrlResolve } from '@ari/contracts/rpc'
 
-export type { FocusMusicState, FocusTrack }
+export type { AriPlaylist, FocusMusicState, FocusTrack, FocusUrlResolve }
 
 /** Disconnected snapshot used before the first status lands and on IPC failure. */
 export const DISCONNECTED_MUSIC: FocusMusicState = {
@@ -10,6 +10,7 @@ export const DISCONNECTED_MUSIC: FocusMusicState = {
   volume: null,
   supportsSearch: false,
   supportsVolume: false,
+  shuffle: false,
   detail: '',
 }
 
@@ -23,4 +24,13 @@ export interface MusicService {
   search(query: string): Promise<{ tracks: FocusTrack[]; error?: string }>
   browse(): Promise<{ tracks: FocusTrack[]; error?: string }>
   setVolume(volume: number): Promise<{ ok: boolean; error?: string }>
+  shuffle(enabled: boolean): Promise<{ ok: boolean; error?: string }>
+  queue(trackId: string): Promise<{ ok: boolean; error?: string }>
+  resolveUrl(url: string): Promise<FocusUrlResolve>
+  listPlaylists(): Promise<{ playlists: AriPlaylist[] }>
+  createPlaylist(name: string, tracks?: FocusTrack[]): Promise<{ playlist: AriPlaylist | null; error?: string }>
+  renamePlaylist(id: string, name: string): Promise<{ playlist: AriPlaylist | null; error?: string }>
+  removePlaylist(id: string): Promise<{ ok: boolean; error?: string }>
+  updatePlaylist(id: string, tracks: FocusTrack[]): Promise<{ playlist: AriPlaylist | null; error?: string }>
+  playPlaylist(id: string, shuffle?: boolean): Promise<{ ok: boolean; error?: string }>
 }

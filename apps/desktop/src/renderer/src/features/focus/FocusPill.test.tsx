@@ -14,6 +14,7 @@ const idle: FocusMusicState = {
   volume: null,
   supportsSearch: false,
   supportsVolume: false,
+  shuffle: false,
   detail: 'Music is unavailable right now.',
 }
 
@@ -25,6 +26,7 @@ function playing(): FocusMusicState {
     volume: 60,
     supportsSearch: true,
     supportsVolume: true,
+    shuffle: false,
     detail: '',
   }
 }
@@ -41,6 +43,7 @@ beforeEach(() => {
     if (method === 'focus.music.status') return idle
     if (method === 'focus.music.search') return { tracks: [] }
     if (method === 'focus.music.browse') return { tracks: [] }
+    if (method === 'focus.playlists.list') return { playlists: [] }
     return { ok: true }
   })
 })
@@ -142,7 +145,9 @@ describe('FocusPill', () => {
     await settle()
     fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
     await settle()
-    fireEvent.change(screen.getByPlaceholderText('Search stations…'), { target: { value: 'lofi' } })
+    fireEvent.change(screen.getByPlaceholderText('Paste YouTube song or playlist URL…'), {
+      target: { value: 'lofi' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     await settle()
     expect(screen.getByText('Music is unavailable right now.')).toBeInTheDocument()

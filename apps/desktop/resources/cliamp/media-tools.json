@@ -1,0 +1,67 @@
+{
+  "$comment": "Pinned yt-dlp + ffmpeg shipped beside Cliamp so YouTube URLs play without a user install. Bump versions, refresh sha256, then `node scripts/fetch-media-tools.mjs --all`. Binaries land in bin/<target>/ (gitignored) next to cliamp so the daemon PATH includes them.",
+  "ytDlp": {
+    "version": "2026.08.19",
+    "source": "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.08.19",
+    "license": "Unlicense",
+    "targets": {
+      "win32-x64": {
+        "asset": "yt-dlp.exe",
+        "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
+        "binary": "yt-dlp.exe"
+      },
+      "darwin-x64": {
+        "asset": "yt-dlp_macos",
+        "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202",
+        "binary": "yt-dlp"
+      },
+      "darwin-arm64": {
+        "asset": "yt-dlp_macos",
+        "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202",
+        "binary": "yt-dlp"
+      },
+      "linux-x64": {
+        "asset": "yt-dlp_linux",
+        "sha256": "58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a",
+        "binary": "yt-dlp"
+      },
+      "linux-arm64": {
+        "asset": "yt-dlp_linux_aarch64",
+        "sha256": "b16e4dab368a816cd05d477d698a605a6ae87ccee1c8ffd38fa21d7254141fcc",
+        "binary": "yt-dlp"
+      }
+    }
+  },
+  "ffmpeg": {
+    "version": "b6.1.1",
+    "source": "https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1",
+    "license": "GPL-2.0-or-later",
+    "targets": {
+      "win32-x64": {
+        "asset": "ffmpeg-win32-x64",
+        "sha256": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00",
+        "binary": "ffmpeg.exe"
+      },
+      "darwin-x64": {
+        "asset": "ffmpeg-darwin-x64",
+        "sha256": "",
+        "binary": "ffmpeg"
+      },
+      "darwin-arm64": {
+        "asset": "ffmpeg-darwin-arm64",
+        "sha256": "",
+        "binary": "ffmpeg"
+      },
+      "linux-x64": {
+        "asset": "ffmpeg-linux-x64",
+        "sha256": "",
+        "binary": "ffmpeg"
+      },
+      "linux-arm64": {
+        "asset": "ffmpeg-linux-arm64",
+        "sha256": "",
+        "binary": "ffmpeg"
+      }
+    }
+  }
+}

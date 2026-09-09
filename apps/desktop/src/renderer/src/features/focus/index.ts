@@ -2,8 +2,10 @@ export { FocusPill } from './FocusPill'
 export { CliampAdapter } from './cliamp-adapter'
 export {
   DISCONNECTED_MUSIC,
+  type AriPlaylist,
   type FocusTrack,
   type FocusMusicState,
+  type FocusUrlResolve,
   type MusicService,
 } from './music-types'
 export {

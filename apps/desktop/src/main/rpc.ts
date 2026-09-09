@@ -830,6 +830,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
+    userDataPath: app.getPath('userData'),
   })
 
   r.register('command.dispatch', async (params) => {

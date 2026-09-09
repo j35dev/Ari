@@ -3,9 +3,12 @@ import { access, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import type { FocusMusicState, FocusTrack, RpcResults } from '@ari/contracts/rpc'
+import type { FocusMusicState, FocusTrack, FocusUrlResolve, RpcResults } from '@ari/contracts/rpc'
 import { spawnCli } from '@ari/providers/spawn-cli'
 import { createLogger } from '@ari/shared/logger'
+import { createCliampIpc, type FocusMusicIpc } from './cliamp-ipc'
+import { createFocusPlaylistStore, type FocusPlaylistStore } from './focus-playlists'
+import { classifyYoutubeUrl, youtubePlaylistFromDump, youtubeTrackFromDump } from './focus-youtube'
 import type { RpcRegistry } from './rpc-registry'
 
 const log = createLogger('desktop:focus-music')
@@ -25,6 +28,25 @@ const SEARCH_LIMIT_PER_PROVIDER = 4
 const SEARCH_RESULT_CAP = 8
 const BROWSE_RESULT_CAP = 8
 
+/** Neutral playback path: 48 kHz / 32-bit / sinc-4 / flat EQ / stereo. */
+export const CLIAMP_DAEMON_ARGS = [
+  '--daemon',
+  '--sample-rate',
+  '48000',
+  '--bit-depth',
+  '32',
+  '--resample-quality',
+  '4',
+  '--buffer-ms',
+  '200',
+  '--eq-preset',
+  'Flat',
+  '--no-mono',
+  '--expand-playlist',
+] as const
+
+const YTDLP_TIMEOUT_MS = 45_000
+
 /** Cliamp volume range in dB (`volume <dB>` sets an absolute value). */
 const VOLUME_DB_MIN = -30
 const VOLUME_DB_SPAN = 36
@@ -36,12 +58,14 @@ export interface CliampEnvironment {
   isPackaged: boolean
   resourcesPath: string
   appPath: string
+  userDataPath?: string
 }
 
 /** Seams for tests; the default drives the real `cliamp` executable. */
 export interface FocusMusicRunner {
   locateBinary(): Promise<string | null>
   run(args: string[], timeoutMs: number): Promise<{ stdout: string }>
+  runYtDlp?(args: string[], timeoutMs: number): Promise<{ stdout: string }>
 }
 
 /**
@@ -61,10 +85,12 @@ function defaultDaemonSpawner(binary: string, args: string[]): DaemonHandle {
   // cwd is the binary's own directory so Windows codec DLLs beside the exe
   // resolve even when Ari's cwd is elsewhere (spaces in the install path
   // are fine: this is an argv spawn, not a shell string).
+  const toolDir = dirname(binary)
   const child = spawnCli(binary, args, {
     stdio: 'ignore',
     windowsHide: true,
-    cwd: dirname(binary),
+    cwd: toolDir,
+    env: { ...process.env, PATH: `${toolDir}${delimiter}${process.env['PATH'] ?? ''}` },
   })
   child.unref()
   return child
@@ -74,6 +100,8 @@ export interface FocusMusicBackendOptions {
   env: CliampEnvironment
   runner?: FocusMusicRunner
   spawnDaemon?: DaemonSpawner
+  ipc?: FocusMusicIpc | null
+  playlists?: FocusPlaylistStore
   /** Injectable for tests; defaults to a setTimeout sleep. */
   delay?: (ms: number) => Promise<void>
 }
@@ -162,6 +190,7 @@ function unavailable(): FocusMusicState {
     volume: null,
     supportsSearch: false,
     supportsVolume: false,
+    shuffle: false,
     detail: 'Music is unavailable right now.',
   }
 }
@@ -205,6 +234,12 @@ export function parseCliampStatus(
       title,
       artist: asString(raw['artist']) ?? '',
       station: asString(raw['station']) ?? '',
+      sourceUrl: path ?? '',
+      artworkUrl: asString(raw['album_art_url']) ?? '',
+      durationMs:
+        typeof raw['duration_secs'] === 'number'
+          ? Math.round(raw['duration_secs'] * 1000)
+          : undefined,
     },
   }
 }
@@ -262,6 +297,10 @@ function asFocusTrack(value: unknown): { track: FocusTrack; raw: unknown } | nul
       title,
       artist: asString(row['artist']) ?? '',
       station: asString(row['station']) ?? '',
+      sourceUrl: path ?? '',
+      artworkUrl: asString(row['album_art_url']) ?? '',
+      durationMs:
+        typeof row['duration_secs'] === 'number' ? Math.round(row['duration_secs'] * 1000) : undefined,
     },
     raw: value,
   }
@@ -302,6 +341,19 @@ export function formatDb(db: number): string {
   return String(Number(db.toFixed(1)))
 }
 
+export function parseRuntimeSnapshot(
+  raw: unknown,
+): Pick<FocusMusicState, 'playing' | 'track' | 'shuffle'> | null {
+  const root = asRecord(raw)
+  const snap = asRecord(root?.['snapshot']) ?? root
+  if (!snap || typeof snap['state'] !== 'string') return null
+  const parsed = parseCliampStatus(
+    JSON.stringify({ ok: true, state: snap['state'], track: snap['track'] }),
+  )
+  if (!parsed) return null
+  return { ...parsed, shuffle: snap['shuffle'] === true }
+}
+
 /**
  * Cliamp backend behind the `focus.music.*` RPC surface.
  *
@@ -326,6 +378,8 @@ export class FocusMusicBackend {
   readonly #env: CliampEnvironment
   readonly #runner: FocusMusicRunner
   readonly #spawner: DaemonSpawner
+  readonly #ipc: FocusMusicIpc | null
+  readonly #playlists: FocusPlaylistStore | null
   readonly #delay: (ms: number) => Promise<void>
   #binary: string | undefined
   #pin: CliampPin | null | undefined
@@ -359,6 +413,10 @@ export class FocusMusicBackend {
       },
     }
     this.#spawner = options.spawnDaemon ?? defaultDaemonSpawner
+    this.#ipc = options.ipc === undefined ? (options.runner ? null : createCliampIpc()) : options.ipc
+    this.#playlists =
+      options.playlists ??
+      (options.env.userDataPath ? createFocusPlaylistStore(options.env.userDataPath) : null)
     this.#delay =
       options.delay ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   }
@@ -458,7 +516,7 @@ export class FocusMusicBackend {
     if (!binary) return false
     let handle: DaemonHandle
     try {
-      handle = this.#spawner(binary, ['--daemon'])
+      handle = this.#spawner(binary, [...CLIAMP_DAEMON_ARGS])
     } catch (error) {
       log.warn('cliamp daemon spawn failed', { error: String(error) })
       return false
@@ -481,8 +539,31 @@ export class FocusMusicBackend {
     return false
   }
 
-  /** Submits a V2 operation through the one-shot client; null on any failure. */
+  async #ipcRequest(
+    request: { method: string; operation?: string; params?: unknown },
+    timeoutMs: number,
+  ): Promise<unknown> {
+    if (!this.#ipc) return null
+    try {
+      return await this.#ipc.request(request, timeoutMs)
+    } catch (error) {
+      log.warn('cliamp ipc failed', { method: request.method, error: String(error) })
+      return null
+    }
+  }
+
+  /** Submits a V2 operation; prefers the socket, falls back to one-shot CLI. */
   async #remoteCall(operation: string, params: unknown, timeoutMs: number): Promise<unknown> {
+    const ipc = await this.#ipcRequest(
+      { method: 'operation.submit', operation, params },
+      timeoutMs,
+    )
+    if (ipc) {
+      const unwrapped = parseRemoteResult(JSON.stringify(ipc))
+      if (unwrapped !== null) return unwrapped
+      const root = asRecord(ipc)
+      if (root?.['ok'] === true) return root['result'] ?? root['job'] ?? ipc
+    }
     try {
       const { stdout } = await this.#runner.run(
         ['remote', 'call', operation, '--params', JSON.stringify(params), '--wait'],
@@ -516,6 +597,17 @@ export class FocusMusicBackend {
     // (the documented default until the user moves the slider).
     this.#volumeDb ??= 0
     const providers = await this.#providerList()
+    const fromIpc = parseRuntimeSnapshot(await this.#ipcRequest({ method: 'state.get' }, STATUS_TIMEOUT_MS))
+    if (fromIpc) {
+      return {
+        available: true,
+        ...fromIpc,
+        volume: dbToSlider(this.#volumeDb),
+        supportsSearch: providers.some((provider) => provider.searchable),
+        supportsVolume: true,
+        detail: '',
+      }
+    }
     try {
       const { stdout } = await this.#runner.run(['status', '--json'], STATUS_TIMEOUT_MS)
       const parsed = parseCliampStatus(stdout)
@@ -526,6 +618,7 @@ export class FocusMusicBackend {
       return {
         available: true,
         ...parsed,
+        shuffle: false,
         volume: dbToSlider(this.#volumeDb),
         supportsSearch: providers.some((provider) => provider.searchable),
         supportsVolume: true,
@@ -629,6 +722,11 @@ export class FocusMusicBackend {
     if (!(await this.#ensureDaemon())) {
       return { ok: false, error: 'Music is unavailable right now.' }
     }
+    const ipc = await this.#ipcRequest(
+      { method: 'operation.submit', operation, params: {} },
+      INSTANCE_PROBE_TIMEOUT_MS,
+    )
+    if (asRecord(ipc)?.['ok'] === true) return { ok: true }
     try {
       await this.#runner.run(['remote', 'call', operation], INSTANCE_PROBE_TIMEOUT_MS)
       return { ok: true }
@@ -636,6 +734,156 @@ export class FocusMusicBackend {
       log.warn('cliamp skip failed', { operation, error: String(error) })
       return { ok: false, error: 'Music did not respond. Please try again.' }
     }
+  }
+
+  #playable(track: FocusTrack): Record<string, unknown> {
+    const path = track.sourceUrl || track.id
+    return {
+      title: track.title,
+      artist: track.artist,
+      path,
+      stream: true,
+      album_art_url: track.artworkUrl || undefined,
+    }
+  }
+
+  async #ytDlpJson(args: string[]): Promise<unknown> {
+    try {
+      if (this.#runner.runYtDlp) {
+        const { stdout } = await this.#runner.runYtDlp(args, YTDLP_TIMEOUT_MS)
+        return JSON.parse(stdout) as unknown
+      }
+      const key = cliampTargetKey()
+      if (!key) return null
+      const bin = join(
+        cliampBundleDir(this.#env, key),
+        process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp',
+      )
+      if (!(await exists(bin))) return null
+      const { stdout } = await execFileP(bin, args, {
+        timeout: YTDLP_TIMEOUT_MS,
+        shell: false,
+        windowsHide: true,
+        encoding: 'utf8',
+        cwd: dirname(bin),
+      })
+      return JSON.parse(stdout) as unknown
+    } catch (error) {
+      log.warn('yt-dlp resolve failed', { error: String(error) })
+      return null
+    }
+  }
+
+  async resolveUrl(url: string): Promise<FocusUrlResolve> {
+    const kind = classifyYoutubeUrl(url)
+    if (!kind) return { kind: 'invalid', error: 'Paste a YouTube song or playlist link.' }
+    if ((await this.#binaryPath()) === null) {
+      return { kind: 'invalid', error: 'Music is unavailable right now.' }
+    }
+    const dump = await this.#ytDlpJson(
+      kind === 'playlist'
+        ? ['-J', '--flat-playlist', '--no-warnings', '--no-check-certificates', '--yes-playlist', url]
+        : ['-J', '--no-playlist', '--no-warnings', '--no-check-certificates', url],
+    )
+    if (kind === 'playlist') {
+      const playlist = youtubePlaylistFromDump(dump)
+      if (!playlist) return { kind: 'invalid', error: "This playlist can't be played." }
+      for (const track of playlist.tracks) this.#searchCache.set(track.id, this.#playable(track))
+      return { kind: 'playlist', name: playlist.name, tracks: playlist.tracks }
+    }
+    const track = youtubeTrackFromDump(dump)
+    if (!track) return { kind: 'invalid', error: "This track can't be played." }
+    this.#searchCache.set(track.id, this.#playable(track))
+    return { kind: 'track', track }
+  }
+
+  async queueTrack(trackId: string): Promise<RpcResults['focus.music.queue']> {
+    if ((await this.#binaryPath()) === null) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    if (!(await this.#ensureDaemon())) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    const cached = this.#searchCache.get(trackId) ?? { title: trackId, path: trackId, stream: true }
+    const result = await this.#remoteCall('track.queue', { track: cached }, CONTROL_TIMEOUT_MS)
+    if (!result) return { ok: false, error: 'Music did not respond. Please try again.' }
+    return { ok: true }
+  }
+
+  async setShuffle(enabled: boolean): Promise<RpcResults['focus.music.shuffle']> {
+    if ((await this.#binaryPath()) === null) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    if (!(await this.#ensureDaemon())) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    const result = await this.#remoteCall('shuffle', { name: enabled ? 'on' : 'off' }, CONTROL_TIMEOUT_MS)
+    if (!result) return { ok: false, error: 'Music did not respond. Please try again.' }
+    return { ok: true }
+  }
+
+  async playTracks(
+    tracks: FocusTrack[],
+    shuffle = false,
+  ): Promise<RpcResults['focus.music.play']> {
+    if (tracks.length === 0) return { ok: false, error: 'Nothing to play.' }
+    if ((await this.#binaryPath()) === null) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    if (!(await this.#ensureDaemon())) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    await this.setShuffle(shuffle)
+    const first = tracks[0]
+    if (!first) return { ok: false, error: 'Nothing to play.' }
+    this.#searchCache.set(first.id, this.#playable(first))
+    const played = await this.playTrack(first.id)
+    if (!played.ok) return played
+    for (const track of tracks.slice(1)) {
+      this.#searchCache.set(track.id, this.#playable(track))
+      await this.#remoteCall('track.queue', { track: this.#playable(track) }, CONTROL_TIMEOUT_MS)
+    }
+    return { ok: true }
+  }
+
+  async listPlaylists(): Promise<RpcResults['focus.playlists.list']> {
+    if (!this.#playlists) return { playlists: [] }
+    return { playlists: await this.#playlists.list() }
+  }
+
+  async createPlaylist(
+    name: string,
+    tracks: FocusTrack[] = [],
+  ): Promise<RpcResults['focus.playlists.create']> {
+    if (!this.#playlists) return { playlist: null, error: 'Playlists are unavailable right now.' }
+    return { playlist: await this.#playlists.create(name, tracks) }
+  }
+
+  async renamePlaylist(id: string, name: string): Promise<RpcResults['focus.playlists.rename']> {
+    if (!this.#playlists) return { playlist: null, error: 'Playlists are unavailable right now.' }
+    const playlist = await this.#playlists.rename(id, name)
+    return playlist ? { playlist } : { playlist: null, error: 'Playlist not found.' }
+  }
+
+  async removePlaylist(id: string): Promise<RpcResults['focus.playlists.remove']> {
+    if (!this.#playlists) return { ok: false, error: 'Playlists are unavailable right now.' }
+    return { ok: await this.#playlists.remove(id) }
+  }
+
+  async updatePlaylist(
+    id: string,
+    tracks: FocusTrack[],
+  ): Promise<RpcResults['focus.playlists.update']> {
+    if (!this.#playlists) return { playlist: null, error: 'Playlists are unavailable right now.' }
+    const playlist = await this.#playlists.replaceTracks(id, tracks)
+    return playlist ? { playlist } : { playlist: null, error: 'Playlist not found.' }
+  }
+
+  async playPlaylist(id: string, shuffle?: boolean): Promise<RpcResults['focus.playlists.play']> {
+    if (!this.#playlists) return { ok: false, error: 'Playlists are unavailable right now.' }
+    const playlist = (await this.#playlists.list()).find((row) => row.id === id)
+    if (!playlist) return { ok: false, error: 'Playlist not found.' }
+    return this.playTracks(playlist.tracks, shuffle === true)
   }
 
   /** Plays a search hit with its full provider object; unknown ids resume instead. */
@@ -704,5 +952,18 @@ export function registerFocusMusic(
   registry.register('focus.music.search', (params) => backend.search(params.query))
   registry.register('focus.music.browse', () => backend.browse())
   registry.register('focus.music.volume', (params) => backend.setVolume(params.volume))
+  registry.register('focus.music.shuffle', (params) => backend.setShuffle(params.enabled))
+  registry.register('focus.music.queue', (params) => backend.queueTrack(params.trackId))
+  registry.register('focus.music.resolve', (params) => backend.resolveUrl(params.url))
+  registry.register('focus.playlists.list', () => backend.listPlaylists())
+  registry.register('focus.playlists.create', (params) =>
+    backend.createPlaylist(params.name, params.tracks ?? []),
+  )
+  registry.register('focus.playlists.rename', (params) => backend.renamePlaylist(params.id, params.name))
+  registry.register('focus.playlists.remove', (params) => backend.removePlaylist(params.id))
+  registry.register('focus.playlists.update', (params) =>
+    backend.updatePlaylist(params.id, params.tracks),
+  )
+  registry.register('focus.playlists.play', (params) => backend.playPlaylist(params.id, params.shuffle))
   return backend
 }

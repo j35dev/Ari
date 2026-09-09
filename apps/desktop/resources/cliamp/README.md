@@ -9,9 +9,12 @@ installer; users never install, configure, or hear about it.
 ```
 resources/cliamp/
   cliamp.json       pinned version + per-target assets/checksums (source of truth)
-  LICENSE.cliamp    upstream MIT text (ships in the installer as attribution)
+  media-tools.json  pinned yt-dlp + ffmpeg (YouTube playback)
+  LICENSE.cliamp    upstream MIT text
+  LICENSE.yt-dlp    Unlicense
+  LICENSE.ffmpeg    GPL notice for the bundled ffmpeg executable
   README.md         this file
-  bin/<target>/     fetched binaries — gitignored, filled by scripts/fetch-cliamp.mjs
+  bin/<target>/     fetched binaries — gitignored (cliamp + yt-dlp + ffmpeg)
 ```
 
 `<target>` is `<platform>-<arch>`: `win32-x64`, `darwin-x64`,
@@ -46,12 +49,8 @@ executable, or reports a different `--version` than the pin.
 
 Optional upstream runtimes Ari deliberately does **not** bundle in V1:
 
-- `ffmpeg` (AAC/ALAC/Opus/WMA decode) and `yt-dlp` (YouTube/SoundCloud-backed
-  sources). Out of the box, search covers the credential-free providers
-  (radio directory, podcasts, local library) and playback covers direct
-  streams and local files. Sources needing those tools fail per-track with a
-  neutral error — the UI never names a provider as supported when its
-  runtime is absent, and never asks the user to install anything.
+- YouTube song/playlist URLs now ship `yt-dlp` + `ffmpeg` next to Cliamp
+  (see `media-tools.json`). SoundCloud/Mixcloud/etc. are still not advertised.
 
 Network note: radio/podcast search and streams need internet like any
 streaming feature; offline machines keep the timer and local files.

@@ -14,6 +14,7 @@ describe('CliampAdapter', () => {
       volume: 60,
       supportsSearch: true,
       supportsVolume: true,
+      shuffle: false,
       detail: '',
     }
     invoke.mockResolvedValueOnce(live)

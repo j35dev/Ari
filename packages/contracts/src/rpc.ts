@@ -72,8 +72,31 @@ export const focusTrackSchema = z.object({
   artist: z.string().default(''),
   /** Station/program source for streams; empty for plain tracks. */
   station: z.string().default(''),
+  /** Original playable URL (YouTube watch URL, stream path). */
+  sourceUrl: z.string().optional(),
+  artworkUrl: z.string().optional(),
+  durationMs: z.number().int().nonnegative().optional(),
 })
 export type FocusTrack = z.infer<typeof focusTrackSchema>
+
+/** Ari-owned playlist of source references (never a YouTube-account playlist). */
+export const ariPlaylistSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(48),
+  tracks: z.array(focusTrackSchema).max(200),
+})
+export type AriPlaylist = z.infer<typeof ariPlaylistSchema>
+
+export const focusUrlResolveSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('track'), track: focusTrackSchema }),
+  z.object({
+    kind: z.literal('playlist'),
+    name: z.string().min(1),
+    tracks: z.array(focusTrackSchema).min(1).max(200),
+  }),
+  z.object({ kind: z.literal('invalid'), error: z.string().min(1) }),
+])
+export type FocusUrlResolve = z.infer<typeof focusUrlResolveSchema>
 
 /**
  * Snapshot of the focus music backend. `available` false means the Cliamp
@@ -88,6 +111,7 @@ export const focusMusicStateSchema = z.object({
   volume: z.number().int().min(0).max(100).nullable(),
   supportsSearch: z.boolean(),
   supportsVolume: z.boolean(),
+  shuffle: z.boolean().default(false),
   detail: z.string().default(''),
 })
 export type FocusMusicState = z.infer<typeof focusMusicStateSchema>
@@ -293,6 +317,24 @@ export const rpcParams = {
   'focus.music.search': z.object({ query: z.string().min(1).max(200) }),
   'focus.music.browse': z.undefined(),
   'focus.music.volume': z.object({ volume: z.number().int().min(0).max(100) }),
+  'focus.music.shuffle': z.object({ enabled: z.boolean() }),
+  'focus.music.queue': z.object({ trackId: z.string().min(1).max(2048) }),
+  'focus.music.resolve': z.object({ url: z.string().min(8).max(2048) }),
+  'focus.playlists.list': z.undefined(),
+  'focus.playlists.create': z.object({
+    name: z.string().min(1).max(48),
+    tracks: z.array(focusTrackSchema).max(200).optional(),
+  }),
+  'focus.playlists.rename': z.object({ id: z.string().min(1), name: z.string().min(1).max(48) }),
+  'focus.playlists.remove': z.object({ id: z.string().min(1) }),
+  'focus.playlists.update': z.object({
+    id: z.string().min(1),
+    tracks: z.array(focusTrackSchema).max(200),
+  }),
+  'focus.playlists.play': z.object({
+    id: z.string().min(1),
+    shuffle: z.boolean().optional(),
+  }),
   'command.dispatch': z.object({ command: commandSchema }),
   /**
    * Stages pasted/dropped images in the main process (the sandboxed renderer
@@ -496,6 +538,15 @@ export interface RpcResults {
   'focus.music.search': { tracks: FocusTrack[]; error?: string }
   'focus.music.browse': { tracks: FocusTrack[]; error?: string }
   'focus.music.volume': { ok: boolean; error?: string }
+  'focus.music.shuffle': { ok: boolean; error?: string }
+  'focus.music.queue': { ok: boolean; error?: string }
+  'focus.music.resolve': FocusUrlResolve
+  'focus.playlists.list': { playlists: AriPlaylist[] }
+  'focus.playlists.create': { playlist: AriPlaylist | null; error?: string }
+  'focus.playlists.rename': { playlist: AriPlaylist | null; error?: string }
+  'focus.playlists.remove': { ok: boolean; error?: string }
+  'focus.playlists.update': { playlist: AriPlaylist | null; error?: string }
+  'focus.playlists.play': { ok: boolean; error?: string }
   'command.dispatch': { accepted: boolean }
   'attachments.stage': { attachments: AttachmentRef[] }
   'attachments.read': {
