@@ -11,6 +11,7 @@ import { rpc } from '../lib/rpc'
 import type { SidebarNavId } from './Sidebar'
 import type { DriverKind } from '@ari/contracts/common'
 import { ProviderUsagePill } from '../features/usage/ProviderUsagePill'
+import { FocusPill } from '../features/focus'
 
 const TITLEBAR_TOOLS: {
   id: Exclude<SidebarNavId, 'session'>
@@ -80,6 +81,7 @@ export function Titlebar({
       </div>
 
       <div className="flex-1" />
+      <FocusPill />
       {usage ? <ProviderUsagePill {...usage} /> : null}
 
       {onSelectTool ? (

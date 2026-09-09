@@ -17,6 +17,12 @@ files:
 extraResources:
   - from: resources/cli
     to: agent-cli
+  # Bundled Focus music backend (pinned Cliamp release + license; the
+  # per-target binaries under bin/ are fetched by scripts/fetch-cliamp.mjs
+  # and asserted by packaging/after-pack.js). Mirrors dev layout so the
+  # main process resolves the same relative path in both modes.
+  - from: resources/cliamp
+    to: cliamp
   # Runtime tray assets. Windows gets a multi-resolution ICO so the Ari mark
   # stays sharp at every notification-area DPI scale.
   - from: build/icon.ico
