@@ -44,6 +44,72 @@ export function sidebarGroups(sessions: SessionSummary[], projects: NavProject[]
 }
 
 /**
+ * Local-midnight boundaries by calendar arithmetic. Fixed 24h steps drift
+ * across daylight-saving transitions (23h/25h days); setDate counts calendar
+ * days instead, so bucket edges stay on midnight.
+ */
+function dayStarts(now: number): { today: number; yesterday: number; week: number } {
+  const at = (daysAgo: number): number => {
+    const day = new Date(now)
+    day.setHours(0, 0, 0, 0)
+    day.setDate(day.getDate() - daysAgo)
+    return day.getTime()
+  }
+  return { today: at(0), yesterday: at(1), week: at(7) }
+}
+
+const RECENCY_BUCKETS = [
+  { id: 'pinned', name: 'Pinned' },
+  { id: 'today', name: 'Today' },
+  { id: 'yesterday', name: 'Yesterday' },
+  { id: 'week', name: 'Previous 7 days' },
+  { id: 'older', name: 'Older' },
+] as const
+
+function recencyBucketOf(
+  session: SessionSummary,
+  bounds: { today: number; yesterday: number; week: number },
+): string {
+  if (session.pinned) return 'pinned'
+  if (session.updatedAt >= bounds.today) return 'today'
+  if (session.updatedAt >= bounds.yesterday) return 'yesterday'
+  if (session.updatedAt >= bounds.week) return 'week'
+  return 'older'
+}
+
+/**
+ * The flat "sessions only" presentation: every live session across all
+ * projects, pinned first, then bucketed by recency (Today / Yesterday /
+ * Previous 7 days / Older). Child sessions follow their root so a thread never
+ * splits across buckets; the concatenated buckets equal `sidebarOrder` with no
+ * projects, which is what keyboard traversal walks in this view.
+ */
+export function recencyGroups(sessions: SessionSummary[], now = Date.now()): SidebarGroup[] {
+  const live = sessions.filter((s) => !s.archived)
+  const ids = new Set(live.map((s) => s.id))
+  const rootOf = new Map<string, SessionSummary>()
+  const byId = new Map(live.map((s) => [s.id, s]))
+  for (const session of live) {
+    let root = session
+    const seen = new Set<string>()
+    while (root.parentSessionId && ids.has(root.parentSessionId) && !seen.has(root.id)) {
+      seen.add(root.id)
+      root = byId.get(root.parentSessionId) ?? root
+    }
+    rootOf.set(session.id, root)
+  }
+  const bounds = dayStarts(now)
+  const buckets = new Map<string, SidebarGroup>(
+    RECENCY_BUCKETS.map((b) => [b.id, { id: b.id, name: b.name, sessions: [] }]),
+  )
+  for (const session of [...live].sort(byPinnedThenRecency)) {
+    const root = rootOf.get(session.id) ?? session
+    buckets.get(recencyBucketOf(root, bounds))?.sessions.push(session)
+  }
+  return [...buckets.values()].filter((g) => g.sessions.length > 0)
+}
+
+/**
  * Canonical visible-session order. Without projects it is pinned-first then
  * newest; with open projects it walks the rendered groups top to bottom so
  * Mod+1..9 / Ctrl+Tab never diverge from what the user sees. Archived

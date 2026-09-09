@@ -97,8 +97,11 @@ describe('ProjectsView', () => {
 
     const chips = container.querySelectorAll('span[aria-hidden="true"]')
     expect(chips).toHaveLength(2)
-    expect(chips[0]).toHaveStyle({ filter: 'hue-rotate(0deg)' })
-    expect(chips[1]).toHaveStyle({ filter: 'hue-rotate(40deg)' })
+    // The project dot is theme-accent on every card — no per-project hue.
+    for (const chip of Array.from(chips)) {
+      expect(chip).toHaveStyle({ background: 'var(--ari-accent)' })
+      expect(chip).not.toHaveStyle({ filter: expect.anything() })
+    }
   })
 
   it('add flow submits the entered path to project.add and refreshes', async () => {

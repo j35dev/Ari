@@ -18,8 +18,8 @@ describe('AwakenSplash', () => {
   it('renders the brand sequence in the window, not a separate surface', () => {
     render(<AwakenSplash ready={false} onDone={() => undefined} />)
     expect(splash()).toHaveAttribute('aria-label', 'Ari is starting')
-    expect(screen.getByText('ARI')).toBeInTheDocument()
-    expect(screen.getByText('Agent Development Environment')).toBeInTheDocument()
+    expect(screen.getByTestId('awaken-word')).toHaveTextContent('Ari.')
+    expect(screen.getByText('ready')).toBeInTheDocument()
     // Covers the whole window; the shell mounts underneath it.
     expect(splash()).toHaveClass('ari-awaken')
     expect(splash()).toHaveAttribute('data-outro', 'off')
