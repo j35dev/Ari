@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -290,6 +290,45 @@ describe('SessionsUnderProjects', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /archived/i }))
     expect(screen.getByText('Session old')).toBeInTheDocument()
+  })
+
+  it('re-buckets the Sessions view after midnight without new session data', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 8, 8, 23, 30))
+      renderSidebar([session('late', 0, 'proj-1')])
+      fireEvent.click(screen.getByRole('button', { name: 'Sessions' }))
+      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session late')
+
+      vi.setSystemTime(new Date(2026, 8, 9, 0, 1))
+      act(() => {
+        vi.advanceTimersByTime(61_000)
+      })
+      expect(screen.queryByRole('region', { name: 'Today' })).not.toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Yesterday' })).toHaveTextContent('Session late')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still switches views when localStorage writes fail', async () => {
+    const user = userEvent.setup()
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation((): void => {
+        throw new Error('quota')
+      })
+    try {
+      renderSidebar([session('fresh', 0, 'proj-1')])
+      await user.click(screen.getByRole('button', { name: 'Sessions' }))
+      expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session fresh')
+    } finally {
+      setItem.mockRestore()
+    }
+    // A later successful write clears the in-memory override for other tests.
+    await user.click(screen.getByRole('button', { name: 'Projects' }))
+    expect(localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY)).toBe('projects')
   })
 
   it('fires new-session from the labeled compose row', async () => {
