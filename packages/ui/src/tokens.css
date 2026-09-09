@@ -66,49 +66,50 @@ html {
 :root,
 [data-ari-theme='obsidian'] {
   /* surfaces */
-  --ari-bg: oklch(0.09 0 0);
-  --ari-surface-0: oklch(0.115 0 0);
-  --ari-surface-1: oklch(0.15 0 0);
-  --ari-surface-2: oklch(0.205 0 0);
-  --ari-surface-3: oklch(0.27 0 0);
+  --ari-bg: oklch(0.095 0.008 278);
+  --ari-surface-0: oklch(0.12 0.011 278);
+  --ari-surface-1: oklch(0.155 0.014 278);
+  --ari-surface-2: oklch(0.21 0.018 278);
+  --ari-surface-3: oklch(0.275 0.022 277);
 
   /* strokes */
-  --ari-border: oklch(1 0 0 / 8%);
-  --ari-border-strong: oklch(1 0 0 / 14%);
-  --ari-inner-stroke: oklch(1 0 0 / 4%);
+  --ari-border: oklch(0.85 0.02 278 / 11%);
+  --ari-border-strong: oklch(0.86 0.025 278 / 18%);
+  --ari-inner-stroke: oklch(0.9 0.015 278 / 5%);
 
   /* text */
-  --ari-fg: oklch(0.922 0 0);
-  --ari-fg-muted: oklch(0.708 0 0);
-  --ari-fg-subtle: oklch(0.556 0 0);
-  --ari-fg-on-accent: oklch(0.985 0 0);
+  --ari-fg: oklch(0.93 0.008 280);
+  --ari-fg-muted: oklch(0.72 0.015 278);
+  --ari-fg-subtle: oklch(0.59 0.02 278);
+  --ari-fg-on-accent: oklch(0.985 0.002 280);
 
   /* accent */
-  --ari-accent: oklch(0.673 0.182 276.94);
-  --ari-accent-hover: oklch(0.72 0.17 276.94);
-  --ari-accent-active: oklch(0.585 0.233 277.12);
-  --ari-accent-subtle: oklch(0.673 0.182 276.94 / 14%);
-  --ari-accent-ring: oklch(0.673 0.182 276.94 / 45%);
+  --ari-accent: oklch(0.665 0.19 279);
+  --ari-accent-hover: oklch(0.72 0.175 280);
+  --ari-accent-active: oklch(0.6 0.205 280);
+  --ari-accent-subtle: oklch(0.665 0.19 279 / 14%);
+  --ari-accent-ring: oklch(0.665 0.19 279 / 45%);
 
   /* semantic */
-  --ari-success: oklch(0.765 0.177 163.22);
-  --ari-success-subtle: oklch(0.765 0.177 163.22 / 14%);
-  --ari-warning: oklch(0.828 0.189 84.43);
-  --ari-warning-subtle: oklch(0.828 0.189 84.43 / 14%);
-  --ari-danger: oklch(0.704 0.191 22.22);
-  --ari-danger-hover: oklch(0.76 0.18 22.22);
-  --ari-danger-subtle: oklch(0.704 0.191 22.22 / 15%);
-  --ari-info: oklch(0.74 0.12 245);
-  --ari-info-subtle: oklch(0.74 0.12 245 / 14%);
-  --ari-busy: oklch(0.718 0.202 349.76);
-  --ari-busy-subtle: oklch(0.718 0.202 349.76 / 14%);
+  --ari-success: oklch(0.755 0.175 162);
+  --ari-success-subtle: oklch(0.755 0.175 162 / 14%);
+  --ari-warning: oklch(0.83 0.17 82);
+  --ari-warning-subtle: oklch(0.83 0.17 82 / 14%);
+  --ari-danger: oklch(0.7 0.19 24);
+  --ari-danger-hover: oklch(0.76 0.175 24);
+  --ari-danger-subtle: oklch(0.7 0.19 24 / 15%);
+  /* info sits on cyan so it reads apart from the indigo accent */
+  --ari-info: oklch(0.78 0.13 212);
+  --ari-info-subtle: oklch(0.78 0.13 212 / 14%);
+  --ari-busy: oklch(0.72 0.2 350);
+  --ari-busy-subtle: oklch(0.72 0.2 350 / 14%);
 
   /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.08 0 0 / 76%);
-  --ari-glass-overlay: oklch(0.33 0 0 / 34%);
-  --ari-glass-input: oklch(1 0 0 / 4%);
-  --ari-glass-hover: oklch(0.92 0 0 / 11%);
-  --ari-glass-active: oklch(0.92 0 0 / 16%);
+  --ari-glass-scrim: oklch(0.088 0.009 278 / 78%);
+  --ari-glass-overlay: oklch(0.33 0.028 278 / 34%);
+  --ari-glass-input: oklch(0.95 0.012 278 / 4.5%);
+  --ari-glass-hover: oklch(0.93 0.012 278 / 9%);
+  --ari-glass-active: oklch(0.93 0.012 278 / 14%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 35%);
@@ -118,32 +119,32 @@ html {
   color-scheme: dark;
 }
 
-/* Graphite — Opaque slate greys with a warm amber accent. No blur. (dark, opaque) */
+/* Graphite — Opaque warm charcoal with an amber accent. No blur. (dark, opaque) */
 [data-ari-theme='graphite'] {
   /* surfaces */
-  --ari-bg: oklch(0.145 0.004 260);
-  --ari-surface-0: oklch(0.185 0.005 260);
-  --ari-surface-1: oklch(0.225 0.006 260);
-  --ari-surface-2: oklch(0.275 0.007 260);
-  --ari-surface-3: oklch(0.335 0.008 260);
+  --ari-bg: oklch(0.145 0.006 65);
+  --ari-surface-0: oklch(0.185 0.007 65);
+  --ari-surface-1: oklch(0.23 0.009 65);
+  --ari-surface-2: oklch(0.28 0.011 65);
+  --ari-surface-3: oklch(0.34 0.013 64);
 
   /* strokes */
-  --ari-border: oklch(1 0 0 / 10%);
-  --ari-border-strong: oklch(1 0 0 / 18%);
-  --ari-inner-stroke: oklch(1 0 0 / 5%);
+  --ari-border: oklch(0.92 0.015 70 / 9%);
+  --ari-border-strong: oklch(0.92 0.02 70 / 16%);
+  --ari-inner-stroke: oklch(0.93 0.012 70 / 5%);
 
   /* text */
-  --ari-fg: oklch(0.945 0.003 260);
-  --ari-fg-muted: oklch(0.73 0.006 260);
-  --ari-fg-subtle: oklch(0.6 0.008 260);
+  --ari-fg: oklch(0.945 0.003 65);
+  --ari-fg-muted: oklch(0.735 0.008 65);
+  --ari-fg-subtle: oklch(0.61 0.01 65);
   --ari-fg-on-accent: oklch(0.17 0.02 70);
 
   /* accent */
-  --ari-accent: oklch(0.79 0.152 76);
-  --ari-accent-hover: oklch(0.84 0.14 78);
-  --ari-accent-active: oklch(0.71 0.165 72);
-  --ari-accent-subtle: oklch(0.79 0.152 76 / 16%);
-  --ari-accent-ring: oklch(0.79 0.152 76 / 45%);
+  --ari-accent: oklch(0.8 0.15 78);
+  --ari-accent-hover: oklch(0.845 0.14 80);
+  --ari-accent-active: oklch(0.72 0.16 75);
+  --ari-accent-subtle: oklch(0.8 0.15 78 / 16%);
+  --ari-accent-ring: oklch(0.8 0.15 78 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.78 0.16 152);
@@ -159,11 +160,11 @@ html {
   --ari-busy-subtle: oklch(0.75 0.15 330 / 15%);
 
   /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.185 0.005 260);
-  --ari-glass-overlay: oklch(0.275 0.007 260);
-  --ari-glass-input: oklch(0.225 0.006 260);
-  --ari-glass-hover: oklch(1 0 0 / 7%);
-  --ari-glass-active: oklch(1 0 0 / 12%);
+  --ari-glass-scrim: oklch(0.185 0.007 65);
+  --ari-glass-overlay: oklch(0.28 0.011 65);
+  --ari-glass-input: oklch(0.23 0.009 65);
+  --ari-glass-hover: oklch(0.95 0.008 70 / 8%);
+  --ari-glass-active: oklch(0.95 0.008 70 / 13%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 40%);
@@ -183,8 +184,8 @@ html {
   --ari-surface-3: oklch(0.315 0.048 268);
 
   /* strokes */
-  --ari-border: oklch(0.78 0.06 250 / 16%);
-  --ari-border-strong: oklch(0.82 0.07 250 / 26%);
+  --ari-border: oklch(0.8 0.06 250 / 14%);
+  --ari-border-strong: oklch(0.82 0.07 250 / 22%);
   --ari-inner-stroke: oklch(0.9 0.04 250 / 7%);
 
   /* text */
@@ -194,11 +195,11 @@ html {
   --ari-fg-on-accent: oklch(0.16 0.04 230);
 
   /* accent */
-  --ari-accent: oklch(0.79 0.13 205);
-  --ari-accent-hover: oklch(0.845 0.115 203);
-  --ari-accent-active: oklch(0.715 0.14 208);
-  --ari-accent-subtle: oklch(0.79 0.13 205 / 16%);
-  --ari-accent-ring: oklch(0.79 0.13 205 / 48%);
+  --ari-accent: oklch(0.8 0.12 208);
+  --ari-accent-hover: oklch(0.845 0.105 206);
+  --ari-accent-active: oklch(0.73 0.13 210);
+  --ari-accent-subtle: oklch(0.8 0.12 208 / 16%);
+  --ari-accent-ring: oklch(0.8 0.12 208 / 48%);
 
   /* semantic */
   --ari-success: oklch(0.8 0.15 168);
@@ -214,8 +215,8 @@ html {
   --ari-busy-subtle: oklch(0.75 0.17 305 / 15%);
 
   /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.13 0.032 271 / 78%);
-  --ari-glass-overlay: oklch(0.32 0.05 268 / 38%);
+  --ari-glass-scrim: oklch(0.13 0.032 271 / 76%);
+  --ari-glass-overlay: oklch(0.32 0.05 268 / 32%);
   --ari-glass-input: oklch(0.9 0.04 250 / 6%);
   --ari-glass-hover: oklch(0.92 0.03 250 / 12%);
   --ari-glass-active: oklch(0.92 0.03 250 / 18%);
@@ -231,29 +232,29 @@ html {
 /* Verdant — Dark moss surfaces with a lime accent. Opaque and low-glare. (dark, opaque) */
 [data-ari-theme='verdant'] {
   /* surfaces */
-  --ari-bg: oklch(0.14 0.02 155);
-  --ari-surface-0: oklch(0.175 0.023 155);
-  --ari-surface-1: oklch(0.215 0.026 154);
-  --ari-surface-2: oklch(0.265 0.029 153);
-  --ari-surface-3: oklch(0.325 0.032 152);
+  --ari-bg: oklch(0.145 0.024 152);
+  --ari-surface-0: oklch(0.18 0.027 152);
+  --ari-surface-1: oklch(0.22 0.03 151);
+  --ari-surface-2: oklch(0.27 0.034 150);
+  --ari-surface-3: oklch(0.33 0.038 149);
 
   /* strokes */
-  --ari-border: oklch(0.85 0.05 150 / 14%);
-  --ari-border-strong: oklch(0.87 0.06 150 / 24%);
+  --ari-border: oklch(0.88 0.045 150 / 13%);
+  --ari-border-strong: oklch(0.9 0.05 150 / 22%);
   --ari-inner-stroke: oklch(0.92 0.03 150 / 6%);
 
   /* text */
   --ari-fg: oklch(0.94 0.014 140);
-  --ari-fg-muted: oklch(0.75 0.03 145);
-  --ari-fg-subtle: oklch(0.625 0.035 148);
+  --ari-fg-muted: oklch(0.755 0.03 144);
+  --ari-fg-subtle: oklch(0.63 0.035 147);
   --ari-fg-on-accent: oklch(0.17 0.05 135);
 
   /* accent */
-  --ari-accent: oklch(0.83 0.19 128);
-  --ari-accent-hover: oklch(0.875 0.17 126);
-  --ari-accent-active: oklch(0.755 0.2 130);
-  --ari-accent-subtle: oklch(0.83 0.19 128 / 16%);
-  --ari-accent-ring: oklch(0.83 0.19 128 / 45%);
+  --ari-accent: oklch(0.8 0.16 131);
+  --ari-accent-hover: oklch(0.845 0.145 129);
+  --ari-accent-active: oklch(0.73 0.17 133);
+  --ari-accent-subtle: oklch(0.8 0.16 131 / 16%);
+  --ari-accent-ring: oklch(0.8 0.16 131 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.8 0.16 158);
@@ -269,9 +270,9 @@ html {
   --ari-busy-subtle: oklch(0.78 0.15 195 / 15%);
 
   /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.175 0.023 155);
-  --ari-glass-overlay: oklch(0.265 0.029 153);
-  --ari-glass-input: oklch(0.215 0.026 154);
+  --ari-glass-scrim: oklch(0.18 0.027 152);
+  --ari-glass-overlay: oklch(0.27 0.034 150);
+  --ari-glass-input: oklch(0.22 0.03 151);
   --ari-glass-hover: oklch(0.92 0.03 150 / 8%);
   --ari-glass-active: oklch(0.92 0.03 150 / 13%);
 
@@ -287,14 +288,14 @@ html {
 [data-ari-theme='porcelain'] {
   /* surfaces */
   --ari-bg: oklch(0.985 0.003 285);
-  --ari-surface-0: oklch(0.965 0.004 285);
-  --ari-surface-1: oklch(0.94 0.005 285);
-  --ari-surface-2: oklch(0.905 0.007 285);
-  --ari-surface-3: oklch(0.86 0.009 285);
+  --ari-surface-0: oklch(0.968 0.006 285);
+  --ari-surface-1: oklch(0.945 0.008 285);
+  --ari-surface-2: oklch(0.91 0.011 285);
+  --ari-surface-3: oklch(0.868 0.014 285);
 
   /* strokes */
-  --ari-border: oklch(0.2 0.02 285 / 12%);
-  --ari-border-strong: oklch(0.2 0.02 285 / 22%);
+  --ari-border: oklch(0.22 0.02 285 / 11%);
+  --ari-border-strong: oklch(0.22 0.02 285 / 20%);
   --ari-inner-stroke: oklch(1 0 0 / 70%);
 
   /* text */
@@ -342,14 +343,14 @@ html {
 [data-ari-theme='sandstone'] {
   /* surfaces */
   --ari-bg: oklch(0.975 0.012 84);
-  --ari-surface-0: oklch(0.955 0.015 82);
-  --ari-surface-1: oklch(0.93 0.018 80);
-  --ari-surface-2: oklch(0.895 0.022 78);
-  --ari-surface-3: oklch(0.85 0.026 76);
+  --ari-surface-0: oklch(0.955 0.017 82);
+  --ari-surface-1: oklch(0.93 0.02 80);
+  --ari-surface-2: oklch(0.895 0.024 78);
+  --ari-surface-3: oklch(0.852 0.028 76);
 
   /* strokes */
-  --ari-border: oklch(0.28 0.03 70 / 14%);
-  --ari-border-strong: oklch(0.28 0.03 70 / 24%);
+  --ari-border: oklch(0.3 0.03 70 / 13%);
+  --ari-border-strong: oklch(0.3 0.03 70 / 22%);
   --ari-inner-stroke: oklch(1 0 0 / 65%);
 
   /* text */
@@ -359,11 +360,11 @@ html {
   --ari-fg-on-accent: oklch(0.985 0.01 180);
 
   /* accent */
-  --ari-accent: oklch(0.5 0.108 196);
-  --ari-accent-hover: oklch(0.44 0.11 196);
-  --ari-accent-active: oklch(0.385 0.1 197);
-  --ari-accent-subtle: oklch(0.5 0.108 196 / 14%);
-  --ari-accent-ring: oklch(0.5 0.108 196 / 38%);
+  --ari-accent: oklch(0.47 0.105 197);
+  --ari-accent-hover: oklch(0.41 0.11 197);
+  --ari-accent-active: oklch(0.365 0.1 198);
+  --ari-accent-subtle: oklch(0.47 0.105 197 / 14%);
+  --ari-accent-ring: oklch(0.47 0.105 197 / 38%);
 
   /* semantic */
   --ari-success: oklch(0.485 0.13 150);
