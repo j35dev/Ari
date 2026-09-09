@@ -1,11 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { fireEvent } from '@testing-library/react'
 import { useToast } from '@ari/ui/toast'
 import { AppProviders, App } from './App'
-import { BranchChip } from './shell/Titlebar'
+import { BRANCH_POLL_MS, SessionBranchChip } from './features/session/SessionBranchChip'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -41,7 +41,7 @@ const invokeMock = rpcMocks.invoke as unknown as Mock<
   (method: string, params?: unknown) => Promise<unknown>
 >
 
-describe('BranchChip', () => {
+describe('SessionBranchChip', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
@@ -58,7 +58,7 @@ describe('BranchChip', () => {
   })
 
   it('asks git.status with the session scope, never a resolved path', async () => {
-    render(<BranchChip sessionId="sess_1" />)
+    render(<SessionBranchChip sessionId="sess_1" />)
 
     expect(await screen.findByText('feat/demo')).toBeInTheDocument()
     expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
@@ -71,12 +71,88 @@ describe('BranchChip', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
 
-    render(<BranchChip sessionId="sess_1" />)
+    render(<SessionBranchChip sessionId="sess_1" />)
     await vi.waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
     })
 
     expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+  })
+
+  it('refreshes the readout when the branch changes behind the open session', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<SessionBranchChip sessionId="sess_1" />)
+      // Flush the initial status round-trip without findByText, which cannot
+      // tick under fake timers.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+
+      invokeMock.mockImplementation(async (method) => {
+        if (method === 'git.status') return { isRepo: true, branch: 'fix/other', files: [] }
+        throw new Error(`unexpected method: ${String(method)}`)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BRANCH_POLL_MS)
+      })
+      expect(screen.getByText('fix/other')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the readout when the workspace stops being a repo', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<SessionBranchChip sessionId="sess_1" />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+
+      invokeMock.mockImplementation(async (method) => {
+        if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
+        throw new Error(`unexpected method: ${String(method)}`)
+      })
+      // A single miss means nothing; three consecutive misses clear it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BRANCH_POLL_MS)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * BRANCH_POLL_MS)
+      })
+      expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the readout across a transient miss between successful polls', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<SessionBranchChip sessionId="sess_1" />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+
+      let calls = 0
+      invokeMock.mockImplementation(async (method) => {
+        if (method !== 'git.status') throw new Error(`unexpected method: ${String(method)}`)
+        calls += 1
+        if (calls === 1) return { isRepo: false, branch: null, files: [] }
+        return { isRepo: true, branch: 'feat/demo', files: [] }
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * BRANCH_POLL_MS)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('stays hidden outside a git repo', async () => {
@@ -85,7 +161,7 @@ describe('BranchChip', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
 
-    render(<BranchChip sessionId="sess_1" />)
+    render(<SessionBranchChip sessionId="sess_1" />)
     await vi.waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
     })

@@ -34,6 +34,7 @@ import { useSessionActivity } from './features/session/use-session-activity'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { useSessionCollapse } from './shell/use-session-collapse'
+import { useSidebarView } from './shell/use-sidebar-view'
 import {
   DOCK_WIDTH_BOUNDS,
   SIDEBAR_WIDTH_BOUNDS,
@@ -261,12 +262,14 @@ function Shell() {
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
-  // Grouped by the open projects so keyboard order matches what is rendered.
+  // Grouped by the open projects in the Projects view; the flat recency list
+  // in the Sessions view. Either way keyboard order matches what is rendered.
   const openProjects = useMemo(() => projects.filter((p) => p.open), [projects])
   const { collapsed: collapsedChildren } = useSessionCollapse()
+  const { view: sidebarView } = useSidebarView()
   const navOrder = useMemo(
-    () => sidebarOrder(sessions, openProjects),
-    [sessions, openProjects, collapsedChildren],
+    () => sidebarOrder(sessions, sidebarView === 'sessions' ? [] : openProjects),
+    [sessions, openProjects, sidebarView, collapsedChildren],
   )
 
   const refreshProjects = useCallback((): void => {
@@ -423,7 +426,6 @@ function Shell() {
   }, [])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
-  const activeProjectName = projects.find((p) => p.id === activeSession?.projectId)?.name ?? ''
   // The explorer roots at the active session's project, falling back to the
   // first registered project so the pane is never dead on arrival.
   const activeProjectPath =
@@ -449,10 +451,7 @@ function Shell() {
   if (settingsOpen) {
     return (
       <div className="ari-glass-pane flex h-full flex-col">
-        <Titlebar
-          projectLabel=""
-          usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
-        />
+        <Titlebar usage={{ sessionId: activeSessionId, kind: defaults.driverKind }} />
         <SettingsWorkspace
           section={settingsSection}
           onSectionChange={setSettingsSection}
@@ -499,7 +498,6 @@ function Shell() {
   return (
     <div className="ari-glass-pane flex h-full flex-col">
       <Titlebar
-        projectLabel={activeProjectName}
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}

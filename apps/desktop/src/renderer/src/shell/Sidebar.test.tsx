@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -10,6 +10,7 @@ import {
   type SidebarProject,
 } from './Sidebar'
 import { PROJECT_EXPAND_STORAGE_KEY } from './use-project-expand'
+import { SIDEBAR_VIEW_STORAGE_KEY } from './use-sidebar-view'
 
 const HOUR = 60 * 60 * 1000
 
@@ -24,8 +25,8 @@ function session(id: string, ageHours: number, projectId = 'adhoc'): SessionSumm
 }
 
 const projects: SidebarProject[] = [
-  { id: 'proj-1', name: 'Ari', path: '/code/ari', status: 'ok', colorIndex: 0 },
-  { id: 'proj-2', name: 'Sketch', path: '/code/sketch', status: 'ok', colorIndex: 3 },
+  { id: 'proj-1', name: 'Ari', path: '/code/ari', status: 'ok' },
+  { id: 'proj-2', name: 'Sketch', path: '/code/sketch', status: 'ok' },
 ]
 
 type Handlers = Partial<{
@@ -128,14 +129,14 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByRole('region', { name: 'Ari' })).toHaveTextContent('2')
   })
 
-  it('shows iris tiles on project groups and inbox on Unfiled', () => {
+  it('shows context carets on project groups and a dashed one on Unfiled', () => {
     renderSidebar([session('a', 1, 'proj-1'), session('loose', 1)])
 
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('[data-iris-tile]')).not.toBeNull()
-    expect(ari.querySelector('svg.lucide-folder, svg.lucide-folder-open')).toBeNull()
+    expect(ari.querySelector('[data-context-mark="project"]')).not.toBeNull()
+    expect(ari.querySelector('[data-iris-tile]')).toBeNull()
     const unfiled = screen.getByRole('region', { name: 'Unfiled' })
-    expect(unfiled.querySelector('svg.lucide-inbox')).not.toBeNull()
+    expect(unfiled.querySelector('[data-context-mark="unfiled"]')).not.toBeNull()
     expect(unfiled.querySelector('[data-iris-tile]')).toBeNull()
   })
 
@@ -148,37 +149,43 @@ describe('SessionsUnderProjects', () => {
     expect(toggle).toHaveTextContent('Ari')
   })
 
-  it('paints one selection plate around the active project instead of stacked pills', () => {
+  it('fills the active group caret and chips the active session row, no plate', () => {
     renderSidebar([session('a', 1, 'proj-1')], 'a')
     const ari = screen.getByRole('region', { name: 'Ari' })
+    // The semantic hook survives; the hue plate it used to trigger is gone.
     expect(ari.querySelector('[data-active-group]')).not.toBeNull()
+    // The active session row keeps its accent chip…
     const row = ari.querySelector('[data-session-mark="idle"]')?.closest('button')
     expect(row).not.toBeNull()
-    expect(row?.className).not.toMatch(/bg-accent/)
+    expect(row?.className).toMatch(/bg-accent/)
+    // …and the project header caret fills with the accent.
+    const caret = ari.querySelector('[data-context-mark="project"][data-active]')
+    expect(caret).not.toBeNull()
   })
 
-  it('shows a hue dot on idle session rows', () => {
+  it('shows a neutral idle dot on session rows', () => {
     renderSidebar([session('a', 1, 'proj-1')])
     const ari = screen.getByRole('region', { name: 'Ari' })
     expect(ari.querySelector('[data-session-mark="idle"]')).not.toBeNull()
     expect(ari.querySelector('svg.lucide-message-square-text')).toBeNull()
   })
 
-  it('chases the iris ring while a session in the group is working', () => {
+  it('surfaces the Working mark on a group header while a session in it runs', () => {
     const now = Date.now()
     renderSidebar([session('a', 1, 'proj-1')], null, {
       activityOf: (id) => (id === 'a' ? { phase: 'working', startedAt: now } : undefined),
     })
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('[data-iris-tile]')).toHaveAttribute('data-running')
+    const header = within(ari).getByRole('button', { expanded: true })
+    expect(within(header).getByRole('status', { name: 'Working' })).toBeInTheDocument()
   })
 
-  it('shows an archive icon on the Archived shelf header', async () => {
+  it('shows an archived context caret on the Archived shelf header', async () => {
     const archived = { ...session('old', 2, 'proj-1'), archived: true }
     renderSidebar([session('live', 1, 'proj-1'), archived])
     const user = userEvent.setup()
     const shelf = screen.getByRole('button', { name: /archived/i })
-    expect(shelf.querySelector('svg.lucide-archive')).not.toBeNull()
+    expect(shelf.querySelector('[data-context-mark="archived"]')).not.toBeNull()
     await user.click(shelf)
     expect(screen.getByText('Session old')).toBeInTheDocument()
   })
@@ -230,6 +237,106 @@ describe('SessionsUnderProjects', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Open project' }))
     expect(onOpenProject).toHaveBeenCalledOnce()
+  })
+
+  it('switches to a flat recency list in the Sessions view and persists the choice', async () => {
+    renderSidebar([
+      session('fresh', 0, 'proj-1'),
+      session('stale', 3 * 24, 'proj-2'),
+      { ...session('pinned', 30 * 24), pinned: true },
+    ])
+    const user = userEvent.setup()
+    expect(screen.getByRole('button', { name: 'Projects', pressed: true })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Sessions', pressed: false }))
+    expect(localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY)).toBe('sessions')
+    expect(screen.queryByRole('region', { name: 'Ari' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Unfiled' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Pinned' })).toHaveTextContent('Session pinned')
+    expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session fresh')
+    expect(screen.getByRole('region', { name: 'Previous 7 days' })).toHaveTextContent(
+      'Session stale',
+    )
+    // Origin survives as a tooltip so a flat row still says where it lives.
+    expect(screen.getByText('Session fresh').closest('button')).toHaveAttribute('title', 'Ari')
+
+    await user.click(screen.getByRole('button', { name: 'Projects' }))
+    expect(screen.getByRole('region', { name: 'Ari' })).toBeInTheDocument()
+  })
+
+  it('restores the persisted Sessions view and keeps the archived shelf there', async () => {
+    localStorage.clear()
+    localStorage.setItem(SIDEBAR_VIEW_STORAGE_KEY, 'sessions')
+    render(
+      <SessionsUnderProjects
+        sessions={[session('live', 0, 'proj-1'), { ...session('old', 2, 'proj-1'), archived: true }]}
+        projects={projects}
+        activeSessionId={null}
+        onSelect={() => {}}
+        onRename={() => {}}
+        onDelete={() => {}}
+        onTogglePin={() => {}}
+        onToggleArchive={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session live')
+    expect(screen.queryByText('Session old')).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /archived/i }))
+    expect(screen.getByText('Session old')).toBeInTheDocument()
+  })
+
+  it('re-buckets the Sessions view after midnight without new session data', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 8, 8, 23, 30))
+      renderSidebar([session('late', 0, 'proj-1')])
+      fireEvent.click(screen.getByRole('button', { name: 'Sessions' }))
+      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session late')
+
+      vi.setSystemTime(new Date(2026, 8, 9, 0, 1))
+      act(() => {
+        vi.advanceTimersByTime(61_000)
+      })
+      expect(screen.queryByRole('region', { name: 'Today' })).not.toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Yesterday' })).toHaveTextContent('Session late')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still switches views when localStorage writes fail', async () => {
+    const user = userEvent.setup()
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation((): void => {
+        throw new Error('quota')
+      })
+    try {
+      renderSidebar([session('fresh', 0, 'proj-1')])
+      await user.click(screen.getByRole('button', { name: 'Sessions' }))
+      expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session fresh')
+    } finally {
+      setItem.mockRestore()
+    }
+    // A later successful write clears the in-memory override for other tests.
+    await user.click(screen.getByRole('button', { name: 'Projects' }))
+    expect(localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY)).toBe('projects')
+  })
+
+  it('fills the archived caret while the active session sits on the shelf', () => {
+    renderSidebar([{ ...session('old', 2, 'proj-1'), archived: true }], 'old')
+    const shelf = screen.getByRole('button', { name: /archived/i })
+    expect(shelf.querySelector('[data-context-mark="archived"][data-active]')).not.toBeNull()
+  })
+
+  it('leaves the archived caret neutral when nothing archived is active', () => {
+    renderSidebar([{ ...session('old', 2, 'proj-1'), archived: true }], null)
+    const shelf = screen.getByRole('button', { name: /archived/i })
+    expect(shelf.querySelector('[data-context-mark="archived"]')).not.toBeNull()
+    expect(shelf.querySelector('[data-context-mark="archived"][data-active]')).toBeNull()
   })
 
   it('fires new-session from the labeled compose row', async () => {
