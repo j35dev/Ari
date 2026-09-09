@@ -26,6 +26,20 @@ html {
   --ari-awaken-ink: #f3f0e8;
   --ari-awaken-gold: #e98b24;
   --ari-awaken-muted: rgba(243, 240, 232, 0.46);
+  --ari-awaken-glitch: #8b7cff;
+  --ari-awaken-glitch-soft: #b7adff;
+  --ari-awaken-glitch-cyan: #8ee7ff;
+  --ari-awaken-glitch-pink: #ff7cb8;
+  --ari-awaken-glitch-dim: #44444e;
+  --ari-awaken-glitch-haze: rgba(120, 98, 255, 0.055);
+  --ari-awaken-glitch-glow: rgba(139, 124, 255, 0.45);
+  --ari-awaken-glitch-line: rgba(139, 124, 255, 0.55);
+  --ari-awaken-glitch-band-a: rgba(139, 124, 255, 0.12);
+  --ari-awaken-glitch-band-b: rgba(142, 231, 255, 0.08);
+  --ari-awaken-glitch-shadow-cyan: rgba(142, 231, 255, 0.3);
+  --ari-awaken-glitch-shadow-pink: rgba(255, 124, 184, 0.28);
+  --ari-awaken-glitch-scan: rgba(255, 255, 255, 0.012);
+  --ari-awaken-glitch-vignette: rgba(0, 0, 0, 0.5);
 }
 
 :root {
@@ -218,8 +232,8 @@ html {
   --ari-glass-scrim: oklch(0.13 0.032 271 / 76%);
   --ari-glass-overlay: oklch(0.32 0.05 268 / 32%);
   --ari-glass-input: oklch(0.9 0.04 250 / 6%);
-  --ari-glass-hover: oklch(0.92 0.03 250 / 12%);
-  --ari-glass-active: oklch(0.92 0.03 250 / 18%);
+  --ari-glass-hover: oklch(0.92 0.03 250 / 9%);
+  --ari-glass-active: oklch(0.92 0.03 250 / 14%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0.05 0.03 270 / 45%);

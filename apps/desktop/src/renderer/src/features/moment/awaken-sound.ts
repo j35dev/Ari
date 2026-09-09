@@ -1,9 +1,10 @@
 import { createLogger } from '@ari/shared/logger'
 
 /**
- * The launch signature sound: a quiet filtered breath, a three-note C–E–G
- * lift, and a high shimmer on the final logo beat. Synthesized with Web Audio
- * so there is no audio asset to ship or decode.
+ * The launch impact: one clean cinematic hit (low body drop, upper knock,
+ * and a short soft transient) fired on the reveal beat. Synthesized with Web
+ * Audio so there is no audio asset to ship or decode — no beeps, typing, or
+ * retro blips.
  *
  * Chromium blocks this without a user gesture; the main process opts the app
  * out with `--autoplay-policy=no-user-gesture-required` (see src/main/index.ts).
@@ -15,7 +16,7 @@ import { createLogger } from '@ari/shared/logger'
 const log = createLogger('moment:awaken-sound')
 
 /** How long the sequence needs before the context can be torn down. */
-const TEARDOWN_MS = 2_400
+const TEARDOWN_MS = 1_200
 
 type AudioContextCtor = new () => AudioContext
 
@@ -27,28 +28,8 @@ function audioContextCtor(): AudioContextCtor | null {
   return w.AudioContext ?? w.webkitAudioContext ?? null
 }
 
-/** One plucked sine with a fast attack and exponential tail. */
-function tone(
-  ctx: AudioContext,
-  start: number,
-  duration: number,
-  freq: number,
-  gain: number,
-): void {
-  const osc = ctx.createOscillator()
-  const g = ctx.createGain()
-  osc.type = 'sine'
-  osc.frequency.setValueAtTime(freq, start)
-  g.gain.setValueAtTime(0, start)
-  g.gain.linearRampToValueAtTime(gain, start + 0.018)
-  g.gain.exponentialRampToValueAtTime(0.0001, start + duration)
-  osc.connect(g).connect(ctx.destination)
-  osc.start(start)
-  osc.stop(start + duration + 0.02)
-}
-
 /**
- * Plays the signature once. Returns a disposer that tears the audio context
+ * Plays the impact once. Returns a disposer that tears the audio context
  * down early (used when the splash unmounts before the sound finishes).
  */
 export function playAwakenSound(): () => void {
@@ -82,42 +63,48 @@ export function playAwakenSound(): () => void {
   try {
     const now = ctx.currentTime + 0.02
 
-    // Breath: filtered noise with a decaying envelope.
-    const filter = ctx.createBiquadFilter()
-    filter.type = 'lowpass'
-    filter.frequency.value = 1800
-    filter.Q.value = 0.4
+    // Low body: sine dropping 92Hz to 58Hz.
+    const low = ctx.createOscillator()
+    const lowGain = ctx.createGain()
+    low.type = 'sine'
+    low.frequency.setValueAtTime(92, now)
+    low.frequency.exponentialRampToValueAtTime(58, now + 0.34)
+    lowGain.gain.setValueAtTime(0.0001, now)
+    lowGain.gain.exponentialRampToValueAtTime(0.13, now + 0.012)
+    lowGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.52)
+    low.connect(lowGain).connect(ctx.destination)
+    low.start(now)
+    low.stop(now + 0.56)
 
-    const noise = ctx.createBufferSource()
-    const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.42), ctx.sampleRate)
+    // Upper knock: sine dropping 430Hz to 300Hz.
+    const hi = ctx.createOscillator()
+    const hiGain = ctx.createGain()
+    hi.type = 'sine'
+    hi.frequency.setValueAtTime(430, now)
+    hi.frequency.exponentialRampToValueAtTime(300, now + 0.18)
+    hiGain.gain.setValueAtTime(0.0001, now)
+    hiGain.gain.exponentialRampToValueAtTime(0.035, now + 0.008)
+    hiGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.26)
+    hi.connect(hiGain).connect(ctx.destination)
+    hi.start(now)
+    hi.stop(now + 0.28)
+
+    // Soft transient for the "hit": 35ms of lowpassed noise.
+    const len = Math.floor(ctx.sampleRate * 0.035)
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate)
     const data = buffer.getChannelData(0)
-    for (let i = 0; i < data.length; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 1.7) * 0.2
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / len)
     }
-    noise.buffer = buffer
-
+    const src = ctx.createBufferSource()
+    const filter = ctx.createBiquadFilter()
     const noiseGain = ctx.createGain()
-    noiseGain.gain.setValueAtTime(0.0001, now)
-    noiseGain.gain.linearRampToValueAtTime(0.12, now + 0.16)
-    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4)
-    noise.connect(filter).connect(noiseGain).connect(ctx.destination)
-    noise.start(now)
-
-    tone(ctx, now + 0.55, 0.65, 261.63, 0.09) // C
-    tone(ctx, now + 0.67, 0.72, 329.63, 0.095) // E
-    tone(ctx, now + 0.8, 0.92, 392.0, 0.085) // G
-
-    const shimmer = ctx.createOscillator()
-    const shimmerGain = ctx.createGain()
-    shimmer.type = 'sine'
-    shimmer.frequency.setValueAtTime(880, now + 1.28)
-    shimmer.frequency.exponentialRampToValueAtTime(1320, now + 1.72)
-    shimmerGain.gain.setValueAtTime(0.0001, now + 1.28)
-    shimmerGain.gain.linearRampToValueAtTime(0.07, now + 1.38)
-    shimmerGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.82)
-    shimmer.connect(shimmerGain).connect(ctx.destination)
-    shimmer.start(now + 1.28)
-    shimmer.stop(now + 1.84)
+    filter.type = 'lowpass'
+    filter.frequency.value = 1000
+    noiseGain.gain.value = 0.025
+    src.buffer = buffer
+    src.connect(filter).connect(noiseGain).connect(ctx.destination)
+    src.start(now)
   } catch (error: unknown) {
     log.warn('awaken sound scheduling failed', { error })
     close()
