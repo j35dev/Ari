@@ -48,6 +48,10 @@ nsis:
   allowToChangeInstallationDirectory: true
   artifactName: Ari-Setup-${version}.exe
 mac:
+  # Keeping each architecture's archive separate avoids @electron/universal's
+  # minimatch length limit when the complete ACP dependency graph is unpacked.
+  # The generated entry archive selects app-x64/app-arm64 at runtime.
+  mergeASARs: false
   target:
     - target: dmg
       arch:
