@@ -303,6 +303,94 @@ describe('Composer file drag-drop', () => {
     expect(screen.getByRole('list', { name: 'Attached images' })).toBeInTheDocument()
     expect(input).toHaveValue('')
   })
+
+  /** Electron exposes the absolute path on OS files; tests stamp it on. */
+  function osFile(name: string, type: string, path: string): File {
+    return Object.assign(new File(['x'], name, { type }), { path })
+  }
+
+  it('inserts a dropped non-image OS file as a prompt path', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'look at ')
+
+    fireEvent.drop(input, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')],
+        getData: () => '',
+      },
+    })
+
+    expect(input).toHaveValue('look at D:\\docs\\notes.txt ')
+    expect(screen.queryByRole('list', { name: 'Attached images' })).not.toBeInTheDocument()
+  })
+
+  it('quotes dropped paths containing spaces', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+
+    fireEvent.drop(input, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [osFile('plan.md', 'text/markdown', 'D:\\my docs\\plan.md')],
+        getData: () => '',
+      },
+    })
+
+    expect(input).toHaveValue('"D:\\my docs\\plan.md" ')
+  })
+
+  it('attaches images while inserting non-image paths from one drop', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    const image = new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })
+
+    fireEvent.drop(input, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [image, osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')],
+        getData: () => '',
+      },
+    })
+
+    expect(screen.getByRole('list', { name: 'Attached images' })).toBeInTheDocument()
+    expect(input).toHaveValue('D:\\docs\\notes.txt ')
+  })
+
+  it('prefers the preload bridge path over the bare file name', () => {
+    const holder = window as unknown as { ari?: { filePath?: (file: File) => string } }
+    const bridged = holder.ari
+    holder.ari = { ...bridged, filePath: () => 'D:\\real\\from-os.txt' }
+    try {
+      render(<Composer onSend={vi.fn()} />)
+      const input = screen.getByLabelText('Message')
+      const file = new File(['x'], 'from-os.txt', { type: 'text/plain' })
+
+      fireEvent.drop(input, {
+        dataTransfer: { types: ['Files'], files: [file], getData: () => '' },
+      })
+
+      expect(input).toHaveValue('D:\\real\\from-os.txt ')
+    } finally {
+      if (bridged === undefined) delete holder.ari
+      else holder.ari = bridged
+    }
+  })
+
+  it('inserts a pasted non-image OS file as a prompt path', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    const files = Object.assign([osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')], {
+      item: (index: number) => [osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')][index] ?? null,
+    })
+
+    fireEvent.paste(input, { clipboardData: { files } })
+
+    expect(input).toHaveValue('D:\\docs\\notes.txt ')
+    expect(screen.queryByRole('list', { name: 'Attached images' })).not.toBeInTheDocument()
+  })
 })
 
 describe('Composer session drafts', () => {

@@ -18,3 +18,30 @@ export function readDragFilePath(event: DragEvent<HTMLElement>): string | null {
   const path = event.dataTransfer.getData(FILE_MIME)
   return path.length > 0 ? path : null
 }
+
+/**
+ * Absolute OS path for a dropped/pasted file. The sandboxed renderer cannot
+ * read paths itself, so the preload bridge resolves them; direct `path`
+ * props (unit tests, unsandboxed hosts) are the fallback, then the bare name.
+ */
+export function osFilePath(file: File): string {
+  try {
+    const bridged = globalThis.window?.ari?.filePath?.(file)
+    if (typeof bridged === 'string' && bridged.length > 0) return bridged
+  } catch {
+    // Bridge failures fall through to the local fallbacks below.
+  }
+  const withPath = file as File & { path?: unknown }
+  return typeof withPath.path === 'string' && withPath.path.length > 0
+    ? withPath.path
+    : file.name
+}
+
+/** Quote a path for inline prompt text when it contains whitespace. */
+export function quotePathForPrompt(path: string): string {
+  if (path.length === 0) return path
+  if (/[\s"]/.test(path) && !(path.startsWith('"') && path.endsWith('"'))) {
+    return `"${path.replaceAll('"', '')}"`
+  }
+  return path
+}
