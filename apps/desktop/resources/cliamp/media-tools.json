@@ -10,16 +10,6 @@
         "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
         "binary": "yt-dlp.exe"
       },
-      "darwin-x64": {
-        "asset": "yt-dlp_macos",
-        "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202",
-        "binary": "yt-dlp"
-      },
-      "darwin-arm64": {
-        "asset": "yt-dlp_macos",
-        "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202",
-        "binary": "yt-dlp"
-      },
       "linux-x64": {
         "asset": "yt-dlp_linux",
         "sha256": "58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a",
@@ -41,16 +31,6 @@
         "asset": "ffmpeg-win32-x64",
         "sha256": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00",
         "binary": "ffmpeg.exe"
-      },
-      "darwin-x64": {
-        "asset": "ffmpeg-darwin-x64",
-        "sha256": "",
-        "binary": "ffmpeg"
-      },
-      "darwin-arm64": {
-        "asset": "ffmpeg-darwin-arm64",
-        "sha256": "",
-        "binary": "ffmpeg"
       },
       "linux-x64": {
         "asset": "ffmpeg-linux-x64",
