@@ -28,7 +28,9 @@ export function SessionBranchChip({ sessionId }: { sessionId: string | null }) {
       void rpc
         .invoke('git.status', { sessionId })
         .then((status) => {
-          if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
+          // A repo that went away clears the readout; transient RPC failures
+          // keep the last known branch instead of blanking it.
+          if (!cancelled) setBranch(status.isRepo && status.branch ? status.branch : null)
         })
         .catch((error: unknown) => log.warn('rpc call failed', error))
     }
