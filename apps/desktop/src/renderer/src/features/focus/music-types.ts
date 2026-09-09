@@ -21,5 +21,6 @@ export interface MusicService {
   next(): Promise<{ ok: boolean; error?: string }>
   previous(): Promise<{ ok: boolean; error?: string }>
   search(query: string): Promise<{ tracks: FocusTrack[]; error?: string }>
+  browse(): Promise<{ tracks: FocusTrack[]; error?: string }>
   setVolume(volume: number): Promise<{ ok: boolean; error?: string }>
 }

@@ -23,6 +23,7 @@ const DAEMON_READY_POLL_MS = 250
 const DAEMON_RESPAWN_COOLDOWN_MS = 30_000
 const SEARCH_LIMIT_PER_PROVIDER = 4
 const SEARCH_RESULT_CAP = 8
+const BROWSE_RESULT_CAP = 8
 
 /** Cliamp volume range in dB (`volume <dB>` sets an absolute value). */
 const VOLUME_DB_MIN = -30
@@ -275,6 +276,18 @@ function parseProviderTracks(result: unknown): { track: FocusTrack; raw: unknown
   })
 }
 
+export function parseProviderPlaylists(result: unknown): { id: string; name: string }[] {
+  const list = asRecord(result)?.['playlists'] ?? asRecord(result)?.['items']
+  if (!Array.isArray(list)) return []
+  return list.flatMap((entry) => {
+    const row = asRecord(entry)
+    const id = row ? (asString(row['id']) ?? asString(row['key'])) : null
+    const name = row ? (asString(row['name']) ?? asString(row['title'])) : null
+    if (!id || !name) return []
+    return [{ id, name }]
+  })
+}
+
 /** UI slider (0–100) to absolute dB for `volume <dB>`. */
 export function sliderToDb(volume: number): number {
   return VOLUME_DB_MIN + (Math.min(100, Math.max(0, Math.round(volume))) / 100) * VOLUME_DB_SPAN
@@ -317,8 +330,9 @@ export class FocusMusicBackend {
   #binary: string | undefined
   #pin: CliampPin | null | undefined
   #providers: CliampProvider[] | null = null
-  /** Search hits by playable id so play() can replay the full provider object. */
+  /** Search/browse hits by playable id so play() can replay the full provider object. */
   #searchCache = new Map<string, unknown>()
+  #browseCache: FocusTrack[] | null = null
   /** Last volume Ari set (dB); the daemon exposes no volume getter. Starts at the documented default. */
   #volumeDb: number | null = null
   /** Non-null only while Ari's own spawned daemon is the live instance. */
@@ -567,8 +581,61 @@ export class FocusMusicBackend {
       }),
     )
     const hits = settled.flat().slice(0, SEARCH_RESULT_CAP)
-    this.#searchCache = new Map(hits.map((hit) => [hit.track.id, hit.raw]))
+    for (const hit of hits) this.#searchCache.set(hit.track.id, hit.raw)
     return { tracks: hits.map((hit) => hit.track) }
+  }
+
+  /**
+   * Built-in radio channels (the credential-free station list). Cached after
+   * the first successful read so opening the popover does not refetch.
+   */
+  async browse(): Promise<RpcResults['focus.music.browse']> {
+    if ((await this.#binaryPath()) === null) {
+      return { tracks: [], error: 'Music is unavailable right now.' }
+    }
+    if (!(await this.#ensureDaemon())) {
+      return { tracks: [], error: 'Music is unavailable right now.' }
+    }
+    if (this.#browseCache) return { tracks: this.#browseCache }
+    const playlists = parseProviderPlaylists(
+      await this.#remoteCall('provider.playlists', { provider: 'radio' }, STATUS_TIMEOUT_MS),
+    )
+    const builtin =
+      playlists.find((entry) => /cliamp radio/i.test(entry.name)) ??
+      playlists.find((entry) => entry.id.startsWith('l:'))
+    if (!builtin) return { tracks: [] }
+    const hits = parseProviderTracks(
+      await this.#remoteCall(
+        'provider.tracks',
+        { provider: 'radio', id: builtin.id },
+        SEARCH_TIMEOUT_MS,
+      ),
+    ).slice(0, BROWSE_RESULT_CAP)
+    for (const hit of hits) this.#searchCache.set(hit.track.id, hit.raw)
+    const tracks = hits.map((hit) => hit.track)
+    if (tracks.length > 0) this.#browseCache = tracks
+    return { tracks }
+  }
+
+  /**
+   * Queues next/prev without waiting for the new stream to connect. Live
+   * radio has to reconnect either way; blocking the RPC on that is what
+   * made skip hitch the UI for a second.
+   */
+  async skip(operation: 'next' | 'prev'): Promise<RpcResults['focus.music.next']> {
+    if ((await this.#binaryPath()) === null) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    if (!(await this.#ensureDaemon())) {
+      return { ok: false, error: 'Music is unavailable right now.' }
+    }
+    try {
+      await this.#runner.run(['remote', 'call', operation], INSTANCE_PROBE_TIMEOUT_MS)
+      return { ok: true }
+    } catch (error) {
+      log.warn('cliamp skip failed', { operation, error: String(error) })
+      return { ok: false, error: 'Music did not respond. Please try again.' }
+    }
   }
 
   /** Plays a search hit with its full provider object; unknown ids resume instead. */
@@ -632,9 +699,10 @@ export function registerFocusMusic(
   registry.register('focus.music.status', () => backend.status())
   registry.register('focus.music.play', (params) => backend.playTrack(params.trackId))
   registry.register('focus.music.pause', () => backend.control(['pause']))
-  registry.register('focus.music.next', () => backend.control(['next']))
-  registry.register('focus.music.previous', () => backend.control(['prev']))
+  registry.register('focus.music.next', () => backend.skip('next'))
+  registry.register('focus.music.previous', () => backend.skip('prev'))
   registry.register('focus.music.search', (params) => backend.search(params.query))
+  registry.register('focus.music.browse', () => backend.browse())
   registry.register('focus.music.volume', (params) => backend.setVolume(params.volume))
   return backend
 }

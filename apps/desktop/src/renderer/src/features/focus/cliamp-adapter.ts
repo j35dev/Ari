@@ -66,6 +66,15 @@ export class CliampAdapter implements MusicService {
     }
   }
 
+  async browse(): Promise<{ tracks: FocusTrack[]; error?: string }> {
+    try {
+      return await rpc.invoke('focus.music.browse')
+    } catch (error) {
+      log.warn('music browse failed', error)
+      return { tracks: [], error: 'Music backend is unreachable.' }
+    }
+  }
+
   async setVolume(volume: number): Promise<{ ok: boolean; error?: string }> {
     try {
       return await rpc.invoke('focus.music.volume', { volume })

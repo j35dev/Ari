@@ -9,6 +9,7 @@ import {
   dbToSlider,
   formatDb,
   parseCliampStatus,
+  parseProviderPlaylists,
   parseRemoteResult,
   sliderToDb,
 } from './focus-music'
@@ -40,6 +41,8 @@ function spawningBackend(
     spawnBringsUp?: boolean
     providers?: { key: string; name: string; searchable: boolean }[]
     searchTracks?: Record<string, { title: string; path: string }[]>
+    playlists?: { id: string; name: string }[]
+    playlistTracks?: { title: string; path: string; station?: string }[]
     env?: CliampEnvironment
   } = {},
 ): {
@@ -81,6 +84,26 @@ function spawningBackend(
         return Promise.resolve({ stdout: envelope({ tracks }) })
       }
       if (args[2] === 'track.play') {
+        return Promise.resolve({ stdout: envelope({ ok: true }) })
+      }
+      if (args[2] === 'provider.playlists') {
+        return Promise.resolve({
+          stdout: envelope({
+            playlists: options.playlists ?? [{ id: 'l:0', name: 'cliamp radio' }],
+          }),
+        })
+      }
+      if (args[2] === 'provider.tracks') {
+        return Promise.resolve({
+          stdout: envelope({
+            tracks: options.playlistTracks ?? [
+              { title: 'Lofi', path: 'http://radio.example/lofi', station: 'Lofi' },
+              { title: 'Chiptunes', path: 'http://radio.example/chiptunes', station: 'Chiptunes' },
+            ],
+          }),
+        })
+      }
+      if (args[2] === 'next' || args[2] === 'prev') {
         return Promise.resolve({ stdout: envelope({ ok: true }) })
       }
       return Promise.reject(new Error(`unexpected op ${String(args[2])}`))
@@ -147,6 +170,18 @@ describe('parseCliampStatus', () => {
     expect(parseCliampStatus('not json')).toBeNull()
     expect(parseCliampStatus('{}')).toBeNull()
     expect(parseCliampStatus(JSON.stringify({ ok: false, error: 'nope' }))).toBeNull()
+  })
+})
+
+describe('parseProviderPlaylists', () => {
+  it('reads id/name rows and ignores junk', () => {
+    expect(
+      parseProviderPlaylists({ playlists: [{ id: 'l:0', name: 'cliamp radio' }, { id: 'x' }] }),
+    ).toEqual([{ id: 'l:0', name: 'cliamp radio' }])
+    expect(parseProviderPlaylists({ items: [{ key: 'p1', title: 'Jazz' }] })).toEqual([
+      { id: 'p1', name: 'Jazz' },
+    ])
+    expect(parseProviderPlaylists(null)).toEqual([])
   })
 })
 
@@ -328,6 +363,24 @@ describe('FocusMusicBackend', () => {
     setDaemonUp(true)
     await expect(backend.status()).resolves.toMatchObject({ available: true })
     expect(spawnDaemon).toHaveBeenCalledTimes(1)
+  })
+
+  it('browses built-in radio channels and plays them with the full object', async () => {
+    const { backend, run } = spawningBackend({ daemonUp: true })
+    const { tracks, error } = await backend.browse()
+    expect(error).toBeUndefined()
+    expect(tracks.map((track) => track.title)).toEqual(['Lofi', 'Chiptunes'])
+    await expect(backend.playTrack(tracks[1]?.id)).resolves.toEqual({ ok: true })
+    const playArgs = run.mock.calls.find(([args]) => args[2] === 'track.play')?.[0]
+    expect(playArgs?.[4]).toContain('http://radio.example/chiptunes')
+  })
+
+  it('queues next/prev without waiting for the new stream', async () => {
+    const { backend, run } = spawningBackend({ daemonUp: true })
+    await expect(backend.skip('next')).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledWith(['remote', 'call', 'next'], expect.any(Number))
+    await expect(backend.skip('prev')).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledWith(['remote', 'call', 'prev'], expect.any(Number))
   })
 
   it('spawns only one owned daemon when two calls race', async () => {

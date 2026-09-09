@@ -291,6 +291,7 @@ export const rpcParams = {
   'focus.music.next': z.undefined(),
   'focus.music.previous': z.undefined(),
   'focus.music.search': z.object({ query: z.string().min(1).max(200) }),
+  'focus.music.browse': z.undefined(),
   'focus.music.volume': z.object({ volume: z.number().int().min(0).max(100) }),
   'command.dispatch': z.object({ command: commandSchema }),
   /**
@@ -493,6 +494,7 @@ export interface RpcResults {
   'focus.music.next': { ok: boolean; error?: string }
   'focus.music.previous': { ok: boolean; error?: string }
   'focus.music.search': { tracks: FocusTrack[]; error?: string }
+  'focus.music.browse': { tracks: FocusTrack[]; error?: string }
   'focus.music.volume': { ok: boolean; error?: string }
   'command.dispatch': { accepted: boolean }
   'attachments.stage': { attachments: AttachmentRef[] }

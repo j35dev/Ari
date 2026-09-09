@@ -75,10 +75,14 @@ export function FocusPill({ service }: { service?: MusicService }) {
   }, [open, refreshMusic])
 
   const runControl = useCallback(
-    async (action: () => Promise<{ ok: boolean; error?: string }>) => {
+    async (
+      action: () => Promise<{ ok: boolean; error?: string }>,
+      optimistic?: Partial<typeof music>,
+    ) => {
+      if (optimistic) setMusic((current) => ({ ...current, ...optimistic }))
       const result = await action()
       setNotice(result.ok ? null : (result.error ?? 'Music backend did not respond.'))
-      await refreshMusic()
+      void refreshMusic()
     },
     [refreshMusic],
   )
@@ -133,9 +137,11 @@ export function FocusPill({ service }: { service?: MusicService }) {
               onDone={() => void refreshMusic()}
             />
           ) : null}
-          {music.supportsSearch ? (
-            <SearchSection
+          {music.available ? (
+            <LibrarySection
               adapter={adapter}
+              supportsSearch={music.supportsSearch}
+              current={music.track}
               onPlay={(id) => void runControl(() => adapter.play(id))}
             />
           ) : null}
@@ -164,7 +170,10 @@ function MusicSection({
   track: FocusTrack | null
   playing: boolean
   detail: string
-  onControl: (action: () => Promise<{ ok: boolean; error?: string }>) => void
+  onControl: (
+    action: () => Promise<{ ok: boolean; error?: string }>,
+    optimistic?: Partial<{ playing: boolean }>,
+  ) => void
   onRetry: () => void
   adapter: MusicService
 }) {
@@ -206,7 +215,9 @@ function MusicSection({
           type="button"
           aria-label={playing ? 'Pause' : 'Play'}
           disabled={!musicAvailable}
-          onClick={() => onControl(() => (playing ? adapter.pause() : adapter.play()))}
+          onClick={() =>
+            onControl(() => (playing ? adapter.pause() : adapter.play()), { playing: !playing })
+          }
           className={iconButton}
         >
           {playing ? <Pause size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
@@ -275,80 +286,126 @@ function VolumeSection({
   )
 }
 
-function SearchSection({
+function LibrarySection({
   adapter,
+  supportsSearch,
+  current,
   onPlay,
 }: {
   adapter: MusicService
+  supportsSearch: boolean
+  current: FocusTrack | null
   onPlay: (trackId: string) => void
 }) {
+  const [stations, setStations] = useState<FocusTrack[]>([])
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<FocusTrack[]>([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void adapter.browse().then(({ tracks }) => {
+      if (!cancelled) setStations((tracks ?? []).slice(0, 8))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [adapter])
+
   return (
-    <section aria-label="Search music" className="mt-2.5 border-t border-border pt-2.5">
-      <form
-        className="flex gap-1.5"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const q = query.trim()
-          if (!q || searching) return
-          setSearching(true)
-          setError(null)
-          void adapter
-            .search(q)
-            .then(({ tracks, error: nextError }) => {
-              setResults(tracks.slice(0, 5))
-              setSearched(true)
-              setError(nextError ?? null)
-            })
-            .finally(() => setSearching(false))
-        }}
-      >
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search music…"
-          aria-label="Search music"
-          className={`${fieldInput} min-w-0 flex-1`}
-        />
-        <button
-          type="submit"
-          aria-label="Search"
-          disabled={searching || !query.trim()}
-          className={iconButton}
-        >
-          <Search size={13} aria-hidden="true" />
-        </button>
-      </form>
-      {searched ? (
-        results.length > 0 ? (
-          <ul className="pt-1">
-            {results.map((track) => (
-              <li key={track.id}>
-                <button
-                  type="button"
-                  onClick={() => onPlay(track.id)}
-                  className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                >
-                  <Play size={11} aria-hidden="true" className="shrink-0 text-fg-subtle" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-fg">
-                    {track.title}
-                    {track.artist || track.station ? (
-                      <span className="text-fg-subtle"> · {track.artist || track.station}</span>
-                    ) : null}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="pt-1.5 text-[11px] text-fg-subtle">
-            {searching ? 'Searching…' : (error ?? 'No results.')}
-          </p>
-        )
+    <section aria-label="Library" className="mt-2.5 border-t border-border pt-2.5">
+      {stations.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pb-1.5">
+          {stations.map((station) => {
+            const selected =
+              current !== null &&
+              (current.id === station.id ||
+                current.station === station.title ||
+                current.title === station.title)
+            return (
+              <button
+                key={station.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onPlay(station.id)}
+                className={`h-6 max-w-full truncate rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                  selected
+                    ? 'border-accent/25 bg-accent/15 text-accent'
+                    : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                }`}
+              >
+                {station.title}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+      {supportsSearch ? (
+        <>
+          <form
+            className="flex gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const q = query.trim()
+              if (!q || searching) return
+              setSearching(true)
+              setError(null)
+              void adapter
+                .search(q)
+                .then(({ tracks, error: nextError }) => {
+                  setResults(tracks.slice(0, 5))
+                  setSearched(true)
+                  setError(nextError ?? null)
+                })
+                .finally(() => setSearching(false))
+            }}
+          >
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search stations…"
+              aria-label="Search music"
+              className={`${fieldInput} min-w-0 flex-1`}
+            />
+            <button
+              type="submit"
+              aria-label="Search"
+              disabled={searching || !query.trim()}
+              className={iconButton}
+            >
+              <Search size={13} aria-hidden="true" />
+            </button>
+          </form>
+          {searched ? (
+            results.length > 0 ? (
+              <ul className="pt-1">
+                {results.map((track) => (
+                  <li key={track.id}>
+                    <button
+                      type="button"
+                      onClick={() => onPlay(track.id)}
+                      className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    >
+                      <Play size={11} aria-hidden="true" className="shrink-0 text-fg-subtle" />
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-fg">
+                        {track.title}
+                        {track.artist || track.station ? (
+                          <span className="text-fg-subtle"> · {track.artist || track.station}</span>
+                        ) : null}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="pt-1.5 text-[11px] text-fg-subtle">
+                {searching ? 'Searching…' : (error ?? 'No results.')}
+              </p>
+            )
+          ) : null}
+        </>
       ) : null}
     </section>
   )

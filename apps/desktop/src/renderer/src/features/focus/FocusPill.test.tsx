@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FocusMusicState } from '@ari/contracts/rpc'
 import { FocusPill } from './FocusPill'
@@ -40,6 +40,7 @@ beforeEach(() => {
   invoke.mockReset().mockImplementation(async (method: string) => {
     if (method === 'focus.music.status') return idle
     if (method === 'focus.music.search') return { tracks: [] }
+    if (method === 'focus.music.browse') return { tracks: [] }
     return { ok: true }
   })
 })
@@ -99,6 +100,33 @@ describe('FocusPill', () => {
     expect(pill).toHaveTextContent('a-very-long-focus… · 38m')
   })
 
+  it('offers station chips from browse and plays the selected one', async () => {
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'focus.music.status') {
+        return { ...playing(), playing: false, track: null }
+      }
+      if (method === 'focus.music.browse') {
+        return {
+          tracks: [
+            { id: 'lofi', title: 'Lofi', artist: '', station: 'Lofi' },
+            { id: 'chips', title: 'Chiptunes', artist: '', station: 'Chiptunes' },
+          ],
+        }
+      }
+      if (method === 'focus.music.search') return { tracks: [] }
+      return { ok: true }
+    })
+    render(<FocusPill />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Chiptunes' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Chiptunes' }))
+    await settle()
+    expect(invoke).toHaveBeenCalledWith('focus.music.play', { trackId: 'chips' })
+  })
+
   it('surfaces a native search error without naming the backend', async () => {
     invoke.mockImplementation(async (method: string) => {
       if (method === 'focus.music.status') {
@@ -107,13 +135,14 @@ describe('FocusPill', () => {
       if (method === 'focus.music.search') {
         return { tracks: [], error: 'Music is unavailable right now.' }
       }
+      if (method === 'focus.music.browse') return { tracks: [] }
       return { ok: true }
     })
     render(<FocusPill />)
     await settle()
     fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
     await settle()
-    fireEvent.change(screen.getByPlaceholderText('Search music…'), { target: { value: 'lofi' } })
+    fireEvent.change(screen.getByPlaceholderText('Search stations…'), { target: { value: 'lofi' } })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     await settle()
     expect(screen.getByText('Music is unavailable right now.')).toBeInTheDocument()

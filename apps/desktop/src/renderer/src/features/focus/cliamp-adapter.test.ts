@@ -41,6 +41,10 @@ describe('CliampAdapter', () => {
     await expect(new CliampAdapter().search('lofi')).resolves.toEqual({ tracks: [] })
     expect(invoke).toHaveBeenCalledWith('focus.music.search', { query: 'lofi' })
 
+    invoke.mockResolvedValueOnce({ tracks: [] })
+    await expect(new CliampAdapter().browse()).resolves.toEqual({ tracks: [] })
+    expect(invoke).toHaveBeenCalledWith('focus.music.browse')
+
     invoke.mockRejectedValueOnce(new Error('ipc down'))
     await expect(new CliampAdapter().setVolume(40)).resolves.toEqual({
       ok: false,
