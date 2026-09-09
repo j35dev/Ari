@@ -5,7 +5,7 @@ import type { Mock } from 'vitest'
 import { fireEvent } from '@testing-library/react'
 import { useToast } from '@ari/ui/toast'
 import { AppProviders, App } from './App'
-import { BranchChip } from './shell/Titlebar'
+import { SessionBranchChip } from './features/session/SessionBranchChip'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -41,7 +41,7 @@ const invokeMock = rpcMocks.invoke as unknown as Mock<
   (method: string, params?: unknown) => Promise<unknown>
 >
 
-describe('BranchChip', () => {
+describe('SessionBranchChip', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
@@ -58,7 +58,7 @@ describe('BranchChip', () => {
   })
 
   it('asks git.status with the session scope, never a resolved path', async () => {
-    render(<BranchChip sessionId="sess_1" />)
+    render(<SessionBranchChip sessionId="sess_1" />)
 
     expect(await screen.findByText('feat/demo')).toBeInTheDocument()
     expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
@@ -71,7 +71,7 @@ describe('BranchChip', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
 
-    render(<BranchChip sessionId="sess_1" />)
+    render(<SessionBranchChip sessionId="sess_1" />)
     await vi.waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
     })
@@ -85,7 +85,7 @@ describe('BranchChip', () => {
       throw new Error(`unexpected method: ${String(method)}`)
     })
 
-    render(<BranchChip sessionId="sess_1" />)
+    render(<SessionBranchChip sessionId="sess_1" />)
     await vi.waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
     })

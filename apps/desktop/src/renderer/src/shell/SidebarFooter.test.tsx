@@ -15,7 +15,7 @@ afterEach(() => {
 
 describe('Titlebar workspace tools', () => {
   it('places workspace tools in the titlebar, not the session sidebar', () => {
-    render(<Titlebar projectLabel="demo" activeTool="files" onSelectTool={() => undefined} />)
+    render(<Titlebar activeTool="files" onSelectTool={() => undefined} />)
     expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
     for (const label of ['Changes', 'Files', 'Usage', 'Terminal', 'Settings']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
@@ -28,30 +28,33 @@ describe('Titlebar workspace tools', () => {
   it('reports the chosen tool', async () => {
     const onSelect = vi.fn()
     const user = userEvent.setup()
-    render(<Titlebar projectLabel="demo" onSelectTool={onSelect} />)
+    render(<Titlebar onSelectTool={onSelect} />)
     await user.click(screen.getByRole('button', { name: 'Settings' }))
     expect(onSelect).toHaveBeenCalledWith('settings')
   })
 
-  it('omits the ARI wordmark and keeps the project label', () => {
-    render(<Titlebar projectLabel="demo" />)
+  it('omits the ARI wordmark and keeps the leading edge empty', () => {
+    render(<Titlebar />)
     expect(screen.queryByText('ARI')).not.toBeInTheDocument()
-    expect(screen.getByText('demo')).toBeInTheDocument()
+    // The workspace name and branch moved out of the titlebar (the branch
+    // lives inside the session space); no project label may creep back.
+    expect(screen.queryByText('demo')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
   })
 
-  it('insets the project label under macOS traffic lights', () => {
+  it('insets the leading cluster under macOS traffic lights', () => {
     stubUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15')
-    const { container } = render(<Titlebar projectLabel="demo" />)
+    const { container } = render(<Titlebar />)
     expect(container.querySelector('.pl-\\[76px\\]')).not.toBeNull()
   })
 
   it('offers expand-sidebar only when the rail is collapsed', async () => {
     const onExpand = vi.fn()
     const user = userEvent.setup()
-    const { rerender } = render(<Titlebar projectLabel="demo" />)
+    const { rerender } = render(<Titlebar />)
     expect(screen.queryByRole('button', { name: 'Expand sidebar' })).not.toBeInTheDocument()
 
-    rerender(<Titlebar projectLabel="demo" onExpandSidebar={onExpand} />)
+    rerender(<Titlebar onExpandSidebar={onExpand} />)
     await user.click(screen.getByRole('button', { name: 'Expand sidebar' }))
     expect(onExpand).toHaveBeenCalledOnce()
   })
