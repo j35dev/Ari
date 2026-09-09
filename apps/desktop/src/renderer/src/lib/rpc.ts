@@ -3,6 +3,8 @@ import type { RpcMethod, RpcResults, StreamFrame, StreamName } from '@ari/contra
 interface AriBridge {
   invoke: (method: string, params?: unknown) => Promise<unknown>
   subscribe: (id: string, callback: (frame: StreamFrame) => void) => () => void
+  /** Absolute OS path for a renderer File; '' when unavailable. Absent outside Electron. */
+  filePath?: (file: File) => string
 }
 
 declare global {

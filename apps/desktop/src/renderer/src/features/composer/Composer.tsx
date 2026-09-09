@@ -7,7 +7,7 @@ import { matchSuggestions } from './match-suggestions'
 import { FilePopup } from './FilePopup'
 import { AttachmentStrip } from './AttachmentStrip'
 import { useImageAttachments } from './useImageAttachments'
-import { FILE_MIME, readDragFilePath } from './drag-file'
+import { FILE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './drag-file'
 import { mentionRanges } from './mention-ranges'
 import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
 import { useDrafts } from './use-drafts'
@@ -193,11 +193,36 @@ export function Composer({
     requestAnimationFrame(() => textareaRef.current?.focus())
   }, [text, images, disabled, onSend, clear])
 
+  /**
+   * Inserts text at the live caret (event target wins over stale state),
+   * replacing any selected range the way a paste does.
+   */
+  const insertAtCaret = useCallback(
+    (target: HTMLTextAreaElement | null, fallbackCaret: number, insert: string) => {
+      const at = target?.selectionStart ?? fallbackCaret
+      const end = target?.selectionEnd ?? fallbackCaret
+      const nextCaret = at + insert.length
+      setText((prev) => prev.slice(0, at) + insert + prev.slice(Math.max(at, end)))
+      setCaret(nextCaret)
+      refocus(nextCaret)
+    },
+    [refocus, setText],
+  )
+
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (e.clipboardData.files.length > 0) addFiles(e.clipboardData.files)
+      if (e.clipboardData.files.length === 0) return
+      const files = Array.from(e.clipboardData.files)
+      const images = files.filter((file) => file.type.startsWith('image/'))
+      const others = files.filter((file) => !file.type.startsWith('image/'))
+      if (images.length > 0) addFiles(images)
+      // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
+      if (others.length > 0) {
+        const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
+        insertAtCaret(e.currentTarget, caret, insert)
+      }
     },
-    [addFiles],
+    [addFiles, caret, insertAtCaret],
   )
 
   const handleDrop = useCallback(
@@ -215,10 +240,18 @@ export function Composer({
       }
       if (e.dataTransfer.files.length > 0) {
         e.preventDefault()
-        addFiles(e.dataTransfer.files)
+        const files = Array.from(e.dataTransfer.files)
+        const images = files.filter((file) => file.type.startsWith('image/'))
+        const others = files.filter((file) => !file.type.startsWith('image/'))
+        if (images.length > 0) addFiles(images)
+        // OS file drops outside the image path land as prompt paths.
+        if (others.length > 0) {
+          const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
+          insertAtCaret(e.currentTarget, caret, insert)
+        }
       }
     },
-    [addFiles, caret, refocus],
+    [addFiles, caret, insertAtCaret],
   )
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
