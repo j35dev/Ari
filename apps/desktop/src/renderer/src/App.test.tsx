@@ -1,11 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { fireEvent } from '@testing-library/react'
 import { useToast } from '@ari/ui/toast'
 import { AppProviders, App } from './App'
-import { SessionBranchChip } from './features/session/SessionBranchChip'
+import { BRANCH_POLL_MS, SessionBranchChip } from './features/session/SessionBranchChip'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -77,6 +77,30 @@ describe('SessionBranchChip', () => {
     })
 
     expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+  })
+
+  it('refreshes the readout when the branch changes behind the open session', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<SessionBranchChip sessionId="sess_1" />)
+      // Flush the initial status round-trip without findByText, which cannot
+      // tick under fake timers.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+
+      invokeMock.mockImplementation(async (method) => {
+        if (method === 'git.status') return { isRepo: true, branch: 'fix/other', files: [] }
+        throw new Error(`unexpected method: ${String(method)}`)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BRANCH_POLL_MS)
+      })
+      expect(screen.getByText('fix/other')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('stays hidden outside a git repo', async () => {
