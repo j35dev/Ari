@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -10,6 +10,7 @@ import {
   type SidebarProject,
 } from './Sidebar'
 import { PROJECT_EXPAND_STORAGE_KEY } from './use-project-expand'
+import { SIDEBAR_VIEW_STORAGE_KEY } from './use-sidebar-view'
 
 const HOUR = 60 * 60 * 1000
 
@@ -148,13 +149,24 @@ describe('SessionsUnderProjects', () => {
     expect(toggle).toHaveTextContent('Ari')
   })
 
-  it('paints one selection plate around the active project instead of stacked pills', () => {
-    renderSidebar([session('a', 1, 'proj-1')], 'a')
+  it('marks the active row with one neutral plate and no project-wide tint', () => {
+    renderSidebar([session('a', 1, 'proj-1'), session('b', 2, 'proj-1')], 'a')
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('[data-active-group]')).not.toBeNull()
-    const row = ari.querySelector('[data-session-mark="idle"]')?.closest('button')
-    expect(row).not.toBeNull()
-    expect(row?.className).not.toMatch(/bg-accent/)
+    const group = ari.querySelector<HTMLElement>('[data-active-group]')
+    expect(group).not.toBeNull()
+    expect(group?.getAttribute('style')).toBeNull()
+    const active = screen.getByText('Session a').closest('button')
+    const idle = screen.getByText('Session b').closest('button')
+    expect(active?.className).toMatch(/bg-glass-active/)
+    expect(active?.className).not.toMatch(/bg-accent/)
+    expect(idle?.className).not.toMatch(/bg-glass-active/)
+  })
+
+  it('hides the timestamp behind the hover affordance instead of reserving a gutter', () => {
+    renderSidebar([session('a', 1, 'proj-1')])
+    const row = screen.getByText('Session a').closest('button')
+    expect(row?.className).not.toMatch(/pr-7/)
+    expect(row?.querySelector('.group-hover\\:opacity-0')).toHaveTextContent('1h')
   })
 
   it('shows a hue dot on idle session rows', () => {
@@ -230,6 +242,93 @@ describe('SessionsUnderProjects', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Open project' }))
     expect(onOpenProject).toHaveBeenCalledOnce()
+  })
+
+  it('switches to a flat recency list in the Sessions view and persists the choice', async () => {
+    renderSidebar([
+      session('fresh', 0, 'proj-1'),
+      session('stale', 3 * 24, 'proj-2'),
+      { ...session('pinned', 30 * 24), pinned: true },
+    ])
+    const user = userEvent.setup()
+    expect(screen.getByRole('button', { name: 'Projects', pressed: true })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Sessions', pressed: false }))
+    expect(localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY)).toBe('sessions')
+    expect(screen.queryByRole('region', { name: 'Ari' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Unfiled' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Pinned' })).toHaveTextContent('Session pinned')
+    expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session fresh')
+    expect(screen.getByRole('region', { name: 'Previous 7 days' })).toHaveTextContent(
+      'Session stale',
+    )
+    // Origin survives as a tooltip so a flat row still says where it lives.
+    expect(screen.getByText('Session fresh').closest('button')).toHaveAttribute('title', 'Ari')
+
+    await user.click(screen.getByRole('button', { name: 'Projects' }))
+    expect(screen.getByRole('region', { name: 'Ari' })).toBeInTheDocument()
+  })
+
+  it('restores the persisted Sessions view and keeps the archived shelf there', async () => {
+    localStorage.clear()
+    localStorage.setItem(SIDEBAR_VIEW_STORAGE_KEY, 'sessions')
+    render(
+      <SessionsUnderProjects
+        sessions={[session('live', 0, 'proj-1'), { ...session('old', 2, 'proj-1'), archived: true }]}
+        projects={projects}
+        activeSessionId={null}
+        onSelect={() => {}}
+        onRename={() => {}}
+        onDelete={() => {}}
+        onTogglePin={() => {}}
+        onToggleArchive={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session live')
+    expect(screen.queryByText('Session old')).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /archived/i }))
+    expect(screen.getByText('Session old')).toBeInTheDocument()
+  })
+
+  it('re-buckets the Sessions view after midnight without new session data', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 8, 8, 23, 30))
+      renderSidebar([session('late', 0, 'proj-1')])
+      fireEvent.click(screen.getByRole('button', { name: 'Sessions' }))
+      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session late')
+
+      vi.setSystemTime(new Date(2026, 8, 9, 0, 1))
+      act(() => {
+        vi.advanceTimersByTime(61_000)
+      })
+      expect(screen.queryByRole('region', { name: 'Today' })).not.toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Yesterday' })).toHaveTextContent('Session late')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('still switches views when localStorage writes fail', async () => {
+    const user = userEvent.setup()
+    const setItem = vi
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation((): void => {
+        throw new Error('quota')
+      })
+    try {
+      renderSidebar([session('fresh', 0, 'proj-1')])
+      await user.click(screen.getByRole('button', { name: 'Sessions' }))
+      expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session fresh')
+    } finally {
+      setItem.mockRestore()
+    }
+    // A later successful write clears the in-memory override for other tests.
+    await user.click(screen.getByRole('button', { name: 'Projects' }))
+    expect(localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY)).toBe('projects')
   })
 
   it('fires new-session from the labeled compose row', async () => {
