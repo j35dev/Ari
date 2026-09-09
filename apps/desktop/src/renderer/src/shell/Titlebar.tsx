@@ -1,20 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   Folder,
   Gauge,
-  GitBranch,
   GitPullRequest,
   PanelLeftOpen,
   Settings,
   TerminalSquare,
 } from 'lucide-react'
-import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../lib/rpc'
 import type { SidebarNavId } from './Sidebar'
 import type { DriverKind } from '@ari/contracts/common'
 import { ProviderUsagePill } from '../features/usage/ProviderUsagePill'
-
-const log = createLogger('shell:titlebar')
 
 const TITLEBAR_TOOLS: {
   id: Exclude<SidebarNavId, 'session'>
@@ -43,17 +39,16 @@ function detectPlatform(): TitlebarPlatform {
 
 /**
  * Custom titlebar: drag strip plus compact workspace tools. Tools live here
- * so the session sidebar stays a session list, not a second nav. Branding
- * stays in SidebarHeader — macOS hiddenInset traffic lights occupy this corner.
+ * so the session sidebar stays a session list, not a second nav. The leading
+ * edge stays empty (macOS hiddenInset traffic lights occupy this corner on
+ * darwin); the session's branch lives inside the session space instead.
  */
 export function Titlebar({
-  projectLabel,
   activeTool,
   onSelectTool,
   usage,
   onExpandSidebar,
 }: {
-  projectLabel: string
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
   usage?: { sessionId: string | null; kind: DriverKind }
@@ -82,12 +77,6 @@ export function Titlebar({
             <PanelLeftOpen size={15} aria-hidden />
           </button>
         ) : null}
-        {projectLabel ? (
-          <span className="truncate max-w-[200px] text-2xs font-medium text-fg-muted">
-            {projectLabel}
-          </span>
-        ) : null}
-        <BranchChip sessionId={usage?.sessionId ?? null} />
       </div>
 
       <div className="flex-1" />
@@ -164,42 +153,6 @@ export function Titlebar({
         <div className="w-16" />
       )}
     </header>
-  )
-}
-
-/**
- * Contextual branch readout in the titlebar: shows the active session's git
- * branch. Asks git.status with the session scope — the worktree resolves
- * server-side — and hides entirely outside repos or without an active
- * session.
- */
-export function BranchChip({ sessionId }: { sessionId: string | null }) {
-  const [branch, setBranch] = useState<string | null>(null)
-
-  useEffect(() => {
-    setBranch(null)
-    if (sessionId === null) return
-    let cancelled = false
-    void rpc
-      .invoke('git.status', { sessionId })
-      .then((status) => {
-        if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
-      })
-      .catch((error: unknown) => log.warn('rpc call failed', error))
-    return () => {
-      cancelled = true
-    }
-  }, [sessionId])
-
-  if (branch === null) return null
-  return (
-    <span
-      className="flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-surface-1/90 px-2.5 font-mono text-2xs text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:text-fg"
-      title="Active branch"
-    >
-      <GitBranch size={12} className="text-accent" aria-hidden="true" />
-      <span className="max-w-40 truncate font-semibold">{branch}</span>
-    </span>
   )
 }
 
