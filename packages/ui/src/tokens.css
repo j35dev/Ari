@@ -121,8 +121,8 @@ html {
   --ari-glass-scrim: oklch(0.08 0 0 / 76%);
   --ari-glass-overlay: oklch(0.33 0 0 / 34%);
   --ari-glass-input: oklch(1 0 0 / 4%);
-  --ari-glass-hover: oklch(0.92 0 0 / 11%);
-  --ari-glass-active: oklch(0.92 0 0 / 16%);
+  --ari-glass-hover: oklch(0.92 0 0 / 8%);
+  --ari-glass-active: oklch(0.92 0 0 / 13%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 35%);
@@ -231,8 +231,8 @@ html {
   --ari-glass-scrim: oklch(0.13 0.032 271 / 78%);
   --ari-glass-overlay: oklch(0.32 0.05 268 / 38%);
   --ari-glass-input: oklch(0.9 0.04 250 / 6%);
-  --ari-glass-hover: oklch(0.92 0.03 250 / 12%);
-  --ari-glass-active: oklch(0.92 0.03 250 / 18%);
+  --ari-glass-hover: oklch(0.92 0.03 250 / 9%);
+  --ari-glass-active: oklch(0.92 0.03 250 / 14%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0.05 0.03 270 / 45%);
