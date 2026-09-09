@@ -935,9 +935,21 @@ export function SessionsUnderProjects({
     () => [...sessions].filter((s) => s.archived).sort((a, b) => b.updatedAt - a.updatedAt),
     [sessions],
   )
+  // Recency buckets derive from the calendar day: re-render when it rolls over
+  // so an idle window never labels yesterday's sessions as Today past midnight.
+  const [dayTick, setDayTick] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setDayTick((prev) => {
+        const now = Date.now()
+        return new Date(prev).toDateString() === new Date(now).toDateString() ? prev : now
+      })
+    }, 60_000)
+    return () => clearInterval(timer)
+  }, [])
   const recent = useMemo(
-    () => (view === 'sessions' ? recencyGroups(sessions) : []),
-    [sessions, view],
+    () => (view === 'sessions' ? recencyGroups(sessions, dayTick) : []),
+    [sessions, view, dayTick],
   )
 
   const archivedShelf =

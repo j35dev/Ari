@@ -43,7 +43,20 @@ export function sidebarGroups(sessions: SessionSummary[], projects: NavProject[]
   return unfiled.sessions.length > 0 ? [...groups, unfiled] : groups
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
+/**
+ * Local-midnight boundaries by calendar arithmetic. Fixed 24h steps drift
+ * across daylight-saving transitions (23h/25h days); setDate counts calendar
+ * days instead, so bucket edges stay on midnight.
+ */
+function dayStarts(now: number): { today: number; yesterday: number; week: number } {
+  const at = (daysAgo: number): number => {
+    const day = new Date(now)
+    day.setHours(0, 0, 0, 0)
+    day.setDate(day.getDate() - daysAgo)
+    return day.getTime()
+  }
+  return { today: at(0), yesterday: at(1), week: at(7) }
+}
 
 const RECENCY_BUCKETS = [
   { id: 'pinned', name: 'Pinned' },
@@ -53,11 +66,14 @@ const RECENCY_BUCKETS = [
   { id: 'older', name: 'Older' },
 ] as const
 
-function recencyBucketOf(session: SessionSummary, startOfToday: number): string {
+function recencyBucketOf(
+  session: SessionSummary,
+  bounds: { today: number; yesterday: number; week: number },
+): string {
   if (session.pinned) return 'pinned'
-  if (session.updatedAt >= startOfToday) return 'today'
-  if (session.updatedAt >= startOfToday - DAY_MS) return 'yesterday'
-  if (session.updatedAt >= startOfToday - 7 * DAY_MS) return 'week'
+  if (session.updatedAt >= bounds.today) return 'today'
+  if (session.updatedAt >= bounds.yesterday) return 'yesterday'
+  if (session.updatedAt >= bounds.week) return 'week'
   return 'older'
 }
 
@@ -82,13 +98,13 @@ export function recencyGroups(sessions: SessionSummary[], now = Date.now()): Sid
     }
     rootOf.set(session.id, root)
   }
-  const startOfToday = new Date(now).setHours(0, 0, 0, 0)
+  const bounds = dayStarts(now)
   const buckets = new Map<string, SidebarGroup>(
     RECENCY_BUCKETS.map((b) => [b.id, { id: b.id, name: b.name, sessions: [] }]),
   )
   for (const session of [...live].sort(byPinnedThenRecency)) {
     const root = rootOf.get(session.id) ?? session
-    buckets.get(recencyBucketOf(root, startOfToday))?.sessions.push(session)
+    buckets.get(recencyBucketOf(root, bounds))?.sessions.push(session)
   }
   return [...buckets.values()].filter((g) => g.sessions.length > 0)
 }
