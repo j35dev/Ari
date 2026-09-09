@@ -39,6 +39,7 @@ import {
 } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
 import { applyThemeToWindow } from './window'
+import { packagedAsarPath } from './packaged-asar'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
@@ -69,11 +70,7 @@ import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updat
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver } from '@ari/providers/acp'
-import {
-  resolveAcpLaunch,
-  probeLaunch,
-  type BundledAcpRuntime,
-} from '@ari/providers/acp/launches'
+import { resolveAcpLaunch, probeLaunch, type BundledAcpRuntime } from '@ari/providers/acp/launches'
 import type { AcpLaunch } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
@@ -100,11 +97,12 @@ const log = createLogger('desktop:rpc')
  */
 function bundledAcpRuntime(): BundledAcpRuntime | undefined {
   if (!app.isPackaged) return undefined
-  const unpackedNodeModules = join(process.resourcesPath, 'app.asar.unpacked', 'node_modules')
+  const archive = packagedAsarPath(process.resourcesPath, process.arch)
+  const unpackedNodeModules = join(`${archive}.unpacked`, 'node_modules')
   return {
     executable: process.execPath,
     nodeModulesDir: unpackedNodeModules,
-    modulePaths: [unpackedNodeModules, join(process.resourcesPath, 'app.asar', 'node_modules')],
+    modulePaths: [unpackedNodeModules, join(archive, 'node_modules')],
   }
 }
 
@@ -1329,10 +1327,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (!session) return { diffText: null, error: 'unknown session' }
     const workspace = await engine.workspace(session)
     if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
-    return queryTurnDiff(
-      (cwd, gitRef) => new GitService().diffForRef(cwd, gitRef),
-      { path: workspace, sessionId: params.sessionId, turnId: params.turnId },
-    )
+    return queryTurnDiff((cwd, gitRef) => new GitService().diffForRef(cwd, gitRef), {
+      path: workspace,
+      sessionId: params.sessionId,
+      turnId: params.turnId,
+    })
   })
 
   // Mutating git actions (M19.5): performGitAction jails `cwd` to an existing
