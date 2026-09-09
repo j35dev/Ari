@@ -327,6 +327,40 @@ describe('Composer file drag-drop', () => {
     expect(screen.queryByRole('list', { name: 'Attached images' })).not.toBeInTheDocument()
   })
 
+  it('replaces selected text when a file path is inserted', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message') as HTMLTextAreaElement
+    await user.type(input, 'look at this')
+    input.focus()
+    input.setSelectionRange(8, 12)
+
+    fireEvent.drop(input, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')],
+        getData: () => '',
+      },
+    })
+
+    expect(input).toHaveValue('look at D:\\docs\\notes.txt ')
+  })
+
+  it('escapes quotes in dropped paths instead of stripping them', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+
+    fireEvent.drop(input, {
+      dataTransfer: {
+        types: ['Files'],
+        files: [osFile('odd.md', 'text/markdown', '/home/u/a"b.md')],
+        getData: () => '',
+      },
+    })
+
+    expect(input).toHaveValue('"/home/u/a\\"b.md" ')
+  })
+
   it('quotes dropped paths containing spaces', () => {
     render(<Composer onSend={vi.fn()} />)
     const input = screen.getByLabelText('Message')
