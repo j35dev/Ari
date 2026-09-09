@@ -9,6 +9,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "prebuild": "node ../../scripts/fetch-cliamp.mjs && node ../../scripts/fetch-media-tools.mjs",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
