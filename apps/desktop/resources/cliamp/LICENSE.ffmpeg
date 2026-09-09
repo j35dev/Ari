@@ -1,0 +1,8 @@
+FFmpeg is licensed under the GNU General Public License version 2 or later
+(some builds also include GPL-incompatible components omitted here).
+
+The bundled ffmpeg executable is a separate program invoked by Ari's music
+backend. The GPL text is available at https://www.gnu.org/licenses/gpl-2.0.html
+and in the ffmpeg-static release LICENSE files.
+
+Source: https://github.com/eugeneware/ffmpeg-static

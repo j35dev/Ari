@@ -1,0 +1,33 @@
+{
+  "$comment": "Pinned Cliamp release vendored into Ari. Single source of truth for the bundled version: bump `version`, refresh the per-target sha256 from the release's checksums.txt, then run `node scripts/fetch-cliamp.mjs --all`. Binaries land in bin/<target>/ (gitignored) and ship inside the installer via electron-builder extraResources. No win32-arm64 asset is published upstream, so that target intentionally has no entry and degrades to MusicUnavailable.",
+  "version": "v2.2.0",
+  "source": "https://github.com/bjarneo/cliamp/releases/tag/v2.2.0",
+  "license": "MIT",
+  "targets": {
+    "win32-x64": {
+      "asset": "cliamp-windows-amd64.zip",
+      "sha256": "af52351e5c76562af2c44d973222aa059527cf866406bf34ab66cc98c27f5c40",
+      "binary": "cliamp.exe"
+    },
+    "darwin-x64": {
+      "asset": "cliamp-darwin-amd64",
+      "sha256": "67662a8ea57aaf22030c4d096805a26700787c017085e8ec4844e7b77e8da75c",
+      "binary": "cliamp"
+    },
+    "darwin-arm64": {
+      "asset": "cliamp-darwin-arm64",
+      "sha256": "52210e7a8aeac519154b9c556851684a3be63e54d88ae78c61c9f5ec690849f3",
+      "binary": "cliamp"
+    },
+    "linux-x64": {
+      "asset": "cliamp-linux-amd64",
+      "sha256": "60fd335e367d920fbfa898a6c87e419616acb55e712e17b5439ab7573f60d882",
+      "binary": "cliamp"
+    },
+    "linux-arm64": {
+      "asset": "cliamp-linux-arm64",
+      "sha256": "94ae39f5ade4b762293c479c120242925b70187cb09101c9c9ea911f4811a8b4",
+      "binary": "cliamp"
+    }
+  }
+}
