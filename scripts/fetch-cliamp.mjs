@@ -179,8 +179,16 @@ async function main() {
     targets = Object.keys(manifest.targets)
   } else {
     const at = args.indexOf('--target')
-    targets = at === -1 ? hostTargets() : [args[at + 1]].filter((t) => typeof t === 'string')
-    if (targets.length === 0) fail('usage: fetch-cliamp.mjs [--all] [--target <key>] [--force]')
+    if (at === -1) {
+      const host = hostTargets()
+      targets = host.filter((target) => manifest.targets[target] !== undefined)
+      for (const target of host.filter((candidate) => !targets.includes(candidate))) {
+        console.log(`fetch-cliamp: ${target} has no self-contained binary, skipping`)
+      }
+    } else {
+      targets = [args[at + 1]].filter((target) => typeof target === 'string')
+      if (targets.length === 0) fail('usage: fetch-cliamp.mjs [--all] [--target <key>] [--force]')
+    }
   }
   for (const target of targets) {
     try {
