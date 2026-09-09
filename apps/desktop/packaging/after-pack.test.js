@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   cliampBinaryName,
@@ -9,6 +10,7 @@ import {
   expectedAdapterPackages,
   packageDir,
   platformPackageName,
+  restoreAdapterPlatformPackages,
 } from './after-pack.js'
 
 describe('bundled ACP packaging manifest', () => {
@@ -43,16 +45,54 @@ describe('bundled ACP packaging manifest', () => {
     ])
     expect(expectedAdapterBinaries('codex', 'win32', 1)).toEqual([
       join('@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'),
-      join('@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex-code-mode-host.exe'),
-      join('@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'codex-path', 'rg.exe'),
+      join(
+        '@openai',
+        'codex-win32-x64',
+        'vendor',
+        'x86_64-pc-windows-msvc',
+        'bin',
+        'codex-code-mode-host.exe',
+      ),
+      join(
+        '@openai',
+        'codex-win32-x64',
+        'vendor',
+        'x86_64-pc-windows-msvc',
+        'codex-path',
+        'rg.exe',
+      ),
     ])
   })
 
   it('resolves scoped package paths without losing the namespace', () => {
     const nodeModules = join('resources', 'app.asar.unpacked', 'node_modules')
-    expect(packageDir(nodeModules, '@openai/codex')).toBe(
-      join(nodeModules, '@openai', 'codex'),
-    )
+    expect(packageDir(nodeModules, '@openai/codex')).toBe(join(nodeModules, '@openai', 'codex'))
+  })
+
+  it('restores optional platform packages from beside their parent SDKs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ari-adapter-pack-'))
+    const source = join(root, 'source')
+    const target = join(root, 'target')
+    for (const [parent, runtime] of [
+      ['@anthropic-ai/claude-agent-sdk', '@anthropic-ai/claude-agent-sdk-win32-x64'],
+      ['@openai/codex', '@openai/codex-win32-x64'],
+    ]) {
+      await mkdir(packageDir(source, parent), { recursive: true })
+      await mkdir(packageDir(source, runtime), { recursive: true })
+      await writeFile(join(packageDir(source, runtime), 'runtime.bin'), runtime)
+    }
+
+    restoreAdapterPlatformPackages(source, target, 'win32', 1)
+
+    await expect(
+      readFile(
+        join(packageDir(target, '@anthropic-ai/claude-agent-sdk-win32-x64'), 'runtime.bin'),
+        'utf8',
+      ),
+    ).resolves.toBe('@anthropic-ai/claude-agent-sdk-win32-x64')
+    await expect(
+      readFile(join(packageDir(target, '@openai/codex-win32-x64'), 'runtime.bin'), 'utf8'),
+    ).resolves.toBe('@openai/codex-win32-x64')
   })
 })
 
@@ -76,7 +116,7 @@ describe('bundled Cliamp music backend', () => {
     )
     expect(manifest.version).toMatch(/^v\d+\.\d+\.\d+$/)
     expect(new Set(Object.keys(manifest.targets))).toEqual(
-      new Set(['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64']),
+      new Set(['win32-x64', 'linux-x64', 'linux-arm64']),
     )
     for (const entry of Object.values(manifest.targets)) {
       expect(entry.sha256).toMatch(/^[0-9a-f]{64}$/)

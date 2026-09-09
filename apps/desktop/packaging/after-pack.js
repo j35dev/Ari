@@ -9,7 +9,15 @@
 // the terminal opens to a dead blinking cursor. Assert the invariant here so the
 // build fails instead of shipping.
 
-import { accessSync, constants, existsSync, readFileSync, readdirSync } from 'node:fs'
+import {
+  accessSync,
+  constants,
+  cpSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -97,6 +105,32 @@ export function expectedAdapterPackages(platform, arch) {
       ...archNames.map((it) => platformPackageName(kind, platform, it)),
     ]),
   ]
+}
+
+/**
+ * Restores optional native runtimes that electron-builder drops while walking
+ * pnpm's virtual dependency graph. pnpm installs every supported architecture,
+ * but keeps these packages beside their parent SDK instead of at the app root.
+ */
+export function restoreAdapterPlatformPackages(
+  sourceNodeModules,
+  targetNodeModules,
+  platform,
+  arch,
+) {
+  const archNames = ARCH_NAMES[arch] === 'universal' ? ['x64', 'arm64'] : [ARCH_NAMES[arch]]
+  for (const kind of Object.keys(ACP_PLATFORM_PACKAGES)) {
+    const parent = packageDir(sourceNodeModules, ACP_PLATFORM_PACKAGES[kind])
+    if (!existsSync(parent)) continue
+    const siblingDir = join(realpathSync(parent), '..')
+    for (const archName of archNames) {
+      const packageName = platformPackageName(kind, platform, archName)
+      const destination = packageDir(targetNodeModules, packageName)
+      if (existsSync(destination)) continue
+      const source = join(siblingDir, packageName.slice(packageName.lastIndexOf('/') + 1))
+      if (existsSync(source)) cpSync(source, destination, { recursive: true, dereference: true })
+    }
+  }
 }
 
 /** Native files that prove the platform package is usable, not merely present. */
@@ -218,6 +252,13 @@ export default async function afterPack(context) {
   const platform = context.electronPlatformName
   const problems = []
 
+  restoreAdapterPlatformPackages(
+    join(context.packager.projectDir, 'node_modules'),
+    unpacked,
+    platform,
+    context.arch,
+  )
+
   // These packages are unpacked as a unit so the adapters' provider binaries
   // are spawnable from the Electron Node-mode child process. Other ordinary JS
   // dependencies remain in app.asar and are loaded through Electron's asar
@@ -286,8 +327,10 @@ export default async function afterPack(context) {
       const toolsDir = join(resourcesDir(context), 'cliamp', 'bin', key)
       const ytDlp = join(toolsDir, platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp')
       const ffmpeg = join(toolsDir, platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
-      if (!existsSync(ytDlp)) problems.push(`${key} yt-dlp is missing (run scripts/fetch-media-tools.mjs)`)
-      if (!existsSync(ffmpeg)) problems.push(`${key} ffmpeg is missing (run scripts/fetch-media-tools.mjs)`)
+      if (!existsSync(ytDlp))
+        problems.push(`${key} yt-dlp is missing (run scripts/fetch-media-tools.mjs)`)
+      if (!existsSync(ffmpeg))
+        problems.push(`${key} ffmpeg is missing (run scripts/fetch-media-tools.mjs)`)
       // A foreign-arch binary cannot run here; version-check only the host match.
       if (key === `${process.platform}-${process.arch}` && platform === process.platform) {
         const { stdout } = await promisify(execFile)(binary, ['--version'], {
