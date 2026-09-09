@@ -13,7 +13,6 @@ import {
   FolderPlus,
   GitBranch,
   Import as ImportIcon,
-  Inbox,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
@@ -24,7 +23,6 @@ import {
   SquarePen,
   Trash2,
   X,
-  type LucideIcon,
 } from 'lucide-react'
 import { Kbd } from '@ari/ui/kbd'
 import { transitions } from '@ari/ui/motion'
@@ -32,8 +30,7 @@ import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { SessionActivityMark } from '../features/moment'
 import { peakActivity, type SessionActivity } from '../features/session/session-activity'
-import { IrisTile } from './IrisTile'
-import { irisHue } from './iris-tile'
+import { ContextMark } from './ContextMark'
 import {
   projectMoveFromOrder,
   sidebarGroups,
@@ -46,9 +43,8 @@ import { sessionTree, searchSessionTree } from '../features/session/session-tree
 import { ContextMenu, useContextMenu } from './ContextMenu'
 
 /**
- * Position-only FLIP for session reorder and project expand. A size layout
- * (the default) scales the iris tile while the group height changes; a spring
- * overshoots on large expands. Ease-slide keeps sibling rows translating.
+ * Position-only FLIP for session reorder and project expand. Ease-slide keeps
+ * sibling rows translating while a group grows or collapses.
  */
 const LIST_LAYOUT = { layout: 'position' as const, transition: transitions.resort }
 
@@ -58,10 +54,10 @@ const DRAG_CLICK_SLOP_PX = 4
 /** One indent column; children sit clearly under the parent orchestrator. */
 const TREE_COL_PX = 16
 
-/** Vertical rail + elbow for nested child sessions, tinted with the project hue. */
-function SessionTreeGuides({ lastAtDepth, hue }: { lastAtDepth: readonly boolean[]; hue: number }) {
+/** Vertical rail + elbow for nested child sessions, in the border tone. */
+function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] }) {
   if (lastAtDepth.length === 0) return null
-  const stroke = `oklch(0.67 0.18 ${hue} / 0.4)`
+  const stroke = 'var(--ari-border-strong)'
   return (
     <span
       aria-hidden
@@ -163,9 +159,7 @@ function SessionRow({
   childCount = 0,
   nested = false,
   projectName,
-  colorIndex = 0,
   isActive,
-  quietActive = false,
   activity,
   onSelect,
   onRename,
@@ -178,10 +172,7 @@ function SessionRow({
   childCount?: number
   nested?: boolean
   projectName: string | null
-  colorIndex?: number
   isActive: boolean
-  /** True when the parent project already paints the selection plate. */
-  quietActive?: boolean
   activity?: SessionActivity
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
@@ -278,9 +269,7 @@ function SessionRow({
           nested ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2.5 py-1.5'
         } ${
           isActive
-            ? quietActive
-              ? 'text-fg font-medium'
-              : 'bg-accent/15 text-fg font-medium'
+            ? 'bg-accent/15 text-fg font-medium'
             : activity !== undefined
               ? 'text-fg hover:bg-glass-hover'
               : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
@@ -302,9 +291,8 @@ function SessionRow({
               data-session-mark="idle"
               className={nested ? 'size-1 rounded-[1px]' : 'size-1 rounded-full'}
               style={{
-                background: `oklch(0.67 0.18 ${irisHue(colorIndex)} / ${
-                  isActive ? 0.9 : nested ? 0.4 : 0.55
-                })`,
+                background: 'var(--ari-fg-subtle)',
+                opacity: isActive ? 0.9 : nested ? 0.4 : 0.55,
               }}
             />
           )}
@@ -406,15 +394,11 @@ function SessionList({
   sessions,
   searching = false,
   projectNameOf,
-  projectColorOf,
-  quietActive = false,
   handlers,
 }: {
   sessions: SessionSummary[]
   searching?: boolean
   projectNameOf?: (projectId: string) => string | null
-  projectColorOf?: (projectId: string) => number
-  quietActive?: boolean
   handlers: SessionRowHandlers
 }) {
   const { collapsed, toggle } = useSessionCollapse()
@@ -426,10 +410,7 @@ function SessionList({
           return (
             <motion.li key={s.id} {...LIST_LAYOUT}>
               <div className="flex items-center">
-                <SessionTreeGuides
-                  lastAtDepth={lastAtDepth}
-                  hue={irisHue(projectColorOf?.(s.projectId) ?? 0)}
-                />
+                <SessionTreeGuides lastAtDepth={lastAtDepth} />
                 {childCount > 0 && !searching ? (
                   <button
                     type="button"
@@ -463,9 +444,7 @@ function SessionList({
                     childCount={childCount}
                     nested={lastAtDepth.length > 0}
                     projectName={projectNameOf?.(s.projectId) ?? null}
-                    colorIndex={projectColorOf?.(s.projectId) ?? 0}
                     isActive={s.id === handlers.activeSessionId}
-                    quietActive={quietActive}
                     activity={handlers.activityOf?.(s.id)}
                     onSelect={handlers.onSelect}
                     onRename={handlers.onRename}
@@ -488,18 +467,13 @@ function CollapsibleSessions({
   label,
   sessions,
   projectNameOf,
-  projectColorOf,
   handlers,
-  icon,
 }: {
   label: string
   sessions: SessionSummary[]
   projectNameOf: (projectId: string) => string | null
-  projectColorOf?: (projectId: string) => number
   handlers: SessionRowHandlers
-  icon?: LucideIcon
 }) {
-  const Icon = icon
   const [open, setOpen] = useState(sessions.some((s) => s.id === handlers.activeSessionId))
 
   // Auto-open when the active session moves into this bucket.
@@ -513,17 +487,11 @@ function CollapsibleSessions({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <ChevronRight
-          size={11}
-          className={`shrink-0 text-fg-subtle transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
-        />
-        {Icon ? <Icon size={13} aria-hidden className="shrink-0 text-fg-subtle" /> : null}
-        <span className="text-sm font-medium uppercase tracking-[0.14em] text-fg-subtle">
-          {label}
-        </span>
-        <span className="rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
+        <ContextMark variant="archived" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
+        <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
           {sessions.length}
         </span>
       </button>
@@ -536,12 +504,13 @@ function CollapsibleSessions({
             exit={{ opacity: 0 }}
             transition={transitions.morph}
           >
-            <SessionList
-              sessions={sessions}
-              projectNameOf={projectNameOf}
-              projectColorOf={projectColorOf}
-              handlers={handlers}
-            />
+            <div className="pl-7">
+              <SessionList
+                sessions={sessions}
+                projectNameOf={projectNameOf}
+                handlers={handlers}
+              />
+            </div>
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -555,7 +524,6 @@ export interface SidebarProject {
   name: string
   path?: string
   status?: ProjectStatus
-  colorIndex?: number
 }
 
 /** Per-project commands surfaced on group hover / in the degraded state. */
@@ -610,24 +578,11 @@ function ProjectGroupSection({
   const pressOrigin = useRef<{ x: number; y: number } | null>(null)
   const missing = project?.status === 'missing'
   const groupActivity = peakActivity(sessions.map((s) => handlers.activityOf?.(s.id)))
-  const running = groupActivity?.phase === 'working'
   const isActiveGroup = sessions.some((s) => s.id === handlers.activeSessionId)
-  const hue = irisHue(project?.colorIndex ?? 0)
 
   return (
     <section className="group/project" aria-label={name}>
-      <div
-        data-active-group={isActiveGroup ? '' : undefined}
-        className={`rounded-lg ${isActiveGroup && expanded ? 'pb-1' : ''}`}
-        style={
-          isActiveGroup
-            ? {
-                background: `oklch(0.67 0.18 ${hue} / 0.12)`,
-                boxShadow: `inset 0 0 0 1px oklch(0.67 0.18 ${hue} / 0.22)`,
-              }
-            : undefined
-        }
-      >
+      <div data-active-group={isActiveGroup ? '' : undefined}>
         <div className="relative flex items-center">
           <button
             type="button"
@@ -658,16 +613,7 @@ function ProjectGroupSection({
                 : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
             }`}
           >
-            {project ? (
-              <IrisTile
-                seed={project.id}
-                colorIndex={project.colorIndex}
-                running={running}
-                name={name}
-              />
-            ) : (
-              <Inbox size={13} aria-hidden className="shrink-0 text-fg-subtle" />
-            )}
+            <ContextMark variant={project ? 'project' : 'unfiled'} active={isActiveGroup} />
             <span
               className={`min-w-0 flex-1 truncate text-sm ${
                 missing
@@ -679,9 +625,7 @@ function ProjectGroupSection({
             >
               {name}
             </span>
-            {groupActivity !== undefined && !running ? (
-              <SessionActivityMark activity={groupActivity} />
-            ) : null}
+            {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
             <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
               {sessions.length}
             </span>
@@ -803,12 +747,7 @@ function ProjectGroupSection({
         {expanded ? (
           sessions.length > 0 ? (
             <div className="pl-7">
-              <SessionList
-                sessions={sessions}
-                projectColorOf={() => project?.colorIndex ?? 0}
-                quietActive={isActiveGroup}
-                handlers={handlers}
-              />
+              <SessionList sessions={sessions} handlers={handlers} />
             </div>
           ) : (
             <p className="px-2 py-1.5 pl-9 text-2xs text-fg-subtle">No sessions yet.</p>
@@ -925,11 +864,6 @@ export function SessionsUnderProjects({
       projectId === UNFILED_GROUP_ID ? null : (byId.get(projectId) ?? null)
   }, [projects, knownProjectNames])
 
-  const projectColorOf = useMemo(() => {
-    const byId = new Map(projects.map((p) => [p.id, p.colorIndex ?? 0]))
-    return (projectId: string): number => byId.get(projectId) ?? 0
-  }, [projects])
-
   // Same grouping the keyboard traversal walks (sidebarOrder flattens it).
   const groups = useMemo(() => sidebarGroups(sessions, projects), [sessions, projects])
   // Projects reorder among themselves; Unfiled stays a derived, trailing group.
@@ -970,7 +904,6 @@ export function SessionsUnderProjects({
           sessions={matches}
           searching
           projectNameOf={projectNameOf}
-          projectColorOf={projectColorOf}
           handlers={handlers}
         />
       )
@@ -1020,9 +953,7 @@ export function SessionsUnderProjects({
             label="Archived"
             sessions={archived}
             projectNameOf={projectNameOf}
-            projectColorOf={projectColorOf}
             handlers={handlers}
-            icon={Archive}
           />
         ) : null}
       </>

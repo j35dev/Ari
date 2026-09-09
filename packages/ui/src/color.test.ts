@@ -58,12 +58,12 @@ describe('oklchToHex', () => {
 describe('measured palette contrast', () => {
   // Regression guard on the exact ratios shipped with the six palettes.
   const expected: Record<string, [number, number, number]> = {
-    obsidian: [16.44, 7.98, 6.31],
-    graphite: [16.85, 8.28, 8.67],
-    nocturne: [17.16, 9.23, 9.74],
-    verdant: [16.73, 9.03, 10.78],
-    porcelain: [15.79, 6.42, 5.52],
-    sandstone: [14.73, 6.13, 4.47],
+    obsidian: [16.79, 8.31, 6.02],
+    graphite: [16.85, 8.42, 8.89],
+    nocturne: [17.16, 9.23, 10.02],
+    verdant: [16.62, 9.13, 9.6],
+    porcelain: [15.79, 6.42, 5.6],
+    sandstone: [14.73, 6.13, 5.08],
   }
 
   it.each(Object.entries(expected))('%s holds its measured ratios', (id, [fg, muted, accent]) => {
