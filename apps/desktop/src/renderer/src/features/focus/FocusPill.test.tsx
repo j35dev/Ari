@@ -107,4 +107,27 @@ describe('FocusPill', () => {
     await settle()
     expect(screen.getByRole('button', { name: /Focus timer Grind/ })).toBeInTheDocument()
   })
+
+  it('polls only while the popover is open or music is playing', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<FocusPill />)
+      await settle()
+      const statusCalls = () =>
+        invoke.mock.calls.filter(([method]) => method === 'focus.music.status').length
+      const base = statusCalls()
+      await act(async () => {
+        vi.advanceTimersByTime(60_000)
+      })
+      expect(statusCalls()).toBe(base)
+      fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
+      await settle()
+      await act(async () => {
+        vi.advanceTimersByTime(30_000)
+      })
+      expect(statusCalls()).toBeGreaterThan(base + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

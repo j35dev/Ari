@@ -53,13 +53,19 @@ export function FocusPill({ service }: { service?: MusicService }) {
     setMusic(await adapter.getState())
   }, [adapter])
 
+  // One snapshot on mount, then live polling only while the popover is
+  // open or music is actually playing — never a background poll loop.
   useEffect(() => {
     void refreshMusic()
+  }, [refreshMusic])
+
+  useEffect(() => {
+    if (!open && !music.playing) return
     const id = window.setInterval(() => {
       void refreshMusic()
     }, MUSIC_POLL_MS)
     return () => window.clearInterval(id)
-  }, [refreshMusic])
+  }, [open, music.playing, refreshMusic])
 
   useEffect(() => {
     if (open) {
@@ -117,6 +123,7 @@ export function FocusPill({ service }: { service?: MusicService }) {
             playing={music.playing}
             detail={music.detail}
             onControl={(action) => void runControl(action)}
+            onRetry={() => void refreshMusic()}
             adapter={adapter}
           />
           {music.supportsVolume && music.volume !== null ? (
@@ -150,6 +157,7 @@ function MusicSection({
   playing,
   detail,
   onControl,
+  onRetry,
   adapter,
 }: {
   musicAvailable: boolean
@@ -157,6 +165,7 @@ function MusicSection({
   playing: boolean
   detail: string
   onControl: (action: () => Promise<{ ok: boolean; error?: string }>) => void
+  onRetry: () => void
   adapter: MusicService
 }) {
   return (
@@ -172,6 +181,15 @@ function MusicSection({
               ? 'Play something to get started'
               : detail || 'Cliamp is not connected — the timer still works.'}
         </p>
+        {!musicAvailable ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded text-[11px] text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            Check again
+          </button>
+        ) : null}
       </div>
       <div className="flex items-center gap-1 pt-1.5">
         <button
@@ -419,7 +437,7 @@ function TimerSection({ timer }: { timer: FocusTimerHandle }) {
             maxLength={32}
             className={`${fieldInput} w-full`}
           />
-          <div className="flex items-center gap-1.5 pt-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
             {FOCUS_TIMER_PRESETS_MIN.map((minutes) => (
               <button
                 key={minutes}
@@ -444,16 +462,15 @@ function TimerSection({ timer }: { timer: FocusTimerHandle }) {
               placeholder="Custom min"
               aria-label="Custom duration in minutes"
               inputMode="numeric"
-              className={`${fieldInput} w-20 tabular-nums`}
+              className={`${fieldInput} w-16 tabular-nums`}
             />
-            <div className="flex-1" />
-            <button
-              type="submit"
-              className="h-6 rounded-full bg-accent px-3 text-[11px] font-medium text-fg-on-accent transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              Start
-            </button>
           </div>
+          <button
+            type="submit"
+            className="mt-1.5 h-7 w-full rounded-md bg-accent text-xs font-medium text-fg-on-accent transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            Start
+          </button>
         </form>
       )}
     </section>

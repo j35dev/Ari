@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { FocusMusicState, FocusTrack, RpcResults } from '@ari/contracts/rpc'
+import { spawnCli } from '@ari/providers/spawn-cli'
 import { createLogger } from '@ari/shared/logger'
 import type { RpcRegistry } from './rpc-registry'
 
@@ -11,6 +12,13 @@ const log = createLogger('desktop:focus-music')
 
 const STATUS_TIMEOUT_MS = 5_000
 const CONTROL_TIMEOUT_MS = 8_000
+/** Fast liveness probe for an already-running daemon. */
+const INSTANCE_PROBE_TIMEOUT_MS = 3_000
+/** Post-spawn readiness wait: 8 × 250ms before giving up on our own daemon. */
+const DAEMON_READY_ATTEMPTS = 8
+const DAEMON_READY_POLL_MS = 250
+/** A failed spawn is not retried for 30s so polling cannot respawn-loop. */
+const DAEMON_RESPAWN_COOLDOWN_MS = 30_000
 
 const execFileP = promisify(execFile)
 
@@ -18,6 +26,32 @@ const execFileP = promisify(execFile)
 export interface FocusMusicRunner {
   locateBinary(): Promise<string | null>
   run(args: string[], timeoutMs: number): Promise<{ stdout: string }>
+}
+
+/**
+ * Minimal owned-process handle: lifecycle tracking only needs liveness and
+ * kill. The real `ChildProcess` satisfies this; tests use fakes.
+ */
+export interface DaemonHandle {
+  readonly exitCode: number | null
+  kill(): boolean
+}
+
+export type DaemonSpawner = (binary: string, args: string[]) => DaemonHandle
+
+function defaultDaemonSpawner(binary: string, args: string[]): DaemonHandle {
+  // spawnCli keeps argv arrays structural on every OS (cmd.exe escaping on
+  // Windows shims) — user input such as search text is never shell-parsed.
+  const child = spawnCli(binary, args, { stdio: 'ignore', windowsHide: true })
+  child.unref()
+  return child
+}
+
+export interface FocusMusicBackendOptions {
+  runner?: FocusMusicRunner
+  spawnDaemon?: DaemonSpawner
+  /** Injectable for tests; defaults to a setTimeout sleep. */
+  delay?: (ms: number) => Promise<void>
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -31,16 +65,14 @@ async function exists(path: string): Promise<boolean> {
 
 /**
  * Locates the Cliamp executable: an explicit `CLIAMP_BIN` override first,
- * then every `PATH` entry. Cliamp publishes no stable headless/socket API
- * in this environment, so the adapter below drives it through
- * timeout-bounded one-shot invocations and never embeds its TUI — there is
- * no long-lived child to leak, and every failure degrades to data.
+ * then every `PATH` entry (plus `~/.local/bin`). Native executables sort
+ * before shell shims so one-shot invocations never need a shell.
  */
 export async function locateCliampBinary(): Promise<string | null> {
   const override = process.env['CLIAMP_BIN']?.trim()
   if (override) return override
   const names =
-    process.platform === 'win32' ? ['cliamp.exe', 'cliamp.cmd', 'cliamp.bat', 'cliamp'] : ['cliamp']
+    process.platform === 'win32' ? ['cliamp.exe', 'cliamp', 'cliamp.cmd', 'cliamp.bat'] : ['cliamp']
   const dirs = (process.env['PATH'] ?? '').split(delimiter).filter((d) => d.length > 0)
   dirs.push(join(homedir(), '.local', 'bin'))
   for (const dir of dirs) {
@@ -166,47 +198,129 @@ export function parseCliampSearch(stdout: string): FocusTrack[] | null {
 }
 
 /**
- * Cliamp backend behind the `focus.music.*` RPC surface. All control
- * failures return `{ ok: false, error }` data — nothing throws across IPC —
- * so the renderer can degrade to the timer alone.
+ * Cliamp backend behind the `focus.music.*` RPC surface.
+ *
+ * Daemon model: one-shot commands (`status --json`, `play`, `pause`, …)
+ * talk to the daemon over Cliamp's own IPC socket, so Ari stays decoupled
+ * from the raw protocol. On first use the backend probes for an already
+ * running instance and only spawns `cliamp --daemon` when none answers;
+ * `close()` terminates solely the daemon Ari spawned, never a user's own.
+ * (Spectrum `visstream` exists but V1 deliberately uses a lightweight CSS
+ * pulse keyed to playing state instead.)
+ *
+ * All control failures return `{ ok: false, error }` data — nothing throws
+ * across IPC — so the renderer degrades to the timer alone.
  */
 export class FocusMusicBackend {
   readonly #runner: FocusMusicRunner
-  #binary: string | null | undefined
+  readonly #spawner: DaemonSpawner
+  readonly #delay: (ms: number) => Promise<void>
+  #binary: string | undefined
   #capabilities: { search: boolean; volume: boolean } | null = null
+  /** Non-null only while Ari's own spawned daemon is the live instance. */
+  #daemon: DaemonHandle | null = null
+  #lastSpawnFailedAt: number | null = null
 
-  constructor(runner?: FocusMusicRunner) {
-    let cached: string | null | undefined
+  constructor(options: FocusMusicBackendOptions = {}) {
+    let cached: string | undefined
     this.#runner =
-      runner ??
+      options.runner ??
       defaultRunner(async () => {
-        cached ??= await locateCliampBinary()
-        return cached
+        cached ??= (await locateCliampBinary()) ?? undefined
+        return cached ?? null
       })
+    this.#spawner = options.spawnDaemon ?? defaultDaemonSpawner
+    this.#delay = options.delay ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   }
 
+  /**
+   * Resolves the binary, caching only positive hits so a mid-session
+   * install is picked up on the next attempt instead of staying invisible
+   * until restart.
+   */
   async #binaryPath(): Promise<string | null> {
-    this.#binary ??= await this.#runner.locateBinary()
-    return this.#binary
+    this.#binary ??= (await this.#runner.locateBinary()) ?? undefined
+    return this.#binary ?? null
   }
 
-  async #capabilitiesOf(): Promise<{ search: boolean; volume: boolean }> {
-    if (this.#capabilities) return this.#capabilities
+  /** True when any Cliamp instance — ours or the user's — answers. */
+  async #instanceAlive(): Promise<boolean> {
     try {
-      const { stdout } = await this.#runner.run(['--help'], STATUS_TIMEOUT_MS)
-      this.#capabilities = {
-        search: /search/i.test(stdout),
-        volume: /vol/i.test(stdout),
-      }
+      await this.#runner.run(['status', '--json'], INSTANCE_PROBE_TIMEOUT_MS)
+      return true
     } catch {
-      this.#capabilities = { search: false, volume: false }
+      return false
+    }
+  }
+
+  /**
+   * Ensures a daemon answers before any command runs. Reuses a live owned
+   * daemon, adopts an already-running (user) instance without claiming it,
+   * and spawns `cliamp --daemon` only when nothing answers.
+   */
+  async #ensureDaemon(): Promise<boolean> {
+    if (this.#daemon && this.#daemon.exitCode === null) return true
+    if (
+      this.#lastSpawnFailedAt !== null &&
+      Date.now() - this.#lastSpawnFailedAt < DAEMON_RESPAWN_COOLDOWN_MS
+    ) {
+      return false
+    }
+    if (await this.#instanceAlive()) {
+      // Our handle is dead or absent: whatever answers now is not ours to
+      // stop, so drop the handle rather than risk killing it on exit.
+      this.#daemon = null
+      return true
+    }
+    const binary = await this.#binaryPath()
+    if (!binary) return false
+    let handle: DaemonHandle
+    try {
+      handle = this.#spawner(binary, ['--daemon'])
+    } catch (error) {
+      log.warn('cliamp daemon spawn failed', { error: String(error) })
+      return false
+    }
+    this.#daemon = handle
+    for (let attempt = 0; attempt < DAEMON_READY_ATTEMPTS; attempt++) {
+      if (handle.exitCode !== null) break
+      if (await this.#instanceAlive()) return true
+      await this.#delay(DAEMON_READY_POLL_MS)
+    }
+    // Never became ready: do not leave an orphan we own behind.
+    this.#daemon = null
+    this.#lastSpawnFailedAt = Date.now()
+    try {
+      handle.kill()
+    } catch (error) {
+      log.warn('cliamp daemon cleanup failed', { error: String(error) })
+    }
+    log.warn('cliamp daemon failed to become ready')
+    return false
+  }
+
+  /** Successful `--help` probes are cached; failures retry next time. */
+  async #capabilitiesOf(): Promise<{ search: boolean; volume: boolean }> {
+    if (!this.#capabilities) {
+      try {
+        const { stdout } = await this.#runner.run(['--help'], INSTANCE_PROBE_TIMEOUT_MS)
+        this.#capabilities = {
+          search: /search/i.test(stdout),
+          volume: /vol/i.test(stdout),
+        }
+      } catch {
+        return { search: false, volume: false }
+      }
     }
     return this.#capabilities
   }
 
   async status(): Promise<FocusMusicState> {
     if ((await this.#binaryPath()) === null) {
-      return unavailable('Cliamp is not installed — the timer still works.')
+      return unavailable('Cliamp is not installed — install it, then reopen this panel.')
+    }
+    if (!(await this.#ensureDaemon())) {
+      return unavailable('Cliamp did not start — try running `cliamp --daemon` yourself.')
     }
     const caps = await this.#capabilitiesOf()
     try {
@@ -222,13 +336,16 @@ export class FocusMusicBackend {
       }
     } catch (error) {
       log.warn('cliamp status failed', { error: String(error) })
-      return unavailable('Cliamp is unreachable — is its backend running?')
+      return unavailable('Cliamp stopped answering — is it still running?')
     }
   }
 
   async control(args: string[]): Promise<RpcResults['focus.music.play']> {
     if ((await this.#binaryPath()) === null) {
       return { ok: false, error: 'Cliamp is not installed.' }
+    }
+    if (!(await this.#ensureDaemon())) {
+      return { ok: false, error: 'Cliamp did not start.' }
     }
     try {
       await this.#runner.run(args, CONTROL_TIMEOUT_MS)
@@ -242,6 +359,9 @@ export class FocusMusicBackend {
   async search(query: string): Promise<RpcResults['focus.music.search']> {
     if ((await this.#binaryPath()) === null) {
       return { tracks: [], error: 'Cliamp is not installed.' }
+    }
+    if (!(await this.#ensureDaemon())) {
+      return { tracks: [], error: 'Cliamp did not start.' }
     }
     if (!(await this.#capabilitiesOf()).search) {
       return { tracks: [], error: 'Search is not supported by this music backend.' }
@@ -259,10 +379,31 @@ export class FocusMusicBackend {
     if ((await this.#binaryPath()) === null) {
       return { ok: false, error: 'Cliamp is not installed.' }
     }
+    if (!(await this.#ensureDaemon())) {
+      return { ok: false, error: 'Cliamp did not start.' }
+    }
     if (!(await this.#capabilitiesOf()).volume) {
       return { ok: false, error: 'Volume is not supported by this music backend.' }
     }
     return this.control(['volume', String(volume)])
+  }
+
+  /**
+   * Stops the daemon Ari spawned, if it is still alive. A user's own
+   * instance (adopted, never owned) is never touched. Wired to
+   * `before-quit` in `./rpc`.
+   */
+  close(): void {
+    const owned = this.#daemon
+    this.#daemon = null
+    if (owned && owned.exitCode === null) {
+      try {
+        owned.kill()
+        log.info('stopped owned cliamp daemon')
+      } catch (error) {
+        log.warn('cliamp daemon stop failed', { error: String(error) })
+      }
+    }
   }
 }
 
