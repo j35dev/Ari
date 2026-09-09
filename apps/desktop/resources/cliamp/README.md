@@ -17,9 +17,10 @@ resources/cliamp/
   bin/<target>/     fetched binaries — gitignored (cliamp + yt-dlp + ffmpeg)
 ```
 
-`<target>` is `<platform>-<arch>`: `win32-x64`, `darwin-x64`,
-`darwin-arm64`, `linux-x64`, `linux-arm64`. The Windows zip's codec DLLs
-extract into the same folder — the exe must never be separated from them.
+`<target>` is `<platform>-<arch>`: `win32-x64`, `linux-x64`, or
+`linux-arm64`. The Windows zip's codec DLLs extract into the same folder — the
+exe must never be separated from them. macOS is omitted until upstream ships a
+self-contained binary.
 
 `electron-builder.yml` copies `resources/cliamp` to `<resources>/cliamp`,
 so the packaged layout mirrors development (`bin/<target>/` in both).
@@ -40,12 +41,12 @@ executable, or reports a different `--version` than the pin.
 
 ## Runtime dependency audit (v2.2.0, verified against the real binaries)
 
-| Target | Status |
-|---|---|
-| `win32-x64` | Fully bundled: the release zip carries the exe plus its 6 codec DLLs. |
-| `linux-x64` / `linux-arm64` | Fully bundled: release binaries statically link FLAC/Vorbis/Ogg/mpg123. Systems on PipeWire/PulseAudio still need their distro ALSA bridge (`pipewire-alsa` / `libasound2-plugins`) — a sound-server concern that cannot be bundled; playback failure degrades to MusicUnavailable. |
-| `darwin-x64` / `darwin-arm64` | **Known gap:** upstream macOS binaries dynamically link Homebrew `flac`, `libvorbis`, `libogg`, `mpg123`. Until upstream ships static macOS builds, bundled macOS music requires those libraries on the machine; otherwise the backend degrades gracefully. Do not claim otherwise. Track upstream before closing this. |
-| `win32-arm64` | No upstream asset exists. Ari never bundles it; the pill degrades to MusicUnavailable there by design. |
+| Target                        | Status                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `win32-x64`                   | Fully bundled: the release zip carries the exe plus its 6 codec DLLs.                                                                                                                                                                                                               |
+| `linux-x64` / `linux-arm64`   | Fully bundled: release binaries statically link FLAC/Vorbis/Ogg/mpg123. Systems on PipeWire/PulseAudio still need their distro ALSA bridge (`pipewire-alsa` / `libasound2-plugins`) — a sound-server concern that cannot be bundled; playback failure degrades to MusicUnavailable. |
+| `darwin-x64` / `darwin-arm64` | Upstream binaries dynamically link Homebrew `flac`, `libvorbis`, `libogg`, and `mpg123`, so Ari does not bundle them. The pill degrades to MusicUnavailable until upstream ships self-contained macOS builds.                                                                       |
+| `win32-arm64`                 | No upstream asset exists. Ari never bundles it; the pill degrades to MusicUnavailable there by design.                                                                                                                                                                              |
 
 Optional upstream runtimes Ari deliberately does **not** bundle in V1:
 
@@ -59,10 +60,9 @@ streaming feature; offline machines keep the timer and local files.
 
 The bundled binary is third-party code inside Ari's package:
 
-- **macOS:** the binary must be covered by Ari's signing/notarization when
-  release signing lands (currently deferred repo-wide); an unsigned bundled
-  executable will not survive Gatekeeper. No separate Cliamp signing step —
-  it rides Ari's own.
+- **macOS:** no Cliamp binary is currently bundled. A future self-contained
+  upstream binary must be covered by Ari's signing/notarization; an unsigned
+  sidecar will not survive Gatekeeper.
 - **Windows:** ships inside the signed installer; no extra handling.
 - **Linux:** no signing model; the fetch script restores the executable bit
   (`chmod 755`) that zips/tarballs do not always preserve.
