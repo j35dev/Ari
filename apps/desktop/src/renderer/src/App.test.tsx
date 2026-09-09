@@ -103,6 +103,28 @@ describe('SessionBranchChip', () => {
     }
   })
 
+  it('clears the readout when the workspace stops being a repo', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<SessionBranchChip sessionId="sess_1" />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+
+      invokeMock.mockImplementation(async (method) => {
+        if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
+        throw new Error(`unexpected method: ${String(method)}`)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BRANCH_POLL_MS)
+      })
+      expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('stays hidden outside a git repo', async () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
