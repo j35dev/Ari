@@ -5,12 +5,17 @@ import { rpc } from '../../lib/rpc'
 
 const log = createLogger('session:branch')
 
+/** How often the readout re-checks the branch while mounted. */
+export const BRANCH_POLL_MS = 10_000
+
 /**
  * Contextual branch readout inside the session space: shows the active
  * session's git branch in a slim reserved strip at the top of the transcript.
- * Asks git.status with the session scope — the worktree resolves server-side.
- * The strip mounts only when a branch exists and reserves its own row, so the
- * pill never overlays scrolling checkpoints; outside repos it stays hidden.
+ * Asks git.status with the session scope — the worktree resolves server-side —
+ * on mount and on a poll, so a branch change behind the open session refreshes
+ * instead of going stale until remount. The strip mounts only when a branch
+ * exists and reserves its own row, so the pill never overlays scrolling
+ * checkpoints; outside repos it stays hidden.
  */
 export function SessionBranchChip({ sessionId }: { sessionId: string | null }) {
   const [branch, setBranch] = useState<string | null>(null)
@@ -19,14 +24,19 @@ export function SessionBranchChip({ sessionId }: { sessionId: string | null }) {
     setBranch(null)
     if (sessionId === null) return
     let cancelled = false
-    void rpc
-      .invoke('git.status', { sessionId })
-      .then((status) => {
-        if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
-      })
-      .catch((error: unknown) => log.warn('rpc call failed', error))
+    const refresh = (): void => {
+      void rpc
+        .invoke('git.status', { sessionId })
+        .then((status) => {
+          if (!cancelled && status.isRepo && status.branch) setBranch(status.branch)
+        })
+        .catch((error: unknown) => log.warn('rpc call failed', error))
+    }
+    refresh()
+    const timer = setInterval(refresh, BRANCH_POLL_MS)
     return () => {
       cancelled = true
+      clearInterval(timer)
     }
   }, [sessionId])
 

@@ -4,6 +4,7 @@ import {
   moveProjectInList,
   projectMoveForDelta,
   projectMoveFromOrder,
+  recencyGroups,
   sidebarGroups,
   sidebarOrder,
   UNFILED_GROUP_ID,
@@ -133,6 +134,56 @@ describe('sidebarGroups', () => {
       projects,
     )
     expect(groups[0]?.sessions.map((s) => s.id)).toEqual(['live'])
+  })
+})
+
+describe('recencyGroups', () => {
+  const HOUR = 60 * 60 * 1000
+  // Noon, so "today" has room on both sides of the clock.
+  const now = new Date(2026, 8, 8, 12).getTime()
+
+  it('buckets live sessions by recency with pinned floated first', () => {
+    const groups = recencyGroups(
+      [
+        row('older', now - 30 * 24 * HOUR),
+        row('week', now - 3 * 24 * HOUR),
+        row('yesterday', now - 20 * HOUR),
+        row('today', now - HOUR),
+        row('pinned', now - 40 * 24 * HOUR, { pinned: true }),
+        row('gone', now, { archived: true }),
+      ],
+      now,
+    )
+    expect(groups.map((g) => [g.name, g.sessions.map((s) => s.id)])).toEqual([
+      ['Pinned', ['pinned']],
+      ['Today', ['today']],
+      ['Yesterday', ['yesterday']],
+      ['Previous 7 days', ['week']],
+      ['Older', ['older']],
+    ])
+  })
+
+  it('omits empty buckets and keeps children with their root', () => {
+    const groups = recencyGroups(
+      [
+        row('child', now - HOUR, { parentSessionId: 'root' }),
+        row('root', now - 3 * 24 * HOUR),
+      ],
+      now,
+    )
+    expect(groups.map((g) => g.name)).toEqual(['Previous 7 days'])
+    expect(groups[0]?.sessions.map((s) => s.id).sort()).toEqual(['child', 'root'])
+  })
+
+  it('concatenates to the projectless sidebarOrder so keyboard traversal matches', () => {
+    const sessions = [
+      row('fresh', now - HOUR),
+      row('pinned', now - 9 * 24 * HOUR, { pinned: true }),
+      row('stale', now - 2 * 24 * HOUR),
+    ]
+    expect(recencyGroups(sessions, now).flatMap((g) => g.sessions.map((s) => s.id))).toEqual(
+      sidebarOrder(sessions).map((s) => s.id),
+    )
   })
 })
 
