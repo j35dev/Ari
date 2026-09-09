@@ -22,6 +22,7 @@ import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../momen
 import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
+import { SessionBranchChip } from './SessionBranchChip'
 import { TurnErrorBanner } from './TurnErrorBanner'
 
 interface PendingApproval {
@@ -834,6 +835,7 @@ export function SessionView({
   return (
     <div className="flex h-full min-h-0">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+        <SessionBranchChip sessionId={sessionId} />
         <div className="min-h-0 flex-1">
           <TranscriptView
             sessionId={sessionId}
