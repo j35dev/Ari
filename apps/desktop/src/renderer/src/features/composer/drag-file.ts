@@ -37,11 +37,15 @@ export function osFilePath(file: File): string {
     : file.name
 }
 
-/** Quote a path for inline prompt text when it contains whitespace. */
+/**
+ * Quote a path for inline prompt text when it contains whitespace. Embedded
+ * quotes are escaped rather than stripped, so the result still names a real
+ * file on platforms that allow them.
+ */
 export function quotePathForPrompt(path: string): string {
   if (path.length === 0) return path
   if (/[\s"]/.test(path) && !(path.startsWith('"') && path.endsWith('"'))) {
-    return `"${path.replaceAll('"', '')}"`
+    return `"${path.replaceAll('"', '\\"')}"`
   }
   return path
 }

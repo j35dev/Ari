@@ -193,12 +193,16 @@ export function Composer({
     requestAnimationFrame(() => textareaRef.current?.focus())
   }, [text, images, disabled, onSend, clear])
 
-  /** Inserts text at the live caret (event target wins over stale state). */
+  /**
+   * Inserts text at the live caret (event target wins over stale state),
+   * replacing any selected range the way a paste does.
+   */
   const insertAtCaret = useCallback(
     (target: HTMLTextAreaElement | null, fallbackCaret: number, insert: string) => {
       const at = target?.selectionStart ?? fallbackCaret
+      const end = target?.selectionEnd ?? fallbackCaret
       const nextCaret = at + insert.length
-      setText((prev) => prev.slice(0, at) + insert + prev.slice(at))
+      setText((prev) => prev.slice(0, at) + insert + prev.slice(Math.max(at, end)))
       setCaret(nextCaret)
       refocus(nextCaret)
     },
