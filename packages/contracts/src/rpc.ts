@@ -70,6 +70,8 @@ export const focusTrackSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   artist: z.string().default(''),
+  /** Station/program source for streams; empty for plain tracks. */
+  station: z.string().default(''),
 })
 export type FocusTrack = z.infer<typeof focusTrackSchema>
 

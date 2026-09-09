@@ -1,7 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  cliampBinaryName,
+  cliampTargetKeys,
   expectedAdapterBinaries,
   expectedAdapterPackages,
   packageDir,
@@ -50,5 +53,33 @@ describe('bundled ACP packaging manifest', () => {
     expect(packageDir(nodeModules, '@openai/codex')).toBe(
       join(nodeModules, '@openai', 'codex'),
     )
+  })
+})
+
+describe('bundled Cliamp music backend', () => {
+  it('maps builds to manifest target keys, expanding universal macOS', () => {
+    expect(cliampTargetKeys('win32', 1)).toEqual(['win32-x64'])
+    expect(cliampTargetKeys('darwin', 4)).toEqual(['darwin-x64', 'darwin-arm64'])
+    expect(cliampTargetKeys('linux', 1)).toEqual(['linux-x64'])
+    expect(cliampTargetKeys('linux', 3)).toEqual(['linux-arm64'])
+  })
+
+  it('uses the exe name on Windows and the bare name elsewhere', () => {
+    expect(cliampBinaryName('win32-x64')).toBe('cliamp.exe')
+    expect(cliampBinaryName('darwin-arm64')).toBe('cliamp')
+    expect(cliampBinaryName('linux-x64')).toBe('cliamp')
+  })
+
+  it('pins exactly the targets upstream publishes binaries for', async () => {
+    const manifest = JSON.parse(
+      await readFile(join(import.meta.dirname, '../resources/cliamp/cliamp.json'), 'utf8'),
+    )
+    expect(manifest.version).toMatch(/^v\d+\.\d+\.\d+$/)
+    expect(new Set(Object.keys(manifest.targets))).toEqual(
+      new Set(['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64']),
+    )
+    for (const entry of Object.values(manifest.targets)) {
+      expect(entry.sha256).toMatch(/^[0-9a-f]{64}$/)
+    }
   })
 })

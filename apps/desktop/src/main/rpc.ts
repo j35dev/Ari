@@ -826,7 +826,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Focus pill music backend (Cliamp sidecar): every failure arrives as
   // data, so the ADE never depends on Cliamp being installed or healthy.
-  focusMusicHandle = registerFocusMusic(r)
+  focusMusicHandle = registerFocusMusic(r, {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  })
 
   r.register('command.dispatch', async (params) => {
     const command = params.command

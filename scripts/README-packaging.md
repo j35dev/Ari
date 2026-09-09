@@ -29,6 +29,13 @@ How to build distributable installers for Windows, macOS, and Linux. Config live
   pnpm --filter @ari/desktop build
   ```
 
+- Focus music ships a pinned Cliamp release inside the installer (`resources/cliamp`,
+  version in `cliamp.json`). `pnpm --filter @ari/desktop build` runs
+  `scripts/fetch-cliamp.mjs` first so the current host's binary is present;
+  `packaging/after-pack.js` fails the pack if that binary is missing, not
+  executable, or reports a different `--version` than the pin. Users never
+  install or configure Cliamp. Optional runtimes such as ffmpeg/yt-dlp are
+  **not** bundled in V1 — sources that need them fail per-track.
 - Claude ACP `0.70.0` and Codex ACP `1.7.0` are direct desktop dependencies. Their
   platform runtime packages remain upstream optional dependencies: the root pnpm
   `supportedArchitectures` matrix must include win32/linux x64+arm64 and darwin

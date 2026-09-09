@@ -10,7 +10,7 @@ describe('CliampAdapter', () => {
     const live = {
       available: true,
       playing: true,
-      track: { id: 't', title: 'Grind', artist: 'DJ' },
+      track: { id: 't', title: 'Grind', artist: 'DJ', station: '' },
       volume: 60,
       supportsSearch: true,
       supportsVolume: true,

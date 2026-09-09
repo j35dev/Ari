@@ -35,11 +35,11 @@ const fieldInput =
   'h-7 rounded-md border border-border bg-glass-input px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none'
 
 /**
- * Compact header pill combining Cliamp music state and an optional focus
- * timer. Music and timer stay independent services; the pill only renders
- * their combined state. The timer lives in the always-mounted header, so it
- * keeps counting while the popover is closed, across rerenders, navigation,
- * and restarts (absolute `endsAt` persisted to localStorage).
+ * Compact header pill combining music state and an optional focus timer.
+ * Music and timer stay independent services; the pill only renders their
+ * combined state. The timer lives in the always-mounted header, so it keeps
+ * counting while the popover is closed, across rerenders, navigation, and
+ * restarts (absolute `endsAt` persisted to localStorage).
  */
 export function FocusPill({ service }: { service?: MusicService }) {
   const adapter = useMemo(() => service ?? new CliampAdapter(), [service])
@@ -175,11 +175,12 @@ function MusicSection({
           {track ? track.title : musicAvailable ? 'No track playing' : 'Music unavailable'}
         </p>
         <p className="truncate text-[11px] text-fg-subtle">
-          {track?.artist
-            ? track.artist
+          {track
+            ? [track.artist, track.station].filter((part) => part.length > 0).join(' · ') ||
+              'Playing now'
             : musicAvailable
               ? 'Play something to get started'
-              : detail || 'Cliamp is not connected — the timer still works.'}
+              : detail || 'Music is unavailable — the timer still works.'}
         </p>
         {!musicAvailable ? (
           <button
@@ -285,6 +286,7 @@ function SearchSection({
   const [results, setResults] = useState<FocusTrack[]>([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   return (
     <section aria-label="Search music" className="mt-2.5 border-t border-border pt-2.5">
       <form
@@ -294,11 +296,13 @@ function SearchSection({
           const q = query.trim()
           if (!q || searching) return
           setSearching(true)
+          setError(null)
           void adapter
             .search(q)
-            .then(({ tracks }) => {
+            .then(({ tracks, error: nextError }) => {
               setResults(tracks.slice(0, 5))
               setSearched(true)
+              setError(nextError ?? null)
             })
             .finally(() => setSearching(false))
         }}
@@ -332,8 +336,8 @@ function SearchSection({
                   <Play size={11} aria-hidden="true" className="shrink-0 text-fg-subtle" />
                   <span className="min-w-0 flex-1 truncate text-[11px] text-fg">
                     {track.title}
-                    {track.artist ? (
-                      <span className="text-fg-subtle"> · {track.artist}</span>
+                    {track.artist || track.station ? (
+                      <span className="text-fg-subtle"> · {track.artist || track.station}</span>
                     ) : null}
                   </span>
                 </button>
@@ -342,7 +346,7 @@ function SearchSection({
           </ul>
         ) : (
           <p className="pt-1.5 text-[11px] text-fg-subtle">
-            {searching ? 'Searching…' : 'No results.'}
+            {searching ? 'Searching…' : (error ?? 'No results.')}
           </p>
         )
       ) : null}

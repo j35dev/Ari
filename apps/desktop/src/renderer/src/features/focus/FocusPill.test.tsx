@@ -14,14 +14,14 @@ const idle: FocusMusicState = {
   volume: null,
   supportsSearch: false,
   supportsVolume: false,
-  detail: 'Cliamp is not installed.',
+  detail: 'Music is unavailable right now.',
 }
 
 function playing(): FocusMusicState {
   return {
     available: true,
     playing: true,
-    track: { id: 't1', title: 'Grind', artist: 'DJ' },
+    track: { id: 't1', title: 'Grind', artist: 'DJ', station: 'Jazz FM' },
     volume: 60,
     supportsSearch: true,
     supportsVolume: true,
@@ -55,6 +55,7 @@ describe('FocusPill', () => {
     await settle()
     expect(screen.getByRole('dialog', { name: 'Focus' })).toBeInTheDocument()
     expect(screen.getByText('Music unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeInTheDocument()
     expect(screen.getByLabelText('Timer name')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument()
   })
@@ -71,6 +72,7 @@ describe('FocusPill', () => {
     fireEvent.click(pill)
     await settle()
     expect(screen.getByText('Grind')).toBeInTheDocument()
+    expect(screen.getByText('DJ · Jazz FM')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
     await settle()
     expect(invoke).toHaveBeenCalledWith('focus.music.pause')
@@ -95,6 +97,27 @@ describe('FocusPill', () => {
     await settle()
     const pill = screen.getByRole('button', { name: /Focus timer a-very-long-focus-session-name/ })
     expect(pill).toHaveTextContent('a-very-long-focus… · 38m')
+  })
+
+  it('surfaces a native search error without naming the backend', async () => {
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'focus.music.status') {
+        return { ...playing(), playing: false, track: null }
+      }
+      if (method === 'focus.music.search') {
+        return { tracks: [], error: 'Music is unavailable right now.' }
+      }
+      return { ok: true }
+    })
+    render(<FocusPill />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
+    await settle()
+    fireEvent.change(screen.getByPlaceholderText('Search music…'), { target: { value: 'lofi' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await settle()
+    expect(screen.getByText('Music is unavailable right now.')).toBeInTheDocument()
+    expect(screen.queryByText(/cliamp/i)).not.toBeInTheDocument()
   })
 
   it('starts a timer from the popover form', async () => {

@@ -9,7 +9,7 @@
 // the terminal opens to a dead blinking cursor. Assert the invariant here so the
 // build fails instead of shipping.
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -32,6 +32,18 @@ function resourcesDir(context) {
   if (context.electronPlatformName !== 'darwin') return join(context.appOutDir, 'resources')
   const appName = context.packager.appInfo.productFilename
   return join(context.appOutDir, `${appName}.app`, 'Contents', 'Resources')
+}
+
+/** Manifest keys a build could need; intersected with cliamp.json at pack time. */
+export function cliampTargetKeys(platform, arch) {
+  const archName = ARCH_NAMES[arch]
+  const archNames = archName === 'universal' ? ['x64', 'arm64'] : [archName]
+  return archNames.map((it) => `${platform}-${it}`)
+}
+
+/** Binary filename inside a fetched target dir (the Windows zip keeps its DLLs beside it). */
+export function cliampBinaryName(targetKey) {
+  return targetKey.startsWith('win32') ? 'cliamp.exe' : 'cliamp'
 }
 
 /** A prebuilt package is only usable if its .node addon sits on the real filesystem. */
@@ -235,6 +247,55 @@ export default async function afterPack(context) {
     const dir = join(unpacked, ...name.split('/'))
     if (!existsSync(dir)) problems.push(`${name} is missing from the package`)
     else if (!hasNativeAddon(dir)) problems.push(`${name} has no unpacked .node addon`)
+  }
+
+  // Bundled Focus music backend: the pinned Cliamp release must be present
+  // for every target this build serves. Targets with no upstream asset
+  // (e.g. win32-arm64) warn instead of failing — music degrades there.
+  const cliampManifestPath = join(resourcesDir(context), 'cliamp', 'cliamp.json')
+  if (!existsSync(cliampManifestPath)) {
+    problems.push('cliamp/cliamp.json is missing from packaged resources')
+  } else {
+    const cliampManifest = JSON.parse(readFileSync(cliampManifestPath, 'utf8'))
+    for (const key of cliampTargetKeys(platform, context.arch)) {
+      const entry = cliampManifest.targets?.[key]
+      if (!entry) {
+        process.stderr.write(
+          `after-pack: no pinned Cliamp asset for ${key}; music degrades on that target\n`,
+        )
+        continue
+      }
+      const binary = join(
+        resourcesDir(context),
+        'cliamp',
+        'bin',
+        key,
+        entry.binary ?? cliampBinaryName(key),
+      )
+      if (!existsSync(binary)) {
+        problems.push(`${key} Cliamp binary is missing (run scripts/fetch-cliamp.mjs)`)
+        continue
+      }
+      if (platform !== 'win32') {
+        try {
+          accessSync(binary, constants.X_OK)
+        } catch {
+          problems.push(`${key} Cliamp binary is not executable`)
+        }
+      }
+      // A foreign-arch binary cannot run here; version-check only the host match.
+      if (key === `${process.platform}-${process.arch}` && platform === process.platform) {
+        const { stdout } = await promisify(execFile)(binary, ['--version'], {
+          windowsHide: true,
+          timeout: 15_000,
+        })
+        if (!stdout.includes(cliampManifest.version)) {
+          problems.push(
+            `${key} Cliamp reports ${stdout.trim()} but cliamp.json pins ${cliampManifest.version}`,
+          )
+        }
+      }
+    }
   }
 
   if (problems.length > 0) {
