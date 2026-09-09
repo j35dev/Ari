@@ -65,6 +65,31 @@ export const grokAllowanceSchema = z.object({
     .nullable(),
 })
 
+/** One track served by the focus music backend (Cliamp sidecar). */
+export const focusTrackSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  artist: z.string().default(''),
+})
+export type FocusTrack = z.infer<typeof focusTrackSchema>
+
+/**
+ * Snapshot of the focus music backend. `available` false means the Cliamp
+ * executable is missing, unreachable, or errored — the ADE keeps working
+ * and the pill degrades to the timer alone. Capability flags let the UI
+ * hide search/volume where the backend does not support them.
+ */
+export const focusMusicStateSchema = z.object({
+  available: z.boolean(),
+  playing: z.boolean(),
+  track: focusTrackSchema.nullable(),
+  volume: z.number().int().min(0).max(100).nullable(),
+  supportsSearch: z.boolean(),
+  supportsVolume: z.boolean(),
+  detail: z.string().default(''),
+})
+export type FocusMusicState = z.infer<typeof focusMusicStateSchema>
+
 export const sessionCreateParamsSchema = z.object({
   projectId: z.string(),
   title: z.string(),
@@ -258,6 +283,13 @@ export const rpcParams = {
   'usage.summary': z.undefined(),
   'providers.allowance': z.object({ kind: driverKindSchema }),
   'usage.ccusage': z.object({ subcommand: z.enum(['daily', 'monthly', 'blocks']).optional() }),
+  'focus.music.status': z.undefined(),
+  'focus.music.play': z.object({ trackId: z.string().min(1).max(512).optional() }),
+  'focus.music.pause': z.undefined(),
+  'focus.music.next': z.undefined(),
+  'focus.music.previous': z.undefined(),
+  'focus.music.search': z.object({ query: z.string().min(1).max(200) }),
+  'focus.music.volume': z.object({ volume: z.number().int().min(0).max(100) }),
   'command.dispatch': z.object({ command: commandSchema }),
   /**
    * Stages pasted/dropped images in the main process (the sandboxed renderer
@@ -452,6 +484,14 @@ export interface RpcResults {
    * tail-capped report text.
    */
   'usage.ccusage': { ok: boolean; output: string; error: string | null }
+  /** Focus pill music backend (Cliamp sidecar); control failures arrive as data, never throws. */
+  'focus.music.status': FocusMusicState
+  'focus.music.play': { ok: boolean; error?: string }
+  'focus.music.pause': { ok: boolean; error?: string }
+  'focus.music.next': { ok: boolean; error?: string }
+  'focus.music.previous': { ok: boolean; error?: string }
+  'focus.music.search': { tracks: FocusTrack[]; error?: string }
+  'focus.music.volume': { ok: boolean; error?: string }
   'command.dispatch': { accepted: boolean }
   'attachments.stage': { attachments: AttachmentRef[] }
   'attachments.read': {

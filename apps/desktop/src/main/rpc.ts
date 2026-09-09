@@ -28,6 +28,7 @@ import { fetchAllowance, ProviderAllowanceReader } from './provider-allowance'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
+import { registerFocusMusic } from './focus-music'
 import { createPullRequest } from './gh-pr'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import {
@@ -817,6 +818,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       })
     })
   })
+
+  // Focus pill music backend (Cliamp sidecar): every failure arrives as
+  // data, so the ADE never depends on Cliamp being installed or healthy.
+  registerFocusMusic(r)
 
   r.register('command.dispatch', async (params) => {
     const command = params.command
