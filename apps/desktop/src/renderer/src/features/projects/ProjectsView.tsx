@@ -9,9 +9,6 @@ import { Check, FolderPlus, Play, Trash2, X } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
 import { requestTerminalTab } from '../terminal/terminal-requests'
 
-/** Degrees of accent hue rotation per project color index slot (8 slots). */
-const HUE_STEP_DEG = 40
-
 const MAX_SCRIPT_BUTTONS = 6
 
 interface ScriptInfo {
@@ -104,10 +101,7 @@ function ProjectCard({
           <span
             aria-hidden="true"
             className="h-2 w-2 shrink-0 rounded-full"
-            style={{
-              background: 'var(--ari-accent)',
-              filter: `hue-rotate(${project.colorIndex * HUE_STEP_DEG}deg)`,
-            }}
+            style={{ background: 'var(--ari-accent)' }}
           />
           <span className="truncate text-sm font-medium text-fg">{project.name}</span>
         </div>
