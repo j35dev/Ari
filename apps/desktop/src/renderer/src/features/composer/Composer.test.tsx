@@ -330,7 +330,7 @@ describe('Composer file drag-drop', () => {
   it('replaces selected text when a file path is inserted', async () => {
     const user = userEvent.setup()
     render(<Composer onSend={vi.fn()} />)
-    const input = screen.getByLabelText('Message') as HTMLTextAreaElement
+    const input = screen.getByLabelText<HTMLTextAreaElement>('Message')
     await user.type(input, 'look at this')
     input.focus()
     input.setSelectionRange(8, 12)
