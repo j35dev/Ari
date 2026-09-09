@@ -25,8 +25,8 @@ function session(id: string, ageHours: number, projectId = 'adhoc'): SessionSumm
 }
 
 const projects: SidebarProject[] = [
-  { id: 'proj-1', name: 'Ari', path: '/code/ari', status: 'ok', colorIndex: 0 },
-  { id: 'proj-2', name: 'Sketch', path: '/code/sketch', status: 'ok', colorIndex: 3 },
+  { id: 'proj-1', name: 'Ari', path: '/code/ari', status: 'ok' },
+  { id: 'proj-2', name: 'Sketch', path: '/code/sketch', status: 'ok' },
 ]
 
 type Handlers = Partial<{
@@ -129,14 +129,14 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByRole('region', { name: 'Ari' })).toHaveTextContent('2')
   })
 
-  it('shows iris tiles on project groups and inbox on Unfiled', () => {
+  it('shows context carets on project groups and a dashed one on Unfiled', () => {
     renderSidebar([session('a', 1, 'proj-1'), session('loose', 1)])
 
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('[data-iris-tile]')).not.toBeNull()
-    expect(ari.querySelector('svg.lucide-folder, svg.lucide-folder-open')).toBeNull()
+    expect(ari.querySelector('[data-context-mark="project"]')).not.toBeNull()
+    expect(ari.querySelector('[data-iris-tile]')).toBeNull()
     const unfiled = screen.getByRole('region', { name: 'Unfiled' })
-    expect(unfiled.querySelector('svg.lucide-inbox')).not.toBeNull()
+    expect(unfiled.querySelector('[data-context-mark="unfiled"]')).not.toBeNull()
     expect(unfiled.querySelector('[data-iris-tile]')).toBeNull()
   })
 
@@ -149,48 +149,43 @@ describe('SessionsUnderProjects', () => {
     expect(toggle).toHaveTextContent('Ari')
   })
 
-  it('marks the active row with one neutral plate and no project-wide tint', () => {
-    renderSidebar([session('a', 1, 'proj-1'), session('b', 2, 'proj-1')], 'a')
+  it('fills the active group caret and chips the active session row, no plate', () => {
+    renderSidebar([session('a', 1, 'proj-1')], 'a')
     const ari = screen.getByRole('region', { name: 'Ari' })
-    const group = ari.querySelector<HTMLElement>('[data-active-group]')
-    expect(group).not.toBeNull()
-    expect(group?.getAttribute('style')).toBeNull()
-    const active = screen.getByText('Session a').closest('button')
-    const idle = screen.getByText('Session b').closest('button')
-    expect(active?.className).toMatch(/bg-glass-active/)
-    expect(active?.className).not.toMatch(/bg-accent/)
-    expect(idle?.className).not.toMatch(/bg-glass-active/)
+    // The semantic hook survives; the hue plate it used to trigger is gone.
+    expect(ari.querySelector('[data-active-group]')).not.toBeNull()
+    // The active session row keeps its accent chip…
+    const row = ari.querySelector('[data-session-mark="idle"]')?.closest('button')
+    expect(row).not.toBeNull()
+    expect(row?.className).toMatch(/bg-accent/)
+    // …and the project header caret fills with the accent.
+    const caret = ari.querySelector('[data-context-mark="project"][data-active]')
+    expect(caret).not.toBeNull()
   })
 
-  it('hides the timestamp behind the hover affordance instead of reserving a gutter', () => {
-    renderSidebar([session('a', 1, 'proj-1')])
-    const row = screen.getByText('Session a').closest('button')
-    expect(row?.className).not.toMatch(/pr-7/)
-    expect(row?.querySelector('.group-hover\\:opacity-0')).toHaveTextContent('1h')
-  })
-
-  it('shows a hue dot on idle session rows', () => {
+  it('shows a neutral idle dot on session rows', () => {
     renderSidebar([session('a', 1, 'proj-1')])
     const ari = screen.getByRole('region', { name: 'Ari' })
     expect(ari.querySelector('[data-session-mark="idle"]')).not.toBeNull()
     expect(ari.querySelector('svg.lucide-message-square-text')).toBeNull()
   })
 
-  it('chases the iris ring while a session in the group is working', () => {
+  it('surfaces the Working mark on a group header while a session in it runs', () => {
     const now = Date.now()
     renderSidebar([session('a', 1, 'proj-1')], null, {
       activityOf: (id) => (id === 'a' ? { phase: 'working', startedAt: now } : undefined),
     })
     const ari = screen.getByRole('region', { name: 'Ari' })
-    expect(ari.querySelector('[data-iris-tile]')).toHaveAttribute('data-running')
+    const header = within(ari).getByRole('button', { expanded: true })
+    expect(within(header).getByRole('status', { name: 'Working' })).toBeInTheDocument()
   })
 
-  it('shows an archive icon on the Archived shelf header', async () => {
+  it('shows an archived context caret on the Archived shelf header', async () => {
     const archived = { ...session('old', 2, 'proj-1'), archived: true }
     renderSidebar([session('live', 1, 'proj-1'), archived])
     const user = userEvent.setup()
     const shelf = screen.getByRole('button', { name: /archived/i })
-    expect(shelf.querySelector('svg.lucide-archive')).not.toBeNull()
+    expect(shelf.querySelector('[data-context-mark="archived"]')).not.toBeNull()
     await user.click(shelf)
     expect(screen.getByText('Session old')).toBeInTheDocument()
   })
@@ -329,6 +324,19 @@ describe('SessionsUnderProjects', () => {
     // A later successful write clears the in-memory override for other tests.
     await user.click(screen.getByRole('button', { name: 'Projects' }))
     expect(localStorage.getItem(SIDEBAR_VIEW_STORAGE_KEY)).toBe('projects')
+  })
+
+  it('fills the archived caret while the active session sits on the shelf', () => {
+    renderSidebar([{ ...session('old', 2, 'proj-1'), archived: true }], 'old')
+    const shelf = screen.getByRole('button', { name: /archived/i })
+    expect(shelf.querySelector('[data-context-mark="archived"][data-active]')).not.toBeNull()
+  })
+
+  it('leaves the archived caret neutral when nothing archived is active', () => {
+    renderSidebar([{ ...session('old', 2, 'proj-1'), archived: true }], null)
+    const shelf = screen.getByRole('button', { name: /archived/i })
+    expect(shelf.querySelector('[data-context-mark="archived"]')).not.toBeNull()
+    expect(shelf.querySelector('[data-context-mark="archived"][data-active]')).toBeNull()
   })
 
   it('fires new-session from the labeled compose row', async () => {

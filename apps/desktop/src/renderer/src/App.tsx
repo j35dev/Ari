@@ -426,7 +426,6 @@ function Shell() {
   }, [])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
-  const activeProjectName = projects.find((p) => p.id === activeSession?.projectId)?.name ?? ''
   // The explorer roots at the active session's project, falling back to the
   // first registered project so the pane is never dead on arrival.
   const activeProjectPath =
@@ -452,10 +451,7 @@ function Shell() {
   if (settingsOpen) {
     return (
       <div className="ari-glass-pane flex h-full flex-col">
-        <Titlebar
-          projectLabel=""
-          usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
-        />
+        <Titlebar usage={{ sessionId: activeSessionId, kind: defaults.driverKind }} />
         <SettingsWorkspace
           section={settingsSection}
           onSectionChange={setSettingsSection}
@@ -502,7 +498,6 @@ function Shell() {
   return (
     <div className="ari-glass-pane flex h-full flex-col">
       <Titlebar
-        projectLabel={activeProjectName}
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
