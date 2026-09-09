@@ -12,6 +12,8 @@ const idle: FocusMusicState = {
   playing: false,
   track: null,
   volume: null,
+  positionMs: null,
+  durationMs: null,
   supportsSearch: false,
   supportsVolume: false,
   shuffle: false,
@@ -24,6 +26,8 @@ function playing(): FocusMusicState {
     playing: true,
     track: { id: 't1', title: 'Grind', artist: 'DJ', station: 'Jazz FM' },
     volume: 60,
+    positionMs: 72_000,
+    durationMs: 240_000,
     supportsSearch: true,
     supportsVolume: true,
     shuffle: false,
@@ -58,6 +62,10 @@ describe('FocusPill', () => {
     fireEvent.click(pill)
     await settle()
     expect(screen.getByRole('dialog', { name: 'Focus' })).toBeInTheDocument()
+    expect(screen.getByText('Your music')).toBeInTheDocument()
+    expect(screen.getByText('Add from YouTube')).toBeInTheDocument()
+    expect(screen.getByText('Saved playlists')).toBeInTheDocument()
+    expect(screen.getByText('No playlists yet.')).toBeInTheDocument()
     expect(screen.getByText('Music unavailable')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Check again' })).toBeInTheDocument()
     expect(screen.getByLabelText('Timer name')).toBeInTheDocument()
@@ -77,6 +85,11 @@ describe('FocusPill', () => {
     await settle()
     expect(screen.getByText('Grind')).toBeInTheDocument()
     expect(screen.getByText('DJ · Jazz FM')).toBeInTheDocument()
+    const seek = screen.getByRole('slider', { name: /Playback position 1:12 of 4:00/ })
+    fireEvent.change(seek, { target: { value: 90_000 } })
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('focus.music.seek', { positionMs: 90_000 })
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
     await settle()
     expect(invoke).toHaveBeenCalledWith('focus.music.pause')
@@ -130,13 +143,188 @@ describe('FocusPill', () => {
     expect(invoke).toHaveBeenCalledWith('focus.music.play', { trackId: 'chips' })
   })
 
-  it('surfaces a native search error without naming the backend', async () => {
+  it('lists saved playlists and plays one', async () => {
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'focus.music.status') return { ...playing(), playing: false, track: null }
+      if (method === 'focus.playlists.list') {
+        return {
+          playlists: [
+            {
+              id: 'fpl_1',
+              name: 'Coding Bangers',
+              tracks: [{ id: 'https://www.youtube.com/watch?v=abc', title: 'Nightcall' }],
+            },
+          ],
+        }
+      }
+      if (method === 'focus.music.browse') return { tracks: [] }
+      return { ok: true }
+    })
+    render(<FocusPill />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
+    await waitFor(() => {
+      expect(screen.getByText('Coding Bangers')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Play Coding Bangers' }))
+    await settle()
+    expect(invoke).toHaveBeenCalledWith('focus.playlists.play', { id: 'fpl_1', shuffle: undefined })
+  })
+
+  it('expands, renames, edits, and deletes a saved playlist', async () => {
+    let playlist = {
+      id: 'fpl_1',
+      name: 'Coding Bangers',
+      tracks: [
+        {
+          id: 'https://www.youtube.com/watch?v=abc',
+          title: 'Nightcall',
+          artist: 'Kavinsky',
+          station: '',
+        },
+      ],
+    }
+    invoke.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'focus.music.status') return { ...playing(), playing: false, track: null }
+      if (method === 'focus.music.browse') return { tracks: [] }
+      if (method === 'focus.playlists.list') return { playlists: [playlist] }
+      if (method === 'focus.playlists.rename') {
+        playlist = { ...playlist, name: String(params?.['name']) }
+        return { playlist }
+      }
+      if (method === 'focus.playlists.update') {
+        playlist = { ...playlist, tracks: params?.['tracks'] as typeof playlist.tracks }
+        return { playlist }
+      }
+      return { ok: true }
+    })
+    render(<FocusPill />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
+    await waitFor(() => expect(screen.getByText('Coding Bangers')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Coding Bangers' }))
+    expect(screen.getByText('Nightcall')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Nightcall from Coding Bangers' }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('focus.playlists.update', {
+        id: 'fpl_1',
+        tracks: [],
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Coding Bangers' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rename Coding Bangers' }), {
+      target: { value: 'Deep work' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save name' }))
+    await waitFor(() => expect(screen.getByText('Deep work')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Deep work' }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('focus.playlists.remove', { id: 'fpl_1' })
+      expect(screen.queryByText('Deep work')).not.toBeInTheDocument()
+    })
+  })
+
+  it('creates a named playlist from the add field', async () => {
+    const saved: { id: string; name: string; tracks: unknown[] }[] = []
+    invoke.mockImplementation(
+      async (method: string, params?: { name?: string; tracks?: unknown[] }) => {
+        if (method === 'focus.music.status') return { ...playing(), playing: false, track: null }
+        if (method === 'focus.playlists.create') {
+          const playlist = { id: 'fpl_new', name: params?.name ?? '', tracks: params?.tracks ?? [] }
+          saved.push(playlist)
+          return { playlist }
+        }
+        if (method === 'focus.playlists.list') return { playlists: saved }
+        if (method === 'focus.music.browse') return { tracks: [] }
+        return { ok: true }
+      },
+    )
+    render(<FocusPill />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'New playlist' }))
+    fireEvent.change(screen.getByLabelText('New playlist name'), {
+      target: { value: 'Coding Bangers' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('focus.playlists.create', {
+        name: 'Coding Bangers',
+        tracks: undefined,
+      })
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Play Coding Bangers' })).toBeInTheDocument()
+    })
+  })
+
+  it('adds a resolved song to the explicitly selected playlist', async () => {
+    const track = {
+      id: 'https://www.youtube.com/watch?v=abc',
+      title: 'Nightcall',
+      artist: 'Kavinsky',
+      station: '',
+    }
+    const playlist = { id: 'fpl_1', name: 'Night drives', tracks: [] as (typeof track)[] }
+    invoke.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === 'focus.music.status') return { ...playing(), playing: false, track: null }
+      if (method === 'focus.music.browse') return { tracks: [] }
+      if (method === 'focus.playlists.list') return { playlists: [playlist] }
+      if (method === 'focus.music.resolve') return { kind: 'track', track }
+      if (method === 'focus.playlists.update') {
+        return { playlist: { ...playlist, tracks: params?.['tracks'] } }
+      }
+      return { ok: true }
+    })
+    render(<FocusPill />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
+    fireEvent.change(screen.getByPlaceholderText('Paste song or playlist URL…'), {
+      target: { value: track.id },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(screen.getByLabelText('Choose playlist')).toBeInTheDocument())
+    fireEvent.click(screen.getByLabelText('Choose playlist'))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Night drives/ }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('focus.playlists.update', {
+        id: 'fpl_1',
+        tracks: [track],
+      })
+    })
+  })
+
+  it('offers Quiet, Normal, and Room sound profiles', async () => {
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'focus.music.status') return playing()
+      if (method === 'focus.playlists.list') return { playlists: [] }
+      if (method === 'focus.music.browse') return { tracks: [] }
+      return { ok: true }
+    })
+    render(<FocusPill />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: /Music playing: Grind by DJ/ }))
+    await settle()
+    expect(screen.getByRole('button', { name: 'Quiet' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Normal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Room' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Quiet' }))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('focus.music.volume', { volume: 33 })
+    })
+  })
+
+  it('surfaces a native resolve error without naming the backend', async () => {
     invoke.mockImplementation(async (method: string) => {
       if (method === 'focus.music.status') {
         return { ...playing(), playing: false, track: null }
       }
-      if (method === 'focus.music.search') {
-        return { tracks: [], error: 'Music is unavailable right now.' }
+      if (method === 'focus.music.resolve') {
+        return { kind: 'invalid', error: 'Music is unavailable right now.' }
       }
       if (method === 'focus.music.browse') return { tracks: [] }
       return { ok: true }
@@ -145,10 +333,10 @@ describe('FocusPill', () => {
     await settle()
     fireEvent.click(screen.getByRole('button', { name: 'Focus: music and timer' }))
     await settle()
-    fireEvent.change(screen.getByPlaceholderText('Paste YouTube song or playlist URL…'), {
-      target: { value: 'lofi' },
+    fireEvent.change(screen.getByPlaceholderText('Paste song or playlist URL…'), {
+      target: { value: 'https://www.youtube.com/watch?v=abc' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
     await settle()
     expect(screen.getByText('Music is unavailable right now.')).toBeInTheDocument()
     expect(screen.queryByText(/cliamp/i)).not.toBeInTheDocument()

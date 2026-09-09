@@ -27,6 +27,7 @@ export const IPC_METHODS = [
   'focus.music.search',
   'focus.music.browse',
   'focus.music.volume',
+  'focus.music.seek',
   'focus.music.shuffle',
   'focus.music.queue',
   'focus.music.resolve',

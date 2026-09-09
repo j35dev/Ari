@@ -42,6 +42,68 @@
   }
 }
 
+.ari-focus-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ari-border-strong) transparent;
+}
+
+.ari-focus-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+.ari-focus-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ari-focus-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--ari-border-strong);
+  background-clip: padding-box;
+}
+
+.ari-focus-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ari-fg-subtle);
+  background-clip: padding-box;
+}
+
+.ari-focus-range {
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ari-focus-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--ari-accent) 0 var(--ari-focus-progress, 0%),
+    var(--ari-surface-3) var(--ari-focus-progress, 0%) 100%
+  );
+}
+
+.ari-focus-range::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  appearance: none;
+  border: 2px solid var(--ari-surface-1);
+  border-radius: 999px;
+  background: var(--ari-accent);
+  box-shadow: 0 0 0 1px var(--ari-accent-ring);
+}
+
+.ari-focus-range:focus-visible {
+  outline: 2px solid var(--ari-accent-ring);
+  outline-offset: 2px;
+}
+
+.ari-focus-range:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ari-focus-eq i {
     animation: none;

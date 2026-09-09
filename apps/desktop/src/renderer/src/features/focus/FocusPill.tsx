@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  ChevronDown,
   ListMusic,
   Music,
   Pause,
+  Pencil,
   Play,
   Plus,
-  Search,
   Shuffle,
   SkipBack,
   SkipForward,
   Timer,
+  Trash2,
   Volume2,
+  X,
 } from 'lucide-react'
 import { Popover } from '@ari/ui/popover'
 import { CliampAdapter } from './cliamp-adapter'
@@ -27,6 +30,19 @@ import './focus.css'
 
 const MUSIC_POLL_MS = 15_000
 const VOLUME_COMMIT_MS = 250
+const SEEK_COMMIT_MS = 200
+
+function formatPlaybackTime(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+const SOUND_PROFILES = [
+  { id: 'quiet', label: 'Quiet', slider: 33 },
+  { id: 'normal', label: 'Normal', slider: 50 },
+  { id: 'room', label: 'Room', slider: 67 },
+] as const
 
 /** Subtle animated equalizer shown only while music is actually playing. */
 function EqBars() {
@@ -132,12 +148,25 @@ export function FocusPill({ service }: { service?: MusicService }) {
             </>
           )}
         </Popover.Trigger>
-        <Popover.Content align="end" aria-label="Focus" className="w-72 max-w-[calc(100vw-24px)]">
+        <Popover.Content
+          align="end"
+          aria-label="Focus"
+          className="ari-focus-scroll w-80 max-h-[min(72vh,32rem)] max-w-[calc(100vw-24px)] overflow-y-auto"
+        >
+          <LibrarySection
+            adapter={adapter}
+            musicAvailable={music.available}
+            current={music.track}
+            onPlay={(id) => void runControl(() => adapter.play(id))}
+            onControl={(action) => void runControl(action)}
+          />
           <MusicSection
             musicAvailable={music.available}
             track={music.track}
             playing={music.playing}
             shuffled={music.shuffle}
+            positionMs={music.positionMs}
+            durationMs={music.durationMs}
             detail={music.detail}
             onControl={(action, optimistic) => void runControl(action, optimistic)}
             onRetry={() => void refreshMusic()}
@@ -148,15 +177,6 @@ export function FocusPill({ service }: { service?: MusicService }) {
               volume={music.volume}
               adapter={adapter}
               onDone={() => void refreshMusic()}
-            />
-          ) : null}
-          {music.available ? (
-            <LibrarySection
-              adapter={adapter}
-              supportsSearch={music.supportsSearch}
-              current={music.track}
-              onPlay={(id) => void runControl(() => adapter.play(id))}
-              onControl={(action) => void runControl(action)}
             />
           ) : null}
           <TimerSection timer={timer} />
@@ -176,6 +196,8 @@ function MusicSection({
   track,
   playing,
   shuffled,
+  positionMs,
+  durationMs,
   detail,
   onControl,
   onRetry,
@@ -185,6 +207,8 @@ function MusicSection({
   track: FocusTrack | null
   playing: boolean
   shuffled: boolean
+  positionMs: number | null
+  durationMs: number | null
   detail: string
   onControl: (
     action: () => Promise<{ ok: boolean; error?: string }>,
@@ -194,10 +218,13 @@ function MusicSection({
   adapter: MusicService
 }) {
   return (
-    <section aria-label="Music">
+    <section aria-label="Now playing" className="mt-2.5 border-t border-border pt-2.5">
+      <p className="pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
+        Now playing
+      </p>
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-fg">
-          {track ? track.title : musicAvailable ? 'No track playing' : 'Music unavailable'}
+          {track ? track.title : musicAvailable ? 'Nothing playing' : 'Music unavailable'}
         </p>
         <p className="truncate text-[11px] text-fg-subtle">
           {track
@@ -217,6 +244,14 @@ function MusicSection({
           </button>
         ) : null}
       </div>
+      {durationMs !== null && durationMs > 0 ? (
+        <SeekBar
+          positionMs={positionMs ?? 0}
+          durationMs={durationMs}
+          disabled={!musicAvailable}
+          onSeek={(next) => onControl(() => adapter.seek(next))}
+        />
+      ) : null}
       <div className="flex items-center gap-1 pt-1.5">
         <button
           type="button"
@@ -262,6 +297,54 @@ function MusicSection({
   )
 }
 
+function SeekBar({
+  positionMs,
+  durationMs,
+  disabled,
+  onSeek,
+}: {
+  positionMs: number
+  durationMs: number
+  disabled: boolean
+  onSeek: (positionMs: number) => void
+}) {
+  const [draft, setDraft] = useState<number | null>(null)
+  const timer = useRef<number | null>(null)
+  useEffect(() => setDraft(null), [positionMs])
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current)
+    },
+    [],
+  )
+  const shown = Math.min(durationMs, draft ?? positionMs)
+  return (
+    <div className="pt-2" aria-label="Playback position">
+      <input
+        type="range"
+        min={0}
+        max={durationMs}
+        step={1000}
+        value={shown}
+        disabled={disabled}
+        aria-label={`Playback position ${formatPlaybackTime(shown)} of ${formatPlaybackTime(durationMs)}`}
+        style={{ '--ari-focus-progress': `${(shown / durationMs) * 100}%` } as React.CSSProperties}
+        onChange={(event) => {
+          const next = Number(event.target.value)
+          setDraft(next)
+          if (timer.current !== null) window.clearTimeout(timer.current)
+          timer.current = window.setTimeout(() => onSeek(next), SEEK_COMMIT_MS)
+        }}
+        className="ari-focus-range h-3 w-full"
+      />
+      <div className="flex justify-between font-mono text-[9px] tabular-nums text-fg-subtle">
+        <span>{formatPlaybackTime(shown)}</span>
+        <span>{formatPlaybackTime(durationMs)}</span>
+      </div>
+    </div>
+  )
+}
+
 function VolumeSection({
   volume,
   adapter,
@@ -283,44 +366,60 @@ function VolumeSection({
     [],
   )
   const shown = draft ?? volume
+  const activeProfile = SOUND_PROFILES.find((row) => row.slider === shown)?.id
+  const commit = (next: number) => {
+    setDraft(next)
+    if (commitTimer.current !== null) window.clearTimeout(commitTimer.current)
+    commitTimer.current = window.setTimeout(() => {
+      void adapter.setVolume(next).then(onDone)
+    }, VOLUME_COMMIT_MS)
+  }
   return (
-    <section
-      aria-label="Volume"
-      className="flex items-center gap-2 border-t border-border pt-2.5 mt-2.5"
-    >
-      <Volume2 size={13} aria-hidden="true" className="shrink-0 text-fg-subtle" />
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={shown}
-        aria-label={`Volume ${shown}%`}
-        onChange={(event) => {
-          const next = Number(event.target.value)
-          setDraft(next)
-          if (commitTimer.current !== null) window.clearTimeout(commitTimer.current)
-          commitTimer.current = window.setTimeout(() => {
-            void adapter.setVolume(next).then(onDone)
-          }, VOLUME_COMMIT_MS)
-        }}
-        className="h-1 w-full accent-accent"
-      />
-      <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-muted">
-        {shown}
-      </span>
+    <section aria-label="Volume" className="mt-2.5 border-t border-border pt-2.5">
+      <p className="pb-1.5 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">Sound</p>
+      <div className="flex flex-wrap gap-1 pb-2">
+        {SOUND_PROFILES.map((row) => (
+          <button
+            key={row.id}
+            type="button"
+            aria-pressed={activeProfile === row.id}
+            onClick={() => commit(row.slider)}
+            className={`h-6 rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+              activeProfile === row.id
+                ? 'border-accent/25 bg-accent/15 text-accent'
+                : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+            }`}
+          >
+            {row.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <Volume2 size={13} aria-hidden="true" className="shrink-0 text-fg-subtle" />
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={shown}
+          aria-label={`Volume ${shown}%`}
+          style={{ '--ari-focus-progress': `${shown}%` } as React.CSSProperties}
+          onChange={(event) => commit(Number(event.target.value))}
+          className="ari-focus-range h-3 w-full"
+        />
+      </div>
     </section>
   )
 }
 
 function LibrarySection({
   adapter,
-  supportsSearch,
+  musicAvailable,
   current,
   onPlay,
   onControl,
 }: {
   adapter: MusicService
-  supportsSearch: boolean
+  musicAvailable: boolean
   current: FocusTrack | null
   onPlay: (trackId: string) => void
   onControl: (action: () => Promise<{ ok: boolean; error?: string }>) => void
@@ -328,15 +427,108 @@ function LibrarySection({
   const [stations, setStations] = useState<FocusTrack[]>([])
   const [playlists, setPlaylists] = useState<AriPlaylist[]>([])
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<FocusTrack[]>([])
   const [searching, setSearching] = useState(false)
-  const [searched, setSearched] = useState(false)
+  const [creatingPlaylist, setCreatingPlaylist] = useState(false)
+  const [newPlaylistName, setNewPlaylistName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [resolved, setResolved] = useState<FocusUrlResolve | null>(null)
 
   const refreshPlaylists = useCallback(() => {
     void adapter.listPlaylists().then(({ playlists: next }) => setPlaylists(next ?? []))
   }, [adapter])
+
+  const savePlaylist = useCallback(
+    (name: string, tracks?: FocusTrack[]) => {
+      void adapter.createPlaylist(name, tracks).then((result) => {
+        if (result.error || !result.playlist) {
+          setError(result.error ?? 'Could not save playlist.')
+          return
+        }
+        setError(null)
+        const saved = result.playlist
+        setPlaylists((currentPlaylists) => {
+          const existing = currentPlaylists.findIndex((row) => row.id === saved.id)
+          if (existing === -1) return [...currentPlaylists, saved]
+          return currentPlaylists.map((row) => (row.id === saved.id ? saved : row))
+        })
+      })
+    },
+    [adapter],
+  )
+
+  const addTrack = useCallback(
+    (playlistId: string, track: FocusTrack) => {
+      const target = playlists.find((row) => row.id === playlistId)
+      if (!target) return
+      const key = track.sourceUrl || track.id
+      if (target.tracks.some((row) => (row.sourceUrl || row.id) === key)) {
+        setError(`“${track.title}” is already in ${target.name}.`)
+        return
+      }
+      void adapter.updatePlaylist(playlistId, [...target.tracks, track]).then((result) => {
+        if (!result.playlist) {
+          setError(result.error ?? 'Could not update playlist.')
+          return
+        }
+        setError(null)
+        setPlaylists((rows) =>
+          rows.map((row) => (row.id === playlistId ? (result.playlist as AriPlaylist) : row)),
+        )
+      })
+    },
+    [adapter, playlists],
+  )
+
+  const removeTrack = useCallback(
+    (playlist: AriPlaylist, trackIndex: number) => {
+      void adapter
+        .updatePlaylist(
+          playlist.id,
+          playlist.tracks.filter((_, index) => index !== trackIndex),
+        )
+        .then((result) => {
+          if (!result.playlist) {
+            setError(result.error ?? 'Could not update playlist.')
+            return
+          }
+          setError(null)
+          setPlaylists((rows) =>
+            rows.map((row) => (row.id === playlist.id ? (result.playlist as AriPlaylist) : row)),
+          )
+        })
+    },
+    [adapter],
+  )
+
+  const renamePlaylist = useCallback(
+    (playlistId: string, name: string) => {
+      void adapter.renamePlaylist(playlistId, name).then((result) => {
+        if (!result.playlist) {
+          setError(result.error ?? 'Could not rename playlist.')
+          return
+        }
+        setError(null)
+        setPlaylists((rows) =>
+          rows.map((row) => (row.id === playlistId ? (result.playlist as AriPlaylist) : row)),
+        )
+      })
+    },
+    [adapter],
+  )
+
+  const removePlaylist = useCallback(
+    (playlistId: string) => {
+      void adapter.removePlaylist(playlistId).then((result) => {
+        if (!result.ok) {
+          setError(result.error ?? 'Could not delete playlist.')
+          return
+        }
+        setError(null)
+        setPlaylists((rows) => rows.filter((row) => row.id !== playlistId))
+      })
+    },
+    [adapter],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -350,33 +542,14 @@ function LibrarySection({
   }, [adapter, refreshPlaylists])
 
   return (
-    <section aria-label="Library" className="mt-2.5 border-t border-border pt-2.5">
-      {stations.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 pb-1.5">
-          {stations.map((station) => {
-            const selected =
-              current !== null &&
-              (current.id === station.id ||
-                current.station === station.title ||
-                current.title === station.title)
-            return (
-              <button
-                key={station.id}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => onPlay(station.id)}
-                className={`h-6 max-w-full truncate rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-                  selected
-                    ? 'border-accent/25 bg-accent/15 text-accent'
-                    : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
-                }`}
-              >
-                {station.title}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
+    <section aria-label="Your music">
+      <p className="flex items-center gap-1.5 pb-2 text-xs font-medium text-fg">
+        <Music size={12} aria-hidden="true" className="text-fg-subtle" />
+        Your music
+      </p>
+      <p className="pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
+        Add from YouTube
+      </p>
       <form
         className="flex gap-1.5"
         onSubmit={(event) => {
@@ -386,56 +559,48 @@ function LibrarySection({
           setSearching(true)
           setError(null)
           setResolved(null)
-          const youtube = /youtu(\.be|be\.com)/i.test(q)
-          const task = youtube
-            ? adapter.resolveUrl(q).then((next) => {
-                setResolved(next)
-                setSearched(false)
-                setResults([])
-                if (next.kind === 'invalid') setError(next.error)
-              })
-            : supportsSearch
-              ? adapter.search(q).then(({ tracks, error: nextError }) => {
-                  setResults(tracks.slice(0, 5))
-                  setSearched(true)
-                  setError(nextError ?? null)
-                })
-              : Promise.resolve()
-          void task.finally(() => setSearching(false))
+          if (!/youtu(\.be|be\.com)/i.test(q)) {
+            setSearching(false)
+            setError('Paste a YouTube song or playlist link.')
+            return
+          }
+          void adapter
+            .resolveUrl(q)
+            .then((next) => {
+              setResolved(next)
+              if (next.kind === 'invalid') setError(next.error)
+              if (next.kind === 'playlist') savePlaylist(next.name, next.tracks)
+            })
+            .finally(() => setSearching(false))
         }}
       >
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Paste YouTube song or playlist URL…"
-              aria-label="Search music"
-              className={`${fieldInput} min-w-0 flex-1`}
-            />
-            <button
-              type="submit"
-              aria-label="Search"
-              disabled={searching || !query.trim()}
-              className={iconButton}
-            >
-              <Search size={13} aria-hidden="true" />
-            </button>
-          </form>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Paste song or playlist URL…"
+          aria-label="YouTube song or playlist URL"
+          className={`${fieldInput} min-w-0 flex-1`}
+        />
+        <button
+          type="submit"
+          disabled={searching || !query.trim()}
+          className="h-7 shrink-0 rounded-md bg-accent px-2 text-[11px] font-medium text-fg-on-accent transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+        >
+          Add
+        </button>
+      </form>
+      {error ? (
+        <p role="status" className="pt-1.5 text-[11px] text-fg-subtle">
+          {error}
+        </p>
+      ) : null}
       {resolved?.kind === 'track' ? (
         <ResolvedTrack
           track={resolved.track}
           playlists={playlists}
           onPlay={() => onPlay(resolved.track.id)}
           onQueue={() => onControl(() => adapter.queue(resolved.track.id))}
-          onSave={(playlistId) => {
-            const target = playlists.find((row) => row.id === playlistId)
-            if (!target) return
-            void adapter
-              .updatePlaylist(playlistId, [...target.tracks, resolved.track])
-              .then(refreshPlaylists)
-          }}
-          onCreate={() => {
-            void adapter.createPlaylist(resolved.track.title, [resolved.track]).then(refreshPlaylists)
-          }}
+          onSave={(playlistId) => addTrack(playlistId, resolved.track)}
         />
       ) : null}
       {resolved?.kind === 'playlist' ? (
@@ -475,79 +640,263 @@ function LibrarySection({
             >
               Shuffle
             </button>
-            <button
-              type="button"
-              className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`}
-              onClick={() => {
-                void adapter.createPlaylist(resolved.name, resolved.tracks).then(refreshPlaylists)
-              }}
-            >
-              Save to Ari
-            </button>
           </div>
         </div>
       ) : null}
-      {searched ? (
-        results.length > 0 ? (
-          <ul className="pt-1">
-            {results.map((track) => (
-              <li key={track.id}>
-                <button
-                  type="button"
-                  onClick={() => onPlay(track.id)}
-                  className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                >
-                  <Play size={11} aria-hidden="true" className="shrink-0 text-fg-subtle" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-fg">
-                    {track.title}
-                    {track.artist || track.station ? (
-                      <span className="text-fg-subtle"> · {track.artist || track.station}</span>
-                    ) : null}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+      <div className="pt-2.5" aria-label="Saved playlists">
+        <p className="pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
+          Saved playlists
+        </p>
+        {playlists.length === 0 ? (
+          <p className="text-[11px] text-fg-subtle">No playlists yet.</p>
         ) : (
-          <p className="pt-1.5 text-[11px] text-fg-subtle">
-            {searching ? 'Searching…' : (error ?? 'No results.')}
-          </p>
-        )
-      ) : null}
-      {playlists.length > 0 ? (
-        <div className="pt-2" aria-label="Saved playlists">
-          <p className="pb-1 text-[10px] font-medium uppercase tracking-wide text-fg-subtle">
-            My playlists
-          </p>
           <ul>
             {playlists.map((playlist) => (
-              <li key={playlist.id} className="py-0.5">
-                <div className="flex items-center gap-1">
-                  <ListMusic size={11} aria-hidden="true" className="shrink-0 text-fg-subtle" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-fg">{playlist.name}</span>
-                  <button
-                    type="button"
-                    aria-label={`Play ${playlist.name}`}
-                    className={`${iconButton} !size-6`}
-                    onClick={() => onControl(() => adapter.playPlaylist(playlist.id))}
-                  >
-                    <Play size={11} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Shuffle ${playlist.name}`}
-                    className={`${iconButton} !size-6`}
-                    onClick={() => onControl(() => adapter.playPlaylist(playlist.id, true))}
-                  >
-                    <Shuffle size={11} aria-hidden="true" />
-                  </button>
-                </div>
-              </li>
+              <PlaylistRow
+                key={playlist.id}
+                playlist={playlist}
+                musicAvailable={musicAvailable}
+                onPlay={(shuffle) =>
+                  onControl(() => adapter.playPlaylist(playlist.id, shuffle || undefined))
+                }
+                onPlayTrack={onPlay}
+                onRemoveTrack={(trackIndex) => removeTrack(playlist, trackIndex)}
+                onRename={(name) => renamePlaylist(playlist.id, name)}
+                onRemove={() => removePlaylist(playlist.id)}
+              />
             ))}
           </ul>
+        )}
+        {creatingPlaylist ? (
+          <form
+            className="flex gap-1 pt-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const name = newPlaylistName.trim()
+              if (!name) return
+              savePlaylist(name)
+              setNewPlaylistName('')
+              setCreatingPlaylist(false)
+            }}
+          >
+            <input
+              autoFocus
+              value={newPlaylistName}
+              maxLength={48}
+              aria-label="New playlist name"
+              placeholder="Playlist name…"
+              onChange={(event) => setNewPlaylistName(event.target.value)}
+              className={`${fieldInput} min-w-0 flex-1`}
+            />
+            <button
+              type="submit"
+              disabled={!newPlaylistName.trim()}
+              className="h-7 rounded-md bg-accent px-2 text-[11px] font-medium text-fg-on-accent disabled:opacity-40"
+            >
+              Create
+            </button>
+            <button
+              type="button"
+              aria-label="Cancel new playlist"
+              className={`${iconButton} !size-7`}
+              onClick={() => setCreatingPlaylist(false)}
+            >
+              <X size={12} aria-hidden="true" />
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCreatingPlaylist(true)}
+            className="mt-1 flex h-7 w-full items-center justify-center gap-1 rounded-md border border-dashed border-border text-[11px] text-fg-muted transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            <Plus size={11} aria-hidden="true" /> New playlist
+          </button>
+        )}
+      </div>
+      {stations.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pt-2">
+          {stations.map((station) => {
+            const selected =
+              current !== null &&
+              (current.id === station.id ||
+                current.station === station.title ||
+                current.title === station.title)
+            return (
+              <button
+                key={station.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onPlay(station.id)}
+                className={`h-6 max-w-full truncate rounded-full border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                  selected
+                    ? 'border-accent/25 bg-accent/15 text-accent'
+                    : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+                }`}
+              >
+                {station.title}
+              </button>
+            )
+          })}
         </div>
       ) : null}
     </section>
+  )
+}
+
+function PlaylistRow({
+  playlist,
+  musicAvailable,
+  onPlay,
+  onPlayTrack,
+  onRemoveTrack,
+  onRename,
+  onRemove,
+}: {
+  playlist: AriPlaylist
+  musicAvailable: boolean
+  onPlay: (shuffle: boolean) => void
+  onPlayTrack: (trackId: string) => void
+  onRemoveTrack: (trackIndex: number) => void
+  onRename: (name: string) => void
+  onRemove: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(playlist.name)
+  const playable = musicAvailable && playlist.tracks.length > 0
+
+  return (
+    <li className="border-b border-border/60 py-1 last:border-b-0">
+      {editing ? (
+        <form
+          className="flex items-center gap-1"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!name.trim()) return
+            onRename(name.trim())
+            setEditing(false)
+          }}
+        >
+          <input
+            autoFocus
+            value={name}
+            maxLength={48}
+            aria-label={`Rename ${playlist.name}`}
+            onChange={(event) => setName(event.target.value)}
+            className={`${fieldInput} min-w-0 flex-1`}
+          />
+          <button type="submit" className={`${iconButton} !size-6`} aria-label="Save name">
+            <Pencil size={11} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={`${iconButton} !size-6`}
+            aria-label="Cancel rename"
+            onClick={() => {
+              setName(playlist.name)
+              setEditing(false)
+            }}
+          >
+            <X size={11} aria-hidden="true" />
+          </button>
+        </form>
+      ) : (
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${playlist.name}`}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className={`${iconButton} !size-6`}
+          >
+            <ChevronDown
+              size={12}
+              aria-hidden="true"
+              className={`transition-transform ${expanded ? 'rotate-0' : '-rotate-90'}`}
+            />
+          </button>
+          <button
+            type="button"
+            aria-label={`Play ${playlist.name}`}
+            disabled={!playable}
+            onClick={() => onPlay(false)}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+          >
+            <ListMusic size={11} aria-hidden="true" className="shrink-0 text-fg-subtle" />
+            <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-fg">
+              {playlist.name}
+              <span className="font-normal text-fg-subtle"> · {playlist.tracks.length}</span>
+            </span>
+            <Play size={10} aria-hidden="true" className="shrink-0" />
+          </button>
+          <button
+            type="button"
+            aria-label={`Shuffle ${playlist.name}`}
+            disabled={!playable}
+            className={`${iconButton} !size-6`}
+            onClick={() => onPlay(true)}
+          >
+            <Shuffle size={11} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label={`Rename ${playlist.name}`}
+            className={`${iconButton} !size-6`}
+            onClick={() => setEditing(true)}
+          >
+            <Pencil size={11} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label={`Delete ${playlist.name}`}
+            className={`${iconButton} !size-6 hover:text-danger`}
+            onClick={onRemove}
+          >
+            <Trash2 size={11} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {expanded ? (
+        playlist.tracks.length > 0 ? (
+          <ol className="ml-6 pt-1">
+            {playlist.tracks.map((track, index) => (
+              <li
+                key={`${track.sourceUrl || track.id}-${index}`}
+                className="flex items-center gap-1"
+              >
+                <button
+                  type="button"
+                  disabled={!musicAvailable}
+                  onClick={() => onPlayTrack(track.id)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+                >
+                  <Play size={10} aria-hidden="true" className="shrink-0" />
+                  <span className="min-w-0 truncate">
+                    {track.title}
+                    {track.artist ? (
+                      <span className="text-fg-subtle"> · {track.artist}</span>
+                    ) : null}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Remove ${track.title} from ${playlist.name}`}
+                  className={`${iconButton} !size-6 hover:text-danger`}
+                  onClick={() => onRemoveTrack(index)}
+                >
+                  <X size={11} aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="ml-7 py-1 text-[11px] text-fg-subtle">
+            Empty playlist — paste a song link above, then choose this playlist.
+          </p>
+        )
+      ) : null}
+    </li>
   )
 }
 
@@ -557,42 +906,82 @@ function ResolvedTrack({
   onPlay,
   onQueue,
   onSave,
-  onCreate,
 }: {
   track: FocusTrack
   playlists: AriPlaylist[]
   onPlay: () => void
   onQueue: () => void
   onSave: (playlistId: string) => void
-  onCreate: () => void
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
+
   return (
     <div className="pt-1.5">
       <p className="truncate text-xs text-fg">
         {track.title}
         {track.artist ? <span className="text-fg-subtle"> — {track.artist}</span> : null}
       </p>
-      <div className="flex flex-wrap gap-1 pt-1">
-        <button type="button" className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`} onClick={onPlay}>
+      <div className="flex gap-1 pt-1">
+        <button
+          type="button"
+          className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`}
+          onClick={onPlay}
+        >
           Play
         </button>
-        <button type="button" className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`} onClick={onQueue}>
+        <button
+          type="button"
+          className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`}
+          onClick={onQueue}
+        >
           Queue
         </button>
-        <button type="button" className={`${iconButton} !h-6 !w-auto px-2 text-[11px]`} onClick={onCreate}>
-          <Plus size={10} aria-hidden="true" /> Playlist
+        <button
+          type="button"
+          aria-label="Choose playlist"
+          aria-expanded={pickerOpen}
+          disabled={playlists.length === 0}
+          onClick={() => setPickerOpen((value) => !value)}
+          className={`${iconButton} !h-6 !w-auto flex-1 justify-between px-2 text-[11px]`}
+        >
+          Add to playlist
+          <ChevronDown
+            size={11}
+            aria-hidden="true"
+            className={`transition-transform ${pickerOpen ? 'rotate-180' : ''}`}
+          />
         </button>
-        {playlists.slice(0, 3).map((playlist) => (
-          <button
-            key={playlist.id}
-            type="button"
-            className={`${iconButton} !h-6 !w-auto max-w-24 truncate px-2 text-[11px]`}
-            onClick={() => onSave(playlist.id)}
-          >
-            + {playlist.name}
-          </button>
-        ))}
       </div>
+      {playlists.length === 0 ? (
+        <p className="pt-1 text-[10px] text-fg-subtle">
+          Create a playlist below to save this song.
+        </p>
+      ) : null}
+      {pickerOpen ? (
+        <div
+          role="menu"
+          aria-label="Playlists"
+          className="ari-focus-scroll mt-1 max-h-28 overflow-y-auto rounded-md border border-border bg-surface-2 p-1"
+        >
+          {playlists.map((playlist) => (
+            <button
+              key={playlist.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onSave(playlist.id)
+                setPickerOpen(false)
+              }}
+              className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[11px] text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <span className="truncate">{playlist.name}</span>
+              <span className="shrink-0 text-[10px] tabular-nums text-fg-subtle">
+                {playlist.tracks.length}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

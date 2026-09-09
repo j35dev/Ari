@@ -109,6 +109,8 @@ export const focusMusicStateSchema = z.object({
   playing: z.boolean(),
   track: focusTrackSchema.nullable(),
   volume: z.number().int().min(0).max(100).nullable(),
+  positionMs: z.number().int().nonnegative().nullable().default(null),
+  durationMs: z.number().int().nonnegative().nullable().default(null),
   supportsSearch: z.boolean(),
   supportsVolume: z.boolean(),
   shuffle: z.boolean().default(false),
@@ -317,6 +319,7 @@ export const rpcParams = {
   'focus.music.search': z.object({ query: z.string().min(1).max(200) }),
   'focus.music.browse': z.undefined(),
   'focus.music.volume': z.object({ volume: z.number().int().min(0).max(100) }),
+  'focus.music.seek': z.object({ positionMs: z.number().int().nonnegative() }),
   'focus.music.shuffle': z.object({ enabled: z.boolean() }),
   'focus.music.queue': z.object({ trackId: z.string().min(1).max(2048) }),
   'focus.music.resolve': z.object({ url: z.string().min(8).max(2048) }),
@@ -538,6 +541,7 @@ export interface RpcResults {
   'focus.music.search': { tracks: FocusTrack[]; error?: string }
   'focus.music.browse': { tracks: FocusTrack[]; error?: string }
   'focus.music.volume': { ok: boolean; error?: string }
+  'focus.music.seek': { ok: boolean; error?: string }
   'focus.music.shuffle': { ok: boolean; error?: string }
   'focus.music.queue': { ok: boolean; error?: string }
   'focus.music.resolve': FocusUrlResolve

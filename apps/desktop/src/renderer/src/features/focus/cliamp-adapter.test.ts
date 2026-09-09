@@ -12,6 +12,8 @@ describe('CliampAdapter', () => {
       playing: true,
       track: { id: 't', title: 'Grind', artist: 'DJ', station: '' },
       volume: 60,
+      positionMs: 10_000,
+      durationMs: 90_000,
       supportsSearch: true,
       supportsVolume: true,
       shuffle: false,
@@ -51,5 +53,9 @@ describe('CliampAdapter', () => {
       ok: false,
       error: 'Music backend is unreachable.',
     })
+
+    invoke.mockResolvedValueOnce({ ok: true })
+    await expect(new CliampAdapter().seek(72_000)).resolves.toEqual({ ok: true })
+    expect(invoke).toHaveBeenCalledWith('focus.music.seek', { positionMs: 72_000 })
   })
 })

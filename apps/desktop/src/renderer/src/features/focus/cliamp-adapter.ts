@@ -5,6 +5,14 @@ import { DISCONNECTED_MUSIC, type MusicService } from './music-types'
 
 const log = createLogger('ui:focus-music')
 
+/** RPC `focus.playlists.create` rejects names over 48 chars (YouTube titles often are). */
+const PLAYLIST_NAME_MAX = 48
+
+export function clipPlaylistName(name: string): string {
+  const trimmed = name.trim().slice(0, PLAYLIST_NAME_MAX)
+  return trimmed.length > 0 ? trimmed : 'Playlist'
+}
+
 /**
  * Cliamp-backed {@link MusicService}. The UI owns 100% of the presentation;
  * every Cliamp/RPC detail (method names, failure shapes) is contained here.
@@ -84,6 +92,15 @@ export class CliampAdapter implements MusicService {
     }
   }
 
+  async seek(positionMs: number): Promise<{ ok: boolean; error?: string }> {
+    try {
+      return await rpc.invoke('focus.music.seek', { positionMs })
+    } catch (error) {
+      log.warn('music seek failed', error)
+      return { ok: false, error: 'Music backend is unreachable.' }
+    }
+  }
+
   async shuffle(enabled: boolean): Promise<{ ok: boolean; error?: string }> {
     try {
       return await rpc.invoke('focus.music.shuffle', { enabled })
@@ -125,7 +142,7 @@ export class CliampAdapter implements MusicService {
     tracks?: FocusTrack[],
   ): Promise<{ playlist: AriPlaylist | null; error?: string }> {
     try {
-      return await rpc.invoke('focus.playlists.create', { name, tracks })
+      return await rpc.invoke('focus.playlists.create', { name: clipPlaylistName(name), tracks })
     } catch (error) {
       log.warn('playlists create failed', error)
       return { playlist: null, error: 'Playlists are unavailable right now.' }
@@ -137,7 +154,7 @@ export class CliampAdapter implements MusicService {
     name: string,
   ): Promise<{ playlist: AriPlaylist | null; error?: string }> {
     try {
-      return await rpc.invoke('focus.playlists.rename', { id, name })
+      return await rpc.invoke('focus.playlists.rename', { id, name: clipPlaylistName(name) })
     } catch (error) {
       log.warn('playlists rename failed', error)
       return { playlist: null, error: 'Playlists are unavailable right now.' }

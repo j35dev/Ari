@@ -8,6 +8,8 @@ export const DISCONNECTED_MUSIC: FocusMusicState = {
   playing: false,
   track: null,
   volume: null,
+  positionMs: null,
+  durationMs: null,
   supportsSearch: false,
   supportsVolume: false,
   shuffle: false,
@@ -24,13 +26,23 @@ export interface MusicService {
   search(query: string): Promise<{ tracks: FocusTrack[]; error?: string }>
   browse(): Promise<{ tracks: FocusTrack[]; error?: string }>
   setVolume(volume: number): Promise<{ ok: boolean; error?: string }>
+  seek(positionMs: number): Promise<{ ok: boolean; error?: string }>
   shuffle(enabled: boolean): Promise<{ ok: boolean; error?: string }>
   queue(trackId: string): Promise<{ ok: boolean; error?: string }>
   resolveUrl(url: string): Promise<FocusUrlResolve>
   listPlaylists(): Promise<{ playlists: AriPlaylist[] }>
-  createPlaylist(name: string, tracks?: FocusTrack[]): Promise<{ playlist: AriPlaylist | null; error?: string }>
-  renamePlaylist(id: string, name: string): Promise<{ playlist: AriPlaylist | null; error?: string }>
+  createPlaylist(
+    name: string,
+    tracks?: FocusTrack[],
+  ): Promise<{ playlist: AriPlaylist | null; error?: string }>
+  renamePlaylist(
+    id: string,
+    name: string,
+  ): Promise<{ playlist: AriPlaylist | null; error?: string }>
   removePlaylist(id: string): Promise<{ ok: boolean; error?: string }>
-  updatePlaylist(id: string, tracks: FocusTrack[]): Promise<{ playlist: AriPlaylist | null; error?: string }>
+  updatePlaylist(
+    id: string,
+    tracks: FocusTrack[],
+  ): Promise<{ playlist: AriPlaylist | null; error?: string }>
   playPlaylist(id: string, shuffle?: boolean): Promise<{ ok: boolean; error?: string }>
 }

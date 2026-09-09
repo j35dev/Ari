@@ -45,6 +45,7 @@ function spawningBackend(
     playlists?: { id: string; name: string }[]
     playlistTracks?: { title: string; path: string; station?: string }[]
     ytDlpDump?: unknown
+    status?: Record<string, unknown>
     env?: CliampEnvironment
   } = {},
 ): {
@@ -64,7 +65,7 @@ function spawningBackend(
   const run = vi.fn((args: string[], _timeoutMs: number) => {
     if (args[0] === 'status') {
       return daemonUp
-        ? Promise.resolve({ stdout: statusJson() })
+        ? Promise.resolve({ stdout: statusJson(options.status) })
         : Promise.reject(new Error('no daemon'))
     }
     if (args[0] === 'remote') {
@@ -85,7 +86,7 @@ function spawningBackend(
         ]
         return Promise.resolve({ stdout: envelope({ tracks }) })
       }
-      if (args[2] === 'track.play') {
+      if (args[2] === 'track.play' || args[2] === 'seek.absolute') {
         return Promise.resolve({ stdout: envelope({ ok: true }) })
       }
       if (args[2] === 'provider.playlists') {
@@ -166,9 +167,7 @@ describe('parseCliampStatus', () => {
         durationMs: undefined,
       },
     })
-    expect(
-      parseCliampStatus(statusJson({ state: 'paused', track: { title: 'Song' } })),
-    ).toEqual({
+    expect(parseCliampStatus(statusJson({ state: 'paused', track: { title: 'Song' } }))).toEqual({
       playing: false,
       track: {
         id: 'Song',
@@ -220,6 +219,8 @@ describe('volume mapping', () => {
     expect(dbToSlider(-30)).toBe(0)
     expect(dbToSlider(6)).toBe(100)
     expect(dbToSlider(0)).toBe(83)
+    expect(dbToSlider(-12)).toBe(50)
+    expect(dbToSlider(-18)).toBe(33)
     expect(formatDb(0)).toBe('0')
     expect(formatDb(-12.5)).toBe('-12.5')
   })
@@ -232,10 +233,7 @@ describe('bundled resolution', () => {
     expect(cliampTargetKey('linux', 'ia32')).toBeNull()
     expect(cliampTargetKey('freebsd', 'x64')).toBeNull()
     expect(
-      cliampBundleDir(
-        { isPackaged: true, resourcesPath: '/res', appPath: '/app' },
-        'win32-x64',
-      ),
+      cliampBundleDir({ isPackaged: true, resourcesPath: '/res', appPath: '/app' }, 'win32-x64'),
     ).toBe(join('/res', 'cliamp', 'bin', 'win32-x64'))
   })
 
@@ -304,7 +302,7 @@ describe('FocusMusicBackend', () => {
     expect(state).toMatchObject({
       available: true,
       playing: false,
-      volume: 83,
+      volume: 33,
       supportsSearch: true,
       supportsVolume: true,
     })
@@ -355,6 +353,26 @@ describe('FocusMusicBackend', () => {
     const { backend } = spawningBackend({ daemonUp: true, providers: [] })
     await expect(backend.search('jazz')).resolves.toMatchObject({ tracks: [] })
     await expect(backend.status()).resolves.toMatchObject({ supportsSearch: false })
+  })
+
+  it('reads volume and shuffle from the daemon snapshot', async () => {
+    const { backend } = spawningBackend({
+      daemonUp: true,
+      status: { volume: -12, shuffle: true, position: 72.4, duration: 240 },
+    })
+    await expect(backend.status()).resolves.toMatchObject({
+      volume: 50,
+      shuffle: true,
+      positionMs: 72_400,
+      durationMs: 240_000,
+    })
+  })
+
+  it('seeks to an absolute playback position', async () => {
+    const { backend, run } = spawningBackend({ daemonUp: true })
+    await expect(backend.seek(72_450)).resolves.toEqual({ ok: true })
+    const seekArgs = run.mock.calls.find(([args]) => args[2] === 'seek.absolute')?.[0]
+    expect(seekArgs?.[4]).toBe(JSON.stringify({ value: 72.45 }))
   })
 
   it('maps the volume slider to absolute dB and remembers it', async () => {
@@ -416,7 +434,9 @@ describe('FocusMusicBackend', () => {
         webpage_url: 'https://www.youtube.com/watch?v=abc',
       },
     })
-    await expect(song.backend.resolveUrl('https://www.youtube.com/watch?v=abc')).resolves.toMatchObject({
+    await expect(
+      song.backend.resolveUrl('https://www.youtube.com/watch?v=abc'),
+    ).resolves.toMatchObject({
       kind: 'track',
       track: { title: 'Nightcall', artist: 'Kavinsky' },
     })

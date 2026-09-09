@@ -20,39 +20,71 @@ function sanitizeName(name: string): string {
   return trimmed.length > 0 ? trimmed : 'Playlist'
 }
 
+function trackKey(track: FocusTrack): string {
+  return track.sourceUrl?.trim() || track.id.trim()
+}
+
 function sanitizeTracks(tracks: FocusTrack[]): FocusTrack[] {
-  return tracks.slice(0, TRACKS_MAX)
+  const seen = new Set<string>()
+  return tracks
+    .filter((track) => {
+      const key = trackKey(track)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, TRACKS_MAX)
+}
+
+function playlistFingerprint(name: string, tracks: FocusTrack[]): string {
+  return `${sanitizeName(name).toLocaleLowerCase()}\n${tracks.map(trackKey).join('\n')}`
 }
 
 function parseStored(raw: string): AriPlaylist[] {
   const parsed: unknown = JSON.parse(raw)
-  const root = typeof parsed === 'object' && parsed !== null ? (parsed as { playlists?: unknown }) : null
+  const root =
+    typeof parsed === 'object' && parsed !== null ? (parsed as { playlists?: unknown }) : null
   if (!Array.isArray(root?.playlists)) return []
+  const seen = new Set<string>()
   return root.playlists.flatMap((entry) => {
     if (typeof entry !== 'object' || entry === null) return []
     const row = entry as Partial<AriPlaylist>
     if (typeof row.id !== 'string' || typeof row.name !== 'string' || !Array.isArray(row.tracks)) {
       return []
     }
-    return [
-      {
-        id: row.id,
-        name: row.name,
-        tracks: row.tracks.filter(
+    const playlist = {
+      id: row.id,
+      name: sanitizeName(row.name),
+      tracks: sanitizeTracks(
+        row.tracks.filter(
           (track): track is FocusTrack =>
             typeof track === 'object' &&
             track !== null &&
             typeof track.id === 'string' &&
             typeof track.title === 'string',
         ),
-      },
-    ]
+      ),
+    }
+    const fingerprint = playlistFingerprint(playlist.name, playlist.tracks)
+    if (seen.has(fingerprint)) return []
+    seen.add(fingerprint)
+    return [playlist]
   })
 }
 
 export function createFocusPlaylistStore(dir: string): FocusPlaylistStore {
   const path = join(dir, FOCUS_PLAYLISTS_FILE)
   let cache: AriPlaylist[] | null = null
+  let mutation: Promise<void> = Promise.resolve()
+
+  function mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const result = mutation.then(operation, operation)
+    mutation = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
 
   async function load(): Promise<AriPlaylist[]> {
     if (cache) return cache
@@ -65,50 +97,61 @@ export function createFocusPlaylistStore(dir: string): FocusPlaylistStore {
   }
 
   async function persist(playlists: AriPlaylist[]): Promise<void> {
-    cache = playlists
     await mkdir(dir, { recursive: true })
     const tmp = `${path}.tmp`
     await writeFile(tmp, JSON.stringify({ playlists }, null, 2), 'utf8')
     await rename(tmp, path)
+    cache = playlists
   }
 
   return {
     async list() {
       return load()
     },
-    async create(name, tracks = []) {
-      const playlist: AriPlaylist = {
-        id: newId('fpl'),
-        name: sanitizeName(name),
-        tracks: sanitizeTracks(tracks),
-      }
-      const playlists = await load()
-      await persist([...playlists, playlist])
-      return playlist
+    create(name, tracks = []) {
+      return mutate(async () => {
+        const playlist: AriPlaylist = {
+          id: newId('fpl'),
+          name: sanitizeName(name),
+          tracks: sanitizeTracks(tracks),
+        }
+        const playlists = await load()
+        const fingerprint = playlistFingerprint(playlist.name, playlist.tracks)
+        const existing = playlists.find(
+          (row) => playlistFingerprint(row.name, row.tracks) === fingerprint,
+        )
+        if (existing) return existing
+        await persist([...playlists, playlist])
+        return playlist
+      })
     },
-    async rename(id, name) {
-      const playlists = await load()
-      const current = playlists.find((row) => row.id === id)
-      if (!current) return null
-      const next = { ...current, name: sanitizeName(name) }
-      await persist(playlists.map((row) => (row.id === id ? next : row)))
-      return next
+    rename(id, name) {
+      return mutate(async () => {
+        const playlists = await load()
+        const current = playlists.find((row) => row.id === id)
+        if (!current) return null
+        const next = { ...current, name: sanitizeName(name) }
+        await persist(playlists.map((row) => (row.id === id ? next : row)))
+        return next
+      })
     },
-    async remove(id) {
-      const playlists = await load()
-      if (!playlists.some((row) => row.id === id)) return false
-      await persist(playlists.filter((row) => row.id !== id))
-      return true
+    remove(id) {
+      return mutate(async () => {
+        const playlists = await load()
+        if (!playlists.some((row) => row.id === id)) return false
+        await persist(playlists.filter((row) => row.id !== id))
+        return true
+      })
     },
-    async replaceTracks(id, tracks) {
-      const playlists = await load()
-      const current = playlists.find((row) => row.id === id)
-      if (!current) return null
-      const next = { ...current, tracks: sanitizeTracks(tracks) }
-      await persist(playlists.map((row) => (row.id === id ? next : row)))
-      return next
+    replaceTracks(id, tracks) {
+      return mutate(async () => {
+        const playlists = await load()
+        const current = playlists.find((row) => row.id === id)
+        if (!current) return null
+        const next = { ...current, tracks: sanitizeTracks(tracks) }
+        await persist(playlists.map((row) => (row.id === id ? next : row)))
+        return next
+      })
     },
   }
 }
-
-
