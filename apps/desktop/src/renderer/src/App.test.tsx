@@ -116,10 +116,40 @@ describe('SessionBranchChip', () => {
         if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
         throw new Error(`unexpected method: ${String(method)}`)
       })
+      // A single miss means nothing; three consecutive misses clear it.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(BRANCH_POLL_MS)
       })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * BRANCH_POLL_MS)
+      })
       expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the readout across a transient miss between successful polls', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<SessionBranchChip sessionId="sess_1" />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
+
+      let calls = 0
+      invokeMock.mockImplementation(async (method) => {
+        if (method !== 'git.status') throw new Error(`unexpected method: ${String(method)}`)
+        calls += 1
+        if (calls === 1) return { isRepo: false, branch: null, files: [] }
+        return { isRepo: true, branch: 'feat/demo', files: [] }
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * BRANCH_POLL_MS)
+      })
+      expect(screen.getByText('feat/demo')).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }

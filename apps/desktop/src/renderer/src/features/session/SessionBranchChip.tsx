@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { GitBranch } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
@@ -19,18 +19,29 @@ export const BRANCH_POLL_MS = 10_000
  */
 export function SessionBranchChip({ sessionId }: { sessionId: string | null }) {
   const [branch, setBranch] = useState<string | null>(null)
+  const missesRef = useRef(0)
 
   useEffect(() => {
     setBranch(null)
+    missesRef.current = 0
     if (sessionId === null) return
     let cancelled = false
     const refresh = (): void => {
       void rpc
         .invoke('git.status', { sessionId })
         .then((status) => {
-          // A repo that went away clears the readout; transient RPC failures
-          // keep the last known branch instead of blanking it.
-          if (!cancelled) setBranch(status.isRepo && status.branch ? status.branch : null)
+          if (cancelled) return
+          if (status.isRepo && status.branch) {
+            missesRef.current = 0
+            setBranch(status.branch)
+            return
+          }
+          // git.status reports every git failure as non-repo, so a single
+          // miss means nothing — only consecutive misses clear the readout,
+          // which hides a removed repo without blanking on transient blips.
+          // Rejected RPCs keep the last known branch unconditionally.
+          missesRef.current += 1
+          if (missesRef.current >= 3) setBranch(null)
         })
         .catch((error: unknown) => log.warn('rpc call failed', error))
     }
