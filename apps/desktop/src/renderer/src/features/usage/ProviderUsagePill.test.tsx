@@ -93,6 +93,29 @@ describe('provider allowance pill', () => {
     expect(invoke.mock.calls).toHaveLength(count)
   })
 
+  it('prefers provider-suffixed 5h windows for pi', async () => {
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'providers.detect') return [{ kind: 'pi', installed: true }]
+      return {
+        kind: 'pi',
+        status: 'available',
+        windows: [
+          { label: 'Anthropic 7d', usedPercent: 50, resetsAt: null },
+          { label: 'Anthropic 5h', usedPercent: 12, resetsAt: null },
+          { label: 'Codex 5h', usedPercent: 34, resetsAt: null },
+        ],
+        checkedAt: Date.now(),
+        updatedAt: Date.now(),
+        detail: '',
+      } satisfies ProviderAllowance
+    })
+    render(<ProviderUsagePill sessionId="one" kind="pi" />)
+    await settle()
+    expect(
+      screen.getByRole('button', { name: 'Pi usage: Anthropic 5h 12% used' }),
+    ).toBeInTheDocument()
+  })
+
   it('retains the last reading as stale when refreshing fails', async () => {
     render(<ProviderUsagePill sessionId="one" kind="codex" />)
     await settle()
