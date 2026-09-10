@@ -623,7 +623,7 @@ function ProjectGroupSection({
               {name}
             </span>
             {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
-            <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
+            <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/project:opacity-0">
               {sessions.length}
             </span>
           </button>
