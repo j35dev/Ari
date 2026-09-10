@@ -17,6 +17,10 @@ files:
 extraResources:
   - from: resources/cli
     to: agent-cli
+  # Tiny music-helper manifest (no binaries): the Focus engine downloads
+  # only the host target into application data on first use.
+  - from: resources/music-runtime.json
+    to: music-runtime.json
   # Runtime tray assets. Windows gets a multi-resolution ICO so the Ari mark
   # stays sharp at every notification-area DPI scale.
   - from: build/icon.ico
