@@ -17,23 +17,25 @@ files:
 extraResources:
   - from: resources/cli
     to: agent-cli
-  # Bundled Focus music backend (pinned Cliamp release + license; the
-  # per-target binaries under bin/ are fetched by scripts/fetch-cliamp.mjs
-  # and asserted by packaging/after-pack.js). Mirrors dev layout so the
-  # main process resolves the same relative path in both modes.
-  - from: resources/cliamp
-    to: cliamp
+  # Tiny music-helper manifest (no binaries): the Focus engine downloads
+  # only the host target into application data on first use.
+  - from: resources/music-runtime.json
+    to: music-runtime.json
   # Runtime tray assets. Windows gets a multi-resolution ICO so the Ari mark
   # stays sharp at every notification-area DPI scale.
   - from: build/icon.ico
     to: icon.ico
   - from: build/icon.png
     to: icon.png
-# ACP adapters run as ESM through Electron's Node mode. Their entire runtime
-# dependency graph must be physical: ESM resolution does not use NODE_PATH to
-# find JS dependencies left in app.asar. This also covers pty and CLI binaries.
+# node-pty is the only native dependency; it must stay physical on disk
+# (ConPTY needs to dlopen conpty.node and spawn OpenConsole.exe, neither of
+# which works from inside an asar archive). `@lydell/node-pty` is only a
+# resolver stub — the implementation and the binaries live in the
+# platform-specific `@lydell/node-pty-<platform>-<arch>` package it requires,
+# so both must be unpacked.
 asarUnpack:
-  - '**/node_modules/**'
+  - '**/node_modules/@lydell/node-pty/**'
+  - '**/node_modules/@lydell/node-pty-*/**'
 # Fails the build if the platform pty package did not survive dependency
 # collection — that regression ships a terminal that opens to a dead cursor.
 afterPack: ./packaging/after-pack.js
@@ -48,10 +50,6 @@ nsis:
   allowToChangeInstallationDirectory: true
   artifactName: Ari-Setup-${version}.exe
 mac:
-  # Keeping each architecture's archive separate avoids @electron/universal's
-  # minimatch length limit when the complete ACP dependency graph is unpacked.
-  # The generated entry archive selects app-x64/app-arm64 at runtime.
-  mergeASARs: false
   target:
     - target: dmg
       arch:
@@ -69,10 +67,7 @@ mac:
   # Mach-O in both slices unless it is declared here. These are single-arch
   # addons that the resolver stub picks at runtime, so copying them verbatim is
   # exactly right; there is nothing to lipo together.
-  # The optional ACP runtime packages are installed for both universal slices
-  # by pnpm's supportedArchitectures matrix; preserve their x64 files in the
-  # x64 half just like the single-arch pty addons above.
-  x64ArchFiles: '**/node_modules/{@lydell/node-pty-*,@anthropic-ai/claude-agent-sdk-*,@openai/codex-*}/**'
+  x64ArchFiles: '**/node_modules/@lydell/node-pty-*/**'
 linux:
   target:
     - AppImage

@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { acpAdapterSpec, findNpxCommand, probeLaunch, resolveAcpLaunch } from './launches'
 import type { DetectEnvironment } from '../types'
@@ -12,66 +12,42 @@ const ENV: DetectEnvironment = {
 }
 
 describe('resolveAcpLaunch', () => {
-  it('prefers a packaged Claude adapter without requiring npx', async () => {
-    const runtime = await makeBundledRuntime('claude')
+  it('resolves Claude through npx without requiring a packaged runtime', async () => {
+    const npxPath = await makeFakeNpx()
     const launch = resolveAcpLaunch(
       'claude',
-      { cliBinaryPath: join(runtime.nodeModulesDir, 'claude'), bundledRuntime: runtime },
-      { ...ENV, pathEnv: '' },
+      { cliBinaryPath: '/usr/bin/claude' },
+      { ...ENV, pathEnv: dirname(npxPath) },
     )
     expect(launch).toMatchObject({
-      command: runtime.executable,
-      args: [
-        join(
-          runtime.nodeModulesDir,
-          '@agentclientprotocol',
-          'claude-agent-acp',
-          'dist',
-          'index.js',
-        ),
-      ],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-      viaBundled: true,
+      command: npxPath,
+      args: ['-y', acpAdapterSpec('claude')],
+      viaNpx: true,
     })
-    expect(launch?.viaNpx).toBeUndefined()
+    expect(launch?.viaNpx).toBe(true)
   })
 
-  it('passes the detected Codex CLI path to the packaged Codex adapter', async () => {
-    const runtime = await makeBundledRuntime('codex')
-    const cliBinaryPath = join(runtime.nodeModulesDir, 'CLI with spaces', 'codex.cmd')
+  it('passes the detected Codex CLI path to the npx adapter', async () => {
+    const npxPath = await makeFakeNpx()
+    const cliBinaryPath = join(dirname(npxPath), 'CLI with spaces', 'codex.cmd')
     const launch = resolveAcpLaunch(
       'codex',
-      { cliBinaryPath, bundledRuntime: runtime },
-      { ...ENV, pathEnv: '' },
+      { cliBinaryPath },
+      { ...ENV, pathEnv: dirname(npxPath) },
     )
-    expect(launch?.command).toBe(runtime.executable)
-    expect(launch?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', CODEX_PATH: cliBinaryPath })
-    expect(probeLaunch(launch!).args).toEqual(launch?.args)
+    expect(launch?.command).toBe(npxPath)
+    expect(launch?.env).toEqual({ CODEX_PATH: cliBinaryPath })
+    expect(probeLaunch(launch!).args).toEqual(['--no-install', acpAdapterSpec('codex')])
     expect(probeLaunch(launch!).env).toEqual(launch?.env)
   })
 
-  it('propagates both packaged module roots to Electron Node mode', async () => {
-    const runtime = await makeBundledRuntime('claude')
-    const modulePaths = [runtime.nodeModulesDir, join(runtime.nodeModulesDir, 'app.asar', 'node_modules')]
-    const launch = resolveAcpLaunch(
-      'claude',
-      { cliBinaryPath: '/usr/bin/claude', bundledRuntime: { ...runtime, modulePaths } },
-      { ...ENV, pathEnv: '' },
-    )
-    expect(launch?.env).toMatchObject({
-      ELECTRON_RUN_AS_NODE: '1',
-      NODE_PATH: modulePaths.join(delimiter),
-    })
-  })
-
-  it('uses an explicit adapter override through npx even when bundled assets exist', async () => {
-    const runtime = await makeBundledRuntime('claude')
+  it('uses an explicit adapter override through npx', async () => {
     const npxPath = await makeFakeNpx()
     process.env['ARI_ACP_ADAPTER_CLAUDE'] = 'my-fork/claude-acp'
     try {
       const launch = resolveAcpLaunch(
         'claude',
-        { cliBinaryPath: join(runtime.nodeModulesDir, 'claude'), bundledRuntime: runtime },
+        { cliBinaryPath: '/usr/bin/claude' },
         { ...ENV, pathEnv: dirname(npxPath) },
       )
       expect(launch?.viaNpx).toBe(true)
@@ -82,20 +58,12 @@ describe('resolveAcpLaunch', () => {
     }
   })
 
-  it('reports no ACP launch when the packaged entrypoint is missing and npx is unavailable', () => {
-    expect(
-      resolveAcpLaunch(
-        'claude',
-        {
-          cliBinaryPath: '/usr/bin/claude',
-          bundledRuntime: {
-            executable: '/opt/Ari/Ari',
-            nodeModulesDir: '/opt/Ari/resources/app.asar/node_modules',
-          },
-        },
-        { ...ENV, pathEnv: '' },
-      ),
-    ).toBeNull()
+  it('reports no ACP launch when npx is unavailable', () => {
+    // Pinned to a win32 env with no PATH and no home: well-known global
+    // dirs cannot rescue npx there, so this holds on Linux CI too (where
+    // /usr/local/bin/npx exists and an empty pathEnv alone would still hit).
+    const noNpx: DetectEnvironment = { platform: 'win32', pathEnv: '', homeDir: '/nonexistent-home' }
+    expect(resolveAcpLaunch('claude', { cliBinaryPath: '/usr/bin/claude' }, noNpx)).toBeNull()
   })
 
   it('launches npx adapters at a pinned version for kinds that need one', async () => {
@@ -235,18 +203,6 @@ async function makeFakeNpx(): Promise<string> {
   const path = join(dir, name)
   await writeFile(path, '@echo off\n', 'utf8')
   return path
-}
-
-async function makeBundledRuntime(kind: 'claude' | 'codex') {
-  const root = await mkdtemp(join(tmpdir(), 'ari-acp-runtime-'))
-  const packageName = kind === 'claude' ? 'claude-agent-acp' : 'codex-acp'
-  const entry = join(root, '@agentclientprotocol', packageName, 'dist', 'index.js')
-  await mkdir(dirname(entry), { recursive: true })
-  await writeFile(entry, '// fixture entrypoint\n', 'utf8')
-  return {
-    executable: join(root, 'Electron with spaces.exe'),
-    nodeModulesDir: root,
-  }
 }
 
 afterEach(() => {

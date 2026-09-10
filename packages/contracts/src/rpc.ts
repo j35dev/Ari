@@ -65,7 +65,42 @@ export const grokAllowanceSchema = z.object({
     .nullable(),
 })
 
-/** One track served by the focus music backend (Cliamp sidecar). */
+/** Categorized music failures: retry behavior keys off these, UI stays simple. */
+export const musicErrorCodeSchema = z.enum([
+  'TRACK_UNAVAILABLE',
+  'NETWORK_ERROR',
+  'STREAM_EXPIRED',
+  'RUNTIME_MISSING',
+  'RUNTIME_UPDATE_REQUIRED',
+  'RUNTIME_DOWNLOAD_FAILED',
+  'RUNTIME_INTEGRITY_FAILED',
+  'RESOLVE_TIMEOUT',
+  'PLAYBACK_ERROR',
+])
+export type MusicErrorCode = z.infer<typeof musicErrorCodeSchema>
+
+/** User-facing wording per code; never names internal tooling. */
+export function musicErrorMessage(code: MusicErrorCode): string {
+  switch (code) {
+    case 'TRACK_UNAVAILABLE':
+      return "This track isn't available."
+    case 'NETWORK_ERROR':
+      return 'Check your connection and try again.'
+    case 'RESOLVE_TIMEOUT':
+      return 'The request timed out. Check your connection and try again.'
+    case 'RUNTIME_MISSING':
+    case 'RUNTIME_DOWNLOAD_FAILED':
+      return 'Music is unavailable right now.'
+    case 'RUNTIME_UPDATE_REQUIRED':
+    case 'RUNTIME_INTEGRITY_FAILED':
+      return 'Music needs a moment. Please try again.'
+    case 'STREAM_EXPIRED':
+    case 'PLAYBACK_ERROR':
+      return "This track can't be played."
+  }
+}
+
+/** One track served by the focus music engine. */
 export const focusTrackSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -94,15 +129,19 @@ export const focusUrlResolveSchema = z.discriminatedUnion('kind', [
     name: z.string().min(1),
     tracks: z.array(focusTrackSchema).min(1).max(200),
   }),
-  z.object({ kind: z.literal('invalid'), error: z.string().min(1) }),
+  z.object({
+    kind: z.literal('invalid'),
+    error: z.string().min(1),
+    code: musicErrorCodeSchema.optional(),
+  }),
 ])
 export type FocusUrlResolve = z.infer<typeof focusUrlResolveSchema>
 
 /**
- * Snapshot of the focus music backend. `available` false means the Cliamp
- * executable is missing, unreachable, or errored — the ADE keeps working
- * and the pill degrades to the timer alone. Capability flags let the UI
- * hide search/volume where the backend does not support them.
+ * Snapshot of the focus music engine. `available` false means the helper is
+ * missing, downloading, or errored — the ADE keeps working and the pill
+ * degrades to the timer alone. Capability flags let the UI hide
+ * search/volume where the backend does not support them.
  */
 export const focusMusicStateSchema = z.object({
   available: z.boolean(),
@@ -311,19 +350,13 @@ export const rpcParams = {
   'usage.summary': z.undefined(),
   'providers.allowance': z.object({ kind: driverKindSchema }),
   'usage.ccusage': z.object({ subcommand: z.enum(['daily', 'monthly', 'blocks']).optional() }),
-  'focus.music.status': z.undefined(),
-  'focus.music.play': z.object({ trackId: z.string().min(1).max(512).optional() }),
-  'focus.music.pause': z.undefined(),
-  'focus.music.next': z.undefined(),
-  'focus.music.previous': z.undefined(),
   'focus.music.search': z.object({ query: z.string().min(1).max(200) }),
   'focus.music.browse': z.undefined(),
-  'focus.music.volume': z.object({ volume: z.number().int().min(0).max(100) }),
-  'focus.music.seek': z.object({ positionMs: z.number().int().nonnegative() }),
-  'focus.music.shuffle': z.object({ enabled: z.boolean() }),
-  'focus.music.queue': z.object({ trackId: z.string().min(1).max(2048) }),
   'focus.music.resolve': z.object({ url: z.string().min(8).max(2048) }),
+  'focus.music.stream': z.object({ trackId: z.string().min(1).max(2048) }),
+  'focus.music.runtime': z.undefined(),
   'focus.playlists.list': z.undefined(),
+  'focus.playlists.get': z.object({ id: z.string().min(1) }),
   'focus.playlists.create': z.object({
     name: z.string().min(1).max(48),
     tracks: z.array(focusTrackSchema).max(200).optional(),
@@ -333,10 +366,6 @@ export const rpcParams = {
   'focus.playlists.update': z.object({
     id: z.string().min(1),
     tracks: z.array(focusTrackSchema).max(200),
-  }),
-  'focus.playlists.play': z.object({
-    id: z.string().min(1),
-    shuffle: z.boolean().optional(),
   }),
   'command.dispatch': z.object({ command: commandSchema }),
   /**
@@ -532,25 +561,20 @@ export interface RpcResults {
    * tail-capped report text.
    */
   'usage.ccusage': { ok: boolean; output: string; error: string | null }
-  /** Focus pill music backend (Cliamp sidecar); control failures arrive as data, never throws. */
-  'focus.music.status': FocusMusicState
-  'focus.music.play': { ok: boolean; error?: string }
-  'focus.music.pause': { ok: boolean; error?: string }
-  'focus.music.next': { ok: boolean; error?: string }
-  'focus.music.previous': { ok: boolean; error?: string }
-  'focus.music.search': { tracks: FocusTrack[]; error?: string }
+  /** Focus music engine (local playback); control failures arrive as data, never throws. */
+  'focus.music.search': { tracks: FocusTrack[]; error?: string; code?: MusicErrorCode }
   'focus.music.browse': { tracks: FocusTrack[]; error?: string }
-  'focus.music.volume': { ok: boolean; error?: string }
-  'focus.music.seek': { ok: boolean; error?: string }
-  'focus.music.shuffle': { ok: boolean; error?: string }
-  'focus.music.queue': { ok: boolean; error?: string }
   'focus.music.resolve': FocusUrlResolve
+  /** Direct audio URL for renderer playback; null with error when unresolvable. */
+  'focus.music.stream': { url: string | null; error?: string; code?: MusicErrorCode }
+  /** Helper download state; drives the "Preparing Focus Music…" notice. */
+  'focus.music.runtime': { state: 'ready' | 'downloading' | 'missing' | 'unavailable'; detail: string }
   'focus.playlists.list': { playlists: AriPlaylist[] }
+  'focus.playlists.get': { playlist: AriPlaylist | null }
   'focus.playlists.create': { playlist: AriPlaylist | null; error?: string }
   'focus.playlists.rename': { playlist: AriPlaylist | null; error?: string }
   'focus.playlists.remove': { ok: boolean; error?: string }
   'focus.playlists.update': { playlist: AriPlaylist | null; error?: string }
-  'focus.playlists.play': { ok: boolean; error?: string }
   'command.dispatch': { accepted: boolean }
   'attachments.stage': { attachments: AttachmentRef[] }
   'attachments.read': {
