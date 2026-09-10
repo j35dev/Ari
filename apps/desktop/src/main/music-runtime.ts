@@ -233,7 +233,7 @@ export class MusicRuntime {
     }
     if (!options.force) {
       const fresh = await this.#readCachedManifest()
-      if (fresh.fresh) {
+      if (fresh.fresh && fresh.manifest) {
         this.#manifest = { at: Date.now(), manifest: fresh.manifest, source: 'cached' }
         return { manifest: fresh.manifest, source: 'cached' }
       }
@@ -308,6 +308,35 @@ export class MusicRuntime {
   async forceRefresh(): Promise<{ manifest: MusicRuntimeManifest | null; source: ManifestSource }> {
     this.#manifest = null
     return this.resolveManifest({ force: true })
+  }
+
+  /** Installed runtime version from the stamp, or null when nothing cached. */
+  async installedVersion(): Promise<string | null> {
+    const key = musicRuntimeTargetKey()
+    const dir = key ? this.#cacheDir(key) : null
+    if (!key || !dir) return null
+    return (await readStamp(dir))?.version ?? null
+  }
+
+  /**
+   * Force-refreshes the manifest and moves to the desired version when it
+   * differs. Returns true only when a newly verified binary is in place, so
+   * self-heal retries never run against the same broken runtime twice.
+   */
+  async refreshRuntime(): Promise<boolean> {
+    const before = await this.installedVersion()
+    const { manifest } = await this.forceRefresh()
+    const key = musicRuntimeTargetKey()
+    const dir = key ? this.#cacheDir(key) : null
+    if (!manifest || !key || !dir) return false
+    const entry = manifest.platforms[key]
+    const stamp = await readStamp(dir)
+    if (!entry || (stamp?.version === manifest.runtimeVersion && stamp.sha256 === entry.sha256)) {
+      return false
+    }
+    const binary = await this.ensure()
+    const after = await this.installedVersion()
+    return binary !== null && after !== null && after !== before && after === manifest.runtimeVersion
   }
 
   /**

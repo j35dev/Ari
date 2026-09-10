@@ -65,6 +65,41 @@ export const grokAllowanceSchema = z.object({
     .nullable(),
 })
 
+/** Categorized music failures: retry behavior keys off these, UI stays simple. */
+export const musicErrorCodeSchema = z.enum([
+  'TRACK_UNAVAILABLE',
+  'NETWORK_ERROR',
+  'STREAM_EXPIRED',
+  'RUNTIME_MISSING',
+  'RUNTIME_UPDATE_REQUIRED',
+  'RUNTIME_DOWNLOAD_FAILED',
+  'RUNTIME_INTEGRITY_FAILED',
+  'RESOLVE_TIMEOUT',
+  'PLAYBACK_ERROR',
+])
+export type MusicErrorCode = z.infer<typeof musicErrorCodeSchema>
+
+/** User-facing wording per code; never names internal tooling. */
+export function musicErrorMessage(code: MusicErrorCode): string {
+  switch (code) {
+    case 'TRACK_UNAVAILABLE':
+      return "This track isn't available."
+    case 'NETWORK_ERROR':
+      return 'Check your connection and try again.'
+    case 'RESOLVE_TIMEOUT':
+      return 'The request timed out. Check your connection and try again.'
+    case 'RUNTIME_MISSING':
+    case 'RUNTIME_DOWNLOAD_FAILED':
+      return 'Music is unavailable right now.'
+    case 'RUNTIME_UPDATE_REQUIRED':
+    case 'RUNTIME_INTEGRITY_FAILED':
+      return 'Music needs a moment. Please try again.'
+    case 'STREAM_EXPIRED':
+    case 'PLAYBACK_ERROR':
+      return "This track can't be played."
+  }
+}
+
 /** One track served by the focus music engine. */
 export const focusTrackSchema = z.object({
   id: z.string().min(1),
@@ -94,7 +129,11 @@ export const focusUrlResolveSchema = z.discriminatedUnion('kind', [
     name: z.string().min(1),
     tracks: z.array(focusTrackSchema).min(1).max(200),
   }),
-  z.object({ kind: z.literal('invalid'), error: z.string().min(1) }),
+  z.object({
+    kind: z.literal('invalid'),
+    error: z.string().min(1),
+    code: musicErrorCodeSchema.optional(),
+  }),
 ])
 export type FocusUrlResolve = z.infer<typeof focusUrlResolveSchema>
 
@@ -523,11 +562,11 @@ export interface RpcResults {
    */
   'usage.ccusage': { ok: boolean; output: string; error: string | null }
   /** Focus music engine (local playback); control failures arrive as data, never throws. */
-  'focus.music.search': { tracks: FocusTrack[]; error?: string }
+  'focus.music.search': { tracks: FocusTrack[]; error?: string; code?: MusicErrorCode }
   'focus.music.browse': { tracks: FocusTrack[]; error?: string }
   'focus.music.resolve': FocusUrlResolve
   /** Direct audio URL for renderer playback; null with error when unresolvable. */
-  'focus.music.stream': { url: string | null; error?: string }
+  'focus.music.stream': { url: string | null; error?: string; code?: MusicErrorCode }
   /** Helper download state; drives the "Preparing Focus Music…" notice. */
   'focus.music.runtime': { state: 'ready' | 'downloading' | 'missing' | 'unavailable'; detail: string }
   'focus.playlists.list': { playlists: AriPlaylist[] }
