@@ -59,9 +59,11 @@ describe('resolveAcpLaunch', () => {
   })
 
   it('reports no ACP launch when npx is unavailable', () => {
-    expect(
-      resolveAcpLaunch('claude', { cliBinaryPath: '/usr/bin/claude' }, { ...ENV, pathEnv: '' }),
-    ).toBeNull()
+    // Pinned to a win32 env with no PATH and no home: well-known global
+    // dirs cannot rescue npx there, so this holds on Linux CI too (where
+    // /usr/local/bin/npx exists and an empty pathEnv alone would still hit).
+    const noNpx: DetectEnvironment = { platform: 'win32', pathEnv: '', homeDir: '/nonexistent-home' }
+    expect(resolveAcpLaunch('claude', { cliBinaryPath: '/usr/bin/claude' }, noNpx)).toBeNull()
   })
 
   it('launches npx adapters at a pinned version for kinds that need one', async () => {
