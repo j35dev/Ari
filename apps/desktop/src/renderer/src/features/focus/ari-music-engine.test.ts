@@ -265,7 +265,7 @@ describe('AriMusicEngine', () => {
     let calls = 0
     const engine = new AriMusicEngine({
       createAudio: () => audio,
-      resolveStream: (t) => {
+      resolveStream: (_t) => {
         calls++
         if (calls === 1) return Promise.resolve('url:A')
         if (calls === 2) return gate
