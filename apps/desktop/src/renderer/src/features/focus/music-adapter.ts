@@ -34,7 +34,10 @@ export class AriMusicAdapter implements MusicService {
   constructor(engine?: AriMusicEngine, createAudio?: () => EngineAudioElement) {
     this.#engine =
       engine ??
-      new AriMusicEngine({ createAudio, resolveStream: (track) => this.streamUrl(track) })
+      new AriMusicEngine({
+        createAudio,
+        resolveStream: (track, options) => this.streamUrl(track, options?.refresh === true),
+      })
   }
 
   async #runtime(): Promise<{ available: boolean; detail: string }> {
@@ -50,7 +53,8 @@ export class AriMusicAdapter implements MusicService {
     }
   }
 
-  async streamUrl(track: FocusTrack): Promise<string> {
+  async streamUrl(track: FocusTrack, refresh = false): Promise<string> {
+    if (refresh) this.#streams.delete(track.id)
     const cached = this.#streams.get(track.id)
     if (cached) return cached
     const result = await rpc.invoke('focus.music.stream', { trackId: track.sourceUrl || track.id })
