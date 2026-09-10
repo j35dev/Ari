@@ -137,6 +137,23 @@ describe('AriMusicAdapter', () => {
     expect(streams).toBe(1)
   })
 
+  it('re-resolves stream URLs on refresh for expired playback', async () => {
+    runtime()
+    const { adapter } = setup()
+    let streams = 0
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'focus.music.runtime') return { state: 'ready', detail: '' }
+      if (method === 'focus.music.stream') {
+        streams++
+        return { url: `https://cdn/audio-${streams}.m4a` }
+      }
+      return { ok: true }
+    })
+    expect(await adapter.streamUrl(TRACK)).toBe('https://cdn/audio-1.m4a')
+    expect(await adapter.streamUrl(TRACK, true)).toBe('https://cdn/audio-2.m4a')
+    expect(streams).toBe(2)
+  })
+
   it('reports unplayable tracks as data', async () => {
     runtime()
     const { adapter } = setup()
