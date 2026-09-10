@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { Popover } from '@ari/ui/popover'
-import { CliampAdapter } from './cliamp-adapter'
+import { AriMusicAdapter } from './music-adapter'
 import { DISCONNECTED_MUSIC } from './music-types'
 import type { AriPlaylist, FocusTrack, FocusUrlResolve, MusicService } from './music-types'
 import {
@@ -70,7 +70,7 @@ const fieldInput =
  * restarts (absolute `endsAt` persisted to localStorage).
  */
 export function FocusPill({ service }: { service?: MusicService }) {
-  const adapter = useMemo(() => service ?? new CliampAdapter(), [service])
+  const adapter = useMemo(() => service ?? new AriMusicAdapter(), [service])
   const [music, setMusic] = useState(DISCONNECTED_MUSIC)
   const [open, setOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -87,13 +87,18 @@ export function FocusPill({ service }: { service?: MusicService }) {
     void refreshMusic()
   }, [refreshMusic])
 
+  // Push updates when the service supports them; otherwise poll getState
+  // while the popover is open or music is playing — never a background loop.
   useEffect(() => {
+    if (typeof adapter.subscribe === 'function') {
+      return adapter.subscribe((next) => setMusic(next))
+    }
     if (!open && !music.playing) return
     const id = window.setInterval(() => {
       void refreshMusic()
     }, MUSIC_POLL_MS)
     return () => window.clearInterval(id)
-  }, [open, music.playing, refreshMusic])
+  }, [adapter, open, music.playing, refreshMusic])
 
   useEffect(() => {
     if (open) {
