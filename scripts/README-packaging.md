@@ -29,31 +29,9 @@ How to build distributable installers for Windows, macOS, and Linux. Config live
   pnpm --filter @ari/desktop build
   ```
 
-- Focus music ships a pinned Cliamp release plus yt-dlp and ffmpeg
-  (`resources/cliamp`, pins in `cliamp.json` and `media-tools.json`).
-  `pnpm --filter @ari/desktop build` runs `scripts/fetch-cliamp.mjs` and
-  `scripts/fetch-media-tools.mjs` so the host binaries are present.
-  `packaging/after-pack.js` fails the pack if they are missing. Users never
-  install Cliamp, yt-dlp, or ffmpeg.
-- Claude ACP `0.70.0` and Codex ACP `1.7.0` are direct desktop dependencies. Their
-  platform runtime packages remain upstream optional dependencies: the root pnpm
-  `supportedArchitectures` matrix must include win32/linux x64+arm64 and darwin
-  x64+arm64 so the lock/store has both universal macOS slices, while electron-builder
-  collects only the target platform package (and both macOS slices for universal).
-  The authoritative adapter pins and entrypoints are in
-  `apps/desktop/packaging/acp-adapters.json`; dependency declarations and the lockfile
-  must match it.
-- Packaged Ari launches those adapter entrypoints through the packaged Electron
-  executable with `ELECTRON_RUN_AS_NODE=1`; it does not require system Node, npx,
-  npm cache contents, or a network download on first use. The Codex launch still
-  sets `CODEX_PATH` to the detected user CLI. Claude ACP uses its bundled Claude
-  Agent SDK runtime; detecting a Claude CLI does not cause that CLI to be used by
-  the adapter.
-- Development builds retain the npx adapter path. `ARI_ACP_ADAPTER_CLAUDE` and
-  `ARI_ACP_ADAPTER_CODEX` explicitly opt into an npx package/version or fork and
-  take precedence over the packaged adapter when present. `after-pack.js` fails
-  with the missing adapter/platform package names when the packaged runtime is
-  incomplete.
+- Focus music downloads its tiny resolver helper on first use into the user's
+  application-data directory (per-architecture, verified by SHA-256). Nothing
+  music-related ships inside the installer.
 
 ## Build commands (run from `apps/desktop`)
 
