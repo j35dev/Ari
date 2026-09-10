@@ -28,7 +28,17 @@ export interface ControlServerOptions {
   maxInFlightRequests?: number
 }
 
+/**
+ * Delegation approvals wait on the human for up to five minutes (the desktop
+ * host auto-denies at 300s), so a spawn parked on approval gets a ceiling
+ * past that — otherwise every first spawn fails with `control_timeout`
+ * while the user is still reading the card, and the agent's retries pile up
+ * behind it.
+ */
+const SPAWN_APPROVAL_CEILING_MS = 330_000
+
 function requestDeadlineMs(method: ControlMethod, params: unknown, fallbackMs: number): number {
+  if (method === 'session.spawn') return Math.max(fallbackMs, SPAWN_APPROVAL_CEILING_MS)
   if (method !== 'session.wait' || typeof params !== 'object' || params === null) return fallbackMs
   const timeoutMs = 'timeoutMs' in params ? params.timeoutMs : undefined
   if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs)) return fallbackMs

@@ -47,7 +47,11 @@ ari session destroy CHILD_ID --key done-1 --json
 Wait through `session wait`, which observes the captured turns; do not sleep/poll.
 Each target returns `{ status: settled|idle|timeout|destroyed, sessionId, ... }`.
 A `timeout` status means that child is still running — re-wait. `control_timeout`
-means the control socket stalled — retry the command. A completed turn is not
+means the control socket stalled — retry the command. `session spawn` waits
+while its approval card is open, so give the human time to answer; do not
+fire parallel duplicate spawns. `delegation_approval_pending` means the card
+is still open — wait, then retry with the same `--key`. Only
+`delegation_approval_required` is a real refusal. A completed turn is not
 proof the entire task is correct. Read results and inspect the diff before
 integration; request corrections when needed. Ask the parent for decisions it
 can resolve before escalating to the human.
