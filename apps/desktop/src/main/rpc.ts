@@ -28,7 +28,7 @@ import { fetchAllowance, ProviderAllowanceReader } from './provider-allowance'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
-import { registerFocusMusic, type FocusMusicBackend } from './focus-music'
+import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
 import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
 import {
@@ -322,8 +322,6 @@ async function detectionsForClient(): Promise<RpcResults['providers.detect']> {
  */
 let rpcRegistryRef: RpcRegistry | null = null
 let driverRegistryRef: DriverRegistry | null = null
-/** Owned Cliamp daemon handle; closed on `before-quit` (never a user's own instance). */
-let focusMusicHandle: FocusMusicBackend | null = null
 
 /**
  * Records a provider's live auth wall and tells the renderer, so a refused
@@ -556,9 +554,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   void controlReady.catch(() => log.error('Agent control runtime failed to start'))
   app.once('before-quit', () => {
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
-    // Only the Cliamp daemon Ari spawned itself is stopped here; a user's
-    // own instance is adopted, never owned, so it survives Ari's exit.
-    focusMusicHandle?.close()
   })
 
   const ptyFactory: PtyFactory = (file, args, options) => {
@@ -798,9 +793,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     })
   })
 
-  // Focus pill music backend (Cliamp sidecar): every failure arrives as
-  // data, so the ADE never depends on Cliamp being installed or healthy.
-  focusMusicHandle = registerFocusMusic(r, {
+  // Focus music engine: resolver helper plus saved playlists. Every failure
+  // arrives as data, so the ADE never depends on music being ready.
+  registerMusicEngine(r, {
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
