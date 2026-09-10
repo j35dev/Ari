@@ -1,5 +1,5 @@
 export { FocusPill } from './FocusPill'
-export { CliampAdapter } from './cliamp-adapter'
+export { AriMusicAdapter } from './music-adapter'
 export {
   DISCONNECTED_MUSIC,
   type AriPlaylist,
