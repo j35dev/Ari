@@ -37,8 +37,6 @@ export interface AcpLaunch {
   env?: Record<string, string>
   /** True when the agent rides `npx -y <pkg>` — enables npm exit decoding. */
   viaNpx?: boolean
-  /** True when the agent is an Ari-packaged adapter launched through Electron. */
-  viaBundled?: boolean
 }
 
 /** Structural child surface the connection needs; real spawns satisfy it. */
