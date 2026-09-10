@@ -70,15 +70,18 @@ describe('ActivityBurst collapsed', () => {
     expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
   })
 
-  it('counts failures on the rail without shouting', () => {
+  it('hides tool errors from the collapsed headline', () => {
     const { container } = render(
       <ActivityBurst
         row={row([call('c1', 'Bash', '{"command":"pnpm verify"}'), result('c1', true)])}
       />,
     )
 
-    expect(screen.getByRole('button', { expanded: false })).toHaveAccessibleName(/1 failed$/)
-    expect(container.querySelector('[data-activity="failed"]')).not.toBeNull()
+    const toggle = screen.getByRole('button', { expanded: false })
+    expect(toggle).toHaveAccessibleName('Ran pnpm verify · Ran 1 command')
+    expect(toggle.textContent).not.toMatch(/failed/)
+    expect(container.querySelector('[data-activity="settled"]')).not.toBeNull()
+    expect(container.querySelector('[data-activity="failed"]')).toBeNull()
   })
 
   it('falls back to a bucket phrase when nothing is nameable', () => {
