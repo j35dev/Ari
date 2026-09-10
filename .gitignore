@@ -33,3 +33,5 @@ docs/arch-*.md
 .claude/
 .ari-todo.json
 .pnpm-store/
+
+new-icon.png
