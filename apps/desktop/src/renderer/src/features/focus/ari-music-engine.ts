@@ -26,7 +26,10 @@ export interface EngineSnapshot {
 }
 
 /** Resolves a track to a direct audio URL (main-process stream RPC). */
-export type StreamResolver = (track: FocusTrack) => Promise<string>
+export type StreamResolver = (
+  track: FocusTrack,
+  options?: { refresh?: boolean },
+) => Promise<string>
 
 export interface AriMusicEngineOptions {
   createAudio?: () => EngineAudioElement
@@ -67,6 +70,10 @@ export class AriMusicEngine {
   #loading = false
   #detail = ''
   #generation = 0
+  /** One transparent recovery per track load; reset on every new load. */
+  #recoveriesLeft = 1
+  /** True while a recovery resolve is in flight (stale-error guard). */
+  #recovering = false
 
   constructor(options: AriMusicEngineOptions) {
     this.#audio = (options.createAudio ?? (() => new Audio()))()
@@ -111,7 +118,28 @@ export class AriMusicEngine {
       void this.next()
       return
     }
-    if (event === 'error') this.#detail = "This track can't be played."
+    if (event === 'error') {
+      if (this.#recovering) {
+        // The refreshed stream failed too: allowance is spent, surface it.
+        this.#recovering = false
+        this.#loading = false
+        this.#detail = "This track can't be played."
+        this.#emit()
+        return
+      }
+      if (!this.#loading && this.#recoveriesLeft > 0 && this.#audio.src !== '') {
+        void this.#recoverPlayback()
+        return
+      }
+      if (!this.#loading) this.#detail = "This track can't be played."
+      this.#emit()
+      return
+    }
+    if (event === 'play' && this.#recovering) {
+      // Media is genuinely playing again: future expiries earn a new recovery.
+      this.#recovering = false
+      this.#recoveriesLeft = 1
+    }
     this.#emit()
   }
 
@@ -119,6 +147,8 @@ export class AriMusicEngine {
     const track = this.#queue[this.#order[this.#position] ?? -1]
     if (!track) return { ok: false, error: 'Nothing to play.' }
     const generation = ++this.#generation
+    this.#recoveriesLeft = 1
+    this.#recovering = false
     this.#loading = true
     this.#detail = ''
     this.#emit()
@@ -150,6 +180,75 @@ export class AriMusicEngine {
       return { ok: false, error: 'Playback failed in this browser.' }
     }
     return { ok: true }
+  }
+
+  /**
+   * Transparent recovery for expired mid-playback streams: re-resolves the
+   * canonical track, swaps the source, restores the position, and resumes
+   * only if the track was playing. Exactly one attempt per track load; a
+   * newer load (Next/previous/play) invalidates the in-flight recovery.
+   */
+  async #recoverPlayback(): Promise<void> {
+    const track = this.#queue[this.#order[this.#position] ?? -1]
+    if (!track) return
+    this.#recoveriesLeft--
+    this.#recovering = true
+    const generation = ++this.#generation
+    const position = Number.isFinite(this.#audio.currentTime) ? this.#audio.currentTime : 0
+    const wasPlaying = !this.#audio.paused
+    this.#loading = true
+    this.#emit()
+    try {
+      const url = await this.#resolveStream(track, { refresh: true })
+      if (generation !== this.#generation || url === '') throw new Error('stale recovery')
+      this.#audio.src = url
+      await this.#waitSeekable()
+      if (generation !== this.#generation) return
+      const duration = this.#audio.duration
+      const safe =
+        Number.isFinite(duration) && duration > 1 ? Math.min(position, duration - 0.5) : position
+      try {
+        this.#audio.currentTime = Math.max(0, safe)
+      } catch {
+        // Not seekable yet; playback continues from the start.
+      }
+      this.#loading = false
+      if (wasPlaying) await this.#audio.play()
+      this.#emit()
+    } catch {
+      if (generation !== this.#generation) return
+      this.#recovering = false
+      this.#loading = false
+      this.#detail = "This track can't be played."
+      this.#emit()
+    }
+  }
+
+  /** Resolves once the new source exposes metadata; timeouts proceed anyway. */
+  #waitSeekable(timeoutMs = 15_000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup()
+        resolve()
+      }, timeoutMs)
+      const cleanup = () => {
+        clearTimeout(timer)
+        this.#audio.removeEventListener('loadedmetadata', onReady)
+        this.#audio.removeEventListener('canplay', onReady)
+        this.#audio.removeEventListener('error', onError)
+      }
+      const onReady = () => {
+        cleanup()
+        resolve()
+      }
+      const onError = () => {
+        cleanup()
+        reject(new Error('recovered source failed'))
+      }
+      this.#audio.addEventListener('loadedmetadata', onReady)
+      this.#audio.addEventListener('canplay', onReady)
+      this.#audio.addEventListener('error', onError)
+    })
   }
 
   /** Replaces the queue; autoplays the first track unless told otherwise. */
