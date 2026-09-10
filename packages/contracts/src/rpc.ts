@@ -323,7 +323,10 @@ export const rpcParams = {
   'focus.music.shuffle': z.object({ enabled: z.boolean() }),
   'focus.music.queue': z.object({ trackId: z.string().min(1).max(2048) }),
   'focus.music.resolve': z.object({ url: z.string().min(8).max(2048) }),
+  'focus.music.stream': z.object({ trackId: z.string().min(1).max(2048) }),
+  'focus.music.runtime': z.undefined(),
   'focus.playlists.list': z.undefined(),
+  'focus.playlists.get': z.object({ id: z.string().min(1) }),
   'focus.playlists.create': z.object({
     name: z.string().min(1).max(48),
     tracks: z.array(focusTrackSchema).max(200).optional(),
@@ -545,7 +548,12 @@ export interface RpcResults {
   'focus.music.shuffle': { ok: boolean; error?: string }
   'focus.music.queue': { ok: boolean; error?: string }
   'focus.music.resolve': FocusUrlResolve
+  /** Direct audio URL for renderer playback; null with error when unresolvable. */
+  'focus.music.stream': { url: string | null; error?: string }
+  /** Helper download state; drives the "Preparing Focus Music…" notice. */
+  'focus.music.runtime': { state: 'ready' | 'downloading' | 'missing' | 'unavailable'; detail: string }
   'focus.playlists.list': { playlists: AriPlaylist[] }
+  'focus.playlists.get': { playlist: AriPlaylist | null }
   'focus.playlists.create': { playlist: AriPlaylist | null; error?: string }
   'focus.playlists.rename': { playlist: AriPlaylist | null; error?: string }
   'focus.playlists.remove': { ok: boolean; error?: string }
