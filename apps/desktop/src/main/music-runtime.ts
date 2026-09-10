@@ -25,7 +25,8 @@ export interface MusicRuntimeManifest {
 
 /** Where the manifest and the user-data cache live. */
 export interface MusicRuntimeEnvironment {
-  isPackaged: boolean
+  /** True inside the packaged app; defaults to false (development layout). */
+  isPackaged?: boolean
   resourcesPath: string
   appPath: string
   userDataPath?: string
@@ -56,7 +57,7 @@ function asString(value: unknown): string | null {
 export async function readMusicRuntimeManifest(
   env: MusicRuntimeEnvironment,
 ): Promise<MusicRuntimeManifest | null> {
-  const root = env.isPackaged ? env.resourcesPath : join(env.appPath, 'resources')
+  const root = env.isPackaged === true ? env.resourcesPath : join(env.appPath, 'resources')
   try {
     const parsed: unknown = JSON.parse(await readFile(join(root, MANIFEST_NAME), 'utf8'))
     const manifest = asRecord(parsed)

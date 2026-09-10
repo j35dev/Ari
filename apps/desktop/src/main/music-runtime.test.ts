@@ -30,8 +30,11 @@ async function fixtureRoot(): Promise<string> {
 }
 
 function fakeFetch(bytes: Buffer = PAYLOAD): typeof fetch {
-  return (async () =>
-    new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.length) } })) as typeof fetch
+  const body = Uint8Array.from(bytes)
+  return () =>
+    Promise.resolve(
+      new Response(body, { status: 200, headers: { 'content-length': String(bytes.length) } }),
+    )
 }
 
 afterEach(() => {
