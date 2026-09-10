@@ -49,7 +49,9 @@ export function ProviderUsagePill({
   const selected = rows.find((row) => row.kind === kind)
   const primary =
     selected?.windows.find((window) => window.label === '5h') ??
+    selected?.windows.find((window) => window.label.endsWith(' 5h')) ??
     selected?.windows.find((window) => window.label === 'Weekly') ??
+    selected?.windows.find((window) => window.label.endsWith(' 7d')) ??
     selected?.windows[0]
   const used = primary ? Math.round(primary.usedPercent) : null
   const outdated = stale(selected, now)

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { parseAllowance } from './allowance-windows'
+import { parseAllowance, parsePiAnthropicUsage, parsePiCodexUsage } from './allowance-windows'
 
 describe('account allowance windows', () => {
   it('reads Grok weekly credits using the same extension as /usage', () => {
@@ -39,6 +39,54 @@ describe('account allowance windows', () => {
       parseAllowance('codex', {
         rateLimits: { primary: { ...weekly, usedPercent: NaN }, secondary: null },
       }),
+    ).toThrow()
+  })
+  it('reads pi Anthropic OAuth windows without per-model detail', () => {
+    expect(
+      parsePiAnthropicUsage({
+        five_hour: { utilization: 12, resets_at: '2026-09-10T12:00:00Z' },
+        seven_day: { utilization: 50, resets_at: 1757500000 },
+      }),
+    ).toEqual([
+      {
+        label: 'Anthropic 5h',
+        usedPercent: 12,
+        resetsAt: Date.parse('2026-09-10T12:00:00Z'),
+      },
+      { label: 'Anthropic 7d', usedPercent: 50, resetsAt: 1757500000000 },
+    ])
+    expect(parsePiAnthropicUsage({})).toEqual([])
+    expect(parsePiAnthropicUsage(null)).toEqual([])
+    expect(() => parsePiAnthropicUsage({ five_hour: { utilization: 101 } })).toThrow()
+  })
+  it('reads pi Codex wham windows without inventing missing data', () => {
+    expect(
+      parsePiCodexUsage({
+        rate_limit: {
+          primary_window: {
+            limit_window_seconds: 18000,
+            percent_left: 80,
+            reset_at: '2026-09-10T12:00:00Z',
+          },
+          secondary_window: {
+            limit_window_seconds: 604800,
+            used_percent: 25,
+            reset_at: null,
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        label: 'Codex 5h',
+        usedPercent: 20,
+        resetsAt: Date.parse('2026-09-10T12:00:00Z'),
+      },
+      { label: 'Codex 7d', usedPercent: 25, resetsAt: null },
+    ])
+    expect(parsePiCodexUsage({})).toEqual([])
+    expect(parsePiCodexUsage({ rate_limit: { primary_window: {} } })).toEqual([])
+    expect(() =>
+      parsePiCodexUsage({ rate_limit: { primary_window: { used_percent: 120 } } }),
     ).toThrow()
   })
   it('accepts Claude quota lines but excludes context and cost totals', () => {
