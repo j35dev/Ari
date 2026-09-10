@@ -122,6 +122,36 @@ it('reserves root-wide slots atomically and prevents recursive delegation and es
   ).toMatchObject({ error: { code: 'scope_denied' } })
 })
 
+it('reports approval-pending distinctly and never mints an orphan child', async () => {
+  host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
+  let resolveApproval!: (allowed: boolean) => void
+  let approvals = 0
+  host.approve = async () => {
+    approvals++
+    return new Promise<boolean>((resolve) => {
+      resolveApproval = resolve
+    })
+  }
+  const controller = new AbortController()
+  const waiting = service.invoke('root', 'session.spawn', spawn, controller.signal)
+  while (approvals === 0) await new Promise((resolve) => setTimeout(resolve, 5))
+  controller.abort()
+  await expect(waiting).resolves.toMatchObject({
+    ok: false,
+    error: { code: 'delegation_approval_pending' },
+  })
+  // The user grants after the caller went away: no orphan child is created…
+  resolveApproval(true)
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  expect((await store.listSessions()).filter((s) => s.parentSessionId === 'root')).toHaveLength(0)
+  // …and the retry rides the cached grant without opening a second card.
+  await expect(service.invoke('root', 'session.spawn', spawn)).resolves.toMatchObject({
+    ok: true,
+  })
+  expect(approvals).toBe(1)
+  expect((await store.listSessions()).filter((s) => s.parentSessionId === 'root')).toHaveLength(1)
+})
+
 it('denies unrelated transcripts, forged senders and unavailable models', async () => {
   await host.create({ ...root, id: 'other' })
   expect(await service.invoke('root', 'session.read', { targetSessionId: 'other' })).toMatchObject({

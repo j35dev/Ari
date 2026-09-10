@@ -19,6 +19,45 @@ import { waitForTurn } from './control-wait'
 
 const log = createLogger('engine:control')
 
+/**
+ * Reported when the requesting call went away (control timeout, disconnect)
+ * while its delegation approval was still open. Distinct from
+ * `delegation_approval_required` (the user refused) so agents know the card
+ * is still up and retry with the same idempotency key instead of treating
+ * the wait as a denial.
+ */
+const APPROVAL_PENDING_MESSAGE =
+  'Delegation approval is still waiting on the user. Retry with the same idempotency key.'
+
+/**
+ * Waits out a shared delegation approval, but a caller that is gone fails
+ * fast with `delegation_approval_pending`. The shared card is untouched —
+ * other waiters keep waiting on it.
+ */
+function raceApproval(pending: Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
+  if (signal === undefined) return pending
+  if (signal.aborted)
+    return Promise.reject(new ControlFailure('delegation_approval_pending', APPROVAL_PENDING_MESSAGE))
+  return new Promise<boolean>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(new ControlFailure('delegation_approval_pending', APPROVAL_PENDING_MESSAGE))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    pending.then(
+      (allowed) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(allowed)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort)
+        // ControlFailure passes through untouched; anything else stays a
+        // generic failure downstream, so normalizing it changes nothing.
+        reject(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
+  })
+}
+
 export interface ControlHost {
   store: SessionStore
   version: string
@@ -239,7 +278,7 @@ export class AgentControlService {
         return { children }
       }
       case 'session.spawn':
-        return this.#spawn(caller, raw as ControlParams<'session.spawn'>)
+        return this.#spawn(caller, raw as ControlParams<'session.spawn'>, signal)
       case 'session.prompt':
       case 'session.message': {
         const p = raw as ControlParams<'session.prompt'>
@@ -400,19 +439,35 @@ export class AgentControlService {
     }
   }
 
-  async #requestApproval(root: Session): Promise<boolean> {
-    const pending = this.#approving.get(root.id)
-    if (pending) return pending
-    const request = this.host.approve(root)
-    this.#approving.set(root.id, request)
-    try {
-      return await request
-    } finally {
-      if (this.#approving.get(root.id) === request) this.#approving.delete(root.id)
+  async #requestApproval(root: Session, signal?: AbortSignal): Promise<boolean> {
+    let pending = this.#approving.get(root.id)
+    if (!pending) {
+      const request = this.host.approve(root)
+      this.#approving.set(root.id, request)
+      // The entry lives until the shared card settles so every overlapping
+      // spawn joins the same approval instead of opening its own card. A
+      // granted approval outlives any single waiter, so a caller that went
+      // away mid-wait still leaves its retry covered without a second card.
+      const cleanup = (): void => {
+        if (this.#approving.get(root.id) === request) this.#approving.delete(root.id)
+      }
+      void request.then(
+        (allowed) => {
+          if (allowed) this.#approved.add(root.id)
+          cleanup()
+        },
+        cleanup,
+      )
+      pending = request
     }
+    return raceApproval(pending, signal)
   }
 
-  async #spawn(caller: Session, p: ControlParams<'session.spawn'>): Promise<unknown> {
+  async #spawn(
+    caller: Session,
+    p: ControlParams<'session.spawn'>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const existing = await this.#existingSpawn(caller, p.idempotencyKey)
     if (existing) return existing
     const chain = await this.#lineage(caller)
@@ -451,8 +506,12 @@ export class AgentControlService {
           (event) => event.type === 'child.session.spawned',
         )
       if (policy.approvalMode === 'always' || !prior) {
-        if (!(await this.#requestApproval(root)))
+        if (!(await this.#requestApproval(root, signal)))
           throw new ControlFailure('delegation_approval_required', 'Delegation was not approved.')
+        // A caller that went away mid-wait must not mint an orphan child:
+        // its retry (same idempotency key) creates the one child.
+        if (signal?.aborted)
+          throw new ControlFailure('delegation_approval_pending', APPROVAL_PENDING_MESSAGE)
       }
       this.#approved.add(root.id)
     }
