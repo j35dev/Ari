@@ -143,10 +143,6 @@
   background: color-mix(in oklab, var(--ari-accent) 45%, transparent);
 }
 
-.ari-burst[data-activity='failed']::before {
-  background: color-mix(in oklab, var(--ari-warning) 40%, transparent);
-}
-
 .ari-error-note {
   position: relative;
 }
