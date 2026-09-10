@@ -16,9 +16,15 @@ export const DISCONNECTED_MUSIC: FocusMusicState = {
   detail: '',
 }
 
-/** Minimal music surface the Focus pill needs; Cliamp details stay in the adapter. */
+/** Minimal music surface the Focus pill needs; backend details stay in the adapter. */
 export interface MusicService {
   getState(): Promise<FocusMusicState>
+  /**
+   * Push-based updates. When present the pill subscribes instead of polling;
+   * when absent it polls getState while open or playing. Implementations
+   * without live state (remote daemons) omit it.
+   */
+  subscribe?(listener: (state: FocusMusicState) => void): () => void
   play(trackId?: string): Promise<{ ok: boolean; error?: string }>
   pause(): Promise<{ ok: boolean; error?: string }>
   next(): Promise<{ ok: boolean; error?: string }>

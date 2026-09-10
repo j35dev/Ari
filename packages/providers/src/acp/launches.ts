@@ -6,56 +6,34 @@ import { wellKnownDirs } from '../detector'
 import type { AcpLaunch } from './connection'
 import type { DetectEnvironment } from '../types'
 import { realDetectEnvironment } from '../types'
-import adapterManifest from '../../../../apps/desktop/packaging/acp-adapters.json'
 
 const log = createLogger('providers:acp')
 
 /**
  * Per-kind ACP transports (M16). Agents with native ACP servers are launched
- * directly; packaged Ari launches the Claude and Codex stdio adapters through
- * Electron's embedded Node runtime, while development installs ride npx.
- * Every launch degrades gracefully: when {@link resolveAcpLaunch} returns
- * null the registry falls back to the legacy one-shot CLI drivers.
+ * directly; Claude, Codex, and Pi ride their stdio adapters through npx.
+ * Ari never bundles adapter runtimes: the user's own CLI must be installed,
+ * and every launch degrades gracefully — when {@link resolveAcpLaunch}
+ * returns null the registry falls back to the legacy one-shot CLI drivers.
  *
  * Sources: agentclientprotocol.com agents index; opencode docs (`opencode
  * acp`); hermes docs (`hermes acp`); xAI Grok Build (`grok agent stdio`);
  * @agentclientprotocol/* adapter packages on npm.
  */
 
-/** Official ACP adapters and their development-time npx package names. */
-const NPM_ADAPTERS: Partial<Record<DriverKind, string>> = Object.fromEntries(
-  Object.entries(adapterManifest).map(([kind, adapter]) => [kind, adapter.packageName]),
-)
-
-const ACP_ADAPTER_VERSIONS: Partial<Record<DriverKind, string>> = Object.fromEntries(
-  Object.entries(adapterManifest).map(([kind, adapter]) => [kind, adapter.version]),
-)
-
-const BUNDLED_ADAPTERS: Partial<
-  Record<DriverKind, { packageName: string; entrypoint: string }>
-> = Object.fromEntries(
-  Object.entries(adapterManifest).map(([kind, adapter]) => [kind, {
-    packageName: adapter.packageName,
-    entrypoint: adapter.entrypoint,
-  }]),
-)
-
-/* pi-acp remains a development-only adapter and is intentionally not packaged. */
-Object.assign(NPM_ADAPTERS, {
+/** Adapter npm packages resolved through npx at runtime (never bundled). */
+const NPM_ADAPTERS: Partial<Record<DriverKind, string>> = {
+  claude: '@agentclientprotocol/claude-agent-acp',
+  codex: '@agentclientprotocol/codex-acp',
   pi: 'pi-acp',
-})
+}
 
-/**
- * The packaged adapter manifest is the pin source. Unpinned `npx -y <pkg>` resolved
- * whatever published that day, which made ACP failures unreproducible between two users on the
- * same Ari build and let protocol details Ari depends on — `terminal-auth` is
- * an adapter `_meta` extension, not standard ACP — change underneath a release.
- * Every bump is a deliberate commit, verified against the login handshake.
- *
- * Override per kind with `ARI_ACP_ADAPTER_<KIND>` (a version, a full spec, or
- * `latest`) to test a new adapter without a rebuild.
- */
-Object.assign(ACP_ADAPTER_VERSIONS, { pi: '0.0.33' })
+/** Pinned adapter versions resolved through npx (see acpAdapterSpec). */
+const ACP_ADAPTER_VERSIONS: Partial<Record<DriverKind, string>> = {
+  claude: '0.70.0',
+  codex: '1.7.0',
+  pi: '0.0.33',
+}
 
 /**
  * The npx spec for a kind's adapter: the pinned `pkg@version`, or whatever
@@ -110,12 +88,15 @@ export interface ResolveAcpLaunchOptions {
   /** Set ARI_ACP=0 or ARI_ACP_<KIND>=0 to pin a kind onto its legacy driver. */
   envOverride?: string | null
   /**
-   * Packaged adapter runtime. When present, Claude/Codex use the shipped JS
-   * entrypoint and this Electron executable instead of npx.
+   * Unused since bundled adapters were removed; kept so older callers still
+   * compile. The field is ignored — launches always resolve through npx or
+   * the agent's native ACP server.
+   * @deprecated
    */
   bundledRuntime?: BundledAcpRuntime
 }
 
+/** @deprecated Bundled ACP runtimes were removed; external CLIs only. */
 export interface BundledAcpRuntime {
   /** Electron executable launched with ELECTRON_RUN_AS_NODE=1. */
   executable: string
@@ -123,12 +104,6 @@ export interface BundledAcpRuntime {
   nodeModulesDir: string
   /** Asar and unpacked module roots needed by Node's bare-specifier resolver. */
   modulePaths?: string[]
-}
-
-function bundledAdapterEntry(kind: DriverKind, runtime: BundledAcpRuntime): string | null {
-  const adapter = BUNDLED_ADAPTERS[kind]
-  if (adapter === undefined) return null
-  return join(runtime.nodeModulesDir, adapter.packageName, adapter.entrypoint)
 }
 
 /**
@@ -162,52 +137,6 @@ export function resolveAcpLaunch(
 
   const adapterPkg = NPM_ADAPTERS[kind]
   if (adapterPkg !== undefined) {
-    // An explicit adapter override deliberately opts out of the shipped
-    // adapter, preserving the existing npx/fork testing escape hatch.
-    const adapterOverride = process.env[`ARI_ACP_ADAPTER_${kind.toUpperCase()}`]?.trim()
-    const bundledEntry =
-      adapterOverride === undefined || adapterOverride.length === 0
-        ? options.bundledRuntime === undefined
-          ? null
-          : bundledAdapterEntry(kind, options.bundledRuntime)
-        : null
-    if (bundledEntry !== null) {
-      if (!existsSync(bundledEntry)) {
-        log.warn('acp: bundled adapter entrypoint is missing; using legacy fallback', {
-          kind,
-          entrypoint: bundledEntry,
-        })
-        return null
-      }
-      const adapter = BUNDLED_ADAPTERS[kind]
-      const runtime = options.bundledRuntime
-      if (adapter === undefined || runtime === undefined) return null
-      const launch: AcpLaunch = {
-        label: `${kind} (bundled ACP adapter ${adapter.packageName})`,
-        command: runtime.executable,
-        args: [bundledEntry],
-        env: {
-          ELECTRON_RUN_AS_NODE: '1',
-          ...(runtime.modulePaths === undefined
-            ? {}
-            : { NODE_PATH: runtime.modulePaths.join(delimiter) }),
-        },
-        viaBundled: true,
-        // Otherwise codex-acp runs its bundled Codex, which can lag the user's CLI.
-        ...(kind === 'codex'
-          ? {
-              env: {
-                ELECTRON_RUN_AS_NODE: '1',
-                ...(runtime.modulePaths === undefined
-                  ? {}
-                  : { NODE_PATH: runtime.modulePaths.join(delimiter) }),
-                CODEX_PATH: options.cliBinaryPath,
-              },
-            }
-          : {}),
-      }
-      return launch
-    }
     const npx = findNpxCommand(detectEnv)
     if (npx === null) {
       log.debug('acp: npx not found; using legacy driver', { kind })
