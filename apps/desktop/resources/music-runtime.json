@@ -1,42 +1,41 @@
 {
-  "$comment": "Pinned per-architecture music helper (yt-dlp) fetched on first Focus Music use into the user's application-data directory — never bundled in the installer. Bump `version`, refresh sha256 from the release SHA2-256SUMS, and the engine downloads only the host target. Binary names are normalized (`yt-dlp[.exe]`) regardless of upstream asset names.",
-  "version": "2026.08.19",
-  "source": "https://github.com/yt-dlp/yt-dlp/releases/tag/2026.08.19",
+  "$comment": "Ari music-helper manifest (yt-dlp). Bundled fallback shipped in the installer; the engine prefers a cached/remote copy (see music-runtime.ts) so the runtime updates without an Ari release. Bump runtimeVersion, refresh sha256 from the release SHA2-256SUMS. Binary names are normalized (`yt-dlp[.exe]`) regardless of upstream asset names.",
+  "schemaVersion": 1,
+  "runtimeVersion": "2026.08.19",
   "license": "Unlicense",
-  "baseUrl": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19",
-  "targets": {
+  "platforms": {
     "win32-x64": {
-      "asset": "yt-dlp.exe",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
       "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
       "binary": "yt-dlp.exe",
       "size": 17840399
     },
     "win32-arm64": {
-      "asset": "yt-dlp_arm64.exe",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_arm64.exe",
       "sha256": "05b438997bafc3affdfda9d041353c9d73e04dc842207254b655b0887c4445b0",
       "binary": "yt-dlp.exe",
       "size": 21159286
     },
     "darwin-x64": {
-      "asset": "yt-dlp_macos",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos",
       "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202",
       "binary": "yt-dlp",
       "size": 37146048
     },
     "darwin-arm64": {
-      "asset": "yt-dlp_macos",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos",
       "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202",
       "binary": "yt-dlp",
       "size": 37146048
     },
     "linux-x64": {
-      "asset": "yt-dlp_linux",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux",
       "sha256": "58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a",
       "binary": "yt-dlp",
       "size": 40446224
     },
     "linux-arm64": {
-      "asset": "yt-dlp_linux_aarch64",
+      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux_aarch64",
       "sha256": "b16e4dab368a816cd05d477d698a605a6ae87ccee1c8ffd38fa21d7254141fcc",
       "binary": "yt-dlp",
       "size": 40167448

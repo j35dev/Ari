@@ -31,7 +31,12 @@ How to build distributable installers for Windows, macOS, and Linux. Config live
 
 - Focus music downloads its tiny resolver helper on first use into the user's
   application-data directory (per-architecture, verified by SHA-256). Nothing
-  music-related ships inside the installer.
+  music-related ships inside the installer. The pin lives in
+  `apps/desktop/resources/music-runtime.json` (same schema doubles as the
+  remote manifest): the engine prefers a cached/remote copy (12h TTL) so the
+  runtime — including rollbacks, since the desired version is authoritative —
+  updates without an Ari release. Override the source with
+  `ARI_MUSIC_MANIFEST_URL` (empty disables remote).
 
 ## Build commands (run from `apps/desktop`)
 
