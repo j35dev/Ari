@@ -24,6 +24,10 @@ import { getSettingsStore } from './store'
 const FALLBACK_BG = '#171717'
 const FALLBACK_SYMBOL = '#eaeaea'
 
+/** Packaged renderer policy; remote audio is restricted to HTTPS media only. */
+export const PACKAGED_CONTENT_SECURITY_POLICY =
+  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http: https: ws:; media-src 'self' https: blob:"
+
 export interface ThemeWindowChrome {
   backgroundColor: string
   symbolColor: string
@@ -123,9 +127,7 @@ export function createMainWindow(): BrowserWindow {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http: https: ws:",
-          ],
+          'Content-Security-Policy': [PACKAGED_CONTENT_SECURITY_POLICY],
         },
       })
     })
