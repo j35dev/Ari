@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronRight, TriangleAlert } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { describeActivity, formatToolSummary, type ActivityLedgerEntry } from './groupBlocks'
 import { ActivityStep, KIND_ICON, StepBody } from './ActivityStep'
 import { ThinkingBlock } from './ThinkingBlock'
@@ -39,9 +39,9 @@ function ActivityLedger({ entries }: { entries: ActivityLedgerEntry[] }) {
  * +1`) with the tally demoted to the glyph ledger on the right, so fifteen
  * bursts in a session no longer read as fifteen interchangeable sentences of
  * counted nouns. The rail carries the state — travelling light while a call is
- * unanswered, warning-tinted when a step failed, a near-invisible hairline once
- * settled — which keeps color out of history and reserves it for what is
- * happening now.
+ * unanswered, a near-invisible hairline once settled — which keeps color out
+ * of history and reserves it for what is happening now. Tool-result errors
+ * stay folded inside their step; the burst headline never counts them.
  *
  * Expanding reveals the timeline: one aligned row per step in wire order,
  * reasoning as dim italic previews, each step opening to its own arguments and
@@ -55,18 +55,14 @@ export function ActivityBurst({ row }: { row: ToolGroupRow }) {
   const open = openOverride ?? working
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
   const lone = steps.length === 1 && steps[0]?.kind === 'tool-call' ? steps[0] : undefined
-  const failed = summary.errors > 0
   const tally = formatToolSummary(summary)
 
   const named = [working ? `Working: ${label}` : label]
   if (tally.length > 0 && tally !== label) named.push(tally)
-  if (failed) named.push(`${summary.errors} failed`)
 
   return (
-    <div
-      className="ari-burst my-1 pl-3"
-      data-activity={working ? 'working' : failed ? 'failed' : 'settled'}
-    >
+    <div className="ari-burst my-1 pl-3" data-activity={working ? 'working' : 'settled'}>
+
       <button
         type="button"
         onClick={() => setOpenOverride(!open)}
@@ -92,15 +88,6 @@ export function ActivityBurst({ row }: { row: ToolGroupRow }) {
           ) : null}
         </span>
         <span className="flex shrink-0 items-center gap-3">
-          {failed ? (
-            <span
-              aria-hidden="true"
-              className="flex items-center gap-1 font-mono text-2xs tabular-nums text-warning"
-            >
-              <TriangleAlert size={11} />
-              {summary.errors}
-            </span>
-          ) : null}
           {stat !== null && (stat.added > 0 || stat.removed > 0) ? (
             <span aria-hidden="true" className="font-mono text-2xs tabular-nums text-fg-muted">
               +{stat.added} −{stat.removed}
