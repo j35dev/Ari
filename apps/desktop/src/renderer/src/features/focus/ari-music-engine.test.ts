@@ -60,6 +60,11 @@ function setup(resolver?: (track: FocusTrack) => Promise<string>) {
   return { audio, engine, resolveStream, snapshots, unsubscribe }
 }
 
+/** Lets pending microtasks and short timers settle between event injections. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
 describe('AriMusicEngine', () => {
   it('starts idle with the default volume', () => {
     const { engine } = setup()
@@ -200,5 +205,110 @@ describe('AriMusicEngine', () => {
     const { engine } = setup()
     expect(await engine.play()).toEqual({ ok: false, error: 'Nothing to play.' })
     expect(await engine.setQueue([])).toEqual({ ok: false, error: 'Nothing to play.' })
+  })
+
+  it('recovers an expired stream: same position, playback resumes', async () => {
+    const audio = new FakeAudio()
+    const refreshFlags: (boolean | undefined)[] = []
+    const engine = new AriMusicEngine({
+      createAudio: () => audio,
+      resolveStream: async (_track, options) => {
+        refreshFlags.push(options?.refresh)
+        return refreshFlags.length === 1 ? 'url:1' : 'url:2'
+      },
+    })
+    await engine.playTrack(track('a'))
+    audio.load(300)
+    audio.currentTime = 142
+    audio.fire('error')
+    await flush()
+    await flush()
+    expect(audio.src).toBe('url:2')
+    audio.load(300)
+    audio.fire('loadedmetadata')
+    await flush()
+    await flush()
+    expect(audio.currentTime).toBe(142)
+    expect(engine.getSnapshot()).toMatchObject({ playing: true, track: { id: 'a' } })
+    expect(refreshFlags).toEqual([undefined, true])
+  })
+
+  it('retries an expired stream exactly once, then surfaces the error', async () => {
+    const audio = new FakeAudio()
+    let calls = 0
+    const engine = new AriMusicEngine({
+      createAudio: () => audio,
+      resolveStream: async () => {
+        calls++
+        if (calls === 1) return 'url:1'
+        throw new Error('expired again')
+      },
+    })
+    await engine.playTrack(track('a'))
+    audio.load(300)
+    audio.fire('error')
+    await flush()
+    await flush()
+    expect(calls).toBe(2)
+    expect(engine.getSnapshot().detail).toBe("This track can't be played.")
+    audio.fire('error')
+    await flush()
+    expect(calls).toBe(2)
+  })
+
+  it('drops a stale recovery when the track changes mid-recovery', async () => {
+    const audio = new FakeAudio()
+    let releaseStale!: (url: string) => void
+    const gate = new Promise<string>((resolve) => {
+      releaseStale = resolve
+    })
+    let calls = 0
+    const engine = new AriMusicEngine({
+      createAudio: () => audio,
+      resolveStream: (t) => {
+        calls++
+        if (calls === 1) return Promise.resolve('url:A')
+        if (calls === 2) return gate
+        return Promise.resolve('url:B')
+      },
+    })
+    await engine.playTrack(track('A'))
+    audio.load(300)
+    audio.fire('error')
+    await flush()
+    const playing = engine.playTrack(track('B'))
+    await playing
+    expect(audio.src).toBe('url:B')
+    releaseStale('url:A-stale')
+    await flush()
+    await flush()
+    expect(audio.src).toBe('url:B')
+    expect(engine.getSnapshot().track?.id).toBe('B')
+  })
+
+  it('restores position paused when the expired track was paused', async () => {
+    const audio = new FakeAudio()
+    let calls = 0
+    const engine = new AriMusicEngine({
+      createAudio: () => audio,
+      resolveStream: async () => (++calls === 1 ? 'url:1' : 'url:2'),
+    })
+    await engine.playTrack(track('a'))
+    audio.load(300)
+    audio.pause()
+    const playsBefore = audio.played.length
+    audio.currentTime = 50
+    audio.fire('error')
+    await flush()
+    await flush()
+    audio.load(300)
+    audio.fire('loadedmetadata')
+    await flush()
+    await flush()
+    expect(audio.src).toBe('url:2')
+    expect(audio.currentTime).toBe(50)
+    expect(audio.paused).toBe(true)
+    expect(audio.played.length).toBe(playsBefore)
+    expect(engine.getSnapshot().track?.id).toBe('a')
   })
 })
