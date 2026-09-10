@@ -39,7 +39,6 @@ import {
 } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
 import { applyThemeToWindow } from './window'
-import { packagedAsarPath } from './packaged-asar'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
@@ -70,7 +69,7 @@ import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updat
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver } from '@ari/providers/acp'
-import { resolveAcpLaunch, probeLaunch, type BundledAcpRuntime } from '@ari/providers/acp/launches'
+import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
 import type { AcpLaunch } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
@@ -91,26 +90,9 @@ import { todoFilenameFor } from '@ari/ari-core/todo'
 const log = createLogger('desktop:rpc')
 
 /**
- * Packaged apps carry the ACP adapters in their asar and use Electron's
- * embedded Node runtime to execute them. Development keeps the npx path so
- * adapter overrides and local adapter experiments remain available.
- */
-function bundledAcpRuntime(): BundledAcpRuntime | undefined {
-  if (!app.isPackaged) return undefined
-  const archive = packagedAsarPath(process.resourcesPath, process.arch)
-  const unpackedNodeModules = join(`${archive}.unpacked`, 'node_modules')
-  return {
-    executable: process.execPath,
-    nodeModulesDir: unpackedNodeModules,
-    modulePaths: [unpackedNodeModules, join(archive, 'node_modules')],
-  }
-}
-
-/**
- * Kinds whose ACP server is probed for the agent's own model list. Packaged
- * Claude/Codex adapters are local assets; development npx adapters are probed
- * with `--no-install` so background discovery never downloads; everything
- * fails soft.
+ * Kinds whose ACP server is probed for the agent's own model list. Adapters
+ * resolve through npx and are probed with `--no-install` so background
+ * discovery never downloads; everything fails soft.
  */
 function acpProbeKinds(): DriverKind[] {
   if (process.env['ARI_ACP'] === '0') return []
@@ -136,13 +118,11 @@ async function probeAcpModels(
   if (!detection.binaryPath) return null
   const launch = resolveAcpLaunch(kind, {
     cliBinaryPath: detection.binaryPath,
-    bundledRuntime: bundledAcpRuntime(),
   })
   if (launch === null) return null
   const { AcpConnection } = await import('@ari/providers/acp/connection')
-  // Development npx launches must not pull packages just to enumerate models;
-  // probeLaunch strips consent so --no-install actually holds. Packaged
-  // launches pass through unchanged.
+  // npx launches must not pull packages just to enumerate models;
+  // probeLaunch strips consent so --no-install actually holds.
   const connection = await AcpConnection.connect({
     launch: probeLaunch(launch),
     cwd: homedir(),
@@ -193,17 +173,14 @@ const DETECTION_CACHE_TTL_MS = 30_000
 const providerAuth = new ProviderAuthState()
 
 /**
- * Preflight seam for {@link probeProviderAuth}. Packaged launches use local
- * adapter assets; development npx launches get `--no-install`, so checking a
- * login never downloads a package. A missing adapter asset fails here and is
- * reported as `unknown` (not as a logged-out user).
+ * Preflight seam for {@link probeProviderAuth}. Npx launches get
+ * `--no-install`, so checking a login never downloads a package.
  */
 const authProbeDeps: AuthProbeDeps = {
   detections: () => probeAllDetections(),
   connect: async (kind, binaryPath): Promise<AuthProbeConnection | null> => {
     const launch = resolveAcpLaunch(kind, {
       cliBinaryPath: binaryPath,
-      bundledRuntime: bundledAcpRuntime(),
     })
     if (launch === null) return null
     const { AcpConnection } = await import('@ari/providers/acp/connection')
@@ -393,7 +370,6 @@ function hydrateDrivers(registry: DriverRegistry): void {
           if (!detection.binaryPath) return
           const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
             cliBinaryPath: detection.binaryPath,
-            bundledRuntime: bundledAcpRuntime(),
           })
           registry.register(
             new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath), (wall) =>
@@ -774,7 +750,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
   const allowanceReader = new ProviderAllowanceReader((kind, binaryPath) =>
-    fetchAllowance(kind, binaryPath, bundledAcpRuntime()),
+    fetchAllowance(kind, binaryPath, undefined),
   )
   r.register('providers.allowance', async ({ kind }) => {
     const detections = await probeAllDetections()
