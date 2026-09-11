@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import {
+  isUnfiled,
   moveProjectInList,
   projectMoveForDelta,
   projectMoveFromOrder,
@@ -134,6 +135,18 @@ describe('sidebarGroups', () => {
       projects,
     )
     expect(groups[0]?.sessions.map((s) => s.id)).toEqual(['live'])
+  })
+})
+
+describe('isUnfiled', () => {
+  it('is true only for the adhoc bucket, not for what the sidebar files under Unfiled', () => {
+    expect(isUnfiled(row('loose', 1))).toBe(true)
+    expect(isUnfiled(row('filed', 1, { projectId: 'p1' }))).toBe(false)
+    // A closed project's session also renders under Unfiled, but it still has a
+    // registered folder behind it — so unlike a true ad-hoc session it has
+    // somewhere a shell can run.
+    expect(isUnfiled(row('orphan', 1, { projectId: 'closed' }))).toBe(false)
+    expect(isUnfiled(undefined)).toBe(false)
   })
 })
 
