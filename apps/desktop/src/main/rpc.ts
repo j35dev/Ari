@@ -1065,7 +1065,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   // Non-destructive: the project and its sessions survive, it just leaves the
-  // sidebar. `project.remove` is the destructive counterpart.
+  // sidebar. `project.remove` is the sharper counterpart — the folder stops
+  // being a trusted root and its sessions lose their workspace until the folder
+  // is added back, which the store's tombstone lets them recover from.
   r.register('project.close', async (params) => getProjectStore().close(params.id))
 
   r.register('project.remove', async (params) => {
