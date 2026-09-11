@@ -1314,7 +1314,128 @@ describe('SessionView image attachments', () => {
 
     expect(await screen.findByText('Couldn’t attach images')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('do not lose this'))
+    // The composer cleared its staged files on send, so the attachment has to
+    // come back with the text or the retry silently loses the image.
+    expect(await screen.findByRole('list', { name: 'Attached images' })).toBeInTheDocument()
+    expect(screen.getByAltText('shot.png')).toBeInTheDocument()
     expect(invokeMock.mock.calls.some(([method]) => method === 'command.dispatch')).toBe(false)
+  })
+
+  it('keeps the attached images when the send is refused', async () => {
+    const user = userEvent.setup()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: false, reason: 'over capacity' }
+      if (method === 'attachments.stage') return { attachments: [REF] }
+      if (method === 'attachments.read') {
+        return { attachment: { name: 'shot.png', mimeType: 'image/png', size: 8, dataBase64: 'aGk=' } }
+      }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    renderView()
+    const input = await screen.findByLabelText('Message')
+
+    fireEvent.paste(input, {
+      clipboardData: { files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]) },
+    })
+    await user.type(input, 'look at this{Enter}')
+
+    expect(await screen.findByText('over capacity')).toBeInTheDocument()
+    // A refused send has to cost a retry, not the images the user attached.
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('look at this'))
+    expect(await screen.findByRole('list', { name: 'Attached images' })).toBeInTheDocument()
+    expect(screen.getByAltText('shot.png')).toBeInTheDocument()
+  })
+})
+
+describe('SessionView refused sends with review notes', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: false, reason: 'over capacity' }
+      if (method === 'git.turnDiff') {
+        const p = params as { turnId: string }
+        return p.turnId === 'turn_1' ? { diffText: TURN_DIFF } : { diffText: null }
+      }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  it('keeps the review notes when the send is refused', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+
+    // One settled turn with a diff, so a line note has something to attach to.
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'edit the file' }],
+        createdAt: 1,
+      },
+    })
+    emitSessionEvent({ seq: 2, at: 2, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+    await user.click(await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }))
+    // Both diff lines carry the same line number in this fixture.
+    await user.click((await screen.findAllByRole('button', { name: 'Comment on src/a.ts:1' }))[0]!)
+    await user.type(screen.getByLabelText('Review note for src/a.ts'), 'extract a helper')
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    expect(await screen.findByLabelText('Review notes attached to next message')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Message'), 'do it{Enter}')
+    expect(await screen.findByText('over capacity')).toBeInTheDocument()
+
+    // The notes rode the refused dispatch and were cleared, so they have to
+    // come back with the text — otherwise the retry silently drops them.
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('do it'))
+    expect(screen.getByLabelText('Review notes attached to next message')).toBeInTheDocument()
+    expect(screen.getByLabelText('Remove note extract a helper')).toBeInTheDocument()
   })
 })
 

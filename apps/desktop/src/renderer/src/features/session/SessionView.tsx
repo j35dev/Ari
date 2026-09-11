@@ -538,23 +538,26 @@ export function SessionView({
   )
 
   const dispatchSend = useCallback(
-    (text: string, attachments: AttachmentRef[]) => {
+    (text: string, attachments: AttachmentRef[], files: File[]) => {
       // Review notes ride along with the next outgoing message, then clear.
-      let outgoing = text
-      setReviewNotes((notes) => {
-        if (notes.length > 0) {
-          const block = notes
-            .map((n) => `- ${n.path}${n.line !== null ? `:${n.line}` : ''} — ${n.text}`)
-            .join('\n')
-          outgoing = `Review notes on your changes:\n${block}\n\n${text}`
-          return []
-        }
-        return notes
-      })
+      // Read from state here rather than through a state updater: React may
+      // defer an updater, and one that has not run yet would leave `outgoing`
+      // without the notes this dispatch is about to send.
+      const notes = reviewNotes
+      const outgoing =
+        notes.length > 0
+          ? `Review notes on your changes:\n${notes
+              .map((n) => `- ${n.path}${n.line !== null ? `:${n.line}` : ''} — ${n.text}`)
+              .join('\n')}\n\n${text}`
+          : text
+      if (notes.length > 0) setReviewNotes([])
       // A rejected send must cost a retry, not the message: the composer
-      // already cleared its draft by now, so put the text back.
-      const restoreDraft = (): void =>
-        setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+      // already cleared its draft — text, images and the notes above — so put
+      // all of it back and the retry carries the same context.
+      const restoreDraft = (): void => {
+        if (notes.length > 0) setReviewNotes((prev) => (prev.length === 0 ? notes : prev))
+        setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
+      }
       if (running) {
         // The engine journals the queue (and dequeues immediately when the
         // transport confirms the steer); the mirrored events update the view.
@@ -574,23 +577,24 @@ export function SessionView({
         restoreDraft,
       )
     },
-    [sessionId, running, dispatch],
+    [sessionId, running, dispatch, reviewNotes],
   )
 
   const handleSend = useCallback(
     (text: string, files: File[]) => {
       // Staging is async; imageless sends skip it and dispatch synchronously.
       if (files.length === 0) {
-        dispatchSend(text, [])
+        dispatchSend(text, [], [])
         return
       }
       void stageImages(files).then(
-        (attachments) => dispatchSend(text, attachments),
+        (attachments) => dispatchSend(text, attachments, files),
         (err: unknown) => {
           // The composer already cleared: restore the draft so the failure
           // costs a retry, not the message, and never send text-only behind
-          // images the user explicitly attached.
-          setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+          // images the user explicitly attached. The notes were never spent —
+          // no dispatch happened — so they are still in state.
+          setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
           toast({
             title: 'Couldn’t attach images',
             description: err instanceof Error ? err.message : String(err),
@@ -684,7 +688,8 @@ export function SessionView({
   // a turn runs so it can never enqueue behind itself.
   const resendLastPrompt = useCallback(() => {
     if (running || lastUserMessage === null) return
-    dispatchSend(lastUserMessage.text, lastUserMessage.attachments)
+    // No composer Files to restore: the resend does not come from the draft.
+    dispatchSend(lastUserMessage.text, lastUserMessage.attachments, [])
   }, [running, lastUserMessage, dispatchSend])
 
   const respondApproval = useCallback(
