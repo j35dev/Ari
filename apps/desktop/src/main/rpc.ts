@@ -118,10 +118,16 @@ async function probeAcpModels(
   const environment = await resolveDetectionEnvironment()
   const detection = await detectDriver(kind, environment)
   if (!detection.binaryPath) return null
+  // Detection searches the enriched PATH, so the probe processes must run with
+  // it too: a shim found there is only runnable if the child can also resolve
+  // the runtime it shells out to (GUI launches inherit a thin process PATH).
+  const probeEnv = processEnvWithPath(environment.pathEnv)
 
   if (kind === 'codex') {
     try {
-      const catalog = await probeCodexModelCatalog(detection.binaryPath, homedir())
+      const catalog = await probeCodexModelCatalog(detection.binaryPath, homedir(), {
+        env: probeEnv,
+      })
       if (catalog.models.length > 0) {
         setDynamicEfforts(kind, catalog.efforts)
         return catalog.models
@@ -148,6 +154,7 @@ async function probeAcpModels(
     launch: probeLaunch(launch),
     cwd: homedir(),
     initializeTimeoutMs: 20_000,
+    runtimeEnv: probeEnv,
   })
   try {
     const created = await connection.newSession(homedir())

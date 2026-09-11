@@ -100,6 +100,34 @@ describe('CatalogService', () => {
     expect(modelsFor('grok')).toEqual(modelsForBefore('grok'))
   })
 
+  it('keeps the snapshot when a round carries no usable Claude rows', async () => {
+    const before = modelsForBefore('claude')
+    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const cachePath = join(dir, 'cache', 'models.json')
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockResolvedValue(
+        registryResponse({
+          anthropic: { models: {} },
+          openai: { models: { 'gpt-6-astra': { id: 'gpt-6-astra', name: 'GPT-6 Astra' } } },
+        }),
+      ) as unknown as typeof fetch,
+      cachePath,
+    })
+
+    await service.refresh()
+
+    // Aliases are additive rows, not a catalog: an anthropic-less round must
+    // not overwrite the richer snapshot with three version-less ids.
+    expect(modelsFor('claude')).toEqual(before)
+    expect(catalogSource('claude')).toBe('snapshot')
+    const cached = JSON.parse(await readFile(cachePath, 'utf8')) as {
+      providers: Record<string, CatalogModel[]>
+    }
+    expect(cached.providers['anthropic']?.map((model) => model.id)).toContain('claude-opus-5')
+    // Rounds that did carry usable rows still apply.
+    expect(modelsFor('codex')).toEqual([{ id: 'gpt-6-astra', label: 'GPT-6 Astra' }])
+  })
+
   it('keeps newly released models without an exact-id allowlist and drops deprecated history', async () => {
     const service = new CatalogService({
       fetchImpl: vi.fn().mockResolvedValue(

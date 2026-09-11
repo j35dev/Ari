@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
-import { catalogSource, modelsFor, setDynamicModels } from './catalogs'
+import { catalogSource, CLAUDE_ALIASES, modelsFor, setDynamicModels } from './catalogs'
 import type { CatalogModel } from './catalogs'
 
 const log = createLogger('providers:catalog')
@@ -106,12 +106,11 @@ function toCatalogModels(kind: DriverKind, models: Record<string, RegistryModel>
         return true
       })
       .slice(0, 12)
-    return [
-      { id: 'fable', label: 'Fable (latest)' },
-      { id: 'opus', label: 'Opus (latest)' },
-      { id: 'sonnet', label: 'Sonnet (latest)' },
-      ...current.map((candidate) => candidate.catalog),
-    ]
+    // Aliases ride along with a real catalog, never replace one: returning
+    // them alone would make a payload with no usable anthropic rows look
+    // non-empty and clobber the richer snapshot the caller falls back to.
+    if (current.length === 0) return []
+    return [...CLAUDE_ALIASES, ...current.map((candidate) => candidate.catalog)]
   }
 
   if (kind === 'codex') {
