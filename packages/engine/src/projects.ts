@@ -42,14 +42,41 @@ function withStatus(project: StoredProject): Project {
 }
 
 /**
+ * A project the user removed. Removal is deliberately not a hard delete:
+ * sessions filed under the project keep its id, and a session whose project id
+ * resolves to nothing has no workspace at all — no folder to run a turn in, no
+ * shell, no explorer. Keeping the record means re-adding the same folder
+ * restores the same id, and every one of those sessions comes back with it.
+ */
+const removedProjectSchema = z.object({
+  project: projectSchema,
+  removedAt: z.number().int().nonnegative(),
+})
+type RemovedProject = z.infer<typeof removedProjectSchema>
+
+/**
+ * The persisted registry. Older files are a bare `StoredProject[]`; the object
+ * wrapper arrived with tombstones, and `load` still accepts both.
+ */
+const registrySchema = z.object({
+  projects: z.array(projectSchema),
+  removed: z.array(removedProjectSchema),
+})
+
+/**
  * Registered workspace folders. Paths are canonicalized (realpath) before
  * dedupe, so opening the same folder twice reuses its project. A folder that
  * no longer exists is kept and reported with `status: 'missing'` rather than
  * being dropped.
+ *
+ * Removing a project keeps a tombstone rather than forgetting it outright, so
+ * the folder can be added back without stranding the sessions filed under it
+ * — see `remove` and `add`.
  */
 export class ProjectStore {
   readonly #path: string
   #projects: StoredProject[] = []
+  #removed: RemovedProject[] = []
   // Guards against a `load()` racing an in-flight mutation and clobbering it
   // with the on-disk snapshot: the first load wins, later ones are no-ops.
   #loaded = false
@@ -63,9 +90,17 @@ export class ProjectStore {
     try {
       const raw = await readFile(this.#path, 'utf8')
       const parsed: unknown = JSON.parse(raw)
-      this.#projects = z.array(projectSchema).parse(parsed)
+      const legacy = z.array(projectSchema).safeParse(parsed)
+      if (legacy.success) {
+        this.#projects = legacy.data
+      } else {
+        const registry = registrySchema.parse(parsed)
+        this.#projects = registry.projects
+        this.#removed = registry.removed
+      }
     } catch {
       this.#projects = []
+      this.#removed = []
     }
     this.#loaded = true
     return this.list()
@@ -85,11 +120,23 @@ export class ProjectStore {
    * Registers a folder (or returns the existing project for the same
    * canonical path). Missing folders are recorded too — the caller sees them
    * as `status: 'missing'`.
+   *
+   * A folder the user removed earlier comes back as its original project id,
+   * so the sessions still filed under that id regain their workspace rather
+   * than staying stranded.
    */
   async add(folderPath: string, name?: string): Promise<Project> {
     const canonical = await canonicalizeFolder(folderPath)
     const existing = this.#findByPath(canonical)
     if (existing) return withStatus(existing)
+    const tombstone = this.#findRemovedByPath(canonical)
+    if (tombstone) {
+      const restored: StoredProject = { ...tombstone.project, name: name ?? tombstone.project.name }
+      this.#removed = this.#removed.filter((r) => r !== tombstone)
+      this.#projects = [...this.#projects, restored]
+      await this.#persist()
+      return withStatus(restored)
+    }
     const project = projectSchema.parse({
       id: newTypedId('proj'),
       name: name ?? canonical.split(/[\\/]/).filter(Boolean).pop() ?? canonical,
@@ -136,11 +183,22 @@ export class ProjectStore {
     return withStatus(moved)
   }
 
-  /** Destructive: forgets the project entirely. */
+  /**
+   * Leaves the registry — the folder stops being a trusted root and its
+   * sessions lose their workspace — but keeps a tombstone, so adding the
+   * folder again restores this project's id and revives those sessions.
+   */
   async remove(id: string): Promise<boolean> {
-    const before = this.#projects.length
+    const project = this.#projects.find((p) => p.id === id)
+    if (!project) return false
     this.#projects = this.#projects.filter((p) => p.id !== id)
-    if (this.#projects.length === before) return false
+    // One tombstone per folder: `add` dedupes live projects by path, so a
+    // second record for the same path can only be a leftover.
+    const key = dedupeKey(project.path)
+    this.#removed = [
+      ...this.#removed.filter((r) => dedupeKey(r.project.path) !== key),
+      { project, removedAt: Date.now() },
+    ]
     await this.#persist()
     return true
   }
@@ -155,6 +213,11 @@ export class ProjectStore {
     return this.#projects.find((p) => dedupeKey(p.path) === key) ?? null
   }
 
+  #findRemovedByPath(canonicalPath: string): RemovedProject | null {
+    const key = dedupeKey(canonicalPath)
+    return this.#removed.find((r) => dedupeKey(r.project.path) === key) ?? null
+  }
+
   async #patch(id: string, fields: Partial<StoredProject>): Promise<Project | null> {
     const target = this.#projects.find((p) => p.id === id)
     if (!target) return null
@@ -165,9 +228,10 @@ export class ProjectStore {
   }
 
   async #persist(): Promise<void> {
+    const payload = JSON.stringify({ projects: this.#projects, removed: this.#removed }, null, 2)
     await mkdir(dirname(this.#path), { recursive: true })
     const tmp = `${this.#path}.tmp`
-    await writeFile(tmp, JSON.stringify(this.#projects, null, 2), 'utf8')
+    await writeFile(tmp, payload, 'utf8')
     // Windows AV/indexers can hold the target briefly; retry a few times.
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
@@ -177,6 +241,6 @@ export class ProjectStore {
         await new Promise((r) => setTimeout(r, 25 * (attempt + 1)))
       }
     }
-    await writeFile(this.#path, JSON.stringify(this.#projects, null, 2), 'utf8')
+    await writeFile(this.#path, payload, 'utf8')
   }
 }
