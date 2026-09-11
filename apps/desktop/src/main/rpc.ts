@@ -43,6 +43,7 @@ import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
+import { probeCodexModelCatalog } from '@ari/providers/codex/model-catalog'
 import { OpencodeDriver } from '@ari/providers/opencode'
 import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
@@ -114,11 +115,31 @@ async function probeAcpModels(
   kind: DriverKind,
 ): Promise<RpcResults['providers.models'][number]['models'] | null> {
   const { detectDriver } = await import('@ari/providers/detector')
-  const detection = await detectDriver(kind)
+  const environment = await resolveDetectionEnvironment()
+  const detection = await detectDriver(kind, environment)
   if (!detection.binaryPath) return null
-  const launch = resolveAcpLaunch(kind, {
-    cliBinaryPath: detection.binaryPath,
-  })
+
+  if (kind === 'codex') {
+    try {
+      const catalog = await probeCodexModelCatalog(detection.binaryPath, homedir())
+      if (catalog.models.length > 0) {
+        setDynamicEfforts(kind, catalog.efforts)
+        return catalog.models
+      }
+    } catch (error) {
+      log.debug('native Codex model probe failed; trying ACP fallback', {
+        error: String(error),
+      })
+    }
+  }
+
+  const launch = resolveAcpLaunch(
+    kind,
+    {
+      cliBinaryPath: detection.binaryPath,
+    },
+    environment,
+  )
   if (launch === null) return null
   const { AcpConnection } = await import('@ari/providers/acp/connection')
   // npx launches must not pull packages just to enumerate models;

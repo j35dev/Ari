@@ -1,17 +1,18 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NewSessionPanel } from './NewSessionPanel'
 
-const { invokeFn, modelsForFn } = vi.hoisted(() => ({
+const { invokeFn, modelsForFn, subscribeFn } = vi.hoisted(() => ({
   invokeFn: vi.fn(),
   modelsForFn: vi.fn(),
+  subscribeFn: vi.fn(),
 }))
 
 vi.mock('../../lib/rpc', () => ({
   rpc: {
     invoke: invokeFn,
-    subscribe: vi.fn(() => () => undefined),
+    subscribe: subscribeFn,
   },
 }))
 
@@ -68,6 +69,8 @@ describe('NewSessionPanel', () => {
   beforeEach(() => {
     invokeFn.mockReset()
     modelsForFn.mockReset()
+    subscribeFn.mockReset()
+    subscribeFn.mockReturnValue(() => undefined)
     mockInvoke()
   })
 
@@ -121,6 +124,41 @@ describe('NewSessionPanel', () => {
       })
     })
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('sess_new'))
+  })
+
+  it('refreshes a mounted model picker when live discovery finishes', async () => {
+    let catalogRows: unknown[] = []
+    let onUpdate: ((payload: unknown) => void) | undefined
+    invokeFn.mockImplementation((method: string) => {
+      if (method === 'providers.detect') return Promise.resolve(DETECTIONS)
+      if (method === 'providers.models') return Promise.resolve(catalogRows)
+      if (method === 'endpoints.list') return Promise.resolve(ENDPOINTS)
+      return Promise.reject(new Error(`unexpected method ${method}`))
+    })
+    subscribeFn.mockImplementation(
+      (_channel: string, _params: unknown, listener: (payload: unknown) => void) => {
+        onUpdate = listener
+        return () => undefined
+      },
+    )
+    modelsForFn.mockReturnValue([{ id: 'sonnet', label: 'Sonnet (latest)' }])
+
+    render(<NewSessionPanel onSuccess={() => undefined} onCancel={() => undefined} />)
+    await screen.findByRole('button', { name: 'Claude' })
+    await screen.findByRole('button', { name: 'Sonnet (latest)' })
+
+    catalogRows = [
+      {
+        kind: 'claude',
+        source: 'cache',
+        models: [{ id: 'claude-fable-5-1', label: 'Claude Fable 5.1', contextHint: '1m' }],
+        efforts: [],
+        modes: [],
+      },
+    ]
+    await act(async () => onUpdate?.({ type: 'catalog', at: Date.now() }))
+
+    expect(await screen.findByRole('button', { name: /Claude Fable 5\.1/ })).toBeInTheDocument()
   })
 
   it('ari-core lists endpoints as model entries and creates with the chosen endpoint', async () => {
