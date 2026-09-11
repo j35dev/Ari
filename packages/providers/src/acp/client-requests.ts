@@ -11,6 +11,13 @@ export const OTHER_LABEL = 'Other'
 export interface QuestionOption {
   id: string
   label: string
+  /**
+   * What gets submitted for this option when it is not the label. Claude's
+   * AskUserQuestion encodes each choice as `oneOf: { const, title }` — the
+   * `const` is the value the agent matches on, the `title` is only for the
+   * human. Absent for providers whose options are plain labels.
+   */
+  value?: string
   description?: string
 }
 
@@ -20,6 +27,12 @@ export interface QuestionItem {
   header?: string
   options: QuestionOption[]
   multiSelect: boolean
+  /**
+   * The companion schema property holding the typed "Other" answer, when the
+   * agent asked for one. It is not a question of its own — it is where a
+   * free-text answer to *this* question has to be sent.
+   */
+  customId?: string
 }
 
 export interface Questionnaire {
@@ -29,6 +42,13 @@ export interface Questionnaire {
 }
 
 const PERMISSION_KINDS = new Set(['allow_once', 'allow_always', 'reject_once', 'reject_always'])
+
+/**
+ * Where Claude's AskUserQuestion marks the schema property that takes a typed
+ * "Other" answer for a question. Deliberately not namespaced, so other bridges
+ * can share it.
+ */
+const CUSTOM_ANSWER_META = '_askUserQuestionCustomAnswer'
 
 export function isAskUserQuestionMethod(method: string): boolean {
   return method.toLowerCase().includes('ask_user_question')
@@ -92,31 +112,101 @@ export function parseElicitationForm(params: unknown): {
       url: false,
     }
   }
+  const companions = customAnswerTargets(properties)
+  const companionFor = new Map<string, string>()
+  for (const [key, parent] of companions) companionFor.set(parent, key)
   const questions: QuestionItem[] = []
   for (const [id, spec] of Object.entries(properties)) {
+    // A custom-answer companion is not a question of its own — left in, a
+    // `question_0_custom` shows up beside an option-less `question_0` and the
+    // user is asked two things where the agent asked one.
+    if (companions.has(id)) continue
     const field = asRecord(spec) ?? {}
-    const enums = Array.isArray(field['enum'])
-      ? field['enum'].filter((v): v is string => typeof v === 'string' && v.length > 0)
-      : []
-    const title = str(field, 'title') || str(field, 'description') || id
-    const options =
-      enums.length > 0
-        ? enums.map((label, i) => ({ id: `${id}-${i}`, label }))
-        : field['type'] === 'boolean'
-          ? [
-              { id: `${id}-yes`, label: 'Yes' },
-              { id: `${id}-no`, label: 'No' },
-            ]
-          : []
+    const choices = choiceList(id, field)
+    const title = str(field, 'title')
+    const description = str(field, 'description')
+    const plain = title || description || id
+    // See `choiceList`: AskUserQuestion asks in `description` and chips the
+    // `title`, every other schema splits them the usual way round.
+    const question = choices?.ask === true ? description || title || id : plain
+    const header = choices?.ask === true ? title : id !== plain ? id : undefined
+    const customId = companionFor.get(id)
     questions.push({
       id,
-      question: title,
-      header: id !== title ? id : undefined,
-      options,
-      multiSelect: false,
+      question,
+      ...(header !== undefined && header.length > 0 && header !== question ? { header } : {}),
+      options: choices?.options ?? [],
+      multiSelect: choices?.multiSelect ?? false,
+      ...(customId !== undefined ? { customId } : {}),
     })
   }
   return { message, questions, url: false }
+}
+
+/**
+ * The schema property each custom-answer companion belongs to, keyed by the
+ * companion's own key.
+ *
+ * Claude keys the companion `<question>_custom` and names its parent in
+ * `_meta`, which is the signal worth trusting; the name is only a fallback for
+ * an adapter that drops the meta. Either way the companion has to be matched to
+ * a property that actually exists, so a stray `_custom` key is still a question.
+ */
+function customAnswerTargets(properties: Record<string, unknown>): Map<string, string> {
+  const keys = new Set(Object.keys(properties))
+  const targets = new Map<string, string>()
+  for (const [key, spec] of Object.entries(properties)) {
+    const meta = asRecord(asRecord(asRecord(spec)?.['_meta'])?.[CUSTOM_ANSWER_META])
+    const parent = meta === null ? '' : str(meta, 'questionId')
+    if (parent.length > 0 && keys.has(parent)) {
+      targets.set(key, parent)
+      continue
+    }
+    const base = key.slice(0, -'_custom'.length)
+    if (base.length > 0 && key.endsWith('_custom') && keys.has(base)) targets.set(key, base)
+  }
+  return targets
+}
+
+/**
+ * The choices a property offers, read from either encoding in the wild:
+ * `oneOf` for a single select and `items.anyOf` for a multi select — Claude's
+ * AskUserQuestion, whose entries are `{ const, title, description }` — or the
+ * flat `enum` / `boolean` MCP elicitation itself defines.
+ *
+ * `ask` marks the AskUserQuestion shape, whose text is split the other way
+ * round from a plain schema. Null when the property offers no choices at all,
+ * which is what leaves the caller to fall back on a plain text answer.
+ */
+function choiceList(
+  id: string,
+  field: Record<string, unknown>,
+): { options: QuestionOption[]; multiSelect: boolean; ask: boolean } | null {
+  const multiple = parseOptions(asRecord(field['items'])?.['anyOf'])
+  if (multiple.length > 0) return { options: multiple, multiSelect: true, ask: true }
+  const single = parseOptions(field['oneOf'])
+  if (single.length > 0) return { options: single, multiSelect: false, ask: true }
+  const enums = Array.isArray(field['enum'])
+    ? field['enum'].filter((v): v is string => typeof v === 'string' && v.length > 0)
+    : []
+  if (enums.length > 0) {
+    return {
+      options: enums.map((label, i) => ({ id: `${id}-${i}`, label })),
+      multiSelect: false,
+      ask: false,
+    }
+  }
+  if (field['type'] === 'boolean') {
+    return {
+      options: [
+        { id: `${id}-yes`, label: 'Yes' },
+        { id: `${id}-no`, label: 'No' },
+      ],
+      multiSelect: false,
+      ask: false,
+    }
+  }
+  return null
 }
 
 export function parsePlanExit(params: unknown): { planContent: string; toolCallId: string | null } {
@@ -216,7 +306,19 @@ function remapAnswers(
   const out: Record<string, string> = {}
   if (questions.length === 0) return out
   for (const question of questions) {
-    const raw = byId[question.id] ?? byId[question.question] ?? (questions.length === 1 ? value : undefined)
+    // A typed "Other" answer goes back under the companion property the agent
+    // offered for it, not the choice property: the agent reads the companion
+    // first, and a choice it did not offer would be read as one it did.
+    const customId = question.customId
+    if (customId !== undefined) {
+      const custom = byId[customId]
+      if (custom !== undefined && custom.length > 0) {
+        out[customId] = custom
+        continue
+      }
+    }
+    const raw =
+      byId[question.id] ?? byId[question.question] ?? (questions.length === 1 ? value : undefined)
     if (raw === undefined || raw.length === 0) continue
     out[keyOf(question)] = raw
   }
@@ -281,16 +383,46 @@ function parseOptions(raw: unknown): QuestionOption[] {
     }
     const obj = asRecord(item)
     if (obj === null) continue
-    const label = str(obj, 'label') || str(obj, 'name') || str(obj, 'text') || str(obj, 'title') || str(obj, 'value')
-    if (label.length === 0) continue
     const description = str(obj, 'description') || str(obj, 'preview')
+    // `const` is Claude's spelling of the submitted value; `value` is everyone
+    // else's. Neither has to be present — a plain label is a value too.
+    const constValue = str(obj, 'const')
+    const label = optionLabel(
+      str(obj, 'label') ||
+        str(obj, 'name') ||
+        str(obj, 'text') ||
+        str(obj, 'title') ||
+        str(obj, 'value') ||
+        constValue,
+      description,
+    )
+    if (label.length === 0) continue
+    const value = constValue || str(obj, 'value')
     out.push({
       id: str(obj, 'id') || `opt-${i}`,
       label,
+      ...(value.length > 0 && value !== label ? { value } : {}),
       ...(description.length > 0 ? { description } : {}),
     })
   }
   return out
+}
+
+/**
+ * A choice's display text. Claude flattens the description into `title` as
+ * `Label — description` for clients that ignore its `_meta`, so peel that back
+ * off when the description came through separately — otherwise the panel
+ * prints the same sentence twice.
+ */
+function optionLabel(title: string, description: string): string {
+  if (description.length === 0 || title.length === 0) return title
+  for (const dash of [' — ', ' – ', ' - ']) {
+    const suffix = `${dash}${description}`
+    if (title.length > suffix.length && title.endsWith(suffix)) {
+      return title.slice(0, -suffix.length).trim()
+    }
+  }
+  return title
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
