@@ -489,6 +489,29 @@ describe('SessionsUnderProjects', () => {
     expect(onRemoveProject).toHaveBeenCalledWith('proj-1')
   })
 
+  it('insets a project banner off the header and the rows below it', async () => {
+    const user = userEvent.setup()
+    renderSidebar([session('a', 1, 'proj-1')], 'a', {}, [{ ...projects[0]!, status: 'missing' }])
+
+    // A banner hangs under the header and directly above the session list. Run
+    // edge to edge and flush, its rounded corners meet the active row's
+    // highlight and the two read as one connected shape, so it keeps an inset
+    // on the sides and a gap underneath. Both banners share the rule.
+    const missing = screen.getByText('folder missing').parentElement
+    expect(missing?.className).toMatch(/\bmx-2\b/)
+    expect(missing?.className).toMatch(/\bmb-1\b/)
+
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Ari1' }),
+    })
+    await user.click(screen.getByRole('menuitem', { name: 'Remove project' }))
+
+    const confirm = screen.getByText('Remove project?').parentElement
+    expect(confirm?.className).toMatch(/\bmx-2\b/)
+    expect(confirm?.className).toMatch(/\bmb-1\b/)
+  })
+
   it('flattens search matches across every project', async () => {
     renderSidebar([
       session('alpha', 1, 'proj-1'),
