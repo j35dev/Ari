@@ -94,6 +94,23 @@ describe('claude stdin control frames', () => {
     expect(child.lines.join('')).toMatchSnapshot()
   })
 
+  it('reports a steer as undelivered when stdin is gone', () => {
+    const { child, adapter } = harness()
+    child.stdin.destroy()
+
+    // The caller keeps the message queued rather than losing it, so a dead
+    // stdin has to surface as false — not as a silently dropped frame.
+    expect(adapter.steer('focus on the parser')).toBe(false)
+    expect(child.lines).toEqual([])
+  })
+
+  it('reports a steer as delivered while stdin accepts writes', () => {
+    const { child, adapter } = harness()
+
+    expect(adapter.steer('focus on the parser')).toBe(true)
+    expect(child.lines).toHaveLength(1)
+  })
+
   it('respondApproval answers can_use_tool requests with real control_response frames', () => {
     const { child, adapter } = harness()
 
