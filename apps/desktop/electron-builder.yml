@@ -80,5 +80,5 @@ linux:
 # Auto-updates check GitHub releases (see src/main/updater.ts).
 publish:
   provider: github
-  owner: tahacore
+  owner: j35dev
   repo: Ari
