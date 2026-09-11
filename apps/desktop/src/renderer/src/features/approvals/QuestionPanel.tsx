@@ -4,7 +4,12 @@ import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { Textarea } from '@ari/ui/textarea'
 import { Checkbox } from '@ari/ui/checkbox'
-import { encodeAnswers, parseQuestionPayload, type QuestionItem } from './questionnaire'
+import {
+  encodeAnswers,
+  optionValue,
+  parseQuestionPayload,
+  type QuestionItem,
+} from './questionnaire'
 
 const AUTO_ADVANCE_MS = 180
 const OTHER_LABEL = 'Other'
@@ -99,14 +104,19 @@ function Interview({
   const total = questions.length
   const last = index === total - 1
   const chosen = answers[question.id] ?? null
+  /**
+   * A question with no options is an ordinary free-text question. Without
+   * this it renders as an empty list plus the "Other" row the panel always
+   * appends — an Other-only selector for a question that never had choices.
+   */
+  const choiceLess = question.options.length === 0
+  const custom = choiceLess || otherOpen
 
   const restoreOther = (at: number, map: Record<string, string>): void => {
     const q = questions[at]
     const value = q === undefined ? undefined : map[q.id]
     const known =
-      q !== undefined &&
-      value !== undefined &&
-      q.options.some((option) => option.label === value || option.id === value)
+      q !== undefined && value !== undefined && q.options.some((o) => optionValue(o) === value)
     if (value !== undefined && value.length > 0 && !known) {
       setOtherOpen(true)
       setOtherDraft(value)
@@ -125,7 +135,7 @@ function Interview({
   const finish = (next: Record<string, string>): void => {
     if (busy) return
     setBusy(true)
-    onRespond(encodeAnswers(next))
+    onRespond(encodeAnswers(questions, next))
   }
 
   const commit = (value: string, advance: boolean): void => {
@@ -143,7 +153,7 @@ function Interview({
   }
 
   const continueNext = (): void => {
-    const value = otherOpen ? otherDraft.trim() : (chosen ?? '').trim()
+    const value = custom ? otherDraft.trim() : (chosen ?? '').trim()
     if (value === '' || busy) return
     const next = { ...answers, [question.id]: value }
     setAnswers(next)
@@ -154,10 +164,10 @@ function Interview({
     goTo(index + 1, next)
   }
 
-  const toggleMulti = (label: string): void => {
+  const toggleMulti = (value: string): void => {
     if (busy) return
     const selected = chosen === null || chosen === '' ? [] : chosen.split(', ')
-    const next = selected.includes(label) ? selected.filter((s) => s !== label) : [...selected, label]
+    const next = selected.includes(value) ? selected.filter((s) => s !== value) : [...selected, value]
     setAnswers({ ...answers, [question.id]: next.join(', ') })
   }
 
@@ -179,7 +189,7 @@ function Interview({
     }
     const digit = '123456789'.indexOf(event.key)
     if (digit === -1) return
-    if (digit === question.options.length) {
+    if (digit === question.options.length && !choiceLess) {
       event.preventDefault()
       setOtherOpen(true)
       return
@@ -188,13 +198,13 @@ function Interview({
     if (option === undefined) return
     event.preventDefault()
     if (question.multiSelect) {
-      toggleMulti(option.label)
+      toggleMulti(optionValue(option))
       return
     }
-    commit(option.label, true)
+    commit(optionValue(option), true)
   }
 
-  const canContinue = otherOpen ? otherDraft.trim() !== '' : (chosen ?? '').trim() !== ''
+  const canContinue = custom ? otherDraft.trim() !== '' : (chosen ?? '').trim() !== ''
 
   return (
     <section
@@ -222,7 +232,7 @@ function Interview({
       <div className="mt-3 flex max-h-72 flex-col gap-1.5 overflow-y-auto">
         {question.multiSelect
           ? question.options.map((option) => {
-              const selected = (chosen ?? '').split(', ').includes(option.label)
+              const selected = (chosen ?? '').split(', ').includes(optionValue(option))
               return (
                 <div
                   key={option.id}
@@ -233,7 +243,7 @@ function Interview({
                   <Checkbox
                     checked={selected}
                     disabled={busy}
-                    onChange={() => toggleMulti(option.label)}
+                    onChange={() => toggleMulti(optionValue(option))}
                   >
                     <span className="block font-medium">{option.label}</span>
                     {option.description ? (
@@ -246,14 +256,14 @@ function Interview({
               )
             })
           : question.options.map((option, i) => {
-              const selected = !otherOpen && (chosen === option.label || chosen === option.id)
+              const selected = !custom && chosen === optionValue(option)
               return (
                 <button
                   key={option.id}
                   type="button"
                   disabled={busy}
                   aria-pressed={selected}
-                  onClick={() => commit(option.label, true)}
+                  onClick={() => commit(optionValue(option), true)}
                   className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
                     selected ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
                   }`}
@@ -270,28 +280,34 @@ function Interview({
                 </button>
               )
             })}
-        <button
-          type="button"
-          disabled={busy}
-          aria-pressed={otherOpen}
-          aria-expanded={otherOpen}
-          onClick={() => setOtherOpen((open) => !open)}
-          className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
-            otherOpen ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
-          }`}
-        >
-          <kbd className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-1 font-mono text-2xs text-fg-muted">
-            {question.options.length + 1}
-          </kbd>
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-fg">{OTHER_LABEL}</span>
-            <span className="mt-0.5 block text-xs text-fg-muted">Describe your own answer</span>
-          </span>
-        </button>
-        {otherOpen ? (
-          <div className="rounded-md border border-accent bg-accent-subtle p-2.5">
+        {choiceLess ? null : (
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={otherOpen}
+            aria-expanded={otherOpen}
+            onClick={() => setOtherOpen((open) => !open)}
+            className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
+              otherOpen ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
+            }`}
+          >
+            <kbd className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-1 font-mono text-2xs text-fg-muted">
+              {question.options.length + 1}
+            </kbd>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-fg">{OTHER_LABEL}</span>
+              <span className="mt-0.5 block text-xs text-fg-muted">Describe your own answer</span>
+            </span>
+          </button>
+        )}
+        {custom ? (
+          <div
+            className={`rounded-md border p-2.5 ${
+              choiceLess ? 'border-border bg-surface-2' : 'border-accent bg-accent-subtle'
+            }`}
+          >
             <label htmlFor="question-other-input" className="mb-1.5 block text-xs font-medium text-fg">
-              Custom answer
+              {choiceLess ? 'Your answer' : 'Custom answer'}
             </label>
             <Textarea
               id="question-other-input"
@@ -307,7 +323,7 @@ function Interview({
                   setOtherOpen(false)
                 }
               }}
-              placeholder="Describe what you want instead…"
+              placeholder={choiceLess ? 'Type your answer…' : 'Describe what you want instead…'}
             />
             <p className="mt-1.5 text-2xs leading-relaxed text-fg-muted">
               Your text is sent as the answer when you press {last ? 'Submit' : 'Continue'}.
