@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, Bookmark, Clock, Square, Trash2 } from 'lucide-react'
+import { ArrowUp, Bookmark, Clock, CornerUpRight, Square, Trash2, X } from 'lucide-react'
+import type { AttachmentRef } from '@ari/contracts/attachments'
 import { transitions } from '@ari/ui/motion'
 import { activeTokenAt } from './active-token'
 import { matchSuggestions } from './match-suggestions'
@@ -22,6 +23,16 @@ export interface ComposerSeed {
   nonce: number
 }
 
+/**
+ * One message parked behind the active turn. `attachments` rides along so the
+ * steer/remove commands can name the exact queue entry the projection matches
+ * on (text plus image set).
+ */
+export interface QueuedMessageView {
+  text: string
+  attachments: AttachmentRef[]
+}
+
 export interface ComposerProps {
   /** Called with the message text and pending image files when the user sends. */
   onSend: (text: string, files: File[]) => void
@@ -30,7 +41,11 @@ export interface ComposerProps {
   /** Whether a turn is currently running for the active session. */
   running?: boolean
   /** Messages waiting behind the active turn. */
-  queued?: string[]
+  queued?: QueuedMessageView[]
+  /** Pushes one queued message into the running turn. */
+  onSteerQueued?: (message: QueuedMessageView) => void
+  /** Drops one queued message without running it. */
+  onRemoveQueued?: (message: QueuedMessageView) => void
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
   /**
@@ -67,6 +82,8 @@ export function Composer({
   onStop,
   running = false,
   queued = [],
+  onSteerQueued,
+  onRemoveQueued,
   suggestions,
   leading,
   placeholder = 'Ask anything, @ for files, / for commands…',
@@ -297,13 +314,57 @@ export function Composer({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={transitions.fadeUp}
-            className="mb-2 flex items-center gap-2 rounded-md border border-border bg-glass-input px-3 py-1.5 text-xs text-fg-muted"
+            className="mb-2 rounded-md border border-border bg-glass-input py-1.5 text-xs text-fg-muted"
           >
-            <Clock size={12} className="shrink-0 text-fg-subtle" />
-            <span>
-              {queued.length} queued message{queued.length > 1 ? 's' : ''} · will send after the
-              current turn
-            </span>
+            <div className="flex items-center gap-2 px-3">
+              <Clock size={12} className="shrink-0 text-fg-subtle" />
+              <span>
+                {queued.length} queued message{queued.length > 1 ? 's' : ''} · will send after the
+                current turn
+              </span>
+            </div>
+            <ul className="mt-1 space-y-px px-1.5" aria-label="Queued messages">
+              {queued.map((message, index) => (
+                <li
+                  key={`${index}:${message.text}`}
+                  className="group flex items-center gap-1 rounded-sm px-1.5 py-1 transition-colors hover:bg-surface-2"
+                >
+                  <span className="min-w-0 flex-1 truncate text-fg" title={message.text}>
+                    {message.text}
+                  </span>
+                  {message.attachments.length > 0 ? (
+                    <span className="shrink-0 text-2xs text-fg-subtle">
+                      {message.attachments.length} image
+                      {message.attachments.length > 1 ? 's' : ''}
+                    </span>
+                  ) : null}
+                  {/* Steering rides the provider's text channel, so an imaged
+                      message can only ever run as the follow-up turn. */}
+                  {onSteerQueued && message.attachments.length === 0 ? (
+                    <button
+                      type="button"
+                      aria-label={`Steer queued message ${index + 1} into the current turn`}
+                      title="Steer into the current turn"
+                      onClick={() => onSteerQueued(message)}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    >
+                      <CornerUpRight size={11} />
+                    </button>
+                  ) : null}
+                  {onRemoveQueued ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove queued message ${index + 1}`}
+                      title="Remove from queue"
+                      onClick={() => onRemoveQueued(message)}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    >
+                      <X size={11} />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           </motion.div>
         ) : null}
       </AnimatePresence>

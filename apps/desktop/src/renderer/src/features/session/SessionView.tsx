@@ -11,7 +11,7 @@ import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { TranscriptView } from '../transcript'
-import { Composer, type ComposerSeed } from '../composer/Composer'
+import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
@@ -514,19 +514,25 @@ export function SessionView({
     }
   }, [])
 
-  // Command dispatches used to fail silently (.catch(() => undefined)); a
-  // rejected dispatch — e.g. the decider declining while a turn is active —
-  // now toasts so sending never looks like a no-op.
+  // The engine answers a declined command with `accepted: false` on a resolved
+  // promise, not a rejection — so both have to be surfaced, or a rejected send
+  // looks like a no-op. `onRejected` lets a caller put the user's text back.
   const dispatch = useCallback(
-    (command: Record<string, unknown>, failureTitle: string): void => {
-      void rpc.invoke('command.dispatch', { command }).catch((err: unknown) => {
-        toast({
-          title: failureTitle,
-          description: err instanceof Error ? err.message : String(err),
-          tone: 'danger',
-          durationMs: 6000,
+    (
+      command: Record<string, unknown>,
+      failureTitle: string,
+      onRejected?: (reason: string) => void,
+    ): void => {
+      const fail = (reason: string): void => {
+        onRejected?.(reason)
+        toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
+      }
+      void rpc
+        .invoke('command.dispatch', { command })
+        .then((result) => {
+          if (!result.accepted) fail(result.reason ?? 'The command was rejected.')
         })
-      })
+        .catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
     },
     [toast],
   )
@@ -545,12 +551,19 @@ export function SessionView({
         }
         return notes
       })
+      // A rejected send must cost a retry, not the message: the composer
+      // already cleared its draft by now, so put the text back.
+      const restoreDraft = (): void =>
+        setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
       if (running) {
         // The engine journals the queue (and dequeues immediately when the
-        // transport can steer); the mirrored events update the view here.
+        // transport confirms the steer); the mirrored events update the view.
+        // With no turn actually live it promotes the message to the next turn
+        // rather than rejecting, so a send racing a settle is never lost.
         dispatch(
           { type: 'message.enqueue', sessionId, text: outgoing, attachments },
           'Couldn’t queue message',
+          restoreDraft,
         )
         return
       }
@@ -558,6 +571,7 @@ export function SessionView({
       dispatch(
         { type: 'turn.start', sessionId, text: outgoing, attachments },
         'Couldn’t send message',
+        restoreDraft,
       )
     },
     [sessionId, running, dispatch],
@@ -600,6 +614,38 @@ export function SessionView({
   const handleStop = useCallback(() => {
     dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
   }, [sessionId, dispatch])
+
+  // Queue management. Steering is best-effort by nature — the engine reports a
+  // provider that cannot take a mid-turn message, and the message stays queued.
+  const handleSteerQueued = useCallback(
+    (message: QueuedMessageView) => {
+      dispatch(
+        {
+          type: 'message.steer',
+          sessionId,
+          text: message.text,
+          attachments: message.attachments,
+        },
+        'Couldn’t steer message',
+      )
+    },
+    [sessionId, dispatch],
+  )
+
+  const handleRemoveQueued = useCallback(
+    (message: QueuedMessageView) => {
+      dispatch(
+        {
+          type: 'message.dequeue',
+          sessionId,
+          text: message.text,
+          attachments: message.attachments,
+        },
+        'Couldn’t remove queued message',
+      )
+    },
+    [sessionId, dispatch],
+  )
 
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
@@ -866,7 +912,9 @@ export function SessionView({
           onSend={handleSend}
           onStop={handleStop}
           running={running}
-          queued={queued.map((q) => q.text)}
+          queued={queued}
+          onSteerQueued={handleSteerQueued}
+          onRemoveQueued={handleRemoveQueued}
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
           above={
