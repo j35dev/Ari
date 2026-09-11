@@ -100,13 +100,8 @@ describe('decideCommand', () => {
     expect(result.events.some((e) => e.type === 'session.updated')).toBe(false)
   })
 
-  it('queues messages only behind an active turn', () => {
+  it('queues messages behind an active turn', () => {
     const idle = modelWithSession()
-    expect(
-      decideCommand(idle, { type: 'message.enqueue', sessionId: 'sess_1', text: 'hi', attachments: [] }, ids)
-        .accepted,
-    ).toBe(false)
-
     const running = previewDispatch(idle, {
       accepted: true,
       events: [{ type: 'turn.started', turnId: 'turn_1' }],
@@ -117,7 +112,116 @@ describe('decideCommand', () => {
       ids,
     )
     expect(result.accepted).toBe(true)
+    expect(result.startsTurn).toBeUndefined()
+    expect(result.events.map((e) => e.type)).toEqual(['message.enqueued'])
     expect(previewDispatch(running, result).lastSeq).toBeGreaterThan(running.lastSeq)
+  })
+
+  it('starts a turn when an enqueue arrives with no active turn', () => {
+    const result = decideCommand(
+      modelWithSession(),
+      { type: 'message.enqueue', sessionId: 'sess_1', text: 'hi', attachments: [] },
+      ids,
+    )
+    expect(result.accepted).toBe(true)
+    expect(result.startsTurn).toBe(true)
+    expect(result.events.map((e) => e.type)).toEqual([
+      'turn.started',
+      'user.message.added',
+      'session.status.changed',
+    ])
+  })
+
+  it('steers a queued message into the active turn', () => {
+    const running = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [
+        { type: 'turn.started', turnId: 'turn_1' },
+        { type: 'message.enqueued', text: 'focus on the parser', attachments: [] },
+      ],
+    })
+    const result = decideCommand(
+      running,
+      { type: 'message.steer', sessionId: 'sess_1', text: 'focus on the parser', attachments: [] },
+      ids,
+    )
+    // Delivery is only knowable at execution time, so the decider gates
+    // preconditions and leaves the events to the engine.
+    expect(result.accepted).toBe(true)
+    expect(result.events).toEqual([])
+  })
+
+  it('refuses to steer a message that is not queued, has images, or has no turn', () => {
+    const idle = modelWithSession()
+    expect(
+      decideCommand(
+        idle,
+        { type: 'message.steer', sessionId: 'sess_1', text: 'hi', attachments: [] },
+        ids,
+      ).accepted,
+    ).toBe(false)
+
+    const running = previewDispatch(idle, {
+      accepted: true,
+      events: [{ type: 'turn.started', turnId: 'turn_1' }],
+    })
+    expect(
+      decideCommand(
+        running,
+        { type: 'message.steer', sessionId: 'sess_1', text: 'never queued', attachments: [] },
+        ids,
+      ).accepted,
+    ).toBe(false)
+
+    const ref = { id: 'att_9', name: 'b.png', mimeType: 'image/png', size: 4 }
+    const imaged = previewDispatch(running, {
+      accepted: true,
+      events: [{ type: 'message.enqueued', text: 'see this', attachments: [ref] }],
+    })
+    expect(
+      decideCommand(
+        imaged,
+        { type: 'message.steer', sessionId: 'sess_1', text: 'see this', attachments: [ref] },
+        ids,
+      ).accepted,
+    ).toBe(false)
+  })
+
+  it('drops a queued message, echoing its stored origin', () => {
+    const origin = { kind: 'session' as const, sessionId: 'child_1' }
+    const running = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [
+        { type: 'turn.started', turnId: 'turn_1' },
+        { type: 'message.enqueued', text: 'from the child', attachments: [], origin },
+      ],
+    })
+    // The command carries no origin (the UI has none); the decider must echo
+    // the stored one or the projection's origin-aware match never lands.
+    const result = decideCommand(
+      running,
+      { type: 'message.dequeue', sessionId: 'sess_1', text: 'from the child', attachments: [] },
+      ids,
+    )
+    expect(result.accepted).toBe(true)
+    expect(result.events).toEqual([
+      { type: 'message.dequeued', text: 'from the child', attachments: [], origin },
+    ])
+    expect(previewDispatch(running, result).queuedMessages).toEqual([])
+  })
+
+  it('refuses to drop a message that is not queued', () => {
+    const running = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [{ type: 'turn.started', turnId: 'turn_1' }],
+    })
+    expect(
+      decideCommand(
+        running,
+        { type: 'message.dequeue', sessionId: 'sess_1', text: 'ghost', attachments: [] },
+        ids,
+      ).accepted,
+    ).toBe(false)
   })
 
   it('carries staged images on queued messages', () => {

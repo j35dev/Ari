@@ -391,12 +391,23 @@ describe('createAcpAdapter', () => {
     const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
     // Steering arrives while the first prompt is in flight (it resolves on a
     // later tick, so this genuinely races the stop reason).
-    adapter.steer?.('actually focus on the tests')
+    void adapter.steer?.('actually focus on the tests')
     const types = await collectTypes(adapter)
 
     expect(types[types.length - 1]).toBe('done')
     expect(prompts).toEqual(['say hi', 'actually focus on the tests'])
     await adapter.dispose()
+  }, 15000)
+
+  it('reports a steer as undelivered once the transport has closed', async () => {
+    const child = fakeChild()
+    script(child, (method, params) => standardAgent()(method, params, undefined))
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    await adapter.dispose()
+
+    // Nothing will ever chain the text onto a prompt now, so the caller has to
+    // be told to keep the message queued instead of discarding it.
+    expect(adapter.steer?.('too late')).toBe(false)
   }, 15000)
 
   it('bridges permission requests into approval events and back', async () => {

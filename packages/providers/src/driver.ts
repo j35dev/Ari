@@ -48,8 +48,14 @@ export interface ProviderAdapter {
    * Steers a running turn with an additional user message mid-flight
    * (M17.1). Optional: transports without a writable control channel
    * cannot accept steering.
+   *
+   * Resolves true only when the text is durably in the provider's hands and
+   * will be processed — either inside the running turn or as a prompt chained
+   * onto it. False means the transport could not take it (missing control
+   * channel, dead stdin, provider rejected the steer), and the caller must
+   * keep the message queued so it still runs as the follow-up turn.
    */
-  steer?(text: string): void
+  steer?(text: string): boolean | Promise<boolean>
   /**
    * Answers a pending `input-requested` question. Optional: one-shot CLIs
    * without an input channel cannot act on the answer.
