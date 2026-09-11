@@ -390,6 +390,26 @@ describe('Starting a session with no project yet', () => {
     })
     expect(invokeMock.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
   })
+
+  it('offers a project instead of a shell the path jail would refuse', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: 'Add a project to start' }, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: '`', ctrlKey: true })
+
+    // terminal.create jails its working directory against the registered
+    // project folders, so with none registered there is nowhere to open a
+    // shell. The rail asks for a project instead of spawning one that comes
+    // back refused.
+    const rail = await screen.findByRole('complementary', { name: 'Terminal' })
+    expect(
+      await within(rail).findByText(
+        'Add a project to open a terminal — shells run inside a project folder.',
+      ),
+    ).toBeInTheDocument()
+    expect(within(rail).getByRole('button', { name: 'Add project' })).toBeInTheDocument()
+    expect(invokeMock.mock.calls.some(([method]) => method === 'terminal.create')).toBe(false)
+  })
 })
 
 describe('Project session import flow', () => {
