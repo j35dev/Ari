@@ -8,11 +8,19 @@ import { AdvancedSettings } from './AdvancedSettings'
 
 const mocks = vi.hoisted(() => ({
   update: vi.fn(),
+  invoke: vi.fn(),
+  subscribe: vi.fn<(name: string, params: unknown, cb: (payload: unknown) => void) => () => void>(
+    () => () => undefined,
+  ),
   holder: { settings: null as Settings | null },
 }))
 
 vi.mock('./useEngineSettings', () => ({
   useEngineSettings: () => ({ settings: mocks.holder.settings, update: mocks.update }),
+}))
+
+vi.mock('../../lib/rpc', () => ({
+  rpc: { invoke: mocks.invoke, subscribe: mocks.subscribe },
 }))
 
 const engineSettings: Settings = {
@@ -46,6 +54,13 @@ describe('AdvancedSettings', () => {
     mocks.update.mockReset()
     mocks.update.mockResolvedValue(engineSettings)
     mocks.holder.settings = engineSettings
+    mocks.invoke.mockReset()
+    mocks.invoke.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'app.info' ? { version: '0.3.0' } : { started: true, reason: null },
+      ),
+    )
+    mocks.subscribe.mockClear()
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     createSpy = vi.spyOn(document, 'createElement')
@@ -68,7 +83,7 @@ describe('AdvancedSettings', () => {
     expect(blob).toBeInstanceOf(Blob)
     const bundle = JSON.parse(await (blob as Blob).text()) as Record<string, string>
     expect(bundle).toEqual({
-      appVersion: '0.1.0',
+      appVersion: '0.3.0',
       userAgent: navigator.userAgent,
       appearance: 'obsidian',
     })
@@ -172,5 +187,46 @@ describe('AdvancedSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(localStorage.getItem('ari.drafts.session-1')).toBe('hello')
+  })
+
+  it('shows the running version reported by the main process', async () => {
+    render(<AdvancedSettings />)
+    await waitFor(() => expect(screen.getByTestId('app-version')).toHaveTextContent('0.3.0'))
+  })
+
+  it('offers Update once a release is announced, and downloads it on click', async () => {
+    let push: ((payload: unknown) => void) | undefined
+    mocks.subscribe.mockImplementation(
+      (_name: string, _params: unknown, cb: (payload: unknown) => void) => {
+        push = cb
+        return () => undefined
+      },
+    )
+    const user = userEvent.setup()
+    render(<AdvancedSettings />)
+
+    push?.({ type: 'available', version: '0.4.0', currentVersion: '0.3.0' })
+
+    expect(await screen.findByText('Ari 0.4.0 is available to download.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Update' }))
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('app.update.download'))
+  })
+
+  it('surfaces why a manual check was refused instead of failing silently', async () => {
+    mocks.invoke.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'app.info'
+          ? { version: '0.3.0' }
+          : { started: false, reason: 'Updates are only available in installed builds.' },
+      ),
+    )
+    const user = userEvent.setup()
+    render(<AdvancedSettings />)
+
+    await user.click(screen.getByRole('button', { name: 'Check for updates' }))
+
+    expect(
+      await screen.findByText('Updates are only available in installed builds.'),
+    ).toBeInTheDocument()
   })
 })
