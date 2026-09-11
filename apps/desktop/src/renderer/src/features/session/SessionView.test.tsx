@@ -974,6 +974,8 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
 
 describe('SessionView queued messages', () => {
   beforeEach(() => {
+    // Composer drafts persist to localStorage; start from a clean slate.
+    localStorage.clear()
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
@@ -1125,6 +1127,73 @@ describe('SessionView queued messages', () => {
     expect(screen.getByText('long task')).toBeInTheDocument()
     expect(screen.getByText('focus on the parser instead')).toBeInTheDocument()
   })
+
+  it('steers and removes a queued message from the composer', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /steer queued message 1/i }))
+    expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'message.steer',
+        sessionId: 'sess_1',
+        text: 'focus on the parser',
+        attachments: [],
+      },
+    })
+
+    await user.click(screen.getByRole('button', { name: /remove queued message 1/i }))
+    expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'message.dequeue',
+        sessionId: 'sess_1',
+        text: 'focus on the parser',
+        attachments: [],
+      },
+    })
+  })
+
+  it('surfaces a refused command and puts the rejected message back in the draft', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    // The engine reports a decline on a resolved promise, so a swallowed
+    // `accepted: false` would make the rejected send look like a no-op.
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'command.dispatch') return { accepted: false, reason: 'over capacity' }
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: 'turn_1' }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+
+    await user.type(screen.getByLabelText('Message'), 'second prompt{Enter}')
+
+    expect(await screen.findByText('over capacity')).toBeInTheDocument()
+    // The composer already cleared itself, so the text has to come back.
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLTextAreaElement>('Message').value).toBe('second prompt')
+    })
+  })
 })
 
 describe('SessionView image attachments', () => {
@@ -1137,6 +1206,9 @@ describe('SessionView image attachments', () => {
   }
 
   beforeEach(() => {
+    // Composer drafts persist to localStorage, so a draft left behind by an
+    // earlier test would be pre-loaded into this one's textarea.
+    localStorage.clear()
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return SETTINGS
