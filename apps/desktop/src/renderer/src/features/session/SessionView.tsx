@@ -775,6 +775,7 @@ export function SessionView({
             onEditUserMessage={handleEditMessage}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
             regenerateDisabled={running}
+            running={running}
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}

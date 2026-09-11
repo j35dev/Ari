@@ -77,6 +77,7 @@ export function TranscriptView({
   onEditUserMessage,
   onRegenerate,
   regenerateDisabled = false,
+  running = false,
   header,
   onDiffComment,
   working,
@@ -94,6 +95,12 @@ export function TranscriptView({
   onRegenerate?: () => void
   /** Disables the regenerate control — true while a turn runs. */
   regenerateDisabled?: boolean
+  /**
+   * True while a turn is streaming. The turn works its way down the transcript,
+   * so the last row is the one it is on, and it is the only row that renders
+   * live — see `ActivityBurst`. Defaults to settled.
+   */
+  running?: boolean
   /** Surface pinned above the transcript (plan panel); scrolls away with it. */
   header?: React.ReactNode
   /** Review-note loop (M21.1): inline diff comments flow to the composer. */
@@ -231,6 +238,7 @@ export function TranscriptView({
               onEditUserMessage={onEditUserMessage}
               onRegenerate={onRegenerate}
               regenerateDisabled={regenerateDisabled}
+              active={running && index === rows.length - 1}
               onDiffComment={onDiffComment}
             />
           ))}
@@ -288,6 +296,7 @@ function TranscriptRowView({
   onEditUserMessage,
   onRegenerate,
   regenerateDisabled,
+  active,
   onDiffComment,
 }: {
   row: TranscriptRow
@@ -297,6 +306,8 @@ function TranscriptRowView({
   onEditUserMessage?: (text: string) => void
   onRegenerate?: () => void
   regenerateDisabled: boolean
+  /** True when a running turn is on this row; only ever the last one. */
+  active: boolean
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
 }) {
   return (
@@ -308,7 +319,7 @@ function TranscriptRowView({
       }}
     >
       {row.kind === 'tool-group' ? (
-        <ActivityBurst row={row} />
+        <ActivityBurst row={row} active={active} />
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
       ) : row.kind === 'image' ? (
