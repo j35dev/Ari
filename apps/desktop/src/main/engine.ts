@@ -87,12 +87,13 @@ interface ActiveTurn {
   /** Forwards an answered agent question into the live adapter. */
   respondInput: (inputId: string, value: string) => void
   /**
-   * Forwards mid-turn steering text into the live adapter (M17.1). Returns
-   * true when the adapter consumed the text as steering (providers with a
-   * writable control channel) — those messages must not re-run as a follow-up
-   * turn; false when the transport cannot steer and the text stays queued.
+   * Forwards mid-turn steering text into the live adapter (M17.1). Resolves
+   * true only when the adapter confirms the text is durably in the provider's
+   * hands — those messages must not re-run as a follow-up turn. False (no
+   * control channel, dead transport, provider refusal) keeps the message
+   * queued so it still runs.
    */
-  steer: (text: string) => boolean
+  steer: (text: string) => Promise<boolean>
 }
 
 /**
@@ -173,10 +174,6 @@ export class Engine {
       return { accepted: false, reason: 'session.create is handled by the store' }
     }
     const model = await this.#deps.store.load(command.sessionId)
-    if (command.type === 'turn.start' && model.session && this.#deps.authorizeTurn) {
-      const reason = await this.#deps.authorizeTurn(model.session)
-      if (reason) return { accepted: false, reason }
-    }
     const ids: DispatchIds = {
       turnId: newTypedId('turn'),
       messageId: newTypedId('msg'),
@@ -185,8 +182,20 @@ export class Engine {
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
+    // A `message.enqueue` decided with no active turn is promoted to a turn
+    // start (see decideCommand), so the turn lifecycle keys off the decision
+    // and never off the command type.
+    const startRequest =
+      decision.startsTurn === true &&
+      (command.type === 'turn.start' || command.type === 'message.enqueue')
+        ? { text: command.text, attachments: command.attachments ?? [] }
+        : null
+    if (startRequest !== null && model.session && this.#deps.authorizeTurn) {
+      const reason = await this.#deps.authorizeTurn(model.session)
+      if (reason) return { accepted: false, reason }
+    }
     let releaseTurn: ((persisted: boolean) => void) | undefined
-    if (command.type === 'turn.start') {
+    if (startRequest !== null) {
       const previous = this.#turnTasks.get(command.sessionId) ?? Promise.resolve()
       const gate = new Promise<boolean>((resolve) => {
         releaseTurn = resolve
@@ -197,8 +206,8 @@ export class Engine {
           persisted
             ? this.#runTurn(
                 model.session as Session,
-                attributedInput(command.text, origin),
-                command.attachments ?? [],
+                attributedInput(startRequest.text, origin),
+                startRequest.attachments,
                 ids.turnId,
                 model.providerSessionId?.startsWith('imported:') ? null : model.providerSessionId,
               )
@@ -248,46 +257,24 @@ export class Engine {
 
     if (command.type === 'message.enqueue') {
       // A user message arriving behind a running turn steers that turn in
-      // providers with a writable control channel (claude stdin, ACP) — the
-      // text is consumed mid-turn, so it is dequeued immediately and must
-      // never re-run as a follow-up turn. Transports without steering keep
-      // the message queued; settle dispatches it as the next turn. Messages
-      // carrying images never steer: steering is text-only, so they stay
-      // queued and run as the follow-up turn with their images intact.
+      // providers whose control channel confirms delivery (claude stdin, ACP,
+      // codex turn/steer) — the text is consumed mid-turn, so it is dequeued
+      // immediately and must never re-run as a follow-up turn. Transports that
+      // decline the steer keep the message queued; settle dispatches it as the
+      // next turn. Messages carrying images never steer: steering is text-only,
+      // so they stay queued and run as the follow-up turn with their images.
       const attachments = command.attachments ?? []
       const steered =
         attachments.length === 0
-          ? (this.#activeTurns
+          ? ((await this.#activeTurns
               .get(command.sessionId)
-              ?.steer(attributedInput(command.text, origin)) ?? false)
+              ?.steer(attributedInput(command.text, origin))) ?? false)
           : false
       if (steered) {
-        let consumed = this.#steeredTexts.get(command.sessionId)
-        if (consumed === undefined) {
-          consumed = new Set()
-          this.#steeredTexts.set(command.sessionId, consumed)
-        }
-        consumed.add(inputKey(command.text, origin))
-        await this.#append(command.sessionId, {
-          type: 'message.dequeued',
+        await this.#recordSteered(command.sessionId, model.activeTurnId, {
           text: command.text,
           attachments,
           ...(origin ? { origin } : {}),
-        })
-        // Dequeue used to make the follow-up vanish: it left the queue and
-        // never became a transcript row. Journal it as a user message so the
-        // session shows what the adapter just consumed.
-        await this.#append(command.sessionId, {
-          type: 'user.message.added',
-          message: {
-            id: ids.messageId,
-            sessionId: command.sessionId,
-            turnId: model.activeTurnId,
-            role: 'user',
-            ...(origin ? { origin } : {}),
-            parts: command.text.length > 0 ? [{ type: 'text', text: command.text }] : [],
-            createdAt: Date.now(),
-          },
         })
       } else {
         // The turn may have settled concurrently after this dispatch's
@@ -296,6 +283,26 @@ export class Engine {
         // post-settle enqueue self-heals instead of stranding.
         this.#scheduleQueueDrain(command.sessionId, model.session?.rootSessionId ?? null)
       }
+    }
+
+    if (command.type === 'message.steer') {
+      // Pushes an already-queued message into the running turn. The decider
+      // gated the preconditions; only the adapter can say whether it took the
+      // text, so a refusal is reported rather than journaled — the message
+      // stays queued and still runs as the follow-up turn.
+      const steered =
+        (await this.#activeTurns.get(command.sessionId)?.steer(command.text)) ?? false
+      if (!steered) {
+        return {
+          accepted: false,
+          reason:
+            'this provider cannot take a mid-turn message; it will run after the current turn',
+        }
+      }
+      await this.#recordSteered(command.sessionId, model.activeTurnId, {
+        text: command.text,
+        attachments: command.attachments ?? [],
+      })
     }
 
     if (command.type === 'checkpoint.revert') {
@@ -312,6 +319,42 @@ export class Engine {
     }
 
     return { accepted: true }
+  }
+
+  /**
+   * Journals a message the adapter confirmed as steering: it leaves the queue
+   * and becomes a transcript row (a dequeue that left no row made the follow-up
+   * vanish), and is remembered so the drain can never re-run it as a turn.
+   */
+  async #recordSteered(
+    sessionId: string,
+    turnId: string | null,
+    message: { text: string; attachments: AttachmentRef[]; origin?: MessageOrigin },
+  ): Promise<void> {
+    let consumed = this.#steeredTexts.get(sessionId)
+    if (consumed === undefined) {
+      consumed = new Set()
+      this.#steeredTexts.set(sessionId, consumed)
+    }
+    consumed.add(inputKey(message.text, message.origin))
+    await this.#append(sessionId, {
+      type: 'message.dequeued',
+      text: message.text,
+      attachments: message.attachments,
+      ...(message.origin ? { origin: message.origin } : {}),
+    })
+    await this.#append(sessionId, {
+      type: 'user.message.added',
+      message: {
+        id: newTypedId('msg'),
+        sessionId,
+        turnId,
+        role: 'user',
+        ...(message.origin ? { origin: message.origin } : {}),
+        parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
+        createdAt: Date.now(),
+      },
+    })
   }
 
   async #append(sessionId: string, event: UnstampedEvent): Promise<JournalEvent> {
@@ -456,10 +499,14 @@ export class Engine {
       respondInput: (inputId, value) => {
         adapter.respondInput?.(inputId, value)
       },
-      steer: (text) => {
+      steer: async (text) => {
         if (adapter.steer === undefined) return false
-        adapter.steer(text)
-        return true
+        try {
+          return await adapter.steer(text)
+        } catch (e) {
+          log.debug('steer failed', { sessionId: session.id, error: String(e) })
+          return false
+        }
       },
     })
 

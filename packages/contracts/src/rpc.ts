@@ -575,7 +575,11 @@ export interface RpcResults {
   'focus.playlists.rename': { playlist: AriPlaylist | null; error?: string }
   'focus.playlists.remove': { ok: boolean; error?: string }
   'focus.playlists.update': { playlist: AriPlaylist | null; error?: string }
-  'command.dispatch': { accepted: boolean }
+  /**
+   * A rejected command resolves with `accepted: false` rather than throwing;
+   * `reason` carries the decider's explanation for the renderer to surface.
+   */
+  'command.dispatch': { accepted: boolean; reason?: string }
   'attachments.stage': { attachments: AttachmentRef[] }
   'attachments.read': {
     attachment: { name: string; mimeType: string; size: number; dataBase64: string } | null
