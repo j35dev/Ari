@@ -136,4 +136,32 @@ describe('useAppUpdateToast', () => {
     expect(await screen.findByText('Could not download the update')).toBeInTheDocument()
     expect(screen.getByText('An update is already downloading.')).toBeInTheDocument()
   })
+
+  it('explains a download whose invoke rejected', async () => {
+    const stream = captureStream()
+    invokeFn.mockResolvedValue({ started: true })
+    renderWatcher()
+
+    stream.push({ type: 'available', version: '0.4.0', currentVersion: '0.3.0' })
+    invokeFn.mockRejectedValue(new Error('ipc closed'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Update' }))
+
+    // Without a rejection path this would surface as an unhandled rejection
+    // and leave the download toast claiming progress that never comes.
+    expect(await screen.findByText('Could not download the update')).toBeInTheDocument()
+    expect(screen.getByText('ipc closed')).toBeInTheDocument()
+  })
+
+  it('explains a restart whose invoke rejected', async () => {
+    const stream = captureStream()
+    invokeFn.mockResolvedValue({ started: true })
+    renderWatcher()
+
+    stream.push({ type: 'downloaded', version: '0.4.0' })
+    invokeFn.mockRejectedValue(new Error('ipc closed'))
+    await userEvent.click(await screen.findByRole('button', { name: 'Restart' }))
+
+    expect(await screen.findByText('Could not restart into the update')).toBeInTheDocument()
+    expect(screen.getByText('ipc closed')).toBeInTheDocument()
+  })
 })

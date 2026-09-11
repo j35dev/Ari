@@ -130,17 +130,18 @@ describe('createUpdateController', () => {
     })
   })
 
-  it('keeps the staged release when a later check re-offers the same version', () => {
+  it('re-offers the staged release as the answer to a later check', () => {
     const h = harness()
     h.controller.check(true)
     h.handlers.available('0.4.0')
     h.controller.download()
     h.handlers.downloaded('0.4.0')
     // electron-updater compares against the running build, so the next check
-    // still reports 0.4.0 as newer; that must not un-stage it.
+    // still reports 0.4.0 as newer. That release is what installs, so it is
+    // re-announced rather than left without a terminal frame.
     h.controller.check(false)
     h.handlers.available('0.4.0')
-    expect(h.frames.at(-1)).toEqual({ type: 'checking', manual: false })
+    expect(h.frames.at(-1)).toEqual({ type: 'downloaded', version: '0.4.0' })
     expect(h.controller.download()).toEqual({
       started: false,
       reason: 'Ari 0.4.0 is already downloaded.',
@@ -148,12 +149,74 @@ describe('createUpdateController', () => {
     expect(h.controller.install().started).toBe(true)
   })
 
-  it('keeps a failed background check out of the stream', async () => {
+  it('terminates a check the user asked for, so the UI leaves "checking"', () => {
+    const h = harness()
+    h.controller.check(true)
+    h.handlers.available('0.4.0')
+    h.controller.download()
+    h.handlers.downloaded('0.4.0')
+    h.controller.check(true)
+    h.handlers.available('0.4.0')
+    expect(h.frames.slice(-2)).toEqual([
+      { type: 'checking', manual: true },
+      { type: 'downloaded', version: '0.4.0' },
+    ])
+  })
+
+  it('re-announces a staged release instead of reporting the build current', () => {
+    const h = harness()
+    h.controller.check(true)
+    h.handlers.available('0.4.0')
+    h.controller.download()
+    h.handlers.downloaded('0.4.0')
+    h.controller.check(false)
+    h.handlers.notAvailable()
+    // `none` would wipe the staged version in the renderer and claim the build
+    // is current, while install-on-quit still applies 0.4.0.
+    expect(h.frames.at(-1)).toEqual({ type: 'downloaded', version: '0.4.0' })
+    expect(h.frames.some((frame) => frame.type === 'none')).toBe(false)
+  })
+
+  it('keeps the staged release when a check finds a newer one', () => {
+    const h = harness()
+    h.controller.check(true)
+    h.handlers.available('0.4.0')
+    h.controller.download()
+    h.handlers.downloaded('0.4.0')
+    // 0.5.0 is newer, but 0.4.0 is the installer on disk and what
+    // install-on-quit will apply: offering a download that discards it would
+    // advertise a replacement the controller then refuses.
+    h.controller.check(false)
+    h.handlers.available('0.5.0')
+    expect(h.frames.at(-1)).toEqual({ type: 'downloaded', version: '0.4.0' })
+    expect(h.controller.install().started).toBe(true)
+    expect(h.controller.download()).toEqual({
+      started: false,
+      reason: 'Ari 0.4.0 is already downloaded.',
+    })
+  })
+
+  it('replays an in-flight download to a late subscriber, not a fresh offer', () => {
+    const h = harness()
+    h.controller.check(true)
+    h.handlers.available('0.4.0')
+    h.controller.download()
+    expect(h.controller.snapshot()).toEqual([{ type: 'download.started', version: '0.4.0' }])
+    h.handlers.progress(41.6)
+    expect(h.controller.snapshot()).toEqual([
+      { type: 'download.started', version: '0.4.0' },
+      { type: 'download.progress', percent: 42 },
+    ])
+  })
+
+  it('keeps a failed background check out of the stream, and never announces it', async () => {
     const h = harness()
     h.fake.checkForUpdates.mockRejectedValue(new Error('offline'))
     h.controller.check(false)
     await flush()
-    expect(h.frames).toEqual([{ type: 'checking', manual: false }])
+    // Not even a `checking` frame: a silent failure can never clear one, so a
+    // background check must not park the UI on a spinner.
+    expect(h.frames).toEqual([])
   })
 
   it('surfaces a failed check the user asked for', async () => {
@@ -162,6 +225,20 @@ describe('createUpdateController', () => {
     h.controller.check(true)
     await flush()
     expect(h.frames.at(-1)).toEqual({ type: 'error', message: 'offline' })
+  })
+
+  it('ends a check that settles without a verdict instead of holding it open', async () => {
+    const h = harness()
+    h.fake.checkForUpdates.mockResolvedValue(null)
+    h.controller.check(true)
+    await flush()
+    // electron-updater resolves without emitting anything when it is inactive.
+    // Left open that would keep the spinner up and refuse every later check.
+    expect(h.frames.at(-1)).toEqual({
+      type: 'error',
+      message: 'The update check ended without a result.',
+    })
+    expect(h.controller.check(true).started).toBe(true)
   })
 
   it('surfaces a download failure and lets the user retry', async () => {

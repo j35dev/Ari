@@ -60,6 +60,10 @@ function describe(cause: unknown): string {
  *
  * Auto-install-on-quit stays on: a release the user downloaded but never
  * restarted into still lands on the next normal quit.
+ *
+ * The retained state above is only ever published through frames, so every
+ * check has to end on one: a check nobody asked for never announces itself,
+ * and either outcome re-announces the staged release while one is on disk.
  */
 export function createUpdateController(config: {
   /** Receives the controller's handlers and returns the wired port. */
@@ -79,6 +83,10 @@ export function createUpdateController(config: {
   let staged: string | null = null
   let checking = false
   let downloading = false
+  /** Version moving over the wire right now, so a late subscriber can be told. */
+  let downloadVersion: string | null = null
+  /** Latest whole-percent progress of that download, or null before any event. */
+  let downloadPercent: number | null = null
   /** True while the in-flight check is one the user asked for. */
   let manualCheck = false
   let scheduled = false
@@ -87,8 +95,22 @@ export function createUpdateController(config: {
     checking = false
     downloading = false
     manualCheck = false
+    downloadVersion = null
+    downloadPercent = null
     log.warn('update failed', { error: message, silent })
     if (!silent) publish({ type: 'error', message })
+  }
+
+  /**
+   * Re-announces the staged release, if one is on disk. Every check outcome
+   * while something is staged ends here: that release is what `install` and
+   * install-on-quit apply, so subscribers return to 'ready' instead of being
+   * left on the check's `checking` frame or told the build is current.
+   */
+  const reannounceStaged = (): boolean => {
+    if (staged === null) return false
+    publish({ type: 'downloaded', version: staged })
+    return true
   }
 
   const port = config.createPort({
@@ -97,33 +119,44 @@ export function createUpdateController(config: {
     },
     available: (version) => {
       checking = false
+      manualCheck = false
       // A check landing mid-download must not offer a second release.
       if (downloading) return
       // electron-updater compares against the *running* build, so a check
-      // after a download still reports the staged release as available. Keep
-      // it staged rather than offering a second copy of the same version.
-      if (staged === version) return
+      // after a download still reports the staged release as available. Once
+      // a release is staged it is the one `quitAndInstall` and install-on-quit
+      // apply, so it stays the standing answer: a newer release found now is
+      // offered by the next check, after this one has actually installed,
+      // rather than replacing an installer already on disk.
+      if (reannounceStaged()) return
       available = version
-      staged = null
       publish({ type: 'available', version, currentVersion: port.currentVersion() })
     },
     notAvailable: () => {
       checking = false
+      manualCheck = false
       available = null
+      // A staged release still installs on quit, so calling the build current
+      // here would contradict what happens on the next restart.
+      if (reannounceStaged()) return
       publish({ type: 'none', at: Date.now() })
     },
     progress: (percent) => {
-      publish({ type: 'download.progress', percent: Math.round(percent) })
+      const rounded = Math.round(percent)
+      downloadPercent = rounded
+      publish({ type: 'download.progress', percent: rounded })
     },
     downloaded: (version) => {
       checking = false
       downloading = false
       available = null
+      downloadVersion = null
+      downloadPercent = null
       staged = version
       publish({ type: 'downloaded', version })
     },
     error: (message) => {
-      fail(message, !(downloading || manualCheck))
+      fail(message, !(downloading || (checking && manualCheck)))
     },
   })
 
@@ -136,8 +169,22 @@ export function createUpdateController(config: {
     if (checking) return { started: false, reason: 'A check is already running.' }
     checking = true
     manualCheck = manual
-    publish({ type: 'checking', manual })
-    void port.checkForUpdates().catch((cause: unknown) => fail(describe(cause), !manual))
+    // Only a check the user asked for announces itself. A background check
+    // stays silent by design — above all on failure — so a `checking` frame
+    // for one would park the UI on a spinner nothing is coming to clear, and
+    // no frame could clear it without either claiming the build is current or
+    // breaking that silence.
+    if (manual) publish({ type: 'checking', manual })
+    void port
+      .checkForUpdates()
+      .catch((cause: unknown) => fail(describe(cause), !manual))
+      .finally(() => {
+        // electron-updater can settle without emitting anything at all when
+        // the updater is inactive. Left alone that holds `checking` forever,
+        // which blocks every later check and keeps a manual check's spinner
+        // running — so a check always ends in a terminal outcome.
+        if (checking) fail('The update check ended without a result.', !manual)
+      })
     return { started: true, reason: null }
   }
 
@@ -152,6 +199,8 @@ export function createUpdateController(config: {
     }
     const version = available
     downloading = true
+    downloadVersion = version
+    downloadPercent = null
     publish({ type: 'download.started', version })
     // `available` survives a failure so the user can retry the download.
     void port.downloadUpdate().catch((cause: unknown) => fail(describe(cause), false))
@@ -174,6 +223,19 @@ export function createUpdateController(config: {
   }
 
   const snapshot = (): AppUpdateFrame[] => {
+    // A download in flight outranks `available`, which survives one on purpose
+    // so a failure can be retried: a late subscriber re-offered the release
+    // would offer a second download that `download` then refuses, and would
+    // lose the progress the toast is already showing.
+    if (downloading && downloadVersion !== null) {
+      const frames: AppUpdateFrame[] = [
+        { type: 'download.started', version: downloadVersion },
+      ]
+      if (downloadPercent !== null) {
+        frames.push({ type: 'download.progress', percent: downloadPercent })
+      }
+      return frames
+    }
     if (staged !== null) return [{ type: 'downloaded', version: staged }]
     if (available !== null) {
       return [{ type: 'available', version: available, currentVersion: port.currentVersion() }]
