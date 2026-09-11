@@ -699,8 +699,7 @@ function ProjectGroupSection({
           />
         ) : null}
         {project && confirmRemove ? (
-          <div className="flex items-center gap-2 rounded-md bg-danger-subtle px-2 py-1.5">
-            <span className="min-w-0 flex-1 truncate text-2xs text-danger">Remove project?</span>
+          <ProjectNotice tone="danger" label="Remove project?">
             <button
               type="button"
               aria-label={`Confirm remove ${name}`}
@@ -720,11 +719,10 @@ function ProjectGroupSection({
             >
               <X size={13} />
             </button>
-          </div>
+          </ProjectNotice>
         ) : null}
         {project && missing ? (
-          <div className="mx-2 mb-1 flex items-center gap-2 rounded-md bg-surface-2 px-2 py-1.5">
-            <span className="min-w-0 flex-1 truncate text-2xs text-fg-muted">folder missing</span>
+          <ProjectNotice tone="muted" label="folder missing">
             <button
               type="button"
               onClick={() => actions.onLocateProject?.(project.id)}
@@ -739,7 +737,7 @@ function ProjectGroupSection({
             >
               Close
             </button>
-          </div>
+          </ProjectNotice>
         ) : null}
         {expanded ? (
           sessions.length > 0 ? (
@@ -752,6 +750,39 @@ function ProjectGroupSection({
         ) : null}
       </div>
     </section>
+  )
+}
+
+/**
+ * A one-line banner under a project header — the remove confirmation, the
+ * missing-folder prompt. The inset and the gap underneath are the point: flush
+ * and edge to edge, its rounded corners meet the active session row's
+ * highlight and the two read as one connected shape instead of a banner.
+ */
+function ProjectNotice({
+  tone,
+  label,
+  children,
+}: {
+  tone: 'danger' | 'muted'
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      className={`mx-2 mb-1 flex items-center gap-2 rounded-md px-2 py-1.5 ${
+        tone === 'danger' ? 'bg-danger-subtle' : 'bg-surface-2'
+      }`}
+    >
+      <span
+        className={`min-w-0 flex-1 truncate text-2xs ${
+          tone === 'danger' ? 'text-danger' : 'text-fg-muted'
+        }`}
+      >
+        {label}
+      </span>
+      {children}
+    </div>
   )
 }
 
