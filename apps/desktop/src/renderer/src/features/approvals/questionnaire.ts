@@ -18,6 +18,16 @@ export interface QuestionItem {
   customId?: string
 }
 
+/**
+ * One question's answer: typed text, or the values picked in a multi select.
+ *
+ * A multi select answers an array-typed schema property, so it stays an array
+ * all the way to the agent — joining it into one string is what a schema
+ * rejects, and no joining is lossless for a value that contains ", ".
+ */
+export type AnswerValue = string | string[]
+export type AnswerMap = Record<string, AnswerValue>
+
 export type QuestionPayload =
   | { kind: 'free-text'; prompt: string }
   | { kind: 'choices'; prompt: string; choices: string[] }
@@ -119,16 +129,33 @@ export function optionValue(option: QuestionOption): string {
  * Answers arrive keyed by question id, but a question whose agent offered a
  * separate "Other" property has to send typed text to *that* property — the
  * agent reads it first, and free text under the choice key reads as a choice
- * it never offered. A value matching one of the options is a choice.
+ * it never offered.
+ *
+ * `typed` names the questions the user answered from the Other box, because
+ * that is an action only the UI can see. Judging it from the text instead
+ * breaks both ways: a picked choice that happens to spell another option's text
+ * reads as typed, and a multi select's joined values match nothing at all.
+ * Callers that do not track the action fall back on the text naming an option.
  */
-export function encodeAnswers(questions: QuestionItem[], answers: Record<string, string>): string {
-  const wire: Record<string, string> = {}
+export function encodeAnswers(
+  questions: QuestionItem[],
+  answers: AnswerMap,
+  typed: ReadonlySet<string> = new Set(),
+): string {
+  const wire: Record<string, AnswerValue> = {}
   for (const question of questions) {
     const answer = answers[question.id]
-    if (answer === undefined || answer.length === 0) continue
+    if (answer === undefined) continue
+    // A multi select is a list of choices; there is no companion property it
+    // could belong to, so it goes out as the array the schema asked for.
+    if (Array.isArray(answer)) {
+      if (answer.length > 0) wire[question.id] = answer
+      continue
+    }
+    if (answer.length === 0) continue
     const { customId } = question
-    const chosen = question.options.some((option) => optionValue(option) === answer)
-    if (customId !== undefined && !chosen) {
+    const namesAnOption = question.options.some((option) => optionValue(option) === answer)
+    if (customId !== undefined && (typed.has(question.id) || !namesAnOption)) {
       wire[customId] = answer
       continue
     }

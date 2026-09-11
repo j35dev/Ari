@@ -287,6 +287,46 @@ describe('reply builders', () => {
     ).toEqual({ action: 'accept', content: { question_0_custom: 'Something else' } })
   })
 
+  it('answers a multi select with an array under its own schema property', () => {
+    const { questions } = parseElicitationForm({
+      mode: 'form',
+      message: 'pick',
+      requestedSchema: {
+        properties: {
+          files: {
+            title: 'Files',
+            description: 'Which files?',
+            items: {
+              anyOf: [
+                { const: 'a.ts', title: 'a.ts' },
+                { const: 'b.ts', title: 'b.ts' },
+              ],
+            },
+          },
+        },
+      },
+    })
+    expect(questions[0]?.multiSelect).toBe(true)
+    // The array is the answer the schema asked for; flattening it to one
+    // joined string is what the agent then rejects.
+    expect(replyElicitation(questions, JSON.stringify({ answers: { files: ['a.ts', 'b.ts'] } }))).toEqual(
+      { action: 'accept', content: { files: ['a.ts', 'b.ts'] } },
+    )
+  })
+
+  it('keys a Grok multi select by question text, still as an array', () => {
+    const questions = parseAskUserQuestions({
+      questions: [
+        { id: 'files', question: 'Which files?', multiSelect: true, options: [{ label: 'a.ts' }] },
+      ],
+    })
+    expect(replyAskUser(questions, JSON.stringify({ answers: { files: ['a.ts', 'b.ts'] } }))).toEqual({
+      outcome: 'accepted',
+      answers: { 'Which files?': ['a.ts', 'b.ts'] },
+      partial_answers: {},
+    })
+  })
+
   it('maps plan verdicts, including request-changes feedback', () => {
     expect(replyPlanExit('approved')).toEqual({ outcome: 'approved' })
     expect(replyPlanExit('abandoned')).toEqual({ outcome: 'abandoned' })

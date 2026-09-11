@@ -285,7 +285,10 @@ export function replyPermissionChoice(
 ): unknown {
   const list = options ?? []
   const answers = parseAnswerMap(value)
-  const chosen = answers['choice'] ?? Object.values(answers)[0] ?? value
+  const answer = answers['choice'] ?? Object.values(answers)[0] ?? value
+  // A permission prompt is a single choice even when the answer arrives as the
+  // array a multi select would have produced.
+  const chosen = Array.isArray(answer) ? (answer[0] ?? '') : answer
   const match = list.find((o) => o.optionId === chosen || o.name === chosen)
   if (match?.optionId !== undefined) {
     return { outcome: { outcome: 'selected', optionId: match.optionId } }
@@ -301,9 +304,9 @@ function remapAnswers(
   questions: QuestionItem[],
   value: string,
   keyOf: (q: QuestionItem) => string,
-): Record<string, string> {
+): Record<string, string | string[]> {
   const byId = parseAnswerMap(value)
-  const out: Record<string, string> = {}
+  const out: Record<string, string | string[]> = {}
   if (questions.length === 0) return out
   for (const question of questions) {
     // A typed "Other" answer goes back under the companion property the agent
@@ -325,7 +328,7 @@ function remapAnswers(
   return out
 }
 
-function parseAnswerMap(value: string): Record<string, string> {
+function parseAnswerMap(value: string): Record<string, string | string[]> {
   try {
     const parsed: unknown = JSON.parse(value)
     if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -335,10 +338,13 @@ function parseAnswerMap(value: string): Record<string, string> {
         answers !== null && typeof answers === 'object' && !Array.isArray(answers)
           ? (answers as Record<string, unknown>)
           : obj
-      const out: Record<string, string> = {}
+      const out: Record<string, string | string[]> = {}
       for (const [k, v] of Object.entries(source)) {
         if (typeof v === 'string') out[k] = v
-        else if (Array.isArray(v)) out[k] = v.filter((x): x is string => typeof x === 'string').join(', ')
+        // A multi select answers an array-typed property. Joining the values
+        // into one string is what the agent's schema then rejects, so the
+        // array is carried through untouched.
+        else if (Array.isArray(v)) out[k] = v.filter((x): x is string => typeof x === 'string')
       }
       return out
     }

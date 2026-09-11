@@ -250,6 +250,59 @@ describe('QuestionPanel', () => {
     )
   })
 
+  it('submits a multi select as an array of the chosen values', async () => {
+    const onRespond = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <QuestionPanel
+        prompt="Which files?"
+        choicesJson={JSON.stringify({
+          kind: 'questionnaire',
+          questions: [
+            {
+              id: 'files',
+              question: 'Which files?',
+              options: [
+                { id: 'a', label: 'a.ts', value: 'a.ts' },
+                { id: 'b', label: 'b.ts', value: 'b.ts' },
+                { id: 'c', label: 'c.ts', value: 'c.ts' },
+              ],
+              multiSelect: true,
+            },
+          ],
+        })}
+        onRespond={onRespond}
+      />,
+    )
+    // A multi select answers an array-typed schema property, so the two picks
+    // have to arrive as a list — a joined string is what the schema rejects.
+    await user.click(screen.getByText('a.ts'))
+    await user.click(screen.getByText('c.ts'))
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+    expect(onRespond).toHaveBeenCalledWith(JSON.stringify({ answers: { files: ['a.ts', 'c.ts'] } }))
+  })
+
+  it('skips a choice-less question on Escape from its own answer box', async () => {
+    const onCancel = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <QuestionPanel
+        prompt="Anything else?"
+        choicesJson={JSON.stringify({
+          kind: 'questionnaire',
+          questions: [{ id: 'notes', question: 'Anything else?', options: [], multiSelect: false }],
+        })}
+        onRespond={vi.fn()}
+        onCancel={onCancel}
+      />,
+    )
+    // The box autofocuses, so this is where the keyboard already is — the one
+    // place the Skip button's "(Esc)" could never reach.
+    expect(screen.getByLabelText('Your answer')).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+
   it('renders a compact plan-approval card and reports the verdict', async () => {
     const onRespond = vi.fn()
     const user = userEvent.setup()
