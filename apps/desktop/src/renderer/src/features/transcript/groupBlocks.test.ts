@@ -312,23 +312,38 @@ describe('describeActivity', () => {
     return { blocks, calls, resultsByCallId }
   }
 
-  it('names the in-flight call in the present tense', () => {
+  it('names the newest call while the turn is live, in the present tense', () => {
     const activity = describeActivity(
       group([
         call('c1', 'Bash', '{"command":"pnpm verify"}'),
         result('c1'),
         call('c2', 'Read', '{"file_path":"D:/Projects/Ari/packages/ui/src/tokens.css"}'),
       ]),
+      true,
     )
     expect(activity.label).toBe('Reading src/tokens.css')
-    expect(activity.working).toBe(true)
   })
 
-  it('names a targetless in-flight call by its tool, never verb + name', () => {
-    expect(describeActivity(group([call('c1', 'Edit', '{}')])).label).toBe('Edit')
+  it('stays on the newest call once it is answered, so the headline never reverts', () => {
+    // The gap between two chained calls is where the headline used to snap back
+    // to its settled form, then forward again when the next call arrived.
+    const blocks = [
+      call('c1', 'Bash', '{"command":"pnpm verify"}'),
+      result('c1'),
+      call('c2', 'Read', '{"file_path":"D:/Projects/Ari/packages/ui/src/tokens.css"}'),
+      result('c2'),
+    ]
+    expect(describeActivity(group(blocks), true).label).toBe('Reading src/tokens.css')
+    expect(describeActivity(group(blocks), false).label).toBe('Ran pnpm verify')
+  })
+
+  it('names a targetless live call by its tool, never verb + name', () => {
+    expect(describeActivity(group([call('c1', 'Edit', '{}')]), true).label).toBe('Edit')
     expect(
-      describeActivity(group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]))
-        .label,
+      describeActivity(
+        group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]),
+        true,
+      ).label,
     ).toBe('run terminal command')
   })
 
@@ -344,12 +359,12 @@ describe('describeActivity', () => {
         call('c4', 'Edit', '{"file_path":"src/features/transcript/ActivityBurst.tsx"}'),
         result('c4'),
       ]),
+      false,
     )
     expect(activity.verb).toBe('Edited')
     expect(activity.subject).toBe('groupBlocks.ts, types.ts')
     expect(activity.more).toBe(1)
     expect(activity.label).toBe('Edited groupBlocks.ts, types.ts +1')
-    expect(activity.working).toBe(false)
   })
 
   it('prefers the highest-signal bucket over the busiest one', () => {
@@ -363,7 +378,7 @@ describe('describeActivity', () => {
       call('c4', 'Edit', '{"file_path":"config.ts"}'),
       result('c4'),
     ]
-    const activity = describeActivity(group(blocks))
+    const activity = describeActivity(group(blocks), false)
     expect(activity.label).toBe('Edited config.ts')
     // The headline already names the edits, so the ledger reports only the rest.
     expect(activity.ledger).toEqual([{ kind: 'read', count: 3 }])
@@ -381,6 +396,7 @@ describe('describeActivity', () => {
         call('c3', 'Bash', '{"command":"ls"}'),
         result('c3'),
       ]),
+      false,
     )
     expect(activity.label).toBe('Edited a.ts, b.ts')
     expect(activity.stat).toEqual({ added: 4, removed: 3 })
@@ -391,6 +407,7 @@ describe('describeActivity', () => {
     expect(
       describeActivity(
         group([call('c1', 'Bash', '{"command":"pnpm verify --filter desktop"}'), result('c1')]),
+        false,
       ).label,
     ).toBe('Ran pnpm verify…')
   })
@@ -398,6 +415,7 @@ describe('describeActivity', () => {
   it('falls back to a bucket phrase when no call names anything', () => {
     const activity = describeActivity(
       group([call('c1', 'Read', '{}'), result('c1'), call('c2', 'Read', '{}'), result('c2')]),
+      false,
     )
     expect(activity.label).toBe('Read 2 files')
     expect(activity.subject).toBe('')
@@ -409,11 +427,11 @@ describe('describeActivity', () => {
       result('c1'),
       { key: 'k-t', kind: 'thinking', text: 'weighing options' } satisfies TranscriptBlock,
     ]
-    expect(describeActivity(group(blocks)).label).toBe('Ran git status')
+    expect(describeActivity(group(blocks), false).label).toBe('Ran git status')
   })
 
   it('reads as Thinking with no calls at all', () => {
-    expect(describeActivity({ blocks: [], calls: [], resultsByCallId: new Map() }).label).toBe(
+    expect(describeActivity({ blocks: [], calls: [], resultsByCallId: new Map() }, false).label).toBe(
       'Thinking',
     )
   })
