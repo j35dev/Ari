@@ -81,6 +81,11 @@ export const SETTINGS_SEARCH_INDEX = [
   },
   {
     section: 'settings-advanced',
+    label: 'Version and updates',
+    keywords: 'about app version build number check update upgrade release changelog',
+  },
+  {
+    section: 'settings-advanced',
     label: 'Export diagnostics',
     keywords: 'bug report debug json version user agent',
   },
