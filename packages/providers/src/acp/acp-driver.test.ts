@@ -410,6 +410,37 @@ describe('createAcpAdapter', () => {
     expect(adapter.steer?.('too late')).toBe(false)
   }, 15000)
 
+  it('reports a buffered steer as lost when the transport dies before it is chained', async () => {
+    const child = fakeChild()
+    // The prompt's stop reason is delivered and the agent exits in the same
+    // breath: the response is already buffered, so the client still resolves
+    // the prompt — with the transport closed by the time it looks at it.
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+        )
+        child.kill()
+        return undefined
+      }
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    // Steering lands synchronously, while the prompt is still in flight.
+    const collected = collectEvents(adapter)
+    expect(adapter.steer?.('actually focus on the tests')).toBe(true)
+
+    // Accepted means the engine has already dequeued it as delivered, so an
+    // error event is the only way left to say it never arrived. Taking the
+    // text off the buffer before checking `closed` dropped it without a word.
+    const events = await collected
+    expect(
+      events.some(
+        (e) => e.type === 'error' && e.message.includes('actually focus on the tests'),
+      ),
+    ).toBe(true)
+  }, 15000)
+
   it('bridges permission requests into approval events and back', async () => {
     const child = fakeChild()
     script(child, (method, _params, id) => {

@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs'
-import type { AttachmentRef } from '@ari/contracts/attachments'
+import type { AttachmentRef, QueuedMessage } from '@ari/contracts/attachments'
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
 import type { MessageOrigin } from '@ari/contracts/message'
-import { decideCommand } from '@ari/engine/dispatcher'
+import { decideCommand, findQueued } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
@@ -24,8 +24,18 @@ function attributedInput(text: string, origin?: MessageOrigin): string {
     : text
 }
 
-function inputKey(text: string, origin?: MessageOrigin): string {
-  return JSON.stringify([text, origin ?? null])
+/**
+ * The projection's queue-match key: text, origin and image set. Attachments
+ * belong in it because the projection matches on them — a text-only key would
+ * let a steered message suppress a queued same-text message that carries
+ * images, which the projection would keep queued.
+ */
+function inputKey(
+  text: string,
+  origin: MessageOrigin | undefined,
+  attachments: readonly AttachmentRef[] = [],
+): string {
+  return JSON.stringify([text, origin ?? null, attachments.map((a) => a.id)])
 }
 
 export interface CheckpointCapturer {
@@ -97,6 +107,26 @@ interface ActiveTurn {
 }
 
 /**
+ * A message the adapter confirmed as steering, held until the drain can see
+ * the dequeue that removed it from the durable queue.
+ *
+ * `seq` is what makes this exact. A drain whose snapshot predates the dequeue
+ * still finds the message queued, and must skip it; once the snapshot includes
+ * the dequeue the entry is gone and the guard is spent. Keying on text and
+ * origin alone cannot tell two identical queued messages apart, so steering
+ * one of a pair used to suppress — and strand — the other.
+ */
+interface SteeredMessage {
+  /** The projection's queue-match key: text, origin and image set. */
+  key: string
+  /** Seq of the dequeue event; {@link PENDING_SEQ} until that append returns. */
+  seq: number
+}
+
+/** Guard seq before the dequeue append resolves: always later than any snapshot. */
+const PENDING_SEQ = Number.MAX_SAFE_INTEGER
+
+/**
  * The session engine: validates commands through the pure decider, persists
  * the decided events to journals, executes provider side effects, and
  * streams every appended event to subscribers.
@@ -118,13 +148,11 @@ export class Engine {
     return this.#turnTasks.has(sessionId)
   }
   /**
-   * Texts consumed as mid-turn steering, per session. The queue-drain runs
-   * serialized with command dispatch (same per-root chain), so a steered
-   * message's dequeue is always ordered with the drain's queue snapshot —
-   * the drain skips these keys and can never re-run an already-steered
-   * message as a follow-up turn.
+   * One message the adapter took as mid-turn steering, per session. The drain
+   * consults these so a message whose dequeue its snapshot cannot see yet is
+   * never re-run as a follow-up turn.
    */
-  readonly #steeredTexts = new Map<string, Set<string>>()
+  readonly #steeredMessages = new Map<string, SteeredMessage[]>()
   /** Sessions whose first non-error settle already ran title generation. */
   readonly #titleSettled = new Set<string>()
 
@@ -290,8 +318,16 @@ export class Engine {
       // gated the preconditions; only the adapter can say whether it took the
       // text, so a refusal is reported rather than journaled — the message
       // stays queued and still runs as the follow-up turn.
+      //
+      // The stored entry is resolved rather than the command's fields: the
+      // renderer has no origin to send, and a child-originated row would never
+      // be dequeued (nor kept out of the drain) under a plain text key.
+      const queued = findQueued(model, command.text, command.attachments ?? [])
+      if (queued === undefined) return { accepted: false, reason: 'message is no longer queued' }
       const steered =
-        (await this.#activeTurns.get(command.sessionId)?.steer(command.text)) ?? false
+        (await this.#activeTurns
+          .get(command.sessionId)
+          ?.steer(attributedInput(queued.text, queued.origin))) ?? false
       if (!steered) {
         return {
           accepted: false,
@@ -299,10 +335,7 @@ export class Engine {
             'this provider cannot take a mid-turn message; it will run after the current turn',
         }
       }
-      await this.#recordSteered(command.sessionId, model.activeTurnId, {
-        text: command.text,
-        attachments: command.attachments ?? [],
-      })
+      await this.#recordSteered(command.sessionId, model.activeTurnId, queued)
     }
 
     if (command.type === 'checkpoint.revert') {
@@ -325,24 +358,36 @@ export class Engine {
    * Journals a message the adapter confirmed as steering: it leaves the queue
    * and becomes a transcript row (a dequeue that left no row made the follow-up
    * vanish), and is remembered so the drain can never re-run it as a turn.
+   *
+   * The guard is armed *before* the dequeue is appended: a drain that
+   * snapshotted the queue in between still sees the message queued and must
+   * skip it, and only the seq recorded afterwards can retire the guard.
    */
   async #recordSteered(
     sessionId: string,
     turnId: string | null,
-    message: { text: string; attachments: AttachmentRef[]; origin?: MessageOrigin },
+    message: QueuedMessage,
   ): Promise<void> {
-    let consumed = this.#steeredTexts.get(sessionId)
-    if (consumed === undefined) {
-      consumed = new Set()
-      this.#steeredTexts.set(sessionId, consumed)
+    const guard: SteeredMessage = {
+      key: inputKey(message.text, message.origin, message.attachments),
+      seq: PENDING_SEQ,
     }
-    consumed.add(inputKey(message.text, message.origin))
-    await this.#append(sessionId, {
-      type: 'message.dequeued',
-      text: message.text,
-      attachments: message.attachments,
-      ...(message.origin ? { origin: message.origin } : {}),
-    })
+    const guards = this.#steeredMessages.get(sessionId) ?? []
+    guards.push(guard)
+    this.#steeredMessages.set(sessionId, guards)
+    try {
+      guard.seq = (
+        await this.#append(sessionId, {
+          type: 'message.dequeued',
+          text: message.text,
+          attachments: message.attachments,
+          ...(message.origin ? { origin: message.origin } : {}),
+        })
+      ).seq
+    } catch (e) {
+      this.#dropSteered(sessionId, guard)
+      throw e
+    }
     await this.#append(sessionId, {
       type: 'user.message.added',
       message: {
@@ -355,6 +400,24 @@ export class Engine {
         createdAt: Date.now(),
       },
     })
+  }
+
+  /** Retires guards a snapshot already reflects, returning those still pending. */
+  #pendingSteered(sessionId: string, lastSeq: number): SteeredMessage[] {
+    const guards = this.#steeredMessages.get(sessionId)
+    if (guards === undefined) return []
+    const pending = guards.filter((guard) => guard.seq > lastSeq)
+    if (pending.length === 0) this.#steeredMessages.delete(sessionId)
+    else if (pending.length !== guards.length) this.#steeredMessages.set(sessionId, pending)
+    return pending
+  }
+
+  #dropSteered(sessionId: string, guard: SteeredMessage): void {
+    const guards = this.#steeredMessages.get(sessionId)
+    if (guards === undefined) return
+    const next = guards.filter((candidate) => candidate !== guard)
+    if (next.length === 0) this.#steeredMessages.delete(sessionId)
+    else this.#steeredMessages.set(sessionId, next)
   }
 
   async #append(sessionId: string, event: UnstampedEvent): Promise<JournalEvent> {
@@ -719,14 +782,22 @@ export class Engine {
     const session = fresh.session
     if (!session || fresh.activeTurnId !== null) return
     if (fresh.lastTurn && fresh.lastTurn.stopReason !== 'completed') return
-    const steered = this.#steeredTexts.get(sessionId)
-    const next = fresh.queuedMessages.find(
-      (queued) => steered === undefined || !steered.has(inputKey(queued.text, queued.origin)),
-    )
-    if (next === undefined) {
-      if (fresh.queuedMessages.length === 0) this.#steeredTexts.delete(sessionId)
-      return
-    }
+    // A guard the snapshot already reflects is spent — its dequeue is applied,
+    // so the entry is gone and nothing needs skipping. Only a guard whose
+    // dequeue this snapshot predates still hides a queued entry.
+    const pending = this.#pendingSteered(sessionId, fresh.lastSeq)
+    const skip = new Map<string, number>()
+    for (const guard of pending) skip.set(guard.key, (skip.get(guard.key) ?? 0) + 1)
+    const next = fresh.queuedMessages.find((queued) => {
+      const key = inputKey(queued.text, queued.origin, queued.attachments)
+      const remaining = skip.get(key) ?? 0
+      if (remaining === 0) return true
+      // Consume one occurrence per guard: identical rows are indistinguishable,
+      // so the oldest matching one is the one the steer dequeued.
+      skip.set(key, remaining - 1)
+      return false
+    })
+    if (next === undefined) return
     if (this.#deps.authorizeTurn) {
       const reason = await this.#deps.authorizeTurn(session)
       if (reason) {
@@ -791,7 +862,9 @@ export class Engine {
       throw error
     }
     releaseGate(true)
-    this.#steeredTexts.delete(sessionId)
+    // Guards outlive this drain: the ones whose dequeue this snapshot predates
+    // still refer to entries the *next* drain would otherwise re-run. They
+    // retire themselves there once the snapshot includes their seq.
   }
 
   /**

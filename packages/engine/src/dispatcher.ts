@@ -226,8 +226,13 @@ function startTurn(
   return { accepted: true, startsTurn: true, events }
 }
 
-/** Matches a queued message by text and image set — the projection's own rule. */
-function findQueued(
+/**
+ * Matches a queued message by text and image set — the projection's own rule.
+ * The origin is deliberately not part of the match: commands from the UI carry
+ * none, so requiring it would make an origin-bearing row unreachable. Callers
+ * that journal a dequeue must echo the returned entry's origin instead.
+ */
+export function findQueued(
   model: SessionReadModel,
   text: string,
   attachments: readonly AttachmentRef[],
