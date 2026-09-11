@@ -30,7 +30,7 @@ import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
-import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore } from './store'
+import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore, loadProject } from './store'
 import {
   TerminalService,
   ptyUnavailableReason,
@@ -681,6 +681,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.list', async () => getSessionStore().listSessions())
 
   r.register('session.create', async (params) => {
+    // A session always runs inside a project: without one there is no workspace
+    // to jail the terminal and file tools against. The renderer resolves a
+    // project before it gets here, so a miss means a caller skipped that step —
+    // fail loudly rather than minting another Unfiled session.
+    await loadProject(params.projectId)
     const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     await engine.createSession({
       id: sessionId,

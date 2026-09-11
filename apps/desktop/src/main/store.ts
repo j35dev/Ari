@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
 import { EndpointStore } from '@ari/ari-core/endpoints'
+import type { Project } from '@ari/contracts/project'
 import type { WorkspaceWatcher } from '@ari/engine/watcher'
 import { ProjectStore } from '@ari/engine/projects'
 import { SessionStore } from '@ari/engine/session-store'
@@ -67,4 +68,18 @@ export function getEndpointStore(): EndpointStore {
     endpointStore = new EndpointStore({ dir, secretBox: box })
   }
   return endpointStore
+}
+
+/**
+ * Resolves a project id to a registered project, or throws. A session without
+ * a project has no workspace to jail the terminal and file tools against, so
+ * an unknown id — including the legacy `'adhoc'` bucket — is a caller bug, not
+ * a state to fall back from.
+ */
+export async function loadProject(projectId: string): Promise<Project> {
+  const store = getProjectStore()
+  await store.load()
+  const project = store.get(projectId)
+  if (!project) throw new Error('a session needs a project — add a folder first')
+  return project
 }
