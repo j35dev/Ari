@@ -18,6 +18,11 @@ export interface CatalogModel {
 export type CatalogSource = 'live' | 'cache' | 'snapshot' | 'static'
 
 const CLI_DEFAULT_MODELS: CatalogModel[] = [{ id: 'default', label: 'CLI default' }]
+const CLAUDE_ALIASES: CatalogModel[] = [
+  { id: 'fable', label: 'Fable (latest)' },
+  { id: 'opus', label: 'Opus (latest)' },
+  { id: 'sonnet', label: 'Sonnet (latest)' },
+]
 
 /**
  * Last-resort static catalogs (M4.14). Used only when neither a live refresh
@@ -62,16 +67,16 @@ const dynamicEfforts = new Map<DriverKind, EffortCatalog>()
 
 /**
  * Installs a freshly-fetched catalog for a kind, replacing any previous one.
- * Registry-derived sources ('cache') get the same current-model curation as
- * the snapshot — models.dev lists every model a vendor ever shipped, and an
- * unfiltered cache would flood the picker with models the CLI no longer
- * serves. 'live' data is the harness's own word and is never second-guessed.
+ * Registry filtering happens while its richer metadata is still available in
+ * CatalogService; live data is the harness's own word and is never second-guessed.
  */
-export function setDynamicModels(kind: DriverKind, source: CatalogSource, models: CatalogModel[]): void {
+export function setDynamicModels(
+  kind: DriverKind,
+  source: CatalogSource,
+  models: CatalogModel[],
+): void {
   if (models.length === 0) return
-  const effective = source === 'live' ? models : (curateToCurrentModels(kind, models) ?? models)
-  if (effective.length === 0) return
-  dynamic.set(kind, { source, models: effective })
+  dynamic.set(kind, { source, models })
 }
 
 /** Removes any dynamic overlay for a kind (tests, invalidation). */
@@ -172,8 +177,16 @@ export function catalogSource(kind: DriverKind): CatalogSource {
  * major harnesses; re-curate when vendors ship new models.
  */
 const CURRENT_MODEL_IDS: Partial<Record<DriverKind, string[]>> = {
-  claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-6'],
-  codex: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
+  claude: [
+    'claude-fable-5-1',
+    'claude-opus-5',
+    'claude-sonnet-5',
+    'claude-fable-5',
+    'claude-haiku-4-5',
+    'claude-opus-4-8',
+    'claude-sonnet-4-6',
+  ],
+  codex: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
   grok: ['grok-4.6', 'grok-4.5', 'grok-build-0.1'],
 }
 
@@ -181,7 +194,8 @@ function snapshotFor(kind: DriverKind): CatalogModel[] | null {
   const providerId = SNAPSHOT_PROVIDER[kind]
   const models = providerId !== undefined ? (SNAPSHOT.providers[providerId] ?? null) : null
   if (models === null || models.length === 0) return null
-  return curateToCurrentModels(kind, models) ?? models
+  const curated = curateToCurrentModels(kind, models) ?? models
+  return kind === 'claude' ? [...CLAUDE_ALIASES, ...curated] : curated
 }
 
 /**

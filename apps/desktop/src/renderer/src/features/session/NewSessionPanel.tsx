@@ -72,6 +72,17 @@ export function NewSessionPanel({ onSuccess, onCancel }: NewSessionPanelProps): 
 
   useEffect(() => {
     let cancelled = false
+    const loadModels = (): void => {
+      void rpc
+        .invoke('providers.models')
+        .then((rows) => {
+          if (cancelled) return
+          const byKind: CatalogByKind = {}
+          for (const row of rows) byKind[row.kind as DriverKind] = row.models
+          setCatalog(byKind)
+        })
+        .catch(() => undefined)
+    }
     void rpc
       .invoke('providers.detect')
       .then((detections: Detection[]) => {
@@ -86,17 +97,14 @@ export function NewSessionPanel({ onSuccess, onCancel }: NewSessionPanelProps): 
         // Detection is best-effort; Ari Core works without any installed CLI.
         if (!cancelled) setDriverKind('ari-core')
       })
-    void rpc
-      .invoke('providers.models')
-      .then((rows) => {
-        if (cancelled) return
-        const byKind: CatalogByKind = {}
-        for (const row of rows) byKind[row.kind as DriverKind] = row.models
-        setCatalog(byKind)
-      })
-      .catch(() => undefined)
+    loadModels()
+    const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
+      const frame = payload as { type?: string }
+      if (frame.type === 'catalog') loadModels()
+    })
     return () => {
       cancelled = true
+      unsubscribe()
     }
   }, [])
 

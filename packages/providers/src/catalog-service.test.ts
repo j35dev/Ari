@@ -30,7 +30,8 @@ function registryResponse(providers: Record<string, { models: Record<string, unk
 describe('CatalogService', () => {
   it('retries discovery on a later read without spawning a probe for every read', async () => {
     vi.useFakeTimers()
-    const probeModels = vi.fn()
+    const probeModels = vi
+      .fn()
       .mockRejectedValueOnce(new Error('adapter not cached'))
       .mockResolvedValue([{ id: 'future-cli-model', label: 'New CLI model' }])
     const service = new CatalogService({
@@ -50,13 +51,16 @@ describe('CatalogService', () => {
   })
 
   it('retains the live catalog if a later probe fails after a registry refresh', async () => {
-    const probeModels = vi.fn()
+    const probeModels = vi
+      .fn()
       .mockResolvedValueOnce([{ id: 'future-cli-model', label: 'New CLI model' }])
       .mockRejectedValueOnce(new Error('temporarily unavailable'))
     const service = new CatalogService({
-      fetchImpl: vi.fn().mockResolvedValue(registryResponse({
-        openai: { models: { 'gpt-5.5': { name: 'Old fallback' } } },
-      })) as unknown as typeof fetch,
+      fetchImpl: vi.fn().mockResolvedValue(
+        registryResponse({
+          openai: { models: { 'gpt-5.5': { name: 'Old fallback' } } },
+        }),
+      ) as unknown as typeof fetch,
       probeModels,
       probeKinds: ['codex'],
     })
@@ -71,7 +75,12 @@ describe('CatalogService', () => {
       registryResponse({
         anthropic: {
           models: {
-            'claude-x': { id: 'claude-x', name: 'Claude X', limit: { context: 200000 }, modalities: { output: ['text'] } },
+            'claude-x': {
+              id: 'claude-x',
+              name: 'Claude X',
+              limit: { context: 200000 },
+              modalities: { output: ['text'] },
+            },
             'claude-img': { id: 'claude-img', modalities: { output: ['image'] } },
           },
         },
@@ -81,11 +90,57 @@ describe('CatalogService', () => {
     const service = new CatalogService({ fetchImpl: fetchImpl as unknown as typeof fetch })
     await service.refresh()
     expect(modelsFor('claude')).toEqual([
+      { id: 'fable', label: 'Fable (latest)' },
+      { id: 'opus', label: 'Opus (latest)' },
+      { id: 'sonnet', label: 'Sonnet (latest)' },
       { id: 'claude-x', label: 'Claude X', contextHint: '200k' },
     ])
     expect(catalogSource('claude')).toBe('cache')
     // grok has no registry payload in this round; its bundled snapshot stays.
     expect(modelsFor('grok')).toEqual(modelsForBefore('grok'))
+  })
+
+  it('keeps newly released models without an exact-id allowlist and drops deprecated history', async () => {
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockResolvedValue(
+        registryResponse({
+          anthropic: {
+            models: {
+              'claude-fable-5-1': {
+                id: 'claude-fable-5-1',
+                name: 'Claude Fable 5.1',
+                family: 'claude-fable',
+                release_date: '2026-09-01',
+              },
+              'claude-fable-old': {
+                id: 'claude-fable-old',
+                family: 'claude-fable',
+                release_date: '2024-01-01',
+                status: 'deprecated',
+              },
+            },
+          },
+          openai: {
+            models: {
+              'gpt-6-astra': {
+                id: 'gpt-6-astra',
+                name: 'GPT-6 Astra',
+                release_date: '2026-09-04',
+                reasoning: true,
+                tool_call: true,
+              },
+              'gpt-realtime-new': { id: 'gpt-realtime-new', release_date: '2026-09-05' },
+            },
+          },
+        }),
+      ) as unknown as typeof fetch,
+    })
+
+    await service.refresh()
+
+    expect(modelsFor('claude').map((model) => model.id)).toContain('claude-fable-5-1')
+    expect(modelsFor('claude').map((model) => model.id)).not.toContain('claude-fable-old')
+    expect(modelsFor('codex')).toEqual([{ id: 'gpt-6-astra', label: 'GPT-6 Astra' }])
   })
 
   it('keeps the snapshot when the network fails and still probes live afterwards', async () => {
@@ -134,7 +189,12 @@ describe('CatalogService', () => {
       at: number
       providers: Record<string, CatalogModel[]>
     }
-    expect(cached.providers['anthropic']).toEqual([{ id: 'claude-disk', label: 'Disk Model' }])
+    expect(cached.providers['anthropic']).toEqual([
+      { id: 'fable', label: 'Fable (latest)' },
+      { id: 'opus', label: 'Opus (latest)' },
+      { id: 'sonnet', label: 'Sonnet (latest)' },
+      { id: 'claude-disk', label: 'Disk Model' },
+    ])
 
     // Cold start with a dead network must restore the cached catalogs.
     const second = new CatalogService({
@@ -143,14 +203,24 @@ describe('CatalogService', () => {
     })
     second.start()
     await second.ready
-    expect(modelsFor('claude')).toEqual([{ id: 'claude-disk', label: 'Disk Model' }])
+    expect(modelsFor('claude')).toEqual([
+      { id: 'fable', label: 'Fable (latest)' },
+      { id: 'opus', label: 'Opus (latest)' },
+      { id: 'sonnet', label: 'Sonnet (latest)' },
+      { id: 'claude-disk', label: 'Disk Model' },
+    ])
     expect(second.lastRefreshAt).toBe(cached.at)
   })
 
   it('shares one in-flight refresh across concurrent callers', async () => {
-    const fetchImpl = vi.fn().mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(registryResponse({ anthropic: { models: {} } })), 20)),
-    )
+    const fetchImpl = vi
+      .fn()
+      .mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve(registryResponse({ anthropic: { models: {} } })), 20),
+          ),
+      )
     const service = new CatalogService({ fetchImpl: fetchImpl as unknown as typeof fetch })
     await Promise.all([service.refresh(), service.refresh(), service.refresh()])
     expect(fetchImpl).toHaveBeenCalledTimes(1)
