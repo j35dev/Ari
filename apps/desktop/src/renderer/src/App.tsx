@@ -5,6 +5,7 @@ import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
+import { useAppUpdateToast } from './features/updates'
 import type { RpcResults, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
@@ -774,6 +775,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 /** Headless: announces provider updates once the toast context exists. */
 function UpdateToastWatcher() {
   useUpdateToasts()
+  useAppUpdateToast()
   return null
 }
 

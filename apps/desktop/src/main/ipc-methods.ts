@@ -11,6 +11,9 @@ import type { RpcMethod } from '@ari/contracts/rpc'
 export const IPC_METHODS = [
   'ping',
   'app.info',
+  'app.update.check',
+  'app.update.download',
+  'app.update.install',
   'session.list',
   'session.create',
   'session.load',

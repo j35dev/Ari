@@ -188,7 +188,12 @@ export const usageSummarySchema = z.object({
 export type UsageSummary = z.infer<typeof usageSummarySchema>
 
 /** Stream names the renderer may subscribe to. */
-export const streamNames = ['session.events', 'terminal.data', 'providers.updates'] as const
+export const streamNames = [
+  'session.events',
+  'terminal.data',
+  'providers.updates',
+  'app.updates',
+] as const
 export type StreamName = (typeof streamNames)[number]
 
 /** Payload delivered on the session.events stream. */
@@ -233,6 +238,26 @@ export type ProvidersUpdateFrame =
       /** First line of `--version` after the mandatory re-probe. */
       version?: string | null
     }
+
+/**
+ * Payload delivered on the app.updates stream: the desktop shell's own
+ * auto-update lifecycle. Ari never downloads a release unasked — `available`
+ * is the renderer's cue to offer the update, and only an explicit
+ * `app.update.download` moves bytes.
+ */
+export type AppUpdateFrame =
+  /** A check is in flight; `manual` distinguishes a user click from the timer. */
+  | { type: 'checking'; manual: boolean }
+  /** Check finished and this build is current. */
+  | { type: 'none'; at: number }
+  /** A newer release exists and has not been downloaded. */
+  | { type: 'available'; version: string; currentVersion: string }
+  | { type: 'download.started'; version: string }
+  | { type: 'download.progress'; percent: number }
+  /** Downloaded and staged; `app.update.install` will relaunch into it. */
+  | { type: 'downloaded'; version: string }
+  /** Check, download, or install failed. Never fatal — the app keeps running. */
+  | { type: 'error'; message: string }
 
 /**
  * One login a provider told Ari it can run. The command is the agent's own
@@ -329,12 +354,28 @@ export type GitScope = z.infer<typeof gitScopeSchema>
  */
 export type GitActionResult = { ok: true } | { ok: false; error: string }
 
+/**
+ * Outcome for the `app.update.*` RPCs. A refusal is data, not an exception:
+ * updates are unavailable in dev builds and while another update step runs,
+ * and both are ordinary answers the renderer renders as text.
+ */
+export interface UpdateStart {
+  started: boolean
+  reason: string | null
+}
+
 /** Invoke-method parameter schemas. The result side is typed via
  * {@link RpcResults}; zod validates results only at development boundaries.
  */
 export const rpcParams = {
   ping: z.undefined(),
   'app.info': z.undefined(),
+  /** Kick a release check now; unpackaged builds reply `started: false`. */
+  'app.update.check': z.undefined(),
+  /** Begin downloading the release announced on the last `available` frame. */
+  'app.update.download': z.undefined(),
+  /** Quit and relaunch into a release already staged by `download`. */
+  'app.update.install': z.undefined(),
   'session.list': z.undefined(),
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
@@ -528,6 +569,13 @@ export interface RpcResults {
     cwd: string
     version: string
   }
+  /**
+   * `started: false` with a reason is the expected answer in dev builds and
+   * when an operation is already running — not an error.
+   */
+  'app.update.check': UpdateStart
+  'app.update.download': UpdateStart
+  'app.update.install': UpdateStart
   'session.list': SessionSummary[]
   'session.create': { sessionId: string }
   'session.load': unknown

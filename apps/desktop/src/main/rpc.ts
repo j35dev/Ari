@@ -7,6 +7,7 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
 import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
+import type { AppUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
@@ -38,6 +39,8 @@ import {
   type PtyLike,
 } from './terminal-service'
 import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
+import { createAppUpdater } from './updater'
+import type { UpdateController } from './update-controller'
 import { applyThemeToWindow } from './window'
 import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
@@ -322,6 +325,23 @@ async function detectionsForClient(): Promise<RpcResults['providers.detect']> {
  */
 let rpcRegistryRef: RpcRegistry | null = null
 let driverRegistryRef: DriverRegistry | null = null
+/**
+ * Built once per process: a second window must not arm a second check timer,
+ * so the controller rebinds to whichever registry is current when it speaks.
+ */
+let appUpdaterRef: UpdateController | null = null
+
+/** Answer for update RPCs that arrive before any window registered the RPC layer. */
+const REFUSED = { started: false, reason: 'The update service is not running.' }
+
+/**
+ * Arms the periodic release check. Called once the first window has painted,
+ * so a check never competes with the launch animation. The controller is
+ * process-wide; the call is a no-op after the first.
+ */
+export function startAppUpdateChecks(): void {
+  appUpdaterRef?.start()
+}
 
 /**
  * Records a provider's live auth wall and tells the renderer, so a refused
@@ -447,6 +467,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   rpcRegistryRef = rpcRegistry
+  appUpdaterRef ??= createAppUpdater((frame) => rpcRegistryRef?.publish('app.updates', frame))
 
   // The registry exists immediately with Ari Core attached; CLI drivers are
   // added as background detection completes. Nothing waits on that to answer.
@@ -665,6 +686,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     cwd: process.cwd(),
     version: app.getVersion(),
   }))
+
+  // Updates are refused rather than thrown when unavailable (dev build, other
+  // step in flight) so the renderer can render the reason as text.
+  r.register('app.update.check', () => appUpdaterRef?.check(true) ?? REFUSED)
+  r.register('app.update.download', () => appUpdaterRef?.download() ?? REFUSED)
+  r.register('app.update.install', () => appUpdaterRef?.install() ?? REFUSED)
 
   // Settings are the single writer's file; load once at boot so window
   // bounds and renderer reads share the same in-memory state.
@@ -1494,6 +1521,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         type: 'catalog',
         at: catalogService.lastRefreshAt,
       } satisfies ProvidersUpdateFrame)
+    }
+    if (params.name === 'app.updates') {
+      // A window that opens after a check finished still needs to know what
+      // was found, so replay the standing state instead of staying silent.
+      for (const frame of appUpdaterRef?.snapshot() ?? []) {
+        rpcRegistry.publish('app.updates', frame satisfies AppUpdateFrame)
+      }
     }
     return { subscribed: true }
   })
