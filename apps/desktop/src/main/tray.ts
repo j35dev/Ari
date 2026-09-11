@@ -15,7 +15,7 @@ function buildMenu(onShow: () => void, runningCount: number, productName: string
     {
       label: 'GitHub',
       click: () => {
-        void shell.openExternal('https://github.com/tahacore/Ari')
+        void shell.openExternal('https://github.com/j35dev/Ari')
       },
     },
     { type: 'separator' },
