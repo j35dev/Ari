@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import {
-  isUnfiled,
   moveProjectInList,
   projectMoveForDelta,
   projectMoveFromOrder,
   recencyGroups,
+  shellRootFor,
   sidebarGroups,
   sidebarOrder,
   UNFILED_GROUP_ID,
@@ -138,15 +138,53 @@ describe('sidebarGroups', () => {
   })
 })
 
-describe('isUnfiled', () => {
-  it('is true only for the adhoc bucket, not for what the sidebar files under Unfiled', () => {
-    expect(isUnfiled(row('loose', 1))).toBe(true)
-    expect(isUnfiled(row('filed', 1, { projectId: 'p1' }))).toBe(false)
-    // A closed project's session also renders under Unfiled, but it still has a
-    // registered folder behind it — so unlike a true ad-hoc session it has
-    // somewhere a shell can run.
-    expect(isUnfiled(row('orphan', 1, { projectId: 'closed' }))).toBe(false)
-    expect(isUnfiled(undefined)).toBe(false)
+describe('shellRootFor', () => {
+  const registered = [
+    { id: 'p1', path: 'D:\\Projects\\Ari' },
+    { id: 'p2', path: 'D:\\Projects\\Sketch' },
+  ]
+
+  it('gives a session its own project folder', () => {
+    expect(shellRootFor(row('filed', 1, { projectId: 'p2' }), null, registered)).toBe(
+      'D:\\Projects\\Sketch',
+    )
+  })
+
+  it('refuses the home directory an ad-hoc session resolves to', () => {
+    // `resolveWorkspace` answers the home directory for this bucket, so the
+    // path comes back clean — and is still one the jail never accepts.
+    expect(shellRootFor(row('loose', 1), 'C:\\Users\\me', registered)).toBeNull()
+  })
+
+  it('keeps the workspace a managed worktree already has', () => {
+    expect(
+      shellRootFor(row('wt', 1, { projectId: 'p1' }), 'D:\\worktrees\\abc', registered),
+    ).toBe('D:\\worktrees\\abc')
+  })
+
+  it('keeps that worktree after the project behind it is removed', () => {
+    // A worktree is a trusted root in its own right, so a session cut against
+    // a folder that has since left the registry keeps its shell.
+    expect(
+      shellRootFor(row('wt', 1, { projectId: 'gone' }), 'D:\\worktrees\\abc', registered),
+    ).toBe('D:\\worktrees\\abc')
+  })
+
+  it('offers no shell for a session whose project was removed', () => {
+    expect(shellRootFor(row('orphan', 1, { projectId: 'gone' }), null, registered)).toBeNull()
+  })
+
+  it('answers with the project folder while the workspace is still resolving', () => {
+    // `session.workspace` lands a beat late on a session switch; the project
+    // folder is one the jail accepts anyway, so the rail need not blink.
+    expect(shellRootFor(row('filed', 1, { projectId: 'p1' }), null, registered)).toBe(
+      'D:\\Projects\\Ari',
+    )
+  })
+
+  it('roots wherever the caller points it when no session is selected', () => {
+    expect(shellRootFor(undefined, 'D:\\Projects\\Ari', registered)).toBe('D:\\Projects\\Ari')
+    expect(shellRootFor(undefined, null, [])).toBeNull()
   })
 })
 

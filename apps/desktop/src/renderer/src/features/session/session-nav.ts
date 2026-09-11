@@ -2,16 +2,45 @@ import type { SessionSummary } from '@ari/contracts/rpc'
 import { sessionTree } from './session-tree'
 import { collapsedSessions } from '../../shell/use-session-collapse'
 
-/** Group id holding sessions that belong to no open project (`projectId: 'adhoc'`). */
+/**
+ * The ad-hoc project id, doubling as the sidebar's Unfiled group: it collects
+ * both sessions started with no project and any whose project is not open.
+ */
 export const UNFILED_GROUP_ID = 'adhoc'
 
 /**
- * Whether a session has no project behind it. Those resolve their workspace to
- * the home directory, which is not a folder the path jail accepts, so every
- * capability that has to name a real folder — shells above all — is off.
+ * The folder a shell may open in for a session, or null when there is nowhere
+ * it could run.
+ *
+ * `terminal.create` jails its working directory against the registered project
+ * folders plus managed session worktrees, so the answer has to be one of those
+ * and the order below is load-bearing:
+ *
+ * - An ad-hoc session resolves its workspace to the home directory, which the
+ *   jail never accepts — null whatever else resolved, because a path from that
+ *   bucket is a lie even when it came back cleanly.
+ * - A resolved workspace wins otherwise. It is a project folder or a managed
+ *   worktree, both trusted, and a worktree outlives the project it was cut
+ *   from — removing that project must not tear down its running shells.
+ * - Falling through, the session's own project folder. The resolved workspace
+ *   arrives a beat late on a session switch, and the empty state in that gap
+ *   would blink the rail on every switch.
+ *
+ * A removed project is gone from the registry, so nothing matches and its
+ * sessions land on null: the rail offers to add a folder, which is the same
+ * move that brings those sessions back.
  */
-export function isUnfiled(session: { projectId: string } | undefined): boolean {
-  return session !== undefined && session.projectId === UNFILED_GROUP_ID
+export function shellRootFor(
+  session: { projectId: string } | undefined,
+  // The active pane root — a session's resolved workspace, or the first
+  // registered project when nothing is selected.
+  resolvedPath: string | null,
+  projects: readonly { id: string; path: string }[],
+): string | null {
+  if (session === undefined) return resolvedPath
+  if (session.projectId === UNFILED_GROUP_ID) return null
+  if (resolvedPath !== null) return resolvedPath
+  return projects.find((p) => p.id === session.projectId)?.path ?? null
 }
 
 /** Minimal project shape the sidebar groups sessions under. */
