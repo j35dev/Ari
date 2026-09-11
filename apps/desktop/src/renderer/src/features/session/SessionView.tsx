@@ -860,7 +860,12 @@ export function SessionView({
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
           above={
-            pendingQuestion !== null || approvals.length > 0 || childSessions.length > 0 ? (
+            // A plan approval is answered in the side panel, so it mounts no
+            // QuestionPanel and must not raise the strip on its own — an
+            // `above` of empty children still draws the border.
+            (pendingQuestion !== null && pendingPlan === null) ||
+            approvals.length > 0 ||
+            childSessions.length > 0 ? (
               <>
                 {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval

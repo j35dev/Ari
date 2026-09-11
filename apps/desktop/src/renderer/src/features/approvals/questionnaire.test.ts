@@ -119,4 +119,42 @@ describe('encodeAnswers', () => {
     const answers = encodeAnswers([question(), question({ id: 'q2' })], { q2: 'Rewrite' })
     expect(JSON.parse(answers)).toEqual({ answers: { q2: 'Rewrite' } })
   })
+
+  it('sends a multi select as the array its schema asked for', () => {
+    const q = question({
+      multiSelect: true,
+      options: [
+        { id: 'a', label: 'a.ts', value: 'a.ts' },
+        { id: 'b', label: 'b.ts', value: 'b.ts' },
+      ],
+    })
+    expect(JSON.parse(encodeAnswers([q], { q1: ['a.ts', 'b.ts'] }))).toEqual({
+      answers: { q1: ['a.ts', 'b.ts'] },
+    })
+  })
+
+  it('keeps a multi select out of the custom-answer property', () => {
+    // Joined into "a.ts, b.ts" the answer matched no single option, so it was
+    // classified as typed and sent to the companion as free text.
+    const q = question({
+      multiSelect: true,
+      customId: 'q1_custom',
+      options: [
+        { id: 'a', label: 'a.ts', value: 'a.ts' },
+        { id: 'b', label: 'b.ts', value: 'b.ts' },
+      ],
+    })
+    expect(JSON.parse(encodeAnswers([q], { q1: ['a.ts', 'b.ts'] }))).toEqual({
+      answers: { q1: ['a.ts', 'b.ts'] },
+    })
+  })
+
+  it('routes an answer the user typed to the companion even when it names an option', () => {
+    // The panel knows this answer came from the Other box; the text alone
+    // cannot say so, since it is a string the agent also offered as a choice.
+    const q = question({ customId: 'q1_custom' })
+    expect(JSON.parse(encodeAnswers([q], { q1: 'Rewrite' }, new Set(['q1'])))).toEqual({
+      answers: { q1_custom: 'Rewrite' },
+    })
+  })
 })

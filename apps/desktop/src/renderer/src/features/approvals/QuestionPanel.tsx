@@ -8,11 +8,27 @@ import {
   encodeAnswers,
   optionValue,
   parseQuestionPayload,
+  type AnswerMap,
+  type AnswerValue,
   type QuestionItem,
 } from './questionnaire'
 
 const AUTO_ADVANCE_MS = 180
 const OTHER_LABEL = 'Other'
+
+/** The values picked so far in a multi select. */
+function selectedValues(value: AnswerValue | undefined): string[] {
+  if (Array.isArray(value)) return value
+  return value === undefined || value === '' ? [] : [value]
+}
+
+/** `set` minus `key`, without mutating the original. */
+function without(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  if (!set.has(key)) return set
+  const next = new Set(set)
+  next.delete(key)
+  return next
+}
 
 export interface QuestionPanelProps {
   /** Question text asked by the agent/provider. */
@@ -55,8 +71,9 @@ export function QuestionPanel({ prompt, choicesJson, onRespond, onCancel }: Ques
         ]}
         onRespond={(value) => {
           try {
-            const parsed = JSON.parse(value) as { answers?: Record<string, string> }
-            onRespond(parsed.answers?.['choice'] ?? value)
+            const parsed = JSON.parse(value) as { answers?: Record<string, AnswerValue> }
+            const choice = parsed.answers?.['choice']
+            onRespond(typeof choice === 'string' ? choice : value)
           } catch {
             onRespond(value)
           }
@@ -78,7 +95,15 @@ function Interview({
   onCancel?: () => void
 }) {
   const [index, setIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [answers, setAnswers] = useState<AnswerMap>({})
+  /**
+   * The questions answered from the Other box rather than from the list.
+   * Whether an answer is custom is a fact about the action the user took, and
+   * only the panel sees it — `encodeAnswers` cannot recover it from the text,
+   * because a multi select's values match no single option and a typed answer
+   * may spell one.
+   */
+  const [typed, setTyped] = useState<ReadonlySet<string>>(() => new Set())
   const [otherOpen, setOtherOpen] = useState(false)
   const [otherDraft, setOtherDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -103,7 +128,9 @@ function Interview({
 
   const total = questions.length
   const last = index === total - 1
-  const chosen = answers[question.id] ?? null
+  const answer: AnswerValue | undefined = answers[question.id]
+  const picked = selectedValues(answer)
+  const text = typeof answer === 'string' ? answer : ''
   /**
    * A question with no options is an ordinary free-text question. Without
    * this it renders as an empty list plus the "Other" row the panel always
@@ -112,71 +139,94 @@ function Interview({
   const choiceLess = question.options.length === 0
   const custom = choiceLess || otherOpen
 
-  const restoreOther = (at: number, map: Record<string, string>): void => {
+  const restoreOther = (at: number, map: AnswerMap, typedIds: ReadonlySet<string>): void => {
     const q = questions[at]
     const value = q === undefined ? undefined : map[q.id]
-    const known =
-      q !== undefined && value !== undefined && q.options.some((o) => optionValue(o) === value)
-    if (value !== undefined && value.length > 0 && !known) {
+    const restored = typeof value === 'string' ? value : ''
+    // A choice-less question always answers through the box, so its draft is
+    // the answer; a question with options reopens the box only when the answer
+    // was typed rather than picked.
+    const reopens = q !== undefined && (q.options.length === 0 || typedIds.has(q.id))
+    if (reopens && restored.length > 0) {
       setOtherOpen(true)
-      setOtherDraft(value)
+      setOtherDraft(restored)
       return
     }
     setOtherOpen(false)
     setOtherDraft('')
   }
 
-  const goTo = (nextIndex: number, map: Record<string, string>): void => {
+  const goTo = (nextIndex: number, map: AnswerMap, typedIds: ReadonlySet<string>): void => {
     clearAdvance()
     setIndex(nextIndex)
-    restoreOther(nextIndex, map)
+    restoreOther(nextIndex, map, typedIds)
   }
 
-  const finish = (next: Record<string, string>): void => {
+  const finish = (next: AnswerMap, typedIds: ReadonlySet<string>): void => {
     if (busy) return
     setBusy(true)
-    onRespond(encodeAnswers(questions, next))
+    onRespond(encodeAnswers(questions, next, typedIds))
   }
 
   const commit = (value: string, advance: boolean): void => {
     if (busy) return
     const next = { ...answers, [question.id]: value }
+    const nextTyped = without(typed, question.id)
     setAnswers(next)
+    setTyped(nextTyped)
     setOtherOpen(false)
     if (!advance) return
     if (last) {
-      finish(next)
+      finish(next, nextTyped)
       return
     }
     clearAdvance()
-    advanceTimer.current = setTimeout(() => goTo(index + 1, next), AUTO_ADVANCE_MS)
+    advanceTimer.current = setTimeout(() => goTo(index + 1, next, nextTyped), AUTO_ADVANCE_MS)
   }
 
   const continueNext = (): void => {
-    const value = custom ? otherDraft.trim() : (chosen ?? '').trim()
-    if (value === '' || busy) return
-    const next = { ...answers, [question.id]: value }
+    if (busy) return
+    const next = { ...answers }
+    let nextTyped: ReadonlySet<string>
+    if (custom) {
+      const typedText = otherDraft.trim()
+      if (typedText === '') return
+      next[question.id] = typedText
+      nextTyped = new Set(typed).add(question.id)
+    } else {
+      if (question.multiSelect) {
+        if (picked.length === 0) return
+        next[question.id] = picked
+      } else if (text.trim() === '') {
+        return
+      }
+      nextTyped = without(typed, question.id)
+    }
     setAnswers(next)
+    setTyped(nextTyped)
     if (last) {
-      finish(next)
+      finish(next, nextTyped)
       return
     }
-    goTo(index + 1, next)
+    goTo(index + 1, next, nextTyped)
   }
 
   const toggleMulti = (value: string): void => {
     if (busy) return
-    const selected = chosen === null || chosen === '' ? [] : chosen.split(', ')
-    const next = selected.includes(value) ? selected.filter((s) => s !== value) : [...selected, value]
-    setAnswers({ ...answers, [question.id]: next.join(', ') })
+    const next = picked.includes(value) ? picked.filter((s) => s !== value) : [...picked, value]
+    setAnswers({ ...answers, [question.id]: next })
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (busy) return
     if (event.key === 'Escape') {
       // Focus inside the custom-answer box only closes the box (handled on
-      // the textarea); anywhere else Esc skips the whole question.
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+      // the textarea); anywhere else Esc skips the whole question. A
+      // choice-less question has no box to close — its textarea *is* the
+      // answer — so Esc skips there too, as the Skip tooltip promises.
+      const inField =
+        event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      if (inField && !choiceLess) return
       event.preventDefault()
       onCancel?.()
       return
@@ -204,7 +254,11 @@ function Interview({
     commit(optionValue(option), true)
   }
 
-  const canContinue = custom ? otherDraft.trim() !== '' : (chosen ?? '').trim() !== ''
+  const canContinue = custom
+    ? otherDraft.trim() !== ''
+    : question.multiSelect
+      ? picked.length > 0
+      : text.trim() !== ''
 
   // The panel is one entry in the strip that peeks out from behind the
   // composer, alongside approval cards — not a card of its own. So it carries
@@ -237,7 +291,7 @@ function Interview({
       <div className="mt-2 flex max-h-56 flex-col overflow-y-auto">
         {question.multiSelect
           ? question.options.map((option) => {
-              const selected = (chosen ?? '').split(', ').includes(optionValue(option))
+              const selected = picked.includes(optionValue(option))
               return (
                 <div
                   key={option.id}
@@ -262,7 +316,7 @@ function Interview({
               )
             })
           : question.options.map((option, i) => {
-              const selected = !custom && chosen === optionValue(option)
+              const selected = !custom && answer === optionValue(option)
               return (
                 <button
                   key={option.id}
@@ -315,11 +369,12 @@ function Interview({
               disabled={busy}
               onChange={(event) => setOtherDraft(event.target.value)}
               onKeyDown={(event) => {
-                // Esc backs out of the custom box without skipping the question.
-                if (event.key === 'Escape') {
-                  event.stopPropagation()
-                  setOtherOpen(false)
-                }
+                // Esc backs out of the custom box without skipping the
+                // question. A choice-less question has no box to back out of,
+                // so Esc falls through to the section handler and skips.
+                if (event.key !== 'Escape' || choiceLess) return
+                event.stopPropagation()
+                setOtherOpen(false)
               }}
               placeholder={choiceLess ? 'Type your answer…' : 'Describe what you want instead…'}
             />
@@ -348,7 +403,7 @@ function Interview({
           variant="secondary"
           size="sm"
           disabled={index === 0 || busy}
-          onClick={() => goTo(Math.max(0, index - 1), answers)}
+          onClick={() => goTo(Math.max(0, index - 1), answers, typed)}
         >
           Back
         </Button>
