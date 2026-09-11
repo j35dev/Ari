@@ -223,11 +223,12 @@ describe('TranscriptView tool bursts', () => {
     expect(screen.getByText('Ari Read')).toBeInTheDocument()
   })
 
-  it('opens live work automatically, then compacts it as soon as the result arrives', () => {
+  it('keeps the live row open across the turn, then folds it once the turn settles', async () => {
     const { rerender } = render(
       createElement(TranscriptView, {
         sessionId: 'sess_1',
         messages: [toolMessage('m1', false)],
+        running: true,
       }),
     )
 
@@ -236,21 +237,28 @@ describe('TranscriptView tool bursts', () => {
       'true',
     )
     expect(screen.getByText('live')).toBeInTheDocument()
-    expect(screen.getByText('Ari Read')).toBeInTheDocument()
+    // Live, the body is the step timeline: the lone-call shortcut is a
+    // settled-state affordance, so the row's shape cannot change mid-turn.
+    expect(screen.getByRole('button', { name: 'Reading src/a.ts' })).toBeInTheDocument()
 
     rerender(
       createElement(TranscriptView, {
         sessionId: 'sess_1',
         messages: [toolMessage('m1')],
+        running: false,
       }),
     )
 
-    expect(screen.getByRole('button', { name: 'Read a.ts · Read 1 file' })).toHaveAttribute(
+    // The row holds open for a beat, so a turn that immediately dequeues the
+    // next message cannot make it flicker shut and open again.
+    expect(screen.getByRole('button', { name: /Working: Reading src\/a\.ts/ })).toHaveAttribute(
       'aria-expanded',
-      'false',
+      'true',
     )
+
+    const settled = await screen.findByRole('button', { name: 'Read a.ts · Read 1 file' })
+    expect(settled).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('live')).not.toBeInTheDocument()
-    expect(screen.queryByText('Ari Read')).not.toBeInTheDocument()
   })
 
   it('keeps a whole stretch of work in one row instead of a wall of tallies', () => {

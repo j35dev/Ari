@@ -301,19 +301,6 @@ export function burstDiffStat(calls: TranscriptBlock[]): EditDiffStat | null {
   return measured ? { added, removed } : null
 }
 
-/** The call still awaiting a result, newest first — what the row is doing now. */
-function liveCall(
-  row: Pick<ToolGroupRow, 'calls' | 'resultsByCallId'>,
-): TranscriptBlock | undefined {
-  for (let i = row.calls.length - 1; i >= 0; i--) {
-    const call = row.calls[i]
-    if (call === undefined) continue
-    if (call.callId !== undefined && row.resultsByCallId.has(call.callId)) continue
-    return call
-  }
-  return undefined
-}
-
 /** Distinct headline subjects for one bucket, in call order. */
 function subjectsOf(calls: TranscriptBlock[], kind: ToolKind): string[] {
   const seen = new Set<string>()
@@ -344,7 +331,6 @@ export interface ActivityHeadline {
   more: number
   /** The headline as one line, for accessible names and tooltips. */
   label: string
-  working: boolean
   summary: ToolActivitySummary
   /** Buckets the headline does not already name, for the glyph ledger. */
   ledger: ActivityLedgerEntry[]
@@ -353,39 +339,54 @@ export interface ActivityHeadline {
 }
 
 /**
- * Describes one activity row: what it is doing, or what it did. While a call is
- * in flight the row names that call ("Reading tokens.css") so it doubles as the
- * live progress readout. Settled, it leads with the *subjects* of the
- * highest-signal bucket ("Edited groupBlocks.ts, types.ts +1") rather than a
- * tally of nouns — counting what happened tells you the shape of the work,
- * naming it tells you the work. The `ledger` then carries only the buckets the
- * headline left unsaid, so nothing is stated twice, and `summary` keeps the full
- * tally for the accessible sentence. A bucket whose calls expose no showable
- * argument falls back to its count phrase ("Read 6 files").
+ * Describes one activity row: what it is doing, or what it did. Pass `live` for
+ * the row the running turn is currently on — it names the *newest* call
+ * ("Reading tokens.css") so the row doubles as the live progress readout.
+ * Settled, it leads with the *subjects* of the highest-signal bucket ("Edited
+ * groupBlocks.ts, types.ts +1") rather than a tally of nouns — counting what
+ * happened tells you the shape of the work, naming it tells you the work. The
+ * `ledger` then carries only the buckets the headline left unsaid, so nothing is
+ * stated twice, and `summary` keeps the full tally for the accessible sentence.
+ * A bucket whose calls expose no showable argument falls back to its count
+ * phrase ("Read 6 files").
+ *
+ * Liveness is a parameter rather than something read off `summary.pending`
+ * because a burst chains many calls between two utterances, and between any two
+ * of them there is a gap where nothing is in flight. Driving the headline off
+ * "is some call unanswered" made it revert to the settled form and back on every
+ * such gap. `live` comes from the turn, so the text only ever moves forward
+ * until the turn ends.
  */
 export function describeActivity(
   row: Pick<ToolGroupRow, 'blocks' | 'calls' | 'resultsByCallId'>,
+  live: boolean,
 ): ActivityHeadline {
   const summary = summarizeToolRun(row.calls, row.resultsByCallId)
   const ledger = activityLedger(summary)
   const stat = burstDiffStat(row.calls)
-  const base = { more: 0, working: false, summary, ledger, stat }
-  if (summary.pending > 0) {
-    const call = liveCall(row)
+  const base = { more: 0, summary, ledger, stat }
+
+  if (row.calls.length === 0) {
+    return { ...base, verb: 'Thinking', subject: '', label: 'Thinking' }
+  }
+
+  if (live) {
+    // Newest, not newest-unanswered: the call that just finished is still the
+    // most recent thing this turn did, and holding it keeps the headline from
+    // snapping back to a summary it will only leave again on the next call.
+    const call = row.calls[row.calls.length - 1]
     if (call !== undefined) {
       const { verb, target } = describeToolCall(call, true)
       if (target.length === 0) {
         const name = humanizeToolName(effectiveToolName(call.name, call.argsJson))
-        return { ...base, working: true, verb: name, subject: '', label: name }
+        return { ...base, verb: name, subject: '', label: name }
       }
       // The live row shows one target and has the width for it, so it keeps the
       // step's full path or command rather than the headline's short subject.
-      return { ...base, working: true, verb, subject: target, label: `${verb} ${target}` }
+      return { ...base, verb, subject: target, label: `${verb} ${target}` }
     }
   }
-  if (row.calls.length === 0) {
-    return { ...base, verb: 'Thinking', subject: '', label: 'Thinking' }
-  }
+
   const { kind, verb, subjects } = headlineSubjects(summary, row.calls)
   const rest = ledger.filter((entry) => entry.kind !== kind)
   if (subjects.length === 0) {

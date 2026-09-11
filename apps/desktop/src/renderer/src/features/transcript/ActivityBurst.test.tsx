@@ -45,7 +45,7 @@ const RUN = [
 
 describe('ActivityBurst collapsed', () => {
   it('names what the burst touched and hides every step until asked', () => {
-    const { container } = render(<ActivityBurst row={row(RUN)} />)
+    const { container } = render(<ActivityBurst row={row(RUN)} active={false} />)
 
     const toggle = screen.getByRole('button', { expanded: false })
     expect(toggle).toHaveTextContent('Edited')
@@ -57,8 +57,8 @@ describe('ActivityBurst collapsed', () => {
     expect(container.querySelector('[data-activity="settled"]')).not.toBeNull()
   })
 
-  it('opens the live timeline and names the in-flight call while working', () => {
-    const { container } = render(<ActivityBurst row={row(RUN.slice(0, 5))} />)
+  it('opens the live timeline and names the newest call while the turn is on this row', () => {
+    const { container } = render(<ActivityBurst row={row(RUN.slice(0, 5))} active />)
 
     const toggle = screen.getByRole('button', {
       expanded: true,
@@ -70,10 +70,29 @@ describe('ActivityBurst collapsed', () => {
     expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
   })
 
+  it('stays open on a call that has come back, so chained calls never fold the row', () => {
+    // An answered call whose turn is still running is the state that used to
+    // slam the row shut in the gap between every pair of chained calls.
+    const answered = [
+      thinking('t1', 'weighing it\ndeeper detail here'),
+      call('c1', 'Bash', '{"command":"git status --short"}'),
+      result('c1'),
+    ]
+    const { container } = render(<ActivityBurst row={row(answered)} active />)
+
+    const toggle = screen.getByRole('button', {
+      expanded: true,
+      name: /^Working: Running git status --short/,
+    })
+    expect(toggle).toHaveTextContent('Running')
+    expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
+  })
+
   it('hides tool errors from the collapsed headline', () => {
     const { container } = render(
       <ActivityBurst
         row={row([call('c1', 'Bash', '{"command":"pnpm verify"}'), result('c1', true)])}
+        active={false}
       />,
     )
 
@@ -85,7 +104,7 @@ describe('ActivityBurst collapsed', () => {
   })
 
   it('falls back to a bucket phrase when nothing is nameable', () => {
-    render(<ActivityBurst row={row([call('c1', 'Read', '{}'), result('c1')])} />)
+    render(<ActivityBurst row={row([call('c1', 'Read', '{}'), result('c1')])} active={false} />)
 
     expect(screen.getByRole('button', { name: 'Read 1 file' })).toBeInTheDocument()
   })
@@ -94,7 +113,7 @@ describe('ActivityBurst collapsed', () => {
 describe('ActivityBurst expanded', () => {
   it('lists one row per step in wire order, results folded into their call', async () => {
     const user = userEvent.setup()
-    render(<ActivityBurst row={row(RUN)} />)
+    render(<ActivityBurst row={row(RUN)} active={false} />)
 
     await user.click(screen.getByRole('button', { expanded: false }))
 
@@ -107,7 +126,7 @@ describe('ActivityBurst expanded', () => {
 
   it('reveals a thought in full when its step is opened', async () => {
     const user = userEvent.setup()
-    render(<ActivityBurst row={row(RUN)} />)
+    render(<ActivityBurst row={row(RUN)} active={false} />)
 
     await user.click(screen.getByRole('button', { expanded: false }))
     expect(screen.queryByText(/deeper detail here/)).not.toBeInTheDocument()
@@ -119,7 +138,7 @@ describe('ActivityBurst expanded', () => {
   it('opens a lone call straight to its body instead of a one-item list', async () => {
     const user = userEvent.setup()
     const lone = [call('c1', 'Bash', '{"command":"git status --short"}'), result('c1')]
-    const { container } = render(<ActivityBurst row={row(lone)} />)
+    const { container } = render(<ActivityBurst row={row(lone)} active={false} />)
 
     await user.click(screen.getByRole('button', { expanded: false }))
 
