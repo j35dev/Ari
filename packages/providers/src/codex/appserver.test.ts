@@ -327,12 +327,34 @@ describe('codex app-server adapter', () => {
       threadId: 'thr_live',
       input: [{ type: 'text', text: 'say hi' }],
     })
+    // No level picked: the agent keeps its own default.
+    expect(child.sent[2]?.['params']).not.toHaveProperty('effort')
 
     expect(events[0]).toEqual({ type: 'session-ref', ref: 'thr_live' })
     expect(events[events.length - 1]?.type).toBe('done')
     const kinds = new Set(events.map((e) => e.type))
     expect(kinds.has('tool-completed')).toBe(true)
     expect(kinds.has('usage')).toBe(true)
+  }, 10_000)
+
+  it('carries the picked reasoning level on turn/start', async () => {
+    const child = fakeChild()
+    serve(child, standardServer())
+    const adapter = await createCodexAppServerAdapter(
+      '/bin/codex',
+      { ...SESSION, effort: 'high' },
+      () => child,
+    )
+
+    const drained = drain(adapter)
+    await sleep(10)
+    for (const line of fixtureLinesAfterHandshake('appserver-turn.jsonl')) {
+      child.stdout.write(`${line}\n`)
+    }
+    await drained
+
+    const turnStart = child.sent.find((frame) => frame['method'] === 'turn/start')
+    expect(turnStart?.['params']).toMatchObject({ effort: 'high' })
   }, 10_000)
 
   it('resumes threads via thread/resume when resumeOf is set', async () => {

@@ -27,18 +27,43 @@ export interface CodexModelCatalog {
   efforts: EffortCatalog
 }
 
-export type CatalogTransportFactory = (binaryPath: string, cwd: string) => CatalogTransport
+/** Environment for the spawned CLI; the caller's enriched PATH, when it has one. */
+export type ProbeEnvironment = Record<string, string | undefined>
 
-const startTransport: CatalogTransportFactory = (binaryPath, cwd) =>
-  AppServerConnection.start({ binaryPath, cwd })
+export type CatalogTransportFactory = (
+  binaryPath: string,
+  cwd: string,
+  env: ProbeEnvironment | undefined,
+) => CatalogTransport
+
+export interface CodexCatalogProbeOptions {
+  /**
+   * Process environment for the spawned CLI. Detection searches the enriched
+   * PATH, so the probe must run with it too: a GUI-launched app inherits a
+   * thin PATH, and a shim found there is only runnable if the child can also
+   * resolve the runtime it shells out to. Omit to inherit the host env.
+   */
+  env?: ProbeEnvironment
+  /** Transport seam; defaults to a real `codex app-server` subprocess. */
+  start?: CatalogTransportFactory
+}
+
+const startTransport: CatalogTransportFactory = (binaryPath, cwd, env) =>
+  AppServerConnection.start({
+    binaryPath,
+    cwd,
+    // An empty env object would strip PATH from the child entirely; omit the
+    // key so an absent override inherits the host environment instead.
+    ...(env !== undefined ? { env } : {}),
+  })
 
 /** Reads the picker-visible catalog directly from the user's installed Codex CLI. */
 export async function probeCodexModelCatalog(
   binaryPath: string,
   cwd: string,
-  start: CatalogTransportFactory = startTransport,
+  options: CodexCatalogProbeOptions = {},
 ): Promise<CodexModelCatalog> {
-  const connection = start(binaryPath, cwd)
+  const connection = (options.start ?? startTransport)(binaryPath, cwd, options.env)
   try {
     await connection.request(
       'initialize',
