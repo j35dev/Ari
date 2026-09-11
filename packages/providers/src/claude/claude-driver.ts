@@ -137,8 +137,8 @@ export interface ControlProcessLike extends PumpableProcess {
 export interface ClaudeControlAdapter extends ProviderAdapter {
   /** Writes one control frame as a JSON line to the CLI stdin. */
   send(frame: unknown): void
-  /** Steers a running turn by appending a user message. */
-  steer(text: string): void
+  /** Steers a running turn by appending a user message; false when stdin is gone. */
+  steer(text: string): boolean
   /** Answers a pending can_use_tool permission prompt via control_response. */
   respondApproval(approvalId: string, decision: ApprovalDecision): void
 }
@@ -220,9 +220,7 @@ export function wireClaudeControl(
     send: (frame) => {
       writeLine(frame)
     },
-    steer: (text) => {
-      writeLine(buildUserFrame(text))
-    },
+    steer: (text) => writeLine(buildUserFrame(text)),
     respondApproval: (approvalId, decision) => {
       writeLine(buildApprovalResponseFrame(approvalId, decision, pendingPermissions.get(approvalId)))
       pendingPermissions.delete(approvalId)
