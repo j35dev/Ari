@@ -14,6 +14,7 @@ import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import {
+  isUnfiled,
   moveProjectInList,
   projectMoveForDelta,
   sidebarOrder,
@@ -93,7 +94,6 @@ function Shell() {
     overrides?: Partial<SessionDefaults>
   } | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
-  const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -120,13 +120,6 @@ function Shell() {
     permissionMode: 'ask',
     effort: null,
   })
-
-  useEffect(() => {
-    void rpc
-      .invoke('app.info')
-      .then((info) => setWorkspaceCwd(info.homeDir))
-      .catch((error: unknown) => log.warn('rpc call failed', error))
-  }, [])
 
   // Sidebar collapse: ephemeral UI state, so localStorage (not engine settings)
   // is the right home. Ctrl+B toggles; a rail button restores it.
@@ -527,6 +520,20 @@ function Shell() {
       : activeScopeProjectId !== undefined
         ? { projectId: activeScopeProjectId }
         : null
+  // Where a shell can actually run. `terminal.create` jails its working
+  // directory against the registered project folders, so this has to be one:
+  // no project at all, or a legacy Unfiled session whose workspace is the home
+  // directory, means there is nowhere to open a shell, and the rail says so
+  // instead of asking for one the main process will refuse. The session's own
+  // project folder answers before its workspace resolves — a beat late on a
+  // session switch — which keeps the rail from blinking the message; the
+  // resolved path takes over after, since managed worktrees are trusted too.
+  const shellRoot = useMemo(() => {
+    if (isUnfiled(activeSession)) return null
+    if (activeProjectPath !== null) return activeProjectPath
+    if (activeSession === undefined) return null
+    return projects.find((p) => p.id === activeSession.projectId)?.path ?? null
+  }, [activeSession, activeProjectPath, projects])
 
   if (settingsOpen) {
     return (
@@ -762,7 +769,8 @@ function Shell() {
                       <div className="min-h-0 flex-1">
                         <ErrorBoundary label="Terminal">
                           <TerminalDock
-                            cwd={(activeProjectPath ?? workspaceCwd) || undefined}
+                            cwd={shellRoot}
+                            onAddProject={() => openProjectViaDialog()}
                             onClose={() => setInspector(null)}
                           />
                         </ErrorBoundary>

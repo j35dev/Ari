@@ -5,6 +5,15 @@ import { collapsedSessions } from '../../shell/use-session-collapse'
 /** Group id holding sessions that belong to no open project (`projectId: 'adhoc'`). */
 export const UNFILED_GROUP_ID = 'adhoc'
 
+/**
+ * Whether a session has no project behind it. Those resolve their workspace to
+ * the home directory, which is not a folder the path jail accepts, so every
+ * capability that has to name a real folder — shells above all — is off.
+ */
+export function isUnfiled(session: { projectId: string } | undefined): boolean {
+  return session !== undefined && session.projectId === UNFILED_GROUP_ID
+}
+
 /** Minimal project shape the sidebar groups sessions under. */
 export interface NavProject {
   id: string
