@@ -18,7 +18,14 @@ export interface CatalogModel {
 export type CatalogSource = 'live' | 'cache' | 'snapshot' | 'static'
 
 const CLI_DEFAULT_MODELS: CatalogModel[] = [{ id: 'default', label: 'CLI default' }]
-const CLAUDE_ALIASES: CatalogModel[] = [
+
+/**
+ * Version-less ids the Claude CLI resolves to the newest model of each family.
+ * Additive rows on top of a real catalog, never a catalog on their own: both
+ * consumers prepend them only once real models are in hand, so an alias-only
+ * answer can never masquerade as a discovered catalog.
+ */
+export const CLAUDE_ALIASES: CatalogModel[] = [
   { id: 'fable', label: 'Fable (latest)' },
   { id: 'opus', label: 'Opus (latest)' },
   { id: 'sonnet', label: 'Sonnet (latest)' },
