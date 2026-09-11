@@ -14,9 +14,9 @@ import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import {
-  isUnfiled,
   moveProjectInList,
   projectMoveForDelta,
+  shellRootFor,
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds } from './features/session/session-tree'
@@ -520,20 +520,13 @@ function Shell() {
       : activeScopeProjectId !== undefined
         ? { projectId: activeScopeProjectId }
         : null
-  // Where a shell can actually run. `terminal.create` jails its working
-  // directory against the registered project folders, so this has to be one:
-  // no project at all, or a legacy Unfiled session whose workspace is the home
-  // directory, means there is nowhere to open a shell, and the rail says so
-  // instead of asking for one the main process will refuse. The session's own
-  // project folder answers before its workspace resolves — a beat late on a
-  // session switch — which keeps the rail from blinking the message; the
-  // resolved path takes over after, since managed worktrees are trusted too.
-  const shellRoot = useMemo(() => {
-    if (isUnfiled(activeSession)) return null
-    if (activeProjectPath !== null) return activeProjectPath
-    if (activeSession === undefined) return null
-    return projects.find((p) => p.id === activeSession.projectId)?.path ?? null
-  }, [activeSession, activeProjectPath, projects])
+  // Where a shell can actually run — the rule and its precedence live in
+  // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
+  // offer a project instead of a spawn the main process would refuse.
+  const shellRoot = useMemo(
+    () => shellRootFor(activeSession, activeProjectPath, projects),
+    [activeSession, activeProjectPath, projects],
+  )
 
   if (settingsOpen) {
     return (
