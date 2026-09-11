@@ -333,17 +333,44 @@ export async function createAcpAdapter(
   // Only the turn's first prompt carries images; steered follow-ups are
   // text-only (the engine never steers an imaged message — it stays queued).
   const steeredTexts: string[] = []
-  const launchPrompt = (text: string, images: { data: string; mimeType: string }[] = []): void => {
+  /**
+   * Texts accepted as steering that never reached the agent. `steer` already
+   * answered true for them, so the engine has dequeued them as delivered; an
+   * error event is the only way left to say they did not arrive.
+   */
+  const lostSteeringEvents = (lost: string[]): AgentEvent[] =>
+    lost.length === 0
+      ? []
+      : [
+          {
+            type: 'error',
+            message: `steering lost after transport failure: ${lost.join(' | ')}`,
+            rawJson: null,
+          },
+        ]
+  const launchPrompt = (
+    text: string,
+    images: { data: string; mimeType: string }[] = [],
+    /** The text came from `steer`, so the engine has already dequeued it. */
+    steered = false,
+  ): void => {
     void connection
       .prompt(sessionId, text, { images })
       .then((stopReason) => {
+        // The transport died while this prompt ran, so nothing can be chained
+        // onto it. Drain the buffer *and* report it: shifting first and then
+        // bailing on `closed` threw the text away without a word.
+        if (connection.closed) {
+          push([...lostSteeringEvents(steeredTexts.splice(0)), ...stopReasonEvents(stopReason)])
+          return
+        }
         const next = steeredTexts.shift()
-        if (next === undefined || connection.closed) {
+        if (next === undefined) {
           push(stopReasonEvents(stopReason))
           return
         }
         log.debug('acp steering applied at turn boundary', { sessionId })
-        launchPrompt(next)
+        launchPrompt(next, [], true)
       })
       .catch((error: unknown) => {
         log.debug('acp prompt failed', { error: String(error) })
@@ -352,12 +379,13 @@ export async function createAcpAdapter(
         if (error instanceof AcpAuthRequiredError) {
           onAuthRequired?.({ label: launch.label, logins: error.logins })
         }
-        // Texts consumed as steering but never delivered must not vanish.
-        const lost = steeredTexts.splice(0)
+        // Texts consumed as steering but never delivered must not vanish. That
+        // includes this prompt's own text when the transport refused to take
+        // it: the message was already dequeued on the strength of `steer`
+        // answering true, so silence here loses it for good.
+        const lost = steered ? [text, ...steeredTexts.splice(0)] : steeredTexts.splice(0)
         push([
-          ...(lost.length > 0
-            ? ([{ type: 'error', message: `steering lost after transport failure: ${lost.join(' | ')}`, rawJson: null }] satisfies AgentEvent[])
-            : []),
+          ...lostSteeringEvents(lost),
           { type: 'error', message: formatUnknownError(error), rawJson: null },
           { type: 'done' },
         ])

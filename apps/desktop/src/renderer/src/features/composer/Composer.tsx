@@ -17,10 +17,14 @@ import { useDrafts } from './use-drafts'
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
  * replaces the draft with `text`, focuses the field, and parks the caret at
  * the end. Re-delivering the same nonce is a no-op.
+ *
+ * `files` restores the images a refused send had already taken from the
+ * composer, so a retry carries the same context the first attempt did.
  */
 export interface ComposerSeed {
   text: string
   nonce: number
+  files?: File[]
 }
 
 /**
@@ -190,6 +194,7 @@ export function Composer({
   useEffect(() => {
     if (!seed || seededNonceRef.current === seed.nonce) return
     seededNonceRef.current = seed.nonce
+    if (seed.files !== undefined && seed.files.length > 0) addFiles(seed.files)
     setText(seed.text)
     const end = seed.text.length
     setCaret(end)
@@ -198,7 +203,7 @@ export function Composer({
     const el = textareaRef.current
     el?.focus()
     el?.setSelectionRange(end, end)
-  }, [seed])
+  }, [seed, addFiles])
 
   const send = useCallback(() => {
     const trimmed = text.trim()
