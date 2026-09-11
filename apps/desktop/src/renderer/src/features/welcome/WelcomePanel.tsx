@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { motion } from 'motion/react'
 import {
@@ -15,6 +15,7 @@ import {
 import { useToast } from '@ari/ui/toast'
 import { transitions } from '@ari/ui/motion'
 import { rpc } from '../../lib/rpc'
+import { anchorBelow, type MenuAnchor } from '../../shell/ContextMenu'
 
 interface Detection {
   kind: string
@@ -52,13 +53,19 @@ function createId(): string {
  * First-run surface: shows which agent CLIs are installed, and — when neither
  * a CLI nor a model endpoint is available — offers an inline connect form so
  * Ari Core chat works immediately after setup.
+ *
+ * Starting a session needs a project, so both session entry points hand their
+ * anchor to App, which opens the project picker under the button that was
+ * pressed. With no projects yet the button instead says what to do about it.
  */
 export function WelcomePanel({
+  hasProjects,
   onCreateSession,
   onConnect,
 }: {
-  onCreateSession: () => void
-  onConnect: (endpointId: string) => void
+  hasProjects: boolean
+  onCreateSession: (anchor: MenuAnchor) => void
+  onConnect: (endpointId: string, anchor: MenuAnchor) => void
 }) {
   const { toast } = useToast()
   const [detections, setDetections] = useState<Detection[] | null>(null)
@@ -66,6 +73,8 @@ export function WelcomePanel({
   const [form, setForm] = useState({ baseUrl: '', model: '', apiKey: '' })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  /** The connect button, so the session's project picker opens beneath it. */
+  const connectButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     void rpc
@@ -120,7 +129,8 @@ export function WelcomePanel({
         headers: {},
       })
       toast({ title: 'Model connected', description: `${saved.name} · ${model}`, tone: 'success' })
-      onConnect(saved.id)
+      const trigger = connectButtonRef.current
+      onConnect(saved.id, trigger ? anchorBelow(trigger) : { x: 24, y: 88 })
     } catch (e) {
       setFormError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -189,7 +199,7 @@ export function WelcomePanel({
                 <button
                   key={item.title}
                   type="button"
-                  onClick={onCreateSession}
+                  onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
                   className="group relative flex flex-col items-start gap-1.5 rounded-xl border border-border/80 bg-surface-1/70 p-3 text-left shadow-sm transition-all duration-150 hover:border-accent/50 hover:bg-surface-2 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                 >
                   <div className="flex w-full items-center justify-between">
@@ -216,11 +226,11 @@ export function WelcomePanel({
         {/* Primary start button */}
         <button
           type="button"
-          onClick={onCreateSession}
+          onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
           className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-all duration-150 hover:bg-accent-hover active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <Sparkles size={15} />
-          <span>Start a new session</span>
+          <span>{hasProjects ? 'Start a new session' : 'Add a project to start'}</span>
           <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
         </button>
 
@@ -315,6 +325,7 @@ export function WelcomePanel({
               </p>
             ) : null}
             <button
+              ref={connectButtonRef}
               type="submit"
               disabled={saving}
               className="flex items-center justify-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-surface-3 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
