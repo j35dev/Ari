@@ -174,6 +174,82 @@ describe('QuestionPanel', () => {
     expect(await screen.findByText('First?')).toBeInTheDocument()
   })
 
+  it('renders a choice-less question as plain free text, not an Other-only list', async () => {
+    const onRespond = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <QuestionPanel
+        prompt="Anything else?"
+        choicesJson={JSON.stringify({
+          kind: 'questionnaire',
+          questions: [{ id: 'notes', question: 'Anything else?', options: [], multiSelect: false }],
+        })}
+        onRespond={onRespond}
+      />,
+    )
+    // The panel always appends an "Other" row; with no options to choose from
+    // that is the whole question, and the user is asked to describe their own
+    // answer to something never offered.
+    expect(screen.queryByRole('button', { name: /Other/ })).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('Your answer'), '  nothing more  ')
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+    expect(onRespond).toHaveBeenCalledWith(JSON.stringify({ answers: { notes: 'nothing more' } }))
+  })
+
+  it('submits an option value rather than its label', async () => {
+    const onRespond = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <QuestionPanel
+        prompt="Which approach?"
+        choicesJson={JSON.stringify({
+          questions: [
+            {
+              id: 'question_0',
+              question: 'Which approach?',
+              options: [
+                { id: 'opt-0', label: 'Rewrite', value: 'rewrite' },
+                { id: 'opt-1', label: 'Patch', value: 'patch' },
+              ],
+              multiSelect: false,
+            },
+          ],
+        })}
+        onRespond={onRespond}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /2\s*Patch/ }))
+    expect(onRespond).toHaveBeenCalledWith(JSON.stringify({ answers: { question_0: 'patch' } }))
+  })
+
+  it('sends a typed answer to the question’s custom-answer property', async () => {
+    const onRespond = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <QuestionPanel
+        prompt="Which approach?"
+        choicesJson={JSON.stringify({
+          questions: [
+            {
+              id: 'question_0',
+              question: 'Which approach?',
+              options: [{ id: 'opt-0', label: 'Patch', value: 'patch' }],
+              multiSelect: false,
+              customId: 'question_0_custom',
+            },
+          ],
+        })}
+        onRespond={onRespond}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /Other/ }))
+    await user.type(screen.getByLabelText('Custom answer'), 'Neither')
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+    expect(onRespond).toHaveBeenCalledWith(
+      JSON.stringify({ answers: { question_0_custom: 'Neither' } }),
+    )
+  })
+
   it('renders a compact plan-approval card and reports the verdict', async () => {
     const onRespond = vi.fn()
     const user = userEvent.setup()
