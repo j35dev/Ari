@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X, FolderPlus } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { ToastProvider } from '@ari/ui/toast'
@@ -32,6 +32,12 @@ import { ContentSearchOverlay } from './features/search'
 import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
+import {
+  ContextMenu,
+  anchorBelow,
+  type ContextMenuItem,
+  type MenuAnchor,
+} from './shell/ContextMenu'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { useSessionCollapse } from './shell/use-session-collapse'
 import { useSidebarView } from './shell/use-sidebar-view'
@@ -78,6 +84,14 @@ function Shell() {
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  /**
+   * The pending "start a session" request: where to anchor the project picker,
+   * plus any defaults the entry point wants applied to the session it creates.
+   */
+  const [newSessionRequest, setNewSessionRequest] = useState<{
+    anchor: MenuAnchor
+    overrides?: Partial<SessionDefaults>
+  } | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
   const [sessionWorkspace, setSessionWorkspace] = useState<{
@@ -172,9 +186,9 @@ function Shell() {
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
-  // Late-bound so the global key handler (registered before createSession
-  // exists) can still trigger new sessions.
-  const createSessionRef = useRef<(() => void) | null>(null)
+  // Late-bound so the global key handler (registered before the session
+  // starters exist) can still open the new-session rail.
+  const newSessionRef = useRef<(() => void) | null>(null)
 
   useEffect(refreshSessions, [])
 
@@ -321,7 +335,7 @@ function Shell() {
       }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault()
-        createSessionRef.current?.()
+        newSessionRef.current?.()
       }
       if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === '`') {
         e.preventDefault()
@@ -366,7 +380,7 @@ function Shell() {
   }, [paletteOpen, settingsOpen, navOrder, activeSessionId, toggleTerminal, selectSession])
 
   const createSession = useCallback(
-    (overrides?: Partial<SessionDefaults>, projectId = 'adhoc'): void => {
+    (projectId: string, overrides?: Partial<SessionDefaults>): void => {
       const effective = { ...defaults, ...overrides }
       // Reuse the newest pristine (zero-message) session when its config is
       // compatible — spamming ✎ must not pile up empty chats.
@@ -401,7 +415,73 @@ function Shell() {
     },
     [defaults, sessions, refreshSessions, clearTransientInspector],
   )
-  createSessionRef.current = createSession
+
+  /**
+   * Single door for every "new session" affordance. A session always belongs
+   * to a project, so with none registered the folder picker comes first and
+   * the session is created in whatever the user picks. Otherwise the rail
+   * asks which project to run in — the answer is no longer implied, since
+   * every session now has a real one.
+   */
+  const beginNewSession = useCallback(
+    (anchor: MenuAnchor, overrides?: Partial<SessionDefaults>): void => {
+      if (projects.length === 0) {
+        void openProjectViaPicker()
+          .then((project) => {
+            if (project === null) return // cancelled picker stays put
+            refreshProjects()
+            createSession(project.id, overrides)
+          })
+          .catch((error: unknown) => log.warn('project open failed', error))
+        return
+      }
+      setNewSessionRequest({ anchor, overrides })
+    },
+    [projects.length, refreshProjects, createSession],
+  )
+
+  /**
+   * Keyboard-invoked new sessions anchor to the sidebar's own button so the
+   * rail appears under the control the shortcut stands in for; a collapsed
+   * sidebar (no button rendered) falls back to the top of the content area.
+   */
+  const beginNewSessionFromKeyboard = useCallback((): void => {
+    const trigger = document.querySelector<HTMLElement>('[data-new-session-trigger]')
+    beginNewSession(trigger ? anchorBelow(trigger) : { x: 24, y: 88 })
+  }, [beginNewSession])
+
+  const closeNewSessionMenu = useCallback(() => setNewSessionRequest(null), [])
+  newSessionRef.current = beginNewSessionFromKeyboard
+
+  const newSessionMenuItems = useMemo<ContextMenuItem[]>(
+    () => [
+      ...projects.map((project) => ({
+        id: project.id,
+        label: project.name,
+        onSelect: () => {
+          setNewSessionRequest(null)
+          createSession(project.id, newSessionRequest?.overrides)
+        },
+      })),
+      {
+        id: 'add-project',
+        label: 'Add project…',
+        icon: FolderPlus,
+        onSelect: () => {
+          const overrides = newSessionRequest?.overrides
+          setNewSessionRequest(null)
+          void openProjectViaPicker()
+            .then((project) => {
+              if (project === null) return
+              refreshProjects()
+              createSession(project.id, overrides)
+            })
+            .catch((error: unknown) => log.warn('project open failed', error))
+        },
+      },
+    ],
+    [projects, createSession, refreshProjects, newSessionRequest],
+  )
 
   const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
     if (id === 'settings') {
@@ -515,9 +595,9 @@ function Shell() {
               projects={openProjects}
               knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
               searchInputRef={sidebarSearchRef}
-              onNewSession={() => createSession()}
+              onNewSession={beginNewSession}
               onOpenProject={openProjectViaDialog}
-              onNewSessionInProject={(projectId) => createSession(undefined, projectId)}
+              onNewSessionInProject={(projectId) => createSession(projectId)}
               onImportSessions={setImportProjectId}
               onRevealProject={(projectId) => {
                 const path = projects.find((p) => p.id === projectId)?.path
@@ -644,9 +724,13 @@ function Shell() {
                 ) : (
                   <ErrorBoundary label="Welcome">
                     <WelcomePanel
-                      onCreateSession={() => createSession()}
-                      onConnect={(endpointId) =>
-                        createSession({ driverKind: 'ari-core', modelId: `ep:${endpointId}` })
+                      hasProjects={projects.length > 0}
+                      onCreateSession={beginNewSession}
+                      onConnect={(endpointId, anchor) =>
+                        beginNewSession(anchor, {
+                          driverKind: 'ari-core',
+                          modelId: `ep:${endpointId}`,
+                        })
                       }
                     />
                   </ErrorBoundary>
@@ -753,6 +837,14 @@ function Shell() {
         scope={activeScope}
       />
       <KeyboardCheatSheet />
+      {newSessionRequest !== null ? (
+        <ContextMenu
+          anchor={newSessionRequest.anchor}
+          label="New session in project"
+          items={newSessionMenuItems}
+          onClose={closeNewSessionMenu}
+        />
+      ) : null}
     </div>
   )
 }
