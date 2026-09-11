@@ -46,6 +46,20 @@ export function useAppUpdateToast(): void {
       })
     }
 
+    const failRestart = (reason: string | null): void => {
+      show({
+        title: 'Could not restart into the update',
+        description: reason ?? 'Restart Ari to finish installing.',
+        tone: 'danger',
+        durationMs: 12_000,
+        action: undefined,
+      })
+    }
+
+    /** A thrown RPC is as much a refusal as a `started: false` reply. */
+    const describe = (cause: unknown): string =>
+      cause instanceof Error ? cause.message : String(cause)
+
     const onFrame = (frame: AppUpdateFrame): void => {
       if (cancelled) return
       switch (frame.type) {
@@ -73,9 +87,12 @@ export function useAppUpdateToast(): void {
                   durationMs: 0,
                   action: undefined,
                 })
-                void rpc.invoke('app.update.download').then((result) => {
-                  if (!result.started) failDownload(result.reason)
-                })
+                void rpc
+                  .invoke('app.update.download')
+                  .then((result) => {
+                    if (!result.started) failDownload(result.reason)
+                  })
+                  .catch((cause: unknown) => failDownload(describe(cause)))
               },
             },
           })
@@ -118,16 +135,13 @@ export function useAppUpdateToast(): void {
             action: {
               label: 'Restart',
               onClick: () => {
-                void rpc.invoke('app.update.install').then((result) => {
-                  if (result.started) return
-                  show({
-                    title: 'Could not restart into the update',
-                    description: result.reason ?? 'Restart Ari to finish installing.',
-                    tone: 'danger',
-                    durationMs: 12_000,
-                    action: undefined,
+                void rpc
+                  .invoke('app.update.install')
+                  .then((result) => {
+                    if (result.started) return
+                    failRestart(result.reason)
                   })
-                })
+                  .catch((cause: unknown) => failRestart(describe(cause)))
               },
             },
           })
