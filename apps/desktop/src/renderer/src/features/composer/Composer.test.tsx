@@ -45,8 +45,57 @@ describe('Composer', () => {
   })
 
   it('announces queued messages behind the active turn', () => {
-    render(<Composer onSend={vi.fn()} running queued={['a', 'b']} />)
+    render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[
+          { text: 'a', attachments: [] },
+          { text: 'b', attachments: [] },
+        ]}
+      />,
+    )
     expect(screen.getByText(/2 queued messages/)).toBeInTheDocument()
+  })
+
+  it('steers and removes individual queued messages', async () => {
+    const user = userEvent.setup()
+    const onSteerQueued = vi.fn()
+    const onRemoveQueued = vi.fn()
+    render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[{ text: 'focus on the parser', attachments: [] }]}
+        onSteerQueued={onSteerQueued}
+        onRemoveQueued={onRemoveQueued}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /steer queued message 1/i }))
+    expect(onSteerQueued).toHaveBeenCalledWith({ text: 'focus on the parser', attachments: [] })
+
+    await user.click(screen.getByRole('button', { name: /remove queued message 1/i }))
+    expect(onRemoveQueued).toHaveBeenCalledWith({ text: 'focus on the parser', attachments: [] })
+  })
+
+  it('offers no steer action for a queued message carrying images', () => {
+    render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[
+          {
+            text: 'see this',
+            attachments: [{ id: 'att_1', name: 'a.png', mimeType: 'image/png', size: 4 }],
+          },
+        ]}
+        onSteerQueued={vi.fn()}
+        onRemoveQueued={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /steer queued message/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /remove queued message 1/i })).toBeInTheDocument()
   })
 
   it('sits extra chrome on the top of the plate', () => {
