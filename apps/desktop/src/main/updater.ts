@@ -1,39 +1,56 @@
 import { createRequire } from 'node:module'
 import { app } from 'electron'
-import { createLogger } from '@ari/shared/logger'
+import type { AppUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdater } from 'electron-updater'
-
-const log = createLogger('desktop:updater')
+import {
+  createUpdateController,
+  type UpdateController,
+  type UpdateHandlers,
+  type UpdatePort,
+} from './update-controller'
 
 // electron-updater is CommonJS; the main bundle is ESM, so resolve it through
 // require instead of a named import (which throws at runtime in Electron).
 const nodeRequire = createRequire(import.meta.url)
 const { autoUpdater } = nodeRequire('electron-updater') as { autoUpdater: AppUpdater }
 
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
-const FIRST_CHECK_DELAY_MS = 8_000
+/**
+ * Wires the controller's handlers onto electron-updater. Each handler binds to
+ * its own event, so electron-updater's payload types (`UpdateInfo`,
+ * `ProgressInfo`) are unwrapped here and nothing downstream sees them.
+ */
+function createElectronPort(handlers: UpdateHandlers): UpdatePort {
+  autoUpdater.on('checking-for-update', () => handlers.checkingForUpdate())
+  autoUpdater.on('update-available', (info) => handlers.available(info.version))
+  autoUpdater.on('update-not-available', () => handlers.notAvailable())
+  autoUpdater.on('download-progress', (progress) => handlers.progress(progress.percent))
+  autoUpdater.on('update-downloaded', (info) => handlers.downloaded(info.version))
+  autoUpdater.on('error', (error) => handlers.error(error.message))
+
+  return {
+    currentVersion: () => app.getVersion(),
+    checkForUpdates: () => autoUpdater.checkForUpdates(),
+    downloadUpdate: () => autoUpdater.downloadUpdate(),
+    quitAndInstall: () => autoUpdater.quitAndInstall(),
+    setAutoDownload: (enabled) => {
+      autoUpdater.autoDownload = enabled
+    },
+    setInstallOnQuit: (enabled) => {
+      autoUpdater.autoInstallOnAppQuit = enabled
+    },
+  }
+}
 
 /**
- * Auto-update (M14.6): packaged builds check GitHub releases on startup and
- * every six hours, download in the background, and install on quit — the
- * user never blocks on an update. Dev runs and update failures are silent:
- * a flaky network must never surface as an app error. Note macOS auto-update
- * only works for signed builds; unsigned mac installs stay on manual updates.
+ * The update controller for this process. Dev runs get a disabled controller
+ * rather than none, so Settings can explain why no updates are offered. Note
+ * macOS auto-update only works for signed builds; unsigned mac installs stay
+ * on manual updates.
  */
-export function startAutoUpdater(): void {
-  if (!app.isPackaged) return
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.on('update-downloaded', () => {
-    log.info('update downloaded; installs on next restart')
+export function createAppUpdater(publish: (frame: AppUpdateFrame) => void): UpdateController {
+  return createUpdateController({
+    createPort: createElectronPort,
+    publish,
+    enabled: app.isPackaged,
   })
-  const check = (): void => {
-    void autoUpdater.checkForUpdates().catch((cause: unknown) => {
-      log.warn('auto-update check failed', {
-        error: cause instanceof Error ? cause.message : String(cause),
-      })
-    })
-  }
-  setTimeout(check, FIRST_CHECK_DELAY_MS)
-  setInterval(check, CHECK_INTERVAL_MS)
 }
