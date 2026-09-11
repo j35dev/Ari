@@ -812,16 +812,6 @@ export function SessionView({
             />
           ) : null}
         </div>
-        {pendingQuestion && pendingPlan === null ? (
-          <div className="ari-glass-overlay border-t border-border p-3">
-            <QuestionPanel
-              prompt={pendingQuestion.prompt}
-              choicesJson={pendingQuestion.choicesJson}
-              onRespond={respondQuestion}
-              onCancel={cancelQuestion}
-            />
-          </div>
-        ) : null}
         {turnError ? (
           <TurnErrorBanner
             message={turnError}
@@ -870,8 +860,24 @@ export function SessionView({
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
           above={
-            approvals.length > 0 || childSessions.length > 0 ? (
+            pendingQuestion !== null || approvals.length > 0 || childSessions.length > 0 ? (
               <>
+                {/* The question rides in the same layer as the approvals: the
+                  strip that peeks out from behind the composer. A plan approval
+                  is not asked here — it has the side panel. */}
+                {pendingQuestion !== null && pendingPlan === null ? (
+                  <>
+                    <QuestionPanel
+                      prompt={pendingQuestion.prompt}
+                      choicesJson={pendingQuestion.choicesJson}
+                      onRespond={respondQuestion}
+                      onCancel={cancelQuestion}
+                    />
+                    {approvals.length > 0 || childSessions.length > 0 ? (
+                      <div className="mx-3 border-t border-border/60" />
+                    ) : null}
+                  </>
+                ) : null}
                 {approvals.length > 0 ? (
                   <div className="max-h-40 space-y-px overflow-y-auto">
                     {approvals.map((a, i) => (
