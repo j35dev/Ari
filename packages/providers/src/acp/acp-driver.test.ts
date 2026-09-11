@@ -976,6 +976,80 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('bridges an AskUserQuestion elicitation end to end', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9104,
+            method: 'elicitation/create',
+            params: {
+              mode: 'form',
+              message: 'Which approach should I take?',
+              requestedSchema: {
+                type: 'object',
+                properties: {
+                  question_0: {
+                    type: 'string',
+                    title: 'Approach',
+                    description: 'Which approach should I take?',
+                    oneOf: [
+                      { const: 'Rewrite', title: 'Rewrite', description: 'Start over' },
+                      { const: 'Patch', title: 'Patch' },
+                    ],
+                  },
+                  question_0_custom: {
+                    type: 'string',
+                    title: 'Other',
+                    _meta: {
+                      _askUserQuestionCustomAnswer: {
+                        questionId: 'question_0',
+                        isCustomAnswer: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'input-requested') {
+        // The companion is where the user's own words go, so the panel asks one
+        // question with real choices and answers under `question_0_custom`.
+        const payload = JSON.parse(next.value.choicesJson ?? '{}') as {
+          questions?: { id: string; options: unknown[] }[]
+        }
+        expect(payload.questions).toHaveLength(1)
+        expect(payload.questions?.[0]?.options).toHaveLength(2)
+        adapter.respondInput(
+          next.value.inputId,
+          JSON.stringify({ answers: { question_0_custom: 'Something else' } }),
+        )
+      }
+    }
+    const reply = child.sent.find((m) => m['id'] === 9104 && m['method'] === undefined)
+    expect(reply).toMatchObject({
+      result: { action: 'accept', content: { question_0_custom: 'Something else' } },
+    })
+    await adapter.dispose()
+  }, 15000)
+
   it('skips resume when the agent does not advertise loadSession', async () => {
     const child = fakeChild()
     let sawLoad = false
