@@ -398,7 +398,12 @@ export async function createAcpAdapter(
       connection.cancel(sessionId)
     },
     steer: (text) => {
+      // Buffered and chained onto the turn's tail below, so it is always
+      // delivered — unless the transport already died, in which case the
+      // caller must keep the message queued rather than lose it.
+      if (connection.closed) return false
       steeredTexts.push(text)
+      return true
     },
     respondApproval: (approvalId, decision) => {
       const pending = pendingPermissions.get(approvalId)

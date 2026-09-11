@@ -496,6 +496,7 @@ describe('engine end-to-end with scripted driver', () => {
           steer: (text) => {
             steered.push(text)
             release?.()
+            return true
           },
         }),
     }
@@ -537,6 +538,225 @@ describe('engine end-to-end with scripted driver', () => {
     ).toEqual(['long task', 'focus on the parser instead'])
   }, 10000)
 
+  /**
+   * Builds a driver whose adapter refuses to steer, standing in for a
+   * transport with no control channel or a provider that rejects the text.
+   * `release` parks the first turn until the test lets it settle and lets
+   * every later turn complete on its own (so the queue drain can finish);
+   * null lets every turn complete immediately.
+   */
+  function refusingSteerDriver(release: { current: (() => void) | null } | null): Driver {
+    let started = 0
+    return {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'status', status: 'running' as const }
+              if (release !== null && ++started === 1) {
+                await new Promise<void>((resolve) => {
+                  release.current = resolve
+                })
+              }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          steer: () => false,
+        }),
+    }
+  }
+
+  it('keeps a message queued when the transport refuses to steer it', async () => {
+    const releaseTurnRef = { current: null as (() => void) | null }
+    const registry = new DriverRegistry()
+    registry.register(refusingSteerDriver(releaseTurnRef))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_steer_refused'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    await new Promise((r) => setTimeout(r, 50))
+
+    const queued = await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId,
+      text: 'focus on the parser instead',
+      attachments: [],
+    })
+    expect(queued.accepted).toBe(true)
+
+    // The adapter declined, so the message must still be waiting: reporting it
+    // as steered would drop it from the queue and it would never run at all.
+    const mid = await store.load(sessionId)
+    expect(mid.queuedMessages).toEqual([{ text: 'focus on the parser instead', attachments: [] }])
+    expect(mid.messages.filter((m) => m.role === 'user')).toHaveLength(1)
+
+    // And it survives as the follow-up turn once the running one settles. The
+    // queue empties a moment before the promoted message is journaled, so wait
+    // for the message itself rather than for the queue to drain.
+    releaseTurnRef.current?.()
+    const userMessages = (model: Awaited<ReturnType<typeof store.load>>): number =>
+      model.messages.filter((m) => m.role === 'user').length
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (userMessages(model) === 2 && model.activeTurnId === null) break
+      if (i === 149) throw new Error('queued message never ran as the follow-up turn')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    const settled = await store.load(sessionId)
+    expect(settled.messages.filter((m) => m.role === 'user').map((m) => m.id)).toHaveLength(2)
+  }, 10000)
+
+  it('steers a queued message into the running turn on demand', async () => {
+    const steered: string[] = []
+    const releaseTurnRef = { current: null as (() => void) | null }
+    const steerableDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'status', status: 'running' as const }
+              await new Promise<void>((resolve) => {
+                releaseTurnRef.current = resolve
+              })
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          steer: (text) => {
+            steered.push(text)
+            return true
+          },
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(steerableDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_steer_on_demand'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    await new Promise((r) => setTimeout(r, 50))
+    await store.append(sessionId, {
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+
+    const result = await engine.dispatch({
+      type: 'message.steer',
+      sessionId,
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    expect(result.accepted).toBe(true)
+    expect(steered).toEqual(['focus on the parser'])
+
+    const model = await store.load(sessionId)
+    expect(model.queuedMessages).toEqual([])
+    expect(
+      model.messages
+        .filter((m) => m.role === 'user')
+        .flatMap((m) => m.parts.filter((p) => p.type === 'text').map((p) => p.text)),
+    ).toEqual(['long task', 'focus on the parser'])
+    releaseTurnRef.current?.()
+    // Let the turn settle so nothing outlives the test.
+    for (let i = 0; i < 150; i++) {
+      if ((await store.load(sessionId)).activeTurnId === null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }, 10000)
+
+  it('removes a queued message without running it', async () => {
+    const releaseTurnRef = { current: null as (() => void) | null }
+    const registry = new DriverRegistry()
+    registry.register(refusingSteerDriver(releaseTurnRef))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_dequeue'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    await new Promise((r) => setTimeout(r, 50))
+    await store.append(sessionId, { type: 'message.enqueued', text: 'never mind', attachments: [] })
+
+    const result = await engine.dispatch({
+      type: 'message.dequeue',
+      sessionId,
+      text: 'never mind',
+      attachments: [],
+    })
+    expect(result.accepted).toBe(true)
+    expect((await store.load(sessionId)).queuedMessages).toEqual([])
+
+    releaseTurnRef.current?.()
+    for (let i = 0; i < 150; i++) {
+      if ((await store.load(sessionId)).activeTurnId === null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    // It was dropped, not deferred: no follow-up turn ever ran it.
+    const settled = await store.load(sessionId)
+    expect(
+      settled.messages
+        .filter((m) => m.role === 'user')
+        .flatMap((m) => m.parts.filter((p) => p.type === 'text').map((p) => p.text)),
+    ).toEqual(['long task'])
+  }, 10000)
+
+  it('starts a turn when an enqueue races a settle instead of rejecting it', async () => {
+    const registry = new DriverRegistry()
+    registry.register(refusingSteerDriver(null))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_enqueue_idle'
+    await seedSession(store, sessionId)
+
+    // The renderer still believes a turn is running here (its `running` flag
+    // lags the settle), so it sends an enqueue with nothing live to queue
+    // behind. That used to be rejected and the message vanished with it.
+    const result = await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId,
+      text: 'first message',
+      attachments: [],
+    })
+    expect(result.accepted).toBe(true)
+
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      if (model.activeTurnId === null && model.messages.length > 0) break
+      if (i === 149) throw new Error('promoted enqueue never started a turn')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    const model = await store.load(sessionId)
+    expect(model.queuedMessages).toEqual([])
+    expect(
+      model.messages
+        .filter((m) => m.role === 'user')
+        .flatMap((m) => m.parts.filter((p) => p.type === 'text').map((p) => p.text)),
+    ).toEqual(['first message'])
+  }, 10000)
+
   it('never steers an imaged message; it stays queued with its images', async () => {
     const steered: string[] = []
     const releaseRef: { current: (() => void) | null } = { current: null }
@@ -558,6 +778,7 @@ describe('engine end-to-end with scripted driver', () => {
           steer: (text) => {
             steered.push(text)
             releaseRef.current?.()
+            return true
           },
         }),
     }
@@ -1047,7 +1268,7 @@ describe('Engine durable queue continuation', () => {
           }),
           interrupt: () => undefined,
           dispose: () => Promise.resolve(),
-          steer: () => undefined,
+          steer: () => true,
         }),
     }
     const registry = new DriverRegistry()

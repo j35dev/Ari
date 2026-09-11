@@ -137,7 +137,8 @@ export function threadOptions(mode: PermissionMode): {
 
 export interface CodexAppServerAdapter extends ProviderAdapter {
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
-  steer(text: string): void
+  /** False when there is no live turn or the server refused the steer. */
+  steer(text: string): Promise<boolean>
 }
 
 const APPROVAL_DECISIONS: Record<AdapterApprovalDecision, string> = {
@@ -298,13 +299,13 @@ export async function createCodexAppServerAdapter(
       pendingApprovals.delete(approvalId)
       connection.respond(requestId, { decision: APPROVAL_DECISIONS[decision] })
     },
-    steer: (text) => {
+    steer: async (text) => {
       if (activeTurnId === null) {
         log.debug('codex steer ignored: no active turn')
-        return
+        return false
       }
-      void connection
-        .request(
+      try {
+        await connection.request(
           'turn/steer',
           {
             threadId,
@@ -313,9 +314,15 @@ export async function createCodexAppServerAdapter(
           },
           10_000,
         )
-        .catch((error: unknown) => {
-          push([{ type: 'error', message: `steering failed: ${formatUnknownError(error)}`, rawJson: null }])
-        })
+        return true
+      } catch (error: unknown) {
+        // Report the failure to the caller instead of pushing an error event:
+        // an error event settles the whole turn as `error`, which holds the
+        // queue — stranding the very message we just failed to deliver. The
+        // message stays queued and runs as the follow-up turn.
+        log.debug('codex steer failed', { error: formatUnknownError(error) })
+        return false
+      }
     },
     dispose: async () => {
       finish()
