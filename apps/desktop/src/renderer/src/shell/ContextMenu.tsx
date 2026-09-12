@@ -20,6 +20,15 @@ export interface MenuAnchor {
   y: number
 }
 
+/**
+ * Anchors a launcher menu just below the control that opened it, the way a
+ * dropdown sits under its button. Use with a click event's currentTarget.
+ */
+export function anchorBelow(element: HTMLElement): MenuAnchor {
+  const rect = element.getBoundingClientRect()
+  return { x: rect.left, y: rect.bottom + 4 }
+}
+
 const MENU_WIDTH = 184
 const ITEM_HEIGHT = 28
 const PADDING = 8
