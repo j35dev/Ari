@@ -22,5 +22,8 @@ export const APP_SHORTCUTS: readonly AppShortcut[] = [
   { id: 'JumpToSession', label: 'Jump to session 1–9', chord: 'Mod+1…9' },
   { id: 'NextSession', label: 'Next session', chord: 'Ctrl+Tab' },
   { id: 'PreviousSession', label: 'Previous session', chord: 'Ctrl+Shift+Tab' },
+  { id: 'SplitRight', label: 'Split pane right', chord: 'Mod+\\' },
+  { id: 'SplitDown', label: 'Split pane down', chord: 'Mod+Shift+\\' },
+  { id: 'FocusPane', label: 'Focus the pane in that direction', chord: 'Mod+Shift+Arrow' },
   { id: 'ClosePalette', label: 'Close palette', chord: 'Escape' },
 ]
