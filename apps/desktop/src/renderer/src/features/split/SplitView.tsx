@@ -5,6 +5,7 @@ import { SplitSeparator } from './SplitSeparator'
 import { usePaneDrop } from './use-pane-drop'
 import {
   MAX_PANES,
+  activePaneOf,
   findLeaf,
   firstLeaf,
   leaves,
@@ -51,7 +52,8 @@ export function SplitView({
 }: SplitViewProps) {
   const panes = leaves(layout.root)
   const solo = panes.length === 1
-  const focusedPaneId = layout.zoomedPaneId ?? layout.focusedPaneId
+  const canSplit = panes.length < MAX_PANES
+  const focusedPaneId = activePaneOf(layout)
 
   /** A pane's on-screen name — the fallback the frame header uses, so a divider
    * names the two panes the user sees rather than two ids. */
@@ -69,6 +71,7 @@ export function SplitView({
         <SoloDropSurface
           paneId={paneId}
           blank={blank}
+          canSplit={canSplit}
           onDropSession={onDropSession}
           onDropPane={onDropPane}
         >
@@ -83,7 +86,7 @@ export function SplitView({
         focused={paneId === focusedPaneId}
         blank={blank}
         zoomed={layout.zoomedPaneId !== null}
-        canSplit={panes.length < MAX_PANES}
+        canSplit={canSplit}
         onFocus={onFocus}
         onClose={onClose}
         onSplit={onSplit}
@@ -117,17 +120,19 @@ export function SplitView({
 function SoloDropSurface({
   paneId,
   blank,
+  canSplit,
   onDropSession,
   onDropPane,
   children,
 }: {
   paneId: string
   blank: boolean
+  canSplit: boolean
   onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
   onDropPane: (paneId: string, draggedPaneId: string) => void
   children: ReactNode
 }) {
-  const drop = usePaneDrop({ paneId, blank, onDropSession, onDropPane })
+  const drop = usePaneDrop({ paneId, blank, canSplit, onDropSession, onDropPane })
   return (
     <div
       {...drop.dropProps}

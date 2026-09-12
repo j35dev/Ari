@@ -123,6 +123,15 @@ export function activeSessionOf(layout: SplitLayout): string | null {
   return null
 }
 
+/**
+ * The pane the user is actually in. A zoom hides every other pane, so it wins
+ * over the focus: the pane filling the area is the one the keyboard and the
+ * palette act on.
+ */
+export function activePaneOf(layout: SplitLayout): string {
+  return layout.zoomedPaneId ?? layout.focusedPaneId
+}
+
 function mapLeaves(node: PaneNode, fn: (leaf: PaneLeaf) => PaneLeaf): PaneNode {
   return node.kind === 'leaf'
     ? fn(node)
