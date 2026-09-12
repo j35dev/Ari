@@ -92,11 +92,19 @@ describe('modelsFor fallback chain', () => {
     const codex = modelsFor('codex').map((m) => m.id)
     expect(codex.length).toBeLessThan(39)
     // Codex's own visible catalog (bundled models.json, visibility=list).
-    expect([...codex].sort()).toEqual(['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra'])
+    expect([...codex].sort()).toEqual([
+      'gpt-5.5',
+      'gpt-5.6-luna',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-6-astra',
+    ])
     expect(codex.some((id) => id.startsWith('gpt-4'))).toBe(false)
     expect(codex.some((id) => id.startsWith('o1') || id.startsWith('o3'))).toBe(false)
 
     const claude = modelsFor('claude').map((m) => m.id)
+    expect(claude).toContain('fable')
+    expect(claude).toContain('claude-fable-5-1')
     expect(claude).toContain('claude-opus-5')
     expect(claude).not.toContain('claude-opus-4-5-20251101')
 
@@ -115,14 +123,22 @@ describe('effortsFor', () => {
       'high',
       'xhigh',
     ])
-    expect(effortsFor('ari-core').options.map((o) => o.id)).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(effortsFor('ari-core').options.map((o) => o.id)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
     expect(effortsFor('hermes').options).toEqual([])
   })
 
   it('lets a live probe replace the fallback', () => {
     setDynamicEfforts('grok', {
       currentId: 'low',
-      options: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }],
+      options: [
+        { id: 'low', label: 'Low' },
+        { id: 'high', label: 'High' },
+      ],
     })
     expect(effortsFor('grok').options.map((o) => o.id)).toEqual(['low', 'high'])
     setDynamicEfforts('grok', { currentId: null, options: [] })

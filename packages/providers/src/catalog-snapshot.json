@@ -4,6 +4,11 @@
   "providers": {
     "anthropic": [
       {
+        "id": "claude-fable-5-1",
+        "label": "Claude Fable 5.1",
+        "contextHint": "1m"
+      },
+      {
         "id": "claude-opus-5",
         "label": "Claude Opus 5",
         "contextHint": "1m"
@@ -70,6 +75,11 @@
       }
     ],
     "openai": [
+      {
+        "id": "gpt-6-astra",
+        "label": "GPT-6 Astra",
+        "contextHint": "1.1m"
+      },
       {
         "id": "gpt-5.6",
         "label": "GPT-5.6",
