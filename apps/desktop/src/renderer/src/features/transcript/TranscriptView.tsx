@@ -7,7 +7,8 @@ import {
   useState,
   type WheelEvent,
 } from 'react'
-import { Check, Copy, Pencil } from 'lucide-react'
+import { Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
+import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
 import { pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
@@ -421,6 +422,7 @@ function TranscriptRowView({
  */
 function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean }) {
   const [urls, setUrls] = useState<Record<string, string | null>>({})
+  const [selected, setSelected] = useState<TranscriptImage | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -436,49 +438,100 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
   }, [images])
 
   if (images.length === 0) return null
+  const selectedUrl = selected === null ? null : urls[selected.attachmentId]
   return (
-    <div className={`my-2 flex ${right ? 'justify-end' : 'justify-start'}`}>
-      <div
-        role="list"
-        aria-label={right ? 'Attached images' : 'Generated images'}
-        className="flex max-w-[85%] flex-wrap gap-2"
-      >
-        {images.map((image) => {
-          const url = urls[image.attachmentId]
-          return (
-            <div
-              key={image.attachmentId}
-              role="listitem"
-              title={image.name}
-              className={
-                right
-                  ? 'h-20 w-20 overflow-hidden rounded-lg border border-border bg-surface-1'
-                  : 'max-h-[28rem] max-w-full overflow-hidden rounded-xl border border-border bg-surface-1'
-              }
-            >
-              {url === undefined ? (
-                <div
-                  className="h-full w-full animate-pulse bg-surface-2"
-                  aria-label={`Loading ${image.name}`}
-                />
-              ) : url === null ? (
-                <div className="flex h-full w-full items-center justify-center px-1 text-center text-2xs text-fg-subtle">
-                  {image.name}
-                </div>
-              ) : (
-                <img
-                  src={url}
-                  alt={image.name}
-                  className={
-                    right ? 'h-full w-full object-cover' : 'max-h-[28rem] max-w-full object-contain'
-                  }
-                />
-              )}
-            </div>
-          )
-        })}
+    <>
+      <div className={`my-2 flex ${right ? 'justify-end' : 'justify-start'}`}>
+        <div
+          role="list"
+          aria-label={right ? 'Attached images' : 'Generated images'}
+          className="flex max-w-[85%] flex-wrap gap-2"
+        >
+          {images.map((image) => {
+            const url = urls[image.attachmentId]
+            const frame = right ? 'h-20 w-20 rounded-lg' : 'max-h-[28rem] max-w-full rounded-xl'
+            return (
+              <div
+                key={image.attachmentId}
+                role="listitem"
+                title={image.name}
+                className={`group relative overflow-hidden border border-border bg-surface-1 ${frame}`}
+              >
+                {url === undefined ? (
+                  <div
+                    className="h-full w-full animate-pulse bg-surface-2"
+                    aria-label={`Loading ${image.name}`}
+                  />
+                ) : url === null ? (
+                  <div className="flex h-full w-full items-center justify-center px-1 text-center text-2xs text-fg-subtle">
+                    {image.name}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(image)}
+                    aria-label={`Open ${image.name}`}
+                    className={`relative block overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${frame}`}
+                  >
+                    <img
+                      src={url}
+                      alt={image.name}
+                      className={
+                        right
+                          ? 'h-full w-full object-cover'
+                          : 'max-h-[28rem] max-w-full object-contain'
+                      }
+                    />
+                    <span className="absolute inset-0 flex items-center justify-center bg-surface-0/50 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                      <span className="flex items-center gap-1.5 rounded-md border border-border bg-surface-1/90 px-2.5 py-1.5 text-xs font-medium text-fg shadow-2">
+                        <Maximize2 size={13} aria-hidden="true" />
+                        Open
+                      </span>
+                    </span>
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
-    </div>
+
+      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
+        <Dialog.Content size="lg" className="overflow-hidden bg-surface-0">
+          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
+            <div className="min-w-0 flex-1">
+              <Dialog.Title className="truncate text-sm">{selected?.name ?? 'Image'}</Dialog.Title>
+              <Dialog.Description className="sr-only">Full-size image preview</Dialog.Description>
+            </div>
+            {selected !== null && typeof selectedUrl === 'string' ? (
+              <a
+                href={selectedUrl}
+                download={selected.name}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 text-xs font-medium text-fg transition-colors hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              >
+                <Download size={13} aria-hidden="true" />
+                Download
+              </a>
+            ) : null}
+            <Dialog.Close
+              aria-label="Close image preview"
+              className="flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <X size={15} aria-hidden="true" />
+            </Dialog.Close>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-surface-0 p-4">
+            {selected !== null && typeof selectedUrl === 'string' ? (
+              <img
+                src={selectedUrl}
+                alt={`Full-size ${selected.name}`}
+                className="max-h-full max-w-full object-contain shadow-2"
+              />
+            ) : null}
+          </div>
+        </Dialog.Content>
+      </Dialog>
+    </>
   )
 }
 
