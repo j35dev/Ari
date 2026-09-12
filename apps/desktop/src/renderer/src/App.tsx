@@ -823,6 +823,38 @@ function Shell() {
                   .then(refreshSessions)
                   .catch((error: unknown) => log.warn('rpc call failed', error))
               }}
+              onArchiveMany={(ids) => {
+                void (async () => {
+                  for (const id of ids) {
+                    try {
+                      await rpc.invoke('command.dispatch', {
+                        command: { type: 'session.update', sessionId: id, archived: true },
+                      })
+                    } catch (error: unknown) {
+                      log.warn('rpc call failed', error)
+                    }
+                  }
+                  refreshSessions()
+                })()
+              }}
+              onDeleteMany={(ids) => {
+                const dropped = new Set<string>()
+                for (const id of ids) {
+                  dropped.add(id)
+                  for (const child of descendantIds(sessions, id)) dropped.add(child)
+                }
+                for (const gone of dropped) forget(gone)
+                void (async () => {
+                  for (const id of ids) {
+                    try {
+                      await rpc.invoke('session.destroy', { sessionId: id })
+                    } catch (error: unknown) {
+                      log.warn('rpc call failed', error)
+                    }
+                  }
+                  refreshSessions()
+                })()
+              }}
             />
           </aside>
         ) : null}
