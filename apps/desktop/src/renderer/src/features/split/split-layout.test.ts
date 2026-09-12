@@ -19,6 +19,7 @@ import {
   pruneSessions,
   serializeLayout,
   sessionIdsInPanes,
+  sessionsOnScreen,
   setRatio,
   splitPane,
   swapPanes,
@@ -217,7 +218,12 @@ describe('swapPanes', () => {
     const swapped = swapPanes(populated(), 'pane2', 'pane1')
     expect(paneIds(swapped)).toEqual(['pane1', 'pane2'])
     expect(shown(swapped)).toEqual(['sB', 'sA'])
-    expect(swapped.focusedPaneId).toBe('pane1')
+  })
+
+  it('focuses the pane the drag landed on, which holds what was dragged', () => {
+    // `populated()` has the focus on `pane2`; dragging it onto `pane1` must
+    // leave the user where they dropped it, not at the pane they dragged from.
+    expect(swapPanes(populated(), 'pane1', 'pane2').focusedPaneId).toBe('pane1')
   })
 
   it('swaps a blank pane with a filled one', () => {
@@ -366,6 +372,17 @@ describe('tree queries', () => {
     const layout = build(split('pane1', 'right'), fill('pane1', 'sA'))
     expect(shown(clearPane(layout, 'pane1'))).toEqual([null, null])
     expect(clearPane(layout, 'pane2')).toBe(layout)
+  })
+})
+
+describe('sessionsOnScreen', () => {
+  it('is every filled pane while the layout is laid out', () => {
+    expect(sessionsOnScreen(populated())).toEqual(['sA', 'sB'])
+  })
+
+  it('is the zoomed pane alone, since the others are hidden behind it', () => {
+    expect(sessionsOnScreen(toggleZoom(populated()))).toEqual(['sB'])
+    expect(sessionsOnScreen(toggleZoom(build(split('pane1', 'right'))))).toEqual([])
   })
 })
 

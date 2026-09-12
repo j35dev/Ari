@@ -524,6 +524,30 @@ describe('Shell split panes', () => {
     expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(blanks)
   })
 
+  it('leaves the pane chords alone while another view has the screen', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    // Settings stands in for the pane area, so neither the chord nor the palette
+    // may split a layout the user cannot see — the blank pane would only turn up
+    // on the way back.
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    fireEvent.click(await screen.findByRole('option', { name: /Go to Settings/ }))
+    const back = await screen.findByRole('button', { name: 'Back' }, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: '\\', ctrlKey: true })
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(await screen.findByRole('option', { name: /Go to Sessions/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Split pane right/ })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    fireEvent.click(back)
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByRole('region', { name: 'Empty pane' })).not.toBeInTheDocument()
+  })
+
   it('leaves the pane chords to a field that has the keyboard', async () => {
     render(<App />)
     const search = await screen.findByRole('searchbox', {}, { timeout: 10_000 })
