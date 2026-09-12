@@ -340,7 +340,7 @@ function SessionRow({
         }}
         onContextMenu={(e) => menu.open(session.id, e)}
         title={projectName ?? undefined}
-        className={`flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md py-0 pl-2 pr-1 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           selected
             ? 'bg-accent/15 text-fg'
             : isActive ? 'bg-accent/15 text-fg font-medium'
@@ -381,7 +381,9 @@ function SessionRow({
         {hasChildren && childCount > 0 ? (
           <span className="shrink-0 text-2xs tabular-nums text-fg-subtle">{childCount}</span>
         ) : null}
-        <span className="shrink-0 text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0">
+        {/* min-w-11 matches the two-icon hover cluster so a long title
+            truncates before the overlay instead of running under it. */}
+        <span className="ml-auto min-w-11 shrink-0 text-right text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0">
           {formatRelativeTime(session.updatedAt)}
         </span>
       </button>
