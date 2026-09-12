@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { describeActivity, formatToolSummary, type ActivityLedgerEntry } from './groupBlocks'
 import { ActivityStep, KIND_ICON, StepBody } from './ActivityStep'
+import { ImageGenerationActivity } from './ImageGenerationActivity'
 import { ThinkingBlock } from './ThinkingBlock'
+import { isImageGenerationCall } from './toolLabels'
 import type { ToolGroupRow, TranscriptBlock } from './types'
 
 /** How long a row that just went quiet stays open before it folds away. */
@@ -90,16 +92,19 @@ export function ActivityBurst({ row, active }: { row: ToolGroupRow; active: bool
   // back while the turn runs: a burst grows from one call to many as the model
   // chains them, and swapping the body's shape mid-turn reads as the thing you
   // were reading collapsing. Live, the body is append-only.
-  const lone =
-    !live && steps.length === 1 && steps[0]?.kind === 'tool-call' ? steps[0] : undefined
+  const lone = !live && steps.length === 1 && steps[0]?.kind === 'tool-call' ? steps[0] : undefined
   const tally = formatToolSummary(summary)
+
+  const imageCall = row.calls.length === 1 ? row.calls[0] : undefined
+  if (live && imageCall !== undefined && isImageGenerationCall(imageCall)) {
+    return <ImageGenerationActivity call={imageCall} />
+  }
 
   const named = [live ? `Working: ${label}` : label]
   if (tally.length > 0 && tally !== label) named.push(tally)
 
   return (
     <div className="ari-burst my-1 pl-3" data-activity={live ? 'working' : 'settled'}>
-
       <button
         type="button"
         onClick={() => setOpenOverride((prev) => !(prev ?? live))}

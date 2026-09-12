@@ -404,6 +404,18 @@ export function effectiveToolName(
   return given
 }
 
+/** True for provider image-generation calls across MCP and native naming styles. */
+export function isImageGenerationCall(block: Pick<TranscriptBlock, 'name' | 'argsJson'>): boolean {
+  const compact = effectiveToolName(block.name, block.argsJson)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+  return (
+    compact.includes('imagegen') ||
+    compact.includes('generateimage') ||
+    compact.includes('createimage')
+  )
+}
+
 export interface ToolStepLabel {
   kind: ToolKind
   /** Leading verb, tensed for the step's state. */
