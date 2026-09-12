@@ -108,6 +108,21 @@ export function paneIdForSession(layout: SplitLayout, sessionId: string): string
   return leaves(layout.root).find((leaf) => leaf.sessionId === sessionId)?.paneId ?? null
 }
 
+/**
+ * The session the shell treats as active: the focused pane's, or the first
+ * pane showing anything when the focused pane is blank. Deriving it is what
+ * keeps the single-session consumers — workspace lookup, changes view, the
+ * sidebar's highlighted row — following the pane the user is actually in.
+ */
+export function activeSessionOf(layout: SplitLayout): string | null {
+  const focused = findLeaf(layout.root, layout.focusedPaneId)
+  if (focused?.sessionId != null) return focused.sessionId
+  for (const leaf of leaves(layout.root)) {
+    if (leaf.sessionId !== null) return leaf.sessionId
+  }
+  return null
+}
+
 function mapLeaves(node: PaneNode, fn: (leaf: PaneLeaf) => PaneLeaf): PaneNode {
   return node.kind === 'leaf'
     ? fn(node)
@@ -115,7 +130,11 @@ function mapLeaves(node: PaneNode, fn: (leaf: PaneLeaf) => PaneLeaf): PaneNode {
 }
 
 /** Rewrites the one leaf named by `paneId`; null when this subtree has no such leaf. */
-function mapLeaf(node: PaneNode, paneId: string, fn: (leaf: PaneLeaf) => PaneNode): PaneNode | null {
+function mapLeaf(
+  node: PaneNode,
+  paneId: string,
+  fn: (leaf: PaneLeaf) => PaneNode,
+): PaneNode | null {
   if (node.kind === 'leaf') return node.paneId === paneId ? fn(node) : null
   const a = mapLeaf(node.a, paneId, fn)
   if (a !== null) return { ...node, a }
@@ -163,11 +182,7 @@ export function splitPane(
  * open elsewhere leaves its old pane **blank** rather than collapsing it: the
  * pane budget is not double-counted and the rest of the layout keeps its shape.
  */
-export function assignSession(
-  layout: SplitLayout,
-  paneId: string,
-  sessionId: string,
-): SplitLayout {
+export function assignSession(layout: SplitLayout, paneId: string, sessionId: string): SplitLayout {
   if (findLeaf(layout.root, paneId) === null) return layout
   const current = paneIdForSession(layout, sessionId)
   if (current === paneId) return focusPane(layout, paneId)
@@ -225,10 +240,7 @@ export function swapPanes(layout: SplitLayout, paneId: string, withPaneId: strin
 }
 
 /** Removes a leaf and collapses its parent split onto the surviving sibling. */
-function removeLeaf(
-  node: PaneNode,
-  paneId: string,
-): { node: PaneNode; survivor: PaneLeaf } | null {
+function removeLeaf(node: PaneNode, paneId: string): { node: PaneNode; survivor: PaneLeaf } | null {
   if (node.kind === 'leaf') return null
   if (node.a.kind === 'leaf' && node.a.paneId === paneId) {
     return { node: node.b, survivor: firstLeaf(node.b) }
@@ -346,9 +358,7 @@ export function parseLayout(raw: string | null): SplitLayout | null {
   const anchor = panes[0]
   if (anchor === undefined || panes.length > MAX_PANES) return null
   if (new Set(panes.map((leaf) => leaf.paneId)).size !== panes.length) return null
-  const sessionIds = panes
-    .map((leaf) => leaf.sessionId)
-    .filter((id): id is string => id !== null)
+  const sessionIds = panes.map((leaf) => leaf.sessionId).filter((id): id is string => id !== null)
   if (new Set(sessionIds).size !== sessionIds.length) return null
 
   const focused = value['focusedPaneId']

@@ -6,6 +6,7 @@ import { fireEvent } from '@testing-library/react'
 import { useToast } from '@ari/ui/toast'
 import { AppProviders, App } from './App'
 import { BRANCH_POLL_MS, SessionBranchChip } from './features/session/SessionBranchChip'
+import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -173,6 +174,7 @@ describe('SessionBranchChip', () => {
 describe('Shell session navigation keys', () => {
   const NOW = Date.now()
   beforeEach(() => {
+    splitLayoutActions.reset()
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method) => {
       switch (method) {
@@ -272,9 +274,13 @@ describe('Shell session navigation keys', () => {
 
     // The session's project is no longer implied — the shortcut opens the
     // same picker the sidebar's New session button does.
-    const menu = await screen.findByRole('menu', { name: 'New session in project' }, {
-      timeout: 10_000,
-    })
+    const menu = await screen.findByRole(
+      'menu',
+      { name: 'New session in project' },
+      {
+        timeout: 10_000,
+      },
+    )
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
 
     await vi.waitFor(
@@ -289,8 +295,140 @@ describe('Shell session navigation keys', () => {
   })
 })
 
+describe('Shell split panes', () => {
+  const NOW = Date.now()
+
+  /** Alpha on the left, Beta on the right — the split focuses the new pane. */
+  const openTwoPanes = (): void => {
+    const first = splitLayoutSnapshot().focusedPaneId
+    splitLayoutActions.assign(first, 'sess-alpha')
+    splitLayoutActions.split(first, 'right')
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess-beta')
+  }
+
+  const sidebar = (): HTMLElement => screen.getByRole('complementary')
+  const row = (title: string): HTMLElement => {
+    const found = within(sidebar()).getByText(title).closest('button')
+    if (found === null) throw new Error(`no sidebar row for ${title}`)
+    return found
+  }
+
+  beforeEach(() => {
+    splitLayoutActions.reset()
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: 'C:\\Users\\tester' }
+        case 'session.list':
+          return [
+            {
+              id: 'sess-alpha',
+              projectId: 'adhoc',
+              title: 'Alpha',
+              updatedAt: NOW - 60_000,
+              messageCount: 1,
+            },
+            {
+              id: 'sess-beta',
+              projectId: 'adhoc',
+              title: 'Beta',
+              updatedAt: NOW - 120_000,
+              messageCount: 1,
+            },
+          ]
+        case 'project.list':
+          return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
+        case 'providers.detect':
+          return []
+        case 'providers.models':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        case 'endpoints.list':
+          return []
+        case 'session.load':
+          return { session: null, activeTurnId: null }
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+  })
+
+  it('mounts a view per pane, so both sessions load and stream at once', async () => {
+    openTwoPanes()
+    render(<App />)
+
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' })
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+      },
+      { timeout: 10_000 },
+    )
+    const alpha = await screen.findByRole('region', { name: 'Alpha' }, { timeout: 10_000 })
+    expect(alpha).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Beta' })).toHaveClass('border-accent/40')
+  })
+
+  it('marks the focused pane, and moves the sidebar highlight with it', async () => {
+    openTwoPanes()
+    render(<App />)
+
+    const beta = await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+    expect(beta).toHaveClass('border-accent/40')
+    expect(screen.getByRole('region', { name: 'Alpha' })).toHaveClass('border-border/60')
+    expect(row('Beta')).toHaveClass('bg-accent/15')
+    expect(row('Alpha')).not.toHaveClass('bg-accent/15')
+
+    fireEvent.pointerDown(screen.getByRole('region', { name: 'Alpha' }))
+
+    await vi.waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Alpha' })).toHaveClass('border-accent/40')
+    })
+    expect(row('Alpha')).toHaveClass('bg-accent/15')
+    expect(row('Beta')).not.toHaveClass('bg-accent/15')
+  })
+
+  it('keeps the one-pane view chrome-free, as it was before the split existed', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true })
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+      },
+      { timeout: 10_000 },
+    )
+
+    expect(screen.queryByRole('region', { name: 'Beta' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Close Beta' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the welcome panel while the one pane is empty', async () => {
+    render(<App />)
+
+    expect(await screen.findByText('Quick Actions', {}, { timeout: 10_000 })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Empty pane' })).not.toBeInTheDocument()
+  })
+
+  it('shows the split itself once there is more than one pane, empty or not', async () => {
+    splitLayoutActions.split(splitLayoutSnapshot().focusedPaneId, 'right')
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(2)
+    expect(screen.getAllByText('No session in this pane')).toHaveLength(2)
+  })
+})
+
 describe('Starting a session with no project yet', () => {
   beforeEach(() => {
+    splitLayoutActions.reset()
     invokeMock.mockReset()
     rpcMocks.subscribe.mockReset()
     rpcMocks.subscribe.mockImplementation(() => () => undefined)
@@ -414,6 +552,7 @@ describe('Starting a session with no project yet', () => {
 
 describe('Project session import flow', () => {
   beforeEach(() => {
+    splitLayoutActions.reset()
     invokeMock.mockReset()
     rpcMocks.subscribe.mockReset()
     rpcMocks.subscribe.mockImplementation(() => () => undefined)
@@ -489,6 +628,7 @@ describe('Shell live sidebar feed', () => {
       .map(([, , onEvent]) => onEvent)
 
   beforeEach(() => {
+    splitLayoutActions.reset()
     invokeMock.mockReset()
     rpcMocks.subscribe.mockReset()
     rpcMocks.subscribe.mockImplementation(() => () => undefined)
