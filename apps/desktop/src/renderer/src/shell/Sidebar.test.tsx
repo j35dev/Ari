@@ -32,6 +32,7 @@ const projects: SidebarProject[] = [
 type Handlers = Partial<{
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
+  onDelete: (id: string) => void
   onOpenProject: () => void
   onNewSession: () => void
   onNewSessionInProject: (id: string) => void
@@ -58,7 +59,7 @@ function renderSidebar(
       activeSessionId={activeSessionId}
       onSelect={() => {}}
       onRename={() => {}}
-      onDelete={() => {}}
+      onDelete={handlers.onDelete ?? (() => {})}
       onTogglePin={handlers.onTogglePin ?? (() => {})}
       onToggleArchive={handlers.onToggleArchive ?? (() => {})}
       {...handlers}
@@ -595,6 +596,87 @@ describe('SessionsUnderProjects', () => {
     expect(
       within(sketch).getAllByRole('status', { name: 'Turn complete' }).length,
     ).toBeGreaterThanOrEqual(1)
+  })
+
+  it('archives a live session from the hover affordance without opening the menu', async () => {
+    const onToggleArchive = vi.fn()
+    renderSidebar([session('live', 1, 'proj-1')], null, { onToggleArchive })
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Archive Session live' }))
+    expect(onToggleArchive).toHaveBeenCalledWith('live', true)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('archives every live session in a project from the group menu', async () => {
+    const onToggleArchive = vi.fn()
+    renderSidebar(
+      [session('a', 1, 'proj-1'), session('b', 2, 'proj-1'), session('c', 1, 'proj-2')],
+      null,
+      { onToggleArchive },
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Project actions for Ari' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Archive all in this project' }))
+    expect(onToggleArchive).toHaveBeenCalledWith('a', true)
+    expect(onToggleArchive).toHaveBeenCalledWith('b', true)
+    expect(onToggleArchive).not.toHaveBeenCalledWith('c', true)
+  })
+
+  it('confirms before deleting every live session in a project', async () => {
+    const onDelete = vi.fn()
+    renderSidebar([session('a', 1, 'proj-1'), session('b', 2, 'proj-1')], null, { onDelete })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Project actions for Ari' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Delete all in this project' }))
+    expect(onDelete).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Confirm delete all in Ari' }))
+    expect(onDelete).toHaveBeenCalledWith('a')
+    expect(onDelete).toHaveBeenCalledWith('b')
+  })
+
+  it('lets the user pick a subset in a project and archive the selection', async () => {
+    const onToggleArchive = vi.fn()
+    renderSidebar(
+      [session('keep', 1, 'proj-1'), session('drop-a', 2, 'proj-1'), session('drop-b', 3, 'proj-1')],
+      null,
+      { onToggleArchive },
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Project actions for Ari' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Select sessions' }))
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select Session drop-a' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Select Session drop-b' }))
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Archive' }))
+
+    expect(onToggleArchive).toHaveBeenCalledWith('drop-a', true)
+    expect(onToggleArchive).toHaveBeenCalledWith('drop-b', true)
+    expect(onToggleArchive).not.toHaveBeenCalledWith('keep', true)
+    expect(screen.queryByText('2 selected')).not.toBeInTheDocument()
+  })
+
+  it('selects a range with shift-click and clears on Escape', async () => {
+    const onToggleArchive = vi.fn()
+    renderSidebar(
+      [session('a', 1, 'proj-1'), session('b', 2, 'proj-1'), session('c', 3, 'proj-1')],
+      null,
+      { onToggleArchive },
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Project actions for Ari' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Select sessions' }))
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select Session a' }))
+    await user.keyboard('{Shift>}')
+    await user.click(screen.getByRole('checkbox', { name: 'Select Session c' }))
+    await user.keyboard('{/Shift}')
+    expect(screen.getByText('3 selected')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByText('3 selected')).not.toBeInTheDocument()
+    expect(onToggleArchive).not.toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { descendantIds, sessionTree, searchSessionTree } from './session-tree'
+import { archiveTargetIds, descendantIds, searchSessionTree, selectionRoots, sessionTree } from './session-tree'
 
 const row = (id: string, parentSessionId?: string): SessionSummary => ({
   id,
@@ -28,6 +28,9 @@ it('lists descendants deepest-first so a parent can be deleted as a tree', () =>
   const sessions = [row('root'), row('a', 'root'), row('b', 'root'), row('a1', 'a')]
   expect(descendantIds(sessions, 'root')).toEqual(['a1', 'a', 'b'])
   expect(descendantIds(sessions, 'other')).toEqual([])
+  expect(archiveTargetIds(sessions, 'root')).toEqual(['root', 'a1', 'a', 'b'])
+  expect(selectionRoots(sessions, new Set(['root', 'a', 'b']))).toEqual(['root'])
+  expect(selectionRoots(sessions, new Set(['a', 'b'])).sort()).toEqual(['a', 'b'])
 })
 
 it('marks last siblings so the sidebar can draw elbows', () => {
