@@ -307,6 +307,50 @@ describe('Shell split panes', () => {
     splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess-beta')
   }
 
+  /** Parks overlapping `session.list` calls so tests can resolve them out of order. */
+  const overlappingLists = (): {
+    lists: Array<{ resolve: (rows: unknown) => void; reject: (error: unknown) => void }>
+    feeds: Array<(payload: unknown) => void>
+    alpha: { id: string; projectId: string; title: string; updatedAt: number; messageCount: number }
+    beta: { id: string; projectId: string; title: string; updatedAt: number; messageCount: number }
+  } => {
+    const base = invokeMock.getMockImplementation()
+    const lists: Array<{ resolve: (rows: unknown) => void; reject: (error: unknown) => void }> = []
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'session.list') {
+        return new Promise((resolve, reject) => lists.push({ resolve, reject }))
+      }
+      if (base === undefined) throw new Error('no base implementation')
+      return base(method, params)
+    })
+    const feeds: Array<(payload: unknown) => void> = []
+    const subscribeMock = rpcMocks.subscribe as unknown as Mock<
+      (channel: string, params: unknown, callback: (payload: unknown) => void) => () => void
+    >
+    subscribeMock.mockImplementation((channel, _params, callback) => {
+      if (channel === 'session.events') feeds.push(callback)
+      return () => undefined
+    })
+    return {
+      lists,
+      feeds,
+      alpha: {
+        id: 'sess-alpha',
+        projectId: 'adhoc',
+        title: 'Alpha',
+        updatedAt: NOW - 60_000,
+        messageCount: 1,
+      },
+      beta: {
+        id: 'sess-beta',
+        projectId: 'adhoc',
+        title: 'Beta',
+        updatedAt: NOW - 120_000,
+        messageCount: 1,
+      },
+    }
+  }
+
   const sidebar = (): HTMLElement => screen.getByRole('complementary')
   const row = (title: string): HTMLElement => {
     const found = within(sidebar()).getByText(title).closest('button')
@@ -378,37 +422,7 @@ describe('Shell split panes', () => {
   it('keeps the newest session list when an older one answers last', async () => {
     // Lists overlap at boot and on the event feed, so answers can arrive out of
     // order. A stale one — started before Beta existed — would prune Beta's pane.
-    const base = invokeMock.getMockImplementation()
-    const lists: ((rows: unknown) => void)[] = []
-    invokeMock.mockImplementation(async (method, params) => {
-      if (method === 'session.list') return new Promise((resolve) => lists.push(resolve))
-      if (base === undefined) throw new Error('no base implementation')
-      return base(method, params)
-    })
-    const feeds: ((payload: unknown) => void)[] = []
-    // The hoisted mock is typed as taking no arguments; the feed needs the
-    // callback the shell registers for it.
-    const subscribeMock = rpcMocks.subscribe as unknown as Mock<
-      (channel: string, params: unknown, callback: (payload: unknown) => void) => () => void
-    >
-    subscribeMock.mockImplementation((channel, _params, callback) => {
-      if (channel === 'session.events') feeds.push(callback)
-      return () => undefined
-    })
-    const alpha = {
-      id: 'sess-alpha',
-      projectId: 'adhoc',
-      title: 'Alpha',
-      updatedAt: NOW - 60_000,
-      messageCount: 1,
-    }
-    const beta = {
-      id: 'sess-beta',
-      projectId: 'adhoc',
-      title: 'Beta',
-      updatedAt: NOW - 120_000,
-      messageCount: 1,
-    }
+    const { lists, feeds, alpha, beta } = overlappingLists()
 
     openTwoPanes()
     render(<App />)
@@ -428,15 +442,43 @@ describe('Shell split panes', () => {
     // The newer answer lands first — Beta's pane fills — and the boot list
     // answers after it with a world that never had Beta in it.
     await act(async () => {
-      lists[1]!([alpha, beta])
+      lists[1]!.resolve([alpha, beta])
     })
     expect(
       await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 }),
     ).toBeInTheDocument()
     await act(async () => {
-      lists[0]!([alpha])
+      lists[0]!.resolve([alpha])
     })
     expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
+  })
+
+  it('keeps an older successful list when a newer list fails', async () => {
+    const { lists, feeds, alpha, beta } = overlappingLists()
+
+    openTwoPanes()
+    render(<App />)
+    await vi.waitFor(() => {
+      expect(lists).toHaveLength(1)
+    })
+
+    for (const feed of feeds) feed({ event: { type: 'session.created' } })
+    await vi.waitFor(
+      () => {
+        expect(lists).toHaveLength(2)
+      },
+      { timeout: 5_000 },
+    )
+
+    await act(async () => {
+      lists[1]!.reject(new Error('session.list failed'))
+    })
+    await act(async () => {
+      lists[0]!.resolve([alpha, beta])
+    })
+    expect(
+      await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 }),
+    ).toBeInTheDocument()
   })
 
   it('marks the focused pane, and moves the sidebar highlight with it', async () => {
