@@ -41,7 +41,7 @@ import {
   activePaneOf,
   activeSessionOf,
   paneCount,
-  sessionIdsInPanes,
+  sessionsOnScreen,
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
@@ -107,7 +107,7 @@ function Shell() {
   // the pane the user is actually in rather than the last row they clicked.
   const layout = useSplitLayout()
   const activeSessionId = activeSessionOf(layout)
-  const visibleSessionIds = useMemo(() => sessionIdsInPanes(layout), [layout])
+  const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -121,6 +121,10 @@ function Shell() {
     overrides?: Partial<SessionDefaults>
   } | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
+  // Where the pane area is the view on screen: settings, the gallery and the
+  // full-page tools each stand in for it. Pane commands act on what the user is
+  // looking at, so they are offered only while their effect can be seen.
+  const panesVisible = !settingsOpen && !galleryOpen && fullPage === null
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -233,7 +237,7 @@ function Shell() {
   // only for the panes that had not been showing it already.
   const visibleRef = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
-    const now = sessionIdsInPanes(layout)
+    const now = sessionsOnScreen(layout)
     for (const id of now) {
       if (!visibleRef.current.has(id)) acknowledge(id)
     }
@@ -359,12 +363,14 @@ function Shell() {
       setSearchOpen(true)
       setPaletteOpen(false)
     },
-    panes: {
-      split: splitActivePane,
-      close: () => splitLayoutActions.close(activePaneOf(layout)),
-      toggleZoom: () => splitLayoutActions.toggleZoom(activePaneOf(layout)),
-      single: paneCount(layout) === 1,
-    },
+    panes: panesVisible
+      ? {
+          split: splitActivePane,
+          close: () => splitLayoutActions.close(activePaneOf(layout)),
+          toggleZoom: () => splitLayoutActions.toggleZoom(activePaneOf(layout)),
+          single: paneCount(layout) === 1,
+        }
+      : undefined,
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
@@ -462,16 +468,23 @@ function Shell() {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === '\\' || e.key === '|')) {
         // Shift turns the key itself into `|` on most layouts, so the chord is
         // read from either — and `shiftKey` says which of the two it is.
-        // A pane chord never fires over a text field or an open overlay: the
-        // composer's own keys, and the palette's, come first.
-        if (!paletteOpen && !searchOpen && !isEditableTarget(e.target)) {
+        // A pane chord never fires over a text field, an open overlay, or a view
+        // that has taken the pane area's place: the composer's own keys, the
+        // palette's, and the settings screen's all come first.
+        if (!paletteOpen && !searchOpen && panesVisible && !isEditableTarget(e.target)) {
           e.preventDefault()
           splitActivePane(e.shiftKey ? 'below' : 'right')
         }
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
         const edge = ARROW_EDGES[e.key]
-        if (edge !== undefined && !paletteOpen && !searchOpen && !isEditableTarget(e.target)) {
+        if (
+          edge !== undefined &&
+          !paletteOpen &&
+          !searchOpen &&
+          panesVisible &&
+          !isEditableTarget(e.target)
+        ) {
           // Focus moves between panes the way the arrow points; the edge of the
           // layout is the end of the road, so nothing happens there.
           const neighbour = focusNeighbour(layout, activePaneOf(layout), edge)
@@ -494,6 +507,7 @@ function Shell() {
   }, [
     paletteOpen,
     settingsOpen,
+    panesVisible,
     navOrder,
     activeSessionId,
     toggleTerminal,

@@ -103,6 +103,18 @@ export function sessionIdsInPanes(layout: SplitLayout): string[] {
     .filter((id): id is string => id !== null)
 }
 
+/**
+ * The sessions the user can actually see, which is what the shell counts as
+ * seen. A zoom hides every other pane, so a settle in one of them has not been
+ * watched and must keep its mark until the user unzooms onto it.
+ */
+export function sessionsOnScreen(layout: SplitLayout): string[] {
+  const zoomed = layout.zoomedPaneId
+  if (zoomed === null) return sessionIdsInPanes(layout)
+  const leaf = findLeaf(layout.root, zoomed)
+  return leaf?.sessionId == null ? [] : [leaf.sessionId]
+}
+
 /** The pane showing `sessionId`, or null when it is not open. */
 export function paneIdForSession(layout: SplitLayout, sessionId: string): string | null {
   return leaves(layout.root).find((leaf) => leaf.sessionId === sessionId)?.paneId ?? null
@@ -265,7 +277,7 @@ export function swapPanes(layout: SplitLayout, paneId: string, withPaneId: strin
     if (leaf.paneId === b.paneId) return { ...leaf, sessionId: a.sessionId }
     return leaf
   })
-  return { ...layout, root, focusedPaneId: b.paneId, zoomedPaneId: null }
+  return { ...layout, root, focusedPaneId: a.paneId, zoomedPaneId: null }
 }
 
 /** Removes a leaf and collapses its parent split onto the surviving sibling. */
