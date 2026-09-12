@@ -231,12 +231,26 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByText('Session b')).toBeInTheDocument()
   })
 
-  it('offers Open project and reports the click', async () => {
+  it('promotes Add project to a full-width button in the compose row', async () => {
     const onOpenProject = vi.fn()
     renderSidebar([], null, { onOpenProject })
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Open project' }))
+    await user.click(screen.getByRole('button', { name: 'Add project' }))
     expect(onOpenProject).toHaveBeenCalledOnce()
+  })
+
+  it('hands the new-session picker the rect of the button that opened it', async () => {
+    const onNewSession = vi.fn()
+    renderSidebar([], null, { onNewSession })
+    const user = userEvent.setup()
+    const trigger = screen.getByRole('button', { name: 'New session' })
+    // jsdom lays nothing out, so give the button a rect to anchor against.
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(12, 40, 200, 32))
+
+    await user.click(trigger)
+
+    // The menu hangs just below the button, not at the pointer.
+    expect(onNewSession).toHaveBeenCalledWith({ x: 12, y: 76 })
   })
 
   it('switches to a flat recency list in the Sessions view and persists the choice', async () => {
@@ -487,6 +501,29 @@ describe('SessionsUnderProjects', () => {
 
     await user.click(screen.getByRole('button', { name: 'Confirm remove Ari' }))
     expect(onRemoveProject).toHaveBeenCalledWith('proj-1')
+  })
+
+  it('insets a project banner off the header and the rows below it', async () => {
+    const user = userEvent.setup()
+    renderSidebar([session('a', 1, 'proj-1')], 'a', {}, [{ ...projects[0]!, status: 'missing' }])
+
+    // A banner hangs under the header and directly above the session list. Run
+    // edge to edge and flush, its rounded corners meet the active row's
+    // highlight and the two read as one connected shape, so it keeps an inset
+    // on the sides and a gap underneath. Both banners share the rule.
+    const missing = screen.getByText('folder missing').parentElement
+    expect(missing?.className).toMatch(/\bmx-2\b/)
+    expect(missing?.className).toMatch(/\bmb-1\b/)
+
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Ari1' }),
+    })
+    await user.click(screen.getByRole('menuitem', { name: 'Remove project' }))
+
+    const confirm = screen.getByText('Remove project?').parentElement
+    expect(confirm?.className).toMatch(/\bmx-2\b/)
+    expect(confirm?.className).toMatch(/\bmb-1\b/)
   })
 
   it('flattens search matches across every project', async () => {

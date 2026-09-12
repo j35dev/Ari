@@ -49,6 +49,23 @@ export const commandSchema = z.discriminatedUnion('type', [
       attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
     })
     .superRefine(requiresTextOrAttachments),
+  /**
+   * Pushes an already-queued message into the running turn. Steering is
+   * text-only, so a queued message carrying images can never be steered.
+   */
+  z.object({
+    type: z.literal('message.steer'),
+    sessionId: z.string(),
+    text: z.string(),
+    attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+  }),
+  /** Drops one queued message without running it. */
+  z.object({
+    type: z.literal('message.dequeue'),
+    sessionId: z.string(),
+    text: z.string(),
+    attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+  }),
   z.object({ type: z.literal('turn.interrupt'), sessionId: z.string() }),
   z.object({
     type: z.literal('approval.respond'),

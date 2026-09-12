@@ -391,12 +391,54 @@ describe('createAcpAdapter', () => {
     const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
     // Steering arrives while the first prompt is in flight (it resolves on a
     // later tick, so this genuinely races the stop reason).
-    adapter.steer?.('actually focus on the tests')
+    void adapter.steer?.('actually focus on the tests')
     const types = await collectTypes(adapter)
 
     expect(types[types.length - 1]).toBe('done')
     expect(prompts).toEqual(['say hi', 'actually focus on the tests'])
     await adapter.dispose()
+  }, 15000)
+
+  it('reports a steer as undelivered once the transport has closed', async () => {
+    const child = fakeChild()
+    script(child, (method, params) => standardAgent()(method, params, undefined))
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    await adapter.dispose()
+
+    // Nothing will ever chain the text onto a prompt now, so the caller has to
+    // be told to keep the message queued instead of discarding it.
+    expect(adapter.steer?.('too late')).toBe(false)
+  }, 15000)
+
+  it('reports a buffered steer as lost when the transport dies before it is chained', async () => {
+    const child = fakeChild()
+    // The prompt's stop reason is delivered and the agent exits in the same
+    // breath: the response is already buffered, so the client still resolves
+    // the prompt — with the transport closed by the time it looks at it.
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+        )
+        child.kill()
+        return undefined
+      }
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    // Steering lands synchronously, while the prompt is still in flight.
+    const collected = collectEvents(adapter)
+    expect(adapter.steer?.('actually focus on the tests')).toBe(true)
+
+    // Accepted means the engine has already dequeued it as delivered, so an
+    // error event is the only way left to say it never arrived. Taking the
+    // text off the buffer before checking `closed` dropped it without a word.
+    const events = await collected
+    expect(
+      events.some(
+        (e) => e.type === 'error' && e.message.includes('actually focus on the tests'),
+      ),
+    ).toBe(true)
   }, 15000)
 
   it('bridges permission requests into approval events and back', async () => {
