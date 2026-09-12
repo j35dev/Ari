@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_PANES,
+  activeSessionOf,
   assignSession,
   clampRatio,
   clearPane,
@@ -327,7 +328,12 @@ describe('toggleZoom', () => {
 
 describe('pruneSessions', () => {
   it('blanks panes whose session is gone and keeps the shape', () => {
-    const layout = build(split('pane1', 'right'), split('pane2', 'below'), fill('pane1', 'sA'), fill('pane2', 'sB'))
+    const layout = build(
+      split('pane1', 'right'),
+      split('pane2', 'below'),
+      fill('pane1', 'sA'),
+      fill('pane2', 'sB'),
+    )
     const pruned = pruneSessions(layout, new Set(['sB']))
     expect(shown(pruned)).toEqual([null, 'sB', null])
     expect(paneCount(pruned)).toBe(3)
@@ -362,10 +368,33 @@ describe('tree queries', () => {
   })
 })
 
+describe('activeSessionOf', () => {
+  it('is the focused pane session', () => {
+    expect(activeSessionOf(populated())).toBe('sB')
+    expect(activeSessionOf(assignSession(populated(), 'pane1', 'sA'))).toBe('sA')
+  })
+
+  it('falls back to the first pane showing anything while focus is blank', () => {
+    const layout = assignSession(build(split('pane1', 'right'), fill('pane2', 'sB')), 'pane1', 'sA')
+    expect(layout.focusedPaneId).toBe('pane1')
+    expect(activeSessionOf(clearPane(layout, 'pane1'))).toBe('sB')
+  })
+
+  it('is null when no pane is showing anything', () => {
+    expect(activeSessionOf(one())).toBeNull()
+    expect(activeSessionOf(two())).toBeNull()
+  })
+})
+
 describe('layout codec', () => {
   it('round-trips a layout', () => {
     const layout = setRatio(
-      build(split('pane1', 'right'), split('pane2', 'below'), fill('pane1', 'sA'), fill('pane3', 'sC')),
+      build(
+        split('pane1', 'right'),
+        split('pane2', 'below'),
+        fill('pane1', 'sA'),
+        fill('pane3', 'sC'),
+      ),
       'split1',
       0.33,
     )

@@ -33,6 +33,9 @@ import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
 import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
+import { SplitView } from './features/split/SplitView'
+import { splitLayoutActions, useSplitLayout } from './features/split/use-split-layout'
+import { activeSessionOf, paneCount, sessionIdsInPanes } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
 import {
   ContextMenu,
@@ -81,8 +84,14 @@ function Shell() {
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectRow[]>([])
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
-  const { activityOf, acknowledge, forget } = useSessionActivity(activeSessionId)
+  // Which session is active is now a property of the panes: it is whatever the
+  // focused pane is showing, so every single-session view in the shell — the
+  // workspace lookup below, Changes, the sidebar's highlighted row — follows
+  // the pane the user is actually in rather than the last row they clicked.
+  const layout = useSplitLayout()
+  const activeSessionId = activeSessionOf(layout)
+  const visibleSessionIds = useMemo(() => sessionIdsInPanes(layout), [layout])
+  const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -122,6 +131,23 @@ function Shell() {
     effort: null,
   })
 
+  /**
+   * Composer seeds per session. `defaults` stays the seed for sessions that
+   * have not loaded yet; with several panes mounted, one shared value would
+   * leave every pane's model and permission chips showing whichever session
+   * happened to load last.
+   */
+  const [defaultsBySession, setDefaultsBySession] = useState<Record<string, SessionDefaults>>({})
+  const defaultsFor = useCallback(
+    (sessionId: string): SessionDefaults => defaultsBySession[sessionId] ?? defaults,
+    [defaultsBySession, defaults],
+  )
+  const writeDefaults = useCallback((sessionId: string, next: SessionDefaults): void => {
+    setDefaultsBySession((prev) =>
+      prev[sessionId] === next ? prev : { ...prev, [sessionId]: next },
+    )
+  }, [])
+
   // Sidebar collapse: ephemeral UI state, so localStorage (not engine settings)
   // is the right home. Ctrl+B toggles; a rail button restores it.
   const [sidebarOpen, setSidebarOpen] = useState(
@@ -154,14 +180,29 @@ function Shell() {
   // sticks until the user has seen what the agent did.
   const selectSession = useCallback(
     (id: string) => {
-      setActiveSessionId(id)
+      // A session already on screen is focused where it is; anything else
+      // replaces what the focused pane was showing, which is the tmux reading
+      // of a click in the session list.
+      const paneId = splitLayoutActions.paneOf(id) ?? layout.focusedPaneId
+      splitLayoutActions.assign(paneId, id)
       clearTransientInspector()
       // Selecting a chat must land on it, not leave Usage/Changes up.
       setFullPage(null)
-      acknowledge(id)
     },
-    [acknowledge, clearTransientInspector],
+    [layout, clearTransientInspector],
   )
+
+  // A session that has just come on screen has been seen: it is the arrival in
+  // a pane, not every later focus change, that clears the settled badge — and
+  // only for the panes that had not been showing it already.
+  const visibleRef = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const now = sessionIdsInPanes(layout)
+    for (const id of now) {
+      if (!visibleRef.current.has(id)) acknowledge(id)
+    }
+    visibleRef.current = new Set(now)
+  }, [layout, acknowledge])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
@@ -173,12 +214,27 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [toggleSidebar])
 
+  // Set on the first successful list, so the restored panes are never pruned
+  // against the empty session state the shell starts from.
+  const sessionsLoadedRef = useRef(false)
+
   const refreshSessions = useCallback((): void => {
     void rpc
       .invoke('session.list')
-      .then(setSessions)
+      .then((next) => {
+        sessionsLoadedRef.current = true
+        setSessions(next)
+      })
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
+
+  // A pane remembers what it was showing across launches. A session that is
+  // gone by the time the list arrives blanks its pane rather than leaving the
+  // shell pointed at something that no longer exists.
+  useEffect(() => {
+    if (!sessionsLoadedRef.current) return
+    splitLayoutActions.prune(new Set(sessions.map((session) => session.id)))
+  }, [sessions])
 
   // Late-bound so the global key handler (registered before the session
   // starters exist) can still open the new-session rail.
@@ -386,7 +442,7 @@ function Shell() {
       )
       if (reusable) {
         if (overrides) setDefaults(effective)
-        setActiveSessionId(reusable.id)
+        splitLayoutActions.assign(layout.focusedPaneId, reusable.id)
         clearTransientInspector()
         return
       }
@@ -401,13 +457,13 @@ function Shell() {
         })
         .then(({ sessionId }) => {
           if (overrides) setDefaults(effective)
-          setActiveSessionId(sessionId)
+          splitLayoutActions.assign(layout.focusedPaneId, sessionId)
           clearTransientInspector()
           refreshSessions()
         })
         .catch((error: unknown) => log.warn('rpc call failed', error))
     },
-    [defaults, sessions, refreshSessions, clearTransientInspector],
+    [defaults, sessions, layout, refreshSessions, clearTransientInspector],
   )
 
   /**
@@ -500,6 +556,10 @@ function Shell() {
   }, [])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  // The usage chip names the driver of whichever session is active, which in a
+  // split is the focused pane's — not the shell's seed for new sessions.
+  const activeDriverKind =
+    activeSessionId === null ? defaults.driverKind : defaultsFor(activeSessionId).driverKind
   // The explorer roots at the active session's project, falling back to the
   // first registered project so the pane is never dead on arrival.
   const activeProjectPath =
@@ -532,7 +592,7 @@ function Shell() {
   if (settingsOpen) {
     return (
       <div className="ari-glass-pane flex h-full flex-col">
-        <Titlebar usage={{ sessionId: activeSessionId, kind: defaults.driverKind }} />
+        <Titlebar usage={{ sessionId: activeSessionId, kind: activeDriverKind }} />
         <SettingsWorkspace
           section={settingsSection}
           onSectionChange={setSettingsSection}
@@ -581,7 +641,7 @@ function Shell() {
       <Titlebar
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
-        usage={{ sessionId: activeSessionId, kind: defaults.driverKind }}
+        usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen ? undefined : toggleSidebar}
       />
       <div className="flex min-h-0 flex-1">
@@ -645,10 +705,8 @@ function Shell() {
                 for (const gone of dropped) forget(gone)
                 void rpc
                   .invoke('session.destroy', { sessionId: id })
-                  .then(() => {
-                    if (activeSessionId && dropped.has(activeSessionId)) setActiveSessionId(null)
-                    refreshSessions()
-                  })
+                  // The refreshed list blanks the panes those sessions were in.
+                  .then(refreshSessions)
                   .catch((error: unknown) => log.warn('rpc call failed', error))
               }}
               onTogglePin={(id, pinned) => {
@@ -707,22 +765,8 @@ function Shell() {
           ) : (
             <div className="flex min-h-0 flex-1">
               <div className="min-h-0 min-w-0 flex-1">
-                {activeSessionId ? (
-                  <ErrorBoundary label="Session">
-                    <SessionView
-                      key={activeSessionId}
-                      sessionId={activeSessionId}
-                      defaults={defaults}
-                      onDefaultsChange={setDefaults}
-                      onOpenSession={selectSession}
-                      activityOf={activityOf}
-                      childSessions={sessions.filter(
-                        (session) =>
-                          session.parentSessionId === activeSessionId && !session.archived,
-                      )}
-                    />
-                  </ErrorBoundary>
-                ) : (
+                {activeSessionId === null && paneCount(layout) === 1 ? (
+                  // Nothing open at all: the welcome panel is still the view.
                   <ErrorBoundary label="Welcome">
                     <WelcomePanel
                       hasProjects={projects.length > 0}
@@ -733,6 +777,33 @@ function Shell() {
                           modelId: `ep:${endpointId}`,
                         })
                       }
+                    />
+                  </ErrorBoundary>
+                ) : (
+                  <ErrorBoundary label="Session">
+                    <SplitView
+                      layout={layout}
+                      titleOf={(id) => sessions.find((s) => s.id === id)?.title ?? null}
+                      onFocus={splitLayoutActions.focus}
+                      onClose={splitLayoutActions.close}
+                      renderSession={(sessionId, paneId) => (
+                        // Keyed by pane *and* session, so a pane that changes what
+                        // it shows remounts: composer seeds and review notes belong
+                        // to the session, not to the position it sits in.
+                        <SessionView
+                          key={`${paneId}:${sessionId}`}
+                          sessionId={sessionId}
+                          defaults={defaultsFor(sessionId)}
+                          onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                          // A child session opens in the pane it was opened from,
+                          // rather than yanking the whole shell to it.
+                          onOpenSession={(childId) => splitLayoutActions.assign(paneId, childId)}
+                          activityOf={activityOf}
+                          childSessions={sessions.filter(
+                            (session) => session.parentSessionId === sessionId && !session.archived,
+                          )}
+                        />
+                      )}
                     />
                   </ErrorBoundary>
                 )}

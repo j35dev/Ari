@@ -16,10 +16,10 @@ const subscribeMock = rpcMocks.subscribe as unknown as Mock<
 
 type ActivityApi = ReturnType<typeof useSessionActivity>
 
-function renderActivity(activeSessionId: string | null = null): {
+function renderActivity(visible: readonly string[] = []): {
   api: () => ActivityApi
   fire: (payload: unknown) => void
-  rerender: (active: string | null) => void
+  rerender: (visible: readonly string[]) => void
 } {
   let onEvent: ((payload: unknown) => void) | undefined
   subscribeMock.mockImplementation((_name, _params, handler) => {
@@ -27,8 +27,8 @@ function renderActivity(activeSessionId: string | null = null): {
     return () => undefined
   })
   const { result, rerender } = renderHook(
-    ({ active }: { active: string | null }) => useSessionActivity(active),
-    { initialProps: { active: activeSessionId } },
+    ({ visible }: { visible: readonly string[] }) => useSessionActivity(visible),
+    { initialProps: { visible } },
   )
   return {
     api: () => result.current,
@@ -37,8 +37,8 @@ function renderActivity(activeSessionId: string | null = null): {
         onEvent?.(payload)
       })
     },
-    rerender: (active) => {
-      rerender({ active })
+    rerender: (next) => {
+      rerender({ visible: next })
     },
   }
 }
@@ -74,7 +74,7 @@ describe('useSessionActivity', () => {
 
   it('keeps a background settle stuck until acknowledged', () => {
     vi.useFakeTimers()
-    const { api, fire } = renderActivity('other')
+    const { api, fire } = renderActivity(['other'])
     fire({ sessionId: 's1', event: { type: 'turn.started', at: 10 } })
     fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
     expect(api().activityOf('s1')?.phase).toBe('done')
@@ -93,7 +93,7 @@ describe('useSessionActivity', () => {
 
   it('fades a settle for the session already on screen', () => {
     vi.useFakeTimers()
-    const { api, fire } = renderActivity('s1')
+    const { api, fire } = renderActivity(['s1'])
     fire({ sessionId: 's1', event: { type: 'turn.started', at: 10 } })
     fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
     expect(api().activityOf('s1')?.phase).toBe('done')
@@ -104,9 +104,42 @@ describe('useSessionActivity', () => {
     expect(api().activityOf('s1')).toBeUndefined()
   })
 
+  it('fades every visible pane on its own timer', () => {
+    vi.useFakeTimers()
+    const { api, fire, rerender } = renderActivity(['s1'])
+    fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
+
+    // A second pane opens and settles while the first is still fading: its
+    // timer must not cancel the one already running.
+    rerender(['s1', 's2'])
+    fire({ sessionId: 's2', event: { type: 'turn.settled', stopReason: 'completed', at: 21 } })
+    expect(api().activityOf('s1')?.phase).toBe('done')
+    expect(api().activityOf('s2')?.phase).toBe('done')
+
+    act(() => {
+      vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS)
+    })
+    expect(api().activityOf('s1')).toBeUndefined()
+    expect(api().activityOf('s2')).toBeUndefined()
+  })
+
+  it('stops fading a settle the moment a new turn starts in that pane', () => {
+    vi.useFakeTimers()
+    const { api, fire } = renderActivity(['s1', 's2'])
+    fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
+    fire({ sessionId: 's2', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
+    fire({ sessionId: 's1', event: { type: 'turn.started', at: 21 } })
+
+    act(() => {
+      vi.advanceTimersByTime(ACTIVE_SETTLE_LINGER_MS)
+    })
+    expect(api().activityOf('s1')?.phase).toBe('working')
+    expect(api().activityOf('s2')).toBeUndefined()
+  })
+
   it('a new turn supersedes a sticky settle without a visit', () => {
     vi.useFakeTimers()
-    const { api, fire } = renderActivity('other')
+    const { api, fire } = renderActivity(['other'])
     fire({ sessionId: 's1', event: { type: 'turn.settled', stopReason: 'completed', at: 20 } })
     expect(api().activityOf('s1')?.phase).toBe('done')
 
@@ -115,7 +148,7 @@ describe('useSessionActivity', () => {
   })
 
   it('acknowledge leaves live phases alone; forget clears anything', () => {
-    const { api, fire } = renderActivity('other')
+    const { api, fire } = renderActivity(['other'])
     fire({ sessionId: 's1', event: { type: 'turn.started', at: 10 } })
 
     act(() => {
