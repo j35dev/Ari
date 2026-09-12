@@ -66,7 +66,12 @@ describe('contracts', () => {
 
   it('accepts image-only turns and validates attachment refs', () => {
     const ref = { id: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 12 }
-    const cmd = commandSchema.parse({ type: 'turn.start', sessionId: 's', text: '', attachments: [ref] })
+    const cmd = commandSchema.parse({
+      type: 'turn.start',
+      sessionId: 's',
+      text: '',
+      attachments: [ref],
+    })
     if (cmd.type !== 'turn.start') throw new Error('wrong command')
     expect(cmd.attachments).toEqual([ref])
     expect(() =>
@@ -106,7 +111,8 @@ describe('contracts', () => {
     expect(dequeued.attachments).toEqual([])
   })
 
-  it('parses image message parts and staged-attachment RPC payloads', () => {    expect(
+  it('parses image message parts and staged-attachment RPC payloads', () => {
+    expect(
       messagePartSchema.parse({
         type: 'image',
         attachmentId: 'att_1',
@@ -115,11 +121,24 @@ describe('contracts', () => {
         size: 12,
       }).type,
     ).toBe('image')
-    expect(rpcParams['attachments.stage'].parse({
-      files: [{ name: 'a.png', mimeType: 'image/png', dataBase64: 'aGk=' }],
-    }).files).toHaveLength(1)
+    expect(
+      rpcParams['attachments.stage'].parse({
+        files: [{ name: 'a.png', mimeType: 'image/png', dataBase64: 'aGk=' }],
+      }).files,
+    ).toHaveLength(1)
     expect(() => rpcParams['attachments.stage'].parse({ files: [] })).toThrow()
     expect(rpcParams['attachments.read'].parse({ id: 'att_1' })).toEqual({ id: 'att_1' })
+  })
+
+  it('parses normalized provider image output', () => {
+    expect(
+      agentEventSchema.parse({
+        type: 'image-output',
+        dataBase64: 'aGk=',
+        mimeType: 'image/png',
+        name: 'generated.png',
+      }),
+    ).toMatchObject({ type: 'image-output', mimeType: 'image/png' })
   })
 
   it('validates journal events with seq/at/session base', () => {
@@ -133,7 +152,14 @@ describe('contracts', () => {
     })
     expect(event.type).toBe('turn.settled')
     expect(() =>
-      journalEventSchema.parse({ type: 'turn.settled', seq: -1, at: 1, sessionId: 's', turnId: 't', stopReason: 'completed' }),
+      journalEventSchema.parse({
+        type: 'turn.settled',
+        seq: -1,
+        at: 1,
+        sessionId: 's',
+        turnId: 't',
+        stopReason: 'completed',
+      }),
     ).toThrow()
   })
 
@@ -143,12 +169,17 @@ describe('contracts', () => {
       appearance: { themeId: 'nocturne' },
     })
     // Patches carry no legacy migration; only settingsSchema rewrites 'comet-glass'.
-    expect(settingsUpdateSchema.safeParse({ appearance: { themeId: 'comet-glass' } }).success).toBe(false)
+    expect(settingsUpdateSchema.safeParse({ appearance: { themeId: 'comet-glass' } }).success).toBe(
+      false,
+    )
     expect(
-      settingsUpdateSchema.parse({ window: { x: 0, y: 0, width: 100, height: 100, maximized: true } }).window
-        ?.maximized,
+      settingsUpdateSchema.parse({
+        window: { x: 0, y: 0, width: 100, height: 100, maximized: true },
+      }).window?.maximized,
     ).toBe(true)
-    expect(settingsUpdateSchema.safeParse({ permissions: { allowlist: 'git status' } }).success).toBe(false)
+    expect(
+      settingsUpdateSchema.safeParse({ permissions: { allowlist: 'git status' } }).success,
+    ).toBe(false)
     expect(settingsUpdateSchema.safeParse({ window: { x: 'a' } }).success).toBe(false)
   })
 
@@ -159,7 +190,9 @@ describe('contracts', () => {
     expect(settingsUpdateSchema.parse({ appearance: { wallpaper: 'none' } })).toEqual({
       appearance: { wallpaper: 'none' },
     })
-    expect(settingsUpdateSchema.safeParse({ appearance: { wallpaper: 'aurora' } }).success).toBe(false)
+    expect(settingsUpdateSchema.safeParse({ appearance: { wallpaper: 'aurora' } }).success).toBe(
+      false,
+    )
     // The visibility-look field was retired in M26.5 (one uniform glass look);
     // zod strips it rather than rejecting, so a stale caller can't write it.
     expect(settingsUpdateSchema.parse({ appearance: { wallpaperLook: 'vivid' } })).toEqual({
@@ -202,9 +235,7 @@ describe('contracts', () => {
       rpcParams['fs.writeTextFile'].parse({ projectId: 'proj_1', path: '', content: 'hi' }),
     ).toThrow()
     // Absolute paths are never capabilities: scope-relative only.
-    expect(() =>
-      rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 'hi' }),
-    ).toThrow()
+    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 'hi' })).toThrow()
     // Exactly one scope: neither zero nor both.
     expect(() =>
       rpcParams['fs.writeTextFile'].parse({
@@ -214,9 +245,7 @@ describe('contracts', () => {
         content: 'hi',
       }),
     ).toThrow()
-    expect(() =>
-      rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 7 }),
-    ).toThrow()
+    expect(() => rpcParams['fs.writeTextFile'].parse({ path: '/a.txt', content: 7 })).toThrow()
   })
 
   it('validates git.turnDiff params and rejects unsafe checkpoint components', () => {
@@ -271,7 +300,9 @@ describe('contracts', () => {
       projectId: 'proj_1',
       query: 'needle',
     })
-    expect(rpcParams['search.content'].parse({ sessionId: 'sess_1', query: 'n', maxResults: 5 })).toEqual({
+    expect(
+      rpcParams['search.content'].parse({ sessionId: 'sess_1', query: 'n', maxResults: 5 }),
+    ).toEqual({
       sessionId: 'sess_1',
       query: 'n',
       maxResults: 5,
@@ -281,7 +312,11 @@ describe('contracts', () => {
     expect(() => rpcParams['search.content'].parse({ projectId: 'proj_1', query: '' })).toThrow()
     expect(() => rpcParams['search.content'].parse({ query: 'no-root' })).toThrow()
     expect(() =>
-      rpcParams['search.content'].parse({ projectId: 'proj_1', query: 'n', maxResults: SEARCH_CONTENT_MAX_RESULTS + 1 }),
+      rpcParams['search.content'].parse({
+        projectId: 'proj_1',
+        query: 'n',
+        maxResults: SEARCH_CONTENT_MAX_RESULTS + 1,
+      }),
     ).toThrow()
   })
 

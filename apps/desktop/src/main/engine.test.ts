@@ -257,6 +257,68 @@ describe('engine end-to-end with scripted driver', () => {
     ])
   }, 10000)
 
+  it('stages provider image output and journals it on the assistant message', async () => {
+    const imageDriver: Driver = {
+      kind: 'claude',
+      create: () =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'text-delta', text: 'Here it is.' }
+              yield {
+                type: 'image-output',
+                dataBase64: 'aGk=',
+                mimeType: 'image/png',
+                name: 'generated.png',
+              }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(imageDriver)
+    const stageOutputImage = vi.fn(async () => ({
+      id: 'att_generated',
+      name: 'generated.png',
+      mimeType: 'image/png',
+      size: 2,
+    }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      stageOutputImage,
+    })
+    const sessionId = 'sess_generated_image'
+    await seedSession(store, sessionId)
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'make an image', attachments: [] })
+    await engine.quiesce(sessionId)
+
+    expect(stageOutputImage).toHaveBeenCalledWith({
+      dataBase64: 'aGk=',
+      mimeType: 'image/png',
+      name: 'generated.png',
+    })
+    const assistant = (await store.load(sessionId)).messages.find(
+      (message) => message.role === 'assistant',
+    )
+    expect(assistant?.parts).toEqual([
+      { type: 'text', text: 'Here it is.' },
+      {
+        type: 'image',
+        attachmentId: 'att_generated',
+        name: 'generated.png',
+        mimeType: 'image/png',
+        size: 2,
+      },
+    ])
+  }, 10000)
+
   it('interrupt settles an active turn and drops late adapter events', async () => {
     const slowDriver: Driver = {
       kind: 'claude',
@@ -1555,9 +1617,7 @@ describe('Engine durable queue continuation', () => {
       git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
       authorizeTurn: async (session): Promise<string | null> =>
         enforceCapacity &&
-        ['sess_busy', 'sess_waiting'].some(
-          (id) => id !== session.id && engine.hasLiveTurn(id),
-        )
+        ['sess_busy', 'sess_waiting'].some((id) => id !== session.id && engine.hasLiveTurn(id))
           ? 'Maximum concurrent child sessions reached.'
           : null,
     })

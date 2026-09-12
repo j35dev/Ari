@@ -94,9 +94,7 @@ describe('claude mapper', () => {
       type: 'user',
       message: {
         role: 'user',
-        content: [
-          { type: 'tool_result', tool_use_id: 't1', content: 'boom', is_error: true },
-        ],
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: 'boom', is_error: true }],
       },
     })
     const events = mapClaudeLine(line)
@@ -105,6 +103,30 @@ describe('claude mapper', () => {
     } else {
       throw new Error('expected tool-completed')
     }
+  })
+
+  it('extracts base64 images from tool results', () => {
+    const events = mapClaudeLine(
+      JSON.stringify({
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'toolu_img',
+              content: [
+                {
+                  type: 'image',
+                  source: { type: 'base64', media_type: 'image/png', data: 'aGk=' },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    )
+    expect(events.map((event) => event.type)).toEqual(['tool-completed', 'image-output'])
+    expect(events[1]).toMatchObject({ dataBase64: 'aGk=', mimeType: 'image/png' })
   })
 
   it('maps can_use_tool control requests to approval-requested events', () => {
