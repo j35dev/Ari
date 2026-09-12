@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SplitView } from './SplitView'
 import {
+  MAX_PANES,
   assignSession,
   initialLayout,
   setRatio,
@@ -35,6 +36,22 @@ function filled(): SplitLayout {
   return assignSession(assignSession(layout, 'pane1', 'sA'), 'pane2', 'sB')
 }
 
+/** `pane1` showing `sA` above a blank `pane2` — a single stacked split. */
+function stackedPair(): SplitLayout {
+  const newId = counter()
+  const layout = splitPane(initialLayout(newId), 'pane1', 'below', newId)
+  return assignSession(layout, 'pane1', 'sA')
+}
+
+/** Every pane the ceiling allows: a chain of six splits. */
+function full(): SplitLayout {
+  let layout = initialLayout(counter())
+  for (let i = 1; i < MAX_PANES; i++) {
+    layout = splitPane(layout, 'pane1', 'below')
+  }
+  return layout
+}
+
 const TITLES: Record<string, string> = { sA: 'Alpha', sB: 'Beta' }
 
 function renderSplit(layout: SplitLayout) {
@@ -42,12 +59,21 @@ function renderSplit(layout: SplitLayout) {
     titleOf: (sessionId: string) => TITLES[sessionId] ?? null,
     onFocus: vi.fn(),
     onClose: vi.fn(),
+    onSplit: vi.fn(),
+    onToggleZoom: vi.fn(),
+    onResize: vi.fn(),
     renderSession: (sessionId: string, paneId: string) => (
       <div data-testid={`session-${sessionId}`} data-pane={paneId} />
     ),
   }
   render(<SplitView layout={layout} {...props} />)
   return props
+}
+
+/** Right-clicks a pane's body and returns the open menu. */
+function openMenu(pane: string, target?: HTMLElement): HTMLElement {
+  fireEvent.contextMenu(target ?? screen.getByTestId(pane), { clientX: 40, clientY: 40 })
+  return screen.getByRole('menu')
 }
 
 describe('SplitView', () => {
@@ -112,5 +138,158 @@ describe('SplitView', () => {
 
     expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
     expect(screen.queryByTestId('session-sA')).not.toBeInTheDocument()
+  })
+})
+
+describe('SplitView separators', () => {
+  it('puts a separator between the two panes, reporting the split it moves', () => {
+    renderSplit(filled())
+
+    const separator = screen.getByRole('separator', { name: 'Resize Alpha and Beta' })
+    expect(separator).toHaveAttribute('aria-orientation', 'vertical')
+    expect(separator).toHaveAttribute('aria-valuenow', '50')
+    expect(separator).toHaveAttribute('aria-valuemin', '10')
+    expect(separator).toHaveAttribute('aria-valuemax', '90')
+    expect(separator).toHaveAttribute('title', 'Drag to resize · double-click to reset')
+  })
+
+  it('names the pane a blank one rather than leaving it out', () => {
+    renderSplit(pair())
+
+    expect(
+      screen.getByRole('separator', { name: 'Resize Alpha and Empty pane' }),
+    ).toBeInTheDocument()
+  })
+
+  it('turns a drag into that split’s new ratio', () => {
+    const { onResize } = renderSplit(filled())
+    const separator = screen.getByRole('separator', { name: 'Resize Alpha and Beta' })
+    const container = separator.parentElement
+    if (container === null) throw new Error('separator is not inside the split')
+    // jsdom lays nothing out, so the box the ratio is measured against is stubbed.
+    container.getBoundingClientRect = () =>
+      ({ left: 100, top: 0, width: 400, height: 300 }) as DOMRect
+    // jsdom has no pointer capture either; the drag itself runs on window.
+    separator.setPointerCapture = vi.fn()
+
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((run) => {
+      run(0)
+      return 1
+    })
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 300, clientY: 10 })
+    fireEvent.pointerMove(window, { clientX: 320, clientY: 10 })
+    frame.mockRestore()
+
+    // 320 sits 220px into a 400px box, so the leading pane takes 55% of it.
+    expect(onResize).toHaveBeenCalledWith('split1', 0.55)
+  })
+
+  it('nudges with the arrow keys along the split’s own axis', () => {
+    const { onResize } = renderSplit(filled())
+    const separator = screen.getByRole('separator', { name: 'Resize Alpha and Beta' })
+
+    fireEvent.keyDown(separator, { key: 'ArrowRight' })
+    expect(onResize).toHaveBeenCalledWith('split1', 0.52)
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' })
+    expect(onResize).toHaveBeenCalledWith('split1', 0.48)
+    // The cross axis belongs to whatever else is listening, not to this split.
+    fireEvent.keyDown(separator, { key: 'ArrowDown' })
+    expect(onResize).toHaveBeenCalledTimes(2)
+  })
+
+  it('evens the split back up on a double-click', () => {
+    const { onResize } = renderSplit(setRatio(filled(), 'split1', 0.2))
+
+    fireEvent.doubleClick(screen.getByRole('separator', { name: 'Resize Alpha and Beta' }))
+    expect(onResize).toHaveBeenCalledWith('split1', 0.5)
+  })
+
+  it('runs the other way for a stacked split', () => {
+    const { onResize } = renderSplit(stackedPair())
+
+    const separator = screen.getByRole('separator', { name: 'Resize Alpha and Empty pane' })
+    expect(separator).toHaveAttribute('aria-orientation', 'horizontal')
+    fireEvent.keyDown(separator, { key: 'ArrowDown' })
+    expect(onResize).toHaveBeenCalledWith('split1', 0.52)
+    fireEvent.keyDown(separator, { key: 'ArrowRight' })
+    expect(onResize).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the pane menu', () => {
+  it('opens on a right-click and drives the panel operations', () => {
+    const { onSplit, onToggleZoom, onClose } = renderSplit(filled())
+
+    const menu = openMenu('session-sA')
+    expect(menu).toHaveAccessibleName('Alpha pane')
+    expect(screen.getByRole('menuitem', { name: 'Split right' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Split down' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Zoom pane' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Split down' }))
+    expect(onSplit).toHaveBeenCalledWith('pane1', 'below')
+
+    openMenu('session-sB')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Zoom pane' }))
+    expect(onToggleZoom).toHaveBeenCalledWith('pane2')
+
+    openMenu('session-sA')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Close pane' }))
+    expect(onClose).toHaveBeenCalledWith('pane1')
+  })
+
+  it('offers to undo a zoom that is in effect', () => {
+    renderSplit(toggleZoom(filled()))
+
+    openMenu('session-sB')
+    expect(screen.getByRole('menuitem', { name: 'Unzoom pane' })).toBeInTheDocument()
+  })
+
+  it('leaves a right-click inside a field to the field', () => {
+    const layout = filled()
+    render(
+      <SplitView
+        layout={layout}
+        titleOf={(id) => TITLES[id] ?? null}
+        onFocus={vi.fn()}
+        onClose={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleZoom={vi.fn()}
+        onResize={vi.fn()}
+        renderSession={() => <textarea aria-label="Composer" />}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getAllByLabelText('Composer')[0]!, { clientX: 40, clientY: 40 })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+    // The pane itself still opens one, so the guard is about the target alone.
+    fireEvent.contextMenu(screen.getByRole('region', { name: 'Alpha' }), {
+      clientX: 40,
+      clientY: 40,
+    })
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Alpha pane')
+  })
+
+  it('disables the splits at the ceiling instead of hiding them', () => {
+    renderSplit(full())
+
+    fireEvent.contextMenu(screen.getAllByRole('region', { name: 'Empty pane' })[0]!, {
+      clientX: 40,
+      clientY: 40,
+    })
+    // The reason is part of the accessible name, so the entry explains itself.
+    const splitRight = screen.getByRole('menuitem', { name: /^Split right:/ })
+    expect(splitRight).toHaveAttribute('aria-disabled', 'true')
+    expect(splitRight).toHaveAttribute('title', `A layout holds at most ${String(MAX_PANES)} panes`)
+    expect(screen.getByRole('menuitem', { name: /^Split down:/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    // Closing is still on offer: at the ceiling is exactly when a pane is freed.
+    expect(screen.getByRole('menuitem', { name: 'Close pane' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    )
   })
 })

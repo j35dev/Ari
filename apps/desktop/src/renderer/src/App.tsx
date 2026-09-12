@@ -786,6 +786,9 @@ function Shell() {
                       titleOf={(id) => sessions.find((s) => s.id === id)?.title ?? null}
                       onFocus={splitLayoutActions.focus}
                       onClose={splitLayoutActions.close}
+                      onSplit={splitLayoutActions.split}
+                      onToggleZoom={splitLayoutActions.toggleZoom}
+                      onResize={splitLayoutActions.resize}
                       renderSession={(sessionId, paneId) => (
                         // Keyed by pane *and* session, so a pane that changes what
                         // it shows remounts: composer seeds and review notes belong

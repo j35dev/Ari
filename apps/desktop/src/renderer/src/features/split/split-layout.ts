@@ -53,8 +53,8 @@ export interface SplitLayout {
 export type IdFactory = (kind: 'pane' | 'split') => string
 
 /** Below this a pane is unusably thin; above it, the trailing pane is. */
-const MIN_RATIO = 0.1
-const MAX_RATIO = 0.9
+export const MIN_RATIO = 0.1
+export const MAX_RATIO = 0.9
 
 /** Fresh ids must not collide with a layout restored from a previous launch. */
 const randomId: IdFactory = (kind) => `${kind}-${Math.random().toString(36).slice(2, 10)}`

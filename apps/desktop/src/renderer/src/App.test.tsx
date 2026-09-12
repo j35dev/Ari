@@ -424,6 +424,20 @@ describe('Shell split panes', () => {
     expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(2)
     expect(screen.getAllByText('No session in this pane')).toHaveLength(2)
   })
+
+  it('splits a pane from its own right-click menu, leaving the new pane blank', async () => {
+    openTwoPanes()
+    render(<App />)
+    const alpha = await screen.findByRole('region', { name: 'Alpha' }, { timeout: 10_000 })
+
+    fireEvent.contextMenu(alpha, { clientX: 60, clientY: 60 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Split down' }))
+
+    // Three panes now: the new one has the focus and is waiting for a session.
+    expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
+    expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(1)
+    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
+  })
 })
 
 describe('Starting a session with no project yet', () => {
