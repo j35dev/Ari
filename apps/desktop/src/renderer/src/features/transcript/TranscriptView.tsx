@@ -171,6 +171,43 @@ export function TranscriptView({
 
   const hasWorking = Boolean(working)
 
+  // Session switch (and first mount) always lands on the tail. The pin
+  // starts true, but a leftover unpin from the previous session — or a
+  // `display:none` pane restoring at scrollTop 0 — would otherwise show
+  // the jump pill on a long transcript.
+  useLayoutEffect(() => {
+    atBottomRef.current = true
+    setAtBottom(true)
+    lastScrollTopRef.current = null
+    const scroller = scrollRef.current
+    if (scroller) scrollToBottom(scroller, 'auto')
+  }, [sessionId])
+
+  // Split-view zoom (and any other `display:none`) collapses the scroller
+  // to height 0 and resets scrollTop. When it comes back, re-pin so the
+  // reader lands on latest instead of the restored top.
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller || typeof ResizeObserver === 'undefined') return
+    let lastHeight = scroller.clientHeight
+    const observer = new ResizeObserver(() => {
+      const height = scroller.clientHeight
+      const appeared = lastHeight === 0 && height > 0
+      lastHeight = height
+      if (height === 0) {
+        lastScrollTopRef.current = null
+        return
+      }
+      if (!appeared) return
+      lastScrollTopRef.current = null
+      atBottomRef.current = true
+      setAtBottom(true)
+      scrollToBottom(scroller, 'auto')
+    })
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [])
+
   // Follow the tail while pinned. Observe the column so Shiki/code-fence
   // growth still sticks without a virtualizer measurement loop.
   useLayoutEffect(() => {
@@ -199,14 +236,22 @@ export function TranscriptView({
   const handleScroll = (): void => {
     const el = scrollRef.current
     if (!el) return
+    // Hidden panes (`display:none`) report no box; forget the last offset so
+    // the next sample is not mistaken for a user scroll-up to the top.
+    if (el.clientHeight === 0) {
+      lastScrollTopRef.current = null
+      return
+    }
     const previous = lastScrollTopRef.current
     lastScrollTopRef.current = el.scrollTop
     const scrolledDown = previous !== null && el.scrollTop > previous
+    const scrolledUp = previous !== null && el.scrollTop < previous
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight
     const pinned = pinnedAfterScroll({
       wasPinned: atBottomRef.current,
       distanceFromBottom: distance,
       scrolledDown,
+      scrolledUp,
     })
     atBottomRef.current = pinned
     setAtBottom(pinned)
