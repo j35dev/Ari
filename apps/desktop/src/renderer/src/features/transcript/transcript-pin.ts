@@ -12,12 +12,21 @@ export const AT_BOTTOM_PX = 1
  * viewport back and eats the rest of the wheel gesture. Re-engage only
  * when the reader scrolls *toward* the tail and lands inside the band
  * (or hits the true bottom).
+ *
+ * While pinned, content growth and layout resets (session switch, a
+ * `display:none` pane coming back) must not unpin — those jump the
+ * distance-from-bottom without the reader moving up. Unpin only on an
+ * actual upward scroll away from the tail.
  */
 export function pinnedAfterScroll(input: {
   wasPinned: boolean
   distanceFromBottom: number
   scrolledDown: boolean
+  scrolledUp: boolean
 }): boolean {
-  if (input.wasPinned) return input.distanceFromBottom <= AT_BOTTOM_PX
+  if (input.wasPinned) {
+    if (!input.scrolledUp) return true
+    return input.distanceFromBottom <= AT_BOTTOM_PX
+  }
   return input.scrolledDown && input.distanceFromBottom <= REENGAGE_BAND_PX
 }

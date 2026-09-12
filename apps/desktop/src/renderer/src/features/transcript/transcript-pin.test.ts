@@ -2,19 +2,41 @@ import { describe, expect, it } from 'vitest'
 import { AT_BOTTOM_PX, REENGAGE_BAND_PX, pinnedAfterScroll } from './transcript-pin'
 
 describe('pinnedAfterScroll', () => {
-  it('stays pinned only while still on the painted tail', () => {
+  it('stays pinned through content growth that is not an upward scroll', () => {
     expect(
-      pinnedAfterScroll({ wasPinned: true, distanceFromBottom: 0, scrolledDown: false }),
+      pinnedAfterScroll({
+        wasPinned: true,
+        distanceFromBottom: 0,
+        scrolledDown: false,
+        scrolledUp: false,
+      }),
     ).toBe(true)
+    expect(
+      pinnedAfterScroll({
+        wasPinned: true,
+        distanceFromBottom: 4000,
+        scrolledDown: false,
+        scrolledUp: false,
+      }),
+    ).toBe(true)
+  })
+
+  it('unpins when the reader scrolls up away from the tail', () => {
     expect(
       pinnedAfterScroll({
         wasPinned: true,
         distanceFromBottom: AT_BOTTOM_PX,
         scrolledDown: false,
+        scrolledUp: true,
       }),
     ).toBe(true)
     expect(
-      pinnedAfterScroll({ wasPinned: true, distanceFromBottom: 8, scrolledDown: false }),
+      pinnedAfterScroll({
+        wasPinned: true,
+        distanceFromBottom: 8,
+        scrolledDown: false,
+        scrolledUp: true,
+      }),
     ).toBe(false)
   })
 
@@ -24,6 +46,7 @@ describe('pinnedAfterScroll', () => {
         wasPinned: false,
         distanceFromBottom: 20,
         scrolledDown: false,
+        scrolledUp: true,
       }),
     ).toBe(false)
     expect(
@@ -31,6 +54,7 @@ describe('pinnedAfterScroll', () => {
         wasPinned: false,
         distanceFromBottom: REENGAGE_BAND_PX,
         scrolledDown: false,
+        scrolledUp: true,
       }),
     ).toBe(false)
   })
@@ -41,6 +65,7 @@ describe('pinnedAfterScroll', () => {
         wasPinned: false,
         distanceFromBottom: 40,
         scrolledDown: true,
+        scrolledUp: false,
       }),
     ).toBe(true)
     expect(
@@ -48,6 +73,7 @@ describe('pinnedAfterScroll', () => {
         wasPinned: false,
         distanceFromBottom: REENGAGE_BAND_PX + 1,
         scrolledDown: true,
+        scrolledUp: false,
       }),
     ).toBe(false)
   })
