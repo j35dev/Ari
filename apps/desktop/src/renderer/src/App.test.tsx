@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -198,7 +198,7 @@ describe('Shell session navigation keys', () => {
             },
           ]
         case 'project.list':
-          return []
+          return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
         case 'providers.detect':
           return []
         case 'providers.models':
@@ -264,26 +264,131 @@ describe('Shell session navigation keys', () => {
     )
   })
 
-  it('Mod+N creates a new session via the reuse path', async () => {
+  it('Mod+N asks which project to run in, then creates the session there', async () => {
     render(<App />)
     await screen.findByText('Alpha', {}, { timeout: 10_000 })
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
 
-    // Reuses the pristine adhoc session or creates one; either way the
-    // command path runs.
+    // The session's project is no longer implied — the shortcut opens the
+    // same picker the sidebar's New session button does.
+    const menu = await screen.findByRole('menu', { name: 'New session in project' }, {
+      timeout: 10_000,
+    })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
+
     await vi.waitFor(
       () => {
-        const created = invokeMock.mock.calls.some(([method]) => method === 'session.create')
-        const reused = invokeMock.mock.calls.some(
-          ([method, params]) =>
-            method === 'session.load' &&
-            (params as { sessionId?: string } | undefined)?.sessionId !== undefined,
+        expect(invokeMock).toHaveBeenCalledWith(
+          'session.create',
+          expect.objectContaining({ projectId: 'proj-ari' }),
         )
-        expect(created || reused).toBe(true)
       },
       { timeout: 10_000 },
     )
+  })
+})
+
+describe('Starting a session with no project yet', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    rpcMocks.subscribe.mockReset()
+    rpcMocks.subscribe.mockImplementation(() => () => undefined)
+    localStorage.clear()
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: 'C:\\Users\\tester' }
+        case 'session.list':
+          return []
+        case 'project.list':
+          return []
+        case 'dialog.pickFolder':
+          return { path: 'C:\\work\\ari' }
+        case 'project.open':
+          return { id: 'proj-new', name: 'Ari', path: 'C:\\work\\ari' }
+        case 'session.create':
+          return { sessionId: 'sess-new' }
+        case 'providers.detect':
+        case 'providers.models':
+        case 'endpoints.list':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        case 'session.load':
+          return { session: null, activeTurnId: null }
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('routes New session through the folder picker and creates inside the picked folder', async () => {
+    render(<App />)
+    await screen.findByRole('button', { name: 'Add a project to start' }, { timeout: 10_000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+
+    // No projects means no menu to pick from — the folder dialog *is* the
+    // choice, so the button is never a dead end. The session lands in the
+    // picked project rather than the old 'adhoc' bucket, which is what gives
+    // the terminal rail a real workspace to open in.
+    await vi.waitFor(
+      () => {
+        expect(invokeMock).toHaveBeenCalledWith('dialog.pickFolder', { defaultPath: undefined })
+        expect(invokeMock).toHaveBeenCalledWith(
+          'session.create',
+          expect.objectContaining({ projectId: 'proj-new' }),
+        )
+        expect(invokeMock).not.toHaveBeenCalledWith(
+          'session.create',
+          expect.objectContaining({ projectId: 'adhoc' }),
+        )
+      },
+      { timeout: 10_000 },
+    )
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('does nothing when the folder picker is cancelled', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: 'C:\\Users\\tester' }
+        case 'session.list':
+          return []
+        case 'project.list':
+          return []
+        case 'dialog.pickFolder':
+          return { path: null }
+        case 'providers.detect':
+        case 'providers.models':
+        case 'endpoints.list':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+
+    render(<App />)
+    await screen.findByRole('button', { name: 'Add a project to start' }, { timeout: 10_000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+
+    await vi.waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('dialog.pickFolder', { defaultPath: undefined })
+    })
+    expect(invokeMock.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
   })
 })
 
@@ -380,7 +485,7 @@ describe('Shell live sidebar feed', () => {
             ? [
                 {
                   id: 'sess-alpha',
-                  projectId: 'adhoc',
+                  projectId: 'proj-ari',
                   title: 'New session',
                   updatedAt: NOW - 60_000,
                   messageCount: 0,
@@ -389,7 +494,7 @@ describe('Shell live sidebar feed', () => {
             : [
                 {
                   id: 'sess-alpha',
-                  projectId: 'adhoc',
+                  projectId: 'proj-ari',
                   title: 'Fixed the build',
                   updatedAt: NOW - 1_000,
                   messageCount: 2,
@@ -398,7 +503,7 @@ describe('Shell live sidebar feed', () => {
         case 'session.create':
           return { sessionId: 'sess-new' }
         case 'project.list':
-          return []
+          return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
         case 'providers.detect':
           return []
         case 'providers.models':
@@ -469,10 +574,15 @@ describe('Shell live sidebar feed', () => {
     expect(listCalls).toBeGreaterThanOrEqual(2)
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
+    const menu = await screen.findByRole('menu', { name: 'New session in project' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
 
     await vi.waitFor(
       () => {
-        expect(invokeMock.mock.calls.some(([method]) => method === 'session.create')).toBe(true)
+        expect(invokeMock).toHaveBeenCalledWith(
+          'session.create',
+          expect.objectContaining({ projectId: 'proj-ari' }),
+        )
       },
       { timeout: 3_000 },
     )

@@ -41,7 +41,7 @@ import { useProjectExpand } from './use-project-expand'
 import { useSessionCollapse } from './use-session-collapse'
 import { useSidebarView, type SidebarView } from './use-sidebar-view'
 import { sessionTree, searchSessionTree } from '../features/session/session-tree'
-import { ContextMenu, useContextMenu } from './ContextMenu'
+import { ContextMenu, anchorBelow, useContextMenu, type MenuAnchor } from './ContextMenu'
 
 /**
  * Position-only FLIP for session reorder and project expand. Ease-slide keeps
@@ -870,7 +870,8 @@ export function SessionsUnderProjects({
     knownProjectNames?: { id: string; name: string }[]
     /** Opens the native folder picker; a cancel is a silent no-op. */
     onOpenProject?: () => void
-    onNewSession?: () => void
+    /** Anchors the project picker the new session will run in, under the button. */
+    onNewSession?: (anchor: MenuAnchor) => void
     searchInputRef?: Ref<HTMLInputElement>
   }) {
   const [query, setQuery] = useState('')
@@ -1034,23 +1035,34 @@ export function SessionsUnderProjects({
 
   return (
     <>
-      <div className="px-2 pt-1">
+      <div className="flex flex-col gap-1 px-2 pt-1">
         <button
           type="button"
+          data-new-session-trigger
           aria-label="New session"
           title="New session (Mod+N)"
-          onClick={() => onNewSession?.()}
+          onClick={(e) => onNewSession?.(anchorBelow(e.currentTarget))}
           className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-glass-input px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <SquarePen size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
           New session
           <Kbd className="ml-auto h-4 border-border/60 px-1 text-[10px] text-fg-subtle">Mod+N</Kbd>
         </button>
+        {/* Adding a project is how a session gets somewhere to run, so it sits
+            beside New session rather than tucked away as a sidebar icon. */}
+        <button
+          type="button"
+          aria-label="Add project"
+          title="Add a folder as a project"
+          onClick={() => onOpenProject?.()}
+          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-glass-input px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
+          Add project
+        </button>
       </div>
       <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />
-      {trimmed === '' ? (
-        <SidebarViewSwitch view={view} onChange={setView} onOpenProject={onOpenProject} />
-      ) : null}
+      {trimmed === '' ? <SidebarViewSwitch view={view} onChange={setView} /> : null}
       <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
         {body}
       </nav>
@@ -1059,18 +1071,15 @@ export function SessionsUnderProjects({
 }
 
 /**
- * Section caption doubling as the Projects / Sessions view switch, with the
- * open-project affordance trailing. Sits between the compose row and the list
- * so the list itself carries no chrome.
+ * Section caption doubling as the Projects / Sessions view switch. Sits between
+ * the compose row and the list so the list itself carries no chrome.
  */
 function SidebarViewSwitch({
   view,
   onChange,
-  onOpenProject,
 }: {
   view: SidebarView
   onChange: (view: SidebarView) => void
-  onOpenProject?: () => void
 }) {
   const tab = (id: SidebarView, label: string) => {
     const selected = view === id
@@ -1097,15 +1106,6 @@ function SidebarViewSwitch({
         </span>
         {tab('sessions', 'Sessions')}
       </div>
-      <button
-        type="button"
-        aria-label="Open project"
-        title="Open project"
-        onClick={() => onOpenProject?.()}
-        className="ml-auto flex size-5 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-      >
-        <FolderPlus size={13} strokeWidth={1.8} aria-hidden />
-      </button>
     </div>
   )
 }

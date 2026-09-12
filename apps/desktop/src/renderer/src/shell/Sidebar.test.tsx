@@ -231,12 +231,26 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByText('Session b')).toBeInTheDocument()
   })
 
-  it('offers Open project and reports the click', async () => {
+  it('promotes Add project to a full-width button in the compose row', async () => {
     const onOpenProject = vi.fn()
     renderSidebar([], null, { onOpenProject })
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Open project' }))
+    await user.click(screen.getByRole('button', { name: 'Add project' }))
     expect(onOpenProject).toHaveBeenCalledOnce()
+  })
+
+  it('hands the new-session picker the rect of the button that opened it', async () => {
+    const onNewSession = vi.fn()
+    renderSidebar([], null, { onNewSession })
+    const user = userEvent.setup()
+    const trigger = screen.getByRole('button', { name: 'New session' })
+    // jsdom lays nothing out, so give the button a rect to anchor against.
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(new DOMRect(12, 40, 200, 32))
+
+    await user.click(trigger)
+
+    // The menu hangs just below the button, not at the pointer.
+    expect(onNewSession).toHaveBeenCalledWith({ x: 12, y: 76 })
   })
 
   it('switches to a flat recency list in the Sessions view and persists the choice', async () => {
