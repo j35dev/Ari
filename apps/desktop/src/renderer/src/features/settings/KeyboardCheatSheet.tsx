@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '@ari/ui/dialog'
 import { Kbd } from '@ari/ui/kbd'
+import { isEditableTarget } from '../../shell/editable-target'
 import { resolveChord } from './KeybindingsSettings'
 import { APP_SHORTCUTS } from './shortcuts'
 
@@ -32,13 +33,6 @@ const CHEAT_SHEET_SHORTCUTS: readonly CheatShortcut[] = [
 
 function shortcutKeys(shortcut: CheatShortcut): readonly string[] {
   return shortcut.keys ?? resolveChord(shortcut.chord ?? '')
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
-  const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
 /**
