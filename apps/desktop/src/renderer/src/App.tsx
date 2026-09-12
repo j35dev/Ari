@@ -17,6 +17,7 @@ import { SessionView } from './features/session/SessionView'
 import {
   moveProjectInList,
   projectMoveForDelta,
+  shellRootFor,
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds } from './features/session/session-tree'
@@ -94,7 +95,6 @@ function Shell() {
     overrides?: Partial<SessionDefaults>
   } | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
-  const [workspaceCwd, setWorkspaceCwd] = useState<string>('')
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -121,13 +121,6 @@ function Shell() {
     permissionMode: 'ask',
     effort: null,
   })
-
-  useEffect(() => {
-    void rpc
-      .invoke('app.info')
-      .then((info) => setWorkspaceCwd(info.homeDir))
-      .catch((error: unknown) => log.warn('rpc call failed', error))
-  }, [])
 
   // Sidebar collapse: ephemeral UI state, so localStorage (not engine settings)
   // is the right home. Ctrl+B toggles; a rail button restores it.
@@ -528,6 +521,13 @@ function Shell() {
       : activeScopeProjectId !== undefined
         ? { projectId: activeScopeProjectId }
         : null
+  // Where a shell can actually run — the rule and its precedence live in
+  // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
+  // offer a project instead of a spawn the main process would refuse.
+  const shellRoot = useMemo(
+    () => shellRootFor(activeSession, activeProjectPath, projects),
+    [activeSession, activeProjectPath, projects],
+  )
 
   if (settingsOpen) {
     return (
@@ -763,7 +763,8 @@ function Shell() {
                       <div className="min-h-0 flex-1">
                         <ErrorBoundary label="Terminal">
                           <TerminalDock
-                            cwd={(activeProjectPath ?? workspaceCwd) || undefined}
+                            cwd={shellRoot}
+                            onAddProject={() => openProjectViaDialog()}
                             onClose={() => setInspector(null)}
                           />
                         </ErrorBoundary>

@@ -38,11 +38,12 @@ vi.mock('./TerminalPane', () => ({
   ),
 }))
 
+// `app.info` is deliberately absent: the dock used to fall back to the home
+// directory when it had no project, and terminal.create refuses that path, so
+// a resurrected fallback should blow up here rather than pass quietly.
 function installRpc(detections: { kind: string; binaryPath: string | null }[] = []): void {
   invokeFn.mockImplementation(async (method: string) => {
     switch (method) {
-      case 'app.info':
-        return { homeDir: 'C:\\Users\\tester' }
       case 'providers.detect':
         return detections
       case 'terminal.kill':
@@ -74,23 +75,37 @@ describe('TerminalDock', () => {
     expect(screen.getByRole('button', { name: 'Ari Terminal' })).toBeInTheDocument()
   })
 
-  it('falls back to the home dir when no project is open', async () => {
+  it('asks for a project instead of opening a shell it cannot run', async () => {
+    const user = userEvent.setup()
+    const onAddProject = vi.fn()
     installRpc()
-    render(<TerminalDock />)
+    render(<TerminalDock cwd={null} onAddProject={onAddProject} />)
 
-    await waitFor(() => expect(panes()[0]).toHaveAttribute('data-cwd', 'C:\\Users\\tester'))
+    expect(
+      await screen.findByText(
+        'Add a project to open a terminal — shells run inside a project folder.',
+      ),
+    ).toBeInTheDocument()
+    // No shell: terminal.create jails its working directory against the
+    // registered project folders, so a spawn from here only comes back refused.
+    expect(panes()).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'New terminal' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add project' }))
+    expect(onAddProject).toHaveBeenCalledOnce()
   })
 
-  it('surfaces a failed cwd lookup with a retry', async () => {
-    invokeFn.mockImplementation(async (method: string) => {
-      if (method === 'app.info') throw new Error('ipc down')
-      return []
-    })
-    render(<TerminalDock />)
+  it('keeps parked shells when the new root has nowhere to run', async () => {
+    installRpc()
+    const rail = render(<TerminalDock cwd="/repo" />)
+    await waitFor(() => expect(panes()).toHaveLength(1))
 
-    expect(await screen.findByText(/Terminal could not start: ipc down/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
-    expect(panes()).toHaveLength(0)
+    rail.rerender(<TerminalDock cwd={null} />)
+
+    // Parking the rail is not closing it: a shell still running must not blink
+    // out because the next session has no project behind it.
+    expect(panes()).toHaveLength(1)
+    expect(screen.queryByText(/Add a project to open a terminal/)).not.toBeInTheDocument()
   })
 
   it('keeps background shells mounted when another tab takes focus', async () => {
