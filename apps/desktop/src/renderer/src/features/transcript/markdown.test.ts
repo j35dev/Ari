@@ -80,6 +80,18 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('onerror')
   })
 
+  it('drops provider-local image echoes but keeps web images', () => {
+    const local = renderMarkdown('Done\n\n![Generated image](images/2.jpg)\n\nSaved.')
+    expect(local).not.toContain('<img')
+    expect(local).not.toContain('Generated image')
+    expect(local).toContain('Done')
+    expect(local).toContain('Saved.')
+
+    expect(renderMarkdown('![Remote](https://example.com/image.jpg)')).toContain(
+      '<img src="https://example.com/image.jpg" alt="Remote">',
+    )
+  })
+
   it('renders GFM tables with alignment', () => {
     const html = renderMarkdown('| a | b |\n| :-- | --: |\n| 1 | 2 |')
     expect(html).toContain('<th align="left">a</th>')
