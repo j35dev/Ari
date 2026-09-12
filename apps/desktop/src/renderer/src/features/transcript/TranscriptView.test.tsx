@@ -65,6 +65,40 @@ describe('TranscriptView loading state', () => {
     fireEvent.wheel(scroller!, { deltaY: -48 })
     expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeInTheDocument()
   })
+
+  it('stays pinned when a scroll event is content growth, not a reader move', () => {
+    const { container } = render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [message('m1'), message('m2'), message('m3')],
+      }),
+    )
+    const scroller = container.querySelector('[aria-label="Conversation transcript"]')
+    expect(scroller).not.toBeNull()
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => 4000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 400 })
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, writable: true, value: 0 })
+    fireEvent.scroll(scroller!)
+    expect(screen.queryByRole('button', { name: /Jump to latest/ })).not.toBeInTheDocument()
+  })
+
+  it('re-pins to the tail when switching sessions', () => {
+    const { rerender, container } = render(
+      createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }),
+    )
+    const scroller = container.querySelector('[aria-label="Conversation transcript"]')
+    expect(scroller).not.toBeNull()
+    fireEvent.wheel(scroller!, { deltaY: -48 })
+    expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeInTheDocument()
+
+    rerender(
+      createElement(TranscriptView, {
+        sessionId: 'sess_2',
+        messages: [message('m2'), message('m3')],
+      }),
+    )
+    expect(screen.queryByRole('button', { name: /Jump to latest/ })).not.toBeInTheDocument()
+  })
 })
 
 describe('TranscriptView message actions', () => {
