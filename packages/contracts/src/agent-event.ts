@@ -16,6 +16,12 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     name: z.string().min(1),
   }),
   z.object({
+    type: z.literal('image-output-path'),
+    path: z.string().min(1),
+    mimeType: z.string().regex(/^image\/[a-z0-9.+-]+$/),
+    name: z.string().min(1),
+  }),
+  z.object({
     type: z.literal('tool-started'),
     callId: z.string(),
     name: z.string(),

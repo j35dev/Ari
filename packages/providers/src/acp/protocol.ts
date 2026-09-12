@@ -321,7 +321,11 @@ export class AcpUpdateFolder {
         this.#started.add(callId)
         const events: AgentEvent[] = [toStarted(callId, update)]
         if (update.status === 'completed' || update.status === 'failed') {
-          events.push(toCompleted(callId, update), ...imageOutputEvents(update.content))
+          events.push(
+            toCompleted(callId, update),
+            ...imageOutputEvents(update.content),
+            ...imageOutputEvents(update.rawOutput),
+          )
         }
         return events
       }
@@ -333,7 +337,12 @@ export class AcpUpdateFolder {
         // Some agents finalize without a prior create — synthesize the start.
         const started: AgentEvent[] = this.#started.has(callId) ? [] : [toStarted(callId, update)]
         this.#started.add(callId)
-        return [...started, toCompleted(callId, update), ...imageOutputEvents(update.content)]
+        return [
+          ...started,
+          toCompleted(callId, update),
+          ...imageOutputEvents(update.content),
+          ...imageOutputEvents(update.rawOutput),
+        ]
       }
       case 'error': {
         // Agent-reported fatal errors ride session/update like everything
