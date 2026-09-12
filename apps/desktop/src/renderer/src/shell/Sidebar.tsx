@@ -579,13 +579,19 @@ function CollapsibleSessions({
   sessions,
   projectNameOf,
   handlers,
+  onRestoreAll,
+  onEmptyArchive,
 }: {
   label: string
   sessions: SessionSummary[]
   projectNameOf: (projectId: string) => string | null
   handlers: SessionRowHandlers
+  onRestoreAll?: () => void
+  onEmptyArchive?: () => void
 }) {
   const [open, setOpen] = useState(sessions.some((s) => s.id === handlers.activeSessionId))
+  const [confirmEmpty, setConfirmEmpty] = useState(false)
+  const menu = useContextMenu()
 
   // Auto-open when the active session moves into this bucket.
   useEffect(() => {
@@ -599,19 +605,79 @@ function CollapsibleSessions({
     sessions.some((s) => s.id === handlers.activeSessionId)
 
   return (
-    <div>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-      >
-        <ContextMark variant="archived" active={shelfActive} />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
-        <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle">
-          {sessions.length}
-        </span>
-      </button>
+    <div className="group/archive">
+      <div className="relative flex items-center">
+        <button
+          type="button"
+          aria-label={label}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          onContextMenu={(e) => menu.open('archived', e)}
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <ContextMark variant="archived" active={shelfActive} />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
+          <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/archive:opacity-0">
+            {sessions.length}
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label="Archived session actions"
+          onClick={(e) => menu.open('archived', e)}
+          className={`${ROW_ACTION_BTN} absolute right-1.5 opacity-0 group-hover/archive:opacity-100 focus-visible:opacity-100`}
+        >
+          <MoreHorizontal size={13} aria-hidden />
+        </button>
+      </div>
+      {menu.openFor === 'archived' ? (
+        <ContextMenu
+          anchor={menu.anchor}
+          label="Archived session actions"
+          onClose={menu.close}
+          items={[
+            {
+              id: 'restore-all',
+              label: 'Restore all',
+              icon: ArchiveRestore,
+              onSelect: () => onRestoreAll?.(),
+            },
+            {
+              id: 'empty',
+              label: 'Empty archive',
+              icon: Trash2,
+              danger: true,
+              onSelect: () => setConfirmEmpty(true),
+            },
+          ]}
+        />
+      ) : null}
+      {confirmEmpty ? (
+        <ProjectNotice
+          tone="danger"
+          label={`Delete ${sessions.length} archived session${sessions.length === 1 ? '' : 's'}?`}
+        >
+          <button
+            type="button"
+            aria-label="Confirm empty archive"
+            onClick={() => {
+              setConfirmEmpty(false)
+              onEmptyArchive?.()
+            }}
+            className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            aria-label="Keep archived sessions"
+            onClick={() => setConfirmEmpty(false)}
+            className="shrink-0 text-fg-subtle hover:text-fg"
+          >
+            <X size={13} />
+          </button>
+        </ProjectNotice>
+      ) : null}
       <AnimatePresence initial={false}>
         {open ? (
           <motion.div
@@ -1284,6 +1350,10 @@ export function SessionsUnderProjects({
           sessions={archived}
           projectNameOf={projectNameOf}
           handlers={handlers}
+          onRestoreAll={() => {
+            for (const session of archived) onToggleArchive(session.id, false)
+          }}
+          onEmptyArchive={() => deleteIds(archived.map((session) => session.id))}
         />
       </div>
     ) : null
