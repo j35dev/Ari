@@ -8,7 +8,9 @@ import {
   parseLayout,
   pruneSessions,
   serializeLayout,
+  setRatio,
   splitPane,
+  toggleZoom,
   type PaneEdge,
   type SplitLayout,
 } from './split-layout'
@@ -95,6 +97,13 @@ export const splitLayoutActions = {
     commit(assignSession(layout, paneId, sessionId)),
 
   close: (paneId: string): void => commit(closePane(layout, paneId)),
+
+  /** Moves one split's divider. Called every frame of a separator drag. */
+  resize: (nodeId: string, ratio: number): void => commit(setRatio(layout, nodeId, ratio)),
+
+  /** Fills the area with one pane, or puts the split back. Focuses it first, so
+   * the menu entry acts on the pane it was opened on. */
+  toggleZoom: (paneId: string): void => commit(toggleZoom(focusPane(layout, paneId))),
 
   /** Blanks panes whose session is gone, keeping the shape they were in. */
   prune: (liveIds: ReadonlySet<string>): void => commit(pruneSessions(layout, liveIds)),
