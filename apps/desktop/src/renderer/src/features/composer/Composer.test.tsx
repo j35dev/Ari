@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
 import { FILE_MIME } from './drag-file'
@@ -108,6 +109,121 @@ describe('Composer', () => {
     const stash = screen.getByRole('button', { name: /prompt stash/i })
     const send = screen.getByRole('button', { name: 'Send' })
     expect(stash.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('Composer resting state', () => {
+  /** The plate advertises its compact rest state on the shell element. */
+  const isResting = (container: HTMLElement): boolean =>
+    container.querySelector('[data-resting]') !== null
+
+  /**
+   * Renders the composer beside an outside control so focus can genuinely
+   * leave the plate the way it does when the user goes back to the transcript.
+   */
+  function renderWithOutsideControl(props: ComponentProps<typeof Composer>) {
+    const view = render(
+      <div>
+        <button type="button">transcript</button>
+        <Composer {...props} />
+      </div>,
+    )
+    return { ...view, leave: screen.getByRole('button', { name: 'transcript' }) }
+  }
+
+  it('rests to a single row while a turn runs and the plate loses focus', async () => {
+    const user = userEvent.setup()
+    const { container, leave } = renderWithOutsideControl({ onSend: vi.fn(), running: true })
+
+    await user.click(leave)
+    expect(isResting(container)).toBe(true)
+
+    await user.click(screen.getByLabelText('Message'))
+    expect(isResting(container)).toBe(false)
+  })
+
+  it('never rests while no turn is running', () => {
+    const { container } = render(<Composer onSend={vi.fn()} />)
+    expect(isResting(container)).toBe(false)
+  })
+
+  it('never rests over a parked draft, so typed text is never hidden', async () => {
+    const user = userEvent.setup()
+    const { container, leave } = renderWithOutsideControl({ onSend: vi.fn(), running: true })
+
+    await user.type(screen.getByLabelText('Message'), 'hold this thought')
+    await user.click(leave)
+
+    expect(isResting(container)).toBe(false)
+    expect(screen.getByLabelText('Message')).toHaveValue('hold this thought')
+  })
+
+  it('never rests over staged images', async () => {
+    const user = userEvent.setup()
+    const { container, leave } = renderWithOutsideControl({ onSend: vi.fn(), running: true })
+    const image = new File(['x'], 'shot.png', { type: 'image/png' })
+
+    fireEvent.paste(screen.getByLabelText('Message'), {
+      clipboardData: { files: [image], length: 1 },
+    })
+    await user.click(leave)
+
+    expect(isResting(container)).toBe(false)
+  })
+
+  it('does not fold while focus stays inside the plate', async () => {
+    // The model / effort / permission chips are real buttons in the foot.
+    // Blur-of-the-textarea would fold the plate out from under the picker.
+    const user = userEvent.setup()
+    const { container } = render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        leading={<button type="button">pick model</button>}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'pick model' }))
+    expect(isResting(container)).toBe(false)
+  })
+
+  it('keeps Stop reachable while resting', async () => {
+    const user = userEvent.setup()
+    const onStop = vi.fn()
+    const { container, leave } = renderWithOutsideControl({
+      onSend: vi.fn(),
+      onStop,
+      running: true,
+    })
+    await user.click(leave)
+    expect(isResting(container)).toBe(true)
+
+    // Stop lives in the overlaid foot, so the resting plate still offers the
+    // one action a live turn needs. Clicking it focuses a control inside the
+    // plate and expands it again — in the app that is the correct end state
+    // too, since stopping clears `running`.
+    const stop = screen.getByRole('button', { name: 'Stop' })
+    expect(stop).toBeVisible()
+    await user.click(stop)
+
+    expect(onStop).toHaveBeenCalledOnce()
+  })
+
+  it('never rests under docked attention UI', () => {
+    const { container } = render(
+      <Composer onSend={vi.fn()} running attentionRequired above={<div>Approve this?</div>} />,
+    )
+    expect(isResting(container)).toBe(false)
+  })
+
+  it('still rests under a child-session rail, which is only a peek strip', () => {
+    const { container } = render(<Composer onSend={vi.fn()} running above={<div>2 children</div>} />)
+    expect(isResting(container)).toBe(true)
+  })
+
+  it('says a running send will queue rather than promising a send', () => {
+    render(<Composer onSend={vi.fn()} running />)
+    expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Message will queue…')
   })
 })
 
