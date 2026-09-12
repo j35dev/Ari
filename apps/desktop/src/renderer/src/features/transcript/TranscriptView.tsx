@@ -368,7 +368,7 @@ function TranscriptRowView({
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
       ) : row.kind === 'image' ? (
-        <UserImageRow images={row.images ?? []} right={row.role === 'user'} />
+        <ImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (
         row.role === 'user' ? (
           <div>
@@ -419,7 +419,7 @@ function TranscriptRowView({
  * bubble. Bytes load lazily from the main process (`attachments.read`,
  * cached per id); a missing file renders its filename, never a broken image.
  */
-function UserImageRow({ images, right }: { images: TranscriptImage[]; right: boolean }) {
+function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean }) {
   const [urls, setUrls] = useState<Record<string, string | null>>({})
 
   useEffect(() => {
@@ -438,7 +438,11 @@ function UserImageRow({ images, right }: { images: TranscriptImage[]; right: boo
   if (images.length === 0) return null
   return (
     <div className={`my-2 flex ${right ? 'justify-end' : 'justify-start'}`}>
-      <div role="list" aria-label="Attached images" className="flex max-w-[85%] flex-wrap gap-2">
+      <div
+        role="list"
+        aria-label={right ? 'Attached images' : 'Generated images'}
+        className="flex max-w-[85%] flex-wrap gap-2"
+      >
         {images.map((image) => {
           const url = urls[image.attachmentId]
           return (
@@ -446,7 +450,11 @@ function UserImageRow({ images, right }: { images: TranscriptImage[]; right: boo
               key={image.attachmentId}
               role="listitem"
               title={image.name}
-              className="h-20 w-20 overflow-hidden rounded-lg border border-border bg-surface-1"
+              className={
+                right
+                  ? 'h-20 w-20 overflow-hidden rounded-lg border border-border bg-surface-1'
+                  : 'max-h-[28rem] max-w-full overflow-hidden rounded-xl border border-border bg-surface-1'
+              }
             >
               {url === undefined ? (
                 <div
@@ -458,7 +466,13 @@ function UserImageRow({ images, right }: { images: TranscriptImage[]; right: boo
                   {image.name}
                 </div>
               ) : (
-                <img src={url} alt={image.name} className="h-full w-full object-cover" />
+                <img
+                  src={url}
+                  alt={image.name}
+                  className={
+                    right ? 'h-full w-full object-cover' : 'max-h-[28rem] max-w-full object-contain'
+                  }
+                />
               )}
             </div>
           )

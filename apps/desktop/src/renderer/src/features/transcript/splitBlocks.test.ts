@@ -18,12 +18,7 @@ describe('splitBlocks', () => {
     ])
 
     expect(blocks.map((b) => b.key)).toEqual(['m1#0', 'm1#1', 'm1#2', 'm1#3'])
-    expect(blocks.map((b) => b.kind)).toEqual([
-      'markdown',
-      'thinking',
-      'tool-call',
-      'tool-result',
-    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['markdown', 'thinking', 'tool-call', 'tool-result'])
     expect(blocks[2]).toMatchObject({ callId: 'c1', name: 'bash', argsJson: '"ls"' })
     expect(blocks[3]).toMatchObject({ callId: 'c1', resultJson: '"ok"', isError: false })
   })
@@ -176,5 +171,24 @@ describe('splitBlocks', () => {
       ),
     ])
     expect(blocks.map((b) => b.kind)).toEqual(['image'])
+  })
+
+  it('keeps provider images left-aligned as assistant output', () => {
+    const blocks = splitBlocks([
+      msg('a1', [
+        {
+          type: 'image',
+          attachmentId: 'att_generated',
+          name: 'generated.png',
+          mimeType: 'image/png',
+          size: 2,
+        },
+      ]),
+    ])
+    expect(blocks[0]).toMatchObject({
+      kind: 'image',
+      role: 'assistant',
+      images: [{ attachmentId: 'att_generated', name: 'generated.png' }],
+    })
   })
 })

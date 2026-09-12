@@ -10,6 +10,12 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text-delta'), text: z.string() }),
   z.object({ type: z.literal('thinking-delta'), text: z.string() }),
   z.object({
+    type: z.literal('image-output'),
+    dataBase64: z.string().min(1),
+    mimeType: z.string().regex(/^image\/[a-z0-9.+-]+$/),
+    name: z.string().min(1),
+  }),
+  z.object({
     type: z.literal('tool-started'),
     callId: z.string(),
     name: z.string(),
