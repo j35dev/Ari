@@ -14,6 +14,8 @@ export interface SplitSeparatorProps {
   direction: SplitDirection
   ratio: number
   onResize: (nodeId: string, ratio: number) => void
+  /** Zoom hides the divider in place so the pane tree never remounts. */
+  hidden?: boolean
 }
 
 /**
@@ -26,7 +28,14 @@ export interface SplitSeparatorProps {
  * The ratio is measured against the separator's parent, because that element
  * is exactly the box the two panes divide.
  */
-export function SplitSeparator({ nodeId, label, direction, ratio, onResize }: SplitSeparatorProps) {
+export function SplitSeparator({
+  nodeId,
+  label,
+  direction,
+  ratio,
+  onResize,
+  hidden = false,
+}: SplitSeparatorProps) {
   const row = direction === 'row'
   const [dragging, setDragging] = useState(false)
   const frameRef = useRef<number | null>(null)
@@ -71,9 +80,11 @@ export function SplitSeparator({ nodeId, label, direction, ratio, onResize }: Sp
         lastRef.current = null
         window.removeEventListener('pointermove', onMove)
         window.removeEventListener('pointerup', onUp)
+        window.removeEventListener('pointercancel', onUp)
       }
       window.addEventListener('pointermove', onMove)
       window.addEventListener('pointerup', onUp)
+      window.addEventListener('pointercancel', onUp)
     },
     [nodeId, onResize, shareAt],
   )
@@ -103,7 +114,7 @@ export function SplitSeparator({ nodeId, label, direction, ratio, onResize }: Sp
       onDoubleClick={() => onResize(nodeId, EVEN)}
       onKeyDown={onKeyDown}
       className={`shrink-0 transition-colors focus-visible:outline-none focus-visible:bg-accent ${
-        row ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'
+        hidden ? 'hidden' : row ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'
       } ${dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'}`}
     />
   )
