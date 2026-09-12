@@ -16,7 +16,7 @@ const MANIFEST_TIMEOUT_MS = 15_000
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000
 /** Ari-owned manifest source; override with ARI_MUSIC_MANIFEST_URL (empty disables remote). */
 const DEFAULT_REMOTE_MANIFEST_URL =
-  'https://raw.githubusercontent.com/tahacore/Ari/main/apps/desktop/resources/music-runtime.json'
+  'https://raw.githubusercontent.com/j35dev/Ari/main/apps/desktop/resources/music-runtime.json'
 
 export interface MusicRuntimePlatform {
   url: string
