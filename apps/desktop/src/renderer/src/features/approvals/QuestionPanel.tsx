@@ -4,10 +4,31 @@ import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
 import { Textarea } from '@ari/ui/textarea'
 import { Checkbox } from '@ari/ui/checkbox'
-import { encodeAnswers, parseQuestionPayload, type QuestionItem } from './questionnaire'
+import {
+  encodeAnswers,
+  optionValue,
+  parseQuestionPayload,
+  type AnswerMap,
+  type AnswerValue,
+  type QuestionItem,
+} from './questionnaire'
 
 const AUTO_ADVANCE_MS = 180
 const OTHER_LABEL = 'Other'
+
+/** The values picked so far in a multi select. */
+function selectedValues(value: AnswerValue | undefined): string[] {
+  if (Array.isArray(value)) return value
+  return value === undefined || value === '' ? [] : [value]
+}
+
+/** `set` minus `key`, without mutating the original. */
+function without(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  if (!set.has(key)) return set
+  const next = new Set(set)
+  next.delete(key)
+  return next
+}
 
 export interface QuestionPanelProps {
   /** Question text asked by the agent/provider. */
@@ -50,8 +71,9 @@ export function QuestionPanel({ prompt, choicesJson, onRespond, onCancel }: Ques
         ]}
         onRespond={(value) => {
           try {
-            const parsed = JSON.parse(value) as { answers?: Record<string, string> }
-            onRespond(parsed.answers?.['choice'] ?? value)
+            const parsed = JSON.parse(value) as { answers?: Record<string, AnswerValue> }
+            const choice = parsed.answers?.['choice']
+            onRespond(typeof choice === 'string' ? choice : value)
           } catch {
             onRespond(value)
           }
@@ -73,7 +95,15 @@ function Interview({
   onCancel?: () => void
 }) {
   const [index, setIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [answers, setAnswers] = useState<AnswerMap>({})
+  /**
+   * The questions answered from the Other box rather than from the list.
+   * Whether an answer is custom is a fact about the action the user took, and
+   * only the panel sees it — `encodeAnswers` cannot recover it from the text,
+   * because a multi select's values match no single option and a typed answer
+   * may spell one.
+   */
+  const [typed, setTyped] = useState<ReadonlySet<string>>(() => new Set())
   const [otherOpen, setOtherOpen] = useState(false)
   const [otherDraft, setOtherDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -98,75 +128,105 @@ function Interview({
 
   const total = questions.length
   const last = index === total - 1
-  const chosen = answers[question.id] ?? null
+  const answer: AnswerValue | undefined = answers[question.id]
+  const picked = selectedValues(answer)
+  const text = typeof answer === 'string' ? answer : ''
+  /**
+   * A question with no options is an ordinary free-text question. Without
+   * this it renders as an empty list plus the "Other" row the panel always
+   * appends — an Other-only selector for a question that never had choices.
+   */
+  const choiceLess = question.options.length === 0
+  const custom = choiceLess || otherOpen
 
-  const restoreOther = (at: number, map: Record<string, string>): void => {
+  const restoreOther = (at: number, map: AnswerMap, typedIds: ReadonlySet<string>): void => {
     const q = questions[at]
     const value = q === undefined ? undefined : map[q.id]
-    const known =
-      q !== undefined &&
-      value !== undefined &&
-      q.options.some((option) => option.label === value || option.id === value)
-    if (value !== undefined && value.length > 0 && !known) {
+    const restored = typeof value === 'string' ? value : ''
+    // A choice-less question always answers through the box, so its draft is
+    // the answer; a question with options reopens the box only when the answer
+    // was typed rather than picked.
+    const reopens = q !== undefined && (q.options.length === 0 || typedIds.has(q.id))
+    if (reopens && restored.length > 0) {
       setOtherOpen(true)
-      setOtherDraft(value)
+      setOtherDraft(restored)
       return
     }
     setOtherOpen(false)
     setOtherDraft('')
   }
 
-  const goTo = (nextIndex: number, map: Record<string, string>): void => {
+  const goTo = (nextIndex: number, map: AnswerMap, typedIds: ReadonlySet<string>): void => {
     clearAdvance()
     setIndex(nextIndex)
-    restoreOther(nextIndex, map)
+    restoreOther(nextIndex, map, typedIds)
   }
 
-  const finish = (next: Record<string, string>): void => {
+  const finish = (next: AnswerMap, typedIds: ReadonlySet<string>): void => {
     if (busy) return
     setBusy(true)
-    onRespond(encodeAnswers(next))
+    onRespond(encodeAnswers(questions, next, typedIds))
   }
 
   const commit = (value: string, advance: boolean): void => {
     if (busy) return
     const next = { ...answers, [question.id]: value }
+    const nextTyped = without(typed, question.id)
     setAnswers(next)
+    setTyped(nextTyped)
     setOtherOpen(false)
     if (!advance) return
     if (last) {
-      finish(next)
+      finish(next, nextTyped)
       return
     }
     clearAdvance()
-    advanceTimer.current = setTimeout(() => goTo(index + 1, next), AUTO_ADVANCE_MS)
+    advanceTimer.current = setTimeout(() => goTo(index + 1, next, nextTyped), AUTO_ADVANCE_MS)
   }
 
   const continueNext = (): void => {
-    const value = otherOpen ? otherDraft.trim() : (chosen ?? '').trim()
-    if (value === '' || busy) return
-    const next = { ...answers, [question.id]: value }
+    if (busy) return
+    const next = { ...answers }
+    let nextTyped: ReadonlySet<string>
+    if (custom) {
+      const typedText = otherDraft.trim()
+      if (typedText === '') return
+      next[question.id] = typedText
+      nextTyped = new Set(typed).add(question.id)
+    } else {
+      if (question.multiSelect) {
+        if (picked.length === 0) return
+        next[question.id] = picked
+      } else if (text.trim() === '') {
+        return
+      }
+      nextTyped = without(typed, question.id)
+    }
     setAnswers(next)
+    setTyped(nextTyped)
     if (last) {
-      finish(next)
+      finish(next, nextTyped)
       return
     }
-    goTo(index + 1, next)
+    goTo(index + 1, next, nextTyped)
   }
 
-  const toggleMulti = (label: string): void => {
+  const toggleMulti = (value: string): void => {
     if (busy) return
-    const selected = chosen === null || chosen === '' ? [] : chosen.split(', ')
-    const next = selected.includes(label) ? selected.filter((s) => s !== label) : [...selected, label]
-    setAnswers({ ...answers, [question.id]: next.join(', ') })
+    const next = picked.includes(value) ? picked.filter((s) => s !== value) : [...picked, value]
+    setAnswers({ ...answers, [question.id]: next })
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     if (busy) return
     if (event.key === 'Escape') {
       // Focus inside the custom-answer box only closes the box (handled on
-      // the textarea); anywhere else Esc skips the whole question.
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
+      // the textarea); anywhere else Esc skips the whole question. A
+      // choice-less question has no box to close — its textarea *is* the
+      // answer — so Esc skips there too, as the Skip tooltip promises.
+      const inField =
+        event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      if (inField && !choiceLess) return
       event.preventDefault()
       onCancel?.()
       return
@@ -179,7 +239,7 @@ function Interview({
     }
     const digit = '123456789'.indexOf(event.key)
     if (digit === -1) return
-    if (digit === question.options.length) {
+    if (digit === question.options.length && !choiceLess) {
       event.preventDefault()
       setOtherOpen(true)
       return
@@ -188,110 +248,118 @@ function Interview({
     if (option === undefined) return
     event.preventDefault()
     if (question.multiSelect) {
-      toggleMulti(option.label)
+      toggleMulti(optionValue(option))
       return
     }
-    commit(option.label, true)
+    commit(optionValue(option), true)
   }
 
-  const canContinue = otherOpen ? otherDraft.trim() !== '' : (chosen ?? '').trim() !== ''
+  const canContinue = custom
+    ? otherDraft.trim() !== ''
+    : question.multiSelect
+      ? picked.length > 0
+      : text.trim() !== ''
 
+  // The panel is one entry in the strip that peeks out from behind the
+  // composer, alongside approval cards — not a card of its own. So it carries
+  // no border, plate or shadow: the strip behind it already supplies those, and
+  // a second frame inside the first is what made it read as a separate window
+  // rather than something the composer grew.
   return (
     <section
       role="region"
       aria-label="Agent question"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="rounded-lg border border-accent bg-surface-1 p-4 shadow-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      className="px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     >
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex items-baseline gap-2">
         {total > 1 ? (
           <p className="font-mono text-2xs tabular-nums text-fg-subtle">
             Question {index + 1} of {total}
           </p>
-        ) : (
-          <span />
-        )}
+        ) : null}
         {question.header ? (
-          <p className="min-w-0 truncate text-2xs uppercase tracking-[0.12em] text-fg-subtle">{question.header}</p>
+          <p className="ml-auto min-w-0 truncate text-[10px] uppercase tracking-[0.12em] text-fg-subtle">
+            {question.header}
+          </p>
         ) : null}
       </div>
-      <h2 className="mt-2 text-sm font-medium leading-snug text-fg" aria-live="polite">
+      <h2 className="mt-1 text-sm font-medium leading-snug text-fg" aria-live="polite">
         {question.question}
       </h2>
-      <div className="mt-3 flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+      <div className="mt-2 flex max-h-56 flex-col overflow-y-auto">
         {question.multiSelect
           ? question.options.map((option) => {
-              const selected = (chosen ?? '').split(', ').includes(option.label)
+              const selected = picked.includes(optionValue(option))
               return (
                 <div
                   key={option.id}
-                  className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 transition-colors ${
-                    selected ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
+                  className={`rounded-md px-2 py-1.5 transition-colors ${
+                    selected ? 'bg-accent-subtle' : 'hover:bg-surface-2'
                   }`}
                 >
                   <Checkbox
+                    className="w-full min-w-0"
                     checked={selected}
                     disabled={busy}
-                    onChange={() => toggleMulti(option.label)}
+                    onChange={() => toggleMulti(optionValue(option))}
                   >
-                    <span className="block font-medium">{option.label}</span>
-                    {option.description ? (
-                      <span className="mt-0.5 block text-xs font-normal leading-relaxed text-fg-muted">
-                        {option.description}
-                      </span>
-                    ) : null}
+                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                      <span className="text-xs font-medium text-fg">{option.label}</span>
+                      {option.description ? (
+                        <span className="text-2xs text-fg-muted">{option.description}</span>
+                      ) : null}
+                    </span>
                   </Checkbox>
                 </div>
               )
             })
           : question.options.map((option, i) => {
-              const selected = !otherOpen && (chosen === option.label || chosen === option.id)
+              const selected = !custom && answer === optionValue(option)
               return (
                 <button
                   key={option.id}
                   type="button"
                   disabled={busy}
                   aria-pressed={selected}
-                  onClick={() => commit(option.label, true)}
-                  className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
-                    selected ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
+                  onClick={() => commit(optionValue(option), true)}
+                  className={`flex w-full min-w-0 flex-wrap items-baseline gap-x-2.5 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50 ${
+                    selected ? 'bg-accent-subtle' : 'hover:bg-surface-2'
                   }`}
                 >
-                  <kbd className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-1 font-mono text-2xs text-fg-muted">
+                  <kbd className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-surface-2 font-mono text-[10px] text-fg-subtle">
                     {i + 1}
                   </kbd>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-fg">{option.label}</span>
-                    {option.description ? (
-                      <span className="mt-0.5 block text-xs leading-relaxed text-fg-muted">{option.description}</span>
-                    ) : null}
-                  </span>
+                  <span className="text-xs font-medium text-fg">{option.label}</span>
+                  {option.description ? (
+                    <span className="text-2xs text-fg-muted">{option.description}</span>
+                  ) : null}
                 </button>
               )
             })}
-        <button
-          type="button"
-          disabled={busy}
-          aria-pressed={otherOpen}
-          aria-expanded={otherOpen}
-          onClick={() => setOtherOpen((open) => !open)}
-          className={`flex items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-60 ${
-            otherOpen ? 'border-accent bg-accent-subtle' : 'border-border bg-surface-2 hover:bg-surface-3'
-          }`}
-        >
-          <kbd className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-border bg-surface-1 font-mono text-2xs text-fg-muted">
-            {question.options.length + 1}
-          </kbd>
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-fg">{OTHER_LABEL}</span>
-            <span className="mt-0.5 block text-xs text-fg-muted">Describe your own answer</span>
-          </span>
-        </button>
-        {otherOpen ? (
-          <div className="rounded-md border border-accent bg-accent-subtle p-2.5">
-            <label htmlFor="question-other-input" className="mb-1.5 block text-xs font-medium text-fg">
-              Custom answer
+        {choiceLess ? null : (
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={otherOpen}
+            aria-expanded={otherOpen}
+            onClick={() => setOtherOpen((open) => !open)}
+            className={`flex w-full min-w-0 flex-wrap items-baseline gap-x-2.5 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50 ${
+              otherOpen ? 'bg-accent-subtle' : 'hover:bg-surface-2'
+            }`}
+          >
+            <kbd className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-surface-2 font-mono text-[10px] text-fg-subtle">
+              {question.options.length + 1}
+            </kbd>
+            <span className="text-xs text-fg-muted">{OTHER_LABEL}</span>
+            <span className="text-2xs text-fg-subtle">Describe your own answer</span>
+          </button>
+        )}
+        {custom ? (
+          <div className="mt-1 rounded-md border border-border bg-surface-2 p-2">
+            <label htmlFor="question-other-input" className="mb-1 block text-2xs text-fg-muted">
+              {choiceLess ? 'Your answer' : 'Custom answer'}
             </label>
             <Textarea
               id="question-other-input"
@@ -301,21 +369,22 @@ function Interview({
               disabled={busy}
               onChange={(event) => setOtherDraft(event.target.value)}
               onKeyDown={(event) => {
-                // Esc backs out of the custom box without skipping the question.
-                if (event.key === 'Escape') {
-                  event.stopPropagation()
-                  setOtherOpen(false)
-                }
+                // Esc backs out of the custom box without skipping the
+                // question. A choice-less question has no box to back out of,
+                // so Esc falls through to the section handler and skips.
+                if (event.key !== 'Escape' || choiceLess) return
+                event.stopPropagation()
+                setOtherOpen(false)
               }}
-              placeholder="Describe what you want instead…"
+              placeholder={choiceLess ? 'Type your answer…' : 'Describe what you want instead…'}
             />
-            <p className="mt-1.5 text-2xs leading-relaxed text-fg-muted">
+            <p className="mt-1 text-[10px] leading-relaxed text-fg-subtle">
               Your text is sent as the answer when you press {last ? 'Submit' : 'Continue'}.
             </p>
           </div>
         ) : null}
       </div>
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-1.5">
         {onCancel ? (
           <Button
             type="button"
@@ -334,7 +403,7 @@ function Interview({
           variant="secondary"
           size="sm"
           disabled={index === 0 || busy}
-          onClick={() => goTo(Math.max(0, index - 1), answers)}
+          onClick={() => goTo(Math.max(0, index - 1), answers, typed)}
         >
           Back
         </Button>
@@ -438,7 +507,7 @@ function FreeText({
     <section
       role="region"
       aria-label="Agent question"
-      className="rounded-lg border border-accent bg-surface-1 p-4 shadow-2"
+      className="px-3 py-2.5"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && chosen == null) {
           event.preventDefault()
@@ -446,9 +515,9 @@ function FreeText({
         }
       }}
     >
-      <p className="text-sm font-medium text-fg">{prompt}</p>
+      <p className="text-sm font-medium leading-snug text-fg">{prompt}</p>
       <form
-        className="mt-3 flex items-center gap-2"
+        className="mt-2 flex items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           submit()
@@ -471,7 +540,7 @@ function FreeText({
           <Button
             type="button"
             variant="ghost"
-            size="md"
+            size="sm"
             disabled={chosen != null}
             onClick={onCancel}
             title="Skip this question — the agent proceeds with its best judgment (Esc)"
@@ -479,7 +548,7 @@ function FreeText({
             Skip
           </Button>
         ) : null}
-        <Button type="submit" variant="primary" size="md" disabled={draft.trim() === '' || chosen != null}>
+        <Button type="submit" variant="primary" size="sm" disabled={draft.trim() === '' || chosen != null}>
           Submit
         </Button>
       </form>

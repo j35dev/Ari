@@ -2,6 +2,8 @@
 export interface QuestionOption {
   id: string
   label: string
+  /** What gets submitted instead of the label, when an agent distinguishes them. */
+  value?: string
   description?: string
 }
 
@@ -12,7 +14,19 @@ export interface QuestionItem {
   header?: string
   options: QuestionOption[]
   multiSelect: boolean
+  /** The schema property a typed "Other" answer has to be sent to, if any. */
+  customId?: string
 }
+
+/**
+ * One question's answer: typed text, or the values picked in a multi select.
+ *
+ * A multi select answers an array-typed schema property, so it stays an array
+ * all the way to the agent — joining it into one string is what a schema
+ * rejects, and no joining is lossless for a value that contains ", ".
+ */
+export type AnswerValue = string | string[]
+export type AnswerMap = Record<string, AnswerValue>
 
 export type QuestionPayload =
   | { kind: 'free-text'; prompt: string }
@@ -63,16 +77,20 @@ function asQuestion(raw: unknown, index: number): QuestionItem | null {
   if (raw === null || typeof raw !== 'object') return null
   const obj = raw as Record<string, unknown>
   const question = typeof obj['question'] === 'string' ? obj['question'].trim() : ''
-  if (question.length === 0) return null
+  const options = asOptions(obj['options'])
+  // A question with choices but no text is still a question — the panel can
+  // ask it. Only a wholly empty entry is dropped.
+  if (question.length === 0 && options.length === 0) return null
   const header = typeof obj['header'] === 'string' ? obj['header'].trim() : ''
   const id = typeof obj['id'] === 'string' && obj['id'].length > 0 ? obj['id'] : String(index)
-  const options = asOptions(obj['options'])
+  const customId = typeof obj['customId'] === 'string' ? obj['customId'].trim() : ''
   return {
     id,
-    question,
+    question: question.length > 0 ? question : `Question ${index + 1}`,
     ...(header.length > 0 ? { header } : {}),
     options,
     multiSelect: obj['multiSelect'] === true,
+    ...(customId.length > 0 ? { customId } : {}),
   }
 }
 
@@ -89,16 +107,59 @@ function asOptions(raw: unknown): QuestionOption[] {
     const label = typeof obj['label'] === 'string' ? obj['label'].trim() : ''
     if (label.length === 0) continue
     const description = typeof obj['description'] === 'string' ? obj['description'].trim() : ''
+    const value = typeof obj['value'] === 'string' ? obj['value'].trim() : ''
     out.push({
       id: typeof obj['id'] === 'string' && obj['id'].length > 0 ? obj['id'] : `opt-${i}`,
       label,
+      ...(value.length > 0 && value !== label ? { value } : {}),
       ...(description.length > 0 ? { description } : {}),
     })
   }
   return out
 }
 
-/** Encode a questionnaire answer map for `input.respond`. */
-export function encodeAnswers(answers: Record<string, string>): string {
-  return JSON.stringify({ answers })
+/** What an option submits: its value when the agent set one, else its label. */
+export function optionValue(option: QuestionOption): string {
+  return option.value ?? option.label
+}
+
+/**
+ * Encode a questionnaire answer map for `input.respond`.
+ *
+ * Answers arrive keyed by question id, but a question whose agent offered a
+ * separate "Other" property has to send typed text to *that* property — the
+ * agent reads it first, and free text under the choice key reads as a choice
+ * it never offered.
+ *
+ * `typed` names the questions the user answered from the Other box, because
+ * that is an action only the UI can see. Judging it from the text instead
+ * breaks both ways: a picked choice that happens to spell another option's text
+ * reads as typed, and a multi select's joined values match nothing at all.
+ * Callers that do not track the action fall back on the text naming an option.
+ */
+export function encodeAnswers(
+  questions: QuestionItem[],
+  answers: AnswerMap,
+  typed: ReadonlySet<string> = new Set(),
+): string {
+  const wire: Record<string, AnswerValue> = {}
+  for (const question of questions) {
+    const answer = answers[question.id]
+    if (answer === undefined) continue
+    // A multi select is a list of choices; there is no companion property it
+    // could belong to, so it goes out as the array the schema asked for.
+    if (Array.isArray(answer)) {
+      if (answer.length > 0) wire[question.id] = answer
+      continue
+    }
+    if (answer.length === 0) continue
+    const { customId } = question
+    const namesAnOption = question.options.some((option) => optionValue(option) === answer)
+    if (customId !== undefined && (typed.has(question.id) || !namesAnOption)) {
+      wire[customId] = answer
+      continue
+    }
+    wire[question.id] = answer
+  }
+  return JSON.stringify({ answers: wire })
 }
