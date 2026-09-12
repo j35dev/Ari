@@ -375,6 +375,70 @@ describe('Shell split panes', () => {
     expect(screen.getByRole('region', { name: 'Beta' })).toHaveClass('border-accent/40')
   })
 
+  it('keeps the newest session list when an older one answers last', async () => {
+    // Lists overlap at boot and on the event feed, so answers can arrive out of
+    // order. A stale one — started before Beta existed — would prune Beta's pane.
+    const base = invokeMock.getMockImplementation()
+    const lists: ((rows: unknown) => void)[] = []
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'session.list') return new Promise((resolve) => lists.push(resolve))
+      if (base === undefined) throw new Error('no base implementation')
+      return base(method, params)
+    })
+    const feeds: ((payload: unknown) => void)[] = []
+    // The hoisted mock is typed as taking no arguments; the feed needs the
+    // callback the shell registers for it.
+    const subscribeMock = rpcMocks.subscribe as unknown as Mock<
+      (channel: string, params: unknown, callback: (payload: unknown) => void) => () => void
+    >
+    subscribeMock.mockImplementation((channel, _params, callback) => {
+      if (channel === 'session.events') feeds.push(callback)
+      return () => undefined
+    })
+    const alpha = {
+      id: 'sess-alpha',
+      projectId: 'adhoc',
+      title: 'Alpha',
+      updatedAt: NOW - 60_000,
+      messageCount: 1,
+    }
+    const beta = {
+      id: 'sess-beta',
+      projectId: 'adhoc',
+      title: 'Beta',
+      updatedAt: NOW - 120_000,
+      messageCount: 1,
+    }
+
+    openTwoPanes()
+    render(<App />)
+    await vi.waitFor(() => {
+      expect(lists).toHaveLength(1)
+    })
+
+    // A journal event schedules the second list, so both are now in flight.
+    for (const feed of feeds) feed({ event: { type: 'session.created' } })
+    await vi.waitFor(
+      () => {
+        expect(lists).toHaveLength(2)
+      },
+      { timeout: 5_000 },
+    )
+
+    // The newer answer lands first — Beta's pane fills — and the boot list
+    // answers after it with a world that never had Beta in it.
+    await act(async () => {
+      lists[1]!([alpha, beta])
+    })
+    expect(
+      await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 }),
+    ).toBeInTheDocument()
+    await act(async () => {
+      lists[0]!([alpha])
+    })
+    expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
+  })
+
   it('marks the focused pane, and moves the sidebar highlight with it', async () => {
     openTwoPanes()
     render(<App />)

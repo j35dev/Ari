@@ -500,6 +500,31 @@ describe('layout codec', () => {
     expect(parseLayout(pair(leaf('a', 'sA'), leaf('b', 'sB')))).not.toBeNull()
   })
 
+  it('rejects two splits sharing a node id, which resizing would move together', () => {
+    // The same tree twice over, once with the outer split reusing the inner
+    // one's id: a resize names a split by id, so a collision would move both.
+    const nested = (outerId: string): string =>
+      JSON.stringify({
+        root: {
+          kind: 'split',
+          nodeId: outerId,
+          direction: 'column',
+          ratio: 0.5,
+          a: {
+            kind: 'split',
+            nodeId: 'n1',
+            direction: 'row',
+            ratio: 0.5,
+            a: { kind: 'leaf', paneId: 'a', sessionId: null },
+            b: { kind: 'leaf', paneId: 'b', sessionId: null },
+          },
+          b: { kind: 'leaf', paneId: 'c', sessionId: null },
+        },
+      })
+    expect(parseLayout(nested('n1'))).toBeNull()
+    expect(parseLayout(nested('n2'))).not.toBeNull()
+  })
+
   it('repairs focus and zoom that name a pane the tree does not have', () => {
     const orphaned = parseLayout(
       JSON.stringify({ root: two().root, focusedPaneId: 'ghost', zoomedPaneId: 'ghost' }),
