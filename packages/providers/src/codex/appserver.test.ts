@@ -267,8 +267,22 @@ function serve(child: FakeChild, handler: ServerHandler): void {
           params?: Record<string, unknown>
         }
         if (typeof frame.method === 'string' && typeof frame.id === 'number') {
-          const result = handler(frame.method, frame.params ?? {}, frame.id)
-          child.stdout.write(`${JSON.stringify({ id: frame.id, result })}\n`)
+          try {
+            const result = handler(frame.method, frame.params ?? {}, frame.id)
+            child.stdout.write(`${JSON.stringify({ id: frame.id, result })}\n`)
+          } catch (error) {
+            // A handler that throws models a server-side refusal, which the
+            // JSON-RPC layer reports back as an error response.
+            child.stdout.write(
+              `${JSON.stringify({
+                id: frame.id,
+                error: {
+                  code: -32603,
+                  message: error instanceof Error ? error.message : String(error),
+                },
+              })}\n`,
+            )
+          }
         }
       }
       index = buffer.indexOf('\n')
@@ -429,7 +443,7 @@ describe('codex app-server adapter', () => {
       })}\n`,
     )
     await sleep(10)
-    adapter.steer('also run the tests')
+    void adapter.steer('also run the tests')
     await sleep(10)
     child.stdout.write(
       `${JSON.stringify({
@@ -445,6 +459,65 @@ describe('codex app-server adapter', () => {
       expectedTurnId: 'turn_live',
       input: [{ type: 'text', text: 'also run the tests' }],
     })
+    expect(events[events.length - 1]?.type).toBe('done')
+  }, 10_000)
+
+  it('reports a steer as undelivered when no turn is live', async () => {
+    const child = fakeChild()
+    // Answers turn/start without a turn id, so the adapter has no turn to
+    // steer — the same state as a server that never confirms the start.
+    serve(child, (method, params, id) =>
+      method === 'turn/start' ? {} : standardServer()(method, params, id),
+    )
+    const adapter = await createCodexAppServerAdapter('/bin/codex', SESSION, () => child)
+
+    const drained = drain(adapter)
+    await sleep(10)
+    // Reporting true here would let the caller discard a message the provider
+    // never received.
+    await expect(adapter.steer('too early')).resolves.toBe(false)
+    expect(child.sent.some((f) => f['method'] === 'turn/steer')).toBe(false)
+
+    child.stdout.write(
+      `${JSON.stringify({
+        method: 'turn/completed',
+        params: { threadId: 'thr_live', turn: { id: 'turn_live', status: 'completed', items: [] } },
+      })}\n`,
+    )
+    await drained
+  }, 10_000)
+
+  it('reports a steer as undelivered when the server refuses it, without erroring the turn', async () => {
+    const child = fakeChild()
+    serve(child, (method, params, id) => {
+      if (method === 'turn/steer') {
+        throw new Error('turn not steerable')
+      }
+      return standardServer()(method, params, id)
+    })
+    const adapter = await createCodexAppServerAdapter('/bin/codex', SESSION, () => child)
+
+    const drained = drain(adapter)
+    await sleep(10)
+    child.stdout.write(
+      `${JSON.stringify({
+        method: 'turn/started',
+        params: { threadId: 'thr_live', turn: { id: 'turn_live', status: 'inProgress', items: [] } },
+      })}\n`,
+    )
+    await sleep(10)
+    await expect(adapter.steer('also run the tests')).resolves.toBe(false)
+
+    child.stdout.write(
+      `${JSON.stringify({
+        method: 'turn/completed',
+        params: { threadId: 'thr_live', turn: { id: 'turn_live', status: 'completed', items: [] } },
+      })}\n`,
+    )
+    const events = await drained
+    // A refused steer must not surface as an error event: that would settle the
+    // whole turn as `error`, which holds the queue and strands the message.
+    expect(events.some((e) => e.type === 'error')).toBe(false)
     expect(events[events.length - 1]?.type).toBe('done')
   }, 10_000)
 

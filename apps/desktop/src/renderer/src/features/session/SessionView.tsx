@@ -11,7 +11,7 @@ import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { TranscriptView } from '../transcript'
-import { Composer, type ComposerSeed } from '../composer/Composer'
+import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
 import { ApprovalCard } from '../approvals/ApprovalCard'
@@ -514,43 +514,59 @@ export function SessionView({
     }
   }, [])
 
-  // Command dispatches used to fail silently (.catch(() => undefined)); a
-  // rejected dispatch — e.g. the decider declining while a turn is active —
-  // now toasts so sending never looks like a no-op.
+  // The engine answers a declined command with `accepted: false` on a resolved
+  // promise, not a rejection — so both have to be surfaced, or a rejected send
+  // looks like a no-op. `onRejected` lets a caller put the user's text back.
   const dispatch = useCallback(
-    (command: Record<string, unknown>, failureTitle: string): void => {
-      void rpc.invoke('command.dispatch', { command }).catch((err: unknown) => {
-        toast({
-          title: failureTitle,
-          description: err instanceof Error ? err.message : String(err),
-          tone: 'danger',
-          durationMs: 6000,
+    (
+      command: Record<string, unknown>,
+      failureTitle: string,
+      onRejected?: (reason: string) => void,
+    ): void => {
+      const fail = (reason: string): void => {
+        onRejected?.(reason)
+        toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
+      }
+      void rpc
+        .invoke('command.dispatch', { command })
+        .then((result) => {
+          if (!result.accepted) fail(result.reason ?? 'The command was rejected.')
         })
-      })
+        .catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
     },
     [toast],
   )
 
   const dispatchSend = useCallback(
-    (text: string, attachments: AttachmentRef[]) => {
+    (text: string, attachments: AttachmentRef[], files: File[]) => {
       // Review notes ride along with the next outgoing message, then clear.
-      let outgoing = text
-      setReviewNotes((notes) => {
-        if (notes.length > 0) {
-          const block = notes
-            .map((n) => `- ${n.path}${n.line !== null ? `:${n.line}` : ''} — ${n.text}`)
-            .join('\n')
-          outgoing = `Review notes on your changes:\n${block}\n\n${text}`
-          return []
-        }
-        return notes
-      })
+      // Read from state here rather than through a state updater: React may
+      // defer an updater, and one that has not run yet would leave `outgoing`
+      // without the notes this dispatch is about to send.
+      const notes = reviewNotes
+      const outgoing =
+        notes.length > 0
+          ? `Review notes on your changes:\n${notes
+              .map((n) => `- ${n.path}${n.line !== null ? `:${n.line}` : ''} — ${n.text}`)
+              .join('\n')}\n\n${text}`
+          : text
+      if (notes.length > 0) setReviewNotes([])
+      // A rejected send must cost a retry, not the message: the composer
+      // already cleared its draft — text, images and the notes above — so put
+      // all of it back and the retry carries the same context.
+      const restoreDraft = (): void => {
+        if (notes.length > 0) setReviewNotes((prev) => (prev.length === 0 ? notes : prev))
+        setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
+      }
       if (running) {
         // The engine journals the queue (and dequeues immediately when the
-        // transport can steer); the mirrored events update the view here.
+        // transport confirms the steer); the mirrored events update the view.
+        // With no turn actually live it promotes the message to the next turn
+        // rather than rejecting, so a send racing a settle is never lost.
         dispatch(
           { type: 'message.enqueue', sessionId, text: outgoing, attachments },
           'Couldn’t queue message',
+          restoreDraft,
         )
         return
       }
@@ -558,25 +574,27 @@ export function SessionView({
       dispatch(
         { type: 'turn.start', sessionId, text: outgoing, attachments },
         'Couldn’t send message',
+        restoreDraft,
       )
     },
-    [sessionId, running, dispatch],
+    [sessionId, running, dispatch, reviewNotes],
   )
 
   const handleSend = useCallback(
     (text: string, files: File[]) => {
       // Staging is async; imageless sends skip it and dispatch synchronously.
       if (files.length === 0) {
-        dispatchSend(text, [])
+        dispatchSend(text, [], [])
         return
       }
       void stageImages(files).then(
-        (attachments) => dispatchSend(text, attachments),
+        (attachments) => dispatchSend(text, attachments, files),
         (err: unknown) => {
           // The composer already cleared: restore the draft so the failure
           // costs a retry, not the message, and never send text-only behind
-          // images the user explicitly attached.
-          setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+          // images the user explicitly attached. The notes were never spent —
+          // no dispatch happened — so they are still in state.
+          setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
           toast({
             title: 'Couldn’t attach images',
             description: err instanceof Error ? err.message : String(err),
@@ -600,6 +618,38 @@ export function SessionView({
   const handleStop = useCallback(() => {
     dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
   }, [sessionId, dispatch])
+
+  // Queue management. Steering is best-effort by nature — the engine reports a
+  // provider that cannot take a mid-turn message, and the message stays queued.
+  const handleSteerQueued = useCallback(
+    (message: QueuedMessageView) => {
+      dispatch(
+        {
+          type: 'message.steer',
+          sessionId,
+          text: message.text,
+          attachments: message.attachments,
+        },
+        'Couldn’t steer message',
+      )
+    },
+    [sessionId, dispatch],
+  )
+
+  const handleRemoveQueued = useCallback(
+    (message: QueuedMessageView) => {
+      dispatch(
+        {
+          type: 'message.dequeue',
+          sessionId,
+          text: message.text,
+          attachments: message.attachments,
+        },
+        'Couldn’t remove queued message',
+      )
+    },
+    [sessionId, dispatch],
+  )
 
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
@@ -638,7 +688,8 @@ export function SessionView({
   // a turn runs so it can never enqueue behind itself.
   const resendLastPrompt = useCallback(() => {
     if (running || lastUserMessage === null) return
-    dispatchSend(lastUserMessage.text, lastUserMessage.attachments)
+    // No composer Files to restore: the resend does not come from the draft.
+    dispatchSend(lastUserMessage.text, lastUserMessage.attachments, [])
   }, [running, lastUserMessage, dispatchSend])
 
   const respondApproval = useCallback(
@@ -775,6 +826,7 @@ export function SessionView({
             onEditUserMessage={handleEditMessage}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
             regenerateDisabled={running}
+            running={running}
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
@@ -866,7 +918,9 @@ export function SessionView({
           onSend={handleSend}
           onStop={handleStop}
           running={running}
-          queued={queued.map((q) => q.text)}
+          queued={queued}
+          onSteerQueued={handleSteerQueued}
+          onRemoveQueued={handleRemoveQueued}
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
           above={

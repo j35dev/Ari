@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -147,5 +147,93 @@ describe('ProjectStore', () => {
     // the unsaved-to-disk mutation above; it must not resurrect old state.
     await store.load()
     expect(store.list().map((p) => p.id)).toEqual([project.id])
+  })
+
+  it('restores the same project id when a removed folder is added back', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.open(existingFolder)
+    await store.remove(project.id)
+
+    // Sessions still carry `projectId`; if re-adding minted a new id they would
+    // resolve to no workspace and stay broken for good.
+    const readded = await store.add(existingFolder)
+    expect(readded.id).toBe(project.id)
+    expect(store.get(project.id)).not.toBeNull()
+    expect(store.list()).toHaveLength(1)
+  })
+
+  it('survives a restart between removing a folder and adding it back', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.open(existingFolder)
+    await store.remove(project.id)
+
+    // The tombstone is on disk, not just in memory.
+    const next = new ProjectStore({ dir })
+    expect(await next.load()).toHaveLength(0)
+    expect((await next.add(existingFolder)).id).toBe(project.id)
+  })
+
+  it('keeps a removed project out of the listing and out of get', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.open(existingFolder)
+    expect(await store.remove(project.id)).toBe(true)
+
+    expect(store.list()).toHaveLength(0)
+    expect(store.listOpen()).toHaveLength(0)
+    expect(store.get(project.id)).toBeNull()
+    // Nothing to remove the second time.
+    expect(await store.remove(project.id)).toBe(false)
+  })
+
+  it('replaces a stale tombstone instead of stacking a second one', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.add(existingFolder)
+    await store.remove(project.id)
+    await store.remove(project.id)
+
+    const readded = await store.add(existingFolder)
+    expect(readded.id).toBe(project.id)
+    expect(store.list()).toHaveLength(1)
+  })
+
+  it('honours a name given while restoring a removed folder', async () => {
+    const store = new ProjectStore({ dir })
+    const project = await store.add(existingFolder, 'Original')
+    await store.remove(project.id)
+
+    expect((await store.add(existingFolder, 'Renamed')).name).toBe('Renamed')
+    // Without one, the name it was removed under comes back.
+    await store.remove(project.id)
+    expect((await store.add(existingFolder)).name).toBe('Renamed')
+  })
+
+  it('loads a registry written before tombstones existed', async () => {
+    await writeFile(
+      join(dir, 'projects.json'),
+      JSON.stringify([
+        {
+          id: 'proj_legacy',
+          name: 'Legacy',
+          path: existingFolder,
+          colorIndex: 2,
+          createdAt: 1,
+          lastOpenedAt: 2,
+          open: true,
+        },
+      ]),
+      'utf8',
+    )
+
+    const store = new ProjectStore({ dir })
+    const loaded = await store.load()
+    expect(loaded.map((p) => [p.id, p.name, p.colorIndex])).toEqual([['proj_legacy', 'Legacy', 2]])
+
+    // The next write moves the file to the registry shape, keeping the project.
+    await store.add(join(dir, 'second'))
+    const written: unknown = JSON.parse(await readFile(join(dir, 'projects.json'), 'utf8'))
+    expect(written).toMatchObject({
+      projects: [{ id: 'proj_legacy' }, { path: await canonicalizeFolder(join(dir, 'second')) }],
+      removed: [],
+    })
   })
 })
