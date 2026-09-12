@@ -72,6 +72,38 @@ describe('splitLayoutActions', () => {
     expect(leaves(splitLayoutSnapshot().root)).toHaveLength(2)
   })
 
+  it('resizes the split a separator drag names', () => {
+    const first = splitLayoutSnapshot().focusedPaneId
+    splitLayoutActions.assign(first, 'sA')
+    splitRight()
+    const root = splitLayoutSnapshot().root
+    if (root.kind !== 'split') throw new Error('splitting should have produced a split')
+
+    splitLayoutActions.resize(root.nodeId, 0.25)
+    const resized = splitLayoutSnapshot().root
+    expect(resized.kind === 'split' && resized.ratio).toBe(0.25)
+
+    // The separator reports a raw pointer share; the model is what clamps it.
+    splitLayoutActions.resize(root.nodeId, 4)
+    const clamped = splitLayoutSnapshot().root
+    expect(clamped.kind === 'split' && clamped.ratio).toBe(0.9)
+  })
+
+  it('zooms the pane the menu was opened on, not the one that had focus', () => {
+    const first = splitLayoutSnapshot().focusedPaneId
+    splitLayoutActions.assign(first, 'sA')
+    const second = splitRight()
+    expect(second).not.toBe(first)
+
+    splitLayoutActions.toggleZoom(first)
+    expect(splitLayoutSnapshot().zoomedPaneId).toBe(first)
+    expect(splitLayoutSnapshot().focusedPaneId).toBe(first)
+
+    // The same pane's entry now reads Unzoom pane, and puts the split back.
+    splitLayoutActions.toggleZoom(first)
+    expect(splitLayoutSnapshot().zoomedPaneId).toBeNull()
+  })
+
   it('persists once a burst of edits settles, not on every one', () => {
     vi.useFakeTimers()
     const first = splitLayoutSnapshot().focusedPaneId
