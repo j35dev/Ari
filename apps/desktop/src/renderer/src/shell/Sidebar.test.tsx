@@ -185,7 +185,7 @@ describe('SessionsUnderProjects', () => {
     const archived = { ...session('old', 2, 'proj-1'), archived: true }
     renderSidebar([session('live', 1, 'proj-1'), archived])
     const user = userEvent.setup()
-    const shelf = screen.getByRole('button', { name: /archived/i })
+    const shelf = screen.getByRole('button', { name: 'Archived' })
     expect(shelf.querySelector('[data-context-mark="archived"]')).not.toBeNull()
     await user.click(shelf)
     expect(screen.getByText('Session old')).toBeInTheDocument()
@@ -298,7 +298,7 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session live')
     expect(screen.queryByText('Session old')).not.toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /archived/i }))
+    await user.click(screen.getByRole('button', { name: 'Archived' }))
     expect(screen.getByText('Session old')).toBeInTheDocument()
   })
 
@@ -343,13 +343,13 @@ describe('SessionsUnderProjects', () => {
 
   it('fills the archived caret while the active session sits on the shelf', () => {
     renderSidebar([{ ...session('old', 2, 'proj-1'), archived: true }], 'old')
-    const shelf = screen.getByRole('button', { name: /archived/i })
+    const shelf = screen.getByRole('button', { name: 'Archived' })
     expect(shelf.querySelector('[data-context-mark="archived"][data-active]')).not.toBeNull()
   })
 
   it('leaves the archived caret neutral when nothing archived is active', () => {
     renderSidebar([{ ...session('old', 2, 'proj-1'), archived: true }], null)
-    const shelf = screen.getByRole('button', { name: /archived/i })
+    const shelf = screen.getByRole('button', { name: 'Archived' })
     expect(shelf.querySelector('[data-context-mark="archived"]')).not.toBeNull()
     expect(shelf.querySelector('[data-context-mark="archived"][data-active]')).toBeNull()
   })
@@ -568,11 +568,57 @@ describe('SessionsUnderProjects', () => {
     expect(screen.getByText('Session live')).toBeInTheDocument()
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: /archived/i }))
+    await user.click(screen.getByRole('button', { name: 'Archived' }))
     expect(screen.getByText('Session old')).toBeInTheDocument()
     await user.pointer({ keys: '[MouseRight]', target: screen.getByText('Session old') })
     await user.click(screen.getByRole('menuitem', { name: 'Unarchive' }))
     expect(onToggleArchive).toHaveBeenCalledWith('old', false)
+  })
+
+  it('restores every archived session from the shelf menu', async () => {
+    const onToggleArchive = vi.fn()
+    renderSidebar(
+      [
+        session('live', 1, 'proj-1'),
+        { ...session('old-a', 2, 'proj-1'), archived: true },
+        { ...session('old-b', 3, 'proj-2'), archived: true },
+      ],
+      null,
+      { onToggleArchive },
+    )
+    const user = userEvent.setup()
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Archived' }),
+    })
+    await user.click(screen.getByRole('menuitem', { name: 'Restore all' }))
+    expect(onToggleArchive).toHaveBeenCalledWith('old-a', false)
+    expect(onToggleArchive).toHaveBeenCalledWith('old-b', false)
+    expect(onToggleArchive).not.toHaveBeenCalledWith('live', false)
+  })
+
+  it('confirms before emptying the archive from the shelf menu', async () => {
+    const onDelete = vi.fn()
+    renderSidebar(
+      [
+        session('live', 1, 'proj-1'),
+        { ...session('old-a', 2, 'proj-1'), archived: true },
+        { ...session('old-b', 3, 'proj-2'), archived: true },
+      ],
+      null,
+      { onDelete },
+    )
+    const user = userEvent.setup()
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Archived' }),
+    })
+    await user.click(screen.getByRole('menuitem', { name: 'Empty archive' }))
+    expect(onDelete).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'Confirm empty archive' }))
+    expect(onDelete).toHaveBeenCalledWith('old-a')
+    expect(onDelete).toHaveBeenCalledWith('old-b')
+    expect(onDelete).not.toHaveBeenCalledWith('live')
   })
 
   it('shows working / paused / done marks on the live session and its project', () => {
