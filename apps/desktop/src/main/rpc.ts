@@ -46,6 +46,7 @@ import { themeOf } from '@ari/ui/themes'
 import { DriverRegistry } from '@ari/providers/registry'
 import { ClaudeDriver } from '@ari/providers/claude'
 import { CodexDriver } from '@ari/providers/codex'
+import { probeCodexModelCatalog } from '@ari/providers/codex/model-catalog'
 import { OpencodeDriver } from '@ari/providers/opencode'
 import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
@@ -98,7 +99,10 @@ const log = createLogger('desktop:rpc')
  * discovery never downloads; everything fails soft.
  */
 function acpProbeKinds(): DriverKind[] {
-  if (process.env['ARI_ACP'] === '0') return []
+  // Codex advertises its models over its own app-server protocol rather than
+  // ACP, so opting out of the ACP transport must not take its discovery down
+  // with it — probeAcpModels still skips the ACP fallback below.
+  if (process.env['ARI_ACP'] === '0') return ['codex']
   if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
     return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
   }
@@ -117,19 +121,55 @@ async function probeAcpModels(
   kind: DriverKind,
 ): Promise<RpcResults['providers.models'][number]['models'] | null> {
   const { detectDriver } = await import('@ari/providers/detector')
-  const detection = await detectDriver(kind)
+  const environment = await resolveDetectionEnvironment()
+  const detection = await detectDriver(kind, environment)
   if (!detection.binaryPath) return null
-  const launch = resolveAcpLaunch(kind, {
-    cliBinaryPath: detection.binaryPath,
-  })
+  // Detection searches the enriched PATH, so the probe processes must run with
+  // it too: a shim found there is only runnable if the child can also resolve
+  // the runtime it shells out to (GUI launches inherit a thin process PATH).
+  const probeEnv = processEnvWithPath(environment.pathEnv)
+
+  if (kind === 'codex') {
+    try {
+      const catalog = await probeCodexModelCatalog(detection.binaryPath, homedir(), {
+        env: probeEnv,
+      })
+      if (catalog.models.length > 0) {
+        setDynamicEfforts(kind, catalog.efforts)
+        return catalog.models
+      }
+    } catch (error) {
+      log.debug('native Codex model probe failed; trying ACP fallback', {
+        error: String(error),
+      })
+    }
+  }
+
+  // The ACP transport is what ARI_ACP=0 opts out of; Codex's native probe
+  // above is not ACP and has already had its chance.
+  if (process.env['ARI_ACP'] === '0') return null
+
+  const launch = resolveAcpLaunch(
+    kind,
+    {
+      cliBinaryPath: detection.binaryPath,
+    },
+    environment,
+  )
   if (launch === null) return null
   const { AcpConnection } = await import('@ari/providers/acp/connection')
   // npx launches must not pull packages just to enumerate models;
   // probeLaunch strips consent so --no-install actually holds.
+  const probe = probeLaunch(launch)
   const connection = await AcpConnection.connect({
-    launch: probeLaunch(launch),
+    launch: probe,
     cwd: homedir(),
     initializeTimeoutMs: 20_000,
+    // probeEnv adds the PATH detection resolved, but `connect` spreads
+    // runtimeEnv last — so the launch's own variables go back on top. Without
+    // that, a CODEX_PATH inherited from the host would beat the binary
+    // detection actually found and the probe would read the wrong install.
+    runtimeEnv: { ...probeEnv, ...probe.env },
   })
   try {
     const created = await connection.newSession(homedir())

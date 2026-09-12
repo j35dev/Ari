@@ -18,14 +18,22 @@ const log = createLogger('providers:codex')
 
 /**
  * Argv for a one-shot `codex exec` turn. Approval/sandbox flags map Ari
- * permission modes onto codex's own policy flags.
+ * permission modes onto codex's own policy flags. The reasoning level rides
+ * the config override `model_reasoning_effort` — `exec` has no `--effort`
+ * flag, and the picker advertises the level the native catalog probe read.
  */
 export function buildCodexArgs(session: AdapterSession): string[] {
   const args = ['exec', '--json', '--skip-git-repo-check']
   if (session.modelId) args.push('--model', session.modelId)
+  if (hasEffort(session.effort)) args.push('-c', `model_reasoning_effort=${session.effort}`)
   args.push(...sandboxFlags(session.permissionMode))
   args.push(promptWithAttachments(session))
   return args
+}
+
+/** True when the session picked a thought/reasoning level to apply. */
+function hasEffort(effort: string | null | undefined): effort is string {
+  return typeof effort === 'string' && effort.length > 0
 }
 
 function sandboxFlags(mode: PermissionMode): string[] {
@@ -240,6 +248,9 @@ export async function createCodexAppServerAdapter(
         ...(session.modelId !== null && session.modelId !== 'default'
           ? { model: session.modelId }
           : {}),
+        // turn/start's `effort` carries forward to later turns on this thread,
+        // which is where the picker's reasoning level has to land.
+        ...(hasEffort(session.effort) ? { effort: session.effort } : {}),
       })
       .then((result) => {
         const turn = (result as { turn?: { id?: string } } | null)?.turn

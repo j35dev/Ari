@@ -34,4 +34,17 @@ describe('buildCodexArgs', () => {
     const args = buildCodexArgs({ ...base, modelId: 'gpt-5.2-codex' })
     expect(args[args.indexOf('--model') + 1]).toBe('gpt-5.2-codex')
   })
+
+  it('passes the picked reasoning level as a config override', () => {
+    // `exec` has no --effort flag; the level rides the config key the CLI
+    // itself exposes for it, before the trailing prompt.
+    const args = buildCodexArgs({ ...base, effort: 'xhigh' })
+    expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort=xhigh')
+    expect(args[args.length - 1]).toBe('do the thing')
+  })
+
+  it('omits the reasoning override when no level was picked', () => {
+    expect(buildCodexArgs(base)).not.toContain('-c')
+    expect(buildCodexArgs({ ...base, effort: null })).not.toContain('-c')
+  })
 })
