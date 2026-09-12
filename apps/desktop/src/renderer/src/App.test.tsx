@@ -440,6 +440,27 @@ describe('Shell split panes', () => {
     expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
   })
 
+  it('splits from a right-click on the one-pane view, which has no frame', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true })
+    const pane = await screen.findByText('No messages yet — say hello.', {}, { timeout: 10_000 })
+
+    fireEvent.contextMenu(pane, { clientX: 60, clientY: 60 })
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Beta pane')
+    // Nothing to close beside or zoom away from while it is the only pane.
+    expect(screen.queryByRole('menuitem', { name: 'Close pane' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Split down' }))
+
+    // The split leaves the new pane blank for a session to be dragged into.
+    expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(1)
+    expect(screen.getByRole('separator', { name: 'Resize Beta and Empty pane' })).toHaveAttribute(
+      'aria-orientation',
+      'horizontal',
+    )
+  })
+
   it('splits the pane the user is in from the keyboard', async () => {
     openTwoPanes()
     render(<App />)

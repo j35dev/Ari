@@ -3,6 +3,7 @@ import { BlankPane, PaneFrame } from './PaneFrame'
 import { PaneDropOverlay } from './PaneDropOverlay'
 import { SplitSeparator } from './SplitSeparator'
 import { usePaneDrop } from './use-pane-drop'
+import { usePaneMenu } from './use-pane-menu'
 import {
   MAX_PANES,
   activePaneOf,
@@ -65,13 +66,16 @@ export function SplitView({
     const blank = sessionId === null
     const content = blank ? <BlankPane /> : renderSession(sessionId, paneId)
     if (solo) {
-      // The only pane has no chrome, but it still has to accept a drop: that
-      // drag from the sidebar is how the second pane comes into being.
+      // The only pane has no chrome, but it is still what the two gestures act
+      // on: the right-click that splits it, and the sidebar drag that is how
+      // the second pane comes into being.
       return (
         <SoloDropSurface
           paneId={paneId}
+          label={nameOf(leaf)}
           blank={blank}
           canSplit={canSplit}
+          onSplit={onSplit}
           onDropSession={onDropSession}
           onDropPane={onDropPane}
         >
@@ -113,33 +117,41 @@ export function SplitView({
 }
 
 /**
- * The lone pane's drop surface. It carries no chrome — a single pane looks
- * exactly as it always has — but it is still a target, because dropping a
- * sidebar session on one half of it is how the split starts.
+ * The lone pane's surface. It carries no chrome — a single pane looks exactly
+ * as it always has — but it is still the pane, so it takes both the drop and
+ * the right-click menu; the menu's close and zoom entries are left out, since
+ * an only pane has nothing to close beside and already fills the area.
  */
 function SoloDropSurface({
   paneId,
+  label,
   blank,
   canSplit,
+  onSplit,
   onDropSession,
   onDropPane,
   children,
 }: {
   paneId: string
+  label: string
   blank: boolean
   canSplit: boolean
+  onSplit: (paneId: string, edge: PaneEdge) => void
   onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
   onDropPane: (paneId: string, draggedPaneId: string) => void
   children: ReactNode
 }) {
+  const menu = usePaneMenu({ paneId, label, canSplit, onSplit })
   const drop = usePaneDrop({ paneId, blank, canSplit, onDropSession, onDropPane })
   return (
     <div
+      {...menu.menuProps}
       {...drop.dropProps}
       className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col"
     >
       {children}
       <PaneDropOverlay target={drop.target} />
+      {menu.element}
     </div>
   )
 }

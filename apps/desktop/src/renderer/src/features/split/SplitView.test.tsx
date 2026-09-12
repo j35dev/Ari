@@ -277,6 +277,48 @@ describe('the pane menu', () => {
     expect(screen.getByRole('menu')).toHaveAccessibleName('Alpha pane')
   })
 
+  it('offers the splits on the lone pane, which has no frame of its own', () => {
+    const { onSplit, onClose } = renderSplit(solo())
+
+    const menu = openMenu('session-sA')
+    expect(menu).toHaveAccessibleName('Alpha pane')
+    expect(screen.getByRole('menuitem', { name: 'Split right' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Split down' }))
+    expect(onSplit).toHaveBeenCalledWith('pane1', 'below')
+    // An only pane already fills the area and has nothing to close beside, so
+    // its menu is the two splits and nothing else.
+    expect(screen.queryByRole('menuitem', { name: 'Close pane' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Zoom/ })).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('leaves a right-click inside a field to the field on the lone pane too', () => {
+    render(
+      <SplitView
+        layout={solo()}
+        titleOf={(id) => TITLES[id] ?? null}
+        onFocus={vi.fn()}
+        onClose={vi.fn()}
+        onSplit={vi.fn()}
+        onToggleZoom={vi.fn()}
+        onResize={vi.fn()}
+        onDropSession={vi.fn()}
+        onDropPane={vi.fn()}
+        renderSession={() => <textarea aria-label="Composer" />}
+      />,
+    )
+
+    const composer = screen.getByLabelText('Composer')
+    fireEvent.contextMenu(composer, { clientX: 40, clientY: 40 })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+    const surface = composer.parentElement
+    if (surface === null) throw new Error('the session is not inside a drop surface')
+    fireEvent.contextMenu(surface, { clientX: 40, clientY: 40 })
+    expect(screen.getByRole('menu')).toHaveAccessibleName('Alpha pane')
+  })
+
   it('disables the splits at the ceiling instead of hiding them', () => {
     renderSplit(full())
 

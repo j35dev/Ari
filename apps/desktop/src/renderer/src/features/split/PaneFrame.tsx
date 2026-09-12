@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react'
-import { GripVertical, Maximize2, Minimize2, PanelBottom, PanelRight, X } from 'lucide-react'
-import { ContextMenu, useContextMenu } from '../../shell/ContextMenu'
-import { ownsContextMenu } from '../../shell/editable-target'
+import { GripVertical, X } from 'lucide-react'
 import { setDragPane } from './drag-split'
 import { PaneDropOverlay } from './PaneDropOverlay'
 import { usePaneDrop } from './use-pane-drop'
-import { MAX_PANES, type PaneEdge } from './split-layout'
+import { usePaneMenu } from './use-pane-menu'
+import type { PaneEdge } from './split-layout'
 
 export interface PaneFrameProps {
   paneId: string
@@ -32,12 +31,6 @@ export interface PaneFrameProps {
  * pane taking the accent treatment the active sidebar row already uses. The
  * shell renders this only when the layout holds more than one pane, so a lone
  * pane keeps the chrome-free view it has always had.
- *
- * The right-click menu is the herdr one, minus its terminal-specific entries.
- * It never opens over something that owns its own menu — a composer, a
- * transcript's code block — because those right-clicks belong to the text.
- * Only the splits can be unavailable (at the ceiling): a frame is drawn only
- * beside another pane, so closing and zooming always have something to do.
  */
 export function PaneFrame({
   paneId,
@@ -54,10 +47,17 @@ export function PaneFrame({
   onDropPane,
   children,
 }: PaneFrameProps) {
-  const menu = useContextMenu()
-  const drop = usePaneDrop({ paneId, blank, canSplit, onDropSession, onDropPane })
   const label = title ?? 'Empty pane'
-  const splitLimit = `A layout holds at most ${String(MAX_PANES)} panes`
+  const menu = usePaneMenu({
+    paneId,
+    label,
+    canSplit,
+    zoomed,
+    onSplit,
+    onClose,
+    onToggleZoom,
+  })
+  const drop = usePaneDrop({ paneId, blank, canSplit, onDropSession, onDropPane })
   return (
     <section
       aria-label={label}
@@ -65,10 +65,7 @@ export function PaneFrame({
       // before anything inside it reacts — clicking a composer focuses the pane.
       onPointerDownCapture={() => onFocus(paneId)}
       onFocusCapture={() => onFocus(paneId)}
-      onContextMenu={(event) => {
-        if (ownsContextMenu(event.target)) return
-        menu.open(paneId, event)
-      }}
+      {...menu.menuProps}
       {...drop.dropProps}
       className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col border ${
         focused ? 'border-accent/40' : 'border-border/60'
@@ -105,44 +102,7 @@ export function PaneFrame({
         {children}
         <PaneDropOverlay target={drop.target} />
       </div>
-      {menu.openFor === paneId ? (
-        <ContextMenu
-          anchor={menu.anchor}
-          label={`${label} pane`}
-          onClose={menu.close}
-          items={[
-            {
-              id: 'split-right',
-              label: 'Split right',
-              icon: PanelRight,
-              disabled: !canSplit,
-              disabledReason: splitLimit,
-              onSelect: () => onSplit(paneId, 'right'),
-            },
-            {
-              id: 'split-down',
-              label: 'Split down',
-              icon: PanelBottom,
-              disabled: !canSplit,
-              disabledReason: splitLimit,
-              onSelect: () => onSplit(paneId, 'below'),
-            },
-            {
-              id: 'zoom',
-              label: zoomed ? 'Unzoom pane' : 'Zoom pane',
-              icon: zoomed ? Minimize2 : Maximize2,
-              onSelect: () => onToggleZoom(paneId),
-            },
-            {
-              id: 'close',
-              label: 'Close pane',
-              icon: X,
-              danger: true,
-              onSelect: () => onClose(paneId),
-            },
-          ]}
-        />
-      ) : null}
+      {menu.element}
     </section>
   )
 }
