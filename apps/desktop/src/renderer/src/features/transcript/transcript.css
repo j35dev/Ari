@@ -197,6 +197,54 @@
   }
 }
 
+/* Image generation gets a recognisable canvas instead of looking like a shell command. */
+.ari-image-generation-canvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  height: 4.75rem;
+  overflow: hidden;
+  padding: 3px;
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-lg);
+  background: var(--ari-surface-0);
+}
+
+.ari-image-generation-canvas > span {
+  border-radius: var(--ari-radius-sm);
+  background: var(--ari-surface-2);
+  animation: ari-image-tile 2.4s ease-in-out infinite;
+}
+
+.ari-image-generation-canvas > span:nth-child(2n) {
+  animation-delay: -0.8s;
+}
+
+.ari-image-generation-canvas > span:nth-child(3n) {
+  animation-delay: -1.6s;
+}
+
+.ari-image-generation-mark {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  color: var(--ari-accent);
+  filter: drop-shadow(0 0 10px var(--ari-accent-ring));
+  transform: translate(-50%, -50%);
+}
+
+@keyframes ari-image-tile {
+  0%,
+  100% {
+    background: var(--ari-surface-2);
+    opacity: 0.45;
+  }
+  50% {
+    background: var(--ari-accent-subtle);
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ari-burst[data-activity='working']::after {
     animation: none;
@@ -208,6 +256,10 @@
   }
 
   .ari-burst-steps {
+    animation: none;
+  }
+
+  .ari-image-generation-canvas > span {
     animation: none;
   }
 }

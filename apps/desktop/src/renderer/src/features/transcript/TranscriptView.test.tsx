@@ -134,6 +134,45 @@ describe('TranscriptView image output', () => {
       'data:image/png;base64,aGk=',
     )
   })
+
+  it('opens a full-size preview with an original-file download', async () => {
+    const user = userEvent.setup()
+    render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [
+          {
+            ...message('generated'),
+            role: 'assistant',
+            parts: [
+              {
+                type: 'image',
+                attachmentId: 'att_generated',
+                name: 'generated.png',
+                mimeType: 'image/png',
+                size: 2,
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Open generated.png' }))
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Full-size generated.png' })).toHaveAttribute(
+      'src',
+      'data:image/png;base64,aGk=',
+    )
+    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
+      'download',
+      'generated.png',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Close image preview' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
 })
 
 describe('TranscriptView message actions', () => {
