@@ -150,11 +150,16 @@ async function probeAcpModels(
   const { AcpConnection } = await import('@ari/providers/acp/connection')
   // npx launches must not pull packages just to enumerate models;
   // probeLaunch strips consent so --no-install actually holds.
+  const probe = probeLaunch(launch)
   const connection = await AcpConnection.connect({
-    launch: probeLaunch(launch),
+    launch: probe,
     cwd: homedir(),
     initializeTimeoutMs: 20_000,
-    runtimeEnv: probeEnv,
+    // probeEnv adds the PATH detection resolved, but `connect` spreads
+    // runtimeEnv last — so the launch's own variables go back on top. Without
+    // that, a CODEX_PATH inherited from the host would beat the binary
+    // detection actually found and the probe would read the wrong install.
+    runtimeEnv: { ...probeEnv, ...probe.env },
   })
   try {
     const created = await connection.newSession(homedir())
