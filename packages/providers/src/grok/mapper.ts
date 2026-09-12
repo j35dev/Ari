@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
+import { imageOutputEvents } from '../image-output'
 
 /**
  * Maps `grok -p --output-format streaming-messages-json` NDJSON onto
@@ -97,10 +98,14 @@ function mapUserBlock(block: GrokContentBlock): AgentEvent[] {
       resultJson: JSON.stringify(toolResultText(block.content)),
       isError: block.is_error === true,
     },
+    ...imageOutputEvents(block.content),
   ]
 }
 
-function mapBlocks(content: unknown, mapBlock: (block: GrokContentBlock) => AgentEvent[]): AgentEvent[] {
+function mapBlocks(
+  content: unknown,
+  mapBlock: (block: GrokContentBlock) => AgentEvent[],
+): AgentEvent[] {
   if (!Array.isArray(content)) return []
   return content.flatMap((block) => mapBlock(block as GrokContentBlock))
 }
@@ -133,9 +138,8 @@ function successResultEvents(parsed: NativeLine): AgentEvent[] {
   return [
     {
       type: 'usage',
-      inputTokens: typeof usage['input_tokens'] === 'number' ? (usage['input_tokens']) : 0,
-      outputTokens:
-        typeof usage['output_tokens'] === 'number' ? (usage['output_tokens']) : 0,
+      inputTokens: typeof usage['input_tokens'] === 'number' ? usage['input_tokens'] : 0,
+      outputTokens: typeof usage['output_tokens'] === 'number' ? usage['output_tokens'] : 0,
       costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
     },
     { type: 'done' },

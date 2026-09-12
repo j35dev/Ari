@@ -9,6 +9,24 @@ function fixture(name: string): string[] {
 }
 
 describe('codex mapper', () => {
+  it('maps legacy image generation completions', () => {
+    expect(
+      mapCodexLine(
+        JSON.stringify({
+          type: 'item.completed',
+          item: { id: 'img_1', type: 'image_generation_call', status: 'completed', result: 'cG5n' },
+        }),
+      ),
+    ).toEqual([
+      {
+        type: 'image-output',
+        dataBase64: 'cG5n',
+        mimeType: 'image/png',
+        name: 'generated-image.png',
+      },
+    ])
+  })
+
   it('maps a successful session: reasoning, message, usage, done', () => {
     const events = mapCodexStream(fixture('success-session.jsonl'))
     const types = events.map((e) => e.type)
