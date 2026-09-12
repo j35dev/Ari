@@ -692,6 +692,7 @@ function Shell() {
               activeSessionId={activeSessionId}
               activityOf={activityOf}
               onSelect={selectSession}
+              onOpenInSplit={splitLayoutActions.openInSplit}
               onRename={(id, title) => {
                 void rpc
                   .invoke('command.dispatch', {
@@ -789,6 +790,8 @@ function Shell() {
                       onSplit={splitLayoutActions.split}
                       onToggleZoom={splitLayoutActions.toggleZoom}
                       onResize={splitLayoutActions.resize}
+                      onDropSession={splitLayoutActions.dropSession}
+                      onDropPane={splitLayoutActions.dropPane}
                       renderSession={(sessionId, paneId) => (
                         // Keyed by pane *and* session, so a pane that changes what
                         // it shows remounts: composer seeds and review notes belong

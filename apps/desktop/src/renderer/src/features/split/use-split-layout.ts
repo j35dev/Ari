@@ -6,10 +6,12 @@ import {
   initialLayout,
   paneIdForSession,
   parseLayout,
+  placeInPane,
   pruneSessions,
   serializeLayout,
   setRatio,
   splitPane,
+  swapPanes,
   toggleZoom,
   type PaneEdge,
   type SplitLayout,
@@ -97,6 +99,28 @@ export const splitLayoutActions = {
     commit(assignSession(layout, paneId, sessionId)),
 
   close: (paneId: string): void => commit(closePane(layout, paneId)),
+
+  /** A session dropped on a pane, from the sidebar or from another pane. */
+  dropSession: (paneId: string, sessionId: string, edge: PaneEdge): void =>
+    commit(placeInPane(layout, paneId, sessionId, edge)),
+
+  /** A pane dropped on another pane: the two trade places, tmux-style. */
+  dropPane: (paneId: string, draggedPaneId: string): void =>
+    commit(swapPanes(layout, paneId, draggedPaneId)),
+
+  /**
+   * The sidebar row menu's "Open in split": the focused pane splits to take the
+   * session, or — when it is blank — simply takes it. A session already on
+   * screen is focused where it is rather than moved out from under the user.
+   */
+  openInSplit: (sessionId: string, edge: PaneEdge): void => {
+    const open = paneIdForSession(layout, sessionId)
+    if (open !== null) {
+      commit(focusPane(layout, open))
+      return
+    }
+    commit(placeInPane(layout, layout.zoomedPaneId ?? layout.focusedPaneId, sessionId, edge))
+  },
 
   /** Moves one split's divider. Called every frame of a separator drag. */
   resize: (nodeId: string, ratio: number): void => commit(setRatio(layout, nodeId, ratio)),

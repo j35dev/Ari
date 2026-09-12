@@ -222,6 +222,26 @@ export function openSessionInSplit(
 }
 
 /**
+ * Puts a session on a pane the user pointed at, rather than the one that had
+ * focus: a blank pane simply takes it, and anything else makes room by
+ * splitting on the chosen edge. This is the rule behind both the drop zones and
+ * the sidebar's "Open in split", so a drop and a menu entry land the same way.
+ */
+export function placeInPane(
+  layout: SplitLayout,
+  paneId: string,
+  sessionId: string,
+  edge: PaneEdge,
+  newId: IdFactory = randomId,
+): SplitLayout {
+  const leaf = findLeaf(layout.root, paneId)
+  if (leaf === null) return layout
+  return leaf.sessionId === null
+    ? assignSession(layout, paneId, sessionId)
+    : openSessionInSplit(layout, paneId, sessionId, edge, newId)
+}
+
+/**
  * Exchanges what two panes are showing — the tmux swap. The panes keep their
  * places and sizes; only their contents trade. Focus follows `paneId`, which is
  * the pane the gesture landed on.
