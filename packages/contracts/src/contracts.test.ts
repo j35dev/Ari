@@ -139,6 +139,14 @@ describe('contracts', () => {
         name: 'generated.png',
       }),
     ).toMatchObject({ type: 'image-output', mimeType: 'image/png' })
+    expect(
+      agentEventSchema.parse({
+        type: 'image-output-path',
+        path: 'C:\\tmp\\generated.jpg',
+        mimeType: 'image/jpeg',
+        name: 'generated.jpg',
+      }),
+    ).toMatchObject({ type: 'image-output-path', mimeType: 'image/jpeg' })
   })
 
   it('validates journal events with seq/at/session base', () => {

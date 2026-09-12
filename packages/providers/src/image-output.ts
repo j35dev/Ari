@@ -2,6 +2,16 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 
 const DATA_IMAGE = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i
 
+const MIME_FOR_EXTENSION: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
+}
+
 function recordOf(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
 }
@@ -17,14 +27,30 @@ function dataUrl(value: unknown, name: string): AgentEvent | null {
   return match?.[1] && match[2] ? output(match[2], match[1].toLowerCase(), name) : null
 }
 
+/** Grok ACP returns generated images as local files in an `ImageGen` result. */
+function pathOutput(record: Record<string, unknown>): AgentEvent | null {
+  const type = typeof record['type'] === 'string' ? record['type'].toLowerCase() : ''
+  if (type !== 'imagegen' && type !== 'imagegeneration') return null
+  const path = record['path']
+  if (typeof path !== 'string' || path.length === 0) return null
+  const tail = path.split(/[\\/]/).pop() ?? ''
+  const givenName = record['filename']
+  const name = typeof givenName === 'string' && givenName.length > 0 ? givenName : tail
+  const extension = name.split('.').pop()?.toLowerCase() ?? ''
+  const mimeType = MIME_FOR_EXTENSION[extension]
+  if (name.length === 0 || mimeType === undefined) return null
+  return { type: 'image-output-path', path, mimeType, name }
+}
+
 /** Extracts image blocks from provider tool/content payloads without interpreting arbitrary JSON. */
 export function imageOutputEvents(value: unknown, name = 'generated-image'): AgentEvent[] {
   const events: AgentEvent[] = []
   const seen = new Set<string>()
 
   const add = (event: AgentEvent | null): void => {
-    if (event?.type !== 'image-output') return
-    const key = `${event.mimeType}:${event.dataBase64}`
+    if (event?.type !== 'image-output' && event?.type !== 'image-output-path') return
+    const source = event.type === 'image-output' ? event.dataBase64 : event.path
+    const key = `${event.mimeType}:${source}`
     if (!seen.has(key)) {
       seen.add(key)
       events.push(event)
@@ -38,6 +64,8 @@ export function imageOutputEvents(value: unknown, name = 'generated-image'): Age
     }
     const record = recordOf(candidate)
     if (record === null) return
+
+    add(pathOutput(record))
 
     if (record['type'] === 'image') {
       const source = recordOf(record['source'])
