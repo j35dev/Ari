@@ -96,7 +96,10 @@ const log = createLogger('desktop:rpc')
  * discovery never downloads; everything fails soft.
  */
 function acpProbeKinds(): DriverKind[] {
-  if (process.env['ARI_ACP'] === '0') return []
+  // Codex advertises its models over its own app-server protocol rather than
+  // ACP, so opting out of the ACP transport must not take its discovery down
+  // with it — probeAcpModels still skips the ACP fallback below.
+  if (process.env['ARI_ACP'] === '0') return ['codex']
   if (process.env['ARI_ACP_PROBE_ALL'] === '1') {
     return ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes']
   }
@@ -138,6 +141,10 @@ async function probeAcpModels(
       })
     }
   }
+
+  // The ACP transport is what ARI_ACP=0 opts out of; Codex's native probe
+  // above is not ACP and has already had its chance.
+  if (process.env['ARI_ACP'] === '0') return null
 
   const launch = resolveAcpLaunch(
     kind,
