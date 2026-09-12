@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { BlankPane, PaneFrame } from './PaneFrame'
+import { PaneDropOverlay } from './PaneDropOverlay'
 import { SplitSeparator } from './SplitSeparator'
+import { usePaneDrop } from './use-pane-drop'
 import {
   MAX_PANES,
   findLeaf,
@@ -22,6 +24,8 @@ export interface SplitViewProps {
   onSplit: (paneId: string, edge: PaneEdge) => void
   onToggleZoom: (paneId: string) => void
   onResize: (nodeId: string, ratio: number) => void
+  onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
+  onDropPane: (paneId: string, draggedPaneId: string) => void
   /** One pane's content. Split view owns the chrome; the shell owns this. */
   renderSession: (sessionId: string, paneId: string) => ReactNode
 }
@@ -41,6 +45,8 @@ export function SplitView({
   onSplit,
   onToggleZoom,
   onResize,
+  onDropSession,
+  onDropPane,
   renderSession,
 }: SplitViewProps) {
   const panes = leaves(layout.root)
@@ -53,20 +59,37 @@ export function SplitView({
     leaf.sessionId === null ? 'Empty pane' : (titleOf(leaf.sessionId) ?? 'Empty pane')
 
   const renderLeaf = (leaf: PaneLeaf): ReactNode => {
-    const content =
-      leaf.sessionId === null ? <BlankPane /> : renderSession(leaf.sessionId, leaf.paneId)
-    if (solo) return content
+    const { paneId, sessionId } = leaf
+    const blank = sessionId === null
+    const content = blank ? <BlankPane /> : renderSession(sessionId, paneId)
+    if (solo) {
+      // The only pane has no chrome, but it still has to accept a drop: that
+      // drag from the sidebar is how the second pane comes into being.
+      return (
+        <SoloDropSurface
+          paneId={paneId}
+          blank={blank}
+          onDropSession={onDropSession}
+          onDropPane={onDropPane}
+        >
+          {content}
+        </SoloDropSurface>
+      )
+    }
     return (
       <PaneFrame
-        paneId={leaf.paneId}
-        title={leaf.sessionId === null ? null : titleOf(leaf.sessionId)}
-        focused={leaf.paneId === focusedPaneId}
+        paneId={paneId}
+        title={blank ? null : titleOf(sessionId)}
+        focused={paneId === focusedPaneId}
+        blank={blank}
         zoomed={layout.zoomedPaneId !== null}
         canSplit={panes.length < MAX_PANES}
         onFocus={onFocus}
         onClose={onClose}
         onSplit={onSplit}
         onToggleZoom={onToggleZoom}
+        onDropSession={onDropSession}
+        onDropPane={onDropPane}
       >
         {content}
       </PaneFrame>
@@ -84,6 +107,36 @@ export function SplitView({
   // reads as a zoom rather than as a layout that lost its other panes.
   const zoomed = layout.zoomedPaneId === null ? null : findLeaf(layout.root, layout.zoomedPaneId)
   return <>{zoomed === null ? renderNode(layout.root) : renderLeaf(zoomed)}</>
+}
+
+/**
+ * The lone pane's drop surface. It carries no chrome — a single pane looks
+ * exactly as it always has — but it is still a target, because dropping a
+ * sidebar session on one half of it is how the split starts.
+ */
+function SoloDropSurface({
+  paneId,
+  blank,
+  onDropSession,
+  onDropPane,
+  children,
+}: {
+  paneId: string
+  blank: boolean
+  onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
+  onDropPane: (paneId: string, draggedPaneId: string) => void
+  children: ReactNode
+}) {
+  const drop = usePaneDrop({ paneId, blank, onDropSession, onDropPane })
+  return (
+    <div
+      {...drop.dropProps}
+      className="relative flex h-full min-h-0 w-full min-w-0 flex-1 flex-col"
+    >
+      {children}
+      <PaneDropOverlay target={drop.target} />
+    </div>
+  )
 }
 
 function SplitNode({

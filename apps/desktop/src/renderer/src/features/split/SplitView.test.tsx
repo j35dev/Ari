@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SplitView } from './SplitView'
+import { PANE_MIME, SESSION_MIME } from './drag-split'
 import {
   MAX_PANES,
   assignSession,
@@ -62,6 +63,8 @@ function renderSplit(layout: SplitLayout) {
     onSplit: vi.fn(),
     onToggleZoom: vi.fn(),
     onResize: vi.fn(),
+    onDropSession: vi.fn(),
+    onDropPane: vi.fn(),
     renderSession: (sessionId: string, paneId: string) => (
       <div data-testid={`session-${sessionId}`} data-pane={paneId} />
     ),
@@ -256,6 +259,8 @@ describe('the pane menu', () => {
         onSplit={vi.fn()}
         onToggleZoom={vi.fn()}
         onResize={vi.fn()}
+        onDropSession={vi.fn()}
+        onDropPane={vi.fn()}
         renderSession={() => <textarea aria-label="Composer" />}
       />,
     )
@@ -291,5 +296,125 @@ describe('the pane menu', () => {
       'aria-disabled',
       'false',
     )
+  })
+})
+
+describe('dropping onto a pane', () => {
+  /** A pane's box, as the drop maths sees it once the browser has laid it out. */
+  function measure(target: HTMLElement): void {
+    target.getBoundingClientRect = () =>
+      ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 200 }) as DOMRect
+  }
+
+  interface DragInit {
+    clientX?: number
+    clientY?: number
+    /** The MIME the drag is carrying; omitted means an empty dataTransfer. */
+    mime?: string
+    value?: string
+  }
+
+  /**
+   * A drag event that carries pointer coordinates. `fireEvent.dragOver` cannot:
+   * jsdom has no `DragEvent`, so testing-library falls back to a bare `Event`,
+   * which drops the coordinates and leaves the drop maths measuring `NaN`.
+   */
+  function fireDrag(
+    type: 'dragover' | 'dragleave' | 'drop',
+    target: HTMLElement,
+    init: DragInit = {},
+  ): void {
+    const { mime, value = '', clientX = 0, clientY = 0 } = init
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY,
+      relatedTarget: document.body,
+    })
+    if (mime !== undefined) {
+      Object.defineProperty(event, 'dataTransfer', {
+        value: {
+          types: [mime],
+          dropEffect: '',
+          getData: (type: string) => (type === mime ? value : ''),
+        },
+      })
+    }
+    fireEvent(target, event)
+  }
+
+  const sessionDrag: DragInit = { mime: SESSION_MIME, value: 'sC' }
+  const paneDrag: DragInit = { mime: PANE_MIME, value: 'pane1' }
+
+  it('previews the half of a filled pane the session would take', () => {
+    renderSplit(filled())
+    const alpha = screen.getByRole('region', { name: 'Alpha' })
+    measure(alpha)
+
+    // Right of centre: the session takes the right-hand half.
+    fireDrag('dragover', alpha, { clientX: 320, clientY: 100, ...sessionDrag })
+    expect(alpha.querySelector('[data-drop-target]')).toHaveAttribute('data-drop-target', 'right')
+
+    fireDrag('dragover', alpha, { clientX: 40, clientY: 100, ...sessionDrag })
+    expect(alpha.querySelector('[data-drop-target]')).toHaveAttribute('data-drop-target', 'left')
+
+    fireDrag('dragover', alpha, { clientX: 200, clientY: 20, ...sessionDrag })
+    expect(alpha.querySelector('[data-drop-target]')).toHaveAttribute('data-drop-target', 'above')
+
+    // Leaving the pane takes the preview with it.
+    fireDrag('dragleave', alpha)
+    expect(alpha.querySelector('[data-drop-target]')).toBeNull()
+  })
+
+  it('lights the whole of a blank pane, which has no side to choose', () => {
+    const { onDropSession } = renderSplit(pair())
+    const empty = screen.getByRole('region', { name: 'Empty pane' })
+    measure(empty)
+
+    fireDrag('dragover', empty, { clientX: 20, clientY: 20, ...sessionDrag })
+    expect(empty.querySelector('[data-drop-target]')).toHaveAttribute('data-drop-target', 'fill')
+
+    fireDrag('drop', empty, { clientX: 20, clientY: 20, ...sessionDrag })
+    expect(onDropSession).toHaveBeenCalledWith('pane2', 'sC', 'right')
+  })
+
+  it('opens the dropped session on the edge it was let go on', () => {
+    const { onDropSession } = renderSplit(filled())
+    const beta = screen.getByRole('region', { name: 'Beta' })
+    measure(beta)
+
+    fireDrag('drop', beta, { clientX: 200, clientY: 190, ...sessionDrag })
+    expect(onDropSession).toHaveBeenCalledWith('pane2', 'sC', 'below')
+  })
+
+  it('swaps two panes when one header is dropped on the other', () => {
+    const { onDropPane, onDropSession } = renderSplit(filled())
+    const beta = screen.getByRole('region', { name: 'Beta' })
+
+    fireDrag('dragover', beta, { clientX: 20, clientY: 20, ...paneDrag })
+    expect(beta.querySelector('[data-drop-target]')).toHaveAttribute('data-drop-target', 'fill')
+
+    fireDrag('drop', beta, { clientX: 20, clientY: 20, ...paneDrag })
+    expect(onDropPane).toHaveBeenCalledWith('pane2', 'pane1')
+    expect(onDropSession).not.toHaveBeenCalled()
+  })
+
+  it('ignores a drag that is carrying neither a session nor a pane', () => {
+    renderSplit(filled())
+    const alpha = screen.getByRole('region', { name: 'Alpha' })
+
+    fireDrag('dragover', alpha, { clientX: 320, clientY: 100, mime: 'Files' })
+    expect(alpha.querySelector('[data-drop-target]')).toBeNull()
+  })
+
+  it('takes a drop on a lone pane, which is how the split starts', () => {
+    const { onDropSession } = renderSplit(solo())
+    const surface = screen.getByTestId('session-sA').parentElement
+    if (surface === null) throw new Error('the session is not inside a drop surface')
+    measure(surface)
+
+    fireDrag('drop', surface, { clientX: 390, clientY: 100, ...sessionDrag })
+    expect(onDropSession).toHaveBeenCalledWith('pane1', 'sC', 'right')
   })
 })

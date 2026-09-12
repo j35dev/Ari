@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react'
-import { Maximize2, Minimize2, PanelBottom, PanelRight, X } from 'lucide-react'
+import { GripVertical, Maximize2, Minimize2, PanelBottom, PanelRight, X } from 'lucide-react'
 import { ContextMenu, useContextMenu } from '../../shell/ContextMenu'
 import { ownsContextMenu } from '../../shell/editable-target'
+import { setDragPane } from './drag-split'
+import { PaneDropOverlay } from './PaneDropOverlay'
+import { usePaneDrop } from './use-pane-drop'
 import { MAX_PANES, type PaneEdge } from './split-layout'
 
 export interface PaneFrameProps {
@@ -9,6 +12,8 @@ export interface PaneFrameProps {
   /** The session's name, or null while it is still loading or the pane is blank. */
   title: string | null
   focused: boolean
+  /** A pane with no session: it has nothing to split, so a drop fills it whole. */
+  blank: boolean
   /** True while some pane fills the area, which is what the zoom entry undoes. */
   zoomed: boolean
   /** False at the pane ceiling, where a split would be refused anyway. */
@@ -17,6 +22,8 @@ export interface PaneFrameProps {
   onClose: (paneId: string) => void
   onSplit: (paneId: string, edge: PaneEdge) => void
   onToggleZoom: (paneId: string) => void
+  onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
+  onDropPane: (paneId: string, draggedPaneId: string) => void
   children: ReactNode
 }
 
@@ -36,15 +43,19 @@ export function PaneFrame({
   paneId,
   title,
   focused,
+  blank,
   zoomed,
   canSplit,
   onFocus,
   onClose,
   onSplit,
   onToggleZoom,
+  onDropSession,
+  onDropPane,
   children,
 }: PaneFrameProps) {
   const menu = useContextMenu()
+  const drop = usePaneDrop({ paneId, blank, onDropSession, onDropPane })
   const label = title ?? 'Empty pane'
   const splitLimit = `A layout holds at most ${String(MAX_PANES)} panes`
   return (
@@ -58,15 +69,21 @@ export function PaneFrame({
         if (ownsContextMenu(event.target)) return
         menu.open(paneId, event)
       }}
+      {...drop.dropProps}
       className={`flex h-full min-h-0 w-full min-w-0 flex-1 flex-col border ${
         focused ? 'border-accent/40' : 'border-border/60'
       }`}
     >
       <header
-        className={`flex h-7 shrink-0 items-center gap-1.5 border-b px-2 ${
+        // The header is the pane's grip: dragging it onto another pane trades
+        // the two. Only the header, so the pane's own content keeps its drags.
+        draggable
+        onDragStart={(event) => setDragPane(event, paneId, label)}
+        className={`flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b px-2 active:cursor-grabbing ${
           focused ? 'border-accent/25 bg-accent/10' : 'border-border/60'
         }`}
       >
+        <GripVertical size={10} aria-hidden className="shrink-0 text-fg-subtle/60" />
         <span
           className={`min-w-0 flex-1 truncate text-2xs ${
             focused ? 'font-medium text-fg' : 'text-fg-subtle'
@@ -84,7 +101,10 @@ export function PaneFrame({
           <X size={10} aria-hidden />
         </button>
       </header>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {children}
+        <PaneDropOverlay target={drop.target} />
+      </div>
       {menu.openFor === paneId ? (
         <ContextMenu
           anchor={menu.anchor}
