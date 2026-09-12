@@ -598,6 +598,18 @@ describe('SessionsUnderProjects', () => {
     ).toBeGreaterThanOrEqual(1)
   })
 
+  it('reserves the hover-action width so a long title truncates before the overlay', () => {
+    renderSidebar([
+      {
+        ...session('long', 1, 'proj-1'),
+        title: 'Ask me any random questions i am just testing overflow',
+      },
+    ])
+    const time = screen.getByText('1h')
+    expect(time.className).toMatch(/\bmin-w-11\b/)
+    expect(screen.getByText(/Ask me any random questions/)).toHaveClass('truncate')
+  })
+
   it('archives a live session from the hover affordance without opening the menu', async () => {
     const onToggleArchive = vi.fn()
     renderSidebar([session('live', 1, 'proj-1')], null, { onToggleArchive })
