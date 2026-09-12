@@ -70,8 +70,11 @@ function renderSplit(layout: SplitLayout) {
       <div data-testid={`session-${sessionId}`} data-pane={paneId} />
     ),
   }
-  render(<SplitView layout={layout} {...props} />)
-  return props
+  const view = render(<SplitView layout={layout} {...props} />)
+  return {
+    ...props,
+    rerenderLayout: (next: SplitLayout) => view.rerender(<SplitView layout={next} {...props} />),
+  }
 }
 
 /** Right-clicks a pane's body and returns the open menu. */
@@ -146,6 +149,20 @@ describe('SplitView', () => {
     expect(screen.getByRole('region', { name: 'Beta' }).closest('.hidden')).toBeNull()
     expect(screen.getByTestId('session-sA').closest('.hidden')).not.toBeNull()
   })
+
+  it('keeps the same pane instances when zoom toggles on and off', () => {
+    const view = renderSplit(filled())
+    const alpha = screen.getByTestId('session-sA')
+    const beta = screen.getByTestId('session-sB')
+
+    view.rerenderLayout(toggleZoom(filled()))
+    expect(screen.getByTestId('session-sA')).toBe(alpha)
+    expect(screen.getByTestId('session-sB')).toBe(beta)
+
+    view.rerenderLayout(filled())
+    expect(screen.getByTestId('session-sA')).toBe(alpha)
+    expect(screen.getByTestId('session-sB')).toBe(beta)
+  })
 })
 
 describe('SplitView separators', () => {
@@ -202,6 +219,27 @@ describe('SplitView separators', () => {
     // The cross axis belongs to whatever else is listening, not to this split.
     fireEvent.keyDown(separator, { key: 'ArrowDown' })
     expect(onResize).toHaveBeenCalledTimes(2)
+  })
+
+  it('releases a drag when the pointer is cancelled', () => {
+    const { onResize } = renderSplit(filled())
+    const separator = screen.getByRole('separator', { name: 'Resize Alpha and Beta' })
+    const container = separator.parentElement
+    if (container === null) throw new Error('separator is not inside the split')
+    container.getBoundingClientRect = () =>
+      ({ left: 100, top: 0, width: 400, height: 300 }) as DOMRect
+    separator.setPointerCapture = vi.fn()
+
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((run) => {
+      run(0)
+      return 1
+    })
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 300, clientY: 10 })
+    fireEvent.pointerCancel(window, { pointerId: 1 })
+    fireEvent.pointerMove(window, { clientX: 320, clientY: 10 })
+    frame.mockRestore()
+
+    expect(onResize).not.toHaveBeenCalled()
   })
 
   it('evens the split back up on a double-click', () => {

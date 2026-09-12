@@ -107,30 +107,19 @@ export function SplitView({
     node.kind === 'leaf' ? (
       renderLeaf(node)
     ) : (
-      <SplitNode node={node} renderNode={renderNode} nameOf={nameOf} onResize={onResize} />
+      <SplitNode
+        node={node}
+        zoomedPaneId={layout.zoomedPaneId}
+        renderNode={renderNode}
+        nameOf={nameOf}
+        onResize={onResize}
+      />
     )
 
-  const zoomedId = layout.zoomedPaneId
-  if (zoomedId === null) return <>{renderNode(layout.root)}</>
-
-  /**
-   * A zoom fills the area with one pane, which keeps its frame — that is how a
-   * zoom reads as a zoom rather than as a layout that lost its other panes. The
-   * panes it hides stay mounted behind `hidden`: a zoom is a change of view, not
-   * a close, so what they hold in memory — a composer's attached image, a review
-   * note — is still there when the layout comes back.
-   */
-  const renderZoomed = (node: PaneNode): ReactNode => {
-    if (node.kind === 'leaf') return renderLeaf(node)
-    const leading = findLeaf(node.a, zoomedId) !== null
-    return (
-      <>
-        {renderZoomed(leading ? node.a : node.b)}
-        <div className="hidden">{renderNode(leading ? node.b : node.a)}</div>
-      </>
-    )
-  }
-  return <>{renderZoomed(layout.root)}</>
+  // Always the same SplitNode tree. Zoom hides the other branches in place
+  // rather than swapping in a different shape, so PaneFrame/SessionView keep
+  // their instances — drafts, attachments, scroll — across the toggle.
+  return <>{renderNode(layout.root)}</>
 }
 
 /**
@@ -175,22 +164,33 @@ function SoloDropSurface({
 
 function SplitNode({
   node,
+  zoomedPaneId,
   renderNode,
   nameOf,
   onResize,
 }: {
   node: PaneSplit
+  zoomedPaneId: string | null
   renderNode: (node: PaneNode) => ReactNode
   nameOf: (leaf: PaneLeaf) => string
   onResize: (nodeId: string, ratio: number) => void
 }) {
   const row = node.direction === 'row'
+  const zoomedInA = zoomedPaneId !== null && findLeaf(node.a, zoomedPaneId) !== null
+  const zoomedInB = zoomedPaneId !== null && findLeaf(node.b, zoomedPaneId) !== null
+  const hideA = zoomedInB
+  const hideB = zoomedInA
+  const hideSep = hideA || hideB
   return (
     <div className={`flex h-full min-h-0 w-full min-w-0 ${row ? 'flex-row' : 'flex-col'}`}>
       {/* The leading child carries the ratio and gives up the separator's few
           pixels; the trailing child takes whatever is left, so the two always
-          fill the container exactly. */}
-      <div className="flex min-h-0 min-w-0" style={{ flex: `0 1 ${String(node.ratio * 100)}%` }}>
+          fill the container exactly. A zoomed descendant claims the whole
+          box; the other side and the divider stay mounted behind `hidden`. */}
+      <div
+        className={hideA ? 'hidden' : 'flex min-h-0 min-w-0'}
+        style={hideB ? { flex: '1 1 100%' } : { flex: `0 1 ${String(node.ratio * 100)}%` }}
+      >
         {renderNode(node.a)}
       </div>
       <SplitSeparator
@@ -199,8 +199,9 @@ function SplitNode({
         direction={node.direction}
         ratio={node.ratio}
         onResize={onResize}
+        hidden={hideSep}
       />
-      <div className="flex min-h-0 min-w-0 flex-1">{renderNode(node.b)}</div>
+      <div className={hideB ? 'hidden' : 'flex min-h-0 min-w-0 flex-1'}>{renderNode(node.b)}</div>
     </div>
   )
 }
