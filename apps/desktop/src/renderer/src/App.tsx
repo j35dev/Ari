@@ -257,12 +257,20 @@ function Shell() {
   // Set on the first successful list, so the restored panes are never pruned
   // against the empty session state the shell starts from.
   const sessionsLoadedRef = useRef(false)
+  /** Which list is the newest: an older answer must not speak for the shell. */
+  const listsRef = useRef(0)
 
   const refreshSessions = useCallback((): void => {
+    const generation = ++listsRef.current
     void rpc
       .invoke('session.list')
       .then((next) => {
+        // Any answer proves the session store is reachable, which is what lets
+        // pruning run at all. Only the newest one may speak for its contents:
+        // lists overlap at boot and on the event feed, and a stale one (started
+        // before a session existed) would otherwise blank that session's pane.
         sessionsLoadedRef.current = true
+        if (generation !== listsRef.current) return
         setSessions(next)
       })
       .catch((error: unknown) => log.warn('rpc call failed', error))

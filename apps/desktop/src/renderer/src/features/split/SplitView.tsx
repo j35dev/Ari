@@ -110,10 +110,27 @@ export function SplitView({
       <SplitNode node={node} renderNode={renderNode} nameOf={nameOf} onResize={onResize} />
     )
 
-  // Zoom fills the area with one pane. It keeps its frame, which is how a zoom
-  // reads as a zoom rather than as a layout that lost its other panes.
-  const zoomed = layout.zoomedPaneId === null ? null : findLeaf(layout.root, layout.zoomedPaneId)
-  return <>{zoomed === null ? renderNode(layout.root) : renderLeaf(zoomed)}</>
+  const zoomedId = layout.zoomedPaneId
+  if (zoomedId === null) return <>{renderNode(layout.root)}</>
+
+  /**
+   * A zoom fills the area with one pane, which keeps its frame — that is how a
+   * zoom reads as a zoom rather than as a layout that lost its other panes. The
+   * panes it hides stay mounted behind `hidden`: a zoom is a change of view, not
+   * a close, so what they hold in memory — a composer's attached image, a review
+   * note — is still there when the layout comes back.
+   */
+  const renderZoomed = (node: PaneNode): ReactNode => {
+    if (node.kind === 'leaf') return renderLeaf(node)
+    const leading = findLeaf(node.a, zoomedId) !== null
+    return (
+      <>
+        {renderZoomed(leading ? node.a : node.b)}
+        <div className="hidden">{renderNode(leading ? node.b : node.a)}</div>
+      </>
+    )
+  }
+  return <>{renderZoomed(layout.root)}</>
 }
 
 /**

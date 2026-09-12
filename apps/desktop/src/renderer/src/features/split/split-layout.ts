@@ -356,6 +356,12 @@ export function serializeLayout(layout: SplitLayout): string {
 /** Corrupt, oversized or self-contradicting layouts are rejected, not repaired. */
 const MAX_DEPTH = 32
 
+/** Every interior node's id, in reading order. */
+function splitNodeIds(node: PaneNode): string[] {
+  if (node.kind === 'leaf') return []
+  return [node.nodeId, ...splitNodeIds(node.a), ...splitNodeIds(node.b)]
+}
+
 function parseNode(value: unknown, depth: number): PaneNode | null {
   if (depth > MAX_DEPTH || value === null || typeof value !== 'object') return null
   const node = value as Record<string, unknown>
@@ -379,8 +385,8 @@ function parseNode(value: unknown, depth: number): PaneNode | null {
 
 /**
  * Reads a persisted layout. Anything that would make the tree inconsistent —
- * unparseable JSON, duplicate pane ids, the same session in two panes, more
- * panes than {@link MAX_PANES} — comes back null so the shell starts clean
+ * unparseable JSON, duplicate pane or split ids, the same session in two panes,
+ * more panes than {@link MAX_PANES} — comes back null so the shell starts clean
  * rather than rendering a pane it cannot address.
  */
 export function parseLayout(raw: string | null): SplitLayout | null {
@@ -399,6 +405,8 @@ export function parseLayout(raw: string | null): SplitLayout | null {
   const anchor = panes[0]
   if (anchor === undefined || panes.length > MAX_PANES) return null
   if (new Set(panes.map((leaf) => leaf.paneId)).size !== panes.length) return null
+  const nodeIds = splitNodeIds(root)
+  if (new Set(nodeIds).size !== nodeIds.length) return null
   const sessionIds = panes.map((leaf) => leaf.sessionId).filter((id): id is string => id !== null)
   if (new Set(sessionIds).size !== sessionIds.length) return null
 

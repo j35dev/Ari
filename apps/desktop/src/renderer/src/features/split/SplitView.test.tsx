@@ -137,11 +137,14 @@ describe('SplitView', () => {
     expect(screen.getByTestId('session-sB')).toBeInTheDocument()
   })
 
-  it('shows only the zoomed pane, so the others are off screen not gone', () => {
+  it('fills the area with the zoomed pane, the others hidden but still mounted', () => {
     renderSplit(toggleZoom(filled()))
 
-    expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
-    expect(screen.queryByTestId('session-sA')).not.toBeInTheDocument()
+    // The zoomed pane is the one on screen; the one behind it keeps its view
+    // mounted — and with it the draft and attachments its composer holds — so a
+    // zoom hides it rather than unmounting it.
+    expect(screen.getByRole('region', { name: 'Beta' }).closest('.hidden')).toBeNull()
+    expect(screen.getByTestId('session-sA').closest('.hidden')).not.toBeNull()
   })
 })
 
