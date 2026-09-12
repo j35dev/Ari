@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
+import { imageOutputEvents } from '../image-output'
 
 /**
  * Maps Hermes `--output-format stream-json` lines onto normalized
@@ -41,9 +42,8 @@ function usageFrom(raw: Record<string, unknown> | undefined): {
   outputTokens: number
 } {
   return {
-    inputTokens: typeof raw?.['input_tokens'] === 'number' ? (raw['input_tokens']) : 0,
-    outputTokens:
-      typeof raw?.['output_tokens'] === 'number' ? (raw['output_tokens']) : 0,
+    inputTokens: typeof raw?.['input_tokens'] === 'number' ? raw['input_tokens'] : 0,
+    outputTokens: typeof raw?.['output_tokens'] === 'number' ? raw['output_tokens'] : 0,
   }
 }
 
@@ -99,6 +99,7 @@ export function mapHermesLine(line: string): AgentEvent[] {
             resultJson: JSON.stringify(block.content ?? null),
             isError: block.is_error === true,
           })
+          events.push(...imageOutputEvents(block.content))
         }
       }
       break

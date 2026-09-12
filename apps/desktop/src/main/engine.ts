@@ -80,6 +80,12 @@ export interface EngineDeps {
    * for tests: attachments resolve as unavailable and are named in text.
    */
   resolveAttachmentPath?: (id: string) => Promise<string | null>
+  /** Persists provider-emitted image bytes and returns the lightweight journal ref. */
+  stageOutputImage?: (image: {
+    name: string
+    mimeType: string
+    dataBase64: string
+  }) => Promise<AttachmentRef>
   /**
    * Upgrades the auto-slice title after the first settled turn (M18.2).
    * Defaults to the deterministic strategy; an LLM-backed one can be
@@ -172,9 +178,7 @@ export class Engine {
 
   /** Serializes work per root session tree: commands and queue drains share one chain. */
   #chain<T>(id: string, fn: () => Promise<T>): Promise<T> {
-    const result = (this.#commands.get(id) ?? Promise.resolve())
-      .catch(() => undefined)
-      .then(fn)
+    const result = (this.#commands.get(id) ?? Promise.resolve()).catch(() => undefined).then(fn)
     this.#commands.set(id, result)
     void result
       .finally(() => {
@@ -611,6 +615,33 @@ export class Engine {
               text: event.text,
             })
             if (Date.now() - lastFlush >= 120) await flush()
+            break
+          }
+          case 'image-output': {
+            await flush()
+            try {
+              const attachment = await this.#deps.stageOutputImage?.({
+                name: event.name,
+                mimeType: event.mimeType,
+                dataBase64: event.dataBase64,
+              })
+              if (attachment === undefined) throw new Error('image storage is unavailable')
+              await append({
+                type: 'assistant.parts.appended',
+                messageId,
+                parts: [{ type: 'image', attachmentId: attachment.id, ...attachment }],
+              })
+            } catch (error) {
+              log.warn('provider image output could not be staged', {
+                sessionId: session.id,
+                error: String(error),
+              })
+              await append({
+                type: 'assistant.parts.appended',
+                messageId,
+                parts: [{ type: 'text', text: `\n\n⚠ Could not display ${event.name}.` }],
+              })
+            }
             break
           }
           case 'tool-started': {
