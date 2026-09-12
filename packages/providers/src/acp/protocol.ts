@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
+import { imageOutputEvents } from '../image-output'
 
 /**
  * Structural types for the subset of the Agent Client Protocol (ACP) v1
@@ -51,9 +52,7 @@ const acpContentBlockSchema = z.object({
 // instead of corrupting the transcript or crashing the fold.
 export const acpToolCallContentSchema = z.object({
   type: z.string().optional(),
-  content: z
-    .union([acpContentBlockSchema, z.array(acpContentBlockSchema)])
-    .optional(),
+  content: z.union([acpContentBlockSchema, z.array(acpContentBlockSchema)]).optional(),
   path: z.string().optional(),
   oldText: z.string().nullable().optional(),
   newText: z.string().nullable().optional(),
@@ -169,7 +168,12 @@ export interface AcpInitializeResult {
   agentInfo?: { name?: string; version?: string }
   agentCapabilities?: {
     loadSession?: boolean
-    sessionCapabilities?: { resume?: boolean; close?: boolean; list?: boolean; [k: string]: unknown }
+    sessionCapabilities?: {
+      resume?: boolean
+      close?: boolean
+      list?: boolean
+      [k: string]: unknown
+    }
   }
   authMethods?: AcpAuthMethod[]
   /** Grok (and others) stash per-model reasoning levels here. */
@@ -267,10 +271,19 @@ function textOf(blocks: AcpContentBlock[]): string {
 function resultJsonOf(update: AcpToolCallUpdate): string {
   if (update.rawOutput !== undefined) return JSON.stringify(update.rawOutput)
   const parts: Record<string, unknown>[] = []
-  const items = acpToolCallContentSchema.array().catch([]).parse(update.content ?? [])
+  const items = acpToolCallContentSchema
+    .array()
+    .catch([])
+    .parse(update.content ?? [])
   for (const item of items) {
     if (item.type === 'diff') {
-      parts.push({ diff: { path: item.path ?? '', oldText: item.oldText ?? null, newText: item.newText ?? null } })
+      parts.push({
+        diff: {
+          path: item.path ?? '',
+          oldText: item.oldText ?? null,
+          newText: item.newText ?? null,
+        },
+      })
       continue
     }
     for (const block of asBlocks(item.content)) {
@@ -299,7 +312,7 @@ export class AcpUpdateFolder {
     if (update === undefined || typeof update.sessionUpdate !== 'string') return []
     switch (update.sessionUpdate) {
       case 'agent_message_chunk':
-        return this.#textChunk(update.content, 'text-delta')
+        return this.#messageChunk(update.content)
       case 'agent_thought_chunk':
         return chunkToDeltas(textOf(asBlocks(update.content)), 'thinking-delta')
       case 'tool_call': {
@@ -308,7 +321,7 @@ export class AcpUpdateFolder {
         this.#started.add(callId)
         const events: AgentEvent[] = [toStarted(callId, update)]
         if (update.status === 'completed' || update.status === 'failed') {
-          events.push(toCompleted(callId, update))
+          events.push(toCompleted(callId, update), ...imageOutputEvents(update.content))
         }
         return events
       }
@@ -318,11 +331,9 @@ export class AcpUpdateFolder {
         const terminal = update.status === 'completed' || update.status === 'failed'
         if (!terminal) return []
         // Some agents finalize without a prior create — synthesize the start.
-        const started: AgentEvent[] = this.#started.has(callId)
-          ? []
-          : [toStarted(callId, update)]
+        const started: AgentEvent[] = this.#started.has(callId) ? [] : [toStarted(callId, update)]
         this.#started.add(callId)
-        return [...started, toCompleted(callId, update)]
+        return [...started, toCompleted(callId, update), ...imageOutputEvents(update.content)]
       }
       case 'error': {
         // Agent-reported fatal errors ride session/update like everything
@@ -332,7 +343,9 @@ export class AcpUpdateFolder {
           {
             type: 'error',
             message:
-              text.length > 0 ? text : `${notification.sessionId ?? 'agent'} reported an unspecified error`,
+              text.length > 0
+                ? text
+                : `${notification.sessionId ?? 'agent'} reported an unspecified error`,
             rawJson: JSON.stringify(update),
           },
         ]
@@ -351,16 +364,17 @@ export class AcpUpdateFolder {
     }
   }
 
-  #textChunk(
-    content: AcpContentBlock | AcpContentBlock[] | undefined,
-    kind: 'text-delta' | 'thinking-delta',
-  ): AgentEvent[] {
-    const text = textOf(asBlocks(content))
-    if (kind === 'text-delta' && this.#startupInfo !== null && text === this.#startupInfo) {
+  #messageChunk(content: AcpContentBlock | AcpContentBlock[] | undefined): AgentEvent[] {
+    const blocks = asBlocks(content)
+    const text = textOf(blocks)
+    if (this.#startupInfo !== null && text === this.#startupInfo) {
       this.#startupInfo = null
-      return []
+      return imageOutputEvents(blocks)
     }
-    return chunkToDeltas(text, kind)
+    return blocks.flatMap((block) => [
+      ...chunkToDeltas(block.type === 'text' ? (block.text ?? '') : '', 'text-delta'),
+      ...imageOutputEvents(block),
+    ])
   }
 }
 

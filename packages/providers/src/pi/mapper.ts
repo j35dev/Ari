@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
+import { imageOutputEvents } from '../image-output'
 
 /**
  * Maps `pi --mode json -p` JSONL lines onto normalized AgentEvents. Pure and
@@ -118,6 +119,7 @@ export function mapPiLine(line: string): AgentEvent[] {
           resultJson: JSON.stringify(parsed.result ?? null),
           isError: parsed.isError === true,
         },
+        ...imageOutputEvents(parsed.result),
       ]
     }
 
