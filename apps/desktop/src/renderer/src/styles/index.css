@@ -10,6 +10,15 @@
 @import '@ari/ui/wallpaper.css';
 @import '@ari/ui/scroll-area.css';
 
+/* Tailwind v4's automatic source detection only reaches this app's own tree,
+   so utilities that appear solely in the shared UI package — reached here
+   through a `node_modules` symlink, which detection skips — were never
+   generated. The loss is silent and selective: a class survives as long as it
+   happens to appear somewhere in `apps/desktop` too, so only the rarer ones
+   vanish. The toast viewport's `top-12 right-4` was one such casualty, leaving
+   it at its static position under `body { overflow: hidden }` and invisible. */
+@source '../../../../../../packages/ui/src';
+
 /* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
    resolve to live CSS variables and follow the single glass appearance. */
 @theme inline {
