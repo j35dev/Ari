@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_PANES,
+  activePaneOf,
   activeSessionOf,
   assignSession,
   clampRatio,
@@ -383,6 +384,23 @@ describe('activeSessionOf', () => {
   it('is null when no pane is showing anything', () => {
     expect(activeSessionOf(one())).toBeNull()
     expect(activeSessionOf(two())).toBeNull()
+  })
+})
+
+describe('activePaneOf', () => {
+  it('is the focused pane', () => {
+    expect(activePaneOf(populated())).toBe('pane2')
+    expect(activePaneOf(focusPane(populated(), 'pane1'))).toBe('pane1')
+  })
+
+  it('is the zoomed pane while one fills the area', () => {
+    // Zoom hides the others, so the pane filling the area — not the one that
+    // last had focus — is the one the keys and the palette act on. Focusing
+    // elsewhere drops the zoom, which is why the two never disagree for long.
+    const layout = toggleZoom(populated())
+    expect(layout.zoomedPaneId).toBe('pane2')
+    expect(activePaneOf(layout)).toBe('pane2')
+    expect(activePaneOf(focusPane(layout, 'pane1'))).toBe('pane1')
   })
 })
 

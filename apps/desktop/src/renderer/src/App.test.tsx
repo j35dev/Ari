@@ -7,6 +7,7 @@ import { useToast } from '@ari/ui/toast'
 import { AppProviders, App } from './App'
 import { BRANCH_POLL_MS, SessionBranchChip } from './features/session/SessionBranchChip'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
+import { MAX_PANES, paneCount } from './features/split/split-layout'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -437,6 +438,78 @@ describe('Shell split panes', () => {
     expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
     expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(1)
     expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
+  })
+
+  it('splits the pane the user is in from the keyboard', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: '\\', ctrlKey: true })
+
+    // The focused pane splits; its new neighbour is blank until something is
+    // dropped in it, and it is the vertical divider that separates them.
+    expect(screen.getByRole('region', { name: 'Empty pane' })).toHaveClass('border-accent/40')
+    expect(screen.getByRole('separator', { name: 'Resize Beta and Empty pane' })).toHaveAttribute(
+      'aria-orientation',
+      'vertical',
+    )
+  })
+
+  it('splits down with the shifted chord, the other axis', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+
+    // Shift+backslash is `|` on the layouts most people have.
+    fireEvent.keyDown(window, { key: '|', ctrlKey: true, shiftKey: true })
+
+    expect(screen.getByRole('separator', { name: 'Resize Beta and Empty pane' })).toHaveAttribute(
+      'aria-orientation',
+      'horizontal',
+    )
+  })
+
+  it('moves focus to the pane the arrow points at', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+    expect(row('Beta')).toHaveClass('bg-accent/15')
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft', ctrlKey: true, shiftKey: true })
+
+    expect(row('Alpha')).toHaveClass('bg-accent/15')
+    expect(row('Beta')).not.toHaveClass('bg-accent/15')
+  })
+
+  it('says why a chord did nothing when the layout is already full', async () => {
+    openTwoPanes()
+    while (paneCount(splitLayoutSnapshot()) < MAX_PANES) {
+      splitLayoutActions.split(splitLayoutSnapshot().focusedPaneId, 'right')
+    }
+    render(<App />)
+    await screen.findByRole('region', { name: 'Alpha' }, { timeout: 10_000 })
+
+    // The splits that filled the layout left four panes empty, which is what
+    // the refused chord must leave alone.
+    const blanks = MAX_PANES - 2
+    expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(blanks)
+
+    fireEvent.keyDown(window, { key: '\\', ctrlKey: true })
+
+    expect(
+      await screen.findByText(`A layout holds at most ${String(MAX_PANES)} panes`),
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(blanks)
+  })
+
+  it('leaves the pane chords to a field that has the keyboard', async () => {
+    render(<App />)
+    const search = await screen.findByRole('searchbox', {}, { timeout: 10_000 })
+
+    fireEvent.keyDown(search, { key: '\\', ctrlKey: true })
+
+    expect(screen.queryByRole('region', { name: 'Empty pane' })).not.toBeInTheDocument()
   })
 })
 

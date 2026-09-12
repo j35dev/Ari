@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import {
+  activePaneOf,
   assignSession,
   closePane,
   focusPane,
@@ -119,7 +120,7 @@ export const splitLayoutActions = {
       commit(focusPane(layout, open))
       return
     }
-    commit(placeInPane(layout, layout.zoomedPaneId ?? layout.focusedPaneId, sessionId, edge))
+    commit(placeInPane(layout, activePaneOf(layout), sessionId, edge))
   },
 
   /** Moves one split's divider. Called every frame of a separator drag. */

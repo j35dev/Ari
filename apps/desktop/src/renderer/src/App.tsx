@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, FolderPlus } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
-import { ToastProvider } from '@ari/ui/toast'
+import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { useAppUpdateToast } from './features/updates'
@@ -35,8 +35,17 @@ import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
 import { SplitView } from './features/split/SplitView'
 import { splitLayoutActions, useSplitLayout } from './features/split/use-split-layout'
-import { activeSessionOf, paneCount, sessionIdsInPanes } from './features/split/split-layout'
+import { focusNeighbour } from './features/split/split-geometry'
+import {
+  MAX_PANES,
+  activePaneOf,
+  activeSessionOf,
+  paneCount,
+  sessionIdsInPanes,
+  type PaneEdge,
+} from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
+import { isEditableTarget } from './shell/editable-target'
 import {
   ContextMenu,
   anchorBelow,
@@ -63,6 +72,14 @@ const INSPECTOR_TITLES: Record<InspectorId, string> = {
   changes: 'Changes',
   files: 'Files',
   usage: 'Usage',
+}
+
+/** Where `Mod+Shift+<arrow>` sends focus, keyed by `KeyboardEvent.key`. */
+const ARROW_EDGES: Record<string, PaneEdge> = {
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  ArrowUp: 'above',
+  ArrowDown: 'below',
 }
 
 /** Full project registry rows; ids feed lookups, paths feed git/fs panes. */
@@ -190,6 +207,25 @@ function Shell() {
       setFullPage(null)
     },
     [layout, clearTransientInspector],
+  )
+
+  const { toast } = useToast()
+
+  /**
+   * Splits the pane the user is in — what `Mod+\`, `Mod+Shift+\` and the
+   * palette's two entries all do. The model refuses a split at the ceiling
+   * silently, which a chord cannot afford: nothing at all happens, so the
+   * shortcut reads as broken. The refusal is announced here instead.
+   */
+  const splitActivePane = useCallback(
+    (edge: PaneEdge) => {
+      if (paneCount(layout) >= MAX_PANES) {
+        toast({ tone: 'warning', title: `A layout holds at most ${String(MAX_PANES)} panes` })
+        return
+      }
+      splitLayoutActions.split(activePaneOf(layout), edge)
+    },
+    [layout, toast],
   )
 
   // A session that has just come on screen has been seen: it is the arrival in
@@ -323,6 +359,12 @@ function Shell() {
       setSearchOpen(true)
       setPaletteOpen(false)
     },
+    panes: {
+      split: splitActivePane,
+      close: () => splitLayoutActions.close(activePaneOf(layout)),
+      toggleZoom: () => splitLayoutActions.toggleZoom(activePaneOf(layout)),
+      single: paneCount(layout) === 1,
+    },
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
@@ -417,6 +459,28 @@ function Shell() {
           }
         }
       }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === '\\' || e.key === '|')) {
+        // Shift turns the key itself into `|` on most layouts, so the chord is
+        // read from either — and `shiftKey` says which of the two it is.
+        // A pane chord never fires over a text field or an open overlay: the
+        // composer's own keys, and the palette's, come first.
+        if (!paletteOpen && !searchOpen && !isEditableTarget(e.target)) {
+          e.preventDefault()
+          splitActivePane(e.shiftKey ? 'below' : 'right')
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey) {
+        const edge = ARROW_EDGES[e.key]
+        if (edge !== undefined && !paletteOpen && !searchOpen && !isEditableTarget(e.target)) {
+          // Focus moves between panes the way the arrow points; the edge of the
+          // layout is the end of the road, so nothing happens there.
+          const neighbour = focusNeighbour(layout, activePaneOf(layout), edge)
+          if (neighbour !== null) {
+            e.preventDefault()
+            splitLayoutActions.focus(neighbour)
+          }
+        }
+      }
       if (e.key === 'Escape') {
         if (paletteOpen) {
           setPaletteOpen(false)
@@ -427,7 +491,16 @@ function Shell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, settingsOpen, navOrder, activeSessionId, toggleTerminal, selectSession])
+  }, [
+    paletteOpen,
+    settingsOpen,
+    navOrder,
+    activeSessionId,
+    toggleTerminal,
+    selectSession,
+    splitActivePane,
+    layout,
+  ])
 
   const createSession = useCallback(
     (projectId: string, overrides?: Partial<SessionDefaults>): void => {

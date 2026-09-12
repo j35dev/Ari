@@ -28,28 +28,39 @@ export function usePaneDrop(options: {
   paneId: string
   /** Filled panes split on the drop edge; a blank one takes the session whole. */
   blank: boolean
+  /** False at the pane ceiling, where the drop would be refused anyway. */
+  canSplit: boolean
   onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
   onDropPane: (paneId: string, draggedPaneId: string) => void
 }): PaneDrop {
-  const { paneId, blank, onDropSession, onDropPane } = options
+  const { paneId, blank, canSplit, onDropSession, onDropPane } = options
   const [target, setTarget] = useState<PaneDropTarget | null>(null)
+
+  /**
+   * A session can only land on a filled pane while there is room for the pane it
+   * would make; a blank one swallows it without adding a pane. Refusing here
+   * leaves the drop cursor alone, so the drag says no before it is let go rather
+   * than previewing a split that the layout would then decline to make.
+   */
+  const acceptsSession = blank || canSplit
 
   const onDragOver = useCallback(
     (event: DragEvent<HTMLElement>): void => {
       if (hasDragType(event, PANE_MIME)) {
-        // A swap has no side, so the whole pane lights up.
+        // A swap has no side, so the whole pane lights up. It adds no pane, so
+        // the ceiling does not apply to it.
         event.preventDefault()
         event.dataTransfer.dropEffect = 'move'
         setTarget('fill')
         return
       }
-      if (!hasDragType(event, SESSION_MIME)) return
+      if (!hasDragType(event, SESSION_MIME) || !acceptsSession) return
       event.preventDefault()
       event.dataTransfer.dropEffect = 'move'
       const box = event.currentTarget.getBoundingClientRect()
       setTarget(blank ? 'fill' : edgeForPoint({ x: event.clientX, y: event.clientY }, box))
     },
-    [blank],
+    [acceptsSession, blank],
   )
 
   const onDragLeave = useCallback((event: DragEvent<HTMLElement>): void => {
@@ -70,13 +81,13 @@ export function usePaneDrop(options: {
         return
       }
       const sessionId = readDragSession(event)
-      if (sessionId === null) return
+      if (sessionId === null || !acceptsSession) return
       event.preventDefault()
       const box = event.currentTarget.getBoundingClientRect()
       const edge = blank ? 'right' : edgeForPoint({ x: event.clientX, y: event.clientY }, box)
       onDropSession(paneId, sessionId, edge)
     },
-    [blank, onDropPane, onDropSession, paneId],
+    [acceptsSession, blank, onDropPane, onDropSession, paneId],
   )
 
   return { target, dropProps: { onDragOver, onDragLeave, onDrop } }
