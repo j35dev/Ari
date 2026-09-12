@@ -13,13 +13,14 @@ import {
  * or just settled. Hydrates from the global `session.events` feed (no
  * journal replay — a reload never resurrects a dead turn).
  *
- * Settled badges stick: a background session keeps its done/error mark until
- * the user visits it (`acknowledge`) or starts a new turn there. Only the
- * session already on screen fades, after `ACTIVE_SETTLE_LINGER_MS`, because
- * its user has seen the lock-in play. The store is one small entry per live
- * session — no per-session timers, no persistence.
+ * Settled badges stick: a session the user cannot see keeps its done/error mark
+ * until they visit it (`acknowledge`) or start a new turn there. Every session
+ * *on screen* counts as seen — with split panes that is up to six of them — so
+ * each visible settle fades after `ACTIVE_SETTLE_LINGER_MS`, because its user
+ * watched the lock-in play. The store is one small entry per live session, plus
+ * a fade timer for each on-screen settle.
  */
-export function useSessionActivity(activeSessionId: string | null): {
+export function useSessionActivity(visibleSessionIds: readonly string[]): {
   activityOf: (sessionId: string) => SessionActivity | undefined
   acknowledge: (sessionId: string) => void
   forget: (sessionId: string) => void
@@ -27,28 +28,28 @@ export function useSessionActivity(activeSessionId: string | null): {
   const [byId, setById] = useState<ReadonlyMap<string, SessionActivity>>(() => new Map())
   const byIdRef = useRef(byId)
   byIdRef.current = byId
-  const activeRef = useRef(activeSessionId)
-  activeRef.current = activeSessionId
-  const activeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const visibleRef = useRef<ReadonlySet<string>>(new Set())
+  visibleRef.current = new Set(visibleSessionIds)
+  /** One fade timer per visible session, so two panes settling together both play out. */
+  const fadeTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
-  const clearActiveTimer = useCallback((): void => {
-    if (activeTimerRef.current !== null) {
-      clearTimeout(activeTimerRef.current)
-      activeTimerRef.current = null
-    }
+  const clearFade = useCallback((sessionId: string): void => {
+    const timer = fadeTimersRef.current.get(sessionId)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    fadeTimersRef.current.delete(sessionId)
   }, [])
 
   const remove = useCallback(
     (sessionId: string): void => {
-      // The single fade timer always belongs to the active session's settle.
-      if (sessionId === activeRef.current) clearActiveTimer()
+      clearFade(sessionId)
       if (!byIdRef.current.has(sessionId)) return
       const next = new Map(byIdRef.current)
       next.delete(sessionId)
       byIdRef.current = next
       setById(next)
     },
-    [clearActiveTimer],
+    [clearFade],
   )
 
   /** Visiting a session clears its settled badge; live phases are untouched. */
@@ -90,32 +91,33 @@ export function useSessionActivity(activeSessionId: string | null): {
       if (nextActivity?.phase === 'done' || nextActivity?.phase === 'error') {
         // Seen settle: play the lock-in, then fade. Unseen settle: stick
         // until the user visits the session or starts a new turn there.
-        if (sessionId === activeRef.current) {
-          clearActiveTimer()
-          activeTimerRef.current = setTimeout(() => {
-            activeTimerRef.current = null
-            const current = byIdRef.current.get(sessionId)
-            if (current?.phase !== 'done' && current?.phase !== 'error') return
-            const cleared = new Map(byIdRef.current)
-            cleared.delete(sessionId)
-            byIdRef.current = cleared
-            setById(cleared)
-          }, ACTIVE_SETTLE_LINGER_MS)
+        if (visibleRef.current.has(sessionId)) {
+          clearFade(sessionId)
+          fadeTimersRef.current.set(
+            sessionId,
+            setTimeout(() => {
+              fadeTimersRef.current.delete(sessionId)
+              const current = byIdRef.current.get(sessionId)
+              if (current?.phase !== 'done' && current?.phase !== 'error') return
+              const cleared = new Map(byIdRef.current)
+              cleared.delete(sessionId)
+              byIdRef.current = cleared
+              setById(cleared)
+            }, ACTIVE_SETTLE_LINGER_MS),
+          )
         }
-      } else if (activeTimerRef.current !== null && sessionId === activeRef.current) {
+      } else {
         // A new turn superseded the fading settle — stop the fade.
-        clearActiveTimer()
+        clearFade(sessionId)
       }
     })
 
     return () => {
       unsubscribe()
-      if (activeTimerRef.current !== null) {
-        clearTimeout(activeTimerRef.current)
-        activeTimerRef.current = null
-      }
+      for (const timer of fadeTimersRef.current.values()) clearTimeout(timer)
+      fadeTimersRef.current.clear()
     }
-  }, [clearActiveTimer])
+  }, [clearFade])
 
   return {
     activityOf: (sessionId) => byId.get(sessionId),

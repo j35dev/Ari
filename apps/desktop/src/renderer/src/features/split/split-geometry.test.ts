@@ -7,13 +7,7 @@ import {
   type PaneEdge,
   type SplitLayout,
 } from './split-layout'
-import {
-  edgeForPoint,
-  focusNeighbour,
-  paneRects,
-  type PaneRect,
-  type Rect,
-} from './split-geometry'
+import { edgeForPoint, focusNeighbour, paneRects, type PaneRect, type Rect } from './split-geometry'
 
 /** Replays splits over one deterministic id sequence, as `split-layout.test.ts` does. */
 function build(...moves: Array<[pane: string, edge: PaneEdge]>): SplitLayout {
@@ -29,8 +23,7 @@ function build(...moves: Array<[pane: string, edge: PaneEdge]>): SplitLayout {
  * split goes inside the pane it names, so the ids never come out in reading
  * order — the positional helpers below are how these tests name a pane.
  */
-const grid = (): SplitLayout =>
-  build(['pane1', 'right'], ['pane2', 'below'], ['pane1', 'below'])
+const grid = (): SplitLayout => build(['pane1', 'right'], ['pane2', 'below'], ['pane1', 'below'])
 
 const rectOf = (layout: SplitLayout, paneId: string): PaneRect | undefined =>
   paneRects(layout.root).find((rect) => rect.paneId === paneId)
