@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildAppCommands, useCommands } from './useCommands'
 
 const ctx = {
@@ -48,6 +48,43 @@ describe('buildAppCommands', () => {
     expect(search.hint).toBe('Ctrl+Shift+F')
     search.run()
     expect(ctx.onOpenSearch).toHaveBeenCalledOnce()
+  })
+})
+
+describe('pane commands', () => {
+  const panes = { split: vi.fn(), close: vi.fn(), toggleZoom: vi.fn(), single: false }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('are absent where no split view is mounted', () => {
+    expect(buildAppCommands(ctx).some((c) => c.id.startsWith('pane.'))).toBe(false)
+  })
+
+  it('splits the active pane on the edge each entry names', () => {
+    const commands = buildAppCommands({ ...ctx, panes })
+    commands.find((c) => c.id === 'pane.splitRight')!.run()
+    expect(panes.split).toHaveBeenLastCalledWith('right')
+    commands.find((c) => c.id === 'pane.splitDown')!.run()
+    expect(panes.split).toHaveBeenLastCalledWith('below')
+  })
+
+  it('closes and zooms the active pane', () => {
+    const commands = buildAppCommands({ ...ctx, panes })
+    commands.find((c) => c.id === 'pane.close')!.run()
+    expect(panes.close).toHaveBeenCalledOnce()
+    commands.find((c) => c.id === 'pane.zoom')!.run()
+    expect(panes.toggleZoom).toHaveBeenCalledOnce()
+  })
+
+  it('leaves close and zoom out while the layout is a single pane', () => {
+    const ids = buildAppCommands({ ...ctx, panes: { ...panes, single: true } }).map((c) => c.id)
+    // A lone pane already fills the area: neither entry would do anything.
+    expect(ids).not.toContain('pane.close')
+    expect(ids).not.toContain('pane.zoom')
+    expect(ids).toContain('pane.splitRight')
+    expect(ids).toContain('pane.splitDown')
   })
 })
 

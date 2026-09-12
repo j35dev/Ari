@@ -55,7 +55,7 @@ export function PaneFrame({
   children,
 }: PaneFrameProps) {
   const menu = useContextMenu()
-  const drop = usePaneDrop({ paneId, blank, onDropSession, onDropPane })
+  const drop = usePaneDrop({ paneId, blank, canSplit, onDropSession, onDropPane })
   const label = title ?? 'Empty pane'
   const splitLimit = `A layout holds at most ${String(MAX_PANES)} panes`
   return (

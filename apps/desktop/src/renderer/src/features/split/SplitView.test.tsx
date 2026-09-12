@@ -6,6 +6,7 @@ import {
   MAX_PANES,
   assignSession,
   initialLayout,
+  leaves,
   setRatio,
   splitPane,
   toggleZoom,
@@ -416,5 +417,31 @@ describe('dropping onto a pane', () => {
 
     fireDrag('drop', surface, { clientX: 390, clientY: 100, ...sessionDrag })
     expect(onDropSession).toHaveBeenCalledWith('pane1', 'sC', 'right')
+  })
+
+  it('refuses a session on a full layout, but still trades panes', () => {
+    // The ceiling is only reached by splitting, so the pane a session would
+    // split is a filled one — and filled it has no room beside it.
+    const crowded = full()
+    const panes = leaves(crowded.root)
+    const neighbour = panes[0]!.paneId
+    const target = panes[1]!.paneId
+    const { onDropSession, onDropPane } = renderSplit(assignSession(crowded, target, 'sB'))
+    const pane = screen.getByRole('region', { name: 'Beta' })
+    measure(pane)
+
+    // No preview and no drop: there is no room for the pane the split would
+    // make, so the drag is told no before it is let go.
+    fireDrag('dragover', pane, { clientX: 20, clientY: 20, ...sessionDrag })
+    expect(pane.querySelector('[data-drop-target]')).toBeNull()
+    fireDrag('drop', pane, { clientX: 20, clientY: 20, ...sessionDrag })
+    expect(onDropSession).not.toHaveBeenCalled()
+
+    // A swap makes no pane, so the ceiling has nothing to say about it.
+    const carryingPane = { mime: PANE_MIME, value: neighbour }
+    fireDrag('dragover', pane, { clientX: 20, clientY: 20, ...carryingPane })
+    expect(pane.querySelector('[data-drop-target]')).toHaveAttribute('data-drop-target', 'fill')
+    fireDrag('drop', pane, { clientX: 20, clientY: 20, ...carryingPane })
+    expect(onDropPane).toHaveBeenCalledWith(target, neighbour)
   })
 })
