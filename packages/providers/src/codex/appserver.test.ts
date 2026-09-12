@@ -77,12 +77,58 @@ describe('codex app-server mapper', () => {
       JSON.stringify({
         method: 'item/completed',
         params: {
-          item: { id: 'x', type: 'commandExecution', command: 'oops', status: 'failed', exitCode: 2 },
+          item: {
+            id: 'x',
+            type: 'commandExecution',
+            command: 'oops',
+            status: 'failed',
+            exitCode: 2,
+          },
         },
       }),
     )
     const completed = inbound.events.find((e) => e.type === 'tool-completed')
     expect(completed?.type === 'tool-completed' && completed.isError).toBe(true)
+  })
+
+  it('maps native and tool-produced images onto image output events', () => {
+    const mapper = createAppServerMapper()
+    const native = mapper.mapLine(
+      JSON.stringify({
+        method: 'item/completed',
+        params: {
+          item: { id: 'img_1', type: 'imageGeneration', status: 'completed', result: 'cG5n' },
+        },
+      }),
+    )
+    expect(native.events).toEqual([
+      {
+        type: 'image-output',
+        dataBase64: 'cG5n',
+        mimeType: 'image/png',
+        name: 'generated-image.png',
+      },
+    ])
+
+    const mcp = mapper.mapLine(
+      JSON.stringify({
+        method: 'item/completed',
+        params: {
+          item: {
+            id: 'tool_1',
+            type: 'mcpToolCall',
+            tool: 'imagegen',
+            status: 'completed',
+            result: { content: [{ type: 'image', data: 'aGk=', mimeType: 'image/webp' }] },
+          },
+        },
+      }),
+    )
+    expect(mcp.events.map((event) => event.type)).toEqual([
+      'tool-started',
+      'tool-completed',
+      'image-output',
+    ])
   })
 
   it('routes approval prompts as server requests with stable ids', () => {
@@ -105,9 +151,7 @@ describe('codex app-server mapper', () => {
   it('maps file-change items and ignores unknown server methods', () => {
     const mapper = createAppServerMapper()
     const inbounds = fixture('appserver-approval.jsonl').map((l) => mapper.mapLine(l))
-    const fileEvents = inbounds.flatMap((i) =>
-      i.kind === 'notification' ? i.events : [],
-    )
+    const fileEvents = inbounds.flatMap((i) => (i.kind === 'notification' ? i.events : []))
     expect(fileEvents.some((e) => e.type === 'tool-started')).toBe(true)
 
     const unknown = mapper.mapLine(JSON.stringify({ method: 'fs/watch', params: {} }))
@@ -126,9 +170,11 @@ describe('codex app-server mapper', () => {
       kind: 'response',
       id: 9,
     })
-    expect(
-      mapper.mapLine('{"id":10,"error":{"code":404,"message":"nope"}}'),
-    ).toMatchObject({ kind: 'error-response', id: 10, message: 'nope' })
+    expect(mapper.mapLine('{"id":10,"error":{"code":404,"message":"nope"}}')).toMatchObject({
+      kind: 'error-response',
+      id: 10,
+      message: 'nope',
+    })
   })
 
   it('suppresses retriable error notifications', () => {
@@ -301,10 +347,7 @@ function standardServer(): ServerHandler {
   }
 }
 
-async function drain(
-  adapter: ProviderAdapter,
-  guardMs = 3000,
-): Promise<AgentEvent[]> {
+async function drain(adapter: ProviderAdapter, guardMs = 3000): Promise<AgentEvent[]> {
   const iterator = adapter.start()[Symbol.asyncIterator]()
   const out: AgentEvent[] = []
   while (true) {
@@ -439,7 +482,10 @@ describe('codex app-server adapter', () => {
     child.stdout.write(
       `${JSON.stringify({
         method: 'turn/started',
-        params: { threadId: 'thr_live', turn: { id: 'turn_live', status: 'inProgress', items: [] } },
+        params: {
+          threadId: 'thr_live',
+          turn: { id: 'turn_live', status: 'inProgress', items: [] },
+        },
       })}\n`,
     )
     await sleep(10)
@@ -502,7 +548,10 @@ describe('codex app-server adapter', () => {
     child.stdout.write(
       `${JSON.stringify({
         method: 'turn/started',
-        params: { threadId: 'thr_live', turn: { id: 'turn_live', status: 'inProgress', items: [] } },
+        params: {
+          threadId: 'thr_live',
+          turn: { id: 'turn_live', status: 'inProgress', items: [] },
+        },
       })}\n`,
     )
     await sleep(10)

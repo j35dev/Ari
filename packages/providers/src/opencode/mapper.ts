@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
+import { imageOutputEvents } from '../image-output'
 
 /**
  * Maps `opencode run --format json` JSONL lines onto normalized AgentEvents.
@@ -54,6 +55,7 @@ function mapToolPart(part: OpencodePart): AgentEvent[] {
     resultJson: JSON.stringify(part.state?.output ?? ''),
     isError: status === 'error' || (typeof exit === 'number' && exit !== 0),
   })
+  events.push(...imageOutputEvents(part.state?.output))
   return events
 }
 

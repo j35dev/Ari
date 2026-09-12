@@ -31,7 +31,13 @@ import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
-import { getEndpointStore, getProjectStore, getSessionStore, getSettingsStore, loadProject } from './store'
+import {
+  getEndpointStore,
+  getProjectStore,
+  getSessionStore,
+  getSettingsStore,
+  loadProject,
+} from './store'
 import {
   TerminalService,
   ptyUnavailableReason,
@@ -570,6 +576,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return getProjectStore().get(projectId)?.path ?? null
     },
     resolveAttachmentPath: (id) => attachmentStore.pathFor(id),
+    stageOutputImage: async (image) => {
+      const attachment = (await attachmentStore.stage([image]))[0]
+      if (attachment === undefined) throw new Error('provider image was not staged')
+      return attachment
+    },
     runtimeEnvironment: async (session) => (await controlReady).environment(session),
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),

@@ -5,6 +5,10 @@ import { createElement } from 'react'
 import type { Message } from '@ari/contracts/message'
 import { TranscriptView } from './TranscriptView'
 
+vi.mock('./attachment-urls', () => ({
+  attachmentDataUrl: () => Promise.resolve('data:image/png;base64,aGk='),
+}))
+
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as the perf test).
 if (!Element.prototype.scrollTo) {
@@ -98,6 +102,37 @@ describe('TranscriptView loading state', () => {
       }),
     )
     expect(screen.queryByRole('button', { name: /Jump to latest/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('TranscriptView image output', () => {
+  it('renders provider images as assistant content', async () => {
+    render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [
+          {
+            ...message('generated'),
+            role: 'assistant',
+            parts: [
+              {
+                type: 'image',
+                attachmentId: 'att_generated',
+                name: 'generated.png',
+                mimeType: 'image/png',
+                size: 2,
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    expect(screen.getByRole('list', { name: 'Generated images' })).toBeInTheDocument()
+    expect(await screen.findByRole('img', { name: 'generated.png' })).toHaveAttribute(
+      'src',
+      'data:image/png;base64,aGk=',
+    )
   })
 })
 

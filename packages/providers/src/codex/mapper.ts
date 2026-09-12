@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
+import { codexImageOutput, imageOutputEvents } from '../image-output'
 
 /**
  * Maps `codex exec --json` JSONL lines onto normalized AgentEvents. Pure and
@@ -16,6 +17,7 @@ interface CodexItem {
   aggregated_output?: string
   exit_code?: number
   status?: string
+  result?: string
 }
 
 interface NativeLine {
@@ -100,6 +102,12 @@ export function mapCodexLine(line: string): AgentEvent[] {
             },
           ]
         }
+        case 'image_generation':
+        case 'image_generation_call': {
+          if (typeof item.result !== 'string' || item.status === 'failed') return []
+          const image = codexImageOutput(item.result)
+          return image === null ? [] : [image]
+        }
         default:
           return []
       }
@@ -116,9 +124,8 @@ export function mapCodexLine(line: string): AgentEvent[] {
       return [
         {
           type: 'usage',
-          inputTokens: typeof usage['input_tokens'] === 'number' ? (usage['input_tokens']) : 0,
-          outputTokens:
-            typeof usage['output_tokens'] === 'number' ? (usage['output_tokens']) : 0,
+          inputTokens: typeof usage['input_tokens'] === 'number' ? usage['input_tokens'] : 0,
+          outputTokens: typeof usage['output_tokens'] === 'number' ? usage['output_tokens'] : 0,
           costUsd: null,
         },
         { type: 'done' },
@@ -127,12 +134,8 @@ export function mapCodexLine(line: string): AgentEvent[] {
 
     case 'turn.failed': {
       const err = parsed.error
-      const message =
-        typeof err === 'string' ? err : (err?.message ?? 'codex turn failed')
-      return [
-        { type: 'error', message, rawJson: null },
-        { type: 'done' },
-      ]
+      const message = typeof err === 'string' ? err : (err?.message ?? 'codex turn failed')
+      return [{ type: 'error', message, rawJson: null }, { type: 'done' }]
     }
 
     default:
@@ -173,6 +176,8 @@ interface AppServerItem {
   status?: string
   tool?: string
   result?: unknown
+  contentItems?: unknown[] | null
+  savedPath?: string | null
   summary?: { text?: string }[] | null
   content?: { text?: string }[] | null
 }
@@ -282,8 +287,32 @@ export function createAppServerMapper(): AppServerMapper {
             resultJson: JSON.stringify(item.result ?? item),
             isError: item.status === 'failed',
           })
+          events.push(...imageOutputEvents(item.result))
         }
         return events
+      }
+      case 'dynamicToolCall': {
+        if (!callId) return []
+        const events: AgentEvent[] = []
+        if (!startedItems.has(callId)) {
+          startedItems.add(callId)
+          events.push({ type: 'tool-started', callId, name: item.tool ?? 'tool', argsJson: '{}' })
+        }
+        if (complete) {
+          events.push({
+            type: 'tool-completed',
+            callId,
+            resultJson: JSON.stringify(item.contentItems ?? []),
+            isError: item.status === 'failed',
+          })
+          events.push(...imageOutputEvents(item.contentItems))
+        }
+        return events
+      }
+      case 'imageGeneration': {
+        if (!complete || typeof item.result !== 'string' || item.status === 'failed') return []
+        const image = codexImageOutput(item.result)
+        return image === null ? [] : [image]
       }
       default:
         return []
@@ -300,7 +329,11 @@ export function createAppServerMapper(): AppServerMapper {
           kind: 'notification',
           method: '',
           events: [
-            { type: 'error', message: `unparseable frame: ${formatUnknownError(e)}`, rawJson: null },
+            {
+              type: 'error',
+              message: `unparseable frame: ${formatUnknownError(e)}`,
+              rawJson: null,
+            },
           ],
         }
       }
@@ -318,7 +351,12 @@ export function createAppServerMapper(): AppServerMapper {
             events: [],
           }
         }
-        return { kind: 'response', id: frame['id'] as number, result: frame['result'] ?? null, events: [] }
+        return {
+          kind: 'response',
+          id: frame['id'] as number,
+          result: frame['result'] ?? null,
+          events: [],
+        }
       }
 
       const params = (frame['params'] ?? {}) as Record<string, unknown>
@@ -334,7 +372,11 @@ export function createAppServerMapper(): AppServerMapper {
         }
       }
 
-      return { kind: 'notification', method: method ?? '', events: notificationEvents(method, params, deltaSeen, itemEvents) }
+      return {
+        kind: 'notification',
+        method: method ?? '',
+        events: notificationEvents(method, params, deltaSeen, itemEvents),
+      }
     },
   }
 }
@@ -358,10 +400,7 @@ function approvalEvent(
     return null
   }
   const approvalId = approvalRef(params)
-  const toolName =
-    method === 'item/commandExecution/requestApproval'
-      ? 'bash'
-      : 'file-change'
+  const toolName = method === 'item/commandExecution/requestApproval' ? 'bash' : 'file-change'
   const summary: Record<string, unknown> = {}
   for (const key of ['command', 'cwd', 'reason', 'grantRoot', 'itemId']) {
     if (params[key] !== undefined && params[key] !== null) summary[key] = params[key]
@@ -417,8 +456,7 @@ function notificationEvents(
     }
     case 'thread/tokenUsage/updated': {
       const usage = params['tokenUsage'] as
-        | { total?: { inputTokens?: number; outputTokens?: number } }
-        | undefined
+        { total?: { inputTokens?: number; outputTokens?: number } } | undefined
       const total = usage?.total ?? {}
       return [
         {
@@ -431,8 +469,7 @@ function notificationEvents(
     }
     case 'turn/completed': {
       const turn = params['turn'] as
-        | { status?: string; error?: { message?: string } | null }
-        | undefined
+        { status?: string; error?: { message?: string } | null } | undefined
       if (turn?.status === 'failed') {
         return [
           { type: 'error', message: turn.error?.message ?? 'codex turn failed', rawJson: null },

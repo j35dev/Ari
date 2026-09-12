@@ -70,7 +70,12 @@ describe('AcpUpdateFolder', () => {
     const folder = new AcpUpdateFolder()
     expect(
       folder.fold({
-        update: { sessionUpdate: 'usage_update', used: 12, size: 100, cost: { amount: 5, currency: 'EUR' } },
+        update: {
+          sessionUpdate: 'usage_update',
+          used: 12,
+          size: 100,
+          cost: { amount: 5, currency: 'EUR' },
+        },
       }),
     ).toEqual([])
     expect(folder.fold({})).toEqual([])
@@ -80,20 +85,62 @@ describe('AcpUpdateFolder', () => {
   it('keeps empty text chunks out of the stream', () => {
     const folder = new AcpUpdateFolder()
     expect(
-      folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '' } } }),
+      folder.fold({
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '' } },
+      }),
     ).toEqual([])
   })
 
+  it('preserves image blocks from agent messages and completed tools', () => {
+    const folder = new AcpUpdateFolder()
+    expect(
+      folder.fold({
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: [
+            { type: 'text', text: 'Rendered:' },
+            { type: 'image', data: 'aGk=', mimeType: 'image/png' },
+          ],
+        },
+      }),
+    ).toEqual([
+      { type: 'text-delta', text: 'Rendered:' },
+      { type: 'image-output', dataBase64: 'aGk=', mimeType: 'image/png', name: 'generated-image' },
+    ])
+
+    const toolEvents = folder.fold({
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'image_tool_1',
+        status: 'completed',
+        content: [{ type: 'image', data: 'anBn', mimeType: 'image/jpeg' }],
+      },
+    })
+    expect(toolEvents.map((event) => event.type)).toEqual([
+      'tool-started',
+      'tool-completed',
+      'image-output',
+    ])
+  })
+
   it('does not turn the pi-acp startup prelude into assistant prose', () => {
-    const startupInfo = '## Context\n- D:/project/AGENTS.md\n\n## Skills\n- C:/skills/example/SKILL.md\n'
+    const startupInfo =
+      '## Context\n- D:/project/AGENTS.md\n\n## Skills\n- C:/skills/example/SKILL.md\n'
     const folder = new AcpUpdateFolder()
     folder.setStartupInfo(startupInfo)
 
     expect(
-      folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: startupInfo } } }),
+      folder.fold({
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: startupInfo },
+        },
+      }),
     ).toEqual([])
     expect(
-      folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hi.' } } }),
+      folder.fold({
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hi.' } },
+      }),
     ).toEqual([{ type: 'text-delta', text: 'Hi.' }])
   })
 
@@ -102,7 +149,12 @@ describe('AcpUpdateFolder', () => {
     folder.setStartupInfo('## Context\n- D:/project/AGENTS.md\n')
 
     expect(
-      folder.fold({ update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '## Context\n- D:/project/AGENTS.md\n\nI found it.' } } }),
+      folder.fold({
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: '## Context\n- D:/project/AGENTS.md\n\nI found it.' },
+        },
+      }),
     ).toEqual([{ type: 'text-delta', text: '## Context\n- D:/project/AGENTS.md\n\nI found it.' }])
   })
 
@@ -191,7 +243,10 @@ describe('terminalLoginsFrom', () => {
   it('falls back to the terminal-auth label, then the id, for a nameless method', () => {
     const [labelled, bare] = terminalLoginsFrom({
       authMethods: [
-        { id: 'console-login', _meta: { 'terminal-auth': { command: 'node', label: 'Console Login' } } },
+        {
+          id: 'console-login',
+          _meta: { 'terminal-auth': { command: 'node', label: 'Console Login' } },
+        },
         { id: 'other-login', name: '   ', _meta: { 'terminal-auth': { command: 'node' } } },
       ],
     })
@@ -208,7 +263,16 @@ describe('terminalLoginsFrom', () => {
   it("reads the registry's type/args shape against the agent's own launch", () => {
     // The `_meta` extension is a stopgap the adapters call one; the registry
     // shape is `args` to whatever command started the agent.
-    const result = { authMethods: [{ id: 'pi_terminal_login', name: 'Launch pi', type: 'terminal', args: ['--terminal-login'] }] }
+    const result = {
+      authMethods: [
+        {
+          id: 'pi_terminal_login',
+          name: 'Launch pi',
+          type: 'terminal',
+          args: ['--terminal-login'],
+        },
+      ],
+    }
     expect(terminalLoginsFrom(result, { command: 'npx', args: ['-y', 'pi-acp@0.0.33'] })).toEqual([
       {
         methodId: 'pi_terminal_login',
@@ -230,7 +294,9 @@ describe('terminalLoginsFrom', () => {
             id: 'pi_terminal_login',
             type: 'terminal',
             args: ['--terminal-login'],
-            _meta: { 'terminal-auth': { command: 'node', args: ['dist/index.js', '--terminal-login'] } },
+            _meta: {
+              'terminal-auth': { command: 'node', args: ['dist/index.js', '--terminal-login'] },
+            },
           },
         ],
       },
