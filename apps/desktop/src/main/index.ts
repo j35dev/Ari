@@ -2,10 +2,9 @@ import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { isolateDevInstance } from './dev-instance'
-import { registerRpc } from './rpc'
+import { registerRpc, startAppUpdateChecks } from './rpc'
 import { createTray, type TrayHandle } from './tray'
 import { updateTrayStatus } from './tray-status'
-import { startAutoUpdater } from './updater'
 import { createMainWindow } from './window'
 import { isAppUrl, isExternalOpenable } from './external-links'
 
@@ -39,7 +38,7 @@ if (!gotLock) {
     // is never a separate splash surface to hand over from.
     mainWindow = createMainWindow()
     mainWindow.once('ready-to-show', () => {
-      startAutoUpdater()
+      startAppUpdateChecks()
     })
     tray = createTray(() => {
       if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow()
