@@ -44,7 +44,13 @@ import {
 import { useProjectExpand } from './use-project-expand'
 import { useSessionCollapse } from './use-session-collapse'
 import { useSidebarView, type SidebarView } from './use-sidebar-view'
-import { sessionTree, searchSessionTree } from '../features/session/session-tree'
+import {
+  archiveTargetIds,
+  descendantIds,
+  searchSessionTree,
+  selectionRoots,
+  sessionTree,
+} from '../features/session/session-tree'
 import {
   ContextMenu,
   anchorBelow,
@@ -105,10 +111,26 @@ const ICON_BTN =
 
 /** Small trailing affordance (session / project menu) revealed on row hover. */
 const ROW_ACTION_BTN =
-  'absolute right-1.5 flex size-5 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:bg-glass-active hover:text-fg focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+  'flex size-5 items-center justify-center rounded-sm text-fg-subtle hover:bg-glass-active hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
+/** Hover cluster that takes over the timestamp slot. */
+const ROW_ACTION_CLUSTER =
+  'absolute right-1 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
 
 /** Quiet section caption shared by the view switch, recency buckets and shelves. */
 const SECTION_LABEL = 'text-[11px] font-medium tracking-[0.01em] text-fg-subtle'
+
+function SelectMark({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={`flex size-3.5 items-center justify-center rounded-sm border ${
+        checked ? 'border-accent bg-accent text-fg-on-accent' : 'border-border-strong bg-transparent'
+      }`}
+    >
+      {checked ? <Check size={10} aria-hidden /> : null}
+    </span>
+  )
+}
 
 /** Compact product wordmark; search and collapse sit as icon actions. */
 export function SidebarHeader({
@@ -184,6 +206,9 @@ function SessionRow({
   onTogglePin,
   onToggleArchive,
   onOpenInSplit,
+  selecting = false,
+  selected = false,
+  onToggleSelect,
 }: {
   session: SessionSummary
   hasChildren?: boolean
@@ -200,6 +225,9 @@ function SessionRow({
   onToggleArchive: (id: string, archived: boolean) => void
   /** Omit where there is no split view to open one in; the row then just lists. */
   onOpenInSplit?: (id: string, edge: PaneEdge) => void
+  selecting?: boolean
+  selected?: boolean
+  onToggleSelect?: (id: string, shiftKey: boolean) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(session.title)
@@ -282,17 +310,40 @@ function SessionRow({
       className="group relative flex items-center"
       data-session-role={hasChildren ? 'parent' : nested ? 'child' : undefined}
     >
+      {selecting ? (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={`Select ${session.title}`}
+          onClick={(e) => onToggleSelect?.(session.id, e.shiftKey)}
+          className="flex size-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <SelectMark checked={selected} />
+        </button>
+      ) : null}
       <button
         type="button"
         // A row dragged into the pane area opens there; the drag carries only
         // the session, so nothing about this list has to know about panes.
-        draggable
-        onDragStart={(e) => setDragSession(e, session.id, session.title)}
-        onClick={() => onSelect(session.id)}
+        // Select mode owns the click, so the row is not a drag source then.
+        draggable={!selecting}
+        onDragStart={
+          selecting ? undefined : (e) => setDragSession(e, session.id, session.title)
+        }
+        onClick={(e) => {
+          if (selecting) {
+            onToggleSelect?.(session.id, e.shiftKey)
+            return
+          }
+          onSelect(session.id)
+        }}
         onContextMenu={(e) => menu.open(session.id, e)}
         title={projectName ?? undefined}
         className={`flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-          isActive ? 'bg-accent/15 text-fg font-medium'
+          selected
+            ? 'bg-accent/15 text-fg'
+            : isActive ? 'bg-accent/15 text-fg font-medium'
             : activity !== undefined
               ? 'text-fg hover:bg-glass-hover'
               : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
@@ -337,15 +388,29 @@ function SessionRow({
       {/* Sibling, not nested: a control inside a <button> is invalid HTML and
           breaks keyboard semantics. Right-click anywhere on the row opens the
           same menu; this is just the discoverable affordance. It takes over the
-          timestamp slot while the row is hovered. */}
-      <button
-        type="button"
-        aria-label={`Session actions for ${session.title}`}
-        onClick={(e) => menu.open(session.id, e)}
-        className={`${ROW_ACTION_BTN} group-hover:opacity-100`}
-      >
-        <MoreHorizontal size={13} aria-hidden />
-      </button>
+          timestamp slot while the row is hovered. Archive is a one-press
+          sibling so parking a chat does not take a trip through the menu. */}
+      <div className={ROW_ACTION_CLUSTER}>
+        {!session.archived && !selecting ? (
+          <button
+            type="button"
+            aria-label={`Archive ${session.title}`}
+            title="Archive"
+            onClick={() => onToggleArchive(session.id, true)}
+            className={ROW_ACTION_BTN}
+          >
+            <Archive size={13} aria-hidden />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-label={`Session actions for ${session.title}`}
+          onClick={(e) => menu.open(session.id, e)}
+          className={ROW_ACTION_BTN}
+        >
+          <MoreHorizontal size={13} aria-hidden />
+        </button>
+      </div>
       {menu.openFor === session.id ? (
         <ContextMenu
           anchor={menu.anchor}
@@ -422,6 +487,11 @@ interface SessionRowHandlers {
   onOpenInSplit?: (id: string, edge: PaneEdge) => void
   /** Live working/paused/done overlay; omit in tests that only cover listing. */
   activityOf?: (sessionId: string) => SessionActivity | undefined
+  selecting?: boolean
+  selectedIds?: ReadonlySet<string>
+  onToggleSelect?: (id: string, shiftKey: boolean) => void
+  onArchiveMany?: (ids: string[]) => void
+  onDeleteMany?: (ids: string[]) => void
 }
 
 /** FLIP-animated session list; shared by groups, the archived shelf and search. */
@@ -487,6 +557,9 @@ function SessionList({
                     onTogglePin={handlers.onTogglePin}
                     onToggleArchive={handlers.onToggleArchive}
                     onOpenInSplit={handlers.onOpenInSplit}
+                    selecting={handlers.selecting}
+                    selected={handlers.selectedIds?.has(s.id) ?? false}
+                    onToggleSelect={handlers.onToggleSelect}
                   />
                 </div>
               </div>
@@ -600,6 +673,7 @@ function ProjectGroupSection({
   drag,
   canMoveUp,
   canMoveDown,
+  bulk,
 }: {
   name: string
   project: SidebarProject | null
@@ -612,9 +686,23 @@ function ProjectGroupSection({
   drag?: { controls: DragControls; onPressStart: () => void }
   canMoveUp?: boolean
   canMoveDown?: boolean
+  bulk?: {
+    selecting: boolean
+    selectedCount: number
+    allSelected: boolean
+    onEnterSelect: () => void
+    onToggleSelectAll: () => void
+    onArchiveAll: () => void
+    onDeleteAll: () => void
+  }
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
   const menu = useContextMenu()
+  const menuId = project?.id ?? UNFILED_GROUP_ID
+  const empty = sessions.length === 0
+  const allSelected = bulk?.allSelected ?? false
+  const scope = project ? 'this project' : 'Unfiled'
   // Distinguishes the click that follows a header release from the drag that
   // started on it: only a press that did not travel toggles the group.
   const pressOrigin = useRef<{ x: number; y: number } | null>(null)
@@ -626,6 +714,18 @@ function ProjectGroupSection({
     <section className="group/project" aria-label={name}>
       <div data-active-group={isActiveGroup ? '' : undefined}>
         <div className="relative flex items-center">
+          {bulk?.selecting ? (
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={allSelected}
+              aria-label={`Select all sessions in ${name}`}
+              onClick={bulk.onToggleSelectAll}
+              className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <SelectMark checked={allSelected} />
+            </button>
+          ) : null}
           <button
             type="button"
             aria-expanded={expanded}
@@ -646,7 +746,7 @@ function ProjectGroupSection({
               drag.onPressStart()
               drag.controls.start(e)
             }}
-            onContextMenu={project ? (e) => menu.open(project.id, e) : undefined}
+            onContextMenu={(e) => menu.open(menuId, e)}
             className={`flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
               missing ? 'opacity-60' : ''
             } ${isActiveGroup ? 'text-fg' : 'text-fg-muted hover:text-fg'}`}
@@ -661,79 +761,132 @@ function ProjectGroupSection({
             </span>
             {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
             <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/project:opacity-0">
-              {sessions.length}
+              {bulk?.selecting ? `${String(bulk.selectedCount)}/${String(sessions.length)}` : sessions.length}
             </span>
           </button>
-          {project ? (
-            <button
-              type="button"
-              aria-label={`Project actions for ${name}`}
-              onClick={(e) => menu.open(project.id, e)}
-              className={`${ROW_ACTION_BTN} group-hover/project:opacity-100`}
-            >
-              <MoreHorizontal size={13} aria-hidden />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-label={project ? `Project actions for ${name}` : 'Unfiled session actions'}
+            onClick={(e) => menu.open(menuId, e)}
+            className={`${ROW_ACTION_BTN} absolute right-1.5 opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100`}
+          >
+            <MoreHorizontal size={13} aria-hidden />
+          </button>
         </div>
-        {project && menu.openFor === project.id ? (
+        {menu.openFor === menuId ? (
           <ContextMenu
             anchor={menu.anchor}
-            label={`Project actions for ${name}`}
+            label={project ? `Project actions for ${name}` : 'Unfiled session actions'}
             onClose={menu.close}
             items={[
+              ...(project
+                ? ([
+                    {
+                      id: 'new',
+                      label: 'New session here',
+                      icon: Plus,
+                      onSelect: () => actions.onNewSessionInProject?.(project.id),
+                    },
+                    {
+                      id: 'import',
+                      label: 'Import',
+                      icon: ImportIcon,
+                      disabled: missing,
+                      disabledReason: missing
+                        ? 'Locate this project before importing sessions'
+                        : undefined,
+                      onSelect: () => actions.onImportSessions?.(project.id),
+                    },
+                    {
+                      id: 'reveal',
+                      label: 'Reveal in file manager',
+                      icon: FolderOpen,
+                      onSelect: () => actions.onRevealProject?.(project.id),
+                    },
+                    {
+                      id: 'move-up',
+                      label: 'Move up',
+                      icon: ArrowUp,
+                      disabled: !canMoveUp,
+                      disabledReason: canMoveUp ? undefined : 'Already the top project',
+                      onSelect: () => actions.onMoveProject?.(project.id, -1),
+                    },
+                    {
+                      id: 'move-down',
+                      label: 'Move down',
+                      icon: ArrowDown,
+                      disabled: !canMoveDown,
+                      disabledReason: canMoveDown ? undefined : 'Already the last project',
+                      onSelect: () => actions.onMoveProject?.(project.id, 1),
+                    },
+                    {
+                      id: 'close',
+                      label: 'Close project',
+                      icon: X,
+                      onSelect: () => actions.onCloseProject?.(project.id),
+                    },
+                    {
+                      id: 'remove',
+                      label: 'Remove project',
+                      icon: Trash2,
+                      danger: true,
+                      onSelect: () => setConfirmRemove(true),
+                    },
+                  ] as ContextMenuItem[])
+                : []),
               {
-                id: 'new',
-                label: 'New session here',
-                icon: Plus,
-                onSelect: () => actions.onNewSessionInProject?.(project.id),
+                id: 'select',
+                label: 'Select sessions',
+                icon: Check,
+                disabled: empty,
+                disabledReason: empty ? 'No sessions in this group' : undefined,
+                onSelect: () => bulk?.onEnterSelect(),
               },
               {
-                id: 'import',
-                label: 'Import',
-                icon: ImportIcon,
-                disabled: missing,
-                disabledReason: missing
-                  ? 'Locate this project before importing sessions'
-                  : undefined,
-                onSelect: () => actions.onImportSessions?.(project.id),
+                id: 'archive-all',
+                label: `Archive all in ${scope}`,
+                icon: Archive,
+                disabled: empty,
+                disabledReason: empty ? 'No sessions in this group' : undefined,
+                onSelect: () => bulk?.onArchiveAll(),
               },
               {
-                id: 'reveal',
-                label: 'Reveal in file manager',
-                icon: FolderOpen,
-                onSelect: () => actions.onRevealProject?.(project.id),
-              },
-              {
-                id: 'move-up',
-                label: 'Move up',
-                icon: ArrowUp,
-                disabled: !canMoveUp,
-                disabledReason: canMoveUp ? undefined : 'Already the top project',
-                onSelect: () => actions.onMoveProject?.(project.id, -1),
-              },
-              {
-                id: 'move-down',
-                label: 'Move down',
-                icon: ArrowDown,
-                disabled: !canMoveDown,
-                disabledReason: canMoveDown ? undefined : 'Already the last project',
-                onSelect: () => actions.onMoveProject?.(project.id, 1),
-              },
-              {
-                id: 'close',
-                label: 'Close project',
-                icon: X,
-                onSelect: () => actions.onCloseProject?.(project.id),
-              },
-              {
-                id: 'remove',
-                label: 'Remove project',
+                id: 'delete-all',
+                label: `Delete all in ${scope}`,
                 icon: Trash2,
                 danger: true,
-                onSelect: () => setConfirmRemove(true),
+                disabled: empty,
+                disabledReason: empty ? 'No sessions in this group' : undefined,
+                onSelect: () => setConfirmDeleteAll(true),
               },
             ]}
           />
+        ) : null}
+        {confirmDeleteAll ? (
+          <ProjectNotice
+            tone="danger"
+            label={`Delete ${sessions.length} session${sessions.length === 1 ? '' : 's'} in ${scope}?`}
+          >
+            <button
+              type="button"
+              aria-label={`Confirm delete all in ${name}`}
+              onClick={() => {
+                setConfirmDeleteAll(false)
+                bulk?.onDeleteAll()
+              }}
+              className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              aria-label={`Keep sessions in ${name}`}
+              onClick={() => setConfirmDeleteAll(false)}
+              className="shrink-0 text-fg-subtle hover:text-fg"
+            >
+              <X size={13} />
+            </button>
+          </ProjectNotice>
         ) : null}
         {project && confirmRemove ? (
           <ProjectNotice tone="danger" label="Remove project?">
@@ -840,6 +993,7 @@ function DraggableProjectGroup({
   canMoveUp,
   canMoveDown,
   onPressStart,
+  bulk,
 }: {
   group: SidebarGroup
   project: SidebarProject | null
@@ -851,6 +1005,15 @@ function DraggableProjectGroup({
   canMoveUp: boolean
   canMoveDown: boolean
   onPressStart: () => void
+  bulk?: {
+    selecting: boolean
+    selectedCount: number
+    allSelected: boolean
+    onEnterSelect: () => void
+    onToggleSelectAll: () => void
+    onArchiveAll: () => void
+    onDeleteAll: () => void
+  }
 }) {
   const controls = useDragControls()
   return (
@@ -872,6 +1035,7 @@ function DraggableProjectGroup({
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
         drag={{ controls, onPressStart }}
+        bulk={bulk}
       />
     </Reorder.Item>
   )
@@ -893,6 +1057,8 @@ export function SessionsUnderProjects({
   onDelete,
   onTogglePin,
   onToggleArchive,
+  onArchiveMany,
+  onDeleteMany,
   onOpenInSplit,
   activityOf,
   onOpenProject,
@@ -916,13 +1082,28 @@ export function SessionsUnderProjects({
   const trimmed = query.trim().toLowerCase()
   const { isExpanded, toggle } = useProjectExpand()
   const { view, setView } = useSidebarView()
+  const [selectingGroupId, setSelectingGroupId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [lastSelectId, setLastSelectId] = useState<string | null>(null)
+  const [confirmDeleteSelected, setConfirmDeleteSelected] = useState(false)
+
+  const archiveOne = (id: string, archived: boolean): void => {
+    if (!archived) {
+      onToggleArchive(id, false)
+      return
+    }
+    const ids = archiveTargetIds(sessions, id)
+    if (onArchiveMany) onArchiveMany(ids)
+    else for (const target of ids) onToggleArchive(target, true)
+  }
+
   const handlers: SessionRowHandlers = {
     activeSessionId,
     onSelect,
     onRename,
     onDelete,
     onTogglePin,
-    onToggleArchive,
+    onToggleArchive: archiveOne,
     onOpenInSplit,
     activityOf,
   }
@@ -938,6 +1119,121 @@ export function SessionsUnderProjects({
   // Projects reorder among themselves; Unfiled stays a derived, trailing group.
   const projectGroups = useMemo(() => groups.filter((g) => g.id !== UNFILED_GROUP_ID), [groups])
   const unfiled = groups.find((g) => g.id === UNFILED_GROUP_ID)
+  const sessionsInGroup = (groupId: string): SessionSummary[] =>
+    groupId === UNFILED_GROUP_ID
+      ? (unfiled?.sessions ?? [])
+      : (groups.find((group) => group.id === groupId)?.sessions ?? [])
+  const visibleGroupIds = (groupId: string): string[] =>
+    sessionTree(sessionsInGroup(groupId)).map((row) => row.session.id)
+
+  const clearSelect = (): void => {
+    setSelectingGroupId(null)
+    setSelectedIds(new Set())
+    setLastSelectId(null)
+    setConfirmDeleteSelected(false)
+  }
+
+  const enterSelect = (groupId: string): void => {
+    if (!isExpanded(groupId)) toggle(groupId)
+    setSelectingGroupId(groupId)
+    setSelectedIds(new Set())
+    setLastSelectId(null)
+    setConfirmDeleteSelected(false)
+  }
+
+  const toggleSelect = (id: string, shiftKey: boolean): void => {
+    if (selectingGroupId === null) return
+    const order = visibleGroupIds(selectingGroupId)
+    if (!order.includes(id)) return
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      const add = (target: string): void => {
+        next.add(target)
+        for (const child of descendantIds(sessions, target)) next.add(child)
+      }
+      const remove = (target: string): void => {
+        next.delete(target)
+        for (const child of descendantIds(sessions, target)) next.delete(child)
+        const parent = sessions.find((session) => session.id === target)?.parentSessionId
+        if (parent !== undefined && parent !== null && next.has(parent)) next.delete(parent)
+      }
+      if (shiftKey && lastSelectId !== null && order.includes(lastSelectId)) {
+        const from = order.indexOf(lastSelectId)
+        const to = order.indexOf(id)
+        const lo = Math.min(from, to)
+        const hi = Math.max(from, to)
+        const adding = !prev.has(id)
+        for (let i = lo; i <= hi; i++) {
+          const sid = order[i]
+          if (sid === undefined) continue
+          if (adding) add(sid)
+          else remove(sid)
+        }
+      } else if (prev.has(id)) {
+        remove(id)
+      } else {
+        add(id)
+      }
+      return next
+    })
+    setLastSelectId(id)
+  }
+
+  const toggleSelectAll = (groupId: string): void => {
+    const ids = visibleGroupIds(groupId)
+    setSelectedIds((prev) =>
+      ids.length > 0 && ids.every((id) => prev.has(id)) ? new Set() : new Set(ids),
+    )
+  }
+
+  const archiveIds = (ids: string[]): void => {
+    const expanded = new Set<string>()
+    for (const id of ids) for (const target of archiveTargetIds(sessions, id)) expanded.add(target)
+    const list = [...expanded]
+    if (onArchiveMany) onArchiveMany(list)
+    else for (const id of list) onToggleArchive(id, true)
+    clearSelect()
+  }
+
+  const deleteIds = (ids: string[]): void => {
+    const roots = selectionRoots(sessions, new Set(ids))
+    if (onDeleteMany) onDeleteMany(roots)
+    else for (const id of roots) onDelete(id)
+    clearSelect()
+  }
+
+  const bulkFor = (groupId: string) => {
+    const visible = visibleGroupIds(groupId)
+    const selecting = selectingGroupId === groupId
+    return {
+      selecting,
+      selectedCount: selecting ? visible.filter((id) => selectedIds.has(id)).length : 0,
+      allSelected: selecting && visible.length > 0 && visible.every((id) => selectedIds.has(id)),
+      onEnterSelect: () => enterSelect(groupId),
+      onToggleSelectAll: () => toggleSelectAll(groupId),
+      onArchiveAll: () => archiveIds(visible),
+      onDeleteAll: () => deleteIds(visible),
+    }
+  }
+
+  const handlersFor = (groupId: string): SessionRowHandlers => ({
+    ...handlers,
+    selecting: selectingGroupId === groupId,
+    selectedIds,
+    onToggleSelect: toggleSelect,
+  })
+
+  useEffect(() => {
+    if (selectingGroupId === null) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      clearSelect()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectingGroupId])
+
   // Set on header pointer-down, consumed by the reorder it may trigger.
   const pressedGroupId = useRef<string | null>(null)
 
@@ -1047,11 +1343,12 @@ export function SessionsUnderProjects({
               sessions={group.sessions}
               expanded={isExpanded(group.id)}
               onToggle={() => toggle(group.id)}
-              handlers={handlers}
+              handlers={handlersFor(group.id)}
               actions={actions}
               canMoveUp={index > 0}
               canMoveDown={index < projectGroups.length - 1}
               onPressStart={() => (pressedGroupId.current = group.id)}
+              bulk={bulkFor(group.id)}
             />
           ))}
         </Reorder.Group>
@@ -1063,8 +1360,9 @@ export function SessionsUnderProjects({
               sessions={unfiled.sessions}
               expanded={isExpanded(UNFILED_GROUP_ID)}
               onToggle={() => toggle(UNFILED_GROUP_ID)}
-              handlers={handlers}
+              handlers={handlersFor(UNFILED_GROUP_ID)}
               actions={actions}
+              bulk={bulkFor(UNFILED_GROUP_ID)}
             />
           </div>
         ) : null}
@@ -1105,6 +1403,63 @@ export function SessionsUnderProjects({
       <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
         {body}
       </nav>
+      {selectingGroupId !== null ? (
+        <div className="flex shrink-0 items-center gap-2 border-t border-border px-3 py-2">
+          {confirmDeleteSelected ? (
+            <>
+              <span className="min-w-0 flex-1 truncate text-2xs text-danger">
+                {`Delete ${String(selectedIds.size)} session${selectedIds.size === 1 ? '' : 's'}?`}
+              </span>
+              <button
+                type="button"
+                aria-label="Confirm delete selected sessions"
+                onClick={() => deleteIds([...selectedIds])}
+                className="shrink-0 rounded-sm bg-danger px-1.5 py-0.5 text-2xs font-medium text-fg-on-accent"
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                aria-label="Cancel delete selected sessions"
+                onClick={() => setConfirmDeleteSelected(false)}
+                className="shrink-0 text-fg-subtle hover:text-fg"
+              >
+                <X size={13} />
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="min-w-0 flex-1 truncate text-2xs tabular-nums text-fg-subtle">
+                {`${String(selectedIds.size)} selected`}
+              </span>
+              <button
+                type="button"
+                disabled={selectedIds.size === 0}
+                onClick={() => archiveIds([...selectedIds])}
+                className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium text-fg-muted transition-colors hover:text-fg disabled:opacity-40"
+              >
+                Archive
+              </button>
+              <button
+                type="button"
+                disabled={selectedIds.size === 0}
+                onClick={() => setConfirmDeleteSelected(true)}
+                className="shrink-0 rounded-sm px-1.5 py-0.5 text-2xs font-medium text-danger transition-colors hover:text-danger disabled:opacity-40"
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                aria-label="Cancel session selection"
+                onClick={clearSelect}
+                className="shrink-0 text-fg-subtle hover:text-fg"
+              >
+                <X size={13} />
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
     </>
   )
 }
