@@ -44,11 +44,29 @@ function rehypeExternalTarget(): (tree: HastNode) => void {
   return (tree: HastNode) => visit(tree)
 }
 
+/**
+ * Relative image paths belong to a provider's working directory, not the
+ * renderer origin, so Chromium can only show a broken-image glyph. Generated
+ * files arrive separately as staged image parts; discard the unusable echo.
+ */
+function rehypeDropLocalImages(): (tree: HastNode) => void {
+  const visit = (node: HastNode): void => {
+    node.children = node.children?.filter((child) => {
+      if (child.type !== 'element' || child.tagName !== 'img') return true
+      const src = child.properties?.['src']
+      return typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'))
+    })
+    for (const child of node.children ?? []) visit(child)
+  }
+  return (tree: HastNode) => visit(tree)
+}
+
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkBreaks)
   .use(remarkRehype)
+  .use(rehypeDropLocalImages)
   .use(rehypeSanitize, {
     ...defaultSchema,
     protocols: { href: ['http', 'https', 'mailto'] },

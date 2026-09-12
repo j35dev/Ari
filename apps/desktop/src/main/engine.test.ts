@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -317,6 +317,66 @@ describe('engine end-to-end with scripted driver', () => {
         size: 2,
       },
     ])
+  }, 10000)
+
+  it('loads Grok file-backed image output before staging it', async () => {
+    const generatedPath = join(dir, '1.jpg')
+    await writeFile(generatedPath, 'jpeg bytes')
+    const imageDriver: Driver = {
+      kind: 'claude',
+      create: () =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield {
+                type: 'image-output-path',
+                path: generatedPath,
+                mimeType: 'image/jpeg',
+                name: '1.jpg',
+              }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(imageDriver)
+    const stageOutputImage = vi.fn(async () => ({
+      id: 'att_grok',
+      name: '1.jpg',
+      mimeType: 'image/jpeg',
+      size: 10,
+    }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      stageOutputImage,
+    })
+    const sessionId = 'sess_grok_image'
+    await seedSession(store, sessionId)
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'make an image', attachments: [] })
+    await engine.quiesce(sessionId)
+
+    expect(stageOutputImage).toHaveBeenCalledWith({
+      dataBase64: Buffer.from('jpeg bytes').toString('base64'),
+      mimeType: 'image/jpeg',
+      name: '1.jpg',
+    })
+    const assistant = (await store.load(sessionId)).messages.find(
+      (message) => message.role === 'assistant',
+    )
+    expect(assistant?.parts).toContainEqual({
+      type: 'image',
+      attachmentId: 'att_grok',
+      name: '1.jpg',
+      mimeType: 'image/jpeg',
+      size: 10,
+    })
   }, 10000)
 
   it('interrupt settles an active turn and drops late adapter events', async () => {

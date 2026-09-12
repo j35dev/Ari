@@ -121,6 +121,27 @@ describe('AcpUpdateFolder', () => {
       'tool-completed',
       'image-output',
     ])
+
+    expect(
+      folder.fold({
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'grok_image_1',
+          title: 'Image generation',
+          status: 'completed',
+          rawOutput: {
+            type: 'ImageGen',
+            path: 'C:\\Users\\test\\.grok\\sessions\\abc\\images\\1.jpg',
+            filename: '1.jpg',
+          },
+        },
+      }),
+    ).toContainEqual({
+      type: 'image-output-path',
+      path: 'C:\\Users\\test\\.grok\\sessions\\abc\\images\\1.jpg',
+      mimeType: 'image/jpeg',
+      name: '1.jpg',
+    })
   })
 
   it('does not turn the pi-acp startup prelude into assistant prose', () => {
