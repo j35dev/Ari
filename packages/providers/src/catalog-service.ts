@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
-import { catalogSource, modelsFor, setDynamicModels } from './catalogs'
+import { catalogSource, CLAUDE_ALIASES, modelsFor, setDynamicModels } from './catalogs'
 import type { CatalogModel } from './catalogs'
 
 const log = createLogger('providers:catalog')
@@ -27,6 +27,11 @@ export const REFRESH_TTL_MS = 6 * 60 * 60 * 1000
 interface RegistryModel {
   id?: string
   name?: string
+  family?: string
+  release_date?: string
+  status?: string
+  reasoning?: boolean
+  tool_call?: boolean
   modalities?: { output?: string[] }
   limit?: { context?: number }
 }
@@ -62,20 +67,66 @@ export interface CatalogServiceOptions {
   onUpdated?: (at: number) => void
 }
 
-function toCatalogModels(models: Record<string, RegistryModel>): CatalogModel[] {
-  const out: CatalogModel[] = []
+interface RegistryCandidate {
+  catalog: CatalogModel
+  family: string
+  releasedAt: number
+}
+
+function toCatalogModels(kind: DriverKind, models: Record<string, RegistryModel>): CatalogModel[] {
+  const candidates: RegistryCandidate[] = []
   for (const [id, model] of Object.entries(models)) {
     const outputs = model.modalities?.output
     if (outputs && !outputs.includes('text')) continue
     if (model.id && model.id !== id) continue
+    if (model.status === 'deprecated') continue
     const context = model.limit?.context
-    out.push({
-      id,
-      label: typeof model.name === 'string' && model.name.length > 0 ? model.name : id,
-      ...(context !== undefined && context > 0 ? { contextHint: `${Math.round(context / 1000)}k` } : {}),
+    candidates.push({
+      catalog: {
+        id,
+        label: typeof model.name === 'string' && model.name.length > 0 ? model.name : id,
+        ...(context !== undefined && context > 0
+          ? { contextHint: `${Math.round(context / 1000)}k` }
+          : {}),
+      },
+      family: model.family ?? id,
+      releasedAt: typeof model.release_date === 'string' ? Date.parse(model.release_date) || 0 : 0,
     })
   }
-  return out
+  candidates.sort((a, b) => b.releasedAt - a.releasedAt)
+
+  if (kind === 'claude') {
+    const perFamily = new Map<string, number>()
+    const current = candidates
+      .filter((candidate) => {
+        if (!candidate.catalog.id.startsWith('claude-')) return false
+        const count = perFamily.get(candidate.family) ?? 0
+        if (count >= 2) return false
+        perFamily.set(candidate.family, count + 1)
+        return true
+      })
+      .slice(0, 12)
+    // Aliases ride along with a real catalog, never replace one: returning
+    // them alone would make a payload with no usable anthropic rows look
+    // non-empty and clobber the richer snapshot the caller falls back to.
+    if (current.length === 0) return []
+    return [...CLAUDE_ALIASES, ...current.map((candidate) => candidate.catalog)]
+  }
+
+  if (kind === 'codex') {
+    return candidates
+      .filter((candidate) => {
+        const id = candidate.catalog.id
+        if (!id.startsWith('gpt-')) return false
+        if (/(?:audio|chat|image|realtime|transcrib|tts)/i.test(id)) return false
+        const model = models[id]
+        return model?.reasoning !== false && model?.tool_call !== false
+      })
+      .slice(0, 12)
+      .map((candidate) => candidate.catalog)
+  }
+
+  return candidates.slice(0, 12).map((candidate) => candidate.catalog)
 }
 
 /**
@@ -159,7 +210,7 @@ export class CatalogService {
       const body = (await response.json()) as RegistryPayload
       let applied = 0
       for (const [kind, providerId] of Object.entries(REGISTRY_PROVIDER)) {
-        const models = toCatalogModels(body[providerId]?.models ?? {})
+        const models = toCatalogModels(kind as DriverKind, body[providerId]?.models ?? {})
         if (models.length === 0) continue
         if (catalogSource(kind as DriverKind) !== 'live') {
           setDynamicModels(kind as DriverKind, 'cache', models)
