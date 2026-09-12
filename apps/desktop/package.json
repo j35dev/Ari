@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.29.3",
   "description": "Ari — an open, local-first agent development environment for Windows, macOS and Linux.",
-  "homepage": "https://github.com/tahacore/Ari",
+  "homepage": "https://github.com/j35dev/Ari",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
