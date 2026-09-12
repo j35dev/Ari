@@ -13,7 +13,9 @@ import {
   GitBranch,
   Import as ImportIcon,
   MoreHorizontal,
+  PanelBottom,
   PanelLeftClose,
+  PanelRight,
   Pencil,
   Pin,
   PinOff,
@@ -29,6 +31,8 @@ import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { SessionActivityMark } from '../features/moment'
 import { peakActivity, type SessionActivity } from '../features/session/session-activity'
+import { setDragSession } from '../features/split/drag-split'
+import type { PaneEdge } from '../features/split/split-layout'
 import { ContextMark } from './ContextMark'
 import {
   projectMoveFromOrder,
@@ -41,7 +45,13 @@ import { useProjectExpand } from './use-project-expand'
 import { useSessionCollapse } from './use-session-collapse'
 import { useSidebarView, type SidebarView } from './use-sidebar-view'
 import { sessionTree, searchSessionTree } from '../features/session/session-tree'
-import { ContextMenu, anchorBelow, useContextMenu, type MenuAnchor } from './ContextMenu'
+import {
+  ContextMenu,
+  anchorBelow,
+  useContextMenu,
+  type ContextMenuItem,
+  type MenuAnchor,
+} from './ContextMenu'
 
 /**
  * Position-only FLIP for session reorder and project expand. Ease-slide keeps
@@ -173,6 +183,7 @@ function SessionRow({
   onDelete,
   onTogglePin,
   onToggleArchive,
+  onOpenInSplit,
 }: {
   session: SessionSummary
   hasChildren?: boolean
@@ -187,6 +198,8 @@ function SessionRow({
   onDelete: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
+  /** Omit where there is no split view to open one in; the row then just lists. */
+  onOpenInSplit?: (id: string, edge: PaneEdge) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(session.title)
@@ -271,6 +284,10 @@ function SessionRow({
     >
       <button
         type="button"
+        // A row dragged into the pane area opens there; the drag carries only
+        // the session, so nothing about this list has to know about panes.
+        draggable
+        onDragStart={(e) => setDragSession(e, session.id, session.title)}
         onClick={() => onSelect(session.id)}
         onContextMenu={(e) => menu.open(session.id, e)}
         title={projectName ?? undefined}
@@ -335,6 +352,23 @@ function SessionRow({
           label={`Session actions for ${session.title}`}
           onClose={menu.close}
           items={[
+            // The drag gestures' discoverable twin: same two moves, one click.
+            ...(onOpenInSplit
+              ? ([
+                  {
+                    id: 'split-right',
+                    label: 'Open in split right',
+                    icon: PanelRight,
+                    onSelect: () => onOpenInSplit(session.id, 'right'),
+                  },
+                  {
+                    id: 'split-below',
+                    label: 'Open in split below',
+                    icon: PanelBottom,
+                    onSelect: () => onOpenInSplit(session.id, 'below'),
+                  },
+                ] as ContextMenuItem[])
+              : []),
             {
               id: 'pin',
               label: session.pinned ? 'Unpin' : 'Pin to top',
@@ -384,6 +418,8 @@ interface SessionRowHandlers {
   onDelete: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
   onToggleArchive: (id: string, archived: boolean) => void
+  /** Opens a session in a new pane; absent when no split view is mounted. */
+  onOpenInSplit?: (id: string, edge: PaneEdge) => void
   /** Live working/paused/done overlay; omit in tests that only cover listing. */
   activityOf?: (sessionId: string) => SessionActivity | undefined
 }
@@ -450,6 +486,7 @@ function SessionList({
                     onDelete={handlers.onDelete}
                     onTogglePin={handlers.onTogglePin}
                     onToggleArchive={handlers.onToggleArchive}
+                    onOpenInSplit={handlers.onOpenInSplit}
                   />
                 </div>
               </div>
@@ -856,6 +893,7 @@ export function SessionsUnderProjects({
   onDelete,
   onTogglePin,
   onToggleArchive,
+  onOpenInSplit,
   activityOf,
   onOpenProject,
   onNewSession,
@@ -885,6 +923,7 @@ export function SessionsUnderProjects({
     onDelete,
     onTogglePin,
     onToggleArchive,
+    onOpenInSplit,
     activityOf,
   }
 

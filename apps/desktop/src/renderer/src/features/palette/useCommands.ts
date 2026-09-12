@@ -5,11 +5,16 @@ import {
   Gauge,
   GitPullRequest,
   Images,
+  Maximize2,
   MessageSquare,
+  PanelBottom,
+  PanelRight,
   Settings,
   TerminalSquare,
+  X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import type { PaneEdge } from '../split/split-layout'
 
 /** A runnable entry in the command palette. */
 export interface PaletteCommand {
@@ -34,18 +39,74 @@ export type NavigableView =
   | 'files'
   | 'usage'
 
+/**
+ * What the pane commands act on, as the shell sees it: the pane the user is in,
+ * and whether there is more than one of them. Absent where no split view is
+ * mounted, so the gallery and the tests get the navigation list alone.
+ */
+export interface PaneCommands {
+  /** Splits that pane, leaving the new one blank for a session to land in. */
+  split: (edge: PaneEdge) => void
+  close: () => void
+  toggleZoom: () => void
+  /** True while the layout is one pane, where closing and zooming mean nothing. */
+  single: boolean
+}
+
 /** Callbacks the app command list is built from. */
 export interface CommandsContext {
   onNavigate: (view: NavigableView) => void
   onOpenGallery: () => void
   onOpenSearch: () => void
+  panes?: PaneCommands
 }
 
 /**
- * Pure factory for the app command list: rail navigation targets and the
- * component gallery.
+ * The split-view entries. A lone pane already fills the area, so its close and
+ * zoom would be no-ops — the palette leaves them out rather than listing
+ * something that cannot happen.
+ */
+function paneCommands(panes: PaneCommands): PaletteCommand[] {
+  const splits: PaletteCommand[] = [
+    {
+      id: 'pane.splitRight',
+      label: 'Split pane right',
+      icon: PanelRight,
+      hint: 'Ctrl+\\',
+      run: () => panes.split('right'),
+    },
+    {
+      id: 'pane.splitDown',
+      label: 'Split pane down',
+      icon: PanelBottom,
+      hint: 'Ctrl+Shift+\\',
+      run: () => panes.split('below'),
+    },
+  ]
+  if (panes.single) return splits
+  return [
+    ...splits,
+    {
+      id: 'pane.zoom',
+      label: 'Zoom pane',
+      icon: Maximize2,
+      run: () => panes.toggleZoom(),
+    },
+    {
+      id: 'pane.close',
+      label: 'Close pane',
+      icon: X,
+      run: () => panes.close(),
+    },
+  ]
+}
+
+/**
+ * Pure factory for the app command list: rail navigation targets, the component
+ * gallery, and — when the shell mounts a split view — the pane commands.
  */
 export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
+  const { panes } = ctx
   return [
     {
       id: 'nav.sessions',
@@ -97,14 +158,15 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       icon: Images,
       run: () => ctx.onOpenGallery(),
     },
+    ...(panes === undefined ? [] : paneCommands(panes)),
   ]
 }
 
 /** Memoized app command list built from the passed context object. */
 export function useCommands(ctx: CommandsContext): PaletteCommand[] {
-  const { onNavigate, onOpenGallery, onOpenSearch } = ctx
+  const { onNavigate, onOpenGallery, onOpenSearch, panes } = ctx
   return useMemo(
-    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch }),
-    [onNavigate, onOpenGallery, onOpenSearch],
+    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch, panes }),
+    [onNavigate, onOpenGallery, onOpenSearch, panes],
   )
 }
