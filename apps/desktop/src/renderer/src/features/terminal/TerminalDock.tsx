@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Plus, RotateCcw, X } from 'lucide-react'
+import { FolderPlus, Plus, RotateCcw, X } from 'lucide-react'
 import type { RpcResults } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
 import { ContextMenu, type MenuAnchor } from '../../shell/ContextMenu'
@@ -41,35 +41,32 @@ const PRESETS: TabPreset[] = [
  * emulated command box — so `git`, `pnpm` and the agent CLIs behave exactly as
  * they do in a standalone terminal.
  *
+ * `cwd` is that project folder, and it is the only place a shell can start:
+ * `terminal.create` jails its working directory against the registered project
+ * roots. A null `cwd` therefore means there is nowhere to run — no project at
+ * all, or a legacy Unfiled session whose workspace is the home directory —
+ * and the rail says so rather than opening a shell the main process refuses.
+ *
  * Tabs live in the module-level dock store, so closing the rail parks the
  * shells instead of killing them; only the tab's × does that.
  */
-export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => void }) {
+export function TerminalDock({
+  cwd,
+  onAddProject,
+  onClose,
+}: {
+  cwd: string | null
+  /** Opens the folder picker, so a railless project can still be added. */
+  onAddProject?: () => void
+  onClose?: () => void
+}) {
   const { tabs, activeId } = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
-  const [failed, setFailed] = useState<string | null>(null)
-  const [resolvedCwd, setResolvedCwd] = useState<string | null>(cwd ?? null)
   const [launcherAnchor, setLauncherAnchor] = useState<MenuAnchor | null>(null)
   const [installedKinds, setInstalledKinds] = useState<Set<string>>(new Set())
-  const [cwdAttempt, setCwdAttempt] = useState(0)
   // `terminal.create` rejections used to leave a blank blinking cursor; each
   // tab now keeps its failure so the rail can name it and offer a retry.
   const [errorByTab, setErrorByTab] = useState<Record<string, string>>({})
   const [retryNonce, setRetryNonce] = useState<Record<string, number>>({})
-
-  useEffect(() => {
-    setResolvedCwd(cwd ?? null)
-  }, [cwd])
-
-  // The renderer is sandboxed — without a project the working directory has to
-  // come from the main process. `cwdAttempt` is what Retry bumps: the failed
-  // state leaves `resolvedCwd` null, so it alone can't re-trigger this.
-  useEffect(() => {
-    if (resolvedCwd !== null) return
-    void rpc
-      .invoke('app.info')
-      .then((info) => setResolvedCwd(info.homeDir))
-      .catch((e: unknown) => setFailed(e instanceof Error ? e.message : String(e)))
-  }, [resolvedCwd, cwdAttempt])
 
   // Agent presets are only offered for CLIs actually installed; the plain
   // shell preset is always available.
@@ -86,10 +83,10 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
 
   const spawnPreset = useCallback(
     (preset: TabPreset) => {
-      if (resolvedCwd === null) return
-      openTerminalTab({ title: preset.label, cwd: resolvedCwd, command: preset.command })
+      if (cwd === null) return
+      openTerminalTab({ title: preset.label, cwd, command: preset.command })
     },
-    [resolvedCwd],
+    [cwd],
   )
 
   // Run-script requests (M21.3) and CLI sign-in (M22.1) open their own tab.
@@ -106,10 +103,10 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
   // closing the last tab from instantly respawning it.
   const autoOpened = useRef(false)
   useEffect(() => {
-    if (autoOpened.current || resolvedCwd === null || tabs.length > 0) return
+    if (autoOpened.current || cwd === null || tabs.length > 0) return
     autoOpened.current = true
-    openTerminalTab({ title: SHELL_PRESET.label, cwd: resolvedCwd })
-  }, [resolvedCwd, tabs.length])
+    openTerminalTab({ title: SHELL_PRESET.label, cwd })
+  }, [cwd, tabs.length])
 
   const closeTab = useCallback((id: string) => {
     void rpc.invoke('terminal.kill', { id }).catch(() => undefined)
@@ -184,15 +181,19 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
             )
           })}
         </div>
-        <RailButton
-          label="New terminal"
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect()
-            setLauncherAnchor({ x: rect.left, y: rect.bottom + 4 })
-          }}
-        >
-          <Plus size={14} aria-hidden />
-        </RailButton>
+        {/* Nothing to launch into without a root — the rail offers the fix
+            instead, in the empty state below. */}
+        {cwd !== null ? (
+          <RailButton
+            label="New terminal"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setLauncherAnchor({ x: rect.left, y: rect.bottom + 4 })
+            }}
+          >
+            <Plus size={14} aria-hidden />
+          </RailButton>
+        ) : null}
         {onClose ? (
           <RailButton label="Close terminal panel" onClick={onClose}>
             <X size={13} aria-hidden />
@@ -235,26 +236,7 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
       ) : null}
 
       <div className="relative min-h-0 flex-1">
-        {failed !== null ? (
-          <EmptyRail message={`Terminal could not start: ${failed}`} tone="danger">
-            <RailAction
-              label="Retry"
-              icon={<RotateCcw size={12} />}
-              onClick={() => {
-                setFailed(null)
-                setCwdAttempt((n) => n + 1)
-              }}
-            />
-          </EmptyRail>
-        ) : tabs.length === 0 ? (
-          <EmptyRail message="No terminal open.">
-            <RailAction
-              label="Open a terminal"
-              icon={<Plus size={12} />}
-              onClick={() => spawnPreset(SHELL_PRESET)}
-            />
-          </EmptyRail>
-        ) : (
+        {tabs.length > 0 ? (
           tabs.map((tab) => {
             const active = tab.id === activeId
             // Background tabs stay mounted so their output keeps flowing, and
@@ -275,6 +257,26 @@ export function TerminalDock({ cwd, onClose }: { cwd?: string; onClose?: () => v
               </div>
             )
           })
+        ) : cwd === null ? (
+          // Parked shells outrank this: a session switch resolves its
+          // workspace a beat late, and an open shell must not blink out.
+          <EmptyRail message="Add a project to open a terminal — shells run inside a project folder.">
+            {onAddProject ? (
+              <RailAction
+                label="Add project"
+                icon={<FolderPlus size={12} />}
+                onClick={onAddProject}
+              />
+            ) : null}
+          </EmptyRail>
+        ) : (
+          <EmptyRail message="No terminal open.">
+            <RailAction
+              label="Open a terminal"
+              icon={<Plus size={12} />}
+              onClick={() => spawnPreset(SHELL_PRESET)}
+            />
+          </EmptyRail>
         )}
       </div>
     </div>
@@ -303,20 +305,10 @@ function RailButton({
   )
 }
 
-function EmptyRail({
-  message,
-  tone,
-  children,
-}: {
-  message: string
-  tone?: 'danger'
-  children: React.ReactNode
-}) {
+function EmptyRail({ message, children }: { message: string; children: React.ReactNode }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6">
-      <p className={`text-center text-xs ${tone === 'danger' ? 'text-danger' : 'text-fg-subtle'}`}>
-        {message}
-      </p>
+      <p className="text-center text-xs text-fg-subtle">{message}</p>
       {children}
     </div>
   )
