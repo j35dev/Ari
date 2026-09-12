@@ -35,6 +35,24 @@ describe('provider image output', () => {
     ])
   })
 
+  it('normalizes Grok ACP ImageGen file results', () => {
+    expect(
+      imageOutputEvents({
+        type: 'ImageGen',
+        path: 'C:\\Users\\test\\.grok\\sessions\\abc\\images\\1.jpg',
+        filename: '1.jpg',
+        session_folder: 'images',
+      }),
+    ).toEqual([
+      {
+        type: 'image-output-path',
+        path: 'C:\\Users\\test\\.grok\\sessions\\abc\\images\\1.jpg',
+        mimeType: 'image/jpeg',
+        name: '1.jpg',
+      },
+    ])
+  })
+
   it('normalizes a native Codex image-generation result', () => {
     expect(codexImageOutput('cG5n')).toEqual({
       type: 'image-output',

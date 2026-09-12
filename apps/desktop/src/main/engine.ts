@@ -1,5 +1,10 @@
 import { existsSync } from 'node:fs'
-import type { AttachmentRef, QueuedMessage } from '@ari/contracts/attachments'
+import { readFile, stat } from 'node:fs/promises'
+import {
+  MAX_ATTACHMENT_BYTES,
+  type AttachmentRef,
+  type QueuedMessage,
+} from '@ari/contracts/attachments'
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
@@ -604,6 +609,37 @@ export class Engine {
       })
     }
 
+    const stageProviderImage = async (
+      image: { name: string; mimeType: string },
+      loadBase64: () => Promise<string>,
+    ): Promise<void> => {
+      await flush()
+      try {
+        const dataBase64 = await loadBase64()
+        const attachment = await this.#deps.stageOutputImage?.({
+          name: image.name,
+          mimeType: image.mimeType,
+          dataBase64,
+        })
+        if (attachment === undefined) throw new Error('image storage is unavailable')
+        await append({
+          type: 'assistant.parts.appended',
+          messageId,
+          parts: [{ type: 'image', attachmentId: attachment.id, ...attachment }],
+        })
+      } catch (error) {
+        log.warn('provider image output could not be staged', {
+          sessionId: session.id,
+          error: String(error),
+        })
+        await append({
+          type: 'assistant.parts.appended',
+          messageId,
+          parts: [{ type: 'text', text: `\n\n⚠ Could not display ${image.name}.` }],
+        })
+      }
+    }
+
     try {
       let firstErrorMessage: string | null = null
       for await (const event of adapter.start()) {
@@ -618,30 +654,17 @@ export class Engine {
             break
           }
           case 'image-output': {
-            await flush()
-            try {
-              const attachment = await this.#deps.stageOutputImage?.({
-                name: event.name,
-                mimeType: event.mimeType,
-                dataBase64: event.dataBase64,
-              })
-              if (attachment === undefined) throw new Error('image storage is unavailable')
-              await append({
-                type: 'assistant.parts.appended',
-                messageId,
-                parts: [{ type: 'image', attachmentId: attachment.id, ...attachment }],
-              })
-            } catch (error) {
-              log.warn('provider image output could not be staged', {
-                sessionId: session.id,
-                error: String(error),
-              })
-              await append({
-                type: 'assistant.parts.appended',
-                messageId,
-                parts: [{ type: 'text', text: `\n\n⚠ Could not display ${event.name}.` }],
-              })
-            }
+            await stageProviderImage(event, () => Promise.resolve(event.dataBase64))
+            break
+          }
+          case 'image-output-path': {
+            await stageProviderImage(event, async () => {
+              const info = await stat(event.path)
+              if (!info.isFile() || info.size === 0 || info.size > MAX_ATTACHMENT_BYTES) {
+                throw new Error(`generated image has invalid size: ${info.size}`)
+              }
+              return (await readFile(event.path)).toString('base64')
+            })
             break
           }
           case 'tool-started': {
