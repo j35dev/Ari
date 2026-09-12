@@ -68,10 +68,26 @@ export interface ComposerProps {
   sessionId?: string
   /** Sits on the plate's top edge (child-session rail). */
   above?: React.ReactNode
+  /**
+   * Something docked above the plate needs an answer (question panel,
+   * approval cards). Attention outranks the {@link Composer} resting state:
+   * a shrunk plate under "needs your answer" hides the thing to act on.
+   * A child-session rail alone does not pin — it is a thin peek strip and is
+   * common while a turn runs, which is exactly when resting pays off.
+   */
+  attentionRequired?: boolean
 }
 
 const MIN_HEIGHT = 52
 const MAX_HEIGHT = 260
+
+/**
+ * The running-turn placeholder. A send during a live turn is journalled to the
+ * queue rather than dispatched, so the field says so instead of promising a
+ * send it will not perform. Matches the queued banner's "after the current
+ * turn" wording; the compact resting bar has no room for the long prompt.
+ */
+const RUNNING_PLACEHOLDER = 'Message will queue…'
 
 /**
  * Message composer: one glass plate. Draft on top; agent + permission on
@@ -80,6 +96,13 @@ const MAX_HEIGHT = 260
  * dropped images land in an attachment strip inside the plate and are handed
  * to `onSend` alongside the text — the session view stages them in the main
  * process before dispatching the turn.
+ *
+ * While a turn runs and the plate is empty, it rests: the foot row folds into
+ * the field's own row, handing the reclaimed height back to the transcript.
+ * Resting is refused whenever it would hide something the user owns — a draft,
+ * attached images, or docked attention UI — and any focus or click on the
+ * plate brings the full composer back. The textarea is never unmounted, so
+ * tab order, focus, and the caret survive every transition.
  */
 export function Composer({
   onSend,
@@ -95,6 +118,7 @@ export function Composer({
   seed,
   sessionId,
   above,
+  attentionRequired = false,
 }: ComposerProps) {
   const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
@@ -105,6 +129,51 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const { images, addFiles, removeAt, clear } = useImageAttachments()
+  const [focused, setFocused] = useState(false)
+
+  /**
+   * Resting is the compact one-row plate: it only ever happens over an empty,
+   * unfocused field during a live turn. A draft or a pending image is enough
+   * to refuse — collapsing would hide text the user wrote, which reads as data
+   * loss even though the state is intact.
+   */
+  const resting =
+    running && !disabled && !focused && !attentionRequired && text.trim().length === 0 && images.length === 0
+
+  /** Puts the caret back in the field and lets focus expand the plate. */
+  const focusField = useCallback(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    const end = el.value.length
+    el.setSelectionRange(end, end)
+  }, [])
+
+  /**
+   * Focus leaving the plate is the collapse trigger. Blur on the textarea
+   * alone would be wrong: the model, effort, and permission chips are real
+   * buttons inside the plate, so picking a model would otherwise fold the
+   * composer out from under the popover being used.
+   */
+  const handleShellBlur = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget as Node | null
+    if (next !== null && e.currentTarget.contains(next)) return
+    setFocused(false)
+  }, [])
+
+  /**
+   * A click anywhere on the resting plate (its padding, not just the textarea)
+   * reopens the composer. Buttons are exempt so Stop does not also expand it.
+   */
+  const handleShellMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!resting) return
+      if ((e.target as HTMLElement).closest('button') !== null) return
+      e.preventDefault()
+      focusField()
+    },
+    [resting, focusField],
+  )
 
   /** Keeps the mention highlight glued to the textarea's scroll position. */
   const syncOverlayScroll = useCallback(() => {
@@ -180,11 +249,15 @@ export function Composer({
   const resize = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
+    // Resting drops the floor: the foot row is gone, so one line plus the
+    // resting padding is the whole plate. `resting` is a dependency so the
+    // field re-measures against the padding it now carries.
+    const floor = resting ? 0 : MIN_HEIGHT
     el.style.height = 'auto'
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, MIN_HEIGHT), MAX_HEIGHT)}px`
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, floor), MAX_HEIGHT)}px`
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden'
     syncOverlayScroll()
-  }, [syncOverlayScroll])
+  }, [syncOverlayScroll, resting])
 
   useEffect(resize, [text, resize])
 
@@ -379,7 +452,13 @@ export function Composer({
           <div className="pb-5">{above}</div>
         </div>
       ) : null}
-      <div className="ari-composer-shell relative z-10 rounded-2xl">
+      <div
+        onFocus={() => setFocused(true)}
+        onBlur={handleShellBlur}
+        onMouseDown={handleShellMouseDown}
+        data-resting={resting || undefined}
+        className="ari-composer-shell relative z-10 rounded-2xl"
+      >
         {token?.kind === 'mention' && !dismissed && mentionItems.length > 0 && (
           <div className="absolute bottom-full left-0 right-0 z-20 mb-1">
             <FilePopup items={mentionItems} onSelect={handleMentionSelect} onClose={closePopup} />
@@ -391,7 +470,7 @@ export function Composer({
           </div>
         )}
         <div className="relative">
-          <MentionOverlay ref={overlayRef} text={text} />
+          <MentionOverlay ref={overlayRef} text={text} resting={resting} />
           <textarea
             ref={textareaRef}
             value={text}
@@ -405,15 +484,31 @@ export function Composer({
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onScroll={syncOverlayScroll}
-            placeholder={placeholder}
+            placeholder={running ? RUNNING_PLACEHOLDER : placeholder}
             disabled={disabled}
             rows={1}
             aria-label="Message"
-            className="block max-h-[260px] w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-sm leading-relaxed text-fg placeholder:text-fg-subtle/70 focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable]"
+            className={`block max-h-[260px] w-full resize-none bg-transparent text-sm leading-relaxed text-fg placeholder:text-fg-subtle/70 focus:outline-none disabled:opacity-50 [scrollbar-gutter:stable] ${
+              resting
+                ? // Symmetric padding centres the single line, and the right
+                  // inset keeps the placeholder clear of the overlaid send.
+                  'pb-3 pl-4 pr-12 pt-3.5'
+                : 'px-4 pt-3.5 pb-2'
+            }`}
           />
         </div>
-        <div className="flex items-center gap-1 px-2.5 pb-2 pt-1">
-          {leading}
+        <div
+          className={
+            resting
+              ? // The foot becomes an overlay on the field's own row, so the
+                // SendStopButton sits beside the placeholder instead of below.
+                'absolute inset-y-0 right-2 flex items-center'
+              : 'flex items-center gap-1 px-2.5 pb-2 pt-1'
+          }
+        >
+          {/* `contents` keeps the chips as direct flex children, so expanding
+              and resting lay out identically without remounting the pickers. */}
+          <div className={resting ? 'hidden' : 'contents'}>{leading}</div>
           <button
             type="button"
             aria-label="Send message"
@@ -424,8 +519,12 @@ export function Composer({
           >
             Send
           </button>
-          <div className="ms-auto flex shrink-0 items-center gap-1">
-            <div className="relative">
+          <div
+            className={
+              resting ? 'flex shrink-0 items-center' : 'ms-auto flex shrink-0 items-center gap-1'
+            }
+          >
+            <div className={resting ? 'hidden' : 'relative'}>
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
                 type="button"
@@ -517,10 +616,8 @@ export function Composer({
  * MAX_HEIGHT — and reserves the same scrollbar gutter so wrapping matches
  * while the textarea scrolls.
  */
-const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function MentionOverlay(
-  { text },
-  ref,
-) {
+const MentionOverlay = forwardRef<HTMLDivElement, { text: string; resting: boolean }>(
+  function MentionOverlay({ text, resting }, ref) {
   const ranges = mentionRanges(text)
   if (ranges.length === 0) return null
   const parts: React.ReactNode[] = []
@@ -543,7 +640,9 @@ const MentionOverlay = forwardRef<HTMLDivElement, { text: string }>(function Men
     <div
       ref={ref}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable]"
+      className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
+        resting ? 'pl-4 pr-12' : 'px-4'
+      }`}
     >
       {parts}
     </div>

@@ -24,6 +24,22 @@ One glass plate. Identity is a **mono letter mark** (C Claude, X Codex, O OpenCo
 
 Two-pane popover: provider rail left (vendor logo where official art exists — Anthropic, OpenAI — letter chip otherwise, name, model count), active provider's models right — no drill-in step. Search cuts across all providers into grouped flat results. Keyboard: ↑↓ move, ←→ switch provider, Enter picks, Esc closes. `lockedTo` hides the rail and pins the pane.
 
+## Resting state (2026-09-12 revision)
+
+While a turn runs and the plate is empty and unfocused, it **rests**: the foot row folds onto the field's own row so the plate is one line (~49px instead of ~96px) and the reclaimed height goes back to the transcript. The send control stays in place as the running turn's Stop; the agent/permission chips and the stash fold away. Any focus or click anywhere on the plate expands it again — the textarea is never unmounted, so tab order and the caret survive both directions.
+
+Resting is refused whenever folding would hide something the user owns:
+
+- **a draft, or staged images** — collapsing over typed text reads as data loss even though the state is intact;
+- **docked attention UI** (`attentionRequired`: question panel, approval cards) — a shrunk plate under "needs your answer" hides the thing to act on. A child-session rail does **not** pin: it is a thin peek strip and is most common exactly while a turn runs, which is when resting pays off;
+- **`disabled`**, and never while no turn is running.
+
+The trigger is focus leaving the **plate**, not the textarea. The model, effort, and permission chips are real buttons in the foot, so a textarea-blur trigger would fold the composer out from under the popover being used. `focusout` with a `relatedTarget` containment check is the rule.
+
+The running placeholder is `Message will queue…`, not the long prompt: a send during a live turn is journalled to the queue rather than dispatched, so the field must not promise a send it will not perform. It matches the queued banner's "after the current turn" wording.
+
+The dock above the plate is preserved by leaving it in normal flow: the rail's `-mb-3` / `pb-5` overlap is unchanged by the plate's height, so the rail simply rides lower and the join stays intact. Resting deliberately keeps the plate's full width and `rounded-2xl` — a narrower pill would break the left alignment with the transcript and shift horizontally on every transition.
+
 ## Semantic reuse
 
 - Color: `bg-glass-input`, `border-border`, `bg-surface-2` hover/active, `bg-accent` only on an armed send, `text-fg-subtle` for marks/hints.
@@ -41,6 +57,7 @@ Two-pane popover: provider rail left (vendor logo where official art exists — 
 ## States
 
 - Composer: empty (placeholder, send disabled), typing (send armed), running (stop), queued banner, @file mention popover, stash empty/full, disabled.
+- Composer resting: empty + unfocused + running → one row; refused by draft, staged images, docked attention, disabled. Stop remains reachable in the overlaid foot.
 - Picker: closed, open + loading, grouped list, search filter, no-match, selected + keyboard active, Escape / outside pointer close.
 - Permission: Ask / Edits / Full auto, current indicated, keyboard focus-visible.
 - Pointer vs keyboard: chips and send use `:focus-visible` only; plate has no `:focus-within` halo.

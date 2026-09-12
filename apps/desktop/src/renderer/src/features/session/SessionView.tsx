@@ -813,6 +813,16 @@ export function SessionView({
           return payload.kind === 'plan-approval' ? payload : null
         })()
 
+  /**
+   * Docked UI that needs an answer before anything else. Feeds the composer's
+   * resting state — the plate must never fold up under a question or an
+   * approval card, which would hide the thing the user has to act on. A plan
+   * approval is answered in the side panel, so it does not count here, and a
+   * child-session rail is a peek strip that does not pin either.
+   */
+  const composerAttentionRequired =
+    (pendingQuestion !== null && pendingPlan === null) || approvals.length > 0
+
   return (
     <div className="flex h-full min-h-0">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
@@ -913,13 +923,12 @@ export function SessionView({
           onRemoveQueued={handleRemoveQueued}
           seed={composerSeed ?? undefined}
           suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
+          attentionRequired={composerAttentionRequired}
           above={
             // A plan approval is answered in the side panel, so it mounts no
             // QuestionPanel and must not raise the strip on its own — an
             // `above` of empty children still draws the border.
-            (pendingQuestion !== null && pendingPlan === null) ||
-            approvals.length > 0 ||
-            childSessions.length > 0 ? (
+            composerAttentionRequired || childSessions.length > 0 ? (
               <>
                 {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
