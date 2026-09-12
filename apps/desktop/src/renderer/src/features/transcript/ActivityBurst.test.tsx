@@ -44,6 +44,26 @@ const RUN = [
 ]
 
 describe('ActivityBurst collapsed', () => {
+  it('gives a live image-generation call its own visible progress state', () => {
+    render(
+      <ActivityBurst
+        row={row([
+          call(
+            'c1',
+            'image_gen__imagegen',
+            '{"prompt":"A quiet observatory above a sea of clouds"}',
+          ),
+        ])}
+        active
+      />,
+    )
+
+    expect(screen.getByRole('region', { name: 'Generating image' })).toBeInTheDocument()
+    expect(screen.getByText('Rendering your image')).toBeInTheDocument()
+    expect(screen.getByText('A quiet observatory above a sea of clouds')).toBeInTheDocument()
+    expect(screen.getByText('0s')).toBeInTheDocument()
+  })
+
   it('names what the burst touched and hides every step until asked', () => {
     const { container } = render(<ActivityBurst row={row(RUN)} active={false} />)
 

@@ -6,6 +6,7 @@ import {
   commandHead,
   describeToolCall,
   effectiveToolName,
+  isImageGenerationCall,
   humanizeToolName,
   parseToolArgs,
   pastVerb,
@@ -16,6 +17,15 @@ import {
   toolSubject,
   toolTarget,
 } from './toolLabels'
+
+describe('isImageGenerationCall', () => {
+  it('recognises native and MCP image tool names', () => {
+    expect(isImageGenerationCall({ name: 'image_gen__imagegen' })).toBe(true)
+    expect(isImageGenerationCall({ name: 'generate_image' })).toBe(true)
+    expect(isImageGenerationCall({ name: 'tool', argsJson: '{"title":"create-image"}' })).toBe(true)
+    expect(isImageGenerationCall({ name: 'view_image' })).toBe(false)
+  })
+})
 
 describe('classifyTool', () => {
   it('buckets known tool names case-insensitively', () => {
