@@ -51,6 +51,30 @@ export function sessionTree(
   return rows
 }
 
+/**
+ * Selected ids whose parent is not also selected. Bulk destroy should hit
+ * these only: `session.destroy` already walks descendants, so a selected
+ * child under a selected parent must not be destroyed twice.
+ */
+export function selectionRoots(
+  sessions: readonly { id: string; parentSessionId?: string | null }[],
+  selected: ReadonlySet<string>,
+): string[] {
+  const byId = new Map(sessions.map((session) => [session.id, session]))
+  return [...selected].filter((id) => {
+    const parent = byId.get(id)?.parentSessionId
+    return !parent || !selected.has(parent)
+  })
+}
+
+/** `id` plus every descendant — archive has no cascade, so the UI expands it. */
+export function archiveTargetIds(
+  sessions: readonly { id: string; parentSessionId?: string | null }[],
+  id: string,
+): string[] {
+  return [id, ...descendantIds(sessions, id)]
+}
+
 /** Descendants of `rootId`, deepest first — same order a cascaded delete must use. */
 export function descendantIds(
   sessions: readonly { id: string; parentSessionId?: string | null }[],
