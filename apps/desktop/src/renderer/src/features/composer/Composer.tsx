@@ -72,8 +72,8 @@ export interface ComposerProps {
    * Something docked above the plate needs an answer (question panel,
    * approval cards). Attention outranks the {@link Composer} resting state:
    * a shrunk plate under "needs your answer" hides the thing to act on.
-   * A child-session rail alone does not pin — it is a thin peek strip and is
-   * common while a turn runs, which is exactly when resting pays off.
+   * A child-session rail alone does not pin — it is a thin peek strip that
+   * asks nothing of the user.
    */
   attentionRequired?: boolean
 }
@@ -97,12 +97,14 @@ const RUNNING_PLACEHOLDER = 'Message will queue…'
  * to `onSend` alongside the text — the session view stages them in the main
  * process before dispatching the turn.
  *
- * While a turn runs and the plate is empty, it rests: the foot row folds into
- * the field's own row, handing the reclaimed height back to the transcript.
- * Resting is refused whenever it would hide something the user owns — a draft,
- * attached images, or docked attention UI — and any focus or click on the
- * plate brings the full composer back. The textarea is never unmounted, so
- * tab order, focus, and the caret survive every transition.
+ * The plate rests whenever the field is empty and unfocused — during a live
+ * turn and after it — folding the foot row into the field's own row and handing
+ * the reclaimed height back to the transcript. Clicking or focusing anywhere on
+ * it brings the full composer back, and it stays back only for as long as the
+ * user is actually in it. Resting is refused whenever it would hide something
+ * the user owns — a draft, attached images, or docked attention UI. The
+ * textarea is never unmounted, so tab order, focus, and the caret survive every
+ * transition.
  */
 export function Composer({
   onSend,
@@ -132,13 +134,16 @@ export function Composer({
   const [focused, setFocused] = useState(false)
 
   /**
-   * Resting is the compact one-row plate: it only ever happens over an empty,
-   * unfocused field during a live turn. A draft or a pending image is enough
-   * to refuse — collapsing would hide text the user wrote, which reads as data
-   * loss even though the state is intact.
+   * Resting is the compact one-row plate: it happens over any empty, unfocused
+   * field, whether or not a turn is live. It deliberately outlives the turn —
+   * a plate that springs back open the moment the agent finishes is the
+   * jumpiness this state exists to remove, and the user is usually reading the
+   * result, not typing. A draft or a pending image is enough to refuse:
+   * collapsing would hide text the user wrote, which reads as data loss even
+   * though the state is intact.
    */
   const resting =
-    running && !disabled && !focused && !attentionRequired && text.trim().length === 0 && images.length === 0
+    !disabled && !focused && !attentionRequired && text.trim().length === 0 && images.length === 0
 
   /** Puts the caret back in the field and lets focus expand the plate. */
   const focusField = useCallback(() => {

@@ -142,8 +142,44 @@ describe('Composer resting state', () => {
     expect(isResting(container)).toBe(false)
   })
 
-  it('never rests while no turn is running', () => {
+  it('keeps resting after the turn completes instead of springing back open', async () => {
+    // The plate folding open the moment an agent finishes is the jumpiness the
+    // resting state exists to remove — and it is when the user is reading the
+    // result, not typing.
+    const user = userEvent.setup()
+    const { container, leave, rerender } = renderWithOutsideControl({
+      onSend: vi.fn(),
+      running: true,
+    })
+
+    await user.click(leave)
+    expect(isResting(container)).toBe(true)
+
+    rerender(
+      <div>
+        <button type="button">transcript</button>
+        <Composer onSend={vi.fn()} running={false} />
+      </div>,
+    )
+    expect(isResting(container)).toBe(true)
+  })
+
+  it('rests an untouched empty plate, so an idle session stays clean', () => {
     const { container } = render(<Composer onSend={vi.fn()} />)
+    expect(isResting(container)).toBe(true)
+  })
+
+  it('reopens when the plate itself is clicked, not only the field', async () => {
+    const user = userEvent.setup()
+    const { container, leave } = renderWithOutsideControl({ onSend: vi.fn(), running: true })
+
+    await user.click(leave)
+    expect(isResting(container)).toBe(true)
+
+    // The plate's own padding, not the textarea: the resting bar is mostly
+    // padding, so a click anywhere on it has to count as "I want to type".
+    const shell = container.querySelector('.ari-composer-shell') as HTMLElement
+    await user.click(shell)
     expect(isResting(container)).toBe(false)
   })
 
