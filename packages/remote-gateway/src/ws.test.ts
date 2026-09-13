@@ -1,23 +1,9 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { connect } from 'node:net'
 import { once } from 'node:events'
 import { afterEach, describe, expect, it } from 'vitest'
+import { clientFrame, handshake } from './testing/ws-client'
 import { acceptUpgrade, isWebSocketUpgrade } from './ws'
-
-/** One client→server frame, masked as RFC 6455 requires. */
-function frame(opcode: number, payload: Buffer, fin: boolean): Buffer {
-  const mask = Buffer.from([1, 2, 3, 4])
-  const header: number[] = [((fin ? 0x80 : 0) | opcode) & 0xff]
-  if (payload.length < 126) {
-    header.push(0x80 | payload.length)
-  } else {
-    header.push(0x80 | 126, (payload.length >> 8) & 0xff, payload.length & 0xff)
-  }
-  const masked = Buffer.from(payload)
-  for (let i = 0; i < masked.length; i++) masked[i] = (masked[i] as number) ^ (mask[i % 4] as number)
-  return Buffer.concat([Buffer.from(header), mask, masked])
-}
 
 const servers: Server[] = []
 
@@ -128,27 +114,19 @@ describe('websocket upgrade', () => {
   it('reassembles a message split across continuation frames', async () => {
     const url = await serve((connection) => connection.onMessage((text) => connection.send(text)))
     const { port } = new URL(url)
-    const socket = connect({ host: '127.0.0.1', port: Number(port) })
-    await new Promise<void>((resolve) => socket.once('connect', resolve))
 
     // The platform client will not emit a fragmented message on demand, so
     // this handshakes by hand and writes the frames itself: one text frame
-    // with FIN clear, then a continuation frame with FIN set.
-    socket.write(
-      'GET /events HTTP/1.1\r\n' +
-        `Host: 127.0.0.1:${port}\r\n` +
-        'Upgrade: websocket\r\nConnection: Upgrade\r\n' +
-        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n',
-    )
-    await once(socket, 'data') // the 101 response
+    // with FIN clear, then continuation frames, the last with FIN set.
+    const { socket } = await handshake(Number(port), '/events', { origin: null })
 
-    socket.write(frame(0x1, Buffer.from('one '), false))
-    socket.write(frame(0x0, Buffer.from('two '), false))
-    socket.write(frame(0x0, Buffer.from('three'), true))
+    socket.write(clientFrame(0x1, Buffer.from('one '), false))
+    socket.write(clientFrame(0x0, Buffer.from('two '), false))
+    socket.write(clientFrame(0x0, Buffer.from('three'), true))
 
-    const reply = await once(socket, 'data')
+    const [reply] = (await once(socket, 'data')) as [Buffer]
     // Server frames are unmasked, so the payload is readable in place.
-    expect((reply[0] as Buffer).subarray(2).toString()).toBe('one two three')
+    expect(reply.subarray(2).toString()).toBe('one two three')
     socket.destroy()
   })
 
@@ -170,6 +148,33 @@ describe('websocket upgrade', () => {
     serverSide!.close(1001, 'going away')
     expect(await closed(socket)).toBe(1001)
     expect(serverSide!.open).toBe(false)
+  })
+
+  it('echoes the subprotocol the server chose', async () => {
+    // A browser offers the protocols it can speak and fails the connection if
+    // the server answers with one it did not offer, so the echo is what makes
+    // the choice binding rather than decorative.
+    const server = createServer((_req, res) => res.writeHead(404).end())
+    servers.push(server)
+    let offered: string[] = []
+    server.on('upgrade', (req, socket) => {
+      offered = (req.headers['sec-websocket-protocol'] ?? '').toString().split(',').map((p) => p.trim())
+      acceptUpgrade(req, socket, undefined, offered[0])
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const lines: string[] = []
+    const result = await handshake(Number(port), '/events', {
+      origin: null,
+      protocols: ['ari-remote.v1', 'bearer.secret'],
+    })
+    lines.push(result.statusLine)
+
+    expect(offered).toEqual(['ari-remote.v1', 'bearer.secret'])
+    expect(result.headers['sec-websocket-protocol']).toBe('ari-remote.v1')
+    expect(lines.join('')).not.toContain('bearer.secret')
+    result.socket.destroy()
   })
 
   it('answers a ping without disturbing the message stream', async () => {
