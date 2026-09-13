@@ -47,7 +47,15 @@ export function wellKnownDirs(env: DetectEnvironment): string[] {
 /** Resolves a binary across PATH plus platform-specific install dirs. */
 export function findBinary(kind: DriverKind, env: DetectEnvironment): string | null {
   if (kind === 'ari-core') return null
-  const names = BINARY_NAMES[kind]
+  // npm drops an extensionless sh shim next to the .cmd one, and Windows cannot
+  // spawn it (ENOENT). Dropping those candidates outright, rather than merely
+  // ranking them last, is what matters: the search is directory-first, so a
+  // bare shim in an earlier PATH entry would still beat a runnable .cmd in a
+  // later one. Nothing is lost — a Windows executable needs its extension.
+  const names =
+    env.platform === 'win32'
+      ? BINARY_NAMES[kind].filter((name) => /\.(?:exe|cmd)$/i.test(name)).reverse()
+      : BINARY_NAMES[kind]
   const searchDirs = [
     ...env.pathEnv.split(delimiter).filter((p) => p.length > 0),
     ...wellKnownDirs(env),
@@ -66,7 +74,9 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
  * Probes `<binary> --version`. On Windows, .cmd shims are executed through an
  * escaped cmd.exe wrapper (direct spawn is refused with EINVAL on Node ≥20).
  */
-function probeVersion(binaryPath: string, timeoutMs = 5000): Promise<string | null> {
+// Large single-file CLIs (opencode.exe is ~180 MB) can take >5s to answer when
+// every provider is probed concurrently at startup, so allow a generous window.
+function probeVersion(binaryPath: string, timeoutMs = 15000): Promise<string | null> {
   return new Promise((resolve) => {
     let stdout = ''
     let settled = false
