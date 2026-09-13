@@ -11,7 +11,8 @@ into a full coding agent. No accounts. No OAuth flows. No cloud middleman: sessi
 journals and checkpoints live on your disk.
 
 
-<img width="1919" height="1017" alt="Screenshot 2026-09-10 074942" src="https://github.com/user-attachments/assets/130dc9e1-87bf-4616-8db5-cebf160cfaa7" />
+<img width="1917" height="1015" alt="image" src="https://github.com/user-attachments/assets/4bfd4225-4628-4a35-bcb9-08db759068d9" />
+
 
 
 > Status: **pre-alpha, under active construction.**
