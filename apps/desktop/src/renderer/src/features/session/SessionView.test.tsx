@@ -1643,6 +1643,31 @@ describe('EffortChip', () => {
     await user.click(screen.getByRole('option', { name: /High/ }))
     expect(onChange).toHaveBeenCalledWith('high')
   })
+
+  it('re-queries the selected model when the catalog has no levels', async () => {
+    invokeMock.mockImplementation(async (method: string) => {
+      if (method === 'providers.models') {
+        return [{ kind: 'opencode', source: 'live', models: [], efforts: [] }]
+      }
+      if (method === 'providers.efforts') {
+        return { efforts: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }] }
+      }
+      throw new Error(`unexpected method: ${method}`)
+    })
+    render(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/muse-spark-1.3-contributor-free"
+        effort={null}
+        onChange={() => undefined}
+      />,
+    )
+    expect(await screen.findByRole('button', { name: 'Effort: Low' })).toBeInTheDocument()
+    expect(invokeMock).toHaveBeenCalledWith('providers.efforts', {
+      kind: 'opencode',
+      modelId: 'opencode/muse-spark-1.3-contributor-free',
+    })
+  })
 })
 
 /**

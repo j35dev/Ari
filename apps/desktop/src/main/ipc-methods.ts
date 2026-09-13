@@ -40,6 +40,7 @@ export const IPC_METHODS = [
   'attachments.read',
   'providers.detect',
   'providers.models',
+  'providers.efforts',
   'providers.plan',
   'providers.install',
   'providers.cancelInstall',
