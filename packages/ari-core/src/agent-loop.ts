@@ -5,7 +5,8 @@ import { newId } from '@ari/shared/ids'
 import type { ChatImage, ChatMessage } from './protocols/openai-chat'
 import type { AllowRule } from './allowlist'
 import { matchesAllowlist } from './allowlist'
-import { checkPermission, MODE_GUARDED_TOOLS } from './permissions'
+import type { ApprovalDecision } from './permissions'
+import { ARI_CORE_APPROVAL_OPTIONS, checkPermission, MODE_GUARDED_TOOLS } from './permissions'
 import {
   BUILT_IN_TOOLS,
   formatAskUserResult,
@@ -197,6 +198,22 @@ function roundSignature(calls: readonly PendingToolCall[]): string {
     .map(callIdentity)
     .sort()
     .join('\u0001')
+}
+
+/**
+ * Ari's own approval ids are its decision vocabulary (`allow`, `always-allow`,
+ * `deny`), so an exact option needs unwrapping rather than translation.
+ *
+ * Fails closed: an id outside that set is a bug or a forged answer, and the
+ * one outcome a permission gate must never produce by accident is running the
+ * tool. Anything unrecognized is denied, which surfaces as a visible error the
+ * user can retry.
+ */
+function approvalIntent(decision: AdapterApprovalDecision): ApprovalDecision {
+  if (typeof decision !== 'object') return decision
+  return decision.optionId === 'allow' || decision.optionId === 'always-allow'
+    ? decision.optionId
+    : 'deny'
 }
 
 /** Told to the model in place of running a batch it has already run. */
@@ -573,8 +590,9 @@ export async function* runAgentLoop(
                   approvalId,
                   toolName: call.name,
                   summaryJson: call.argsJson,
+                  options: [...ARI_CORE_APPROVAL_OPTIONS],
                 }
-                const verdict = await pendingDecision
+                const verdict = approvalIntent(await pendingDecision)
                 if (verdict === 'deny') {
                   throw new Error(
                     `denied by user under permission mode '${permissionMode}': ${call.name}`,

@@ -67,12 +67,24 @@ export const commandSchema = z.discriminatedUnion('type', [
     attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
   }),
   z.object({ type: z.literal('turn.interrupt'), sessionId: z.string() }),
-  z.object({
-    type: z.literal('approval.respond'),
-    sessionId: z.string(),
-    approvalId: z.string(),
-    decision: z.enum(['allow', 'deny', 'always-allow']),
-  }),
+  /**
+   * An approval is answered by naming the exact option the provider offered,
+   * so two persistent grants sharing one kind stay distinguishable. `decision`
+   * is the older, coarser vocabulary, still accepted while adapters migrate.
+   */
+  z
+    .object({
+      type: z.literal('approval.respond'),
+      sessionId: z.string(),
+      approvalId: z.string(),
+      optionId: z.string().min(1).optional(),
+      decision: z.enum(['allow', 'deny', 'always-allow']).optional(),
+    })
+    .superRefine((value, ctx) => {
+      if (value.optionId === undefined && value.decision === undefined) {
+        ctx.addIssue({ code: 'custom', message: 'optionId or decision required' })
+      }
+    }),
   z.object({
     type: z.literal('input.respond'),
     sessionId: z.string(),

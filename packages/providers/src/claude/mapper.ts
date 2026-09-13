@@ -3,6 +3,18 @@ import { formatUnknownError } from '@ari/shared/result'
 import { imageOutputEvents } from '../image-output'
 
 /**
+ * The choices a `can_use_tool` request offers, using the decision vocabulary
+ * the CLI's control layer already understands so a response passes straight
+ * through. `allow` answers one call; `always-allow` persists a session-scoped
+ * allow rule for the tool (see `buildApprovalResponseFrame`).
+ */
+export const CLAUDE_APPROVAL_OPTIONS = [
+  { optionId: 'allow', name: 'Allow once', kind: 'allow_once' },
+  { optionId: 'always-allow', name: 'Allow for this session', kind: 'allow_always' },
+  { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+] as const
+
+/**
  * Maps Claude Code `--output-format stream-json` lines onto normalized
  * AgentEvents. Pure and total: malformed lines surface as error events, never
  * throws. See __fixtures__ for real recorded shapes. Runs with
@@ -147,6 +159,7 @@ export function mapClaudeLine(line: string): AgentEvent[] {
           approvalId: parsed.request_id,
           toolName: parsed.request.tool_name ?? 'unknown',
           summaryJson: JSON.stringify(parsed.request.input ?? {}),
+          options: [...CLAUDE_APPROVAL_OPTIONS],
         })
       }
       break

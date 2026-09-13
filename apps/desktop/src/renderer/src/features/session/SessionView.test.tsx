@@ -1940,6 +1940,7 @@ describe('SessionView settle sound', () => {
           approvalId: replay ? 'ap_r' : 'ap_l',
           toolName: 'bash',
           summaryJson: '{}',
+          options: [{ optionId: 'accept', name: 'Allow once', kind: 'allow_once' }],
         },
       })
     })

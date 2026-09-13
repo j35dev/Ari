@@ -267,6 +267,7 @@ describe('decideCommand', () => {
           approvalId: 'a1',
           toolName: 'bash',
           summaryJson: '{}',
+          options: [],
         },
       ],
     })
@@ -279,6 +280,55 @@ describe('decideCommand', () => {
     expect(decideCommand(model, command, ids).accepted).toBe(true)
     const answered = previewDispatch(model, decideCommand(model, command, ids))
     expect(decideCommand(answered, command, ids).accepted).toBe(false)
+  })
+
+  it('journals the exact option chosen, and rejects one never offered', () => {
+    let model = modelWithSession()
+    model = previewDispatch(model, {
+      accepted: true,
+      events: [
+        {
+          type: 'approval.requested',
+          approvalId: 'a1',
+          toolName: 'bash',
+          summaryJson: '{}',
+          options: [
+            { optionId: 'accept', name: 'Allow once', kind: 'allow_once' },
+            { optionId: 'acceptForSession', name: 'Allow for this session', kind: 'allow_always' },
+            { optionId: 'decline', name: 'Deny', kind: 'reject_once' },
+          ],
+        },
+      ],
+    })
+    // Both grants share the `allow_always` kind, so only the id distinguishes
+    // them — and the projection has to carry them for that check to be possible.
+    expect(model.pendingApprovals[0]?.options.map((o) => o.optionId)).toEqual([
+      'accept',
+      'acceptForSession',
+      'decline',
+    ])
+
+    const forged: Command = {
+      type: 'approval.respond',
+      sessionId: 'sess_1',
+      approvalId: 'a1',
+      optionId: 'acceptWithExecpolicyAmendment',
+    }
+    expect(decideCommand(model, forged, ids).accepted).toBe(false)
+
+    const command: Command = {
+      type: 'approval.respond',
+      sessionId: 'sess_1',
+      approvalId: 'a1',
+      optionId: 'acceptForSession',
+    }
+    const decided = decideCommand(model, command, ids)
+    expect(decided.accepted).toBe(true)
+    expect(decided.accepted && decided.events[0]).toMatchObject({
+      type: 'approval.responded',
+      approvalId: 'a1',
+      optionId: 'acceptForSession',
+    })
   })
 
   it('accepts input.respond for a live agent question and answers once', () => {
