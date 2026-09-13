@@ -46,7 +46,15 @@ export function wellKnownDirs(env: DetectEnvironment): string[] {
 
 /** True when `path` names a regular file — not a directory, socket, or link to one. */
 function isRegularFile(path: string): boolean {
-  return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false
+  try {
+    return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false
+  } catch {
+    // `throwIfNoEntry: false` only covers a missing entry. An unusable one —
+    // a path through a file, a directory that denies traversal — still
+    // throws, and letting that escape aborted the whole scan instead of
+    // moving on to the directories after it.
+    return false
+  }
 }
 
 /** Resolves a binary across PATH plus platform-specific install dirs. */
