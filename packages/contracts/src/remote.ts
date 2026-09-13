@@ -17,10 +17,13 @@ export const REMOTE_PROTOCOL_VERSION = 1
 export const remoteOperationSchema = z.enum([
   // Discovery. Unauthenticated and content-free.
   'gateway.info',
-  // Pairing, before a device holds any credential.
-  'pairing.begin',
+  // Pairing, before a device holds any credential. Minting an invitation and
+  // approving a device are deliberately absent: both are the user's acts, made
+  // at the desktop. A remotely reachable `approve` would let whoever
+  // photographed the QR code approve their own device, and the confirmation
+  // code on screen would then be confirming nothing.
+  'pairing.request',
   'pairing.status',
-  'pairing.approve',
   'pairing.redeem',
   // Sessions.
   'session.list',
@@ -57,12 +60,16 @@ export const REMOTE_OPERATIONS = remoteOperationSchema.options
  * The operations a client may invoke without a device credential. Everything
  * else requires one, so a failure to authenticate cannot fall through to a
  * default-allow branch.
+ *
+ * These four are the whole of the pairing handshake a phone performs on its
+ * own: it learns what protocol it is speaking, registers a key, watches for
+ * the user's decision, and trades a signature for a token. The decisions
+ * themselves are not here — see {@linkcode remoteOperationSchema}.
  */
 export const REMOTE_ANONYMOUS_OPERATIONS: readonly RemoteOperation[] = [
   'gateway.info',
-  'pairing.begin',
+  'pairing.request',
   'pairing.status',
-  'pairing.approve',
   'pairing.redeem',
 ]
 
