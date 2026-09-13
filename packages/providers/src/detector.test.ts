@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { findBinary, detectDriver, readAuthStatus, wellKnownDirs } from './detector'
 import type { DetectEnvironment } from './types'
@@ -29,7 +29,9 @@ describe('findBinary', () => {
     const binDir = join(dir, 'bin')
     await mkdir(binDir, { recursive: true })
     await writeFileSafe(join(binDir, 'claude'), '')
-    const env: DetectEnvironment = { ...makeEnv(), pathEnv: binDir }
+    // Pinned to posix: on win32 the bare name is not a runnable candidate at
+    // all, which the cases below cover.
+    const env: DetectEnvironment = { ...makeEnv(), platform: 'linux', pathEnv: binDir }
     expect(findBinary('claude', env)).toBe(join(binDir, 'claude'))
   })
 
@@ -47,6 +49,45 @@ describe('findBinary', () => {
     await mkdir(empty, { recursive: true })
     const withPath: DetectEnvironment = { ...env, pathEnv: empty }
     expect(findBinary('codex', withPath)).toBe(join(install, 'codex.cmd'))
+  })
+
+  it('prefers runnable .exe/.cmd over the extensionless npm shim on win32', async () => {
+    const npmDir = join(dir, 'npm')
+    await mkdir(npmDir, { recursive: true })
+    await writeFileSafe(join(npmDir, 'opencode'), '')
+    await writeFileSafe(join(npmDir, 'opencode.cmd'), '')
+    const env: DetectEnvironment = { ...makeEnv(), pathEnv: npmDir }
+    expect(findBinary('opencode', { ...env, platform: 'win32' })).toBe(join(npmDir, 'opencode.cmd'))
+    await writeFileSafe(join(npmDir, 'opencode.exe'), '')
+    expect(findBinary('opencode', { ...env, platform: 'win32' })).toBe(join(npmDir, 'opencode.exe'))
+    expect(findBinary('opencode', { ...env, platform: 'linux' })).toBe(join(npmDir, 'opencode'))
+  })
+
+  it('skips a bare shim in an earlier PATH entry for a runnable one later', async () => {
+    // The scan is directory-first, so ranking extensions inside a directory is
+    // not enough: an unrunnable bare shim earlier on PATH would end the search
+    // before the .cmd that actually works is ever reached.
+    const stale = join(dir, 'stale')
+    const npmDir = join(dir, 'npm-later')
+    await mkdir(stale, { recursive: true })
+    await mkdir(npmDir, { recursive: true })
+    await writeFileSafe(join(stale, 'opencode'), '')
+    await writeFileSafe(join(npmDir, 'opencode.cmd'), '')
+    const env: DetectEnvironment = {
+      ...makeEnv(),
+      platform: 'win32',
+      pathEnv: [stale, npmDir].join(delimiter),
+    }
+    expect(findBinary('opencode', env)).toBe(join(npmDir, 'opencode.cmd'))
+  })
+
+  it('finds nothing on win32 when only the bare shim exists', async () => {
+    // Honest over hopeful: reporting a path Windows cannot spawn produced a
+    // provider that looked installed and failed on use.
+    const npmDir = join(dir, 'bare-only')
+    await mkdir(npmDir, { recursive: true })
+    await writeFileSafe(join(npmDir, 'opencode'), '')
+    expect(findBinary('opencode', { ...makeEnv(), platform: 'win32', pathEnv: npmDir })).toBeNull()
   })
 
   it('returns null for missing binaries and for ari-core', () => {
