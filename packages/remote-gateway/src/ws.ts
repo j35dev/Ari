@@ -64,13 +64,18 @@ export function acceptUpgrade(
   req: IncomingMessage,
   socket: Duplex,
   head?: Buffer,
+  subprotocol?: string,
 ): WebSocketConnection {
   const clientKey = req.headers['sec-websocket-key']
   socket.write(
     'HTTP/1.1 101 Switching Protocols\r\n' +
       'Upgrade: websocket\r\n' +
       'Connection: Upgrade\r\n' +
-      `Sec-WebSocket-Accept: ${acceptKey(typeof clientKey === 'string' ? clientKey : '')}\r\n\r\n`,
+      `Sec-WebSocket-Accept: ${acceptKey(typeof clientKey === 'string' ? clientKey : '')}\r\n` +
+      // Echoed only when the server knows which protocol it is speaking: a
+      // client that offered a list rejects an answer it did not offer.
+      (subprotocol === undefined ? '' : `Sec-WebSocket-Protocol: ${subprotocol}\r\n`) +
+      '\r\n',
   )
 
   let open = true
