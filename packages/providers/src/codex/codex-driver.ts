@@ -158,10 +158,21 @@ export interface CodexAppServerAdapter extends ProviderAdapter {
   steer(text: string): Promise<boolean>
 }
 
-const APPROVAL_DECISIONS: Record<AdapterApprovalDecision, string> = {
+/**
+ * Maps the coarse decision vocabulary onto the server's decision ids, for
+ * callers that never learned which options this request offered. Callers
+ * holding the offered list answer with the exact id instead.
+ */
+const APPROVAL_DECISIONS = {
   allow: 'accept',
   'always-allow': 'acceptForSession',
   deny: 'decline',
+} as const
+
+function serverDecision(decision: AdapterApprovalDecision): string {
+  // The ids ARE the server's vocabulary, so an exact answer needs no mapping —
+  // including for decisions `APPROVAL_DECISIONS` has no name for, like cancel.
+  return typeof decision === 'string' ? APPROVAL_DECISIONS[decision] : decision.optionId
 }
 
 /**
@@ -321,7 +332,7 @@ export async function createCodexAppServerAdapter(
       const requestId = pendingApprovals.get(approvalId)
       if (requestId === undefined) return
       pendingApprovals.delete(approvalId)
-      connection.respond(requestId, { decision: APPROVAL_DECISIONS[decision] })
+      connection.respond(requestId, { decision: serverDecision(decision) })
     },
     steer: async (text) => {
       if (activeTurnId === null) {

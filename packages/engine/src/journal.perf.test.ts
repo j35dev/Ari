@@ -86,6 +86,7 @@ function buildReplayLines(count: number): string[] {
         approvalId: `ap_${turn}`,
         toolName: 'bash',
         summaryJson: '{"command":"ls"}',
+        options: [],
       })
       stamp({ type: 'approval.responded', approvalId: `ap_${turn}`, decision: 'allow' })
     }
