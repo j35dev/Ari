@@ -19,7 +19,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  # The required check on main is named exactly `verify`. A matrix job reports
+  # per-OS names instead — `verify (ubuntu-latest)` and so on — which never
+  # satisfies it, so the matrix runs under its own name and the aggregator at
+  # the bottom of this file carries the stable one.
+  platform:
     # macOS is where it breaks first: `sockaddr_un.sun_path` is 104 bytes there
     # against 108 on Linux, and Electron's userData prefix is far longer, so
     # platform-specific failures in the control transport only surface here.
@@ -48,3 +52,15 @@ jobs:
 
       - name: Verify (typecheck + lint + test)
         run: pnpm verify
+
+  # Required by the `protect main` ruleset. `always()` so it still reports when
+  # a platform leg fails or is cancelled, and fails in that case rather than
+  # masking it — the required check has to reflect the whole matrix.
+  verify:
+    if: always()
+    needs: platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm every platform leg passed
+        if: needs.platform.result != 'success'
+        run: exit 1
