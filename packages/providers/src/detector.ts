@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
@@ -44,6 +44,11 @@ export function wellKnownDirs(env: DetectEnvironment): string[] {
   return dirs.filter((d) => d.length > 0 && existsSync(d))
 }
 
+/** True when `path` names a regular file — not a directory, socket, or link to one. */
+function isRegularFile(path: string): boolean {
+  return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false
+}
+
 /** Resolves a binary across PATH plus platform-specific install dirs. */
 export function findBinary(kind: DriverKind, env: DetectEnvironment): string | null {
   if (kind === 'ari-core') return null
@@ -55,8 +60,10 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
   for (const dir of searchDirs) {
     for (const name of names) {
       const candidate = join(dir, name)
-      // existsSync on a file also rejects directories named like the binary.
-      if (existsSync(candidate)) return candidate
+      // isFile, not existsSync: a *directory* named `codex` (a checked-out
+      // repo, a scratch folder) is not a CLI, and treating it as one put a
+      // fully-populated provider row in front of users who never installed it.
+      if (isRegularFile(candidate)) return candidate
     }
   }
   return null

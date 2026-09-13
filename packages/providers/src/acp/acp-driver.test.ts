@@ -1,11 +1,13 @@
 import { PassThrough } from 'node:stream'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import { catalogSource, clearDynamicModels, modelsFor } from '../catalogs'
 import {
   createAcpAdapter,
   AcpDriver,
   launchWithEffort,
   pickAgentMode,
+  publishAdvertisedModels,
   shouldFallBack,
   __resetLearnedAcpSelectors,
 } from './acp-driver'
@@ -227,6 +229,44 @@ function modeCalls(child: FakeChild): (string | undefined)[] {
     .map((m) => (m['params'] as { modeId?: string }).modeId)
 }
 
+/**
+ * Writes a `config_option_update` notification, the way an agent announces
+ * that the session's model select has moved.
+ */
+function pushConfigUpdate(child: FakeChild, currentValue: string): void {
+  child.stdout.write(
+    `${JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        sessionId: 'sess_acp_1',
+        update: {
+          sessionUpdate: 'config_option_update',
+          configOptions: [
+            {
+              id: 'model',
+              name: 'Model',
+              category: 'model',
+              type: 'select',
+              currentValue,
+              options: [
+                { value: 'm1', name: 'Model One' },
+                { value: 'm2', name: 'Model Two' },
+                { value: 'm3', name: 'Model Three' },
+              ],
+            },
+          ],
+        },
+      },
+    })}\n`,
+  )
+}
+
+/** Notices only: the events that tell a user their pick did not take. */
+function noticesOf(events: AgentEvent[]): string[] {
+  return events.flatMap((event) => (event.type === 'notice' ? [event.message] : []))
+}
+
 describe('createAcpAdapter', () => {
   beforeEach(() => {
     __resetLearnedAcpSelectors()
@@ -311,6 +351,176 @@ describe('createAcpAdapter', () => {
     )
     expect(modelRequests).toEqual([])
     await collectTypes(adapter)
+    await adapter.dispose()
+  }, 15000)
+
+  it('says so when the agent does not offer the requested model', async () => {
+    const child = fakeChild()
+    script(child, CONFIG_OPTIONS_AGENT)
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, modelId: 'not-offered' },
+      () => child,
+    )
+    // The turn still runs — on the agent's default, not on the user's pick.
+    // Dropping that at `log.debug` is what let the composer keep showing
+    // `not-offered` as the active model while every reply came from `m1`.
+    const notices = (await collectEvents(adapter)).filter((event) => event.type === 'notice')
+    const messages = notices.map((event) => (event.type === 'notice' ? event.message : ''))
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toContain('not-offered')
+    await adapter.dispose()
+  }, 15000)
+
+  it('stays quiet when the requested model is advertised', async () => {
+    const child = fakeChild()
+    script(child, CONFIG_OPTIONS_AGENT)
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: 'm2' }, () => child)
+    const types = await collectTypes(adapter)
+    expect(types).not.toContain('notice')
+    await adapter.dispose()
+  }, 15000)
+
+  it('says so when the agent moves off the picked model mid-turn', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        // The session advertises `m1`, Ari asked for `m2`, and the agent has
+        // since moved to `m3` — replies are about to come from a model the
+        // composer still shows as `m2`.
+        pushConfigUpdate(child, 'm3')
+        return { stopReason: 'end_turn' }
+      }
+      return CONFIG_OPTIONS_AGENT(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: 'm2' }, () => child)
+    const notices = noticesOf(await collectEvents(adapter))
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toContain('m3')
+    expect(notices[0]).toContain('m2')
+    await adapter.dispose()
+  }, 15000)
+
+  it('stays quiet when the agent just re-advertises the model already in use', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        // Same value the session already advertised: a re-announcement, not a
+        // move. Warning here would put a ⚠ on every ordinary turn.
+        pushConfigUpdate(child, 'm1')
+        return { stopReason: 'end_turn' }
+      }
+      return CONFIG_OPTIONS_AGENT(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: 'm2' }, () => child)
+    expect(noticesOf(await collectEvents(adapter))).toEqual([])
+    await adapter.dispose()
+  }, 15000)
+
+  it('stays quiet when the agent confirms the pick the user asked for', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        pushConfigUpdate(child, 'm2')
+        return { stopReason: 'end_turn' }
+      }
+      return CONFIG_OPTIONS_AGENT(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: 'm2' }, () => child)
+    expect(noticesOf(await collectEvents(adapter))).toEqual([])
+    await adapter.dispose()
+  }, 15000)
+
+  it('reports a drift only once for the same move', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/prompt') {
+        pushConfigUpdate(child, 'm3')
+        pushConfigUpdate(child, 'm3')
+        return { stopReason: 'end_turn' }
+      }
+      return CONFIG_OPTIONS_AGENT(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: 'm2' }, () => child)
+    expect(noticesOf(await collectEvents(adapter))).toHaveLength(1)
+    await adapter.dispose()
+  }, 15000)
+
+  it('sends the agent default when the agent advertises it as a choice', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/new') {
+        return {
+          sessionId: 'sess_acp_1',
+          configOptions: [
+            {
+              id: 'model',
+              category: 'model',
+              type: 'select',
+              currentValue: 'sonnet',
+              options: [
+                { value: 'default', name: 'Default' },
+                { value: 'sonnet', name: 'Sonnet' },
+              ],
+            },
+          ],
+        }
+      }
+      if (method === 'session/set_config_option') return { configOptions: [] as unknown[] }
+      return standardAgent()(method, params, id)
+    })
+    // `default` is Ari's own placeholder id, so it used to be skipped outright —
+    // which made switching *back* to the CLI default from a picked model a
+    // silent no-op, leaving the previous model answering.
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: 'default' }, () => child)
+    const modelRequests = child.sent.filter(
+      (m) =>
+        m['method'] === 'session/set_config_option' &&
+        (m['params'] as { configId?: string })?.configId === 'model',
+    ) as { params?: { value?: string } }[]
+    expect(modelRequests.map((r) => r.params?.value)).toEqual(['default'])
+    await adapter.dispose()
+  }, 15000)
+
+  it('sends nothing for the placeholder default an agent never offered', async () => {
+    const child = fakeChild()
+    script(child, CONFIG_OPTIONS_AGENT)
+    // No live catalog has landed, so `default` is only `CLI_DEFAULT_MODELS`'
+    // placeholder — not something this agent would understand. It must not be
+    // sent, and it must not produce a ⚠ about a model nobody picked.
+    const adapter = await createAcpAdapter(LAUNCH, { ...SESSION, modelId: 'default' }, () => child)
+    const types = await collectTypes(adapter)
+    const modelRequests = child.sent.filter(
+      (m) =>
+        m['method'] === 'session/set_config_option' &&
+        (m['params'] as { configId?: string })?.configId === 'model',
+    )
+    expect(modelRequests).toEqual([])
+    expect(types).not.toContain('notice')
+    await adapter.dispose()
+  }, 15000)
+
+  it('reports the models the agent advertised, in the agent’s own vocabulary', async () => {
+    const child = fakeChild()
+    script(child, CONFIG_OPTIONS_AGENT)
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    // The picker's catalog for a kind comes from what the runtime a session
+    // actually uses advertises. A throwaway probe can fail for reasons that
+    // have nothing to do with the session — an uncached npx package under
+    // `--no-install` — and the snapshot it falls back to names models this
+    // agent will not accept at all.
+    expect(adapter.advertisedModels).toEqual([
+      { id: 'm1', label: 'Model One' },
+      { id: 'm2', label: 'Model Two' },
+    ])
+    await adapter.dispose()
+  }, 15000)
+
+  it('reports nothing for an agent that advertises no model selector', async () => {
+    const child = fakeChild()
+    script(child, standardAgent())
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    expect(adapter.advertisedModels).toEqual([])
     await adapter.dispose()
   }, 15000)
 
@@ -1237,6 +1447,34 @@ describe('createAcpAdapter', () => {
       createAcpAdapter(LAUNCH, { ...SESSION, permissionMode: 'allow-edits' }, () => child),
     ).rejects.toThrow('offers no safe mode')
   }, 15000)
+})
+
+describe('publishAdvertisedModels', () => {
+  afterEach(() => {
+    clearDynamicModels('claude')
+    clearDynamicModels('codex')
+  })
+
+  it('installs the session agent’s own models as the kind’s live catalog', () => {
+    publishAdvertisedModels('claude', [
+      { id: 'sonnet', label: 'Sonnet' },
+      { id: 'opus[1m]', label: 'Opus (1M)' },
+    ])
+    expect(catalogSource('claude')).toBe('live')
+    expect(modelsFor('claude')).toEqual([
+      { id: 'sonnet', label: 'Sonnet' },
+      { id: 'opus[1m]', label: 'Opus (1M)' },
+    ])
+  })
+
+  it('leaves a usable catalog alone when the agent advertises nothing', () => {
+    const before = modelsFor('codex')
+    publishAdvertisedModels('codex', [])
+    // An agent with no model selector is not evidence that the kind has no
+    // models — replacing the catalog with nothing would empty the picker.
+    expect(modelsFor('codex')).toEqual(before)
+    expect(catalogSource('codex')).not.toBe('live')
+  })
 })
 
 describe('launchWithEffort', () => {
