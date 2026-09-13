@@ -75,6 +75,23 @@ describe('findBinary', () => {
     expect(findBinary('codex', env)).toBe(join(later, 'codex'))
   })
 
+  it('skips a PATH entry that cannot be read rather than aborting the scan', async () => {
+    // A PATH entry that is a file, not a directory: resolving a candidate
+    // under it raises ENOTDIR instead of reporting that candidate missing,
+    // so one unusable entry used to abort detection before the directories
+    // after it were searched — hiding a provider that is installed.
+    const notADir = join(dir, 'not-a-dir')
+    await writeFileSafe(notADir, '')
+    const later = join(dir, 'later-readable')
+    await mkdir(later, { recursive: true })
+    await writeFileSafe(join(later, 'codex'), '')
+    const env: DetectEnvironment = {
+      ...makeEnv(),
+      pathEnv: [notADir, later].join(delimiter),
+    }
+    expect(findBinary('codex', env)).toBe(join(later, 'codex'))
+  })
+
   it('skips nonexistent well-known dirs without throwing', () => {
     const env: DetectEnvironment = { ...makeEnv(), homeDir: join(dir, 'nope') }
     const dirs = wellKnownDirs({ ...env, platform: 'linux' })
