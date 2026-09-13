@@ -219,6 +219,56 @@ describe('pairing', () => {
   })
 })
 
+function redeemOnce(service: PairingService, invitationId: string, key: ReturnType<typeof deviceKey>) {
+  const nonce = 'n'
+  const result = service.redeem(invitationId, { nonce, signature: key.sign(nonce) })
+  if (!result.ok) throw new Error(`expected redemption, got ${result.code}`)
+  return result
+}
+
+describe('device credentials', () => {
+  it('authenticates a device from the token it was issued', () => {
+    const { service, invitationId, key } = approved()
+    const redeemed = redeemOnce(service, invitationId, key)
+    // The token is the only thing the client keeps, so it has to name the
+    // device on its own — an id the client never received is no use.
+    expect(service.authenticate(redeemed.token)?.deviceId).toBe(redeemed.device.deviceId)
+  })
+
+  it('refuses a token that was never issued', () => {
+    const { service, invitationId, key } = approved()
+    redeemOnce(service, invitationId, key)
+    expect(service.authenticate('not-a-real-token')).toBeUndefined()
+    expect(service.authenticate('')).toBeUndefined()
+  })
+
+  it('stops authenticating a token once its device is revoked', () => {
+    const { service, invitationId, key } = approved()
+    const redeemed = redeemOnce(service, invitationId, key)
+    expect(service.revoke(redeemed.device.deviceId)).toBe(true)
+    // Revocation is the whole point of the device list; a credential that
+    // outlives it would make the list decorative.
+    expect(service.authenticate(redeemed.token)).toBeUndefined()
+  })
+
+  it('keeps two devices on their own tokens', () => {
+    const service = serviceAt({ now: 1_000 })
+    const a = deviceKey()
+    const b = deviceKey()
+    const invA = service.begin('http://127.0.0.1:8787')
+    const invB = service.begin('http://127.0.0.1:8787')
+    service.request(invA.invitationId, { displayName: 'A', publicKey: a.jwk })
+    service.request(invB.invitationId, { displayName: 'B', publicKey: b.jwk })
+    service.approve(invA.invitationId, [])
+    service.approve(invB.invitationId, [])
+    const first = redeemOnce(service, invA.invitationId, a)
+    const second = redeemOnce(service, invB.invitationId, b)
+    expect(first.token).not.toBe(second.token)
+    expect(service.authenticate(first.token)?.displayName).toBe('A')
+    expect(service.authenticate(second.token)?.displayName).toBe('B')
+  })
+})
+
 describe('pairing public key material', () => {
   it('rejects a key that is not a P-256 EC key', () => {
     const service = serviceAt({ now: 1_000 })

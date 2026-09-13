@@ -1,4 +1,4 @@
-import { createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
+import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
 import type { PairingStatus, RemoteErrorCode } from '@ari/contracts/remote'
 import { pairingConfirmationCode } from '@ari/contracts/remote'
 
@@ -61,6 +61,12 @@ interface Options {
 export class PairingService {
   readonly #invitations = new Map<string, Invitation>()
   readonly #devices = new Map<string, PairedDevice>()
+  /**
+   * Digest of each issued token, mapped to its device. Tokens are stored
+   * hashed so a copy of the process's memory does not hand out working
+   * credentials, and the digest is what a lookup compares.
+   */
+  readonly #tokens = new Map<string, string>()
   readonly #now: () => number
   readonly #ttlMs: number
 
@@ -174,8 +180,21 @@ export class PairingService {
       lastSeenAt: null,
     }
     invitation.redeemedDeviceId = device.deviceId
+    const token = randomBytes(32).toString('base64url')
     this.#devices.set(device.deviceId, device)
-    return { ok: true, device, token: randomBytes(32).toString('base64url') }
+    this.#tokens.set(tokenDigest(token), device.deviceId)
+    return { ok: true, device, token }
+  }
+
+  /**
+   * Resolves a bearer token to the device it was issued to, or `undefined` if
+   * nothing was ever issued it. A revoked device has no token, so revocation
+   * takes effect here rather than needing a second check at the call site.
+   */
+  authenticate(token: string): PairedDevice | undefined {
+    if (token.length === 0) return undefined
+    const deviceId = this.#tokens.get(tokenDigest(token))
+    return deviceId === undefined ? undefined : this.#devices.get(deviceId)
   }
 
   devices(): PairedDevice[] {
@@ -187,13 +206,22 @@ export class PairingService {
   }
 
   revoke(deviceId: string): boolean {
-    return this.#devices.delete(deviceId)
+    if (!this.#devices.delete(deviceId)) return false
+    // Drop the credential too, or the token outlives the device it names.
+    for (const [digest, id] of this.#tokens) {
+      if (id === deviceId) this.#tokens.delete(digest)
+    }
+    return true
   }
 
   touch(deviceId: string): void {
     const device = this.#devices.get(deviceId)
     if (device !== undefined) device.lastSeenAt = this.#now()
   }
+}
+
+function tokenDigest(token: string): string {
+  return createHash('sha256').update(token).digest('base64url')
 }
 
 function isUsableP256Key(key: PairingPublicKey | undefined): key is PairingPublicKey {
