@@ -64,6 +64,7 @@ describe('session projection', () => {
         approvalId: 'a1',
         toolName: 'bash',
         summaryJson: '{}',
+        options: [],
       }),
     )
     expect(state.pendingApprovals).toHaveLength(1)
@@ -147,6 +148,7 @@ describe('session projection', () => {
         approvalId: 'ap_1',
         toolName: 'bash',
         summaryJson: '{}',
+        options: [],
       }),
     )
     expect(state.pendingInputs).toHaveLength(1)

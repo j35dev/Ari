@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { sessionStatusSchema, timestampSchema } from './common'
+import { approvalOptionSchema, sessionStatusSchema, timestampSchema } from './common'
 
 /**
  * Normalized stream events emitted by every provider adapter. Native CLI
@@ -38,6 +38,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     approvalId: z.string(),
     toolName: z.string(),
     summaryJson: z.string(),
+    /**
+     * The choices the provider offered, in its own order. A provider that
+     * advertises only one flavor of each kind still lists them here, so every
+     * approval is answered by naming an option rather than by a coarser
+     * intent the adapter would have to guess at.
+     */
+    options: z.array(approvalOptionSchema).default([]),
   }),
   z.object({
     type: z.literal('input-requested'),

@@ -2,7 +2,7 @@ import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
-import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { AcpAuthRequiredError, AcpConnection, AcpConnectionError } from './connection'
 import type { AcpChildProcess, AcpLaunch, AcpMcpServer } from './connection'
 import {
@@ -46,7 +46,7 @@ import type {
 const log = createLogger('providers:acp')
 
 /** Approval vocabulary shared with `approval.respond` commands. */
-export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow'
+export type { AdapterApprovalDecision }
 
 /**
  * Reports that the agent refused for want of a login, with whatever logins it
@@ -170,8 +170,11 @@ export async function createAcpAdapter(
             kind: request.toolCall?.kind ?? null,
             rawInput: request.toolCall?.rawInput ?? null,
             locations: request.toolCall?.locations ?? [],
+            // Still read by ApprovalCard's always-allow probe; the structured
+            // `options` below is the contract that replaces it.
             options: request.options ?? [],
           }),
+          options: approvalOptions(request.options),
         },
       ])
     })
@@ -507,13 +510,8 @@ export async function createAcpAdapter(
       const pending = pendingPermissions.get(approvalId)
       if (pending === undefined) return
       pendingPermissions.delete(approvalId)
-      const kinds =
-        decision === 'deny'
-          ? ['reject_once', 'reject_always']
-          : decision === 'always-allow'
-            ? ['allow_always', 'allow_once']
-            : ['allow_once', 'allow_always']
-      const optionId = optionFor(pending.options, kinds)
+      const optionId =
+        typeof decision === 'string' ? optionForKind(pending.options, decision) : decision.optionId
       pending.resolve(
         optionId !== undefined
           ? { outcome: { outcome: 'selected', optionId } }
@@ -601,6 +599,30 @@ function formatAcpSetupError(error: unknown): string {
 }
 
 /**
+ * The agent's own choices, in its own order, as Ari's structured option list.
+ * Several options may share a kind — a session-scoped and a prefix-scoped
+ * grant are both `allow_always` — so the id is carried through untouched and
+ * is the only thing that identifies which one the user picked. An option
+ * without an id cannot be answered by name and is dropped rather than
+ * guessed at.
+ */
+function approvalOptions(
+  options: AcpRequestPermission['options'],
+): { optionId: string; name: string; kind: string | null }[] {
+  return (options ?? []).flatMap((option) => {
+    const optionId = option.optionId
+    if (typeof optionId !== 'string' || optionId.length === 0) return []
+    return [
+      {
+        optionId,
+        name: typeof option.name === 'string' && option.name.length > 0 ? option.name : optionId,
+        kind: typeof option.kind === 'string' && option.kind.length > 0 ? option.kind : null,
+      },
+    ]
+  })
+}
+
+/**
  * Permission options carry semantic kinds; map a decision onto whichever
  * flavor the agent offered, in priority order. Falls back to undefined so
  * the caller can cancel instead of fabricating an option id.
@@ -612,6 +634,27 @@ function optionFor(options: AcpRequestPermission['options'], kinds: string[]): s
     if (match !== undefined) return match.optionId
   }
   return undefined
+}
+
+/**
+ * Maps the coarse decision vocabulary onto the agent's own options. Only for
+ * callers that never learned which options were offered — an agent that
+ * advertises two grants of one kind (a session-scoped and a prefix-scoped
+ * `allow_always`) is answered by whichever comes first, which may not be what
+ * the user meant. Callers holding the offered list answer by exact optionId.
+ */
+function optionForKind(
+  options: AcpRequestPermission['options'],
+  decision: 'allow' | 'deny' | 'always-allow',
+): string | undefined {
+  return optionFor(
+    options,
+    decision === 'deny'
+      ? ['reject_once', 'reject_always']
+      : decision === 'always-allow'
+        ? ['allow_always', 'allow_once']
+        : ['allow_once', 'allow_always'],
+  )
 }
 
 /** The mode/model selectors an agent advertises for a session. */

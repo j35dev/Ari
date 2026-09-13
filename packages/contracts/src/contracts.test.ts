@@ -403,3 +403,61 @@ describe('contracts', () => {
     ).toThrow()
   })
 })
+
+describe('approval decisions', () => {
+  it('preserves several offered options that share one kind', () => {
+    const parsed = journalEventSchema.parse({
+      type: 'approval.requested',
+      seq: 1,
+      at: 1_000,
+      sessionId: 'sess_1',
+      approvalId: 'ap_1',
+      toolName: 'shell',
+      summaryJson: '{}',
+      options: [
+        { optionId: 'allow_session', name: 'Allow for this session', kind: 'allow_always' },
+        { optionId: 'allow_prefix', name: 'Allow every git command', kind: 'allow_always' },
+      ],
+    })
+    if (parsed.type !== 'approval.requested') throw new Error('unreachable')
+    expect(parsed.options.map((o) => o.optionId)).toEqual(['allow_session', 'allow_prefix'])
+  })
+
+  it('defaults offered options to empty for events journalled before they were recorded', () => {
+    const parsed = journalEventSchema.parse({
+      type: 'approval.requested',
+      seq: 1,
+      at: 1_000,
+      sessionId: 'sess_1',
+      approvalId: 'ap_1',
+      toolName: 'shell',
+      summaryJson: '{}',
+    })
+    if (parsed.type !== 'approval.requested') throw new Error('unreachable')
+    expect(parsed.options).toEqual([])
+  })
+
+  it('records the exact option the user chose, not a collapsed decision', () => {
+    const parsed = journalEventSchema.parse({
+      type: 'approval.responded',
+      seq: 2,
+      at: 1_000,
+      sessionId: 'sess_1',
+      approvalId: 'ap_1',
+      optionId: 'allow_prefix',
+    })
+    if (parsed.type !== 'approval.responded') throw new Error('unreachable')
+    expect(parsed.optionId).toBe('allow_prefix')
+  })
+
+  it('accepts an approval response that names an exact option', () => {
+    const cmd = commandSchema.parse({
+      type: 'approval.respond',
+      sessionId: 'sess_1',
+      approvalId: 'ap_1',
+      optionId: 'allow_prefix',
+    })
+    if (cmd.type !== 'approval.respond') throw new Error('unreachable')
+    expect(cmd.optionId).toBe('allow_prefix')
+  })
+})

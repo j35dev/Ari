@@ -780,6 +780,72 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('carries every offered option, including several sharing one kind', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9002,
+            method: 'session/request_permission',
+            params: {
+              sessionId: 'sess_acp_1',
+              toolCall: { toolCallId: 't1', title: 'Run tests', kind: 'execute' },
+              // A session-scoped and a prefix-scoped grant are both
+              // `allow_always`; only the id tells them apart.
+              options: [
+                { optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' },
+                { optionId: 'allow_session', name: 'Allow for this session', kind: 'allow_always' },
+                { optionId: 'allow_prefix', name: 'Allow every git command', kind: 'allow_always' },
+                { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' },
+              ],
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      if (id === 9002) return { outcome: { outcome: 'selected', optionId: 'allow_prefix' } }
+      return standardAgent()(method, _params, id)
+    })
+
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    let offered: { optionId: string; name: string; kind: string | null }[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      if (next.value.type === 'approval-requested') {
+        offered = next.value.options
+        adapter.respondApproval(next.value.approvalId, { optionId: 'allow_prefix' })
+      }
+    }
+    expect(offered.map((option) => option.optionId)).toEqual([
+      'allow_once',
+      'allow_session',
+      'allow_prefix',
+      'reject_once',
+    ])
+    expect(offered.map((option) => option.kind)).toEqual([
+      'allow_once',
+      'allow_always',
+      'allow_always',
+      'reject_once',
+    ])
+    // The prefix grant, not the session grant the kind-search would have found
+    // first, and not `allow_once` either.
+    const reply = child.sent.find((m) => m['id'] === 9002 && m['method'] === undefined)
+    expect(reply).toMatchObject({
+      result: { outcome: { outcome: 'selected', optionId: 'allow_prefix' } },
+    })
+    await adapter.dispose()
+  }, 15000)
+
   it('auto-answers permission requests in full mode instead of asking', async () => {
     const child = fakeChild()
     script(child, (method, _params, id) => {
