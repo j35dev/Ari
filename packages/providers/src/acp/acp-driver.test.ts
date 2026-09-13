@@ -273,6 +273,77 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('re-queries effort from the options a model switch returns', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'session/new') {
+        return {
+          sessionId: 'sess_acp_1',
+          configOptions: [
+            {
+              id: 'model',
+              name: 'Model',
+              category: 'model',
+              type: 'select',
+              currentValue: 'plain',
+              options: [
+                { value: 'plain', name: 'Plain' },
+                { value: 'thinker', name: 'Thinker' },
+              ],
+            },
+          ],
+        }
+      }
+      if (method === 'session/set_config_option') {
+        const p = params as { configId?: string; value?: string }
+        if (p.configId === 'model') {
+          return {
+            configOptions: [
+              {
+                id: 'model',
+                name: 'Model',
+                category: 'model',
+                type: 'select',
+                currentValue: 'thinker',
+                options: [
+                  { value: 'plain', name: 'Plain' },
+                  { value: 'thinker', name: 'Thinker' },
+                ],
+              },
+              {
+                id: 'effort',
+                name: 'Effort',
+                category: 'thought_level',
+                type: 'select',
+                currentValue: 'medium',
+                options: [
+                  { value: 'low', name: 'Low' },
+                  { value: 'medium', name: 'Medium' },
+                  { value: 'high', name: 'High' },
+                ],
+              },
+            ],
+          }
+        }
+        return { configOptions: [] as unknown[] }
+      }
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, modelId: 'thinker', effort: 'high' },
+      () => child,
+    )
+    expect(adapter.advertisedEfforts.options.map((o) => o.id)).toEqual(['low', 'medium', 'high'])
+    const thought = child.sent.filter(
+      (m) =>
+        m['method'] === 'session/set_config_option' &&
+        (m['params'] as { configId?: string })?.configId === 'effort',
+    ) as { params?: { value?: string } }[]
+    expect(thought.map((r) => r.params?.value)).toEqual(['high'])
+    await adapter.dispose()
+  }, 15000)
+
   it('sets pi-style thinking modes via session/set_mode for an effort pick', async () => {
     const child = fakeChild()
     script(child, PI_THINKING_AGENT)

@@ -986,6 +986,7 @@ export function SessionView({
               />
               <EffortChip
                 driverKind={defaults.driverKind}
+                modelId={defaults.modelId}
                 effort={defaults.effort}
                 onChange={changeEffort}
               />
@@ -1021,13 +1022,19 @@ interface EffortOption {
  * (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
  * list). Hidden when the agent advertises nothing — we never invent
  * low/medium/high.
+ *
+ * Effort can be per-model (OpenCode only advertises it for
+ * reasoning-capable models), so with a model selected the chip re-queries
+ * that model's own levels and prefers them over the default-model catalog.
  */
 export function EffortChip({
   driverKind,
+  modelId,
   effort,
   onChange,
 }: {
   driverKind: DriverKind
+  modelId?: string | null
   effort: string | null
   onChange: (effort: string | null) => void
 }) {
@@ -1054,7 +1061,7 @@ export function EffortChip({
       setLoaded(true)
     }
     const load = (): void => {
-      void rpc
+      const base = rpc
         .invoke('providers.models')
         .then(apply)
         .catch(() => {
@@ -1063,6 +1070,24 @@ export function EffortChip({
             setLoaded(true)
           }
         })
+      // A selected model may advertise thought levels the default-model
+      // catalog probe never saw; a non-empty answer wins, an empty one
+      // keeps whatever the catalog reported.
+      if (modelId !== undefined && modelId !== null && modelId.length > 0) {
+        void base.finally(() => {
+          if (cancelled) return
+          void rpc
+            .invoke('providers.efforts', { kind: driverKind, modelId })
+            .then((result) => {
+              if (cancelled) return
+              if (result.efforts.length > 0) {
+                setOptions(result.efforts)
+                setLoaded(true)
+              }
+            })
+            .catch(() => undefined)
+        })
+      }
     }
     load()
     const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
@@ -1073,7 +1098,7 @@ export function EffortChip({
       cancelled = true
       unsubscribe()
     }
-  }, [driverKind])
+  }, [driverKind, modelId])
 
   useEffect(() => {
     if (!loaded || effort === null) return
