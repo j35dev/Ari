@@ -429,6 +429,16 @@ export const rpcParams = {
   'attachments.read': z.object({ id: z.string().min(1).max(128) }),
   'providers.detect': z.undefined(),
   'providers.models': z.undefined(),
+  /**
+   * Thought/reasoning levels for one kind, optionally resolved against a
+   * specific model. Effort is per-model on some agents (OpenCode advertises
+   * `effort` only for reasoning-capable models), so the picker re-queries
+   * with the selected model instead of trusting the default-model probe.
+   */
+  'providers.efforts': z.object({
+    kind: driverKindSchema,
+    modelId: z.string().min(1).max(256).nullish(),
+  }),
   'providers.plan': z.object({ kind: driverKindSchema }),
   'providers.install': z.object({
     kind: driverKindSchema,
@@ -670,6 +680,13 @@ export interface RpcResults {
       current?: boolean
     }[]
   }[]
+  /**
+   * Thought/reasoning levels for one kind, resolved live against the
+   * requested model when given; empty when the harness has no selector.
+   */
+  'providers.efforts': {
+    efforts: { id: string; label: string; description?: string; current?: boolean }[]
+  }
   /**
    * The literal argv Ari would run to install or upgrade a provider CLI, so
    * the confirm dialog can show the exact command before anything executes.

@@ -22,10 +22,12 @@ import {
   replyPermissionChoice,
   replyPlanExit,
 } from './client-requests'
-import { findThoughtOption, looksLikeThoughtAxis } from './thought'
+import { findThoughtOption, looksLikeThoughtAxis, thoughtEffortsFromSession } from './thought'
+import type { EffortCatalog } from './thought'
 import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
+import { setDynamicEfforts } from '../catalogs'
 import { AcpUpdateFolder, stopReasonEvents } from './protocol'
 import type {
   AcpConfigOption,
@@ -52,6 +54,14 @@ export interface AcpAdapter extends ProviderAdapter {
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
   /** Answers a pending `input-requested` question (elicitation, ask-user, plan). */
   respondInput(inputId: string, value: string): void
+  /**
+   * Thought/reasoning levels the session advertises after the model pick was
+   * applied. Effort is per-model on some agents (OpenCode exposes `effort`
+   * only for reasoning-capable models), so the host refreshes the kind's
+   * live effort catalog from this: the picker re-queries after a model
+   * switch instead of trusting the default-model probe forever.
+   */
+  advertisedEfforts: EffortCatalog
 }
 
 /**
@@ -285,7 +295,20 @@ export async function createAcpAdapter(
 
   const selectors = resolveSelectors(launch.label, created, resumed)
   try {
-    await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+    const refreshed = await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+    // A model switch can reshape the session's own selectors: OpenCode only
+    // advertises `effort` for reasoning-capable models, so the options that
+    // came back with the switch replace the default-model vocabulary for
+    // everything below (permission modes, thought level) and for the picker.
+    // An empty reply carries no information (older agents answer `{}`), so it
+    // must not wipe the vocabulary the session opened with.
+    if (refreshed !== null && refreshed.length > 0) {
+      selectors.configOptions = refreshed
+      LEARNED_SELECTORS.set(launch.label, {
+        configOptions: selectors.configOptions,
+        availableModes: selectors.availableModes,
+      })
+    }
     await applyPermissionMode(
       connection,
       sessionId,
@@ -470,6 +493,13 @@ export async function createAcpAdapter(
       if (!connection.closed) connection.cancel(sessionId)
       await connection.shutdown()
     },
+    advertisedEfforts: thoughtEffortsFromSession({
+      configOptions: selectors.configOptions,
+      modes:
+        selectors.availableModes.length > 0
+          ? { availableModes: selectors.availableModes }
+          : undefined,
+    }),
   }
 }
 
@@ -570,19 +600,20 @@ async function applyModel(
   sessionId: string,
   configOptions: AcpConfigOption[],
   modelId: string | null,
-): Promise<void> {
-  if (modelId === null || modelId === 'default') return
+): Promise<AcpConfigOption[] | null> {
+  if (modelId === null || modelId === 'default') return null
   const option = findModelOption(configOptions)
-  if (option === null || option.options === undefined) return
+  if (option === null || option.options === undefined) return null
   const value = option.options.find((v) => v.value === modelId)?.value
   if (value === undefined) {
     log.debug('acp: requested model not advertised by agent', { modelId })
-    return
+    return null
   }
   try {
-    await connection.setConfigOption(sessionId, option.id as string, value)
+    return (await connection.setConfigOption(sessionId, option.id as string, value)) ?? null
   } catch (error) {
     log.debug('acp: set_config_option(model) failed', { error: String(error) })
+    return null
   }
 }
 /**
@@ -716,6 +747,17 @@ export function shouldFallBack(error: unknown): boolean {
  * while adapters drift — except for the auth walls {@link shouldFallBack}
  * excludes, which propagate as {@link AcpAuthRequiredError}.
  */
+/**
+ * Installs the thought/reasoning levels the running session advertises after
+ * its model pick, so the effort picker follows model switches. An empty
+ * catalog clears a stale overlay (a model without effort genuinely offers
+ * none); kinds with a static fallback (Grok, Ari Core) fall back to it.
+ */
+export function publishAdvertisedEfforts(kind: DriverKind, efforts: EffortCatalog): void {
+  setDynamicEfforts(kind, efforts)
+  log.info('effort catalog taken from the session agent', { kind, count: efforts.options.length })
+}
+
 export class AcpDriver implements Driver {
   readonly kind: DriverKind
 
@@ -739,6 +781,7 @@ export class AcpDriver implements Driver {
           this.onAuthRequired ?? undefined,
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
+        publishAdvertisedEfforts(this.kind, adapter.advertisedEfforts)
         return adapter
       } catch (error) {
         if (!shouldFallBack(error)) throw error
