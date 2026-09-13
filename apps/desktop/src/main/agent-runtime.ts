@@ -65,11 +65,28 @@ export async function controlEndpoint(
 
 /** Hosts the transport and injects private CLI launchers without changing global PATH. */
 export async function startAgentRuntime(options: AgentRuntimeOptions) {
+  const { endpoint, dir: socketDir } = await controlEndpoint(process.platform, SOCKET_ROOT)
+  try {
+    return await startControlTransport(options, endpoint, socketDir)
+  } catch (error) {
+    // `close` only exists on the object a successful start returns, so a
+    // rejection after this point leaves nothing able to remove the directory —
+    // and because the same failure repeats on every launch, they accumulate.
+    if (socketDir) await rm(socketDir, { recursive: true, force: true })
+    throw error
+  }
+}
+
+/** Builds what the endpoint serves; `close` takes ownership of `socketDir` once this resolves. */
+async function startControlTransport(
+  options: AgentRuntimeOptions,
+  endpoint: string,
+  socketDir: string | null,
+) {
   const { engine, store } = options
   const runtimeDir = join(options.userData, 'agent-control')
   const bin = join(runtimeDir, 'bin')
   await mkdir(bin, { recursive: true, mode: 0o700 })
-  const { endpoint, dir: socketDir } = await controlEndpoint(process.platform, SOCKET_ROOT)
   const launcher = join(bin, process.platform === 'win32' ? 'ari.cmd' : 'ari')
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
   const script =
