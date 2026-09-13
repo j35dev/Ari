@@ -191,7 +191,15 @@ async function startControlTransport(
     approvals.cancel(id)
     server.revoke(id)
   }
-  await server.listen()
+  try {
+    await server.listen()
+  } catch (error) {
+    // `listen` binds before it applies the socket mode, so a rejection there
+    // leaves a listening handle that this function never returns — nothing
+    // else can close it. The caller still removes the directory.
+    await server.close().catch(() => undefined)
+    throw error
+  }
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
   })
