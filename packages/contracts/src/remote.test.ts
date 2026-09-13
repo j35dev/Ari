@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  REMOTE_ANONYMOUS_OPERATIONS,
   REMOTE_PROTOCOL_VERSION,
   pairingConfirmationCode,
   remoteClientMessageSchema,
@@ -9,6 +10,7 @@ import {
   remoteOriginSchema,
   remoteServerMessageSchema,
   remoteSnapshotSchema,
+  requiresAuthentication,
 } from './remote'
 
 describe('remote contract', () => {
@@ -160,5 +162,45 @@ describe('remote contract', () => {
     expect(remoteClientMessageSchema.safeParse({ type: 'events.subscribe', sessionId: 's' }).success)
       .toBe(true)
     expect(remoteClientMessageSchema.safeParse({ type: 'command' }).success).toBe(false)
+  })
+})
+
+describe('pairing authority', () => {
+  it('declares the step the phone actually performs', () => {
+    // A device registers its key before it holds any credential, so this is
+    // the one pairing operation that has to exist on the remote surface.
+    expect(remoteOperationSchema.safeParse('pairing.request').success).toBe(true)
+  })
+
+  it('keeps the two decisions that belong to the desktop off the remote surface', () => {
+    // Minting an invitation and approving a device are the user's acts, made
+    // at the desktop. Reachable anonymously, `approve` would let whoever
+    // photographed the QR code approve their own device, and the confirmation
+    // code on screen — the whole point of the flow — would confirm nothing.
+    expect(remoteOperationSchema.safeParse('pairing.begin').success).toBe(false)
+    expect(remoteOperationSchema.safeParse('pairing.approve').success).toBe(false)
+  })
+
+  it('leaves only the credential-less steps unauthenticated', () => {
+    // Everything the phone does after redemption presents its token; if any
+    // of these drifted into the anonymous set, a failure to authenticate
+    // would fall through to a working route.
+    for (const open of ['gateway.info', 'pairing.request', 'pairing.status', 'pairing.redeem'] as const) {
+      expect(requiresAuthentication(open)).toBe(false)
+    }
+    for (const guarded of [
+      'session.list',
+      'session.prompt',
+      'approval.respond',
+      'device.revoke',
+    ] as const) {
+      expect(requiresAuthentication(guarded)).toBe(true)
+    }
+  })
+
+  it('does not advertise an anonymous operation it cannot serve', () => {
+    for (const operation of REMOTE_ANONYMOUS_OPERATIONS) {
+      expect(remoteOperationSchema.safeParse(operation).success).toBe(true)
+    }
   })
 })

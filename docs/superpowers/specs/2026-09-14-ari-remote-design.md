@@ -109,7 +109,7 @@ no route. The gateway cannot perform what is not declared.
 | Group | Operations |
 |---|---|
 | Discovery | `gateway.info` (protocol version, capabilities) — unauthenticated, content-free |
-| Pairing | `pairing.begin`, `pairing.status`, `pairing.approve`, `pairing.redeem` |
+| Pairing | `pairing.request`, `pairing.status`, `pairing.redeem` |
 | Sessions | `session.list`, `session.get`, `session.create`, `session.archive` |
 | Agent actions | `session.prompt`, `session.queue`, `session.steer`, `session.interrupt` |
 | Human input | `approval.respond`, `input.respond` |
@@ -121,6 +121,13 @@ no route. The gateway cannot perform what is not declared.
 Capabilities are published per provider and session. Unsupported operations are
 absent from the capability set and rejected with `unsupported_capability` — never
 inferred from a provider name.
+
+Minting an invitation and approving a device are absent from the table on
+purpose: both are the user's acts, performed at the desktop against the
+in-process `PairingService`, not over the wire. If `pairing.approve` were
+remotely reachable, whoever photographed the QR code could approve their own
+device, and the confirmation code shown on both screens — the one control that
+makes pairing a deliberate act — would be confirming nothing.
 
 ### Pairing and device authorization
 
