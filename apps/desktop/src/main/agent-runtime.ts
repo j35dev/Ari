@@ -1,4 +1,4 @@
-import { mkdir, writeFile, chmod } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises'
 import { join, delimiter } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { ControlFailure, type DelegationSettings } from '@ari/contracts/agent-control'
@@ -32,16 +32,44 @@ export interface AgentRuntimeOptions {
   baseEnv?: NodeJS.ProcessEnv
 }
 
+/**
+ * Unix socket paths live in the kernel's fixed-size `sockaddr_un.sun_path`:
+ * 104 bytes on macOS, 108 on Linux, NUL terminator included. libuv fails with
+ * EINVAL rather than truncating a path that does not fit, and `listen()`
+ * surfaces that as `listen EINVAL: invalid argument` — which rejects the whole
+ * runtime, so every dispatch fails and the user cannot send anything.
+ *
+ * macOS userData cannot fit one. `/Users/<name>/Library/Application Support/`
+ * plus `@ari/desktop/agent-control/` is 70 bytes on a 7-character user name —
+ * and 104 on no user name at all — before the 36-byte UUID and its `.sock`
+ * suffix are added. POSIX sockets therefore bind in a short private directory
+ * under /tmp instead, leaving ~60 bytes total. Only the CLI consumes the
+ * endpoint, and it reads the path from ARI_CONTROL_ENDPOINT. Windows uses a
+ * named pipe and has no such limit.
+ */
+export const SOCKET_ROOT = '/tmp'
+
+/**
+ * Creates this runtime's private socket directory and returns the endpoint the
+ * control server binds, along with the directory to remove on close (`null` on
+ * Windows, where the endpoint is a named pipe and there is nothing to clean).
+ */
+export async function controlEndpoint(
+  platform: NodeJS.Platform,
+  socketRoot: string,
+): Promise<{ endpoint: string; dir: string | null }> {
+  if (platform === 'win32') return { endpoint: `\\\\.\\pipe\\ari-${randomUUID()}`, dir: null }
+  const dir = await mkdtemp(join(socketRoot, 'ari-'))
+  return { endpoint: join(dir, `${randomUUID()}.sock`), dir }
+}
+
 /** Hosts the transport and injects private CLI launchers without changing global PATH. */
 export async function startAgentRuntime(options: AgentRuntimeOptions) {
   const { engine, store } = options
   const runtimeDir = join(options.userData, 'agent-control')
   const bin = join(runtimeDir, 'bin')
   await mkdir(bin, { recursive: true, mode: 0o700 })
-  const endpoint =
-    process.platform === 'win32'
-      ? `\\\\.\\pipe\\ari-${randomUUID()}`
-      : join(runtimeDir, `${randomUUID()}.sock`)
+  const { endpoint, dir: socketDir } = await controlEndpoint(process.platform, SOCKET_ROOT)
   const launcher = join(bin, process.platform === 'win32' ? 'ari.cmd' : 'ari')
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
   const script =
@@ -180,6 +208,7 @@ export async function startAgentRuntime(options: AgentRuntimeOptions) {
       unsubscribe()
       approvals.close()
       await server.close()
+      if (socketDir) await rm(socketDir, { recursive: true, force: true })
     },
     environment: (session: Session): NodeJS.ProcessEnv => {
       const env = { ...(options.baseEnv ?? process.env) }
