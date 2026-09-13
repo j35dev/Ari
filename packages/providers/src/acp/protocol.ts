@@ -231,8 +231,28 @@ export function terminalLoginsFrom(
   return logins
 }
 
-/** The argv for one auth method, or null when Ari has no way to run it. */
-function runnableLaunch(
+/**
+ * The `configOptions` a `config_option_update` notification carries, or null
+ * when this notification is something else. The update is how an agent says
+ * its session configuration moved on its own — the model select reporting a
+ * new `currentValue` — which the folder has no transcript surface for.
+ */
+export function configOptionsFromUpdate(
+  notification: AcpSessionNotification,
+): AcpConfigOption[] | null {
+  const update = notification.update
+  if (update?.sessionUpdate !== 'config_option_update') return null
+  return update.configOptions ?? null
+}
+
+/** The model a round of config options reports as in use, if it names one. */
+export function currentModelId(configOptions: AcpConfigOption[] | null | undefined): string | null {
+  const option = (configOptions ?? []).find((o) => o.category === 'model' && o.type === 'select')
+  const current = option?.currentValue
+  return typeof current === 'string' && current.length > 0 ? current : null
+}
+
+/** The argv for one auth method, or null when Ari has no way to run it. */function runnableLaunch(
   method: AcpAuthMethod,
   agentLaunch?: { command: string; args: string[] },
 ): { command: string; args: string[] } | null {

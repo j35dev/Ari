@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
 import { catalogSource, clearDynamicModels, modelsFor } from './catalogs'
-import { CatalogService, DEFAULT_REGISTRY_URL, REGISTRY_PROVIDER } from './catalog-service'
+import { CatalogService, DEFAULT_REGISTRY_URL, REFRESH_TTL_MS, REGISTRY_PROVIDER } from './catalog-service'
 import type { CatalogModel } from './catalogs'
 
 const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
@@ -90,9 +90,6 @@ describe('CatalogService', () => {
     const service = new CatalogService({ fetchImpl: fetchImpl as unknown as typeof fetch })
     await service.refresh()
     expect(modelsFor('claude')).toEqual([
-      { id: 'fable', label: 'Fable (latest)' },
-      { id: 'opus', label: 'Opus (latest)' },
-      { id: 'sonnet', label: 'Sonnet (latest)' },
       { id: 'claude-x', label: 'Claude X', contextHint: '200k' },
     ])
     expect(catalogSource('claude')).toBe('cache')
@@ -123,7 +120,9 @@ describe('CatalogService', () => {
     const cached = JSON.parse(await readFile(cachePath, 'utf8')) as {
       providers: Record<string, CatalogModel[]>
     }
-    expect(cached.providers['anthropic']?.map((model) => model.id)).toContain('claude-opus-5')
+    // The round carried no anthropic rows, so it leaves nothing behind for
+    // claude: the key stays absent rather than freezing the snapshot.
+    expect(cached.providers['anthropic']).toBeUndefined()
     // Rounds that did carry usable rows still apply.
     expect(modelsFor('codex')).toEqual([{ id: 'gpt-6-astra', label: 'GPT-6 Astra' }])
   })
@@ -217,11 +216,11 @@ describe('CatalogService', () => {
       at: number
       providers: Record<string, CatalogModel[]>
     }
+    // `family` rides along: a cold start with no network has only this cache
+    // to collapse pointers with. A model the registry gives no family is its
+    // own family, which is why it defaults to the id.
     expect(cached.providers['anthropic']).toEqual([
-      { id: 'fable', label: 'Fable (latest)' },
-      { id: 'opus', label: 'Opus (latest)' },
-      { id: 'sonnet', label: 'Sonnet (latest)' },
-      { id: 'claude-disk', label: 'Disk Model' },
+      { id: 'claude-disk', label: 'Disk Model', family: 'claude-disk' },
     ])
 
     // Cold start with a dead network must restore the cached catalogs.
@@ -231,13 +230,101 @@ describe('CatalogService', () => {
     })
     second.start()
     await second.ready
-    expect(modelsFor('claude')).toEqual([
-      { id: 'fable', label: 'Fable (latest)' },
-      { id: 'opus', label: 'Opus (latest)' },
-      { id: 'sonnet', label: 'Sonnet (latest)' },
-      { id: 'claude-disk', label: 'Disk Model' },
-    ])
+    expect(modelsFor('claude')).toEqual([{ id: 'claude-disk', label: 'Disk Model' }])
     expect(second.lastRefreshAt).toBe(cached.at)
+  })
+
+  it('never persists live probe output as registry data', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const cachePath = join(dir, 'cache', 'models.json')
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockResolvedValue(
+        registryResponse({
+          openai: { models: { 'gpt-vendor': { id: 'gpt-vendor', name: 'Vendor GPT' } } },
+        }),
+      ) as unknown as typeof fetch,
+      cachePath,
+      probeModels: vi.fn().mockResolvedValue([{ id: 'probe-only', label: 'From the harness' }]),
+      probeKinds: ['codex'],
+    })
+
+    await service.refresh()
+    // Second round rewrites the cache while the live probe result is the
+    // active catalog — the write must not pick that up.
+    await service.refresh()
+    expect(catalogSource('codex')).toBe('live')
+
+    const cached = JSON.parse(await readFile(cachePath, 'utf8')) as {
+      providers: Record<string, CatalogModel[]>
+    }
+    // The cache is models.dev's answer. Replaying a harness's own model list
+    // as vendor data let a probe from one session outlive it as `cache`.
+    expect(cached.providers['openai']?.map((model) => model.id)).toEqual(['gpt-vendor'])
+  })
+
+  it('writes only the providers a round actually carried', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const cachePath = join(dir, 'cache', 'models.json')
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockResolvedValue(
+        registryResponse({
+          anthropic: { models: {} },
+          openai: { models: { 'gpt-6-astra': { id: 'gpt-6-astra', name: 'GPT-6 Astra' } } },
+        }),
+      ) as unknown as typeof fetch,
+      cachePath,
+    })
+
+    await service.refresh()
+
+    const cached = JSON.parse(await readFile(cachePath, 'utf8')) as {
+      providers: Record<string, CatalogModel[]>
+    }
+    // An anthropic-less round must leave the key absent rather than freezing
+    // whatever the picker happened to be serving (snapshot or probe output).
+    expect(cached.providers['anthropic']).toBeUndefined()
+    expect(cached.providers['openai']?.map((model) => model.id)).toEqual(['gpt-6-astra'])
+  })
+
+  it('does not re-probe a kind that already told us its own models', async () => {
+    vi.useFakeTimers()
+    const probeModels = vi.fn().mockResolvedValue([{ id: 'live-model', label: 'Live' }])
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+    })
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(1)
+
+    // Well past the 60s retry throttle, but a live catalog is the agent's own
+    // word for a vocabulary that belongs to the installed CLI. Re-asking on
+    // every picker open spawned an agent process per kind per minute to learn
+    // the same list again.
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(1)
+
+    // Past the window, ask again: an upgraded CLI can advertise new models.
+    await vi.advanceTimersByTimeAsync(REFRESH_TTL_MS)
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps re-probing a kind that never managed to report', async () => {
+    vi.useFakeTimers()
+    const probeModels = vi.fn().mockRejectedValue(new Error('adapter not cached'))
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+    })
+    await service.refresh()
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    await service.refresh()
+    // A kind still on the snapshot has everything to gain from a retry, so the
+    // live-catalog window must not hold it back.
+    expect(probeModels).toHaveBeenCalledTimes(2)
   })
 
   it('shares one in-flight refresh across concurrent callers', async () => {

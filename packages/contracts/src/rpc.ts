@@ -280,6 +280,10 @@ export const catalogModelSchema = z.object({
   label: z.string().min(1),
   /** Short context-window hint rendered beside the label, e.g. `200k`. */
   contextHint: z.string().optional(),
+  /** Other ids that resolve to this same model (version-less family pointers). */
+  aliases: z.array(z.string().min(1)).optional(),
+  /** Superseded within its family; the picker collapses these behind a disclosure. */
+  isLegacy: z.boolean().optional(),
 })
 export type CatalogModelInfo = z.infer<typeof catalogModelSchema>
 
