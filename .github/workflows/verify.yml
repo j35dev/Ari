@@ -20,7 +20,15 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # macOS is where it breaks first: `sockaddr_un.sun_path` is 104 bytes there
+    # against 108 on Linux, and Electron's userData prefix is far longer, so
+    # platform-specific failures in the control transport only surface here.
+    # `fail-fast: false` so a macOS failure still reports the Linux result.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
