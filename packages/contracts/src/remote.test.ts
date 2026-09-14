@@ -203,4 +203,14 @@ describe('pairing authority', () => {
       expect(remoteOperationSchema.safeParse(operation).success).toBe(true)
     }
   })
+
+  it('keeps every command behind a device credential', () => {
+    // The gateway relies on this: a command handler that has parsed an
+    // envelope can treat the authenticated device as present rather than
+    // branching on a device that cannot be missing. Adding an anonymous
+    // command would silently break that, so it fails here first.
+    for (const option of remoteCommandEnvelopeSchema.options) {
+      expect(requiresAuthentication(option.shape.op.value)).toBe(true)
+    }
+  })
 })

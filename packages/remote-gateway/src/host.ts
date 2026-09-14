@@ -6,6 +6,21 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
 
 /**
+ * The authenticated device a call is made on behalf of.
+ *
+ * Every method below takes one, because authorization without a subject is not
+ * authorization. A device is approved for a named set of projects, and the
+ * host — not the gateway — is where that set is enforced: the gateway knows
+ * which device is calling, but only the host knows what a session's `projectId`
+ * means and whether this device was granted it.
+ */
+export interface RemoteCaller {
+  deviceId: string
+  /** Projects the user granted at pairing. Empty grants nothing. */
+  projectIds: readonly string[]
+}
+
+/**
  * The gateway's view of the desktop.
  *
  * This is the whole of what a remote client can reach, and it is deliberately
@@ -28,14 +43,20 @@ export interface RemoteHost {
    */
   capabilities(): readonly RemoteOperation[]
 
-  listSessions(): Promise<SessionSummary[]>
+  listSessions(caller: RemoteCaller): Promise<SessionSummary[]>
 
   /**
    * One session's projected state plus the journal high-water mark it was
    * taken at. The two travel together so a subscriber can resume from exactly
-   * this point and see no gap and no duplicate.
+   * this point and see no gap and no duplicate. `undefined` covers both a
+   * session that does not exist and one this device was not granted — the two
+   * are not distinguished on the wire, because telling a device that a session
+   * exists but is someone else's is itself a disclosure.
    */
-  getSession(sessionId: string): Promise<
+  getSession(
+    caller: RemoteCaller,
+    sessionId: string,
+  ): Promise<
     | {
         session: Session
         summary: SessionSummary
@@ -50,24 +71,31 @@ export interface RemoteHost {
    * journal cannot be replayed from there — the gateway then says so and the
    * client re-snapshots rather than silently missing events.
    */
-  replay(sessionId: string, fromSeq: number): Promise<JournalEvent[] | undefined>
+  replay(caller: RemoteCaller, sessionId: string, fromSeq: number): Promise<JournalEvent[] | undefined>
 
   /**
    * Runs a validated command. The gateway has already checked the operation is
    * declared, the caller is paired, the origin is allowed, and the idempotency
    * key is fresh; the host performs the effect and returns what to record.
    */
-  execute(command: RemoteCommand): Promise<{ ok: true; result: unknown } | { ok: false; code: string; message: string }>
+  execute(
+    caller: RemoteCaller,
+    command: RemoteCommand,
+  ): Promise<{ ok: true; result: unknown } | { ok: false; code: string; message: string }>
 
   /** Projected state for a query operation. */
-  query(op: RemoteOperation, params: Record<string, unknown>): Promise<unknown>
+  query(caller: RemoteCaller, op: RemoteOperation, params: Record<string, unknown>): Promise<unknown>
 
   /**
    * Subscribes to a session's live events. Returns an unsubscribe function.
    * The gateway bounds its buffer; a consumer that falls too far behind is
    * disconnected rather than allowed to grow the gateway's memory.
    */
-  subscribe(sessionId: string, onEvent: (event: JournalEvent) => void): () => void
+  subscribe(
+    caller: RemoteCaller,
+    sessionId: string,
+    onEvent: (event: JournalEvent) => void,
+  ): () => void
 }
 
 /** What the desktop tells the gateway at construction. */
