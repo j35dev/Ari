@@ -136,6 +136,17 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+/**
+ * Normalizes a base URL typed into the endpoint form. Local LLM servers are
+ * usually given as bare `host:port`, so a missing scheme defaults to `http://`
+ * (matching Ollama/vLLM/llama.cpp defaults) instead of rejecting the input.
+ */
+export function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed === '') return ''
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`
+}
+
 interface EndpointCardProps {
   endpoint: StoredEndpoint
   testState: TestState | undefined
@@ -302,9 +313,9 @@ export function EndpointsManager() {
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const name = form.name.trim()
-    const baseUrl = form.baseUrl.trim()
+    const baseUrl = normalizeBaseUrl(form.baseUrl)
     if (name === '' || !isHttpUrl(baseUrl)) {
-      setFormError('Name and a valid http(s) base URL are required.')
+      setFormError('Name and a valid base URL are required.')
       return
     }
     const defaultModel = form.defaultModel !== '' ? form.defaultModel : (form.models[0]?.id ?? '')
@@ -491,7 +502,7 @@ export function EndpointsManager() {
   )
 
   const testKeyFor = (baseUrl: string, flavor: EndpointFlavor): string => `${baseUrl}|${flavor}`
-  const formBaseUrl = form.baseUrl.trim()
+  const formBaseUrl = normalizeBaseUrl(form.baseUrl)
 
   return (
     <section aria-label="Model endpoints" className="flex flex-col gap-6">
@@ -514,11 +525,15 @@ export function EndpointsManager() {
             />
           )}
         </Field>
-        <Field label="Base URL" hint="Root of the API, e.g. http://localhost:8080/v1">
+        <Field
+          label="Base URL"
+          hint="Root of the API — scheme optional, e.g. 192.168.1.10:8000 or http://localhost:8080/v1"
+        >
           {(controlProps) => (
             <Input
               {...controlProps}
-              type="url"
+              type="text"
+              inputMode="url"
               value={form.baseUrl}
               onChange={(event) => updateField('baseUrl', event.target.value)}
               placeholder="https://api.openai.com/v1"
@@ -542,7 +557,7 @@ export function EndpointsManager() {
           hint={
             editingId != null
               ? 'Leave blank to keep the saved key.'
-              : 'Stored encrypted on this machine only; never logged.'
+              : 'Stored encrypted on this machine only; never logged. Leave blank for local servers without auth.'
           }
         >
           {(controlProps) => (
