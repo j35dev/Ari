@@ -1034,6 +1034,16 @@ export function EffortChip({
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [options, setOptions] = useState<EffortOption[]>([])
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent): void => {
+      if (rootRef.current?.contains(e.target as Node) !== true) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
 
   useEffect(() => {
     let cancelled = false
@@ -1080,7 +1090,7 @@ export function EffortChip({
   if (current === undefined) return null
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -1098,33 +1108,30 @@ export function EffortChip({
         />
       </button>
       {open ? (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            role="listbox"
-            aria-label="Effort"
-            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border p-1 shadow-2"
-          >
-            {options.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="option"
-                aria-selected={option.id === selectedId}
-                onClick={() => {
-                  onChange(option.id)
-                  setOpen(false)
-                }}
-                className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-2"
-              >
-                <span className="text-fg">{option.label}</span>
-                {option.description ? (
-                  <span className="text-2xs text-fg-subtle">{option.description}</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        </>
+        <div
+          role="listbox"
+          aria-label="Effort"
+          className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border p-1 shadow-2"
+        >
+          {options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="option"
+              aria-selected={option.id === selectedId}
+              onClick={() => {
+                onChange(option.id)
+                setOpen(false)
+              }}
+              className="flex w-full flex-col rounded-md px-2 py-1.5 text-left text-xs hover:bg-surface-2"
+            >
+              <span className="text-fg">{option.label}</span>
+              {option.description ? (
+                <span className="text-2xs text-fg-subtle">{option.description}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
       ) : null}
     </div>
   )
@@ -1199,6 +1206,16 @@ export function PermissionModeChip({
   const [open, setOpen] = useState(false)
   const [discovered, setDiscovered] = useState<DiscoveredModeOption[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent): void => {
+      if (rootRef.current?.contains(e.target as Node) !== true) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
 
   useEffect(() => {
     let cancelled = false
@@ -1257,7 +1274,7 @@ export function PermissionModeChip({
   }
 
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -1281,41 +1298,38 @@ export function PermissionModeChip({
         />
       </button>
       {open ? (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            ref={menuRef}
-            role="listbox"
-            aria-label="Permission mode"
-            onKeyDown={onMenuKeyDown}
-            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2"
-          >
-            {entries.map((m) => {
-              const selected = m === current
-              return (
-                <button
-                  key={m.nativeId ?? m.value}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => {
-                    onChange(m.value)
-                    setOpen(false)
-                  }}
-                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-medium text-fg">{m.label}</span>
-                    <span className="block text-2xs text-fg-subtle">{m.hint}</span>
-                  </span>
-                  {selected ? (
-                    <Check size={12} className="mt-0.5 shrink-0 text-accent" aria-hidden />
-                  ) : null}
-                </button>
-              )
-            })}
-          </div>
-        </>
+        <div
+          ref={menuRef}
+          role="listbox"
+          aria-label="Permission mode"
+          onKeyDown={onMenuKeyDown}
+          className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2"
+        >
+          {entries.map((m) => {
+            const selected = m === current
+            return (
+              <button
+                key={m.nativeId ?? m.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  onChange(m.value)
+                  setOpen(false)
+                }}
+                className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-medium text-fg">{m.label}</span>
+                  <span className="block text-2xs text-fg-subtle">{m.hint}</span>
+                </span>
+                {selected ? (
+                  <Check size={12} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                ) : null}
+              </button>
+            )
+          })}
+        </div>
       ) : null}
     </div>
   )

@@ -101,6 +101,7 @@ export function ModelSelector({
   const [loaded, setLoaded] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const listboxId = useId()
   const activeId = `${listboxId}-opt-${activeIndex}`
 
@@ -278,11 +279,26 @@ export function ModelSelector({
       ?.scrollIntoView?.({ block: 'nearest' })
   }, [activeIndex])
 
-  const close = (): void => {
+  const close = useCallback((): void => {
     setOpen(false)
     setQuery('')
     setActiveKind(null)
-  }
+  }, [])
+
+  /**
+   * Outside pointerdown (not a fullscreen backdrop) dismisses the picker, so
+   * a click on a sibling composer chip reaches that chip: the open picker
+   * closes and the new one opens in the same gesture instead of the click
+   * being swallowed and the composer collapsing underneath.
+   */
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent): void => {
+      if (rootRef.current?.contains(e.target as Node) !== true) close()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open, close])
 
   const pickModel = (opt: SelectorOption): void => {
     // Endpoint options carry `ep:<endpointId>`; they ride the ari-core driver,
@@ -300,7 +316,10 @@ export function ModelSelector({
 
   const switchProvider = (step: 1 | -1): void => {
     if (lockedTo !== null || providers.length === 0) return
-    const at = Math.max(0, providers.findIndex((p) => p.kind === activeKind))
+    const at = Math.max(
+      0,
+      providers.findIndex((p) => p.kind === activeKind),
+    )
     const next = providers[(at + step + providers.length) % providers.length]
     if (next !== undefined) {
       setActiveKind(next.kind)
@@ -363,7 +382,8 @@ export function ModelSelector({
       // by prefix so their label still resolves.
       const exact = endpointModels.find((e) => e.id === modelId)
       const legacy =
-        exact ?? (modelId != null ? endpointModels.find((e) => e.id.startsWith(`${modelId}:`)) : undefined)
+        exact ??
+        (modelId != null ? endpointModels.find((e) => e.id.startsWith(`${modelId}:`)) : undefined)
       return legacy?.label ?? modelId ?? 'Ari Core'
     }
     const list = optionsFor(driverKind)
@@ -423,7 +443,7 @@ export function ModelSelector({
   )
 
   return (
-    <div className="relative min-w-0">
+    <div ref={rootRef} className="relative min-w-0">
       <button
         type="button"
         onClick={() => {
@@ -450,146 +470,144 @@ export function ModelSelector({
       </button>
 
       {open ? (
-        <>
-          <div className="fixed inset-0 z-40" onClick={close} />
-          <div
-            role="presentation"
-            onKeyDown={onMenuKeyDown}
-            className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 flex w-[25rem] flex-col overflow-hidden rounded-lg border border-border shadow-2"
-          >
-            <div className="relative border-b border-border">
-              <Search
-                size={12}
-                aria-hidden
-                className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
-              />
-              <input
-                ref={searchRef}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search models…"
-                aria-label="Search models"
-                aria-controls={listboxId}
-                aria-activedescendant={visibleCount > 0 ? activeId : undefined}
-                role="combobox"
-                aria-autocomplete="list"
-                aria-expanded
-                autoComplete="off"
-                spellCheck={false}
-                className="h-8 w-full bg-transparent pe-2 ps-7 text-xs text-fg placeholder:text-fg-subtle focus:outline-none"
-              />
-            </div>
+        <div
+          role="presentation"
+          onKeyDown={onMenuKeyDown}
+          className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 flex w-[25rem] flex-col overflow-hidden rounded-lg border border-border shadow-2"
+        >
+          <div className="relative border-b border-border">
+            <Search
+              size={12}
+              aria-hidden
+              className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+            />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search models…"
+              aria-label="Search models"
+              aria-controls={listboxId}
+              aria-activedescendant={visibleCount > 0 ? activeId : undefined}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded
+              autoComplete="off"
+              spellCheck={false}
+              className="h-8 w-full bg-transparent pe-2 ps-7 text-xs text-fg placeholder:text-fg-subtle focus:outline-none"
+            />
+          </div>
 
-            {searching ? (
+          {searching ? (
+            <div
+              ref={listRef}
+              id={listboxId}
+              role="listbox"
+              aria-label="Search results"
+              className="ari-scroll max-h-80 overflow-y-auto p-1"
+            >
+              {visibleCount === 0
+                ? emptyState
+                : results.map((group) => (
+                    <div key={group.kind} role="presentation">
+                      <p className="px-2 pb-0.5 pt-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+                        {group.label} · {group.options.length}
+                      </p>
+                      {group.options.map((opt, i) => optionRow(opt, group.start + i, group.kind))}
+                    </div>
+                  ))}
+            </div>
+          ) : (
+            <div className="flex min-h-0">
+              {lockedTo === null && providers.length > 0 ? (
+                <div
+                  role="presentation"
+                  aria-label="Providers"
+                  className="w-28 shrink-0 border-e border-border p-1"
+                >
+                  {providers.map((provider) => (
+                    <button
+                      key={provider.kind}
+                      type="button"
+                      aria-current={provider.kind === activeKind}
+                      onClick={() => {
+                        setActiveKind(provider.kind)
+                        setQuery('')
+                      }}
+                      className={`flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
+                        provider.kind === activeKind
+                          ? 'bg-surface-2 text-fg'
+                          : 'text-fg-muted hover:text-fg'
+                      }`}
+                    >
+                      <ProviderLogo kind={provider.kind} />
+                      <span className="min-w-0 flex-1 truncate text-left text-xs">
+                        {provider.label}
+                      </span>
+                      <span className="shrink-0 font-mono text-2xs text-fg-subtle">
+                        {provider.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div
                 ref={listRef}
                 id={listboxId}
                 role="listbox"
-                aria-label="Search results"
-                className="ari-scroll max-h-80 overflow-y-auto p-1"
+                aria-label="Models"
+                className="ari-scroll max-h-80 min-w-0 flex-1 overflow-y-auto p-1"
               >
                 {visibleCount === 0
                   ? emptyState
-                  : results.map((group) => (
-                      <div key={group.kind} role="presentation">
-                        <p className="px-2 pb-0.5 pt-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-                          {group.label} · {group.options.length}
-                        </p>
-                        {group.options.map((opt, i) => optionRow(opt, group.start + i, group.kind))}
-                      </div>
-                    ))}
+                  : paneModels.map((opt, index) => optionRow(opt, index, null))}
               </div>
-            ) : (
-              <div className="flex min-h-0">
-                {lockedTo === null && providers.length > 0 ? (
-                  <div
-                    role="presentation"
-                    aria-label="Providers"
-                    className="w-28 shrink-0 border-e border-border p-1"
-                  >
-                    {providers.map((provider) => (
-                      <button
-                        key={provider.kind}
-                        type="button"
-                        aria-current={provider.kind === activeKind}
-                        onClick={() => {
-                          setActiveKind(provider.kind)
-                          setQuery('')
-                        }}
-                        className={`flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-                          provider.kind === activeKind
-                            ? 'bg-surface-2 text-fg'
-                            : 'text-fg-muted hover:text-fg'
-                        }`}
-                      >
-                        <ProviderLogo kind={provider.kind} />
-                        <span className="min-w-0 flex-1 truncate text-left text-xs">
-                          {provider.label}
-                        </span>
-                        <span className="shrink-0 font-mono text-2xs text-fg-subtle">
-                          {provider.count}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <div
-                  ref={listRef}
-                  id={listboxId}
-                  role="listbox"
-                  aria-label="Models"
-                  className="ari-scroll max-h-80 min-w-0 flex-1 overflow-y-auto p-1"
-                >
-                  {visibleCount === 0
-                    ? emptyState
-                    : paneModels.map((opt, index) => optionRow(opt, index, null))}
-                </div>
-              </div>
-            )}
+            </div>
+          )}
 
-            {!searching && legacyCount > 0 ? (
+          {!searching && legacyCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowLegacy((shown) => !shown)}
+              className="border-t border-border px-2 py-1.5 text-2xs text-fg-subtle transition-colors duration-[var(--ari-dur-fast)] hover:text-fg motion-reduce:transition-none"
+            >
+              {showLegacy
+                ? 'Hide older models'
+                : `Show ${legacyCount} older model${legacyCount === 1 ? '' : 's'}`}
+            </button>
+          ) : null}
+
+          {!searching && fallbackLabel !== null && activeKind !== null ? (
+            <div className="flex items-start gap-2 border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
+              <span className="min-w-0 flex-1">
+                {driverLabel(activeKind)} has not reported its own models — this is{' '}
+                {fallbackLabel}. It may not accept every entry.
+              </span>
               <button
                 type="button"
-                onClick={() => setShowLegacy((shown) => !shown)}
-                className="border-t border-border px-2 py-1.5 text-2xs text-fg-subtle transition-colors duration-[var(--ari-dur-fast)] hover:text-fg motion-reduce:transition-none"
+                onClick={loadCatalogs}
+                aria-label="Refresh models from the agent"
+                className="shrink-0 rounded border border-border px-1.5 py-0.5 font-medium text-fg-muted transition-colors duration-[var(--ari-dur-fast)] hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none"
               >
-                {showLegacy
-                  ? 'Hide older models'
-                  : `Show ${legacyCount} older model${legacyCount === 1 ? '' : 's'}`}
+                Refresh
               </button>
-            ) : null}
+            </div>
+          ) : null}
 
-            {!searching && fallbackLabel !== null && activeKind !== null ? (
-              <div className="flex items-start gap-2 border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
-                <span className="min-w-0 flex-1">
-                  {driverLabel(activeKind)} has not reported its own models — this is{' '}
-                  {fallbackLabel}. It may not accept every entry.
-                </span>
-                <button
-                  type="button"
-                  onClick={loadCatalogs}
-                  aria-label="Refresh models from the agent"
-                  className="shrink-0 rounded border border-border px-1.5 py-0.5 font-medium text-fg-muted transition-colors duration-[var(--ari-dur-fast)] hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none"
-                >
-                  Refresh
-                </button>
-              </div>
-            ) : null}
+          {lockedTo !== null ? (
+            <p className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
+              This session runs on {driverLabel(lockedTo)}. Start a new session to use another
+              agent.
+            </p>
+          ) : null}
 
-            {lockedTo !== null ? (
-              <p className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
-                This session runs on {driverLabel(lockedTo)}. Start a new session to use another agent.
-              </p>
-            ) : null}
-
-            {lockedTo === null && withheld.length > 0 ? (
-              <div className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
-                <p className="pb-0.5 font-semibold uppercase tracking-[0.14em]">Not shown</p>
-                {withheldNote}
-              </div>
-            ) : null}
-          </div>
-        </>
+          {lockedTo === null && withheld.length > 0 ? (
+            <div className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
+              <p className="pb-0.5 font-semibold uppercase tracking-[0.14em]">Not shown</p>
+              {withheldNote}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
