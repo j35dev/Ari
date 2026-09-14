@@ -26,7 +26,9 @@ import { findThoughtOption, looksLikeThoughtAxis } from './thought'
 import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
-import { AcpUpdateFolder, stopReasonEvents } from './protocol'
+import type { CatalogModel } from '../catalogs'
+import { setDynamicModels } from '../catalogs'
+import { AcpUpdateFolder, configOptionsFromUpdate, currentModelId, stopReasonEvents } from './protocol'
 import type {
   AcpConfigOption,
   AcpInitializeResult,
@@ -52,6 +54,12 @@ export interface AcpAdapter extends ProviderAdapter {
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
   /** Answers a pending `input-requested` question (elicitation, ask-user, plan). */
   respondInput(inputId: string, value: string): void
+  /**
+   * The models this session's agent advertises, in the agent's own vocabulary.
+   * The host installs these as the kind's live catalog: discovery from the
+   * runtime that actually runs is the only list guaranteed to be accepted.
+   */
+  advertisedModels: CatalogModel[]
 }
 
 /**
@@ -278,14 +286,32 @@ export async function createAcpAdapter(
   // folder has the exact prelude before that notification can be folded.
   folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   const sessionId = created.sessionId as string
-  connection.onSessionUpdate = (notification) => push(folder.fold(notification))
+  const drift = new ModelDriftWatch(
+    session.modelId,
+    currentModelId(created.configOptions ?? null),
+  )
+  connection.onSessionUpdate = (notification) => {
+    push(folder.fold(notification))
+    // The agent announcing a configuration move has no transcript surface, but
+    // a model it switched to on its own is something the user has to hear.
+    const moved = configOptionsFromUpdate(notification)
+    if (moved !== null) {
+      const notice = drift.observe(moved)
+      if (notice !== null) push([notice])
+    }
+  }
   // Publish the agent's session id so Ari can resume it via session/load on
   // the next turn instead of losing all context.
   push([{ type: 'session-ref', ref: sessionId }])
 
   const selectors = resolveSelectors(launch.label, created, resumed)
   try {
-    await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+    const applied = await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+    // The pick did not reach the agent, so a different model is about to
+    // answer. Say it in the transcript: the composer still shows the pick.
+    if (applied.kind === 'unavailable' && session.modelId !== null) {
+      push([modelUnavailableNotice(session.modelId, applied.offered)])
+    }
     await applyPermissionMode(
       connection,
       sessionId,
@@ -470,7 +496,30 @@ export async function createAcpAdapter(
       if (!connection.closed) connection.cancel(sessionId)
       await connection.shutdown()
     },
+    advertisedModels: modelsFromConfigOptions(selectors.configOptions),
   }
+}
+
+/**
+ * The models an agent's own `model` selector offers, in its own vocabulary —
+ * `sonnet`, `opus[1m]`, `gpt-5.6-sol` — rather than the vendor ids a registry
+ * uses. These are the exact strings {@link applyModel} has to send back, so
+ * they are also the only list the picker can offer without risking a refusal.
+ */
+function modelsFromConfigOptions(configOptions: AcpConfigOption[]): CatalogModel[] {
+  const option = findModelOption(configOptions)
+  const values = option?.options ?? []
+  return values.flatMap((value) =>
+    typeof value.value === 'string' && value.value.length > 0
+      ? [
+          {
+            id: value.value,
+            label:
+              typeof value.name === 'string' && value.name.length > 0 ? value.name : value.value,
+          },
+        ]
+      : [],
+  )
 }
 
 /** True when the agent advertised `session/resume` (no history replay). */
@@ -565,24 +614,100 @@ export function __resetLearnedAcpSelectors(): void {
   LEARNED_SELECTORS.clear()
 }
 
+/**
+ * What {@link applyModel} managed to do with the session's model pick.
+ * `unavailable` is the case that used to vanish into `log.debug`: the agent
+ * advertises models, just not that one, so the turn runs on whatever the
+ * agent defaults to.
+ */
+type ModelApplyOutcome =
+  | { kind: 'applied' }
+  | { kind: 'skipped' }
+  | { kind: 'unavailable'; offered: string[] }
+
 async function applyModel(
   connection: AcpConnection,
   sessionId: string,
   configOptions: AcpConfigOption[],
   modelId: string | null,
-): Promise<void> {
-  if (modelId === null || modelId === 'default') return
+): Promise<ModelApplyOutcome> {
+  if (modelId === null) return { kind: 'skipped' }
   const option = findModelOption(configOptions)
-  if (option === null || option.options === undefined) return
+  if (option === null || option.options === undefined) return { kind: 'skipped' }
   const value = option.options.find((v) => v.value === modelId)?.value
   if (value === undefined) {
+    // `default` is also Ari's own placeholder id (`CLI_DEFAULT_MODELS`), used
+    // when no live catalog has landed. An agent that does not offer it has
+    // nothing to be told and nothing to warn about.
+    if (modelId === 'default') return { kind: 'skipped' }
     log.debug('acp: requested model not advertised by agent', { modelId })
-    return
+    return {
+      kind: 'unavailable',
+      offered: option.options
+        .map((v) => v.value)
+        .filter((v): v is string => typeof v === 'string' && v.length > 0),
+    }
   }
   try {
     await connection.setConfigOption(sessionId, option.id as string, value)
   } catch (error) {
     log.debug('acp: set_config_option(model) failed', { error: String(error) })
+    // The agent took the request and refused it — from the user's side that is
+    // the same outcome as never offering the model: a different one answered.
+    return { kind: 'unavailable', offered: [] }
+  }
+  return { kind: 'applied' }
+}
+
+/**
+ * The line a user sees when their model pick did not reach the agent. Names
+ * the pick and what actually ran, because "the model is not available" alone
+ * leaves the composer still showing the pick as active.
+ */
+function modelUnavailableNotice(modelId: string, offered: string[]): AgentEvent {
+  const fallback =
+    offered.length > 0
+      ? `the agent's default. It offers: ${offered.join(', ')}`
+      : "the agent's default"
+  return {
+    type: 'notice',
+    message: `"${modelId}" is not offered by this agent, so this turn ran on ${fallback}.`,
+  }
+}
+
+/**
+ * Watches the agent's own account of which model is running, so a session that
+ * moves off the user's pick says so instead of answering from a model the
+ * composer still shows as something else.
+ *
+ * `config_option_update` used to fall through {@link AcpUpdateFolder}'s default
+ * branch, which made the move invisible. The watch is transition-based rather
+ * than "current value differs from the pick": agents that echo their pre-set
+ * `currentValue` after a successful `set_config_option` would otherwise put a
+ * ⚠ on every ordinary turn.
+ */
+class ModelDriftWatch {
+  readonly #picked: string | null
+  /** The last model the agent itself reported; the baseline before any move. */
+  #agentModel: string | null
+
+  constructor(picked: string | null, advertised: string | null) {
+    this.#picked = picked
+    this.#agentModel = advertised
+  }
+
+  /** Folds one round of advertised options into a notice, when one is due. */
+  observe(configOptions: AcpConfigOption[] | null | undefined): AgentEvent | null {
+    const current = currentModelId(configOptions)
+    if (current === null || current === this.#agentModel) return null
+    this.#agentModel = current
+    // Moving onto the model the user asked for is the pick taking effect, not
+    // news. A session with no pick has nothing to be right or wrong about.
+    if (this.#picked === null || current === this.#picked) return null
+    return {
+      type: 'notice',
+      message: `The agent moved to "${current}"; this session was set to "${this.#picked}".`,
+    }
   }
 }
 /**
@@ -709,6 +834,23 @@ export function shouldFallBack(error: unknown): boolean {
 }
 
 /**
+ * Installs the model list a session's agent advertised as the kind's live
+ * catalog, so the picker offers what the runtime that will actually run
+ * accepts rather than what a registry says exists.
+ *
+ * This matters most when the throwaway probe *failed*: an agent whose npx
+ * package is not cached yet under `--no-install` still runs fine on a real
+ * turn, and the snapshot the picker fell back to in the meantime names models
+ * that agent refuses outright. An agent advertising nothing changes nothing —
+ * an empty list must never replace a usable catalog.
+ */
+export function publishAdvertisedModels(kind: DriverKind, models: CatalogModel[]): void {
+  if (models.length === 0) return
+  setDynamicModels(kind, 'live', models)
+  log.info('catalog taken from the session agent', { kind, count: models.length })
+}
+
+/**
  * Driver that prefers the ACP transport and transparently falls back to the
  * legacy one-shot CLI driver whenever ACP is disabled, unresolvable, or its
  * connect/session handshake fails. Registration-time wiring lives in
@@ -739,6 +881,7 @@ export class AcpDriver implements Driver {
           this.onAuthRequired ?? undefined,
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
+        publishAdvertisedModels(this.kind, adapter.advertisedModels)
         return adapter
       } catch (error) {
         if (!shouldFallBack(error)) throw error

@@ -57,6 +57,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     costUsd: z.number().nullable(),
   }),
   z.object({ type: z.literal('status'), status: sessionStatusSchema }),
+  /**
+   * Something the user must know that did not fail the turn — a requested
+   * model the harness does not offer, so the reply came from a different one.
+   * Distinct from `error` on purpose: `error` settles the turn as failed, and
+   * a turn that ran on the wrong model still ran.
+   */
+  z.object({ type: z.literal('notice'), message: z.string() }),
   z.object({ type: z.literal('error'), message: z.string(), rawJson: z.string().nullable() }),
   z.object({ type: z.literal('done') }),
 ])
