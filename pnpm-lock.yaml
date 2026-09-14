@@ -112,6 +112,9 @@ importers:
       '@ari/providers':
         specifier: workspace:*
         version: link:../../packages/providers
+      '@ari/remote-gateway':
+        specifier: workspace:*
+        version: link:../../packages/remote-gateway
       '@ari/shared':
         specifier: workspace:*
         version: link:../../packages/shared
