@@ -35,6 +35,7 @@ const engineSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   notifications: { settleSound: true },
   permissions: { allowlist: ['git status'] },
+  remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
 }
 

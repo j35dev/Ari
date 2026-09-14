@@ -56,6 +56,7 @@ export class SettingsStore {
     sessions?: Partial<Settings['sessions']>
     notifications?: Partial<Settings['notifications']>
     permissions?: Partial<Settings['permissions']>
+    remote?: Partial<Settings['remote']>
     window?: Settings['window']
   }): Promise<Settings> {
     const next: Settings = {
@@ -65,6 +66,7 @@ export class SettingsStore {
       sessions: { ...this.#current.sessions, ...patch.sessions },
       notifications: { ...this.#current.notifications, ...patch.notifications },
       permissions: { ...this.#current.permissions, ...patch.permissions },
+      remote: { ...this.#current.remote, ...patch.remote },
       window: patch.window !== undefined ? patch.window : this.#current.window,
     }
     const validated = settingsSchema.parse(next)
