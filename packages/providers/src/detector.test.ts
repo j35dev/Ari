@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { findBinary, detectDriver, readAuthStatus, wellKnownDirs } from './detector'
 import type { DetectEnvironment } from './types'
@@ -52,6 +52,44 @@ describe('findBinary', () => {
   it('returns null for missing binaries and for ari-core', () => {
     expect(findBinary('hermes', makeEnv())).toBeNull()
     expect(findBinary('ari-core', makeEnv())).toBeNull()
+  })
+
+  it('ignores a directory named like the binary', async () => {
+    // A project folder called `codex` on PATH used to be reported as an
+    // installed CLI, which put a fully-populated Codex rail in the picker.
+    const binDir = join(dir, 'phantom')
+    await mkdir(join(binDir, 'codex'), { recursive: true })
+    expect(findBinary('codex', { ...makeEnv(), pathEnv: binDir })).toBeNull()
+  })
+
+  it('prefers a real file over a same-named directory earlier on PATH', async () => {
+    const early = join(dir, 'early')
+    const later = join(dir, 'later')
+    await mkdir(join(early, 'codex'), { recursive: true })
+    await mkdir(later, { recursive: true })
+    await writeFileSafe(join(later, 'codex'), '')
+    const env: DetectEnvironment = {
+      ...makeEnv(),
+      pathEnv: [early, later].join(delimiter),
+    }
+    expect(findBinary('codex', env)).toBe(join(later, 'codex'))
+  })
+
+  it('skips a PATH entry that cannot be read rather than aborting the scan', async () => {
+    // A PATH entry that is a file, not a directory: resolving a candidate
+    // under it raises ENOTDIR instead of reporting that candidate missing,
+    // so one unusable entry used to abort detection before the directories
+    // after it were searched — hiding a provider that is installed.
+    const notADir = join(dir, 'not-a-dir')
+    await writeFileSafe(notADir, '')
+    const later = join(dir, 'later-readable')
+    await mkdir(later, { recursive: true })
+    await writeFileSafe(join(later, 'codex'), '')
+    const env: DetectEnvironment = {
+      ...makeEnv(),
+      pathEnv: [notADir, later].join(delimiter),
+    }
+    expect(findBinary('codex', env)).toBe(join(later, 'codex'))
   })
 
   it('skips nonexistent well-known dirs without throwing', () => {
@@ -167,6 +205,15 @@ describe('detectDriver', () => {
     expect(detection.authStatus).toBe('unknown')
     expect(detection.authStatus).not.toBe('unauthenticated')
     expect(detection.authReason).toBeTruthy()
+  })
+
+  it('does not report a directory named like a binary as installed', async () => {
+    const binDir = join(dir, 'phantom-driver')
+    await mkdir(join(binDir, 'codex'), { recursive: true })
+    const detection = await detectDriver('codex', { ...makeEnv(), pathEnv: binDir })
+    expect(detection.installed).toBe(false)
+    expect(detection.binaryPath).toBeNull()
+    expect(detection.authStatus).toBe('unknown')
   })
 
   it('treats ari-core as installed and authenticated', async () => {

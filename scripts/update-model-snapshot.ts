@@ -28,6 +28,7 @@ const EXCLUDED_ID = /embedding|whisper|tts|dall-e|image|video|audio|transcribe|m
 interface ModelsDevModel {
   id?: string
   name?: string
+  family?: string
   release_date?: string
   modalities?: { input?: string[]; output?: string[] }
   limit?: { context?: number }
@@ -41,6 +42,8 @@ interface SnapshotEntry {
   id: string
   label: string
   contextHint?: string
+  /** Vendor family; lets the picker fold version-less pointers onto siblings. */
+  family?: string
 }
 
 interface Snapshot {
@@ -64,6 +67,7 @@ function toEntry(id: string, model: ModelsDevModel): SnapshotEntry | null {
     id,
     label: typeof model.name === 'string' && model.name.length > 0 ? model.name : id,
   }
+  if (typeof model.family === 'string' && model.family.length > 0) entry.family = model.family
   const hint = contextHint(model.limit?.context)
   if (hint !== undefined) entry.contextHint = hint
   return entry
