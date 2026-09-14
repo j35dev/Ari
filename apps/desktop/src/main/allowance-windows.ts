@@ -72,19 +72,43 @@ export function parseAllowance(kind: DriverKind, value: unknown): Windows {
   }
   if (kind === 'pi') return []
   if (kind !== 'claude' || typeof value !== 'string') return []
-  // Claude's structured /usage formatter emits these exact Markdown labels.
+  // Claude's /usage formatter changed shape across CLI releases: older builds
+  // emit `**5-hour limit** — **12%**` Markdown, current ones emit plain
+  // `Current session: 32% used · resets …` lines. Both parse into the same
+  // windows so a CLI upgrade never silently empties the pill again.
   return value.split('\n').flatMap((line) => {
-    const match =
+    const legacy =
       /^\*\*(5-hour limit|Weekly · all models)\*\* — \*\*(\d+(?:\.\d+)?)%\*\*(?: · Resets (.+))?\s*$/.exec(
         line,
       )
-    if (!match || Number(match[2]) > 100) return []
+    if (legacy) {
+      if (Number(legacy[2]) > 100) return []
+      return [
+        {
+          label: legacy[1] === '5-hour limit' ? '5h' : 'Weekly',
+          usedPercent: Number(legacy[2]),
+          resetsAt: null,
+          ...(legacy[3] ? { resetText: legacy[3] } : {}),
+        },
+      ]
+    }
+    const current =
+      /^Current (session|week(?: \(([^)]+)\))?): (\d+(?:\.\d+)?)% used(?: · [Rr]esets (.+))?\s*$/.exec(
+        line,
+      )
+    if (!current || Number(current[3]) > 100) return []
+    const scope = current[2]
     return [
       {
-        label: match[1] === '5-hour limit' ? '5h' : 'Weekly',
-        usedPercent: Number(match[2]),
+        label:
+          current[1]?.startsWith('session') === true
+            ? '5h'
+            : scope === undefined || scope === 'all models'
+              ? 'Weekly'
+              : `Weekly · ${scope}`,
+        usedPercent: Number(current[3]),
         resetsAt: null,
-        ...(match[3] ? { resetText: match[3] } : {}),
+        ...(current[4] ? { resetText: current[4] } : {}),
       },
     ]
   })
