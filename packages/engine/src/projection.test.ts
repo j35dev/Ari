@@ -210,6 +210,14 @@ describe('session projection', () => {
     expect(state.usage).toEqual({ inputTokens: 16, outputTokens: 12, costUsd: 0.015 })
   })
 
+  it('replaces the context gauge instead of summing it', () => {
+    let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
+    expect(state.context).toBeNull()
+    state = applyEvent(state, ev(1, { type: 'context.recorded', used: 100, size: 1000, costUsd: null }))
+    state = applyEvent(state, ev(2, { type: 'context.recorded', used: 250, size: 1000, costUsd: 0.01 }))
+    expect(state.context).toEqual({ used: 250, size: 1000, costUsd: 0.01 })
+  })
+
   it('projectEvents folds a full list in order', () => {
     const model = projectEvents([
       ev(0, { type: 'session.created', session }),

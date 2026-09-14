@@ -709,6 +709,15 @@ export class Engine {
             })
             break
           }
+          case 'context-usage': {
+            await append({
+              type: 'context.recorded',
+              used: event.used,
+              size: event.size,
+              costUsd: event.costUsd,
+            })
+            break
+          }
           case 'status':
             await append({
               type: 'session.status.changed',

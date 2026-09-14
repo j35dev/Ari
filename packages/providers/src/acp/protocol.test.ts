@@ -38,8 +38,9 @@ describe('AcpUpdateFolder', () => {
     })
 
     // A context-window gauge is not a token count, so it must never reach the
-    // transcript's additive usage readout.
+    // transcript's additive usage readout — it folds into `context-usage`.
     expect(events.some((e) => e.type === 'usage')).toBe(false)
+    expect(events.filter((e) => e.type === 'context-usage').length).toBeGreaterThan(0)
 
     // plan updates have no transcript surface.
     expect(events.some((e) => e.type === 'error')).toBe(false)
@@ -66,7 +67,7 @@ describe('AcpUpdateFolder', () => {
     expect(JSON.parse((events[1] as { resultJson: string }).resultJson)).toEqual({ ok: true })
   })
 
-  it('drops the context gauge and other malformed payloads', () => {
+  it('folds the context gauge into context-usage and drops malformed payloads', () => {
     const folder = new AcpUpdateFolder()
     expect(
       folder.fold({
@@ -77,7 +78,9 @@ describe('AcpUpdateFolder', () => {
           cost: { amount: 5, currency: 'EUR' },
         },
       }),
-    ).toEqual([])
+    ).toEqual([{ type: 'context-usage', used: 12, size: 100, costUsd: 5 }])
+    // Missing gauge degrades to nothing rather than a zeroed event.
+    expect(folder.fold({ update: { sessionUpdate: 'usage_update' } })).toEqual([])
     expect(folder.fold({})).toEqual([])
     expect(folder.fold({ update: { sessionUpdate: 'from_the_future' } })).toEqual([])
   })

@@ -359,13 +359,22 @@ export class AcpUpdateFolder {
           },
         ]
       }
-      case 'usage_update':
+      case 'usage_update': {
         // ACP's usage_update is a context-window gauge (`used` of `size`), not
-        // a per-turn token delta — and Ari's `usage` event is additive, so the
-        // transcript summed a gauge that grows with every update and labelled
-        // the total "input tokens". Reporting nothing beats reporting that.
-        // TODO(m31): a dedicated context-usage event with its own readout.
-        return []
+        // a per-turn token delta — it folds into `context-usage` (latest wins)
+        // rather than the additive `usage` event, which would sum the gauge.
+        const used = num(update.used)
+        if (used === null) return []
+        const size = num(update.size)
+        return [
+          {
+            type: 'context-usage',
+            used,
+            size: size !== null && size > 0 ? size : null,
+            costUsd: costOf(update.cost),
+          },
+        ]
+      }
       default:
         // user_message_chunk / plan / mode / config / commands updates have
         // no transcript surface yet (plan needs a dedicated event + UI).
@@ -447,4 +456,13 @@ export function stopReasonEvents(stopReason: string): AgentEvent[] {
 /** Formats any thrown value from connection setup into a legible message. */
 export function describeAcpFailure(error: unknown): string {
   return formatUnknownError(error)
+}
+
+function num(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
+function costOf(cost: AcpUsageCost | null | undefined): number | null {
+  const amount = cost?.amount
+  return typeof amount === 'number' && Number.isFinite(amount) && amount >= 0 ? amount : null
 }

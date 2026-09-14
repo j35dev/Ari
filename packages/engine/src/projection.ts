@@ -37,6 +37,8 @@ export interface SessionReadModel {
   /** Provider-native session/thread id to resume, when one was observed. */
   providerSessionId: string | null
   usage: UsageTotals
+  /** Latest context-window gauge (ACP `usage_update`); null until reported. */
+  context: { used: number; size: number | null; costUsd: number | null } | null
   lastSeq: number
   lastTurn?: {
     turnId: string
@@ -59,6 +61,7 @@ export function initialReadModel(): SessionReadModel {
     checkpoints: [],
     providerSessionId: null,
     usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
+    context: null,
     lastSeq: -1,
   }
 }
@@ -146,6 +149,10 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
         costUsd:
           event.costUsd === null ? state.usage.costUsd : (state.usage.costUsd ?? 0) + event.costUsd,
       }
+      break
+
+    case 'context.recorded':
+      next.context = { used: event.used, size: event.size, costUsd: event.costUsd }
       break
 
     case 'approval.requested':
