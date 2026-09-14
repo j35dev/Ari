@@ -11,10 +11,10 @@ import {
   requiresAuthentication,
   type RemoteErrorCode,
 } from '@ari/contracts/remote'
-import type { RemoteHost } from './host'
+import type { RemoteCaller, RemoteHost } from './host'
 import { IdempotencyStore } from './idempotency'
 import { isOriginAllowed, requestOrigin } from './origin'
-import { PairingService } from './pairing'
+import { PairingService, type PairedDevice } from './pairing'
 import { acceptUpgrade, isWebSocketUpgrade } from './ws'
 
 /**
@@ -98,12 +98,12 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       head,
       protocols.includes(WIRE_PROTOCOL) ? WIRE_PROTOCOL : undefined,
     )
-    attachEvents(connection, device.deviceId)
+    attachEvents(connection, callerOf(device))
   })
 
   function attachEvents(
     connection: ReturnType<typeof acceptUpgrade>,
-    deviceId: string,
+    caller: RemoteCaller,
   ): void {
     const subscriptions = new Map<string, () => void>()
 
@@ -141,11 +141,11 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       }
       subscriptions.set(
         sessionId,
-        host.subscribe(sessionId, (event) => {
+        host.subscribe(caller, sessionId, (event) => {
           // A subscription outlives the moment it was authorised, so liveness
           // is re-checked at delivery: a device revoked mid-stream must stop
           // receiving the user's transcript, not finish the session first.
-          if (!pairing.isDeviceActive(deviceId)) return teardown()
+          if (!pairing.isDeviceActive(caller.deviceId)) return teardown()
           if (!connection.open) return teardown()
           send({ type: 'events.frame', sessionId, events: [{ seq: event.seq, event }] })
         }),
@@ -234,8 +234,10 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     }
     const command = parsed.data
 
+    // No command operation is anonymous — a contracts test pins that — so an
+    // envelope that parsed has no route without a device.
     const device = authenticate(req)
-    if (device === undefined && requiresAuthentication(command.op)) {
+    if (device === undefined) {
       return send(res, 401, fail('unauthenticated', 'a device credential is required'))
     }
     if (!host.capabilities().includes(command.op)) {
@@ -260,7 +262,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       return send(res, 200, outcome.result)
     }
 
-    const result = await host.execute(command)
+    const result = await host.execute(callerOf(device), command)
     if (result.ok) {
       idempotency.complete(command.idempotencyKey, result)
       return send(res, 200, result)
@@ -284,6 +286,22 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       return send(res, 401, fail('unauthenticated', 'a device credential is required'))
     }
 
+    // Answered here rather than by the host: the protocol version is the
+    // gateway's own, and the capabilities are asked of the host directly. This
+    // is the one operation that has to work before anyone holds a credential,
+    // and it carries no user content — a version and a list of operation
+    // names, so a client can tell what it is speaking to without learning
+    // anything about the machine.
+    if (requested.op === 'gateway.info') {
+      return send(res, 200, {
+        ok: true,
+        result: {
+          protocolVersion: REMOTE_PROTOCOL_VERSION,
+          capabilities: [...host.capabilities()],
+        },
+      })
+    }
+
     if (requested.op === 'command.status') {
       const record = idempotency.lookup(requested.idempotencyKey)
       if (record === undefined) return send(res, 404, fail('not_found', 'no such key'))
@@ -297,16 +315,22 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       }
       return send(res, 200, { ok: true, result: record.result })
     }
+    // Everything past this point reaches the host, which is the user's data.
+    // `gateway.info` and every anonymous operation are answered above, so a
+    // device that is missing here is missing because the operation is guarded.
+    if (device === undefined) {
+      return send(res, 401, fail('unauthenticated', 'a device credential is required'))
+    }
     if (!host.capabilities().includes(requested.op)) {
       return send(res, 400, fail('unsupported_capability', 'this host cannot do that'))
     }
 
     const { op, ...params } = requested
-    const result = await host.query(op, params)
+    const result = await host.query(callerOf(device), op, params)
     return send(res, 200, { ok: true, result })
   }
 
-  function authenticate(req: IncomingMessage): { deviceId: string } | undefined {
+  function authenticate(req: IncomingMessage): PairedDevice | undefined {
     const header = req.headers.authorization
     if (typeof header !== 'string' || !header.toLowerCase().startsWith('bearer ')) return undefined
     const token = header.slice(7).trim()
@@ -410,6 +434,15 @@ function refuseUpgrade(socket: Duplex, status: number): void {
   const reason = status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'Not Found'
   socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
   socket.destroy()
+}
+
+/**
+ * Narrows a paired device to what the host may know about it. Constructed
+ * field by field rather than passed whole, so a record that later grows a
+ * provider token or a key does not start travelling into the host with it.
+ */
+function callerOf(device: PairedDevice): RemoteCaller {
+  return { deviceId: device.deviceId, projectIds: [...device.projectIds] }
 }
 
 function errorMessage(code: RemoteErrorCode, message: string): unknown {
