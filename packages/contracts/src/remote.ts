@@ -25,6 +25,12 @@ export const remoteOperationSchema = z.enum([
   'pairing.request',
   'pairing.status',
   'pairing.redeem',
+  // A remembered device, proving its key again without re-pairing. Anonymous
+  // because the proof *is* the credential: a phone that has been through one
+  // pairing holds a key the desktop already approved, and signing a fresh
+  // challenge is how it comes back after a restart or a cleared tab.
+  'device.challenge',
+  'device.authorize',
   // Sessions.
   'session.list',
   'session.get',
@@ -61,16 +67,19 @@ export const REMOTE_OPERATIONS = remoteOperationSchema.options
  * else requires one, so a failure to authenticate cannot fall through to a
  * default-allow branch.
  *
- * These four are the whole of the pairing handshake a phone performs on its
- * own: it learns what protocol it is speaking, registers a key, watches for
- * the user's decision, and trades a signature for a token. The decisions
- * themselves are not here — see {@linkcode remoteOperationSchema}.
+ * These are the whole of the handshake a phone performs on its own: it learns
+ * what protocol it is speaking, registers a key, watches for the user's
+ * decision, trades a signature for a token, and — from then on — trades a
+ * signature for a fresh one. The decisions themselves are not here: minting an
+ * invitation and approving a device are the user's acts, made at the desktop.
  */
 export const REMOTE_ANONYMOUS_OPERATIONS: readonly RemoteOperation[] = [
   'gateway.info',
   'pairing.request',
   'pairing.status',
   'pairing.redeem',
+  'device.challenge',
+  'device.authorize',
 ]
 
 export function requiresAuthentication(operation: RemoteOperation): boolean {
