@@ -3,8 +3,11 @@ import { Check, ChevronDown, Search } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
 import { modelsFor } from '@ari/providers/catalogs'
+import type { CatalogSource } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
 import { driverLabel } from './agent-mark'
+import { partitionProviders } from './provider-readiness'
+import type { ProviderReadiness } from './provider-readiness'
 import { ProviderLogo } from './provider-logo'
 
 export interface SelectorOption {
@@ -12,10 +15,40 @@ export interface SelectorOption {
   label: string
   group: string
   hint?: string
+  /** Other ids that resolve to this same model; matched when marking selection. */
+  aliases?: string[]
+  /** Superseded within its family; hidden behind the picker's disclosure. */
+  isLegacy?: boolean
+}
+
+/** True when an option is the current one, following version-less aliases. */
+function matchesCurrent(option: SelectorOption, currentId: string): boolean {
+  return option.id === currentId || (option.aliases?.includes(currentId) ?? false)
 }
 
 /** Live catalogs by kind; absent kinds fall back to the bundled snapshot. */
 type CatalogByKind = Partial<Record<DriverKind, CatalogModelInfo[]>>
+
+/** Where each served catalog came from, so the picker can say when it is not the agent's own. */
+type SourcesByKind = Partial<Record<DriverKind, CatalogSource>>
+
+/**
+ * Names a non-`live` catalog for what it is. Only `live` is the agent's own
+ * list of what it accepts; everything else is Ari's guess at it, which is
+ * exactly the list that can offer a model the agent will refuse.
+ */
+function fallbackNote(source: CatalogSource): string | null {
+  switch (source) {
+    case 'live':
+      return null
+    case 'cache':
+      return 'a cached list from the model registry'
+    case 'snapshot':
+      return 'a bundled list'
+    case 'static':
+      return 'a placeholder list'
+  }
+}
 
 /** One left-rail entry: an installed provider and how many models it serves. */
 interface ProviderRow {
@@ -60,9 +93,11 @@ export function ModelSelector({
   const [activeKind, setActiveKind] = useState<DriverKind | null>(null)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
-  const [drivers, setDrivers] = useState<{ kind: DriverKind; label: string }[]>([])
+  const [detections, setDetections] = useState<ProviderReadiness[]>([])
   const [catalog, setCatalog] = useState<CatalogByKind>({})
+  const [sources, setSources] = useState<SourcesByKind>({})
   const [endpointModels, setEndpointModels] = useState<SelectorOption[]>([])
+  const [showLegacy, setShowLegacy] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -74,22 +109,24 @@ export function ModelSelector({
    * restart. */
   const loadCatalogs = useCallback(() => {
     void Promise.allSettled([
-      rpc.invoke('providers.detect').then((detections) => {
-        setDrivers(
-          detections
-            .filter((d) => d.binaryPath !== null || d.kind === 'ari-core')
-            .map((d) => ({
-              kind: d.kind as DriverKind,
-              label: driverLabel(d.kind),
-            })),
-        )
+      rpc.invoke('providers.detect').then((rows) => {
+        // Stored raw: the readiness split happens in a memo, because the
+        // withheld half is what the picker needs to explain an absent rail row.
+        setDetections(rows)
       }),
       rpc.invoke('providers.models').then((rows) => {
         const byKind: CatalogByKind = {}
+        const sources: SourcesByKind = {}
         // Every source is usable: snapshot/cache are curated to what each CLI
         // currently serves and `live` rows are the harness's own model list.
-        for (const row of rows) byKind[row.kind as DriverKind] = row.models
+        // Which one it was is kept: only `live` is the agent's own word, and
+        // the picker says so when a list came from anywhere else.
+        for (const row of rows) {
+          byKind[row.kind as DriverKind] = row.models
+          sources[row.kind as DriverKind] = row.source
+        }
         setCatalog(byKind)
+        setSources(sources)
       }),
       rpc.invoke('endpoints.list').then((endpoints) => {
         // One row per model an endpoint serves, so a single endpoint holding
@@ -138,6 +175,8 @@ export function ModelSelector({
         label: model.label,
         group: driverLabel(kind),
         hint: model.contextHint,
+        aliases: model.aliases?.map((alias) => `${kind}:${alias}`),
+        isLegacy: model.isLegacy,
       }))
     }
     return compute
@@ -146,18 +185,42 @@ export function ModelSelector({
   const currentId = `${driverKind}:${modelId ?? ''}`
   const currentKindLabel = driverLabel(driverKind)
 
+  const { ready, withheld } = useMemo(() => partitionProviders(detections), [detections])
+
   const providers = useMemo<ProviderRow[]>(
-    () => drivers.map((driver) => ({ ...driver, count: optionsFor(driver.kind).length })),
-    [drivers, optionsFor],
+    () =>
+      ready.map((detection) => {
+        const kind = detection.kind as DriverKind
+        return { kind, label: driverLabel(kind), count: optionsFor(kind).length }
+      }),
+    [ready, optionsFor],
   )
 
   const searching = query.trim().length > 0
 
-  /** Pane rows: every model of the active provider, in catalog order. */
-  const paneModels = useMemo(
+  /** Every model the active provider serves, superseded ones included. */
+  const allPaneModels = useMemo(
     () => (activeKind === null ? [] : optionsFor(activeKind)),
     [activeKind, optionsFor],
   )
+
+  /** Pane rows: the current models, plus superseded ones once disclosed. */
+  const paneModels = useMemo(
+    () => (showLegacy ? allPaneModels : allPaneModels.filter((o) => o.isLegacy !== true)),
+    [allPaneModels, showLegacy],
+  )
+
+  const legacyCount = useMemo(
+    () => allPaneModels.filter((o) => o.isLegacy === true).length,
+    [allPaneModels],
+  )
+
+  /** Why the active pane's list is not the agent's own, when it is not. */
+  const fallbackLabel = useMemo(() => {
+    if (activeKind === null || activeKind === 'ari-core') return null
+    const source = sources[activeKind]
+    return source === undefined ? null : fallbackNote(source)
+  }, [activeKind, sources])
 
   /** Search rows: matching models from every provider, grouped, flat order. */
   const results = useMemo<ResultGroup[]>(() => {
@@ -186,10 +249,19 @@ export function ModelSelector({
 
   /** Provider the pane opens on: the session's current one (or the lock). */
   const defaultKind = useMemo<DriverKind | null>(() => {
-    if (drivers.length === 0) return null
-    const wanted = lockedTo ?? driverKind
-    return drivers.some((d) => d.kind === wanted) ? wanted : (drivers[0]?.kind ?? null)
-  }, [drivers, lockedTo, driverKind])
+    // A locked session keeps its own harness even when that harness is
+    // currently withheld — a mid-session logout must not silently swap the
+    // pane onto a different provider's models.
+    if (lockedTo !== null) return lockedTo
+    if (providers.length === 0) return null
+    return providers.some((p) => p.kind === driverKind) ? driverKind : (providers[0]?.kind ?? null)
+  }, [providers, lockedTo, driverKind])
+
+  useEffect(() => {
+    // Each provider starts on its current models; a disclosure left open
+    // across a provider switch would hide which list you are looking at.
+    setShowLegacy(false)
+  }, [activeKind])
 
   useEffect(() => {
     if (!open) return
@@ -237,6 +309,9 @@ export function ModelSelector({
   }
 
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // A focused button owns its own keys — the disclosure toggle would
+    // otherwise both expand and pick the highlighted model on one Enter.
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return
     if (e.key === 'Escape') {
       e.preventDefault()
       close()
@@ -292,7 +367,7 @@ export function ModelSelector({
       return legacy?.label ?? modelId ?? 'Ari Core'
     }
     const list = optionsFor(driverKind)
-    return list.find((o) => o.id === currentId)?.label ?? modelId ?? 'CLI default'
+    return list.find((o) => matchesCurrent(o, currentId))?.label ?? modelId ?? 'CLI default'
   }, [driverKind, modelId, currentId, optionsFor, endpointModels])
 
   const rowClasses = (isActive: boolean): string =>
@@ -301,7 +376,7 @@ export function ModelSelector({
     }`
 
   const optionRow = (opt: SelectorOption, index: number, markKind: string | null) => {
-    const isSelected = opt.id === currentId
+    const isSelected = matchesCurrent(opt, currentId)
     return (
       <button
         key={opt.id}
@@ -328,12 +403,23 @@ export function ModelSelector({
     <p className="px-2 py-3 text-center text-xs text-fg-subtle">
       {!loaded
         ? 'Loading…'
-        : drivers.length === 0
-          ? 'No agents detected yet.'
+        : providers.length === 0
+          ? 'No agents ready yet.'
           : searching
             ? `No models match “${query.trim()}”.`
             : 'No models available.'}
     </p>
+  )
+
+  /** Providers that were detected but cannot run a turn, and why. */
+  const withheldNote = (
+    <ul className="space-y-0.5">
+      {withheld.map((entry) => (
+        <li key={entry.detection.kind}>
+          {driverLabel(entry.detection.kind)} — {entry.reason}
+        </li>
+      ))}
+    </ul>
   )
 
   return (
@@ -461,10 +547,46 @@ export function ModelSelector({
               </div>
             )}
 
+            {!searching && legacyCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowLegacy((shown) => !shown)}
+                className="border-t border-border px-2 py-1.5 text-2xs text-fg-subtle transition-colors duration-[var(--ari-dur-fast)] hover:text-fg motion-reduce:transition-none"
+              >
+                {showLegacy
+                  ? 'Hide older models'
+                  : `Show ${legacyCount} older model${legacyCount === 1 ? '' : 's'}`}
+              </button>
+            ) : null}
+
+            {!searching && fallbackLabel !== null && activeKind !== null ? (
+              <div className="flex items-start gap-2 border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
+                <span className="min-w-0 flex-1">
+                  {driverLabel(activeKind)} has not reported its own models — this is{' '}
+                  {fallbackLabel}. It may not accept every entry.
+                </span>
+                <button
+                  type="button"
+                  onClick={loadCatalogs}
+                  aria-label="Refresh models from the agent"
+                  className="shrink-0 rounded border border-border px-1.5 py-0.5 font-medium text-fg-muted transition-colors duration-[var(--ari-dur-fast)] hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none"
+                >
+                  Refresh
+                </button>
+              </div>
+            ) : null}
+
             {lockedTo !== null ? (
               <p className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
                 This session runs on {driverLabel(lockedTo)}. Start a new session to use another agent.
               </p>
+            ) : null}
+
+            {lockedTo === null && withheld.length > 0 ? (
+              <div className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
+                <p className="pb-0.5 font-semibold uppercase tracking-[0.14em]">Not shown</p>
+                {withheldNote}
+              </div>
             ) : null}
           </div>
         </>

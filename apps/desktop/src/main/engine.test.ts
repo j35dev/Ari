@@ -541,6 +541,57 @@ describe('engine end-to-end with scripted driver', () => {
     expect(model.status).toBe('error')
   }, 10000)
 
+  it('shows a notice in the transcript without failing the turn', async () => {
+    // A notice is the "this worked, but not the way you asked" channel — a
+    // refused model pick. Settling the turn as `error` here would report a
+    // failure that did not happen and play the error sound over a good reply.
+    function noticingDriver(): Driver {
+      function makeAdapter(): ProviderAdapter {
+        async function* start(): AsyncGenerator<AgentEvent> {
+          yield {
+            type: 'notice',
+            message: '"gpt-9" is not offered by this agent, so this turn ran on the default.',
+          }
+          yield { type: 'text-delta', text: 'hello' }
+          yield { type: 'done' }
+        }
+        return {
+          start: () => ({ [Symbol.asyncIterator]: () => start()[Symbol.asyncIterator]() }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }
+      }
+      return { kind: 'claude', create: () => Promise.resolve(makeAdapter()) }
+    }
+
+    const registry = new DriverRegistry()
+    registry.register(noticingDriver())
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_notice'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'hi' } as Command)
+    for (let i = 0; i < 150; i++) {
+      if (published.some((p) => p.sessionId === sessionId && p.event.type === 'turn.settled')) break
+      if (i === 149) throw new Error('turn never settled')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const model = await store.load(sessionId)
+    expect(model.status).toBe('idle')
+    const text = (model.messages ?? [])
+      .flatMap((m) => m.parts)
+      .filter((p) => p.type === 'text')
+      .map((p) => (p as { text: string }).text)
+      .join('')
+    expect(text).toContain('gpt-9')
+    expect(text).toContain('hello')
+  }, 10000)
+
   it('passes the observed provider ref as resumeOf on the next turn only', async () => {
     const created: AdapterSession[] = []
     function resumingDriver(): Driver {

@@ -740,6 +740,16 @@ export class Engine {
             // it instead of re-prompting cold.
             await append({ type: 'session.ref.observed', ref: event.ref })
             break
+          case 'notice':
+            // Shown, but deliberately not recorded as `firstErrorMessage`:
+            // the turn is answering, just not with what the user picked.
+            await flush()
+            await append({
+              type: 'assistant.parts.appended',
+              messageId,
+              parts: [{ type: 'text', text: `\n\n⚠ ${event.message}` }],
+            })
+            break
           case 'error':
             if (firstErrorMessage === null) firstErrorMessage = event.message
             await append({
