@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
-import { EndpointsManager } from './EndpointsManager'
+import { EndpointsManager, normalizeBaseUrl } from './EndpointsManager'
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -74,8 +74,7 @@ describe('EndpointsManager', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('refuses to save an endpoint with no models', async () => {
-    mockList([])
+  it('refuses to save an endpoint with no models', async () => {    mockList([])
     const user = userEvent.setup()
     render(<EndpointsManager />)
 
@@ -346,8 +345,7 @@ describe('EndpointsManager', () => {
     ).not.toBe(0)
   })
 
-  it('removing the default model hands the role to the next one', async () => {
-    mockList([
+  it('removing the default model hands the role to the next one', async () => {    mockList([
       {
         ...SEED_STORED,
         models: [
@@ -370,5 +368,43 @@ describe('EndpointsManager', () => {
         defaultModel: 'qwen3',
       })
     })
+  })
+
+  it('saves a bare LAN host:port without a key by defaulting to http', async () => {
+    mockList([])
+    invoke.mockImplementation((method: string) => {
+      if (method === 'endpoints.list') return Promise.resolve([])
+      if (method === 'endpoints.upsert') return Promise.resolve({ id: 'new-1', name: 'x' })
+      return Promise.resolve({ ok: true })
+    })
+    const user = userEvent.setup()
+    render(<EndpointsManager />)
+
+    await user.type(screen.getByLabelText('Name'), 'LAN vLLM')
+    await user.type(screen.getByLabelText('Base URL'), '192.168.2.12:8000')
+    await user.type(screen.getByLabelText('Model id to add to the new endpoint'), 'qwen3')
+    await user.click(screen.getByRole('button', { name: 'Add model to the new endpoint' }))
+    await user.click(screen.getByRole('button', { name: 'Add endpoint' }))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        'endpoints.upsert',
+        expect.objectContaining({
+          baseUrl: 'http://192.168.2.12:8000',
+          apiKey: null,
+        }),
+      )
+    })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('normalizeBaseUrl', () => {
+  it('defaults a missing scheme to http and leaves explicit schemes alone', () => {
+    expect(normalizeBaseUrl('192.168.2.12:8000')).toBe('http://192.168.2.12:8000')
+    expect(normalizeBaseUrl('  localhost:11434  ')).toBe('http://localhost:11434')
+    expect(normalizeBaseUrl('http://localhost:8080/v1')).toBe('http://localhost:8080/v1')
+    expect(normalizeBaseUrl('https://api.openai.com/v1')).toBe('https://api.openai.com/v1')
+    expect(normalizeBaseUrl('')).toBe('')
   })
 })
