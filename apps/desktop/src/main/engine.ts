@@ -536,7 +536,7 @@ export class Engine {
         workspacePath,
         prompt:
           runtimeEnv?.ARI_ENV === '1'
-            ? `[Ari control surface: this session can operate Ari. Commands: ari env, ari agents, ari session spawn|prompt|wait|read|diff|integrate|stop|destroy. Full protocol: ari --skill. Never disclose ARI_CONTROL_TOKEN.]\n\n${prompt}`
+            ? `[Ari control surface: added automatically by the Ari desktop app, not written by the user. This session can operate Ari through the CLI at $ARI_CLI. Commands: env, agents, session spawn|prompt|wait|read|diff|integrate|stop|destroy. Full protocol: $ARI_CLI --skill. Never disclose ARI_CONTROL_TOKEN.]\n\n${prompt}`
             : prompt,
         modelId: session.modelId,
         permissionMode: session.permissionMode,
