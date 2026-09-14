@@ -56,6 +56,14 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     outputTokens: z.number().nonnegative(),
     costUsd: z.number().nullable(),
   }),
+  z.object({
+    type: z.literal('context-usage'),
+    /** Context-window gauge: tokens used, never summed — latest wins. */
+    used: z.number().nonnegative(),
+    /** Window size when the agent reports one; null otherwise. */
+    size: z.number().positive().nullable(),
+    costUsd: z.number().nullable(),
+  }),
   z.object({ type: z.literal('status'), status: sessionStatusSchema }),
   z.object({ type: z.literal('error'), message: z.string(), rawJson: z.string().nullable() }),
   z.object({ type: z.literal('done') }),

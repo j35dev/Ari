@@ -44,6 +44,7 @@ describe('contracts', () => {
       { type: 'approval-requested', approvalId: 'a1', toolName: 'edit_file', summaryJson: '{}' },
       { type: 'input-requested', inputId: 'q1', prompt: 'Which?', choicesJson: null },
       { type: 'usage', inputTokens: 10, outputTokens: 5, costUsd: null },
+      { type: 'context-usage', used: 4210, size: 200000, costUsd: 0.0142 },
       { type: 'status', status: 'running' },
       { type: 'error', message: 'boom', rawJson: null },
       { type: 'done' },

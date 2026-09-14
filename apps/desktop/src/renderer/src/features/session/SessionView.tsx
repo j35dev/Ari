@@ -76,6 +76,13 @@ interface Telemetry {
   /** Running total for the ACTIVE turn only (drives the context meter). */
   turnInputTokens: number
   turnOutputTokens: number
+  /** Latest context-window gauge (ACP `usage_update`); null until reported. */
+  contextUsed: number | null
+  contextSize: number | null
+  /** Estimated output tokens for the active/last turn (chars/4 heuristic). */
+  turnEstimatedOutput: number
+  /** Frozen TPS of the last settled turn; null until a turn settles. */
+  lastTps: number | null
 }
 
 const EMPTY_TELEMETRY: Telemetry = {
@@ -86,6 +93,10 @@ const EMPTY_TELEMETRY: Telemetry = {
   startedAt: null,
   turnInputTokens: 0,
   turnOutputTokens: 0,
+  contextUsed: null,
+  contextSize: null,
+  turnEstimatedOutput: 0,
+  lastTps: null,
 }
 
 function formatTokens(n: number): string {
@@ -125,6 +136,25 @@ export function formatCompactTokens(n: number): string {
 
 const METER_WARN_PCT = 75
 const METER_DANGER_PCT = 90
+
+/**
+ * Live throughput readout for the active turn: estimated output tokens
+ * (chars/4 of streamed text) over elapsed seconds. Re-renders on a 500ms
+ * tick plus every streamed chunk (each chunk updates the estimate).
+ */
+function LiveTps({ estimatedOutput, startedAt }: { estimatedOutput: number; startedAt: number }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((n) => n + 1), 500)
+    return () => window.clearInterval(timer)
+  }, [])
+  const elapsedS = Math.max(0.1, (Date.now() - startedAt) / 1000)
+  const tps = estimatedOutput / elapsedS
+  const label = tps >= 100 ? `${Math.round(tps)} tps` : `${tps.toFixed(1)} tps`
+  return (
+    <span title="Estimated output tokens per second, this turn">~{label}</span>
+  )
+}
 
 /**
  * Context-window meter for the telemetry strip: a slim fill bar plus
@@ -382,6 +412,19 @@ export function SessionView({
         setMessages((prev) => [...prev, event.message])
         break
       case 'assistant.parts.appended':
+        // Estimated output tokens ride the streamed text (chars/4 heuristic)
+        // so ACP sessions — which report no token deltas — still get a TPS.
+        if (activeTurnIdRef.current !== null) {
+          let chars = 0
+          for (const part of event.parts) {
+            const p = part as { type?: unknown; text?: unknown }
+            if (p.type === 'text' && typeof p.text === 'string') chars += p.text.length
+          }
+          if (chars > 0) {
+            const delta = Math.max(1, Math.round(chars / 4))
+            setTelemetry((t) => ({ ...t, turnEstimatedOutput: t.turnEstimatedOutput + delta }))
+          }
+        }
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === event.messageId)
           if (existing) {
@@ -411,6 +454,11 @@ export function SessionView({
           ...t,
           turnCount: t.turnCount + 1,
           startedAt: event.at,
+          // The window is per-turn: reset the active-turn footprint and the
+          // output estimate so the meter and TPS start clean every turn.
+          turnInputTokens: 0,
+          turnOutputTokens: 0,
+          turnEstimatedOutput: 0,
         }))
         break
       case 'turn.settled': {
@@ -421,12 +469,21 @@ export function SessionView({
         setPendingQuestion(null)
         setApprovals([])
         activeTurnIdRef.current = null
-        setTelemetry((t) => ({
-          ...t,
-          lastDurationMs:
-            t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
-          startedAt: null,
-        }))
+        setTelemetry((t) => {
+          const durationMs =
+            t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs
+          return {
+            ...t,
+            lastDurationMs: durationMs,
+            startedAt: null,
+            // Freeze the turn's estimated throughput; the live readout keeps
+            // deriving from the estimate + elapsed time while running.
+            lastTps:
+              durationMs !== null && durationMs > 0
+                ? t.turnEstimatedOutput / (durationMs / 1000)
+                : t.lastTps,
+          }
+        })
         fetchTurnDiffRef.current(event.turnId)
         setPlanNonce((n) => n + 1)
         if (event.stopReason === 'error' && event.errorMessage) {
@@ -492,6 +549,14 @@ export function SessionView({
           outputTokens: t.outputTokens + (event.outputTokens ?? 0),
           turnInputTokens: t.turnInputTokens + (event.inputTokens ?? 0),
           turnOutputTokens: t.turnOutputTokens + (event.outputTokens ?? 0),
+        }))
+        break
+      case 'context.recorded':
+        // Gauge semantics: latest wins, never summed.
+        setTelemetry((t) => ({
+          ...t,
+          contextUsed: event.used,
+          contextSize: event.size,
         }))
         break
       default: {
@@ -859,18 +924,40 @@ export function SessionView({
               <span title="Input tokens">↑ {formatTokens(telemetry.inputTokens)}</span>
               <span aria-hidden>·</span>
               <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
+              {running && telemetry.startedAt !== null ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <LiveTps
+                    estimatedOutput={telemetry.turnEstimatedOutput}
+                    startedAt={telemetry.startedAt}
+                  />
+                </>
+              ) : telemetry.lastTps !== null ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span title="Estimated output tokens per second, last turn">
+                    {telemetry.lastTps >= 100
+                      ? `${Math.round(telemetry.lastTps)} tps`
+                      : `${telemetry.lastTps.toFixed(1)} tps`}
+                  </span>
+                </>
+              ) : null}
             </>
           ) : (
             <span>{running ? null : 'no turns yet'}</span>
           )}
           <div className="flex-1" />
-          {/* Context meter shows the ACTIVE/last turn's footprint, not the
-            lifetime total — the window is per-turn, so lifetime totals would
-            lie about headroom (DSH token-meter semantics). */}
-          {telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
+          {/* Context meter prefers the agent-reported window gauge (ACP
+            `usage_update`) over the catalog hint; without either, the active
+            turn's exact token total still shows as a used-count-only chip. */}
+          {telemetry.contextUsed !== null ||
+          telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
             <ContextMeter
-              used={telemetry.turnInputTokens + telemetry.turnOutputTokens}
-              contextWindow={contextWindow}
+              used={
+                telemetry.contextUsed ??
+                telemetry.turnInputTokens + telemetry.turnOutputTokens
+              }
+              contextWindow={telemetry.contextSize ?? contextWindow}
             />
           ) : null}
         </div>

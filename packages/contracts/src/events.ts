@@ -84,6 +84,13 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     costUsd: z.number().nullable(),
   }),
   eventBase.extend({
+    type: z.literal('context.recorded'),
+    /** Latest context-window gauge; replaces — never sums — prior values. */
+    used: z.number().nonnegative(),
+    size: z.number().positive().nullable(),
+    costUsd: z.number().nullable(),
+  }),
+  eventBase.extend({
     type: z.literal('approval.requested'),
     approvalId: z.string(),
     toolName: z.string(),
