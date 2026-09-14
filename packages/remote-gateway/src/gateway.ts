@@ -214,9 +214,15 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     }
 
     if (url.pathname === '/info') {
+      // The same envelope every other route answers with, so a client has one
+      // shape to parse rather than a special case for the first request it
+      // ever makes.
       return reply(200, {
-        protocolVersion: REMOTE_PROTOCOL_VERSION,
-        capabilities: [...host.capabilities()],
+        ok: true,
+        result: {
+          protocolVersion: REMOTE_PROTOCOL_VERSION,
+          capabilities: [...host.capabilities()],
+        },
       })
     }
 
