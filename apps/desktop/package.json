@@ -36,6 +36,7 @@
     "@ari/contracts": "workspace:*",
     "@ari/engine": "workspace:*",
     "@ari/providers": "workspace:*",
+    "@ari/remote-gateway": "workspace:*",
     "@ari/shared": "workspace:*",
     "@ari/ui": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
