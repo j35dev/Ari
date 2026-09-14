@@ -34,12 +34,26 @@ const MAX_BODY_BYTES = 1024 * 1024
 
 export interface RemoteGatewayOptions {
   host: RemoteHost
-  /** Exact origins, never a wildcard. A gateway with none refuses everything. */
-  allowedOrigins: readonly string[]
+  /**
+   * Exact origins, never a wildcard. A gateway with none refuses everything.
+   * A function form is for a set that grows while the gateway runs — the
+   * tailnet address of a wizard that has not run yet, say.
+   */
+  allowedOrigins: readonly string[] | (() => readonly string[])
   /** 0 asks the OS for a free port, which is what tests want. */
   port?: number
   pairing?: PairingService
   now?: () => number
+  /**
+   * Where command deduplication records go if they are to outlive the
+   * process. Absent, they live as long as the gateway does, which is exactly
+   * as long as a client that retries after a crash needs them — the crash
+   * that loses them is the one that also loses the gateway.
+   */
+  idempotency?: {
+    restore?: string
+    persist?: (json: string) => void
+  }
 }
 
 export interface RemoteGateway {
@@ -56,10 +70,30 @@ export interface RemoteGateway {
 
 export async function createRemoteGateway(options: RemoteGatewayOptions): Promise<RemoteGateway> {
   const host = options.host
-  const allowedOrigins = [...options.allowedOrigins]
   const pairing = options.pairing ?? new PairingService()
-  const idempotency = new IdempotencyStore<unknown>({ now: options.now })
+  const idempotency =
+    options.idempotency?.restore === undefined
+      ? new IdempotencyStore<unknown>({ now: options.now })
+      : IdempotencyStore.fromJSON<unknown>(options.idempotency.restore)
+  const remember = (): void => options.idempotency?.persist?.(idempotency.toJSON())
   const sockets = new Set<Socket>()
+  /**
+   * The address this gateway is reachable at itself. Added to the allowlist
+   * because the PWA it serves is same-origin with it, and a browser sends
+   * `Origin` on a same-origin POST. Still one exact string, never a wildcard.
+   */
+  let selfOrigin: string | null = null
+
+  const originAllowed = (origin: string | undefined): boolean => {
+    if (typeof origin === 'string' && selfOrigin !== null && origin.toLowerCase() === selfOrigin) {
+      return true
+    }
+    return isOriginAllowed(origin, allowedOriginsNow())
+  }
+
+  function allowedOriginsNow(): readonly string[] {
+    return typeof options.allowedOrigins === 'function' ? options.allowedOrigins() : options.allowedOrigins
+  }
 
   const server = createServer((req, res) => {
     handle(req, res).catch(() => {
@@ -83,7 +117,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     // Checked here as well as in `handle`, because node routes an upgrade to
     // this listener instead once one is registered — the request handler's
     // check no longer sees it.
-    if (!isOriginAllowed(requestOrigin(req.headers), allowedOrigins)) {
+    if (!originAllowed(requestOrigin(req.headers))) {
       return refuseUpgrade(socket, 403)
     }
     const protocols = offeredProtocols(req)
@@ -160,77 +194,124 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const origin = requestOrigin(req.headers)
 
-    if (!isOriginAllowed(requestOrigin(req.headers), allowedOrigins)) {
+    if (!originAllowed(origin)) {
       return send(res, 403, fail('origin_not_allowed', 'origin is not allowed'))
+    }
+    // From here on the origin is one of the allowed strings, so echoing it
+    // back is safe. Every response carries it, including refusals: a browser
+    // blocks a response without it, and an error the client cannot read is an
+    // error the user never sees.
+    const reply: Reply = (status, body) => send(res, status, body, origin)
+
+    if (req.method === 'OPTIONS') {
+      // A preflight carries no body and names the method it intends to use.
+      // Answered from the allowlist alone, because there is nothing else to
+      // check it against and a preflight that reaches the body reader would
+      // be rejected for having no body at all.
+      return preflight(res, origin)
     }
 
     if (url.pathname === '/info') {
-      return send(res, 200, {
+      return reply(200, {
         protocolVersion: REMOTE_PROTOCOL_VERSION,
         capabilities: [...host.capabilities()],
       })
     }
 
-    const body = await readBody(req, res)
+    const body = await readBody(req, reply)
     if (body === undefined) return
 
     switch (url.pathname) {
       case '/pair/request':
-        return pairRequest(res, body)
+        return pairRequest(reply, body)
       case '/pair/status':
-        return pairStatus(res, body)
+        return pairStatus(reply, body)
       case '/pair/redeem':
-        return pairRedeem(res, body)
+        return pairRedeem(reply, body)
+      case '/device/challenge':
+        return deviceChallenge(reply, body)
+      case '/device/authorize':
+        return deviceAuthorize(reply, body)
       case '/command':
-        return command(req, res, body)
+        return command(req, reply, body)
       case '/query':
-        return query(req, res, body)
+        return query(req, reply, body)
       default:
-        return send(res, 404, fail('not_found', 'no such route'))
+        return reply(404, fail('not_found', 'no such route'))
     }
   }
 
-  function pairRequest(res: ServerResponse, body: unknown): void {
+  function pairRequest(reply: Reply, body: unknown): void {
     const parsed = pairingRequestSchema.safeParse(body)
-    if (!parsed.success) return send(res, 400, fail('unsupported_capability', 'malformed request'))
+    if (!parsed.success) return reply(400, fail('unsupported_capability', 'malformed request'))
     const result = pairing.request(parsed.data.invitationId, {
       displayName: parsed.data.displayName,
       publicKey: parsed.data.publicKey,
     })
-    if (!result.ok) return send(res, statusFor(result.code), fail(result.code, 'pairing refused'))
-    return send(res, 200, { ok: true, result: { confirmationCode: result.pending.confirmationCode } })
+    if (!result.ok) return reply(statusFor(result.code), fail(result.code, 'pairing refused'))
+    return reply(200, {
+      ok: true,
+      // The nonce travels with the confirmation code: the client displays one
+      // and signs the other, and neither is something it chose.
+      result: { confirmationCode: result.pending.confirmationCode, nonce: result.nonce },
+    })
   }
 
-  function pairStatus(res: ServerResponse, body: unknown): void {
+  function deviceChallenge(reply: Reply, body: unknown): void {
+    const parsed = deviceChallengeSchema.safeParse(body)
+    if (!parsed.success) return reply(400, fail('unsupported_capability', 'malformed request'))
+    return reply(200, { ok: true, result: pairing.challenge(parsed.data.deviceId) })
+  }
+
+  function deviceAuthorize(reply: Reply, body: unknown): void {
+    const parsed = deviceAuthorizeSchema.safeParse(body)
+    if (!parsed.success) return reply(400, fail('unsupported_capability', 'malformed request'))
+    const result = pairing.authorize(parsed.data.deviceId, {
+      nonce: parsed.data.nonce,
+      signature: parsed.data.signature,
+    })
+    if (!result.ok) return reply(statusFor(result.code), fail(result.code, 'authorization refused'))
+    return reply(200, {
+      ok: true,
+      result: {
+        deviceId: result.device.deviceId,
+        token: result.token,
+        projectIds: result.device.projectIds,
+      },
+    })
+  }
+
+  function pairStatus(reply: Reply, body: unknown): void {
     const parsed = pairingStatusQuery.safeParse(body)
-    if (!parsed.success) return send(res, 400, fail('unsupported_capability', 'malformed request'))
+    if (!parsed.success) return reply(400, fail('unsupported_capability', 'malformed request'))
     const status = pairing.status(parsed.data.invitationId)
-    if (status === undefined) return send(res, 404, fail('not_found', 'unknown invitation'))
-    return send(res, 200, { ok: true, result: { status } })
+    if (status === undefined) return reply(404, fail('not_found', 'unknown invitation'))
+    return reply(200, { ok: true, result: { status } })
   }
 
-  function pairRedeem(res: ServerResponse, body: unknown): void {
+  function pairRedeem(reply: Reply, body: unknown): void {
     const parsed = pairingRedeemSchema.safeParse(body)
-    if (!parsed.success) return send(res, 400, fail('unsupported_capability', 'malformed request'))
+    if (!parsed.success) return reply(400, fail('unsupported_capability', 'malformed request'))
     const result = pairing.redeem(parsed.data.invitationId, {
       nonce: parsed.data.nonce,
       signature: parsed.data.signature,
     })
-    if (!result.ok) return send(res, statusFor(result.code), fail(result.code, 'redemption refused'))
-    return send(res, 200, {
+    if (!result.ok) return reply(statusFor(result.code), fail(result.code, 'redemption refused'))
+    return reply(200, {
       ok: true,
       result: { deviceId: result.device.deviceId, token: result.token },
     })
   }
 
-  async function command(req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> {
+  async function command(req: IncomingMessage, reply: Reply, body: unknown): Promise<void> {
     const parsed = remoteCommandEnvelopeSchema.safeParse(body)
     if (!parsed.success) {
       // Covers an operation with no schema, and a field the envelope does not
       // declare: both are "this gateway does not do that", and neither may
       // reach the host to be quietly ignored.
-      return send(res, 400, fail('unsupported_capability', 'unsupported command'))
+      return reply(400, fail('unsupported_capability', 'unsupported command'))
     }
     const command = parsed.data
 
@@ -238,18 +319,18 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     // envelope that parsed has no route without a device.
     const device = authenticate(req)
     if (device === undefined) {
-      return send(res, 401, fail('unauthenticated', 'a device credential is required'))
+      return reply(401, fail('unauthenticated', 'a device credential is required'))
     }
     if (!host.capabilities().includes(command.op)) {
-      return send(res, 400, fail('unsupported_capability', 'this host cannot do that'))
+      return reply(400, fail('unsupported_capability', 'this host cannot do that'))
     }
 
     const outcome = idempotency.begin(command.idempotencyKey, command)
     if (outcome.outcome === 'conflict') {
-      return send(res, 409, fail('idempotency_conflict', 'that key was used for another command'))
+      return reply(409, fail('idempotency_conflict', 'that key was used for another command'))
     }
     if (outcome.outcome === 'in_flight') {
-      return send(res, 409, fail('conflict', 'that command is still running'))
+      return reply(409, fail('conflict', 'that command is still running'))
     }
     if (outcome.outcome === 'replay') {
       // A replayed failure carries no result — the store records that it
@@ -257,33 +338,39 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       // a bodyless 200 would read as success to a client that lost the first
       // response, which is the only client that asks.
       if (outcome.result === undefined) {
-        return send(res, 409, fail('conflict', 'that command already failed; retry under a new key'))
+        return reply(409, fail('conflict', 'that command already failed; retry under a new key'))
       }
-      return send(res, 200, outcome.result)
+      return reply(200, outcome.result)
     }
+    // Written before the command runs: a desktop that dies mid-command must
+    // leave the key claimed, so the retry after the restart sees "still
+    // running" instead of running the prompt a second time.
+    remember()
 
     const result = await host.execute(callerOf(device), command)
     if (result.ok) {
       idempotency.complete(command.idempotencyKey, result)
-      return send(res, 200, result)
+      remember()
+      return reply(200, result)
     }
     // Recorded, so a retry sees the same refusal rather than re-running a
     // command that already failed for a reason that has not changed.
     idempotency.fail(command.idempotencyKey)
+    remember()
     const code = asErrorCode(result.code)
-    return send(res, statusFor(code), { ok: false, error: { code, message: result.message } })
+    return reply(statusFor(code), { ok: false, error: { code, message: result.message } })
   }
 
-  async function query(req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> {
+  async function query(req: IncomingMessage, reply: Reply, body: unknown): Promise<void> {
     const parsed = remoteQuerySchema.safeParse(body)
     if (!parsed.success) {
-      return send(res, 400, fail('unsupported_capability', 'unsupported query'))
+      return reply(400, fail('unsupported_capability', 'unsupported query'))
     }
     const requested = parsed.data
 
     const device = authenticate(req)
     if (device === undefined && requiresAuthentication(requested.op)) {
-      return send(res, 401, fail('unauthenticated', 'a device credential is required'))
+      return reply(401, fail('unauthenticated', 'a device credential is required'))
     }
 
     // Answered here rather than by the host: the protocol version is the
@@ -293,7 +380,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     // names, so a client can tell what it is speaking to without learning
     // anything about the machine.
     if (requested.op === 'gateway.info') {
-      return send(res, 200, {
+      return reply(200, {
         ok: true,
         result: {
           protocolVersion: REMOTE_PROTOCOL_VERSION,
@@ -304,30 +391,30 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
 
     if (requested.op === 'command.status') {
       const record = idempotency.lookup(requested.idempotencyKey)
-      if (record === undefined) return send(res, 404, fail('not_found', 'no such key'))
+      if (record === undefined) return reply(404, fail('not_found', 'no such key'))
       // Only the outcome goes back, not the store's own bookkeeping — when the
       // record was written is the gateway's business.
       if (record.failed) {
-        return send(res, 409, fail('conflict', 'that command already failed'))
+        return reply(409, fail('conflict', 'that command already failed'))
       }
       if (record.result === undefined) {
-        return send(res, 409, fail('conflict', 'that command is still running'))
+        return reply(409, fail('conflict', 'that command is still running'))
       }
-      return send(res, 200, { ok: true, result: record.result })
+      return reply(200, { ok: true, result: record.result })
     }
     // Everything past this point reaches the host, which is the user's data.
     // `gateway.info` and every anonymous operation are answered above, so a
     // device that is missing here is missing because the operation is guarded.
     if (device === undefined) {
-      return send(res, 401, fail('unauthenticated', 'a device credential is required'))
+      return reply(401, fail('unauthenticated', 'a device credential is required'))
     }
     if (!host.capabilities().includes(requested.op)) {
-      return send(res, 400, fail('unsupported_capability', 'this host cannot do that'))
+      return reply(400, fail('unsupported_capability', 'this host cannot do that'))
     }
 
     const { op, ...params } = requested
     const result = await host.query(callerOf(device), op, params)
-    return send(res, 200, { ok: true, result })
+    return reply(200, { ok: true, result })
   }
 
   function authenticate(req: IncomingMessage): PairedDevice | undefined {
@@ -341,26 +428,26 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     return device
   }
 
-  async function readBody(req: IncomingMessage, res: ServerResponse): Promise<unknown> {
+  async function readBody(req: IncomingMessage, reply: Reply): Promise<unknown> {
     const chunks: Buffer[] = []
     let size = 0
     for await (const chunk of req) {
       const buffer = chunk as Buffer
       size += buffer.length
       if (size > MAX_BODY_BYTES) {
-        send(res, 413, fail('unsupported_capability', 'request body is too large'))
+        reply(413, fail('unsupported_capability', 'request body is too large'))
         return undefined
       }
       chunks.push(buffer)
     }
     if (size === 0) {
-      send(res, 400, fail('unsupported_capability', 'a JSON body is required'))
+      reply(400, fail('unsupported_capability', 'a JSON body is required'))
       return undefined
     }
     try {
       return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
     } catch {
-      send(res, 400, fail('unsupported_capability', 'malformed JSON'))
+      reply(400, fail('unsupported_capability', 'malformed JSON'))
       return undefined
     }
   }
@@ -375,6 +462,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     })
   })
   const { port } = server.address() as AddressInfo
+  selfOrigin = `http://127.0.0.1:${port}`
 
   return {
     port,
@@ -403,6 +491,14 @@ const pairingRequestSchema = z.object({
 })
 
 const pairingStatusQuery = z.object({ invitationId: z.string().min(1) })
+
+const deviceChallengeSchema = z.object({ deviceId: z.string().min(1).max(200) })
+
+const deviceAuthorizeSchema = z.object({
+  deviceId: z.string().min(1).max(200),
+  nonce: z.string().min(1),
+  signature: z.string().min(1),
+})
 
 /**
  * The protocol version the client names in `Sec-WebSocket-Protocol`. A browser
@@ -469,6 +565,7 @@ function statusFor(code: RemoteErrorCode): number {
   switch (code) {
     case 'unauthenticated':
     case 'authentication_expired':
+    case 'invalid_signature':
       return 401
     case 'access_revoked':
     case 'origin_not_allowed':
@@ -491,7 +588,7 @@ function statusFor(code: RemoteErrorCode): number {
   }
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+function send(res: ServerResponse, status: number, body: unknown, origin?: string): void {
   // `JSON.stringify` returns undefined for a body that is not serializable,
   // and sizing that throws inside a header write turns a response into a
   // dropped connection. `null` is a body the client can parse.
@@ -500,8 +597,44 @@ function send(res: ServerResponse, status: number, body: unknown): void {
     'content-type': 'application/json',
     'content-length': Buffer.byteLength(payload),
     // No wildcard, and no credentials for a cross-origin caller: the origin
-    // allowlist above is the only thing that decides, and it never echoes.
+    // allowlist above is the only thing that decides, and it never echoes
+    // anything that was not already on it.
     'cache-control': 'no-store',
+    ...corsHeaders(origin),
   })
   res.end(payload)
 }
+
+/**
+ * The CORS headers for an allowed origin, or none at all.
+ *
+ * The origin is echoed back exactly as the allowlist holds it rather than
+ * reflected from the request: a reflected header is how an allowlist quietly
+ * becomes a wildcard. `vary` keeps a cache from serving one origin's response
+ * to another, and credentials stay off because nothing here uses cookies —
+ * a token travels in a header the client sets deliberately.
+ */
+function corsHeaders(origin: string | undefined): Record<string, string> {
+  if (origin === undefined) return {}
+  return {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'false',
+    vary: 'origin',
+  }
+}
+
+/** Answers a CORS preflight without touching the body or the host. */
+function preflight(res: ServerResponse, origin: string | undefined): void {
+  res.writeHead(204, {
+    ...corsHeaders(origin),
+    'access-control-allow-methods': 'POST, GET, OPTIONS',
+    // Only what the PWA sends: a JSON body and a device token.
+    'access-control-allow-headers': 'content-type, authorization',
+    'access-control-max-age': '600',
+    'content-length': '0',
+  })
+  res.end()
+}
+
+/** Writes a response for one request, with that request's CORS headers. */
+type Reply = (status: number, body: unknown) => void

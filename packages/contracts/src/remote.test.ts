@@ -185,7 +185,14 @@ describe('pairing authority', () => {
     // Everything the phone does after redemption presents its token; if any
     // of these drifted into the anonymous set, a failure to authenticate
     // would fall through to a working route.
-    for (const open of ['gateway.info', 'pairing.request', 'pairing.status', 'pairing.redeem'] as const) {
+    for (const open of [
+      'gateway.info',
+      'pairing.request',
+      'pairing.status',
+      'pairing.redeem',
+      'device.challenge',
+      'device.authorize',
+    ] as const) {
       expect(requiresAuthentication(open)).toBe(false)
     }
     for (const guarded of [
@@ -196,6 +203,16 @@ describe('pairing authority', () => {
     ] as const) {
       expect(requiresAuthentication(guarded)).toBe(true)
     }
+  })
+
+  it('lets a remembered device re-authorize without letting it change its own grants', () => {
+    // `device.authorize` is anonymous because the signature is the credential,
+    // and it mints a token for a device the desktop already approved. It is
+    // not an invitation: there is nothing here that creates a device, so the
+    // grants a phone holds can only come from the user at the desktop.
+    expect(remoteOperationSchema.safeParse('device.authorize').success).toBe(true)
+    expect(remoteOperationSchema.safeParse('device.register').success).toBe(false)
+    expect(remoteOperationSchema.safeParse('device.approve').success).toBe(false)
   })
 
   it('does not advertise an anonymous operation it cannot serve', () => {

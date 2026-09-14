@@ -93,16 +93,20 @@ async function paired(
   projectIds: readonly string[] = ['proj_1'],
 ): Promise<string> {
   const invitation = gateway.pairing.begin(gateway.origin)
-  await call(gateway, '/pair/request', {
+  const registered = await call(gateway, '/pair/request', {
     invitationId: invitation.invitationId,
     displayName: 'Pixel',
     publicKey: key.jwk,
   })
+  const nonce = (registered.body['result'] as Record<string, unknown> | undefined)?.['nonce']
+  if (typeof nonce !== 'string') {
+    throw new Error(`expected a nonce, got ${JSON.stringify(registered.body)}`)
+  }
   gateway.pairing.approve(invitation.invitationId, [...projectIds])
   const redeemed = await call(gateway, '/pair/redeem', {
     invitationId: invitation.invitationId,
-    nonce: 'nonce',
-    signature: key.sign('nonce'),
+    nonce,
+    signature: key.sign(nonce),
   })
   const result = redeemed.body['result'] as Record<string, unknown> | undefined
   const token = result?.['token']
@@ -189,8 +193,7 @@ describe('remote gateway caller identity', () => {
 })
 
 describe('remote gateway origin policy', () => {
-  it('refuses a request from an origin it was not told to trust', async () => {
-    const host = fakeHost()
+  it('refuses a request from an origin it was not told to trust', async () => {    const host = fakeHost()
     const gateway = await start(host)
     const { status, body } = await call(gateway, '/command', COMMAND, {
       origin: 'https://evil.example',
@@ -216,6 +219,82 @@ describe('remote gateway origin policy', () => {
     const gateway = await start(host, ['*'])
     const { status } = await call(gateway, '/command', COMMAND, { origin: 'https://evil.example' })
     expect(status).toBe(403)
+    expect(host.executed).toEqual([])
+  })
+
+  it('accepts its own origin, because the page it serves is same-origin with it', async () => {
+    const host = fakeHost()
+    const gateway = await start(host)
+    // A browser sends `Origin` on a same-origin POST, so the gateway has to
+    // admit the address it is itself listening on or its own PWA could not
+    // call it. One exact string, not a wildcard.
+    const { status } = await call(gateway, '/command', COMMAND, { origin: gateway.origin })
+    expect(status).toBe(401) // no credential, but the origin was not the refusal
+    const withToken = await call(gateway, '/command', COMMAND, {
+      origin: gateway.origin,
+      token: await paired(gateway, deviceKey()),
+    })
+    expect(withToken.status).toBe(200)
+  })
+
+  it('reads a growing allowlist at request time', async () => {
+    // The Tailscale wizard adds an origin to a gateway that is already
+    // running; the wizard must not have to restart the listener, which would
+    // drop every phone's token mid-session.
+    const host = fakeHost()
+    const origins: string[] = []
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: () => [...origins],
+      port: 0,
+    })
+    running.push(gateway)
+
+    expect((await call(gateway, '/info', {}, { origin: ALLOWED })).status).toBe(403)
+    origins.push(ALLOWED)
+    expect((await call(gateway, '/info', {}, { origin: ALLOWED })).status).toBe(200)
+  })
+
+  it('echoes the allowed origin on the response, so a browser can read it', async () => {
+    const gateway = await start(fakeHost())
+    const response = await fetch(`${gateway.origin}/info`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ALLOWED },
+      body: JSON.stringify({}),
+    })
+    expect(response.headers.get('access-control-allow-origin')).toBe(ALLOWED)
+    // No cookies are used anywhere, so nothing may ask a browser to send them.
+    expect(response.headers.get('access-control-allow-credentials')).toBe('false')
+    expect(response.headers.get('vary')?.toLowerCase()).toContain('origin')
+  })
+
+  it('does not echo an origin it refused', async () => {
+    const gateway = await start(fakeHost())
+    const response = await fetch(`${gateway.origin}/info`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+      body: JSON.stringify({}),
+    })
+    expect(response.status).toBe(403)
+    // A reflected ACAO would hand the page everything the allowlist exists to
+    // withhold, so a refusal carries no CORS grant at all.
+    expect(response.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('answers a preflight without a body and without reaching the host', async () => {
+    const host = fakeHost()
+    const gateway = await start(host)
+    const response = await fetch(`${gateway.origin}/command`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: ALLOWED,
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type, authorization',
+      },
+    })
+    expect(response.status).toBe(204)
+    expect(response.headers.get('access-control-allow-origin')).toBe(ALLOWED)
+    expect(response.headers.get('access-control-allow-headers')).toContain('authorization')
     expect(host.executed).toEqual([])
   })
 })
@@ -395,8 +474,7 @@ describe('remote gateway idempotency', () => {
     expect(errorCode(body)).toBe('conflict')
   })
 
-  it('reports a key whose command is still running as unfinished', async () => {
-    let release = (): void => {}
+  it('reports a key whose command is still running as unfinished', async () => {    let release = (): void => {}
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
@@ -421,6 +499,41 @@ describe('remote gateway idempotency', () => {
     expect(errorCode(body)).toBe('conflict')
     release()
     await inFlight
+  })
+
+  it('replays a recorded outcome after the gateway has restarted', async () => {
+    const first = fakeHost()
+    let saved = ''
+    const before = await createRemoteGateway({
+      host: first,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: { persist: (json) => (saved = json) },
+    })
+    const token = await paired(before, deviceKey())
+    const accepted = await call(before, '/command', COMMAND, { token })
+    expect(accepted.status).toBe(200)
+    expect(first.executed).toHaveLength(1)
+    await before.close()
+
+    // A desktop restarted between the command and the retry: the second
+    // gateway has never seen this prompt, and must still not run it twice.
+    // The pairing service carries over so the test is about the record, not
+    // about re-authorizing — the phone does that with its device key, which
+    // is covered above.
+    const second = fakeHost()
+    const after = await createRemoteGateway({
+      host: second,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      pairing: before.pairing,
+      idempotency: { restore: saved },
+    })
+    running.push(after)
+    const retried = await call(after, '/command', COMMAND, { token })
+    expect(retried.status).toBe(200)
+    expect(retried.body).toEqual(accepted.body)
+    expect(second.executed).toEqual([])
   })
 })
 
@@ -556,5 +669,102 @@ describe('remote gateway event stream', () => {
     // to hand over a session.
     expect(subscribed).toEqual([])
     client.close()
+  })
+})
+
+describe('remote gateway remembered devices', () => {
+  /** Registers and redeems a device, returning its id and the nonce it signed. */
+  async function pairDevice(
+    gateway: RemoteGateway,
+    key: ReturnType<typeof deviceKey>,
+  ): Promise<string> {
+    await paired(gateway, key)
+    const device = gateway.pairing.devices()[0]
+    if (device === undefined) throw new Error('expected a paired device')
+    return device.deviceId
+  }
+
+  it('trades a fresh proof for a working token, with no invitation involved', async () => {
+    const host = fakeHost()
+    const gateway = await start(host)
+    const key = deviceKey()
+    const deviceId = await pairDevice(gateway, key)
+
+    const challenge = await call(gateway, '/device/challenge', { deviceId })
+    const result = challenge.body['result'] as Record<string, unknown> | undefined
+    const nonce = result?.['nonce']
+    expect(typeof nonce).toBe('string')
+    if (typeof nonce !== 'string') return
+
+    const authorized = await call(gateway, '/device/authorize', {
+      deviceId,
+      nonce,
+      signature: key.sign(nonce),
+    })
+    expect(authorized.status).toBe(200)
+    const token = (authorized.body['result'] as Record<string, unknown> | undefined)?.['token']
+    expect(typeof token).toBe('string')
+    if (typeof token !== 'string') return
+
+    // The point of the whole exchange: a token that reaches the host, obtained
+    // without the user pairing anything again.
+    const { status } = await call(gateway, '/command', COMMAND, { token })
+    expect(status).toBe(200)
+    expect(host.executed).toHaveLength(1)
+  })
+
+  it('refuses a signature from a key the device was not registered with', async () => {
+    const gateway = await start(fakeHost())
+    const key = deviceKey()
+    const deviceId = await pairDevice(gateway, key)
+    const impostor = deviceKey()
+
+    const challenge = await call(gateway, '/device/challenge', { deviceId })
+    const nonce = (challenge.body['result'] as Record<string, unknown>)['nonce'] as string
+    const { status, body } = await call(gateway, '/device/authorize', {
+      deviceId,
+      nonce,
+      signature: impostor.sign(nonce),
+    })
+    expect(status).toBe(401)
+    expect(errorCode(body)).toBe('invalid_signature')
+  })
+
+  it('tells a revoked device it was revoked', async () => {
+    const gateway = await start(fakeHost())
+    const key = deviceKey()
+    const deviceId = await pairDevice(gateway, key)
+    gateway.pairing.revoke(deviceId)
+
+    const challenge = await call(gateway, '/device/challenge', { deviceId })
+    const nonce = (challenge.body['result'] as Record<string, unknown>)['nonce'] as string
+    const { status, body } = await call(gateway, '/device/authorize', {
+      deviceId,
+      nonce,
+      signature: key.sign(nonce),
+    })
+    // The phone has to be able to put "your access was withdrawn" on screen;
+    // a bare 401 would read as a bad password and invite a pointless retry.
+    expect(status).toBe(403)
+    expect(errorCode(body)).toBe('access_revoked')
+  })
+
+  it('answers a challenge for an unknown device without revealing that it is unknown', async () => {
+    const gateway = await start(fakeHost())
+    const { status, body } = await call(gateway, '/device/challenge', { deviceId: 'dev_nobody' })
+    expect(status).toBe(200)
+    expect(typeof (body['result'] as Record<string, unknown>)['nonce']).toBe('string')
+  })
+
+  it('refuses a malformed authorization without reaching the host', async () => {
+    const host = fakeHost()
+    const gateway = await start(host)
+    const { status, body } = await call(gateway, '/device/authorize', {
+      deviceId: 'dev_1',
+      nonce: 'n',
+    })
+    expect(status).toBe(400)
+    expect(errorCode(body)).toBe('unsupported_capability')
+    expect(host.executed).toEqual([])
   })
 })
