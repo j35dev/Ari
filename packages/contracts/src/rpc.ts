@@ -223,6 +223,7 @@ export const streamNames = [
   'providers.updates',
   'app.updates',
   'browser.updated',
+  'remote.updates',
 ] as const
 export type StreamName = (typeof streamNames)[number]
 
@@ -662,6 +663,23 @@ export const rpcParams = {
   }),
   'plan.get': z.object({ sessionId: z.string().min(1) }),
   'scripts.list': gitScopeSchema,
+  'remote.status': z.undefined(),
+  /**
+   * Turning remote access on is the act that starts the gateway and records
+   * the choice; there is no path that starts one without the other.
+   */
+  'remote.enable': z.object({ port: z.number().int().min(0).max(65535).optional() }),
+  'remote.disable': z.undefined(),
+  /** Mint a single-use invitation to show as a QR code. */
+  'remote.invite': z.undefined(),
+  'remote.cancelInvite': z.undefined(),
+  /** The user's decision on the device that asked, with its project grant. */
+  'remote.approve': z.object({
+    invitationId: z.string().min(1),
+    projectIds: z.array(z.string().min(1)),
+  }),
+  'remote.deny': z.object({ invitationId: z.string().min(1) }),
+  'remote.revokeDevice': z.object({ deviceId: z.string().min(1) }),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -961,8 +979,62 @@ export interface RpcResults {
   }
   /** npm-style scripts declared in the folder's package.json (M21.3). */
   'scripts.list': { scripts: { name: string; command: string }[]; error?: string }
+  'remote.status': RemoteState
+  'remote.enable': RemoteState
+  'remote.disable': RemoteState
+  'remote.invite': RemoteState
+  'remote.cancelInvite': RemoteState
+  'remote.approve': RemoteState
+  'remote.deny': RemoteState
+  'remote.revokeDevice': RemoteState
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
+}
+
+/** A device the user approved, as the desktop's settings list shows it. */
+export interface RemoteDeviceView {
+  deviceId: string
+  displayName: string
+  /** Projects this device may reach. Empty reaches nothing. */
+  projectIds: string[]
+  pairedAt: number
+  lastSeenAt: number | null
+}
+
+/** The device waiting for the user's decision, with the code both show. */
+export interface RemotePairingRequestView {
+  invitationId: string
+  displayName: string
+  confirmationCode: string
+  expiresAt: number
+}
+
+/**
+ * Everything the desktop shows about remote access, in one object.
+ *
+ * Sent whole rather than as deltas: it is small, it is rendered as one panel,
+ * and a partial update that a client fails to apply leaves the user reading a
+ * pairing prompt for a device that already paired.
+ */
+export interface RemoteState {
+  enabled: boolean
+  /** The loopback origin the gateway serves, or null when it is not running. */
+  origin: string | null
+  /**
+   * The address to put in the QR code, once one exists. Null means no address
+   * is reachable from a phone yet — the gateway is loopback-only until
+   * Tailscale or a tunnel is in front of it, and saying so is better than
+   * showing a QR code that leads nowhere.
+   */
+  clientUrl: string | null
+  /** Exact origins currently allowed to call, the loopback one included. */
+  allowedOrigins: string[]
+  devices: RemoteDeviceView[]
+  /** The invitation on screen, if the user has one open. */
+  invitation: { invitationId: string; url: string; expiresAt: number } | null
+  pending: RemotePairingRequestView | null
+  /** Why the gateway is not running, when the user asked it to be. */
+  error: string | null
 }
 
 /** Payload shape for events delivered on a subscribed stream. */

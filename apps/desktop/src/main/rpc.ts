@@ -11,6 +11,7 @@ import type { AppUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
+import { RemoteService } from './remote'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
@@ -446,6 +447,12 @@ let driverRegistryRef: DriverRegistry | null = null
  * so the controller rebinds to whichever registry is current when it speaks.
  */
 let appUpdaterRef: UpdateController | null = null
+/**
+ * Remote access as well is process-wide: a second window must show the same
+ * gateway and the same paired devices rather than starting its own listener
+ * on a port the first one already holds.
+ */
+let remoteRef: RemoteService | null = null
 
 /** Answer for update RPCs that arrive before any window registered the RPC layer. */
 const REFUSED = { started: false, reason: 'The update service is not running.' }
@@ -899,6 +906,62 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('settings.update', async (params) => getSettingsStore().update(params))
+
+  // Remote access (ADR §5): the gateway stays off until the user turns it on,
+  // and the records it outlives the process with — paired devices and command
+  // deduplication — live beside the rest of the desktop's state.
+  const remote = remoteRef ?? new RemoteService(
+    {
+      engine,
+      store: getSessionStore(),
+      dir: join(app.getPath('userData'), 'remote'),
+      driverKinds: () => ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null),
+      defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
+      defaultDriverKind: () => getSettingsStore().current.sessions.defaultDriverKind,
+      hasProject: async (projectId) => {
+        await getProjectStore().load()
+        return getProjectStore().get(projectId) !== undefined
+      },
+      mintSessionId: () =>
+        `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      // No address is reachable from a phone until a tunnel or Tailscale is in
+      // front of the loopback listener; the panel says so rather than showing
+      // a QR code that would resolve to the phone itself.
+      clientOrigin: () => null,
+      allowedOrigins: () => getSettingsStore().current.remote.allowedOrigins,
+      onChange: (state) => rpcRegistry.publish('remote.updates', state),
+    },
+    { port: getSettingsStore().current.remote.port },
+  )
+  remoteRef = remote
+
+  r.register('remote.status', () => remote.state())
+  r.register('remote.enable', async (params) => {
+    // The setting is written first: it is what makes the choice survive a
+    // restart, and a gateway that failed to listen must not look enabled.
+    await getSettingsStore().update({ remote: { enabled: true, port: params.port } })
+    return remote.start(params.port)
+  })
+  r.register('remote.disable', async () => {
+    await getSettingsStore().update({ remote: { enabled: false } })
+    await remote.stop()
+    return remote.state()
+  })
+  r.register('remote.invite', () => remote.invite())
+  r.register('remote.cancelInvite', () => remote.cancelInvite())
+  r.register('remote.approve', (params) => remote.approve(params.invitationId, params.projectIds))
+  r.register('remote.deny', (params) => remote.deny(params.invitationId))
+  r.register('remote.revokeDevice', (params) => remote.revokeDevice(params.deviceId))
+
+  // Coming back on the port the user chose, if they left remote access on.
+  void getSettingsStore()
+    .load()
+    .then((settings) => (settings.remote.enabled ? remote.start(settings.remote.port) : null))
+    .catch(() => log.error('remote access did not start on boot'))
+
+  app.once('before-quit', () => {
+    void remote.stop().catch(() => log.error('remote access failed to close'))
+  })
 
   r.register('session.list', async () => getSessionStore().listSessions())
 

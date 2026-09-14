@@ -101,6 +101,13 @@ interface Options {
   persist?: PairingPersistence
   /** Devices and revocations read back from disk at construction. */
   restored?: PersistedPairing
+  /**
+   * Called whenever the pairing state a user would see has changed: a device
+   * asked to pair, the user decided, a device was redeemed or revoked. The
+   * desktop turns this into the frame its pairing prompt renders from, so the
+   * prompt appears because something happened rather than on a timer.
+   */
+  onChange?: () => void
 }
 
 export class PairingService {
@@ -124,12 +131,14 @@ export class PairingService {
   readonly #ttlMs: number
   readonly #tokenTtlMs: number
   readonly #persist: PairingPersistence | undefined
+  readonly #onChange: (() => void) | undefined
 
   constructor(options: Options = {}) {
     this.#now = options.now ?? (() => Date.now())
     this.#ttlMs = options.invitationTtlMs ?? DEFAULT_TTL_MS
     this.#tokenTtlMs = options.tokenTtlMs ?? DEFAULT_TOKEN_TTL_MS
     this.#persist = options.persist
+    this.#onChange = options.onChange
     for (const device of options.restored?.devices ?? []) {
       if (isUsableP256Key(device.publicKey)) this.#devices.set(device.deviceId, device)
     }
@@ -193,6 +202,9 @@ export class PairingService {
       confirmationCode: pairingConfirmationCode(`${request.publicKey.x}.${request.publicKey.y}`),
     }
     invitation.pending = pending
+    // The desktop's prompt appears because a device asked, not because a
+    // timer fired and looked.
+    this.#notify()
     // Issued with the registration, so a client that already knows its own
     // key cannot choose what it will be asked to sign — and bound to this
     // invitation, so the proof cannot be moved to another one.
@@ -213,6 +225,7 @@ export class PairingService {
       return { ok: false, code: 'conflict' }
     }
     invitation.projectIds = [...projectIds]
+    this.#notify()
     return { ok: true }
   }
 
@@ -221,6 +234,7 @@ export class PairingService {
     if (invitation === undefined) return { ok: false, code: 'not_found' }
     if (this.status(invitationId) !== 'pending') return { ok: false, code: 'conflict' }
     invitation.denied = true
+    this.#notify()
     return { ok: true }
   }
 
@@ -394,8 +408,14 @@ export class PairingService {
     return token
   }
 
+  /** Announces a change the desktop's pairing prompt shows, without writing. */
+  #notify(): void {
+    this.#onChange?.()
+  }
+
   #save(): void {
     this.#persist?.save(this.toPersisted())
+    this.#onChange?.()
   }
 }
 

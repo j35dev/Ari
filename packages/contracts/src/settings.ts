@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { delegationSettingsSchema } from './agent-control'
 import { driverKindSchema, permissionModeSchema } from './common'
+import { remoteOriginSchema } from './remote'
 
 /**
  * Theme identifiers. Mirrors `themeIds` in packages/ui/src/themes.ts, which
@@ -75,6 +76,21 @@ export const settingsSchema = z.object({
       allowlist: z.array(z.string()).default([]),
     })
     .default({ allowlist: [] }),
+  /**
+   * Remote access (ADR §5). The gateway listens on loopback and is off until
+   * the user turns it on; `allowedOrigins` names the exact extra origins a
+   * client may call from, which the managed PWA needs and a phone on the
+   * tailnet does not (that one is served by the gateway itself).
+   */
+  remote: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Loopback port for the gateway. 0 lets the OS pick a free one. */
+      port: z.number().int().min(0).max(65535).default(8787),
+      /** Exact origins, e.g. 'https://connect.example.com'. Never a pattern. */
+      allowedOrigins: z.array(remoteOriginSchema).default([]),
+    })
+    .default({ enabled: false, port: 8787, allowedOrigins: [] }),
   window: z
     .object({
       x: z.number().int(),
@@ -124,6 +140,14 @@ export const settingsUpdateSchema = z.object({
     })
     .partial()
     .optional(),
+  remote: z
+    .object({
+      enabled: z.boolean(),
+      port: z.number().int().min(0).max(65535),
+      allowedOrigins: z.array(remoteOriginSchema),
+    })
+    .partial()
+    .optional(),
   window: z
     .object({
       x: z.number().int(),
@@ -144,5 +168,6 @@ export const defaultSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   notifications: { settleSound: true },
   permissions: { allowlist: [] },
+  remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
 }
