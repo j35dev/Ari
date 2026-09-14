@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
 import { REMOTE_PROTOCOL_VERSION } from '@ari/contracts/remote'
-import type { RemoteHost } from './host'
+import type { RemoteCaller, RemoteHost } from './host'
 import { deviceKey } from './testing/device-key'
 import { RawWebSocket, handshake } from './testing/ws-client'
 import { createRemoteGateway, type RemoteGateway } from './gateway'
@@ -16,11 +16,16 @@ const OPERATIONS: RemoteOperation[] = [
 ]
 
 /** A host that records what it was asked to do, so tests can prove it wasn't. */
-function fakeHost(overrides: Partial<RemoteHost> = {}): RemoteHost & { executed: RemoteCommand[] } {
+function fakeHost(overrides: Partial<RemoteHost> = {}): RemoteHost & {
+  executed: RemoteCommand[]
+  callers: RemoteCaller[]
+} {
   const executed: RemoteCommand[] = []
+  const callers: RemoteCaller[] = []
   const accept: RemoteHost['execute'] = async () => ({ ok: true, result: { accepted: true } })
   return {
     executed,
+    callers,
     capabilities: () => OPERATIONS,
     listSessions: async () => [],
     getSession: async () => undefined,
@@ -30,9 +35,10 @@ function fakeHost(overrides: Partial<RemoteHost> = {}): RemoteHost & { executed:
     ...overrides,
     // Recording wraps whatever the test supplied, so overriding `execute`
     // cannot accidentally hide a call the assertions are counting.
-    execute: async (command) => {
+    execute: async (caller, command) => {
+      callers.push(caller)
       executed.push(command)
-      return (overrides.execute ?? accept)(command)
+      return (overrides.execute ?? accept)(caller, command)
     },
   }
 }
@@ -78,17 +84,21 @@ function errorCode(body: Record<string, unknown>): unknown {
 }
 
 /** Pairs a device end to end and returns the token it holds. */
-async function paired(gateway: RemoteGateway, key: {
-  jwk: { kty: 'EC'; crv: 'P-256'; x: string; y: string }
-  sign: (nonce: string) => string
-}): Promise<string> {
+async function paired(
+  gateway: RemoteGateway,
+  key: {
+    jwk: { kty: 'EC'; crv: 'P-256'; x: string; y: string }
+    sign: (nonce: string) => string
+  },
+  projectIds: readonly string[] = ['proj_1'],
+): Promise<string> {
   const invitation = gateway.pairing.begin(gateway.origin)
   await call(gateway, '/pair/request', {
     invitationId: invitation.invitationId,
     displayName: 'Pixel',
     publicKey: key.jwk,
   })
-  gateway.pairing.approve(invitation.invitationId, ['proj_1'])
+  gateway.pairing.approve(invitation.invitationId, [...projectIds])
   const redeemed = await call(gateway, '/pair/redeem', {
     invitationId: invitation.invitationId,
     nonce: 'nonce',
@@ -127,6 +137,54 @@ describe('remote gateway discovery', () => {
     // Answers before anyone has authenticated, so it must not name a project,
     // a path or a provider — those leak what the desktop is working on.
     expect(Object.keys(body).sort()).toEqual(['capabilities', 'protocolVersion'])
+  })
+
+  it('answers the same question as a query, with no credential either', async () => {
+    const gateway = await start(fakeHost())
+    const { status, body } = await call(gateway, '/query', { op: 'gateway.info' })
+    expect(status).toBe(200)
+    expect(body['result']).toEqual({
+      protocolVersion: REMOTE_PROTOCOL_VERSION,
+      capabilities: OPERATIONS,
+    })
+  })
+})
+
+describe('remote gateway caller identity', () => {
+  it('tells the host which device called and which projects it was granted', async () => {
+    const host = fakeHost()
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), ['proj_alpha', 'proj_beta'])
+
+    await call(gateway, '/command', COMMAND, { token })
+
+    // Authorization without a subject is not authorization: the host is where
+    // a device's project grant becomes a decision, so it has to receive it.
+    expect(host.callers).toHaveLength(1)
+    expect(host.callers[0]?.projectIds).toEqual(['proj_alpha', 'proj_beta'])
+    expect(host.callers[0]?.deviceId).toEqual(gateway.pairing.devices()[0]?.deviceId)
+  })
+
+  it('hands a subscriber the caller it subscribed as', async () => {
+    const seen: RemoteCaller[] = []
+    const host = fakeHost({
+      subscribe: (caller) => {
+        seen.push(caller)
+        return () => {}
+      },
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), ['proj_alpha'])
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1' }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(seen[0]?.projectIds).toEqual(['proj_alpha'])
+    client.close()
   })
 })
 
@@ -387,7 +445,7 @@ describe('remote gateway event stream', () => {
   it('streams a subscribed session to a paired device', async () => {
     let emit: ((event: unknown) => void) | null = null
     const host = fakeHost({
-      subscribe: (_sessionId, onEvent) => {
+      subscribe: (_caller, _sessionId, onEvent) => {
         emit = onEvent as (event: unknown) => void
         return () => {
           emit = null
@@ -449,7 +507,7 @@ describe('remote gateway event stream', () => {
   it('stops streaming to a device that is revoked mid-session', async () => {
     let emit: ((event: unknown) => void) | null = null
     const host = fakeHost({
-      subscribe: (_sessionId, onEvent) => {
+      subscribe: (_caller, _sessionId, onEvent) => {
         emit = onEvent as (event: unknown) => void
         return () => {
           emit = null
@@ -480,7 +538,7 @@ describe('remote gateway event stream', () => {
   it('does not accept a subscription for a session it was not asked about', async () => {
     const subscribed: string[] = []
     const host = fakeHost({
-      subscribe: (sessionId) => {
+      subscribe: (_caller, sessionId) => {
         subscribed.push(sessionId)
         return () => {}
       },
