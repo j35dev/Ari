@@ -6,7 +6,7 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
-import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
+import type { SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
@@ -66,7 +66,7 @@ function respondedInputId(event: JournalEvent): string | null {
   return e.type === 'input.responded' && typeof e.inputId === 'string' ? e.inputId : null
 }
 
-/** Per-session telemetry shown under the transcript (latency + token counts). */
+/** Per-session telemetry backing the composer (turn count, live timing). */
 interface Telemetry {
   turnCount: number
   lastDurationMs: number | null
@@ -79,10 +79,6 @@ interface Telemetry {
   /** Latest context-window gauge (ACP `usage_update`); null until reported. */
   contextUsed: number | null
   contextSize: number | null
-  /** Estimated output tokens for the active/last turn (chars/4 heuristic). */
-  turnEstimatedOutput: number
-  /** Frozen TPS of the last settled turn; null until a turn settles. */
-  lastTps: number | null
 }
 
 const EMPTY_TELEMETRY: Telemetry = {
@@ -95,13 +91,6 @@ const EMPTY_TELEMETRY: Telemetry = {
   turnOutputTokens: 0,
   contextUsed: null,
   contextSize: null,
-  turnEstimatedOutput: 0,
-  lastTps: null,
-}
-
-function formatTokens(n: number): string {
-  if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`
-  return String(n)
 }
 
 /**
@@ -136,25 +125,6 @@ export function formatCompactTokens(n: number): string {
 
 const METER_WARN_PCT = 75
 const METER_DANGER_PCT = 90
-
-/**
- * Live throughput readout for the active turn: estimated output tokens
- * (chars/4 of streamed text) over elapsed seconds. Re-renders on a 500ms
- * tick plus every streamed chunk (each chunk updates the estimate).
- */
-function LiveTps({ estimatedOutput, startedAt }: { estimatedOutput: number; startedAt: number }) {
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const timer = window.setInterval(() => setTick((n) => n + 1), 500)
-    return () => window.clearInterval(timer)
-  }, [])
-  const elapsedS = Math.max(0.1, (Date.now() - startedAt) / 1000)
-  const tps = estimatedOutput / elapsedS
-  const label = tps >= 100 ? `${Math.round(tps)} tps` : `${tps.toFixed(1)} tps`
-  return (
-    <span title="Estimated output tokens per second, this turn">~{label}</span>
-  )
-}
 
 /**
  * Context-window meter for the telemetry strip: a slim fill bar plus
@@ -242,9 +212,6 @@ export function SessionView({
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
   const [turnDiffs, setTurnDiffs] = useState<Record<string, string>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
-  const [catalogModels, setCatalogModels] = useState<
-    { kind: string; models: CatalogModelInfo[] }[]
-  >([])
   // Refresh tick driving the plan panel (per-session
   // `.ari-todo-<sessionId>.json`, keyed by this view's session id).
   const [planNonce, setPlanNonce] = useState(0)
@@ -276,25 +243,12 @@ export function SessionView({
   settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
 
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
-  // Model catalogs feed the context-window meter's denominator.
   useEffect(() => {
     void rpc
       .invoke('files.index', { sessionId })
       .then((r) => setFileSuggestions(r.paths))
       .catch(() => undefined)
-    void rpc
-      .invoke('providers.models')
-      .then(setCatalogModels)
-      .catch(() => undefined)
   }, [sessionId])
-
-  // Window size for the meter: the session model's contextHint from the live
-  // catalog, when the catalog carries one. Absent → used-count-only chip.
-  const contextWindow = useMemo(() => {
-    const row = catalogModels.find((r) => r.kind === defaults.driverKind)
-    const model = row?.models.find((m) => m.id === defaults.modelId)
-    return contextTokensFromHint(model?.contextHint)
-  }, [catalogModels, defaults.driverKind, defaults.modelId])
 
   useEffect(() => {
     let cancelled = false
@@ -412,19 +366,6 @@ export function SessionView({
         setMessages((prev) => [...prev, event.message])
         break
       case 'assistant.parts.appended':
-        // Estimated output tokens ride the streamed text (chars/4 heuristic)
-        // so ACP sessions — which report no token deltas — still get a TPS.
-        if (activeTurnIdRef.current !== null) {
-          let chars = 0
-          for (const part of event.parts) {
-            const p = part as { type?: unknown; text?: unknown }
-            if (p.type === 'text' && typeof p.text === 'string') chars += p.text.length
-          }
-          if (chars > 0) {
-            const delta = Math.max(1, Math.round(chars / 4))
-            setTelemetry((t) => ({ ...t, turnEstimatedOutput: t.turnEstimatedOutput + delta }))
-          }
-        }
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === event.messageId)
           if (existing) {
@@ -454,11 +395,10 @@ export function SessionView({
           ...t,
           turnCount: t.turnCount + 1,
           startedAt: event.at,
-          // The window is per-turn: reset the active-turn footprint and the
-          // output estimate so the meter and TPS start clean every turn.
+          // The window is per-turn: reset the active-turn footprint so the
+          // meter starts clean every turn.
           turnInputTokens: 0,
           turnOutputTokens: 0,
-          turnEstimatedOutput: 0,
         }))
         break
       case 'turn.settled': {
@@ -469,21 +409,12 @@ export function SessionView({
         setPendingQuestion(null)
         setApprovals([])
         activeTurnIdRef.current = null
-        setTelemetry((t) => {
-          const durationMs =
-            t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs
-          return {
-            ...t,
-            lastDurationMs: durationMs,
-            startedAt: null,
-            // Freeze the turn's estimated throughput; the live readout keeps
-            // deriving from the estimate + elapsed time while running.
-            lastTps:
-              durationMs !== null && durationMs > 0
-                ? t.turnEstimatedOutput / (durationMs / 1000)
-                : t.lastTps,
-          }
-        })
+        setTelemetry((t) => ({
+          ...t,
+          lastDurationMs:
+            t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
+          startedAt: null,
+        }))
         fetchTurnDiffRef.current(event.turnId)
         setPlanNonce((n) => n + 1)
         if (event.stopReason === 'error' && event.errorMessage) {
@@ -906,60 +837,6 @@ export function SessionView({
             onDiffComment={handleDiffComment}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
           />
-        </div>
-        <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
-          {telemetry.turnCount > 0 ? (
-            <>
-              <span>
-                {telemetry.turnCount} turn{telemetry.turnCount === 1 ? '' : 's'}
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                last{' '}
-                {telemetry.lastDurationMs !== null
-                  ? `${(telemetry.lastDurationMs / 1000).toFixed(1)}s`
-                  : '—'}
-              </span>
-              <span aria-hidden>·</span>
-              <span title="Input tokens">↑ {formatTokens(telemetry.inputTokens)}</span>
-              <span aria-hidden>·</span>
-              <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
-              {running && telemetry.startedAt !== null ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <LiveTps
-                    estimatedOutput={telemetry.turnEstimatedOutput}
-                    startedAt={telemetry.startedAt}
-                  />
-                </>
-              ) : telemetry.lastTps !== null ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span title="Estimated output tokens per second, last turn">
-                    {telemetry.lastTps >= 100
-                      ? `${Math.round(telemetry.lastTps)} tps`
-                      : `${telemetry.lastTps.toFixed(1)} tps`}
-                  </span>
-                </>
-              ) : null}
-            </>
-          ) : (
-            <span>{running ? null : 'no turns yet'}</span>
-          )}
-          <div className="flex-1" />
-          {/* Context meter prefers the agent-reported window gauge (ACP
-            `usage_update`) over the catalog hint; without either, the active
-            turn's exact token total still shows as a used-count-only chip. */}
-          {telemetry.contextUsed !== null ||
-          telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
-            <ContextMeter
-              used={
-                telemetry.contextUsed ??
-                telemetry.turnInputTokens + telemetry.turnOutputTokens
-              }
-              contextWindow={telemetry.contextSize ?? contextWindow}
-            />
-          ) : null}
         </div>
         {turnError ? (
           <TurnErrorBanner
