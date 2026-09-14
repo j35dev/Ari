@@ -239,6 +239,7 @@ export const pairingKeySchema = z.object({
   x: z.string().min(1),
   y: z.string().min(1),
 })
+export type PairingPublicKey = z.infer<typeof pairingKeySchema>
 
 export const pairingRequestSchema = z.object({
   invitationId: z.string().min(1),

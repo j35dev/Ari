@@ -129,8 +129,11 @@ describe('remote gateway discovery', () => {
     const gateway = await start(fakeHost())
     const { status, body } = await call(gateway, '/info', { op: 'gateway.info' })
     expect(status).toBe(200)
-    expect(body['protocolVersion']).toBe(REMOTE_PROTOCOL_VERSION)
-    expect(body['capabilities']).toEqual(OPERATIONS)
+    // The same envelope every route uses, so a client parses one shape.
+    expect(body).toEqual({
+      ok: true,
+      result: { protocolVersion: REMOTE_PROTOCOL_VERSION, capabilities: OPERATIONS },
+    })
   })
 
   it('keeps discovery content-free', async () => {
@@ -140,7 +143,8 @@ describe('remote gateway discovery', () => {
     const { body } = await call(gateway, '/info', { op: 'gateway.info' })
     // Answers before anyone has authenticated, so it must not name a project,
     // a path or a provider — those leak what the desktop is working on.
-    expect(Object.keys(body).sort()).toEqual(['capabilities', 'protocolVersion'])
+    expect(Object.keys(body).sort()).toEqual(['ok', 'result'])
+    expect(Object.keys(body['result'] as object).sort()).toEqual(['capabilities', 'protocolVersion'])
   })
 
   it('answers the same question as a query, with no credential either', async () => {
