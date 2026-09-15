@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  CircleDot,
   Folder,
   Gauge,
   GitPullRequest,
@@ -22,6 +23,7 @@ const TITLEBAR_TOOLS: {
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+  { id: 'github', label: 'PRs & issues', icon: CircleDot },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
