@@ -109,8 +109,10 @@ describe('findBinary', () => {
     await mkdir(join(early, 'codex'), { recursive: true })
     await mkdir(later, { recursive: true })
     await writeFileSafe(join(later, 'codex'), '')
+    // Pinned to posix: on win32 the bare name is not a runnable candidate.
     const env: DetectEnvironment = {
       ...makeEnv(),
+      platform: 'linux',
       pathEnv: [early, later].join(delimiter),
     }
     expect(findBinary('codex', env)).toBe(join(later, 'codex'))
@@ -126,8 +128,10 @@ describe('findBinary', () => {
     const later = join(dir, 'later-readable')
     await mkdir(later, { recursive: true })
     await writeFileSafe(join(later, 'codex'), '')
+    // Pinned to posix so the later candidate is the bare name this case writes.
     const env: DetectEnvironment = {
       ...makeEnv(),
+      platform: 'linux',
       pathEnv: [notADir, later].join(delimiter),
     }
     expect(findBinary('codex', env)).toBe(join(later, 'codex'))
