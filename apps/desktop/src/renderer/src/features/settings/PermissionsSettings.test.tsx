@@ -90,6 +90,33 @@ describe('PermissionsSettings', () => {
     )
   })
 
+  it('moves permission mode selection with arrow keys and wraps at the ends', async () => {
+    const user = userEvent.setup()
+    render(<PermissionsSettings />)
+
+    const ask = screen.getByRole('radio', { name: /Ask/ })
+    expect(ask).toHaveAttribute('tabindex', '0')
+    expect(screen.getByRole('radio', { name: /Full access/ })).toHaveAttribute('tabindex', '-1')
+
+    ask.focus()
+    await user.keyboard('{ArrowDown}')
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({
+        sessions: { defaultPermissionMode: 'allow-edits' },
+      }),
+    )
+    expect(screen.getByRole('radio', { name: /Allow edits/ })).toHaveFocus()
+
+    // Wraps backwards from the first card to the last.
+    mocks.update.mockClear()
+    ask.focus()
+    await user.keyboard('{ArrowUp}')
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({ sessions: { defaultPermissionMode: 'full' } }),
+    )
+    expect(screen.getByRole('radio', { name: /Full access/ })).toHaveFocus()
+  })
+
   it('persists child-delegation switches, numbers, and selects', async () => {
     const user = userEvent.setup()
     render(<PermissionsSettings />)
