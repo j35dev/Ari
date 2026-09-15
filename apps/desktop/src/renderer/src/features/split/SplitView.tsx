@@ -230,7 +230,7 @@ function SplitNode({
           fill the container exactly. A zoomed descendant claims the whole
           box; the other side and the divider stay mounted behind `hidden`. */}
       <div
-        className={hideA ? 'hidden' : 'flex min-h-0 min-w-0 overflow-hidden'}
+        className={hideA ? 'hidden' : 'flex min-h-0 min-w-0'}
         style={hideB ? { flex: '1 1 100%' } : { flex: `0 1 ${String(node.ratio * 100)}%` }}
       >
         {renderNode(node.a)}
@@ -243,9 +243,7 @@ function SplitNode({
         onResize={onResize}
         hidden={hideSep}
       />
-      <div className={hideB ? 'hidden' : 'flex min-h-0 min-w-0 flex-1 overflow-hidden'}>
-        {renderNode(node.b)}
-      </div>
+      <div className={hideB ? 'hidden' : 'flex min-h-0 min-w-0 flex-1'}>{renderNode(node.b)}</div>
     </div>
   )
 }

@@ -93,6 +93,20 @@ describe('SplitView', () => {
     expect(screen.queryByRole('button', { name: /^Close / })).not.toBeInTheDocument()
   })
 
+  it('lets pane content overflow so composer menus are not clipped', () => {
+    renderSplit(filled())
+
+    // The composer's model picker, file suggestions and agent menu are plain
+    // absolutely-positioned children anchored `bottom-full`, not portals, so
+    // clipping anywhere on the way up cuts them off inside a narrow pane.
+    const pane = screen.getByRole('region', { name: 'Alpha' })
+    const body = screen.getByTestId('session-sA').parentElement
+    expect(body?.className).not.toMatch(/overflow-hidden/)
+    for (let node = pane as HTMLElement | null; node !== null; node = node.parentElement) {
+      expect(node.className).not.toMatch(/overflow-hidden/)
+    }
+  })
+
   it('frames every pane once there is more than one, titled by its session', () => {
     renderSplit(filled())
 
