@@ -2,9 +2,9 @@
  * Split-view layout: a binary tree of panes, and the pure rewrites that move
  * sessions between them (split, swap, close, resize, prune).
  *
- * A leaf is one pane showing one session — or no session at all, which is the
- * blank pane a fresh "Split right" / "Split down" creates for the user to drop
- * something into. An interior node is a split: `row` places its two children
+ * A leaf is one pane showing a session, a terminal, or nothing — the blank pane
+ * a fresh "Split right" / "Split down" creates for the user to drop something
+ * into. An interior node is a split: `row` places its two children
  * side by side, `column` stacks them, and `ratio` is the share the leading
  * child takes. Both shapes the reference layout uses come out of that — a pane
  * beside a column of two panes is a row split whose second child is a column
@@ -26,8 +26,13 @@ export type SplitDirection = 'row' | 'column'
 export interface PaneLeaf {
   kind: 'leaf'
   paneId: string
-  /** The session on screen; null is the blank pane a split just created. */
+  /** The session on screen; null when the pane is blank or hosts a terminal. */
   sessionId: string | null
+  /**
+   * The dock tab shown in this pane. Omitted or null when the pane is blank or
+   * showing a session. A session and a terminal never share a pane.
+   */
+  terminalId?: string | null
 }
 
 export interface PaneSplit {
@@ -91,6 +96,20 @@ export function firstLeaf(node: PaneNode): PaneLeaf {
   return node.kind === 'leaf' ? node : firstLeaf(node.a)
 }
 
+/** The terminal hosted in this pane, if any. */
+export function terminalIdOf(leaf: PaneLeaf): string | null {
+  return leaf.terminalId ?? null
+}
+
+/** True when the pane is showing neither a session nor a terminal. */
+export function isBlankLeaf(leaf: PaneLeaf): boolean {
+  return leaf.sessionId === null && terminalIdOf(leaf) === null
+}
+
+function emptiedLeaf(leaf: PaneLeaf): PaneLeaf {
+  return { kind: 'leaf', paneId: leaf.paneId, sessionId: null }
+}
+
 export function findLeaf(node: PaneNode, paneId: string): PaneLeaf | null {
   for (const leaf of leaves(node)) if (leaf.paneId === paneId) return leaf
   return null
@@ -118,6 +137,18 @@ export function sessionsOnScreen(layout: SplitLayout): string[] {
 /** The pane showing `sessionId`, or null when it is not open. */
 export function paneIdForSession(layout: SplitLayout, sessionId: string): string | null {
   return leaves(layout.root).find((leaf) => leaf.sessionId === sessionId)?.paneId ?? null
+}
+
+/** Non-null terminals on screen, in reading order. */
+export function terminalIdsInPanes(layout: SplitLayout): string[] {
+  return leaves(layout.root)
+    .map(terminalIdOf)
+    .filter((id): id is string => id !== null)
+}
+
+/** The pane showing `terminalId`, or null when it is not in a pane. */
+export function paneIdForTerminal(layout: SplitLayout, terminalId: string): string | null {
+  return leaves(layout.root).find((leaf) => terminalIdOf(leaf) === terminalId)?.paneId ?? null
 }
 
 /**
@@ -209,17 +240,44 @@ export function assignSession(layout: SplitLayout, paneId: string, sessionId: st
   if (current === paneId) return focusPane(layout, paneId)
   let root = layout.root
   if (current !== null) {
-    root = mapLeaf(root, current, (leaf) => ({ ...leaf, sessionId: null })) ?? root
+    root = mapLeaf(root, current, emptiedLeaf) ?? root
   }
-  root = mapLeaf(root, paneId, (leaf) => ({ ...leaf, sessionId })) ?? root
+  root = mapLeaf(root, paneId, (leaf) => ({ kind: 'leaf', paneId: leaf.paneId, sessionId })) ?? root
+  return { ...layout, root, focusedPaneId: paneId }
+}
+
+/**
+ * Puts a terminal in a pane. A terminal is never on screen twice; one already
+ * open elsewhere leaves its old pane blank. Replaces a session in the target
+ * pane — the session stays in the sidebar, it is just not shown here.
+ */
+export function assignTerminal(
+  layout: SplitLayout,
+  paneId: string,
+  terminalId: string,
+): SplitLayout {
+  if (findLeaf(layout.root, paneId) === null) return layout
+  const current = paneIdForTerminal(layout, terminalId)
+  if (current === paneId) return focusPane(layout, paneId)
+  let root = layout.root
+  if (current !== null) {
+    root = mapLeaf(root, current, emptiedLeaf) ?? root
+  }
+  root =
+    mapLeaf(root, paneId, (leaf) => ({
+      kind: 'leaf',
+      paneId: leaf.paneId,
+      sessionId: null,
+      terminalId,
+    })) ?? root
   return { ...layout, root, focusedPaneId: paneId }
 }
 
 /** Empties a pane without removing it. */
 export function clearPane(layout: SplitLayout, paneId: string): SplitLayout {
   const leaf = findLeaf(layout.root, paneId)
-  if (leaf === null || leaf.sessionId === null) return layout
-  const root = mapLeaf(layout.root, paneId, (current) => ({ ...current, sessionId: null }))
+  if (leaf === null || isBlankLeaf(leaf)) return layout
+  const root = mapLeaf(layout.root, paneId, emptiedLeaf)
   return root === null ? layout : { ...layout, root }
 }
 
@@ -257,7 +315,7 @@ export function placeInPane(
 ): SplitLayout {
   const leaf = findLeaf(layout.root, paneId)
   if (leaf === null) return layout
-  return leaf.sessionId === null
+  return isBlankLeaf(leaf)
     ? assignSession(layout, paneId, sessionId)
     : openSessionInSplit(layout, paneId, sessionId, edge, newId)
 }
@@ -271,10 +329,14 @@ export function swapPanes(layout: SplitLayout, paneId: string, withPaneId: strin
   const a = findLeaf(layout.root, paneId)
   const b = findLeaf(layout.root, withPaneId)
   if (a === null || b === null || a.paneId === b.paneId) return layout
-  if (a.sessionId === b.sessionId) return layout
+  if (a.sessionId === b.sessionId && terminalIdOf(a) === terminalIdOf(b)) return layout
   const root = mapLeaves(layout.root, (leaf) => {
-    if (leaf.paneId === a.paneId) return { ...leaf, sessionId: b.sessionId }
-    if (leaf.paneId === b.paneId) return { ...leaf, sessionId: a.sessionId }
+    if (leaf.paneId === a.paneId) {
+      return { kind: 'leaf', paneId: leaf.paneId, sessionId: b.sessionId, terminalId: b.terminalId }
+    }
+    if (leaf.paneId === b.paneId) {
+      return { kind: 'leaf', paneId: leaf.paneId, sessionId: a.sessionId, terminalId: a.terminalId }
+    }
     return leaf
   })
   return { ...layout, root, focusedPaneId: a.paneId, zoomedPaneId: null }
@@ -344,7 +406,7 @@ export function pruneSessions(layout: SplitLayout, liveIds: ReadonlySet<string>)
   const root = mapLeaves(layout.root, (leaf) => {
     if (leaf.sessionId === null || liveIds.has(leaf.sessionId)) return leaf
     changed = true
-    return { ...leaf, sessionId: null }
+    return emptiedLeaf(leaf)
   })
   return changed ? { ...layout, root } : layout
 }
@@ -368,9 +430,16 @@ function parseNode(value: unknown, depth: number): PaneNode | null {
   if (node['kind'] === 'leaf') {
     const paneId = node['paneId']
     const sessionId = node['sessionId']
+    const terminalId = node['terminalId']
     if (typeof paneId !== 'string' || paneId === '') return null
     if (sessionId !== null && typeof sessionId !== 'string') return null
-    return { kind: 'leaf', paneId, sessionId }
+    if (terminalId !== undefined && terminalId !== null && typeof terminalId !== 'string')
+      return null
+    const term = typeof terminalId === 'string' && terminalId.length > 0 ? terminalId : null
+    if (sessionId !== null && term !== null) return null
+    return term === null
+      ? { kind: 'leaf', paneId, sessionId }
+      : { kind: 'leaf', paneId, sessionId: null, terminalId: term }
   }
   if (node['kind'] !== 'split') return null
   const { nodeId, direction, ratio } = node
@@ -409,6 +478,8 @@ export function parseLayout(raw: string | null): SplitLayout | null {
   if (new Set(nodeIds).size !== nodeIds.length) return null
   const sessionIds = panes.map((leaf) => leaf.sessionId).filter((id): id is string => id !== null)
   if (new Set(sessionIds).size !== sessionIds.length) return null
+  const terminalIds = panes.map(terminalIdOf).filter((id): id is string => id !== null)
+  if (new Set(terminalIds).size !== terminalIds.length) return null
 
   const focused = value['focusedPaneId']
   const zoomed = value['zoomedPaneId']

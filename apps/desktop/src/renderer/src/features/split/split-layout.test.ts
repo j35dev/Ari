@@ -4,6 +4,7 @@ import {
   activePaneOf,
   activeSessionOf,
   assignSession,
+  assignTerminal,
   clampRatio,
   clearPane,
   closePane,
@@ -15,11 +16,14 @@ import {
   openSessionInSplit,
   paneCount,
   paneIdForSession,
+  paneIdForTerminal,
   parseLayout,
   pruneSessions,
   serializeLayout,
   sessionIdsInPanes,
   sessionsOnScreen,
+  terminalIdOf,
+  terminalIdsInPanes,
   setRatio,
   splitPane,
   swapPanes,
@@ -547,5 +551,76 @@ describe('layout codec', () => {
       }),
     )
     expect(layout?.root.kind === 'split' && layout.root.ratio).toBe(0.9)
+  })
+})
+
+describe('assignTerminal', () => {
+  it('puts a terminal in a blank pane and never shows it twice', () => {
+    const layout = assignTerminal(two(), 'pane2', 'term_a')
+    expect(terminalIdsInPanes(layout)).toEqual(['term_a'])
+    expect(paneIdForTerminal(layout, 'term_a')).toBe('pane2')
+    expect(findLeaf(layout.root, 'pane2')?.sessionId).toBeNull()
+    expect(terminalIdOf(findLeaf(layout.root, 'pane2')!)).toBe('term_a')
+
+    const moved = assignTerminal(layout, 'pane1', 'term_a')
+    expect(paneIdForTerminal(moved, 'term_a')).toBe('pane1')
+    expect(terminalIdOf(findLeaf(moved.root, 'pane2')!)).toBeNull()
+  })
+
+  it('replaces a session in the target pane and keeps the session unique', () => {
+    const layout = assignTerminal(assignSession(two(), 'pane1', 'sA'), 'pane1', 'term_a')
+    expect(sessionIdsInPanes(layout)).toEqual([])
+    expect(terminalIdsInPanes(layout)).toEqual(['term_a'])
+  })
+
+  it('clears a terminal pane in place', () => {
+    const layout = assignTerminal(two(), 'pane2', 'term_a')
+    expect(terminalIdsInPanes(clearPane(layout, 'pane2'))).toEqual([])
+  })
+
+  it('swaps a session pane with a terminal pane', () => {
+    const layout = assignTerminal(assignSession(two(), 'pane1', 'sA'), 'pane2', 'term_a')
+    const swapped = swapPanes(layout, 'pane1', 'pane2')
+    expect(findLeaf(swapped.root, 'pane1') && terminalIdOf(findLeaf(swapped.root, 'pane1')!)).toBe(
+      'term_a',
+    )
+    expect(findLeaf(swapped.root, 'pane2')?.sessionId).toBe('sA')
+  })
+
+  it('round-trips a terminal occupant and rejects a terminal in two panes', () => {
+    const layout = assignTerminal(two(), 'pane2', 'term_a')
+    expect(parseLayout(serializeLayout(layout))).toEqual(layout)
+    expect(
+      parseLayout(
+        JSON.stringify({
+          root: {
+            kind: 'split',
+            nodeId: 'n1',
+            direction: 'row',
+            ratio: 0.5,
+            a: { kind: 'leaf', paneId: 'a', sessionId: null, terminalId: 'term_a' },
+            b: { kind: 'leaf', paneId: 'b', sessionId: null, terminalId: 'term_a' },
+          },
+        }),
+      ),
+    ).toBeNull()
+    expect(
+      parseLayout(
+        JSON.stringify({
+          root: { kind: 'leaf', paneId: 'a', sessionId: 'sA', terminalId: 'term_a' },
+        }),
+      ),
+    ).toBeNull()
+  })
+
+  it('reads a persisted layout that never heard of terminals', () => {
+    const parsed = parseLayout(
+      JSON.stringify({
+        root: { kind: 'leaf', paneId: 'pane1', sessionId: 'sA' },
+        focusedPaneId: 'pane1',
+        zoomedPaneId: null,
+      }),
+    )
+    expect(parsed?.root).toEqual({ kind: 'leaf', paneId: 'pane1', sessionId: 'sA' })
   })
 })

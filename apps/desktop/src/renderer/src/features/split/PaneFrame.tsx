@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { GripVertical, X } from 'lucide-react'
+import { GripVertical, TerminalSquare, X } from 'lucide-react'
+import { Button } from '@ari/ui/button'
 import { setDragPane } from './drag-split'
 import { PaneDropOverlay } from './PaneDropOverlay'
 import { usePaneDrop } from './use-pane-drop'
@@ -23,6 +24,8 @@ export interface PaneFrameProps {
   onToggleZoom: (paneId: string) => void
   onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
   onDropPane: (paneId: string, draggedPaneId: string) => void
+  onOpenTerminal?: (paneId: string) => void
+  canOpenTerminal?: boolean
   children: ReactNode
 }
 
@@ -45,6 +48,8 @@ export function PaneFrame({
   onToggleZoom,
   onDropSession,
   onDropPane,
+  onOpenTerminal,
+  canOpenTerminal,
   children,
 }: PaneFrameProps) {
   const label = title ?? 'Empty pane'
@@ -56,6 +61,8 @@ export function PaneFrame({
     onSplit,
     onClose,
     onToggleZoom,
+    onOpenTerminal,
+    canOpenTerminal,
   })
   const drop = usePaneDrop({ paneId, blank, canSplit, onDropSession, onDropPane })
   return (
@@ -112,13 +119,33 @@ export function PaneFrame({
  * session it held into another pane — either way the user fills it by dragging
  * a session in, so the placeholder says so.
  */
-export function BlankPane() {
+export function BlankPane({
+  onOpenTerminal,
+  canOpenTerminal = true,
+}: {
+  onOpenTerminal?: () => void
+  canOpenTerminal?: boolean
+} = {}) {
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1.5 p-4 text-center">
-      <p className="text-xs text-fg-subtle">No session in this pane</p>
+    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 p-4 text-center">
+      <p className="text-xs text-fg-subtle">Empty pane</p>
       <p className="max-w-56 text-2xs text-fg-subtle/70">
-        Drag a session in from the sidebar, or right-click the pane for Split right and Split down.
+        Drag a session in from the sidebar, or open a terminal here.
       </p>
+      {onOpenTerminal !== undefined ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!canOpenTerminal}
+          title={
+            canOpenTerminal ? 'Open a terminal in this pane' : 'Add a project to open a terminal'
+          }
+          onClick={onOpenTerminal}
+        >
+          <TerminalSquare size={13} aria-hidden />
+          Open terminal
+        </Button>
+      ) : null}
     </div>
   )
 }
