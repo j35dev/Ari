@@ -580,8 +580,8 @@ export function ModelSelector({
           {!searching && fallbackLabel !== null && activeKind !== null ? (
             <div className="flex items-start gap-2 border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
               <span className="min-w-0 flex-1">
-                {driverLabel(activeKind)} has not reported its own models — this is{' '}
-                {fallbackLabel}. It may not accept every entry.
+                {driverLabel(activeKind)} has not reported its own models — this is {fallbackLabel}.
+                It may not accept every entry.
               </span>
               <button
                 type="button"

@@ -986,6 +986,7 @@ export function SessionView({
               />
               <EffortChip
                 driverKind={defaults.driverKind}
+                modelId={defaults.modelId}
                 effort={defaults.effort}
                 onChange={changeEffort}
               />
@@ -1021,13 +1022,19 @@ interface EffortOption {
  * (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
  * list). Hidden when the agent advertises nothing — we never invent
  * low/medium/high.
+ *
+ * Effort can be per-model (OpenCode only advertises it for
+ * reasoning-capable models), so with a model selected the chip re-queries
+ * that model's own levels and prefers them over the default-model catalog.
  */
 export function EffortChip({
   driverKind,
+  modelId,
   effort,
   onChange,
 }: {
   driverKind: DriverKind
+  modelId?: string | null
   effort: string | null
   onChange: (effort: string | null) => void
 }) {
@@ -1047,22 +1054,49 @@ export function EffortChip({
 
   useEffect(() => {
     let cancelled = false
+    // A model-specific probe is the authority on this model's vocabulary, so
+    // `loaded` is withheld until it settles. Releasing it on the generic
+    // catalog alone lets the reset effect below clear a saved effort that only
+    // the model's own list advertises — the very case this control exists for.
+    // Reset on every generation: leaving `loaded` true across a model switch
+    // lets the catalog's first paint clear a saved effort the new model still
+    // advertises.
+    setLoaded(false)
+    const probesModel = modelId !== undefined && modelId !== null && modelId.length > 0
     const apply = (rows: { kind: string; efforts?: EffortOption[] }[]): void => {
       if (cancelled) return
       const row = rows.find((r) => r.kind === driverKind)
       setOptions(row?.efforts ?? [])
-      setLoaded(true)
+      if (!probesModel) setLoaded(true)
     }
     const load = (): void => {
-      void rpc
+      const base = rpc
         .invoke('providers.models')
         .then(apply)
         .catch(() => {
           if (!cancelled) {
             setOptions([])
-            setLoaded(true)
+            if (!probesModel) setLoaded(true)
           }
         })
+      // A selected model may advertise thought levels the default-model
+      // catalog probe never saw; a non-empty answer wins, an empty one
+      // keeps whatever the catalog reported.
+      if (probesModel) {
+        void base.finally(() => {
+          if (cancelled) return
+          void rpc
+            .invoke('providers.efforts', { kind: driverKind, modelId })
+            .then((result) => {
+              if (cancelled) return
+              if (result.efforts.length > 0) setOptions(result.efforts)
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              if (!cancelled) setLoaded(true)
+            })
+        })
+      }
     }
     load()
     const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
@@ -1073,7 +1107,7 @@ export function EffortChip({
       cancelled = true
       unsubscribe()
     }
-  }, [driverKind])
+  }, [driverKind, modelId])
 
   useEffect(() => {
     if (!loaded || effort === null) return
