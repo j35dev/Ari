@@ -50,7 +50,10 @@ function matchesQuery(item: GitHubHubItem, query: string): boolean {
 
 /** Settings-style workspace for GitHub pull requests and issues, scoped to one Ari project. */
 export function HubWorkspace({ projects, initialProjectId, onBack }: HubWorkspaceProps) {
-  const usable = projects.filter((project) => project.status !== 'missing')
+  const usable = useMemo(
+    () => projects.filter((project) => project.status !== 'missing'),
+    [projects],
+  )
   const [projectId, setProjectId] = useState<string | null>(
     () => usable.find((project) => project.id === initialProjectId)?.id ?? usable[0]?.id ?? null,
   )
@@ -65,6 +68,17 @@ export function HubWorkspace({ projects, initialProjectId, onBack }: HubWorkspac
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+
+  // The hub can be opened before `projects.list` resolves, and the initializer
+  // above only ran once — so without this a hub opened at startup stays stuck
+  // on its empty state even after the projects arrive. This also lets go of a
+  // project that has since been removed or gone missing.
+  useEffect(() => {
+    setProjectId((current) => {
+      if (current !== null && usable.some((entry) => entry.id === current)) return current
+      return usable.find((entry) => entry.id === initialProjectId)?.id ?? usable[0]?.id ?? null
+    })
+  }, [usable, initialProjectId])
 
   const project = usable.find((entry) => entry.id === projectId) ?? null
   const noun = kind === 'pr' ? 'pull request' : 'issue'
