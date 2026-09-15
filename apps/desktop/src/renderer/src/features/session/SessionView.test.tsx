@@ -359,7 +359,12 @@ describe('SessionView question panel', () => {
     await user.click(await screen.findByRole('button', { name: 'Approve plan' }))
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'input.respond', sessionId: 'sess_1', inputId: 'plan1', value: 'approved' },
+        command: {
+          type: 'input.respond',
+          sessionId: 'sess_1',
+          inputId: 'plan1',
+          value: 'approved',
+        },
       })
     })
     expect(screen.queryByRole('complementary', { name: 'Plan review' })).not.toBeInTheDocument()
@@ -445,7 +450,12 @@ describe('SessionView edit and resend', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'turn.start', sessionId: 'sess_1', text: 'please retry the build, verbose', attachments: [] },
+        command: {
+          type: 'turn.start',
+          sessionId: 'sess_1',
+          text: 'please retry the build, verbose',
+          attachments: [],
+        },
       })
     })
   })
@@ -483,10 +493,7 @@ describe('SessionView regenerate and retry', () => {
     vi.clearAllMocks()
   })
 
-  function emitTurn(
-    stopReason: 'completed' | 'error',
-    errorMessage: string | null,
-  ): void {
+  function emitTurn(stopReason: 'completed' | 'error', errorMessage: string | null): void {
     emitSessionEvent({
       seq: 1,
       at: 1,
@@ -535,7 +542,12 @@ describe('SessionView regenerate and retry', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite', attachments: [] },
+        command: {
+          type: 'turn.start',
+          sessionId: 'sess_1',
+          text: 'run the test suite',
+          attachments: [],
+        },
       })
     })
   })
@@ -598,7 +610,12 @@ describe('SessionView regenerate and retry', () => {
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'turn.start', sessionId: 'sess_1', text: 'run the test suite', attachments: [] },
+        command: {
+          type: 'turn.start',
+          sessionId: 'sess_1',
+          text: 'run the test suite',
+          attachments: [],
+        },
       })
     })
   })
@@ -705,7 +722,9 @@ describe('SessionView per-turn diff cards', () => {
         turnId: 'turn_1',
       })
     })
-    expect(await screen.findByRole('button', { name: 'Turn diff: 1 file changed' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }),
+    ).toBeInTheDocument()
   })
 
   it('shows no card when the settled turn has a null diff', async () => {
@@ -831,7 +850,12 @@ describe('SessionView context meter', () => {
       <ToastProvider>
         <SessionView
           sessionId="sess_1"
-          defaults={{ driverKind: 'claude', modelId: 'sonar-x', permissionMode: 'ask', effort: null }}
+          defaults={{
+            driverKind: 'claude',
+            modelId: 'sonar-x',
+            permissionMode: 'ask',
+            effort: null,
+          }}
           onDefaultsChange={() => undefined}
         />
       </ToastProvider>,
@@ -935,8 +959,12 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     emitFrame({ event: userMessage(1, 'who are you') })
     emitFrame({
       event: {
-        seq: 2, at: 2, sessionId: 'sess_1', type: 'assistant.parts.appended',
-        messageId: 'm2', parts: [{ type: 'text', text: 'I am the agent.' }],
+        seq: 2,
+        at: 2,
+        sessionId: 'sess_1',
+        type: 'assistant.parts.appended',
+        messageId: 'm2',
+        parts: [{ type: 'text', text: 'I am the agent.' }],
       },
     })
 
@@ -944,8 +972,12 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     emitFrame({ event: userMessage(1, 'who are you'), replay: true })
     emitFrame({
       event: {
-        seq: 2, at: 2, sessionId: 'sess_1', type: 'assistant.parts.appended',
-        messageId: 'm2', parts: [{ type: 'text', text: 'I am the agent.' }],
+        seq: 2,
+        at: 2,
+        sessionId: 'sess_1',
+        type: 'assistant.parts.appended',
+        messageId: 'm2',
+        parts: [{ type: 'text', text: 'I am the agent.' }],
       },
       replay: true,
     })
@@ -1023,7 +1055,12 @@ describe('SessionView queued messages', () => {
 
     await user.type(screen.getByLabelText('Message'), 'second prompt{Enter}')
     expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-      command: { type: 'message.enqueue', sessionId: 'sess_1', text: 'second prompt', attachments: [] },
+      command: {
+        type: 'message.enqueue',
+        sessionId: 'sess_1',
+        text: 'second prompt',
+        attachments: [],
+      },
     })
 
     emitSessionEvent({
@@ -1055,9 +1092,7 @@ describe('SessionView queued messages', () => {
       errorMessage: null,
     })
     await waitFor(() => {
-      expect(
-        invokeMock.mock.calls.some(([method]) => method === 'command.dispatch'),
-      ).toBe(false)
+      expect(invokeMock.mock.calls.some(([method]) => method === 'command.dispatch')).toBe(false)
     })
 
     // Engine dequeues the next message; a fresh turn begins.
@@ -1222,7 +1257,9 @@ describe('SessionView image attachments', () => {
       if (method === 'command.dispatch') return { accepted: true }
       if (method === 'attachments.stage') return { attachments: [REF] }
       if (method === 'attachments.read') {
-        return { attachment: { name: 'shot.png', mimeType: 'image/png', size: 8, dataBase64: 'aGk=' } }
+        return {
+          attachment: { name: 'shot.png', mimeType: 'image/png', size: 8, dataBase64: 'aGk=' },
+        }
       }
       throw new Error(`unexpected method: ${String(method)}`)
     })
@@ -1248,13 +1285,20 @@ describe('SessionView image attachments', () => {
     const input = await screen.findByLabelText('Message')
 
     fireEvent.paste(input, {
-      clipboardData: { files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]) },
+      clipboardData: {
+        files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]),
+      },
     })
     await user.type(input, 'look at this{Enter}')
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
-        command: { type: 'turn.start', sessionId: 'sess_1', text: 'look at this', attachments: [REF] },
+        command: {
+          type: 'turn.start',
+          sessionId: 'sess_1',
+          text: 'look at this',
+          attachments: [REF],
+        },
       })
     })
     const stageCall = invokeMock.mock.calls.find(([method]) => method === 'attachments.stage')
@@ -1278,7 +1322,13 @@ describe('SessionView image attachments', () => {
         turnId: 'turn_1',
         role: 'user',
         parts: [
-          { type: 'image', attachmentId: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 },
+          {
+            type: 'image',
+            attachmentId: 'att_1',
+            name: 'shot.png',
+            mimeType: 'image/png',
+            size: 8,
+          },
           { type: 'text', text: 'look at this' },
         ],
         createdAt: 1,
@@ -1308,7 +1358,9 @@ describe('SessionView image attachments', () => {
     const input = await screen.findByLabelText('Message')
 
     fireEvent.paste(input, {
-      clipboardData: { files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]) },
+      clipboardData: {
+        files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]),
+      },
     })
     await user.type(input, 'do not lose this{Enter}')
 
@@ -1335,7 +1387,9 @@ describe('SessionView image attachments', () => {
       if (method === 'command.dispatch') return { accepted: false, reason: 'over capacity' }
       if (method === 'attachments.stage') return { attachments: [REF] }
       if (method === 'attachments.read') {
-        return { attachment: { name: 'shot.png', mimeType: 'image/png', size: 8, dataBase64: 'aGk=' } }
+        return {
+          attachment: { name: 'shot.png', mimeType: 'image/png', size: 8, dataBase64: 'aGk=' },
+        }
       }
       throw new Error(`unexpected method: ${String(method)}`)
     })
@@ -1343,7 +1397,9 @@ describe('SessionView image attachments', () => {
     const input = await screen.findByLabelText('Message')
 
     fireEvent.paste(input, {
-      clipboardData: { files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]) },
+      clipboardData: {
+        files: fakeFileList([new File([new Uint8Array(8)], 'shot.png', { type: 'image/png' })]),
+      },
     })
     await user.type(input, 'look at this{Enter}')
 
@@ -1426,7 +1482,9 @@ describe('SessionView refused sends with review notes', () => {
     await user.click((await screen.findAllByRole('button', { name: 'Comment on src/a.ts:1' }))[0]!)
     await user.type(screen.getByLabelText('Review note for src/a.ts'), 'extract a helper')
     await user.click(screen.getByRole('button', { name: 'Save note' }))
-    expect(await screen.findByLabelText('Review notes attached to next message')).toBeInTheDocument()
+    expect(
+      await screen.findByLabelText('Review notes attached to next message'),
+    ).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('Message'), 'do it{Enter}')
     expect(await screen.findByText('over capacity')).toBeInTheDocument()
@@ -1582,9 +1640,7 @@ describe('EffortChip', () => {
   })
 
   it('hides when the harness advertised no thought levels', async () => {
-    invokeMock.mockResolvedValue([
-      { kind: 'grok', source: 'live', models: [], efforts: [] },
-    ])
+    invokeMock.mockResolvedValue([{ kind: 'grok', source: 'live', models: [], efforts: [] }])
     render(<EffortChip driverKind="grok" effort={null} onChange={() => undefined} />)
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
     expect(screen.queryByRole('button', { name: /Effort:/ })).not.toBeInTheDocument()
@@ -1642,6 +1698,179 @@ describe('EffortChip', () => {
     await user.click(await screen.findByRole('button', { name: 'Effort: Low' }))
     await user.click(screen.getByRole('option', { name: /High/ }))
     expect(onChange).toHaveBeenCalledWith('high')
+  })
+
+  it('re-queries the selected model when the catalog has no levels', async () => {
+    invokeMock.mockImplementation(async (method: string) => {
+      if (method === 'providers.models') {
+        return [{ kind: 'opencode', source: 'live', models: [], efforts: [] }]
+      }
+      if (method === 'providers.efforts') {
+        return {
+          efforts: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High' },
+          ],
+        }
+      }
+      throw new Error(`unexpected method: ${method}`)
+    })
+    render(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/muse-spark-1.3-contributor-free"
+        effort={null}
+        onChange={() => undefined}
+      />,
+    )
+    expect(await screen.findByRole('button', { name: 'Effort: Low' })).toBeInTheDocument()
+    expect(invokeMock).toHaveBeenCalledWith('providers.efforts', {
+      kind: 'opencode',
+      modelId: 'opencode/muse-spark-1.3-contributor-free',
+    })
+  })
+
+  it('keeps a saved effort that only the model-specific list advertises', async () => {
+    const onChange = vi.fn()
+    // The per-model answer is held open so the component really does sit in
+    // the gap the generic catalog opens, which is where the effort was lost.
+    let releaseEfforts: (() => void) | undefined
+    const efforts = new Promise<{ efforts: { id: string; label: string }[] }>((resolve) => {
+      releaseEfforts = () =>
+        resolve({
+          efforts: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High' },
+          ],
+        })
+    })
+    invokeMock.mockImplementation(async (method: string) => {
+      // The kind's catalog was probed against the default model and knows
+      // nothing of `high`; only the per-model query does.
+      if (method === 'providers.models') {
+        return [{ kind: 'opencode', source: 'live', models: [], efforts: [] }]
+      }
+      if (method === 'providers.efforts') return efforts
+      throw new Error(`unexpected method: ${method}`)
+    })
+
+    render(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/reasoner-1"
+        effort="high"
+        onChange={onChange}
+      />,
+    )
+
+    // The generic catalog has landed and knows nothing of `high`; the saved
+    // effort must survive until the model's own list has had its say.
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('providers.efforts', {
+        kind: 'opencode',
+        modelId: 'opencode/reasoner-1',
+      }),
+    )
+    expect(onChange).not.toHaveBeenCalled()
+
+    await act(async () => {
+      releaseEfforts?.()
+      await efforts
+    })
+
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('still clears an effort no list advertises once both queries have settled', async () => {
+    const onChange = vi.fn()
+    invokeMock.mockImplementation(async (method: string) => {
+      if (method === 'providers.models') {
+        return [{ kind: 'opencode', source: 'live', models: [], efforts: [] }]
+      }
+      if (method === 'providers.efforts') {
+        return { efforts: [{ id: 'low', label: 'Low' }] }
+      }
+      throw new Error(`unexpected method: ${method}`)
+    })
+
+    render(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/reasoner-1"
+        effort="gone"
+        onChange={onChange}
+      />,
+    )
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null))
+  })
+
+  it('keeps a saved effort across a model switch until the new model answers', async () => {
+    const onChange = vi.fn()
+    let releaseNext: (() => void) | undefined
+    const nextEfforts = new Promise<{ efforts: { id: string; label: string }[] }>((resolve) => {
+      releaseNext = () =>
+        resolve({
+          efforts: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High' },
+          ],
+        })
+    })
+    invokeMock.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'providers.models') {
+        return [{ kind: 'opencode', source: 'live', models: [], efforts: [] }]
+      }
+      if (method === 'providers.efforts') {
+        const modelId =
+          typeof params === 'object' && params !== null && 'modelId' in params
+            ? (params as { modelId?: string }).modelId
+            : undefined
+        if (modelId === 'opencode/reasoner-2') return nextEfforts
+        return {
+          efforts: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High' },
+          ],
+        }
+      }
+      throw new Error(`unexpected method: ${method}`)
+    })
+
+    const { rerender } = render(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/reasoner-1"
+        effort="high"
+        onChange={onChange}
+      />,
+    )
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+
+    rerender(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/reasoner-2"
+        effort="high"
+        onChange={onChange}
+      />,
+    )
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('providers.efforts', {
+        kind: 'opencode',
+        modelId: 'opencode/reasoner-2',
+      }),
+    )
+    expect(onChange).not.toHaveBeenCalled()
+
+    await act(async () => {
+      releaseNext?.()
+      await nextEfforts
+    })
+
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
   })
 })
 
