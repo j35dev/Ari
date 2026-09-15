@@ -107,6 +107,7 @@ function hostFor(
     defaultPermissionMode: () => 'ask',
     defaultDriverKind: () => 'claude',
     hasProject: async () => true,
+    listProjects: async () => [{ id: 'proj_1', name: 'Ari' }],
     pairing: new PairingService(),
     mintSessionId: () => 'sess_remote_1',
     ...overrides,
@@ -147,6 +148,7 @@ function commandOrReadExists(op: string): boolean {
     'gateway.info',
     'session.list',
     'session.get',
+    'project.list',
     'changes.files',
     'changes.diff',
     'command.status',
@@ -193,6 +195,35 @@ describe('reading sessions', () => {
     // would see a gap or a duplicate. Journals are 0-based, matching
     // `initialReadModel().lastSeq === -1`.
     expect(snapshot?.seq).toBe(0)
+  })
+
+  it('hands the client what is waiting on a human, with the exact choices', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    await store.append('sess_a', {
+      type: 'approval.requested',
+      approvalId: 'appr_1',
+      toolName: 'Bash',
+      summaryJson: '{"command":"rm -rf build"}',
+      options: [
+        { optionId: 'opt_session', name: 'Allow for this session', kind: 'allow_always' },
+        { optionId: 'opt_prefix', name: 'Always allow rm -rf', kind: 'allow_always' },
+      ],
+    })
+    const host = hostFor(store, fakeEngine())
+
+    const snapshot = await host.getSession(CALLER, 'sess_a')
+
+    // A phone opening this session never saw the event that announced the
+    // approval. Without this it would render an idle session while the agent
+    // sits blocked on an answer.
+    expect(snapshot?.pendingApprovals).toHaveLength(1)
+    expect(snapshot?.pendingApprovals[0]?.approvalId).toBe('appr_1')
+    // Two choices share a kind, so both must survive to the client intact.
+    expect(snapshot?.pendingApprovals[0]?.options.map((option) => option.optionId)).toEqual([
+      'opt_session',
+      'opt_prefix',
+    ])
   })
 
   it('answers undefined for a session that does not exist', async () => {
@@ -412,13 +443,18 @@ describe('devices', () => {
     const pairing = new PairingService()
     const key = deviceKey()
     const invitation = pairing.begin('http://127.0.0.1:1')
-    pairing.request(invitation.invitationId, { displayName: 'Phone', publicKey: key.jwk })
+    const registered = pairing.request(invitation.invitationId, {
+      displayName: 'Phone',
+      publicKey: key.jwk,
+    })
+    if (!registered.ok) throw new Error(`registration refused: ${registered.code}`)
     pairing.approve(invitation.invitationId, ['proj_1'])
     // A device record exists only once the key has proved possession of itself,
-    // so the invite has to be redeemed before there is anything to list.
+    // so the invite has to be redeemed before there is anything to list — by
+    // signing the nonce the server issued, not one the phone chose.
     const redeemed = pairing.redeem(invitation.invitationId, {
-      nonce: 'nonce',
-      signature: key.sign('nonce'),
+      nonce: registered.nonce,
+      signature: key.sign(registered.nonce),
     })
     if (!redeemed.ok) throw new Error(`redemption refused: ${redeemed.code}`)
     return {

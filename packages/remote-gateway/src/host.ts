@@ -3,7 +3,7 @@ import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind } from '@ari/contracts/common'
-import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
+import type { RemoteApproval, RemoteCommand, RemoteInput, RemoteOperation, RemoteProject } from '@ari/contracts/remote'
 
 /**
  * The authenticated device a call is made on behalf of.
@@ -46,12 +46,24 @@ export interface RemoteHost {
   listSessions(caller: RemoteCaller): Promise<SessionSummary[]>
 
   /**
+   * The projects this device was granted, as the desktop names them. Names and
+   * ids only: a phone starts work in a project by naming it, and a filesystem
+   * path is neither useful there nor safe to hand out.
+   */
+  listProjects(caller: RemoteCaller): Promise<RemoteProject[]>
+
+  /**
    * One session's projected state plus the journal high-water mark it was
    * taken at. The two travel together so a subscriber can resume from exactly
    * this point and see no gap and no duplicate. `undefined` covers both a
    * session that does not exist and one this device was not granted — the two
    * are not distinguished on the wire, because telling a device that a session
    * exists but is someone else's is itself a disclosure.
+   *
+   * What is waiting on a human rides along, because a client that opens a
+   * session while an approval is already pending never saw the event that
+   * announced it: without this it renders an idle session while the agent sits
+   * blocked, which is the one state a remote control surface must not show.
    */
   getSession(
     caller: RemoteCaller,
@@ -62,6 +74,8 @@ export interface RemoteHost {
         summary: SessionSummary
         seq: number
         messages: Message[]
+        pendingApprovals: RemoteApproval[]
+        pendingInputs: RemoteInput[]
       }
     | undefined
   >

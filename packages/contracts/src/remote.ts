@@ -36,6 +36,9 @@ export const remoteOperationSchema = z.enum([
   'session.get',
   'session.create',
   'session.archive',
+  // Projects. A name and an id, never a path: the phone names a project to
+  // start work in, and has no use for where it lives on someone's disk.
+  'project.list',
   // Agent actions.
   'session.prompt',
   'session.queue',
@@ -212,6 +215,7 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('gateway.info') }),
   z.object({ op: z.literal('session.list') }),
   z.object({ op: z.literal('session.get'), sessionId: sessionIdSchema }),
+  z.object({ op: z.literal('project.list') }),
   z.object({ op: z.literal('changes.files'), sessionId: sessionIdSchema }),
   z.object({ op: z.literal('changes.diff'), sessionId: sessionIdSchema, path: z.string().min(1) }),
   z.object({ op: z.literal('command.status'), idempotencyKey: idempotencyKeySchema }),
@@ -219,6 +223,18 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('device.revoke'), deviceId: z.string().min(1) }),
 ])
 export type RemoteQuery = z.infer<typeof remoteQuerySchema>
+
+/**
+ * A project as a phone may name it. The path is deliberately absent: starting
+ * a session needs the id, and a filesystem location is the desktop's business.
+ */
+export const remoteProjectSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  /** Session count, so the picker can say how much work is already there. */
+  sessionCount: z.number().int().nonnegative(),
+})
+export type RemoteProject = z.infer<typeof remoteProjectSchema>
 
 /**
  * Content-free: a version to compare and the operation names this gateway
@@ -280,22 +296,46 @@ export function pairingConfirmationCode(publicKeyMaterial: string): string {
 }
 
 /**
+ * An approval as a client must render it: the tool, the detail behind it, and
+ * the exact choices the provider offered, in the provider's order.
+ *
+ * The choices are data rather than a message, because two of them can share a
+ * kind — Codex advertises both a session-scoped and a prefix-scoped persistent
+ * grant — and one generic "always allow" button would silently answer the
+ * wrong one.
+ */
+export const remoteApprovalSchema = z.object({
+  approvalId: approvalIdSchema,
+  toolName: z.string(),
+  summaryJson: z.string(),
+  options: z.array(approvalOptionSchema),
+})
+export type RemoteApproval = z.infer<typeof remoteApprovalSchema>
+
+/** An agent question awaiting an answer, with its choices when it has any. */
+export const remoteInputSchema = z.object({
+  inputId: approvalIdSchema,
+  prompt: z.string(),
+  choicesJson: z.string().nullable(),
+})
+export type RemoteInput = z.infer<typeof remoteInputSchema>
+
+/**
  * Projected state plus the journal sequence it was taken at. The pair travels
  * together so a client can subscribe from exactly the high-water mark and see
  * neither a gap nor a duplicate.
+ *
+ * The pending items are here rather than only in the event stream on purpose:
+ * a phone that opens a session while an approval is already waiting never saw
+ * the event that announced it, and would otherwise show a session that looks
+ * idle while the agent sits blocked.
  */
 export const remoteSnapshotSchema = z.object({
   sessionId: sessionIdSchema,
   seq: z.number().int().nonnegative(),
   status: z.string().min(1),
-  pendingApprovals: z.array(
-    z.object({
-      approvalId: approvalIdSchema,
-      toolName: z.string(),
-      summaryJson: z.string(),
-      options: z.array(approvalOptionSchema),
-    }),
-  ),
+  pendingApprovals: z.array(remoteApprovalSchema),
+  pendingInputs: z.array(remoteInputSchema),
 })
 export type RemoteSnapshot = z.infer<typeof remoteSnapshotSchema>
 
