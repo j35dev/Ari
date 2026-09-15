@@ -7,6 +7,7 @@ export { KeyboardCheatSheet } from './KeyboardCheatSheet'
 export { KeybindingsSettings } from './KeybindingsSettings'
 export { NotificationsSettings } from './NotificationsSettings'
 export { PermissionsSettings } from './PermissionsSettings'
+export { RemoteSettings } from './RemoteSettings'
 export { SettingsPage } from './SettingsPage'
 export {
   SETTINGS_SEARCH_INDEX,

@@ -315,3 +315,74 @@ provisioning token, Clerk publishable and secret keys plus webhook signing
 secret, and the owner's Clerk user id for bootstrap.
 
 Nothing in P0–P3 depends on those inputs.
+
+## Status after the P1–P3 slice
+
+Implemented and verified by `pnpm verify` (typecheck, lint, tests for every
+package). What exists now is the self-hosted path end to end: turn remote
+access on in the desktop, expose it over Tailscale, pair a phone, drive
+sessions from it.
+
+**Gateway** (`packages/remote-gateway`)
+
+- Loopback HTTP + WebSocket, exact origin allowlist, no wildcard and no
+  cookies, `Origin` re-checked on the upgrade.
+- Pairing: single-use five-minute invitations, a server-issued nonce signed by
+  the device key, and atomic redemption. The nonce is bound to what it was
+  issued for, so a proof cannot be moved to another invitation or device.
+- Remembered devices: device records (id, name, project grants, public key)
+  persist; bearer tokens do not, and age out. A desktop restart costs a phone
+  a signature, not a new QR code.
+- Revocation leaves a tombstone, so a revoked phone is told that rather than
+  being treated as a stranger.
+- Idempotency records persist, so a retry after a restart replays the recorded
+  outcome instead of running a prompt twice.
+- CORS: the allowed origin is echoed exactly, refusals carry nothing, and a
+  preflight is answered from the allowlist.
+- Optional `webRoot`: serves the built PWA from the same origin, refusing
+  traversal, unknown extensions and anything outside the root, with hashed
+  assets immutable and the shell, manifest and service worker `no-store`.
+
+**Desktop** (`apps/desktop`)
+
+- `RemoteService` owns the gateway's lifetime, the device records and the
+  settings; the two decisions that must not be reachable over the wire (mint
+  an invitation, approve a device) are in-process calls from the renderer.
+- The host serves `session.*`, `approval.respond`, `input.respond`,
+  `project.list` and `device.*` over the engine. `project.list` carries names
+  and ids, never paths. `changes.*` is absent: nothing on the desktop produces
+  a per-file change list, and the only integration that exists is the
+  agent-to-agent one ADR §19 keeps off this surface.
+- Settings → Remote access: enable/disable, the tailnet address and QR code,
+  the pairing prompt with the confirmation code and per-project grants, device
+  list with revocation, and the Tailscale Serve controls.
+
+**Mobile** (`apps/mobile`)
+
+- Installable PWA: four destinations, session detail with Conversation /
+  Changes / Details, a composer with explicit Send, Queue, Steer and
+  Interrupt, and approvals rendered from the provider's own options.
+- Non-extractable device key in Web Crypto; bearer tokens in memory only.
+- Connection states kept distinct (revoked, unknown device, version mismatch,
+  unreachable, unpaired), each said in its own words.
+- Versioned app shell cache; API routes, transcripts and diffs are never
+  cached; an update waits for the user rather than reloading mid-prompt.
+- Tested against a real gateway over real sockets, including the DER signature
+  encoding and the lost-response retry path.
+
+## Remaining before release
+
+1. **Packaging.** `electron-builder` must copy `apps/mobile/dist` into
+   `resources/mobile`, and the release workflow must build `@ari/mobile`
+   before packing. Neither is done: `.github/` is orchestrator-only, and
+   without the first the packaged app serves the API alone (`mobileWebRoot`
+   returns undefined rather than guessing).
+2. **Real devices.** iPhone Safari, iPhone installed, Android Chrome and
+   Android installed, over cellular with the desktop on unrelated Wi-Fi, with
+   lock/unlock and network switching. Cannot be performed in this environment.
+3. **PNG icons.** The manifest ships SVG; iOS home-screen icons want PNG.
+4. **Per-file changes.** `changes.files` and `changes.diff` need a desktop
+   implementation over the session's workspace before the phone's Changes tab
+   has anything to show, and guarded integration needs the same, bound to the
+   reviewed snapshot.
+5. **Managed mode (P4/P5).** Needs the owner inputs listed above.

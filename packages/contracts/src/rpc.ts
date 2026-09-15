@@ -680,6 +680,15 @@ export const rpcParams = {
   }),
   'remote.deny': z.object({ invitationId: z.string().min(1) }),
   'remote.revokeDevice': z.object({ deviceId: z.string().min(1) }),
+  /**
+   * Tailscale Serve (P3). The desktop owns the mapping; these methods only
+   * read its state and ask for it to be added or removed.
+   */
+  'remote.tailscale.status': z.undefined(),
+  /** Expose the running gateway on the tailnet at https://<dnsName>. */
+  'remote.tailscale.enable': z.undefined(),
+  /** Remove Ari's Serve mapping, leaving the user's own mappings alone. */
+  'remote.tailscale.disable': z.undefined(),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -987,6 +996,10 @@ export interface RpcResults {
   'remote.approve': RemoteState
   'remote.deny': RemoteState
   'remote.revokeDevice': RemoteState
+  'remote.tailscale.status': TailscaleState
+  /** Enabling Serve exposes the running gateway, so the fresh remote state comes back. */
+  'remote.tailscale.enable': RemoteState
+  'remote.tailscale.disable': TailscaleState
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
@@ -1034,6 +1047,26 @@ export interface RemoteState {
   invitation: { invitationId: string; url: string; expiresAt: number } | null
   pending: RemotePairingRequestView | null
   /** Why the gateway is not running, when the user asked it to be. */
+  error: string | null
+}
+
+/**
+ * Tailscale Serve as the desktop last read it (P3).
+ *
+ * Declared here rather than beside its implementation because it crosses IPC;
+ * `apps/desktop/src/main/tailscale.ts` is the one that produces it. `origin` is
+ * null until this machine is on a tailnet, and `serving` is true only while a
+ * Serve mapping for Ari's own loopback port exists.
+ */
+export interface TailscaleState {
+  installed: boolean
+  /** The tailnet DNS name this machine is reachable at, when known. */
+  dnsName: string | null
+  /** https://<dnsName> — the origin a phone would open. */
+  origin: string | null
+  /** Whether a Serve mapping for our port already exists. */
+  serving: boolean
+  /** Why the last attempt failed, in a sentence a user can read. */
   error: string | null
 }
 

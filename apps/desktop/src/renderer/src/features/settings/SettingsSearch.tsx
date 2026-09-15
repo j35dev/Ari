@@ -65,6 +65,16 @@ export const SETTINGS_SEARCH_INDEX = [
     keywords: 'allowlist run without confirmation exact command',
   },
   {
+    section: 'settings-remote',
+    label: 'Remote access',
+    keywords: 'phone mobile remote gateway pair qr pairing device revoke invitation serve',
+  },
+  {
+    section: 'settings-remote',
+    label: 'Tailscale',
+    keywords: 'tailnet serve https private network phone reachable funnel',
+  },
+  {
     section: 'settings-endpoints',
     label: 'Model endpoints',
     keywords: 'openai anthropic ollama api key base url custom connection test chat completions',

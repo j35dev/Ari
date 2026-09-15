@@ -15,6 +15,12 @@
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.15",
+    "@lydell/node-pty-darwin-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-darwin-x64": "1.2.0-beta.15",
+    "@lydell/node-pty-linux-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-linux-x64": "1.2.0-beta.15",
+    "@lydell/node-pty-win32-arm64": "1.2.0-beta.15",
+    "@lydell/node-pty-win32-x64": "1.2.0-beta.15",
     "@tanstack/react-router": "^1.170.31",
     "@tanstack/react-virtual": "^3.14.10",
     "@xterm/addon-fit": "^0.11.0",
@@ -22,14 +28,9 @@
     "electron-updater": "^6.8.9",
     "lucide-react": "^1.33.0",
     "motion": "^13.1.1",
+    "qrcode": "^1.5.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "@lydell/node-pty-darwin-arm64": "1.2.0-beta.15",
-    "@lydell/node-pty-darwin-x64": "1.2.0-beta.15",
-    "@lydell/node-pty-linux-arm64": "1.2.0-beta.15",
-    "@lydell/node-pty-linux-x64": "1.2.0-beta.15",
-    "@lydell/node-pty-win32-arm64": "1.2.0-beta.15",
-    "@lydell/node-pty-win32-x64": "1.2.0-beta.15"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@ari/ari-core": "workspace:*",
@@ -40,6 +41,7 @@
     "@ari/shared": "workspace:*",
     "@ari/ui": "workspace:*",
     "@tailwindcss/postcss": "^4.3.3",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.2.0",

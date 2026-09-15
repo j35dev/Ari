@@ -1,5 +1,8 @@
+import { createReadStream } from 'node:fs'
+import { realpath, stat } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo, Socket } from 'node:net'
+import { extname, join, resolve, sep } from 'node:path'
 import type { Duplex } from 'node:stream'
 import { z } from 'zod'
 import {
@@ -42,6 +45,13 @@ export interface RemoteGatewayOptions {
   allowedOrigins: readonly string[] | (() => readonly string[])
   /** 0 asks the OS for a free port, which is what tests want. */
   port?: number
+  /**
+   * Directory holding the built PWA. Present, the gateway serves it from its
+   * own origin, which is what makes the phone's app same-origin with the API
+   * it calls under Tailscale (ADR §18); absent, the gateway serves only the
+   * API and the managed layout serves the PWA from `connect.<domain>`.
+   */
+  webRoot?: string
   pairing?: PairingService
   now?: () => number
   /**
@@ -83,6 +93,8 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
    * `Origin` on a same-origin POST. Still one exact string, never a wildcard.
    */
   let selfOrigin: string | null = null
+  /** The built PWA to serve, or null when this gateway serves only the API. */
+  const webRoot = options.webRoot === undefined ? null : resolve(options.webRoot)
 
   const originAllowed = (origin: string | undefined): boolean => {
     if (typeof origin === 'string' && selfOrigin !== null && origin.toLowerCase() === selfOrigin) {
@@ -92,7 +104,9 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   }
 
   function allowedOriginsNow(): readonly string[] {
-    return typeof options.allowedOrigins === 'function' ? options.allowedOrigins() : options.allowedOrigins
+    return typeof options.allowedOrigins === 'function'
+      ? options.allowedOrigins()
+      : options.allowedOrigins
   }
 
   const server = createServer((req, res) => {
@@ -135,10 +149,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     attachEvents(connection, callerOf(device))
   })
 
-  function attachEvents(
-    connection: ReturnType<typeof acceptUpgrade>,
-    caller: RemoteCaller,
-  ): void {
+  function attachEvents(connection: ReturnType<typeof acceptUpgrade>, caller: RemoteCaller): void {
     const subscriptions = new Map<string, () => void>()
 
     const teardown = (): void => {
@@ -195,6 +206,18 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const origin = requestOrigin(req.headers)
+
+    // The PWA is served before the allowlist check, because a browser sends no
+    // `Origin` on a navigation. These are the app's own public files — no
+    // project name, path, or transcript is reachable through them — but an
+    // `Origin` that is present is still checked, so a page on another origin
+    // cannot fetch them. API routes are excluded and keep their own handling.
+    if (webRoot !== null && req.method === 'GET' && !isApiPath(url.pathname)) {
+      if (origin !== undefined && !originAllowed(origin)) {
+        return send(res, 403, fail('origin_not_allowed', 'origin is not allowed'))
+      }
+      return serveWeb(webRoot, url.pathname, res)
+    }
 
     if (!originAllowed(origin)) {
       return send(res, 403, fail('origin_not_allowed', 'origin is not allowed'))
@@ -557,7 +580,10 @@ const pairingRedeemSchema = z.object({
   signature: z.string().min(1),
 })
 
-function fail(code: RemoteErrorCode, message: string): { ok: false; error: { code: string; message: string } } {
+function fail(
+  code: RemoteErrorCode,
+  message: string,
+): { ok: false; error: { code: string; message: string } } {
   return { ok: false, error: { code, message } }
 }
 
@@ -644,3 +670,104 @@ function preflight(res: ServerResponse, origin: string | undefined): void {
 
 /** Writes a response for one request, with that request's CORS headers. */
 type Reply = (status: number, body: unknown) => void
+
+/**
+ * Routes the gateway answers itself. Everything else it did not declare, so a
+ * GET without an extension is a client route rather than an unknown API call.
+ */
+const API_PATHS = new Set(['/info', '/command', '/query', '/events'])
+
+function isApiPath(pathname: string): boolean {
+  return API_PATHS.has(pathname) || pathname.startsWith('/pair/') || pathname.startsWith('/device/')
+}
+
+/**
+ * The extensions a built PWA emits. Anything else is refused rather than
+ * guessed at, so a stray file in `webRoot` — a key, a backup, a `.env` — does
+ * not become reachable by landing there.
+ */
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.ico': 'image/x-icon',
+  '.map': 'application/json; charset=utf-8',
+}
+
+/**
+ * Serves the built app. A path with an extension is a file the build emitted;
+ * everything else is one of the app's own routes, answered by the shell.
+ */
+async function serveWeb(root: string, pathname: string, res: ServerResponse): Promise<void> {
+  const extension = extname(pathname).toLowerCase()
+  if (extension.length === 0) return sendFile(res, join(root, 'index.html'), 'no-store')
+  const type = CONTENT_TYPES[extension]
+  if (type === undefined) return notFound(res)
+  const target = await withinRoot(root, pathname)
+  if (target === null) return notFound(res)
+  // Hashed assets never change under their name; the shell, the manifest and
+  // the service worker must never be served from a cache, or an update cannot
+  // reach a phone that already installed the app.
+  const cacheControl = pathname.startsWith('/assets/')
+    ? 'public, max-age=31536000, immutable'
+    : 'no-store'
+  return sendFile(res, target, cacheControl, type)
+}
+
+/**
+ * Resolves a URL path inside `root`, refusing anything that leaves it —
+ * `..`, an absolute path, or a symlink pointing elsewhere (ADR §19: fail
+ * closed, and the comparison is on canonical paths).
+ */
+async function withinRoot(root: string, pathname: string): Promise<string | null> {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    return null
+  }
+  const target = resolve(root, `.${decoded}`)
+  if (!inside(root, target)) return null
+  try {
+    const [real, realRoot] = await Promise.all([realpath(target), realpath(root)])
+    return inside(realRoot, real) ? real : null
+  } catch {
+    return null
+  }
+}
+
+function inside(root: string, target: string): boolean {
+  return target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`)
+}
+
+async function sendFile(
+  res: ServerResponse,
+  path: string,
+  cacheControl: string,
+  type: string = 'text/html; charset=utf-8',
+): Promise<void> {
+  let size: number
+  try {
+    size = (await stat(path)).size
+  } catch {
+    return notFound(res)
+  }
+  res.writeHead(200, {
+    'content-type': type,
+    'content-length': size,
+    'cache-control': cacheControl,
+  })
+  const stream = createReadStream(path)
+  stream.on('error', () => res.destroy())
+  res.on('close', () => stream.destroy())
+  stream.pipe(res)
+}
+
+function notFound(res: ServerResponse): void {
+  send(res, 404, fail('not_found', 'no such file'))
+}

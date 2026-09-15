@@ -131,11 +131,23 @@ describe('remote contract', () => {
       seq: 42,
       status: 'idle',
       pendingApprovals: [],
+      pendingInputs: [],
     })
     expect(parsed.success).toBe(true)
+    // The sequence is what makes a subscription gapless, and what is waiting
+    // is what keeps a phone from showing an idle session with a blocked agent
+    // behind it. Neither is optional on the wire.
     expect(remoteSnapshotSchema.safeParse({ sessionId: 'sess_1', status: 'idle' }).success).toBe(
       false,
     )
+    expect(
+      remoteSnapshotSchema.safeParse({
+        sessionId: 'sess_1',
+        seq: 1,
+        status: 'idle',
+        pendingApprovals: [],
+      }).success,
+    ).toBe(false)
   })
 
   it('derives a confirmation code that is stable and comparable by eye', () => {

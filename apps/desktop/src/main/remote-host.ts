@@ -1,7 +1,13 @@
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
 import type { Message } from '@ari/contracts/message'
-import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
+import type {
+  RemoteApproval,
+  RemoteCommand,
+  RemoteInput,
+  RemoteOperation,
+  RemoteProject,
+} from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
@@ -44,6 +50,8 @@ export interface RemoteHostDeps {
   defaultDriverKind: () => DriverKind | null
   /** Whether a project id names a project on this machine. */
   hasProject: (projectId: string) => Promise<boolean>
+  /** Every project this desktop has registered, for the phone's picker. */
+  listProjects: () => Promise<{ id: string; name: string }[]>
   /** Owns the device records `device.list` and `device.revoke` read and write. */
   pairing: PairingService
   mintSessionId: () => string
@@ -68,6 +76,7 @@ const OPERATIONS: readonly RemoteOperation[] = [
   'session.interrupt',
   'approval.respond',
   'input.respond',
+  'project.list',
   'events.subscribe',
   'device.list',
   'device.revoke',
@@ -100,6 +109,25 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
   }
 
   /**
+   * The granted projects a session can be started in. Filtered by the device's
+   * grant as well as by what the desktop has registered: a grant for a project
+   * that was since removed must not offer a session that cannot be created.
+   */
+  async function listProjects(caller: RemoteCaller): Promise<RemoteProject[]> {
+    const sessions = await store.listSessions()
+    const projects: RemoteProject[] = []
+    for (const project of await deps.listProjects()) {
+      if (!granted(caller, project.id)) continue
+      projects.push({
+        id: project.id,
+        name: project.name,
+        sessionCount: sessions.filter((entry) => entry.projectId === project.id).length,
+      })
+    }
+    return projects
+  }
+
+  /**
    * `session.get` reads the same list `session.list` does and picks one entry,
    * rather than projecting a summary of its own. It costs a scan of the sidecar
    * indexes, and it buys the guarantee that a client which lists a session and
@@ -109,21 +137,33 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     caller: RemoteCaller,
     sessionId: string,
   ): Promise<
-    | { session: Session; summary: SessionSummary; seq: number; messages: Message[] }
+    | {
+        session: Session
+        summary: SessionSummary
+        seq: number
+        messages: Message[]
+        pendingApprovals: RemoteApproval[]
+        pendingInputs: RemoteInput[]
+      }
     | undefined
   > {
-    const { session, messages, lastSeq } = await store.load(sessionId)
+    const { session, messages, lastSeq, pendingApprovals, pendingInputs } = await store.load(sessionId)
     if (session === null || !granted(caller, session.projectId)) return undefined
     const summary = (await listSessions(caller)).find((entry) => entry.id === sessionId)
     if (summary === undefined) return undefined
     // The state and the journal high-water mark it was taken at travel
     // together, so a subscriber resuming from `seq` sees no gap and no repeat.
-    return { session, summary, seq: lastSeq, messages }
+    //
+    // The projection already carries what is waiting on a human — the desktop
+    // replays the journal to render its own approval prompt from the same
+    // list, so a phone and the desktop cannot disagree about what is open.
+    return { session, summary, seq: lastSeq, messages, pendingApprovals, pendingInputs }
   }
 
   return {
     capabilities: () => OPERATIONS,
     listSessions,
+    listProjects,
     getSession,
     replay: async (caller, sessionId, fromSeq) => {
       if ((await visible(caller, sessionId)) === undefined) return undefined
@@ -136,6 +176,8 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           return listSessions(caller)
         case 'session.get':
           return (await getSession(caller, String(params['sessionId']))) ?? null
+        case 'project.list':
+          return listProjects(caller)
         case 'device.list':
           // A paired device already acts as the user, so seeing and revoking
           // the user's other devices is the management feature the design
