@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import {
+  CircleDot,
   FileSearch,
   Folder,
   Gauge,
@@ -38,6 +39,7 @@ export type NavigableView =
   | 'settings'
   | 'files'
   | 'usage'
+  | 'github'
 
 /**
  * What the pane commands act on, as the shell sees it: the pane the user is in,
@@ -138,6 +140,12 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       label: 'Go to Usage',
       icon: Gauge,
       run: () => ctx.onNavigate('usage'),
+    },
+    {
+      id: 'nav.github',
+      label: 'Go to PRs & issues',
+      icon: CircleDot,
+      run: () => ctx.onNavigate('github'),
     },
     {
       id: 'nav.settings',

@@ -23,6 +23,7 @@ import {
 import { descendantIds } from './features/session/session-tree'
 import { TerminalDock } from './features/terminal'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
+import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { openProjectViaPicker } from './features/projects/open-project'
@@ -64,7 +65,7 @@ import {
 import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings'>
+type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github'>
 
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
@@ -98,6 +99,7 @@ function Shell() {
   // are tools, so they dock to the trailing rail beside the transcript.
   const [fullPage, setFullPage] = useState<'usage' | 'changes' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [hubOpen, setHubOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectRow[]>([])
@@ -124,7 +126,7 @@ function Shell() {
   // Where the pane area is the view on screen: settings, the gallery and the
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
-  const panesVisible = !settingsOpen && !galleryOpen && fullPage === null
+  const panesVisible = !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -354,13 +356,22 @@ function Shell() {
   const commands = useCommands({
     onNavigate: (view) => {
       if (view === 'settings') {
+        setHubOpen(false)
         setSettingsOpen(true)
+      } else if (view === 'github') {
+        setSettingsOpen(false)
+        setHubOpen(true)
       } else if (view === 'sessions') {
+        setHubOpen(false)
         clearTransientInspector()
       } else if (view === 'terminal') {
+        setHubOpen(false)
+        setSettingsOpen(false)
         setFullPage(null)
         setInspector('terminal')
       } else {
+        setHubOpen(false)
+        setSettingsOpen(false)
         setInspector(view)
       }
       setPaletteOpen(false)
@@ -510,6 +521,7 @@ function Shell() {
           return
         }
         if (settingsOpen) setSettingsOpen(false)
+        if (hubOpen) setHubOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -517,6 +529,7 @@ function Shell() {
   }, [
     paletteOpen,
     settingsOpen,
+    hubOpen,
     panesVisible,
     navOrder,
     activeSessionId,
@@ -633,11 +646,20 @@ function Shell() {
   const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
     if (id === 'settings') {
       setSettingsOpen(true)
+      setHubOpen(false)
+      setFullPage(null)
+      setInspector(null)
+      return
+    }
+    if (id === 'github') {
+      setHubOpen(true)
+      setSettingsOpen(false)
       setFullPage(null)
       setInspector(null)
       return
     }
     setSettingsOpen(false)
+    setHubOpen(false)
     if (id === 'session') {
       setInspector(null)
       setFullPage(null)
@@ -686,20 +708,32 @@ function Shell() {
     [activeSession, activeProjectPath, projects],
   )
 
-  if (settingsOpen) {
+  if (settingsOpen || hubOpen) {
     return (
       <div className="ari-glass-pane flex h-full flex-col">
-        <Titlebar usage={{ sessionId: activeSessionId, kind: activeDriverKind }} />
-        <SettingsWorkspace
-          section={settingsSection}
-          onSectionChange={setSettingsSection}
-          onBack={() => setSettingsOpen(false)}
-          onOpenTerminal={() => {
-            setSettingsOpen(false)
-            setFullPage(null)
-            setInspector('terminal')
-          }}
+        <Titlebar
+          activeTool={settingsOpen ? 'settings' : 'github'}
+          onSelectTool={selectWorkspaceTool}
+          usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         />
+        {settingsOpen ? (
+          <SettingsWorkspace
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
+            onBack={() => setSettingsOpen(false)}
+            onOpenTerminal={() => {
+              setSettingsOpen(false)
+              setFullPage(null)
+              setInspector('terminal')
+            }}
+          />
+        ) : (
+          <HubWorkspace
+            projects={projects}
+            initialProjectId={activeSession?.projectId ?? projects[0]?.id ?? null}
+            onBack={() => setHubOpen(false)}
+          />
+        )}
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}

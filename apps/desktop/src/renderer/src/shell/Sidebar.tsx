@@ -1621,4 +1621,11 @@ export function SidebarSearch({
   )
 }
 
-export type SidebarNavId = 'session' | 'terminal' | 'changes' | 'settings' | 'files' | 'usage'
+export type SidebarNavId =
+  | 'session'
+  | 'terminal'
+  | 'changes'
+  | 'settings'
+  | 'files'
+  | 'usage'
+  | 'github'

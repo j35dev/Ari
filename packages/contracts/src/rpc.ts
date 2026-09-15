@@ -358,6 +358,24 @@ export type GitScope = z.infer<typeof gitScopeSchema>
  */
 export type GitActionResult = { ok: true } | { ok: false; error: string }
 
+/** One pull request or issue as returned by `github.list` / `github.view`. */
+export interface GitHubHubItem {
+  kind: 'pr' | 'issue'
+  number: number
+  title: string
+  url: string
+  state: string
+  isDraft: boolean
+  author: string
+  labels: { name: string; color?: string }[]
+  updatedAt: string
+  headRefName?: string
+  baseRefName?: string
+  body: string
+  additions?: number
+  deletions?: number
+}
+
 /**
  * Outcome for the `app.update.*` RPCs. A refusal is data, not an exception:
  * updates are unavailable in dev builds and while another update step runs,
@@ -546,6 +564,15 @@ export const rpcParams = {
     body: z.string().max(8000).optional(),
     base: z.string().min(1).max(200).optional(),
   }),
+  'github.list': gitScopeSchema.extend({
+    kind: z.enum(['pr', 'issue']),
+    state: z.enum(['open', 'closed', 'all']).default('open'),
+    limit: z.number().int().min(1).max(100).default(50),
+  }),
+  'github.view': gitScopeSchema.extend({
+    kind: z.enum(['pr', 'issue']),
+    number: z.number().int().positive().max(1_000_000),
+  }),
   'fs.list': fsScopeSchema,
   'fs.readTextFile': fsScopeSchema.extend({
     maxBytes: z.number().int().positive().optional(),
@@ -620,7 +647,10 @@ export interface RpcResults {
   /** Direct audio URL for renderer playback; null with error when unresolvable. */
   'focus.music.stream': { url: string | null; error?: string; code?: MusicErrorCode }
   /** Helper download state; drives the "Preparing Focus Music…" notice. */
-  'focus.music.runtime': { state: 'ready' | 'downloading' | 'missing' | 'unavailable'; detail: string }
+  'focus.music.runtime': {
+    state: 'ready' | 'downloading' | 'missing' | 'unavailable'
+    detail: string
+  }
   'focus.playlists.list': { playlists: AriPlaylist[] }
   'focus.playlists.get': { playlist: AriPlaylist | null }
   'focus.playlists.create': { playlist: AriPlaylist | null; error?: string }
@@ -782,6 +812,8 @@ export interface RpcResults {
   'git.push': GitActionResult
   /** `url` is null when gh succeeded without printing one; error explains failures. */
   'git.createPr': { ok: boolean; url: string | null; error?: string }
+  'github.list': { ok: boolean; items: GitHubHubItem[]; error?: string }
+  'github.view': { ok: boolean; item: GitHubHubItem | null; error?: string }
   'fs.list': { name: string; type: 'file' | 'dir'; size: number }[]
   'fs.readTextFile': { content: string; truncated: boolean }
   'fs.writeTextFile': { bytesWritten: number }
