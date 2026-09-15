@@ -3,7 +3,6 @@ import {
   FileSearch,
   Folder,
   Gauge,
-  GitCompare,
   GitPullRequest,
   Images,
   Maximize2,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { PaneEdge } from '../split/split-layout'
+import { GithubMark } from '../github/GithubMark'
 
 /** A runnable entry in the command palette. */
 export interface PaletteCommand {
@@ -126,7 +126,7 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
     {
       id: 'nav.changes',
       label: 'Go to Changes',
-      icon: GitCompare,
+      icon: GitPullRequest,
       run: () => ctx.onNavigate('changes'),
     },
     {
@@ -144,7 +144,7 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
     {
       id: 'nav.github',
       label: 'Go to PRs & issues',
-      icon: GitPullRequest,
+      icon: GithubMark,
       run: () => ctx.onNavigate('github'),
     },
     {
