@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Check } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { Button } from '@ari/ui/button'
@@ -37,9 +38,12 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number]['value']
 export function PermissionsSettings() {
   const { settings, update } = useEngineSettings()
   const [draft, setDraft] = useState('')
+  const modeRefs = useRef<(HTMLButtonElement | null)[]>([])
   const entries = settings?.permissions.allowlist ?? []
   const mode = settings?.sessions.defaultPermissionMode ?? 'ask'
   const delegation = settings?.delegation ?? delegationSettingsSchema.parse({})
+  // Keeps one tab stop in the group if the stored mode is not one we render.
+  const knownMode = PERMISSION_MODES.some((m) => m.value === mode)
 
   const persist = (patch: Parameters<typeof update>[0]) => {
     void update(patch).catch((error: unknown) => {
@@ -62,6 +66,20 @@ export function PermissionsSettings() {
     persist({ sessions: { defaultPermissionMode: next } })
   }
 
+  /** Arrow keys move selection and focus together, per the ARIA radiogroup pattern. */
+  const onModeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight'
+    const backward = event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+    if (!forward && !backward) return
+    event.preventDefault()
+    const count = PERMISSION_MODES.length
+    const next = (index + (forward ? 1 : -1) + count) % count
+    const target = PERMISSION_MODES[next]
+    if (!target) return
+    selectMode(target.value)
+    modeRefs.current[next]?.focus()
+  }
+
   return (
     <SettingsPage
       title="Permissions"
@@ -72,15 +90,20 @@ export function PermissionsSettings() {
           Default permission mode
         </h2>
         <div role="radiogroup" aria-label="Default permission mode" className="grid gap-2">
-          {PERMISSION_MODES.map((m) => {
+          {PERMISSION_MODES.map((m, index) => {
             const selected = mode === m.value
             return (
               <button
                 key={m.value}
+                ref={(node) => {
+                  modeRefs.current[index] = node
+                }}
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                tabIndex={selected || (!knownMode && index === 0) ? 0 : -1}
                 onClick={() => selectMode(m.value)}
+                onKeyDown={(event) => onModeKeyDown(event, index)}
                 className={`flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                   selected
                     ? 'border-accent/60 bg-accent-subtle'
