@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { z } from 'zod'
+import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { err, ok, type Result } from '@ari/shared/result'
 
 const execFileP = promisify(execFile)
@@ -69,14 +70,24 @@ export type HubError =
 
 export type GhRunner = (args: string[]) => Promise<{ stdout: string }>
 
+/**
+ * GUI-launched Electron inherits a thin PATH, so a `gh` installed from a
+ * terminal (Homebrew, winget, a version manager shim) is invisible to a bare
+ * `execFile` and reports as "not installed". Detection already solves this for
+ * the provider CLIs; reuse the same enriched PATH here. `loginShellPath` is
+ * memoized inside `resolveDetectionEnvironment`, so this costs one login-shell
+ * snapshot per run rather than one per command.
+ */
 function defaultRun(cwd: string, timeoutMs: number): GhRunner {
   return async (args) => {
+    const { pathEnv } = await resolveDetectionEnvironment()
     const { stdout } = await execFileP('gh', args, {
       cwd,
       timeout: timeoutMs,
       shell: false,
       windowsHide: true,
       encoding: 'utf8',
+      env: processEnvWithPath(pathEnv),
     })
     return { stdout }
   }

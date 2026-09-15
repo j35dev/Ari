@@ -112,6 +112,61 @@ describe('HubWorkspace', () => {
     })
   })
 
+  it('adopts a project that only arrives after the hub is already open', async () => {
+    // The hub can be opened before `projects.list` resolves. The selection is
+    // seeded from a `useState` initializer, which never runs again.
+    const view = render(
+      <HubWorkspace projects={[]} initialProjectId={null} onBack={() => undefined} />,
+    )
+    expect(mocks.invoke).not.toHaveBeenCalledWith('github.list', expect.anything())
+
+    view.rerender(
+      <HubWorkspace
+        projects={[project, other]}
+        initialProjectId="proj_ari"
+        onBack={() => undefined}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('github.list', {
+        projectId: 'proj_ari',
+        kind: 'pr',
+        state: 'open',
+      }),
+    )
+    expect(screen.getByRole('button', { name: 'Ari' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('lets go of a project that disappears, falling back to one that is left', async () => {
+    const view = render(
+      <HubWorkspace
+        projects={[project, other]}
+        initialProjectId="proj_ari"
+        onBack={() => undefined}
+      />,
+    )
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('github.list', {
+        projectId: 'proj_ari',
+        kind: 'pr',
+        state: 'open',
+      }),
+    )
+
+    view.rerender(
+      <HubWorkspace projects={[other]} initialProjectId={null} onBack={() => undefined} />,
+    )
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('github.list', {
+        projectId: 'proj_other',
+        kind: 'pr',
+        state: 'open',
+      }),
+    )
+  })
+
   it('switches project and kind', async () => {
     const user = userEvent.setup()
     render(

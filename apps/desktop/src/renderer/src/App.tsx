@@ -188,10 +188,21 @@ function Shell() {
 
   // The terminal is a tool the transcript keeps working next to, so Ctrl+`
   // docks and undocks the rail instead of navigating anywhere.
+  /**
+   * Settings and the GitHub hub take the whole window, so anything that means
+   * "take me back to my work" has to stand them down first. Without this the
+   * shortcut fires, the state changes, and the user sees nothing at all.
+   */
+  const leaveWorkspaceTool = useCallback(() => {
+    setSettingsOpen(false)
+    setHubOpen(false)
+  }, [])
+
   const toggleTerminal = useCallback(() => {
+    leaveWorkspaceTool()
     setFullPage(null)
     setInspector((prev) => (prev === 'terminal' ? null : 'terminal'))
-  }, [])
+  }, [leaveWorkspaceTool])
 
   // Switching chats must not kill a running shell; every other rail still
   // yields to the session view the way it always has.
@@ -209,10 +220,11 @@ function Shell() {
       const paneId = splitLayoutActions.paneOf(id) ?? layout.focusedPaneId
       splitLayoutActions.assign(paneId, id)
       clearTransientInspector()
+      leaveWorkspaceTool()
       // Selecting a chat must land on it, not leave Usage/Changes up.
       setFullPage(null)
     },
-    [layout, clearTransientInspector],
+    [layout, clearTransientInspector, leaveWorkspaceTool],
   )
 
   const { toast } = useToast()
@@ -377,10 +389,12 @@ function Shell() {
       setPaletteOpen(false)
     },
     onOpenGallery: () => {
+      leaveWorkspaceTool()
       setGalleryOpen(true)
       setPaletteOpen(false)
     },
     onOpenSearch: () => {
+      leaveWorkspaceTool()
       setSearchOpen(true)
       setPaletteOpen(false)
     },
