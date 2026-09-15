@@ -7,21 +7,24 @@ import {
   Settings,
   TerminalSquare,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { rpc } from '../lib/rpc'
 import type { SidebarNavId } from './Sidebar'
 import type { DriverKind } from '@ari/contracts/common'
 import { ProviderUsagePill } from '../features/usage/ProviderUsagePill'
 import { FocusPill } from '../features/focus'
+import { GithubMark } from '../features/github/GithubMark'
 
 const TITLEBAR_TOOLS: {
   id: Exclude<SidebarNavId, 'session'>
   label: string
-  icon: typeof Folder
+  icon: LucideIcon
 }[] = [
   { id: 'changes', label: 'Changes', icon: GitPullRequest },
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+  { id: 'github', label: 'PRs & issues', icon: GithubMark },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 

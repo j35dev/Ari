@@ -24,6 +24,7 @@ describe('buildAppCommands', () => {
       'settings',
       'files',
       'usage',
+      'github',
     ] as const) {
       ctx.onNavigate.mockClear()
       commands.find((c) => c.id === `nav.${view}`)!.run()
