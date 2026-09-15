@@ -103,4 +103,27 @@ describe('account allowance windows', () => {
       parseAllowance('claude', 'Usage: 0 input, 0 output\nContext: 12%\nTotal cost: $0'),
     ).toEqual([])
   })
+  it('reads the current plain-text Claude /usage format alongside the legacy one', () => {
+    expect(
+      parseAllowance(
+        'claude',
+        'You are currently using your subscription to power your Claude Code usage\n\nCurrent session: 32% used · resets Sep 14, 7:50pm (Asia/Singapore)\nCurrent week (all models): 9% used · resets Sep 20, 3pm (Asia/Singapore)\nCurrent week (Fable): 0% used · resets Sep 20, 3pm (Asia/Singapore)',
+      ),
+    ).toEqual([
+      { label: '5h', usedPercent: 32, resetsAt: null, resetText: 'Sep 14, 7:50pm (Asia/Singapore)' },
+      {
+        label: 'Weekly',
+        usedPercent: 9,
+        resetsAt: null,
+        resetText: 'Sep 20, 3pm (Asia/Singapore)',
+      },
+      {
+        label: 'Weekly · Fable',
+        usedPercent: 0,
+        resetsAt: null,
+        resetText: 'Sep 20, 3pm (Asia/Singapore)',
+      },
+    ])
+    expect(parseAllowance('claude', 'Current session: 101% used')).toEqual([])
+  })
 })

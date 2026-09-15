@@ -5,6 +5,7 @@ import {
   clearDynamicEfforts,
   clearDynamicModels,
   clearDynamicModes,
+  collapseCatalog,
   effortsFor,
   MODEL_CATALOGS,
   modelsFor,
@@ -103,14 +104,109 @@ describe('modelsFor fallback chain', () => {
     expect(codex.some((id) => id.startsWith('o1') || id.startsWith('o3'))).toBe(false)
 
     const claude = modelsFor('claude').map((m) => m.id)
-    expect(claude).toContain('fable')
     expect(claude).toContain('claude-fable-5-1')
     expect(claude).toContain('claude-opus-5')
     expect(claude).not.toContain('claude-opus-4-5-20251101')
+    // Version-less family pointers are metadata now, not rows of their own:
+    // a standalone `fable` row is what duplicated "Fable (latest)" beside
+    // "Claude Fable 5.1" in the picker.
+    expect(claude).not.toContain('fable')
+    expect(claude).not.toContain('opus')
 
     const grok = modelsFor('grok').map((m) => m.id)
     expect(grok).toContain('grok-4.6')
     expect(grok.some((id) => id.startsWith('grok-4.20'))).toBe(false)
+  })
+})
+
+describe('collapseCatalog', () => {
+  it('folds a version-less family alias onto the family freshest row', () => {
+    const models = collapseCatalog('claude', [
+      { id: 'claude-opus-5', label: 'Claude Opus 5' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    ])
+    expect(models.map((m) => m.id)).toEqual(['claude-opus-5', 'claude-opus-4-8'])
+    expect(models[0]?.aliases).toEqual(['opus'])
+  })
+
+  it('marks every superseded member of a family as legacy', () => {
+    const models = collapseCatalog('claude', [
+      { id: 'claude-opus-5', label: 'Claude Opus 5' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+    ])
+    expect(models[0]?.isLegacy).toBeUndefined()
+    expect(models[1]?.isLegacy).toBe(true)
+  })
+
+  it('collapses two rows sharing a display name into one', () => {
+    const models = collapseCatalog('claude', [
+      { id: 'claude-haiku-4-5-latest', label: 'Claude Haiku 4.5' },
+      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    ])
+    expect(models).toHaveLength(1)
+    expect(models[0]?.id).toBe('claude-haiku-4-5-latest')
+    // The dropped id still resolves to the surviving row.
+    expect(models[0]?.aliases).toEqual(['claude-haiku-4-5'])
+  })
+
+  it('folds a version-less family pointer onto its dated sibling', () => {
+    // models.dev lists both `claude-haiku-4-5` (named "Claude Haiku 4.5
+    // (latest)") and its dated release under one family; the two names differ
+    // only by the suffix, so label dedupe cannot see that they are one model.
+    const models = collapseCatalog('claude', [
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', family: 'claude-haiku' },
+      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (latest)', family: 'claude-haiku' },
+    ])
+    expect(models).toHaveLength(1)
+    expect(models[0]?.id).toBe('claude-haiku-4-5-20251001')
+    expect(models[0]?.label).toBe('Claude Haiku 4.5')
+    expect(models[0]?.aliases).toEqual(['claude-haiku-4-5'])
+  })
+
+  it('folds a bare family id onto its named sibling', () => {
+    const models = collapseCatalog('codex', [
+      { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', family: 'gpt-sol' },
+      { id: 'gpt-5.6', label: 'GPT-5.6', family: 'gpt-sol' },
+    ])
+    expect(models).toHaveLength(1)
+    expect(models[0]?.id).toBe('gpt-5.6-sol')
+    expect(models[0]?.aliases).toEqual(['gpt-5.6'])
+  })
+
+  it('keeps same-prefixed ids from different families apart', () => {
+    // `gpt-5.5` is family `gpt`, `gpt-5.5-pro` is family `gpt-pro`: the
+    // prefix alone would wrongly fold a genuinely different model away.
+    const models = collapseCatalog('codex', [
+      { id: 'gpt-5.5-pro', label: 'GPT-5.5 Pro', family: 'gpt-pro' },
+      { id: 'gpt-5.5', label: 'GPT-5.5', family: 'gpt' },
+    ])
+    expect(models.map((m) => m.id)).toEqual(['gpt-5.5-pro', 'gpt-5.5'])
+  })
+
+  it('marks superseded members of a registry family as legacy', () => {
+    const models = collapseCatalog('claude', [
+      { id: 'claude-opus-5', label: 'Claude Opus 5', family: 'claude-opus' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', family: 'claude-opus' },
+    ])
+    expect(models[0]?.isLegacy).toBeUndefined()
+    expect(models[1]?.isLegacy).toBe(true)
+  })
+
+  it('leaves kinds with no declared families untouched', () => {
+    const models = collapseCatalog('codex', [
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+    ])
+    expect(models).toEqual([
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+    ])
+  })
+
+  it('does not mutate the caller list', () => {
+    const input = [{ id: 'claude-opus-5', label: 'Claude Opus 5' }]
+    collapseCatalog('claude', input)
+    expect(input[0]).toEqual({ id: 'claude-opus-5', label: 'Claude Opus 5' })
   })
 })
 

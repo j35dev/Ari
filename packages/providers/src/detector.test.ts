@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { findBinary, detectDriver, readAuthStatus, wellKnownDirs } from './detector'
 import type { DetectEnvironment } from './types'
@@ -29,7 +29,9 @@ describe('findBinary', () => {
     const binDir = join(dir, 'bin')
     await mkdir(binDir, { recursive: true })
     await writeFileSafe(join(binDir, 'claude'), '')
-    const env: DetectEnvironment = { ...makeEnv(), pathEnv: binDir }
+    // Pinned to posix: on win32 the bare name is not a runnable candidate at
+    // all, which the cases below cover.
+    const env: DetectEnvironment = { ...makeEnv(), platform: 'linux', pathEnv: binDir }
     expect(findBinary('claude', env)).toBe(join(binDir, 'claude'))
   })
 
@@ -49,9 +51,86 @@ describe('findBinary', () => {
     expect(findBinary('codex', withPath)).toBe(join(install, 'codex.cmd'))
   })
 
+  it('prefers runnable .exe/.cmd over the extensionless npm shim on win32', async () => {
+    const npmDir = join(dir, 'npm')
+    await mkdir(npmDir, { recursive: true })
+    await writeFileSafe(join(npmDir, 'opencode'), '')
+    await writeFileSafe(join(npmDir, 'opencode.cmd'), '')
+    const env: DetectEnvironment = { ...makeEnv(), pathEnv: npmDir }
+    expect(findBinary('opencode', { ...env, platform: 'win32' })).toBe(join(npmDir, 'opencode.cmd'))
+    await writeFileSafe(join(npmDir, 'opencode.exe'), '')
+    expect(findBinary('opencode', { ...env, platform: 'win32' })).toBe(join(npmDir, 'opencode.exe'))
+    expect(findBinary('opencode', { ...env, platform: 'linux' })).toBe(join(npmDir, 'opencode'))
+  })
+
+  it('skips a bare shim in an earlier PATH entry for a runnable one later', async () => {
+    // The scan is directory-first, so ranking extensions inside a directory is
+    // not enough: an unrunnable bare shim earlier on PATH would end the search
+    // before the .cmd that actually works is ever reached.
+    const stale = join(dir, 'stale')
+    const npmDir = join(dir, 'npm-later')
+    await mkdir(stale, { recursive: true })
+    await mkdir(npmDir, { recursive: true })
+    await writeFileSafe(join(stale, 'opencode'), '')
+    await writeFileSafe(join(npmDir, 'opencode.cmd'), '')
+    const env: DetectEnvironment = {
+      ...makeEnv(),
+      platform: 'win32',
+      pathEnv: [stale, npmDir].join(delimiter),
+    }
+    expect(findBinary('opencode', env)).toBe(join(npmDir, 'opencode.cmd'))
+  })
+
+  it('finds nothing on win32 when only the bare shim exists', async () => {
+    // Honest over hopeful: reporting a path Windows cannot spawn produced a
+    // provider that looked installed and failed on use.
+    const npmDir = join(dir, 'bare-only')
+    await mkdir(npmDir, { recursive: true })
+    await writeFileSafe(join(npmDir, 'opencode'), '')
+    expect(findBinary('opencode', { ...makeEnv(), platform: 'win32', pathEnv: npmDir })).toBeNull()
+  })
+
   it('returns null for missing binaries and for ari-core', () => {
     expect(findBinary('hermes', makeEnv())).toBeNull()
     expect(findBinary('ari-core', makeEnv())).toBeNull()
+  })
+
+  it('ignores a directory named like the binary', async () => {
+    // A project folder called `codex` on PATH used to be reported as an
+    // installed CLI, which put a fully-populated Codex rail in the picker.
+    const binDir = join(dir, 'phantom')
+    await mkdir(join(binDir, 'codex'), { recursive: true })
+    expect(findBinary('codex', { ...makeEnv(), pathEnv: binDir })).toBeNull()
+  })
+
+  it('prefers a real file over a same-named directory earlier on PATH', async () => {
+    const early = join(dir, 'early')
+    const later = join(dir, 'later')
+    await mkdir(join(early, 'codex'), { recursive: true })
+    await mkdir(later, { recursive: true })
+    await writeFileSafe(join(later, 'codex'), '')
+    const env: DetectEnvironment = {
+      ...makeEnv(),
+      pathEnv: [early, later].join(delimiter),
+    }
+    expect(findBinary('codex', env)).toBe(join(later, 'codex'))
+  })
+
+  it('skips a PATH entry that cannot be read rather than aborting the scan', async () => {
+    // A PATH entry that is a file, not a directory: resolving a candidate
+    // under it raises ENOTDIR instead of reporting that candidate missing,
+    // so one unusable entry used to abort detection before the directories
+    // after it were searched — hiding a provider that is installed.
+    const notADir = join(dir, 'not-a-dir')
+    await writeFileSafe(notADir, '')
+    const later = join(dir, 'later-readable')
+    await mkdir(later, { recursive: true })
+    await writeFileSafe(join(later, 'codex'), '')
+    const env: DetectEnvironment = {
+      ...makeEnv(),
+      pathEnv: [notADir, later].join(delimiter),
+    }
+    expect(findBinary('codex', env)).toBe(join(later, 'codex'))
   })
 
   it('skips nonexistent well-known dirs without throwing', () => {
@@ -167,6 +246,15 @@ describe('detectDriver', () => {
     expect(detection.authStatus).toBe('unknown')
     expect(detection.authStatus).not.toBe('unauthenticated')
     expect(detection.authReason).toBeTruthy()
+  })
+
+  it('does not report a directory named like a binary as installed', async () => {
+    const binDir = join(dir, 'phantom-driver')
+    await mkdir(join(binDir, 'codex'), { recursive: true })
+    const detection = await detectDriver('codex', { ...makeEnv(), pathEnv: binDir })
+    expect(detection.installed).toBe(false)
+    expect(detection.binaryPath).toBeNull()
+    expect(detection.authStatus).toBe('unknown')
   })
 
   it('treats ari-core as installed and authenticated', async () => {

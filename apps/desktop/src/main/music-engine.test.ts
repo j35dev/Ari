@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { MusicEngine, classifyHelperError, errorCodeOf, videoIdFromUrl } from './music-engine'
-import { MusicRuntime } from './music-runtime'
+import { MusicRuntime, musicRuntimeTargetKey } from './music-runtime'
 
 const TRACK_URL = 'https://www.youtube.com/watch?v=abc123'
 
@@ -185,7 +185,14 @@ describe('MusicEngine streaming', () => {
 
 describe('MusicEngine runtime self-heal', () => {
   const REMOTE_URL = 'https://example.invalid/music-runtime.json'
-  const KEY = process.platform === 'win32' ? 'win32-x64' : 'linux-x64'
+  // Must be the key MusicRuntime actually looks up, which is `${platform}-${arch}`
+  // including darwin and arm64. A win32/not-win32 branch seeded a linux key on
+  // macOS runners, so the runtime found no binary and every test here returned
+  // RUNTIME_MISSING instead of the failure it meant to exercise.
+  const unsupported = (): never => {
+    throw new Error(`unsupported test platform: ${process.platform}-${process.arch}`)
+  }
+  const KEY = musicRuntimeTargetKey() ?? unsupported()
   const BINARY = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
   const V1 = Buffer.from('v1-bytes')
   const V1_SHA = createHash('sha256').update(V1).digest('hex')

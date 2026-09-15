@@ -88,6 +88,13 @@ describe('TerminalPane', () => {
     expect(invokeFn).toHaveBeenCalledWith('terminal.create', { id: 'term_1', cwd: '/repo' })
   })
 
+  it('clips the xterm host so a stacked pane cannot paint over its neighbour', () => {
+    const { container } = render(<TerminalPane terminalId="term_1" cwd="/repo" active />)
+    const host = container.firstElementChild
+    expect(host?.className).toMatch(/overflow-hidden/)
+    expect(host?.className).toMatch(/min-h-0/)
+  })
+
   it('stays idle until a cwd is known', () => {
     render(<TerminalPane terminalId="term_2" cwd={null} active={false} />)
 

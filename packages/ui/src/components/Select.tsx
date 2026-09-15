@@ -21,6 +21,8 @@ export interface SelectProps {
   placeholder?: string
   /** Disables the trigger. */
   disabled?: boolean
+  /** Accessible name for the trigger when no visible label is associated. */
+  'aria-label'?: string
   className?: string
 }
 
@@ -224,6 +226,7 @@ export function Select({
   options,
   placeholder,
   disabled = false,
+  'aria-label': ariaLabel,
   className,
 }: SelectProps): ReactNode {
   const [internal, setInternal] = useState(defaultValue)
@@ -254,6 +257,7 @@ export function Select({
     <Popover open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger
         disabled={disabled}
+        aria-label={ariaLabel}
         className={[
           'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-surface-1 px-3 text-sm',
           'transition-shadow focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',

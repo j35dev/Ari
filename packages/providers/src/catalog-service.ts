@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
-import { catalogSource, CLAUDE_ALIASES, modelsFor, setDynamicModels } from './catalogs'
+import { catalogSetAt, catalogSource, setDynamicModels } from './catalogs'
 import type { CatalogModel } from './catalogs'
 
 const log = createLogger('providers:catalog')
@@ -23,6 +23,13 @@ export const DEFAULT_REGISTRY_URL = 'https://models.dev/api.json'
 
 /** How long a fetched registry payload stays fresh. */
 export const REFRESH_TTL_MS = 6 * 60 * 60 * 1000
+
+/**
+ * How long an agent's own model list is trusted before it is worth asking
+ * again. Deliberately far longer than the retry throttle: re-probing spawns
+ * the CLI to hear a vocabulary that only changes when the CLI is upgraded.
+ */
+export const LIVE_RECHECK_MS = 6 * 60 * 60 * 1000
 
 interface RegistryModel {
   id?: string
@@ -85,6 +92,9 @@ function toCatalogModels(kind: DriverKind, models: Record<string, RegistryModel>
       catalog: {
         id,
         label: typeof model.name === 'string' && model.name.length > 0 ? model.name : id,
+        // Carried so the picker can tell a version-less pointer from a real
+        // sibling (`gpt-5.6` vs `gpt-5.6-sol`), which names alone cannot.
+        family: model.family ?? id,
         ...(context !== undefined && context > 0
           ? { contextHint: `${Math.round(context / 1000)}k` }
           : {}),
@@ -106,11 +116,10 @@ function toCatalogModels(kind: DriverKind, models: Record<string, RegistryModel>
         return true
       })
       .slice(0, 12)
-    // Aliases ride along with a real catalog, never replace one: returning
-    // them alone would make a payload with no usable anthropic rows look
-    // non-empty and clobber the richer snapshot the caller falls back to.
-    if (current.length === 0) return []
-    return [...CLAUDE_ALIASES, ...current.map((candidate) => candidate.catalog)]
+    // Rows only: version-less family ids ride as aliases on the newest member
+    // (see collapseCatalog). An anthropic-less round still yields [] so the
+    // caller keeps the richer snapshot rather than an empty picker.
+    return current.map((candidate) => candidate.catalog)
   }
 
   if (kind === 'codex') {
@@ -208,25 +217,25 @@ export class CatalogService {
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const body = (await response.json()) as RegistryPayload
-      let applied = 0
+      // What this round actually got from the registry, kept separately from
+      // the dynamic overlay: the disk cache must hold the registry's answer,
+      // never the merged catalog the picker is currently serving.
+      const derived = new Map<DriverKind, CatalogModel[]>()
       for (const [kind, providerId] of Object.entries(REGISTRY_PROVIDER)) {
         const models = toCatalogModels(kind as DriverKind, body[providerId]?.models ?? {})
         if (models.length === 0) continue
+        derived.set(kind as DriverKind, models)
         if (catalogSource(kind as DriverKind) !== 'live') {
           setDynamicModels(kind as DriverKind, 'cache', models)
         }
-        applied++
       }
       this.#lastRefreshAt = Date.now()
-      log.info('registry catalog refreshed', { providers: applied, url: this.#registryUrl })
+      log.info('registry catalog refreshed', { providers: derived.size, url: this.#registryUrl })
       await this.#writeDiskCache({
         at: Date.now(),
         url: this.#registryUrl,
         providers: Object.fromEntries(
-          Object.entries(REGISTRY_PROVIDER).map(([kind, providerId]) => [
-            providerId,
-            modelsFor(kind as DriverKind),
-          ]),
+          [...derived].map(([kind, models]) => [REGISTRY_PROVIDER[kind] as string, models]),
         ),
       })
     } catch (error) {
@@ -242,6 +251,12 @@ export class CatalogService {
     if (this.#probeModels === null || this.#probeKinds.length === 0) return
     await Promise.all(
       this.#probeKinds.map(async (kind) => {
+        // A live catalog is the agent's own word, and the vocabulary belongs to
+        // the installed CLI rather than to the moment. Re-probing spawns that
+        // agent again to hear the same list, so a kind that has already
+        // answered waits out the window; one still on a fallback has
+        // everything to gain from a retry and is never held back.
+        if (this.#probeIsFresh(kind)) return
         try {
           const models = await this.#probeModels!(kind)
           if (models !== null && models.length > 0) {
@@ -253,6 +268,12 @@ export class CatalogService {
         }
       }),
     )
+  }
+
+  #probeIsFresh(kind: DriverKind): boolean {
+    if (catalogSource(kind) !== 'live') return false
+    const at = catalogSetAt(kind)
+    return at !== null && Date.now() - at < LIVE_RECHECK_MS
   }
 
   async #loadDiskCache(): Promise<void> {
