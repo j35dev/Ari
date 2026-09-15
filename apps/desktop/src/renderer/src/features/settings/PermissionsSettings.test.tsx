@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '@ari/contracts/settings'
@@ -82,11 +82,34 @@ describe('PermissionsSettings', () => {
     const user = userEvent.setup()
     render(<PermissionsSettings />)
 
-    expect(screen.getByRole('radio', { name: /Ask/ })).toBeChecked()
+    expect(screen.getByRole('radio', { name: /Ask/ })).toHaveAttribute('aria-checked', 'true')
     await user.click(screen.getByRole('radio', { name: /Full access/ }))
 
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({ sessions: { defaultPermissionMode: 'full' } }),
+    )
+  })
+
+  it('persists child-delegation switches, numbers, and selects', async () => {
+    const user = userEvent.setup()
+    render(<PermissionsSettings />)
+
+    await user.click(screen.getByRole('switch', { name: 'Allow children to delegate' }))
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({ delegation: { recursiveDelegation: true } }),
+    )
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Concurrent children per root' }), {
+      target: { value: '6' },
+    })
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({ delegation: { maxConcurrentChildren: 6 } }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Delegation approval' }))
+    await user.click(screen.getByRole('option', { name: 'Every request' }))
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({ delegation: { approvalMode: 'always' } }),
     )
   })
 })
