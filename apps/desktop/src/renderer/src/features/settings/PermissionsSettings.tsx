@@ -1,8 +1,12 @@
 import { useState } from 'react'
+import { Check } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { Button } from '@ari/ui/button'
 import { Input } from '@ari/ui/input'
+import { Select } from '@ari/ui/select'
+import { Switch } from '@ari/ui/switch'
 import { SettingsPage } from './SettingsPage'
+import { SettingsRow } from './SettingsRow'
 import { useEngineSettings } from './useEngineSettings'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 
@@ -17,6 +21,15 @@ const PERMISSION_MODES = [
   },
   { value: 'full', label: 'Full access', hint: 'Run every tool without confirmation.' },
 ] as const
+
+const APPROVAL_OPTIONS = [
+  { value: 'first-per-root', label: 'First request per root' },
+  { value: 'always', label: 'Every request' },
+  { value: 'never', label: 'No approval' },
+] as const
+
+const NUMBER_FIELD_CLASS =
+  'w-20 [&_input]:text-right [&_input]:tabular-nums [&_input]:[appearance:textfield] [&_input::-webkit-inner-spin-button]:appearance-none [&_input::-webkit-outer-spin-button]:appearance-none'
 
 export type PermissionMode = (typeof PERMISSION_MODES)[number]['value']
 
@@ -58,122 +71,161 @@ export function PermissionsSettings() {
         <h2 id="permissions-mode-heading" className="text-sm font-medium">
           Default permission mode
         </h2>
-        <fieldset className="space-y-2">
-          <legend className="sr-only">Default permission mode</legend>
-          {PERMISSION_MODES.map((m) => (
-            <label
-              key={m.value}
-              className="flex items-start gap-3 rounded-md border border-border bg-surface-1 p-3"
-            >
-              <input
-                type="radio"
-                name="default-permission-mode"
-                value={m.value}
-                checked={mode === m.value}
-                onChange={() => selectMode(m.value)}
-                className="mt-0.5 accent-accent"
-              />
-              <span>
-                <span className="block text-sm text-fg">{m.label}</span>
-                <span className="block text-xs text-fg-muted">{m.hint}</span>
-              </span>
-            </label>
-          ))}
-        </fieldset>
+        <div role="radiogroup" aria-label="Default permission mode" className="grid gap-2">
+          {PERMISSION_MODES.map((m) => {
+            const selected = mode === m.value
+            return (
+              <button
+                key={m.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => selectMode(m.value)}
+                className={`flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                  selected
+                    ? 'border-accent/60 bg-accent-subtle'
+                    : 'border-border bg-glass-input hover:border-border-strong hover:bg-glass-hover'
+                }`}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-fg">{m.label}</span>
+                  <span className="block text-xs leading-relaxed text-fg-muted">{m.hint}</span>
+                </span>
+                {selected ? (
+                  <Check size={14} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+                ) : null}
+              </button>
+            )
+          })}
+        </div>
       </section>
 
-      <section aria-labelledby="delegation-heading" className="space-y-3">
+      <section aria-labelledby="delegation-heading">
         <h2 id="delegation-heading" className="text-sm font-medium">
           Child session delegation
         </h2>
-        <p className="text-xs text-fg-muted">
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
           Agents may create ordinary child sessions. Isolated workers use separate Git worktrees;
           changes return only after explicit integration.
         </p>
-        {(
-          [
-            ['enabled', 'Enable delegation'],
-            ['allowSharedWorkspace', 'Allow shared workspaces (workers can edit parent files)'],
-            ['recursiveDelegation', 'Allow children to delegate'],
-          ] as const
-        ).map(([key, label]) => (
-          <label key={key} className="flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={delegation[key]}
-              onChange={(event) => persist({ delegation: { [key]: event.target.checked } })}
-              className="accent-accent"
-            />
-            {label}
-          </label>
-        ))}
-        {(
-          [
-            ['maxConcurrentChildren', 'Concurrent children per root', 32],
-            ['maxChildrenPerSession', 'Children per session', 100],
-            ['maxDepth', 'Maximum depth', 8],
-          ] as const
-        ).map(([key, label, max]) => (
-          <label key={key} className="flex items-center justify-between gap-3 text-sm">
-            {label}
-            <Input
-              aria-label={label}
-              type="number"
-              min={1}
-              max={max}
-              value={delegation[key]}
-              className="w-20"
-              onChange={(event) => {
-                const value = Number(event.target.value)
-                if (Number.isInteger(value) && value >= 1 && value <= max)
-                  persist({ delegation: { [key]: value } })
-              }}
-            />
-          </label>
-        ))}
-        <label className="flex items-center justify-between gap-3 text-sm">
-          Delegation approval
-          <select
-            aria-label="Delegation approval"
-            value={delegation.approvalMode}
-            className="rounded border border-border bg-surface-1 p-1"
-            onChange={(event) =>
-              persist({
-                delegation: {
-                  approvalMode: delegationSettingsSchema.shape.approvalMode.parse(
-                    event.target.value,
-                  ),
-                },
-              })
-            }
+        <div className="mt-3">
+          <SettingsRow
+            label="Enable delegation"
+            hint="Let agents spawn child sessions from this workspace."
           >
-            <option value="first-per-root">First request per root</option>
-            <option value="always">Every request</option>
-            <option value="never">No approval</option>
-          </select>
-        </label>
-        <label className="flex items-center justify-between gap-3 text-sm">
-          Default child workspace
-          <select
-            aria-label="Default child workspace"
-            value={delegation.defaultWorkspaceMode}
-            className="rounded border border-border bg-surface-1 p-1"
-            onChange={(event) =>
-              persist({
-                delegation: {
-                  defaultWorkspaceMode: delegationSettingsSchema.shape.defaultWorkspaceMode.parse(
-                    event.target.value,
-                  ),
-                },
-              })
-            }
+            <Switch
+              checked={delegation.enabled}
+              onCheckedChange={(checked) => persist({ delegation: { enabled: checked } })}
+              aria-label="Enable delegation"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Shared workspaces"
+            hint="Workers can edit parent files instead of using an isolated worktree."
           >
-            <option value="isolated">Isolated Git worktree</option>
-            <option value="shared" disabled={!delegation.allowSharedWorkspace}>
-              Shared workspace
-            </option>
-          </select>
-        </label>
+            <Switch
+              checked={delegation.allowSharedWorkspace}
+              onCheckedChange={(checked) =>
+                persist({ delegation: { allowSharedWorkspace: checked } })
+              }
+              aria-label="Allow shared workspaces"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Recursive delegation"
+            hint="Allow child sessions to spawn children of their own."
+          >
+            <Switch
+              checked={delegation.recursiveDelegation}
+              onCheckedChange={(checked) =>
+                persist({ delegation: { recursiveDelegation: checked } })
+              }
+              aria-label="Allow children to delegate"
+            />
+          </SettingsRow>
+          {(
+            [
+              [
+                'maxConcurrentChildren',
+                'Concurrent children per root',
+                'How many child sessions may run at once under one root.',
+                32,
+              ],
+              [
+                'maxChildrenPerSession',
+                'Children per session',
+                'Cap on children a single session can spawn.',
+                100,
+              ],
+              [
+                'maxDepth',
+                'Maximum depth',
+                'How many nested generations of children are allowed.',
+                8,
+              ],
+            ] as const
+          ).map(([key, label, hint, max]) => (
+            <SettingsRow key={key} label={label} hint={hint}>
+              <Input
+                aria-label={label}
+                type="number"
+                min={1}
+                max={max}
+                value={delegation[key]}
+                className={NUMBER_FIELD_CLASS}
+                onChange={(event) => {
+                  const value = Number(event.target.value)
+                  if (Number.isInteger(value) && value >= 1 && value <= max)
+                    persist({ delegation: { [key]: value } })
+                }}
+              />
+            </SettingsRow>
+          ))}
+          <SettingsRow
+            label="Delegation approval"
+            hint="When Ari asks before a child session is created."
+          >
+            <Select
+              aria-label="Delegation approval"
+              value={delegation.approvalMode}
+              className="w-56"
+              options={[...APPROVAL_OPTIONS]}
+              onValueChange={(value) =>
+                persist({
+                  delegation: {
+                    approvalMode: delegationSettingsSchema.shape.approvalMode.parse(value),
+                  },
+                })
+              }
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Default child workspace"
+            hint="Isolated worktrees keep parent files unchanged until you integrate."
+          >
+            <Select
+              aria-label="Default child workspace"
+              value={delegation.defaultWorkspaceMode}
+              className="w-56"
+              options={[
+                { value: 'isolated', label: 'Isolated Git worktree' },
+                {
+                  value: 'shared',
+                  label: 'Shared workspace',
+                  disabled: !delegation.allowSharedWorkspace,
+                },
+              ]}
+              onValueChange={(value) =>
+                persist({
+                  delegation: {
+                    defaultWorkspaceMode:
+                      delegationSettingsSchema.shape.defaultWorkspaceMode.parse(value),
+                  },
+                })
+              }
+            />
+          </SettingsRow>
+        </div>
       </section>
 
       <section aria-labelledby="permissions-allowlist-heading" className="space-y-3">
