@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import {
   activePaneOf,
   assignSession,
+  assignTerminal,
   closePane,
   focusPane,
   initialLayout,
@@ -98,6 +99,10 @@ export const splitLayoutActions = {
   /** Puts a session in a pane — what every session-list click resolves to. */
   assign: (paneId: string, sessionId: string): void =>
     commit(assignSession(layout, paneId, sessionId)),
+
+  /** Puts a dock terminal in a pane; a terminal already on screen moves there. */
+  assignTerminal: (paneId: string, terminalId: string): void =>
+    commit(assignTerminal(layout, paneId, terminalId)),
 
   close: (paneId: string): void => commit(closePane(layout, paneId)),
 

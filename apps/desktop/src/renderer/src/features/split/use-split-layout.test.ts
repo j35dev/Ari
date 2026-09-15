@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { leaves, parseLayout, serializeLayout, sessionIdsInPanes } from './split-layout'
+import {
+  leaves,
+  parseLayout,
+  serializeLayout,
+  sessionIdsInPanes,
+  terminalIdsInPanes,
+} from './split-layout'
 import type { SplitLayout } from './split-layout'
 import {
   SPLIT_LAYOUT_STORAGE_KEY,
@@ -60,6 +66,16 @@ describe('splitLayoutActions', () => {
     splitLayoutActions.close(splitLayoutSnapshot().focusedPaneId)
     expect(leaves(splitLayoutSnapshot().root)).toHaveLength(1)
     expect(sessionIdsInPanes(splitLayoutSnapshot())).toEqual([])
+  })
+
+  it('assigns a terminal to a pane without showing it twice', () => {
+    const first = splitLayoutSnapshot().focusedPaneId
+    const second = splitRight()
+    splitLayoutActions.assignTerminal(second, 'term_a')
+    expect(terminalIdsInPanes(splitLayoutSnapshot())).toEqual(['term_a'])
+    splitLayoutActions.assignTerminal(first, 'term_a')
+    expect(terminalIdsInPanes(splitLayoutSnapshot())).toEqual(['term_a'])
+    expect(leaves(splitLayoutSnapshot().root)).toHaveLength(2)
   })
 
   it('blanks the pane of a session that no longer exists, keeping the shape', () => {

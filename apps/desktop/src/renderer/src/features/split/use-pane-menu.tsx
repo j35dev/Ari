@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react'
-import { Maximize2, Minimize2, PanelBottom, PanelRight, X } from 'lucide-react'
+import { Maximize2, Minimize2, PanelBottom, PanelRight, TerminalSquare, X } from 'lucide-react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '../../shell/ContextMenu'
 import { ownsContextMenu } from '../../shell/editable-target'
 import { MAX_PANES, type PaneEdge } from './split-layout'
@@ -17,6 +17,10 @@ export interface PaneMenuOptions {
   onClose?: (paneId: string) => void
   /** Omitted on the only pane, which already fills the area. */
   onToggleZoom?: (paneId: string) => void
+  /** Offered on a blank pane, so a split can host a terminal without a session. */
+  onOpenTerminal?: (paneId: string) => void
+  /** False when there is no project folder to jail a shell in. */
+  canOpenTerminal?: boolean
 }
 
 export interface PaneMenu {
@@ -43,6 +47,8 @@ export function usePaneMenu({
   zoomed = false,
   onClose,
   onToggleZoom,
+  onOpenTerminal,
+  canOpenTerminal = true,
 }: PaneMenuOptions): PaneMenu {
   const menu = useContextMenu()
   const splitLimit = `A layout holds at most ${String(MAX_PANES)} panes`
@@ -64,6 +70,16 @@ export function usePaneMenu({
       onSelect: () => onSplit(paneId, 'below'),
     },
   ]
+  if (onOpenTerminal !== undefined) {
+    items.push({
+      id: 'open-terminal',
+      label: 'Open terminal',
+      icon: TerminalSquare,
+      disabled: !canOpenTerminal,
+      disabledReason: 'Add a project to open a terminal',
+      onSelect: () => onOpenTerminal(paneId),
+    })
+  }
   if (onToggleZoom !== undefined) {
     items.push({
       id: 'zoom',
