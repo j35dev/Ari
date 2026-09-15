@@ -82,6 +82,8 @@ export const IPC_METHODS = [
   'git.commit',
   'git.push',
   'git.createPr',
+  'github.list',
+  'github.view',
   'plan.get',
   'scripts.list',
   'fs.list',
