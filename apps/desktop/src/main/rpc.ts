@@ -12,6 +12,9 @@ import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
 import { RemoteService } from './remote'
+import { RemoteOrigins } from './remote-origins'
+import { TailscaleServe, type TailscaleState } from './tailscale'
+import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
@@ -453,6 +456,42 @@ let appUpdaterRef: UpdateController | null = null
  * on a port the first one already holds.
  */
 let remoteRef: RemoteService | null = null
+
+/** The port the gateway is bound to, or the one settings name before it runs. */
+function gatewayPort(): number {
+  const origin = remoteRef?.state().origin ?? null
+  const bound = origin === null ? Number.NaN : Number(new URL(origin).port)
+  return Number.isInteger(bound) && bound > 0 ? bound : getSettingsStore().current.remote.port
+}
+
+let remoteServicesRef: { origins: RemoteOrigins; tailscale: TailscaleServe } | null = null
+
+/**
+ * Tailscale Serve and the origins it contributes, built once per process.
+ *
+ * Shared rather than per-window because the running gateway reads its allowlist
+ * from the {@linkcode RemoteOrigins} instance: a second window refreshing a
+ * private copy would leave the listener trusting an origin set nobody updates.
+ */
+function remoteServices(): { origins: RemoteOrigins; tailscale: TailscaleServe } {
+  if (remoteServicesRef !== null) return remoteServicesRef
+  const tailscale = new TailscaleServe({ port: gatewayPort })
+  remoteServicesRef = {
+    tailscale,
+    origins: new RemoteOrigins({
+      status: () => tailscale.status(),
+      configured: () => getSettingsStore().current.remote.allowedOrigins,
+      remember: async (origin) => {
+        const store = getSettingsStore()
+        if (store.current.remote.allowedOrigins.includes(origin)) return
+        await store.update({
+          remote: { allowedOrigins: [...store.current.remote.allowedOrigins, origin] },
+        })
+      },
+    }),
+  }
+  return remoteServicesRef
+}
 
 /** Answer for update RPCs that arrive before any window registered the RPC layer. */
 const REFUSED = { started: false, reason: 'The update service is not running.' }
@@ -910,6 +949,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Remote access (ADR §5): the gateway stays off until the user turns it on,
   // and the records it outlives the process with — paired devices and command
   // deduplication — live beside the rest of the desktop's state.
+  //
+  // Reachability is Tailscale's (P3): Serve exposes the loopback listener as
+  // https://<machine>.<tailnet>.ts.net, and the gateway serves the PWA from
+  // the same origin, so the phone's app talks to an API it is not cross-origin
+  // with. The Serve state is process-wide for the same reason the gateway is:
+  // the running listener reads its allowlist from this instance.
+  const { origins, tailscale } = remoteServices()
+  /**
+   * Re-reads Tailscale and republishes, because a tailnet address appearing is
+   * exactly what turns the panel's pairing notice into a QR code.
+   */
+  const refreshTailscale = async (): Promise<TailscaleState> => {
+    const state = await origins.refresh()
+    rpcRegistry.publish('remote.updates', remote.state())
+    return state
+  }
+
   const remote = remoteRef ?? new RemoteService(
     {
       engine,
@@ -922,13 +978,25 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         await getProjectStore().load()
         return getProjectStore().get(projectId) !== undefined
       },
+      listProjects: async () => {
+        await getProjectStore().load()
+        return getProjectStore()
+          .list()
+          .map((project) => ({ id: project.id, name: project.name }))
+      },
       mintSessionId: () =>
         `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-      // No address is reachable from a phone until a tunnel or Tailscale is in
-      // front of the loopback listener; the panel says so rather than showing
-      // a QR code that would resolve to the phone itself.
-      clientOrigin: () => null,
-      allowedOrigins: () => getSettingsStore().current.remote.allowedOrigins,
+      // No address is reachable from a phone until Serve (or a tunnel) is in
+      // front of the loopback listener; until then the panel says so rather
+      // than showing a QR code that would resolve to the phone itself.
+      clientOrigin: () => origins.clientOrigin(),
+      allowedOrigins: () => origins.allowedOrigins(),
+      webRoot: () =>
+        mobileWebRoot({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          appPath: app.getAppPath(),
+        }),
       onChange: (state) => rpcRegistry.publish('remote.updates', state),
     },
     { port: getSettingsStore().current.remote.port },
@@ -940,11 +1008,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // The setting is written first: it is what makes the choice survive a
     // restart, and a gateway that failed to listen must not look enabled.
     await getSettingsStore().update({ remote: { enabled: true, port: params.port } })
-    return remote.start(params.port)
+    const state = await remote.start(params.port)
+    // Now there is a listener for Serve to point at, and a tailnet address is
+    // what the pairing panel needs before it can show a QR code.
+    await refreshTailscale()
+    return state
   })
   r.register('remote.disable', async () => {
     await getSettingsStore().update({ remote: { enabled: false } })
     await remote.stop()
+    // Leaving the mapping would send every phone to a listener that is gone,
+    // so the mapping Ari made is removed with the gateway. A mapping the user
+    // configured for something else is not Ari's to remove, and is not touched.
+    await tailscale.disable()
+    await refreshTailscale()
     return remote.state()
   })
   r.register('remote.invite', () => remote.invite())
@@ -953,10 +1030,31 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('remote.deny', (params) => remote.deny(params.invitationId))
   r.register('remote.revokeDevice', (params) => remote.revokeDevice(params.deviceId))
 
+  r.register('remote.tailscale.status', () => refreshTailscale())
+  r.register('remote.tailscale.enable', async () => {
+    // Serve needs a listener to proxy to; the panel disables the button when
+    // remote access is off, and this is the same answer for any other caller.
+    if (!remote.running) return remote.state()
+    await tailscale.enable(gatewayPort())
+    await refreshTailscale()
+    return remote.state()
+  })
+  r.register('remote.tailscale.disable', async () => {
+    await tailscale.disable()
+    return refreshTailscale()
+  })
+
   // Coming back on the port the user chose, if they left remote access on.
+  // Serve is deliberately not torn down on quit: the mapping is the address a
+  // phone has saved, and a desktop that is switched off is the "computer
+  // unreachable" state the design names, not a reason to redo the setup.
   void getSettingsStore()
     .load()
-    .then((settings) => (settings.remote.enabled ? remote.start(settings.remote.port) : null))
+    .then(async (settings) => {
+      if (!settings.remote.enabled) return
+      await remote.start(settings.remote.port)
+      await refreshTailscale()
+    })
     .catch(() => log.error('remote access did not start on boot'))
 
   app.once('before-quit', () => {

@@ -67,6 +67,7 @@ function makeService(overrides: Partial<RemoteServiceDeps> = {}, port = 0): Harn
       defaultPermissionMode: () => 'ask',
       defaultDriverKind: () => 'claude',
       hasProject: async () => true,
+      listProjects: async () => [{ id: 'proj_1', name: 'Ari' }],
       // Distinct per service so a restart is a different gateway identity.
       mintSessionId: () => `sess_${++counter}`,
       clientOrigin: () => null,
@@ -190,6 +191,7 @@ describe('remote service lifecycle', () => {
         defaultPermissionMode: () => 'ask',
         defaultDriverKind: () => 'claude',
         hasProject: async () => true,
+        listProjects: async () => [{ id: 'proj_1', name: 'Ari' }],
         mintSessionId: () => `sess_${++counter}`,
         clientOrigin: () => null,
         allowedOrigins: () => [ALLOWED],
@@ -369,6 +371,21 @@ describe('remote service addressing', () => {
 })
 
 describe('remote service host wiring', () => {
+  it('serves the built PWA from the gateway, same-origin with the API', async () => {
+    const build = mkdtempSync(join(tmpdir(), 'ari-pwa-'))
+    writeFileSync(join(build, 'index.html'), '<!doctype html><title>Ari Remote</title>', 'utf8')
+    const { service } = makeService({ webRoot: () => build })
+    const started = await service.start()
+    const origin = started.origin
+    if (origin === null) throw new Error('expected a running gateway')
+
+    // A phone under Tailscale opens the tailnet address, which proxies to this
+    // listener; the shell it gets is the app that then calls the API beside it.
+    const page = await fetch(`${origin}/`)
+    expect(page.status).toBe(200)
+    expect(await page.text()).toContain('Ari Remote')
+  })
+
   it('refuses a command for a session outside the device grant', async () => {
     const engine = fakeEngine()
     const dispatch = vi.spyOn(engine, 'dispatch')

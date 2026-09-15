@@ -9,6 +9,7 @@ import {
   Plug,
   Shield,
   SlidersHorizontal,
+  Smartphone,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { AppearanceSettings } from './AppearanceSettings'
@@ -16,6 +17,7 @@ import { AdvancedSettings } from './AdvancedSettings'
 import { KeybindingsSettings } from './KeybindingsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
+import { RemoteSettings } from './RemoteSettings'
 import { SettingsSearch } from './SettingsSearch'
 import { ProvidersView, AgentConfigSettings } from '../providers'
 import { EndpointsManager } from '../endpoints'
@@ -27,6 +29,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'endpoints', label: 'Endpoints', icon: Plug },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'permissions', label: 'Permissions', icon: Shield },
+  { id: 'remote', label: 'Remote', icon: Smartphone },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
   { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
 ] as const
@@ -156,6 +159,7 @@ export function SettingsWorkspace({
           ) : null}
           {section === 'notifications' ? <NotificationsSettings /> : null}
           {section === 'permissions' ? <PermissionsSettings /> : null}
+          {section === 'remote' ? <RemoteSettings /> : null}
           {section === 'keybindings' ? <KeybindingsSettings /> : null}
           {section === 'advanced' ? <AdvancedSettings /> : null}
         </div>

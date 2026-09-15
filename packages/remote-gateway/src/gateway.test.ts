@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
 import { REMOTE_PROTOCOL_VERSION } from '@ari/contracts/remote'
@@ -28,6 +31,7 @@ function fakeHost(overrides: Partial<RemoteHost> = {}): RemoteHost & {
     callers,
     capabilities: () => OPERATIONS,
     listSessions: async () => [],
+    listProjects: async () => [],
     getSession: async () => undefined,
     replay: async () => [],
     query: async () => ({ sessions: [] }),
@@ -49,7 +53,10 @@ afterEach(async () => {
   await Promise.all(running.splice(0).map((gateway) => gateway.close()))
 })
 
-async function start(host: RemoteHost, origins: readonly string[] = [ALLOWED]): Promise<RemoteGateway> {
+async function start(
+  host: RemoteHost,
+  origins: readonly string[] = [ALLOWED],
+): Promise<RemoteGateway> {
   const gateway = await createRemoteGateway({ host, allowedOrigins: origins, port: 0 })
   running.push(gateway)
   return gateway
@@ -144,7 +151,10 @@ describe('remote gateway discovery', () => {
     // Answers before anyone has authenticated, so it must not name a project,
     // a path or a provider — those leak what the desktop is working on.
     expect(Object.keys(body).sort()).toEqual(['ok', 'result'])
-    expect(Object.keys(body['result'] as object).sort()).toEqual(['capabilities', 'protocolVersion'])
+    expect(Object.keys(body['result'] as object).sort()).toEqual([
+      'capabilities',
+      'protocolVersion',
+    ])
   })
 
   it('answers the same question as a query, with no credential either', async () => {
@@ -197,7 +207,8 @@ describe('remote gateway caller identity', () => {
 })
 
 describe('remote gateway origin policy', () => {
-  it('refuses a request from an origin it was not told to trust', async () => {    const host = fakeHost()
+  it('refuses a request from an origin it was not told to trust', async () => {
+    const host = fakeHost()
     const gateway = await start(host)
     const { status, body } = await call(gateway, '/command', COMMAND, {
       origin: 'https://evil.example',
@@ -374,7 +385,13 @@ describe('remote gateway command allowlist', () => {
     const { status } = await call(
       gateway,
       '/command',
-      { op: 'session.create', projectId: 'p1', permissionMode: 'full', clientCommandId: 'c', idempotencyKey: 'key-0123456789' },
+      {
+        op: 'session.create',
+        projectId: 'p1',
+        permissionMode: 'full',
+        clientCommandId: 'c',
+        idempotencyKey: 'key-0123456789',
+      },
       { token },
     )
     expect(status).toBe(400)
@@ -382,7 +399,9 @@ describe('remote gateway command allowlist', () => {
   })
 
   it('refuses an operation the host does not advertise', async () => {
-    const host = fakeHost({ capabilities: () => ['gateway.info', 'session.list'] as RemoteOperation[] })
+    const host = fakeHost({
+      capabilities: () => ['gateway.info', 'session.list'] as RemoteOperation[],
+    })
     const gateway = await start(host)
     const token = await paired(gateway, deviceKey())
     const { status, body } = await call(gateway, '/command', COMMAND, { token })
@@ -396,7 +415,12 @@ describe('remote gateway command allowlist', () => {
     const gateway = await start(host)
     const token = await paired(gateway, deviceKey())
     // `session.list` is a read; sending it as a command must not create one.
-    const { status } = await call(gateway, '/command', { ...COMMAND, op: 'session.list' }, { token })
+    const { status } = await call(
+      gateway,
+      '/command',
+      { ...COMMAND, op: 'session.list' },
+      { token },
+    )
     expect(status).toBe(400)
     expect(host.executed).toEqual([])
   })
@@ -478,7 +502,8 @@ describe('remote gateway idempotency', () => {
     expect(errorCode(body)).toBe('conflict')
   })
 
-  it('reports a key whose command is still running as unfinished', async () => {    let release = (): void => {}
+  it('reports a key whose command is still running as unfinished', async () => {
+    let release = (): void => {}
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
@@ -770,5 +795,133 @@ describe('remote gateway remembered devices', () => {
     expect(status).toBe(400)
     expect(errorCode(body)).toBe('unsupported_capability')
     expect(host.executed).toEqual([])
+  })
+})
+
+describe('remote gateway PWA hosting', () => {
+  /** A directory shaped like a Vite build, with one file Ari must not serve. */
+  function buildDirectory(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'ari-pwa-'))
+    mkdirSync(join(dir, 'assets'))
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Ari</title>', 'utf8')
+    writeFileSync(join(dir, 'manifest.webmanifest'), '{"name":"Ari"}', 'utf8')
+    writeFileSync(join(dir, 'sw.js'), 'self.addEventListener("install", () => {})', 'utf8')
+    writeFileSync(join(dir, 'icon-192.png'), 'not-really-a-png', 'utf8')
+    writeFileSync(join(dir, 'assets', 'app-4f2a1b9c.js'), 'console.log(1)', 'utf8')
+    writeFileSync(join(dir, 'id_rsa.pem'), 'private key', 'utf8')
+    return dir
+  }
+
+  async function startWithWeb(host: RemoteHost, webRoot: string): Promise<RemoteGateway> {
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      webRoot,
+    })
+    running.push(gateway)
+    return gateway
+  }
+
+  async function get(gateway: RemoteGateway, path: string, origin?: string): Promise<Response> {
+    return fetch(`${gateway.origin}${path}`, {
+      headers: origin === undefined ? {} : { origin },
+    })
+  }
+
+  it('answers a navigation with the app shell', async () => {
+    const gateway = await startWithWeb(fakeHost(), buildDirectory())
+    const response = await get(gateway, '/')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    // A navigation carries no Origin, which is why this is served before the
+    // allowlist check — and the shell must never be stale.
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(await response.text()).toContain('<title>Ari</title>')
+  })
+
+  it('answers a client route with the same shell', async () => {
+    const gateway = await startWithWeb(fakeHost(), buildDirectory())
+    const response = await get(gateway, '/sessions/sess_1')
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('<title>Ari</title>')
+  })
+
+  it('types the files a build emits, and keeps the worker out of caches', async () => {
+    const gateway = await startWithWeb(fakeHost(), buildDirectory())
+
+    const asset = await get(gateway, '/assets/app-4f2a1b9c.js')
+    expect(asset.headers.get('content-type')).toContain('text/javascript')
+    expect(asset.headers.get('cache-control')).toContain('immutable')
+
+    const manifest = await get(gateway, '/manifest.webmanifest')
+    expect(manifest.headers.get('content-type')).toContain('application/manifest+json')
+    expect(manifest.headers.get('cache-control')).toBe('no-store')
+
+    const worker = await get(gateway, '/sw.js')
+    expect(worker.headers.get('content-type')).toContain('text/javascript')
+    // A cached service worker cannot be updated, which is how a phone keeps an
+    // old build forever.
+    expect(worker.headers.get('cache-control')).toBe('no-store')
+
+    const icon = await get(gateway, '/icon-192.png')
+    expect(icon.headers.get('content-type')).toBe('image/png')
+  })
+
+  it('refuses a path that climbs out of the build directory', async () => {
+    const dir = buildDirectory()
+    writeFileSync(join(dir, '..', 'ari-pwa-secret.txt'), 'not the app', 'utf8')
+    const gateway = await startWithWeb(fakeHost(), dir)
+
+    // `%2f` survives URL normalization, so the traversal reaches the server.
+    const response = await get(gateway, '/..%2fari-pwa-secret.txt')
+    expect(response.status).toBe(404)
+    expect(await response.text()).not.toContain('not the app')
+  })
+
+  it('will not serve a file outside the app build, whatever its extension', async () => {
+    const gateway = await startWithWeb(fakeHost(), buildDirectory())
+    const response = await get(gateway, '/id_rsa.pem')
+
+    expect(response.status).toBe(404)
+    expect(await response.text()).not.toContain('private key')
+  })
+
+  it('keeps API routes ahead of the shell', async () => {
+    const host = fakeHost()
+    const gateway = await startWithWeb(host, buildDirectory())
+
+    const info = await get(gateway, '/info', ALLOWED)
+    expect(info.headers.get('content-type')).toContain('application/json')
+    expect(((await info.json()) as Record<string, unknown>)['ok']).toBe(true)
+
+    // A POST to a route that does not exist is a 404 in the protocol's own
+    // shape, not the shell with a 200.
+    const unknown = await call(gateway, '/nope', {})
+    expect(unknown.status).toBe(404)
+    expect(errorCode(unknown.body)).toBe('not_found')
+    const known = await call(gateway, '/command', COMMAND, {
+      token: await paired(gateway, deviceKey()),
+    })
+    expect(known.status).toBe(200)
+    expect(host.executed).toHaveLength(1)
+  })
+
+  it('refuses a cross-origin fetch of the app files', async () => {
+    const gateway = await startWithWeb(fakeHost(), buildDirectory())
+    const response = await get(gateway, '/', 'https://evil.example')
+
+    expect(response.status).toBe(403)
+  })
+
+  it('changes nothing when no web root is configured', async () => {
+    const gateway = await start(fakeHost())
+    const response = await get(gateway, '/', ALLOWED)
+
+    // The API-only gateway keeps its old answer: this is not a page.
+    expect(response.status).toBe(400)
+    expect(response.headers.get('content-type')).toContain('application/json')
   })
 })

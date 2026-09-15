@@ -37,6 +37,8 @@ export interface RemoteServiceDeps {
   defaultPermissionMode: () => PermissionMode
   defaultDriverKind: () => DriverKind | null
   hasProject: (projectId: string) => Promise<boolean>
+  /** Every project this desktop has registered, for the phone's picker. */
+  listProjects: () => Promise<{ id: string; name: string }[]>
   mintSessionId: () => string
   /**
    * The address a phone should open, or null when none is configured yet.
@@ -46,6 +48,12 @@ export interface RemoteServiceDeps {
   clientOrigin: () => string | null
   /** Exact extra origins to allow, beyond the gateway's own. */
   allowedOrigins: () => readonly string[]
+  /**
+   * The built PWA the gateway serves, or undefined when it has not been built.
+   * Under Tailscale this is what makes the app same-origin with the API it
+   * calls; absent, the gateway serves the API alone.
+   */
+  webRoot?: () => string | undefined
   /** Called whenever the state a user sees changes. */
   onChange?: (state: RemoteState) => void
   now?: () => number
@@ -80,6 +88,7 @@ export class RemoteService {
       // construction, and a gateway that failed to start must not leave a
       // service whose devices are the ones from a previous run.
       this.#pairing = this.#makePairing()
+      const webRoot = this.#deps.webRoot?.()
       this.#gateway = await createRemoteGateway({
         host: createRemoteHost({
           engine: this.#deps.engine,
@@ -88,6 +97,7 @@ export class RemoteService {
           defaultPermissionMode: this.#deps.defaultPermissionMode,
           defaultDriverKind: this.#deps.defaultDriverKind,
           hasProject: this.#deps.hasProject,
+          listProjects: this.#deps.listProjects,
           pairing: this.#pairing,
           mintSessionId: this.#deps.mintSessionId,
         }),
@@ -102,6 +112,7 @@ export class RemoteService {
           persist: (json) => this.#write('idempotency.json', json),
         },
         ...(this.#deps.now === undefined ? {} : { now: this.#deps.now }),
+        ...(webRoot === undefined ? {} : { webRoot }),
       })
       log.info('remote access listening', { port: this.#gateway.port })
     } catch (error) {
