@@ -1,0 +1,12 @@
+<!--
+  The maskable variant: the same mark inside the safe zone (the centre 80%),
+  so a launcher that crops to a circle, squircle or teardrop never clips it.
+  Literal colours for the same reason as icon.svg — an icon is an asset.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ari">
+  <rect width="512" height="512" fill="#131320" />
+  <path
+    d="M256 152 344 368h-48l-16-44h-48l-16 44h-48L256 152Zm0 88-14 48h28l-14-48Z"
+    fill="#8b8bff"
+  />
+</svg>
