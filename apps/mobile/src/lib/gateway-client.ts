@@ -91,10 +91,6 @@ export class GatewayClient {
     this.#token = value
   }
 
-  get origin(): string {
-    return this.#origin
-  }
-
   /** Unauthenticated and content-free: what protocol is this, what can it do. */
   async info(): Promise<GatewayInfo> {
     return this.#post<GatewayInfo>('/info', {})

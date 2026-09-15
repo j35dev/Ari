@@ -217,11 +217,20 @@ export class IndexedDbDeviceStore implements DeviceStore {
   }
 }
 
-/** In-memory store for environments without IndexedDB (tests, private modes). */
+/**
+ * In-memory store for environments without IndexedDB: tests, and a browser in
+ * a private mode that fences off storage. Pairing still works there — it just
+ * does not survive the tab closing, which the user finds out by pairing again
+ * rather than by being refused.
+ *
+ * The methods are async because they implement the same interface as the
+ * IndexedDB store, not because anything here waits.
+ */
 export class MemoryDeviceStore implements DeviceStore {
   #key: CryptoKeyPair | null = null
   #record: DeviceRecord | null = null
 
+  /* eslint-disable @typescript-eslint/require-await -- see above */
   async loadKey(): Promise<CryptoKeyPair | null> {
     return this.#key
   }
@@ -242,6 +251,7 @@ export class MemoryDeviceStore implements DeviceStore {
     this.#key = null
     this.#record = null
   }
+  /* eslint-enable @typescript-eslint/require-await */
 }
 
 /**

@@ -39,6 +39,7 @@ function fakeHost(): RecordingHost {
       callers.push(caller)
       return []
     },
+    listProjects: async () => [],
     getSession: async () => undefined,
     replay: async () => [],
     query: async (caller, op) => {

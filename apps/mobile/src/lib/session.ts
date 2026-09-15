@@ -1,4 +1,4 @@
-import { GatewayClient, RemoteError } from './gateway-client'
+import { RemoteError, type GatewayClient } from './gateway-client'
 import type { DeviceKeyring } from './device-key'
 
 /**
@@ -62,6 +62,7 @@ export class MobileSession {
   #token: string | null = null
   /** Resolved project ids the desktop reported at the last authorization. */
   #projectIds: string[] = []
+  #capabilities: readonly string[] = []
   #listeners = new Set<() => void>()
 
   constructor(deps: SessionDeps) {
@@ -74,6 +75,24 @@ export class MobileSession {
 
   get state(): ConnectionState {
     return this.#state
+  }
+
+  /** The registered device this browser is, once it has paired. */
+  get deviceId(): string | null {
+    return this.#keyring.deviceId
+  }
+
+  /**
+   * What the desktop said it can serve. Empty until a connection has been
+   * made: a screen must hide an unsupported action rather than offer it and
+   * fail, so an empty list disables everything rather than assuming it works.
+   */
+  get capabilities(): readonly string[] {
+    return this.#capabilities
+  }
+
+  supports(operation: string): boolean {
+    return this.#capabilities.includes(operation)
   }
 
   get projectIds(): readonly string[] {
@@ -112,6 +131,7 @@ export class MobileSession {
       if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION) {
         return this.#set('version-mismatch')
       }
+      this.#capabilities = info.capabilities
       await this.#authorize(deviceId)
       this.#set('connected')
     } catch (error) {
@@ -286,7 +306,7 @@ export class MobileSession {
   }
 
   /** Asks the desktop what became of a command whose answer was lost. */
-  async #reconcile(idempotencyKey: string): Promise<unknown | undefined> {
+  async #reconcile(idempotencyKey: string): Promise<unknown> {
     try {
       return await this.#client.query('command.status', { idempotencyKey })
     } catch (error) {
