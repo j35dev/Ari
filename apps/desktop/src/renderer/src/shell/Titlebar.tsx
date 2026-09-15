@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import {
-  CircleDot,
   Folder,
   Gauge,
+  GitCompare,
   GitPullRequest,
   PanelLeftOpen,
   Settings,
@@ -19,11 +19,11 @@ const TITLEBAR_TOOLS: {
   label: string
   icon: typeof Folder
 }[] = [
-  { id: 'changes', label: 'Changes', icon: GitPullRequest },
+  { id: 'changes', label: 'Changes', icon: GitCompare },
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
-  { id: 'github', label: 'PRs & issues', icon: CircleDot },
+  { id: 'github', label: 'PRs & issues', icon: GitPullRequest },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
