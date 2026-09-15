@@ -1805,6 +1805,73 @@ describe('EffortChip', () => {
 
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(null))
   })
+
+  it('keeps a saved effort across a model switch until the new model answers', async () => {
+    const onChange = vi.fn()
+    let releaseNext: (() => void) | undefined
+    const nextEfforts = new Promise<{ efforts: { id: string; label: string }[] }>((resolve) => {
+      releaseNext = () =>
+        resolve({
+          efforts: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High' },
+          ],
+        })
+    })
+    invokeMock.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'providers.models') {
+        return [{ kind: 'opencode', source: 'live', models: [], efforts: [] }]
+      }
+      if (method === 'providers.efforts') {
+        const modelId =
+          typeof params === 'object' && params !== null && 'modelId' in params
+            ? (params as { modelId?: string }).modelId
+            : undefined
+        if (modelId === 'opencode/reasoner-2') return nextEfforts
+        return {
+          efforts: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High' },
+          ],
+        }
+      }
+      throw new Error(`unexpected method: ${method}`)
+    })
+
+    const { rerender } = render(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/reasoner-1"
+        effort="high"
+        onChange={onChange}
+      />,
+    )
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+
+    rerender(
+      <EffortChip
+        driverKind="opencode"
+        modelId="opencode/reasoner-2"
+        effort="high"
+        onChange={onChange}
+      />,
+    )
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('providers.efforts', {
+        kind: 'opencode',
+        modelId: 'opencode/reasoner-2',
+      }),
+    )
+    expect(onChange).not.toHaveBeenCalled()
+
+    await act(async () => {
+      releaseNext?.()
+      await nextEfforts
+    })
+
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+    expect(onChange).not.toHaveBeenCalled()
+  })
 })
 
 /**

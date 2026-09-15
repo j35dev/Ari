@@ -1058,6 +1058,10 @@ export function EffortChip({
     // `loaded` is withheld until it settles. Releasing it on the generic
     // catalog alone lets the reset effect below clear a saved effort that only
     // the model's own list advertises — the very case this control exists for.
+    // Reset on every generation: leaving `loaded` true across a model switch
+    // lets the catalog's first paint clear a saved effort the new model still
+    // advertises.
+    setLoaded(false)
     const probesModel = modelId !== undefined && modelId !== null && modelId.length > 0
     const apply = (rows: { kind: string; efforts?: EffortOption[] }[]): void => {
       if (cancelled) return
