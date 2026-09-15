@@ -17,7 +17,7 @@ describe('Titlebar workspace tools', () => {
   it('places workspace tools in the titlebar, not the session sidebar', () => {
     render(<Titlebar activeTool="files" onSelectTool={() => undefined} />)
     expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
-    for (const label of ['Changes', 'Files', 'Usage', 'Terminal', 'Settings']) {
+    for (const label of ['Changes', 'Files', 'Usage', 'Terminal', 'PRs & issues', 'Settings']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
     expect(screen.queryByRole('button', { name: 'Sessions' })).not.toBeInTheDocument()

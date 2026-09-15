@@ -31,6 +31,7 @@ import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
+import { listHubItems, viewHubItem } from './github-hub'
 import {
   getEndpointStore,
   getProjectStore,
@@ -1424,6 +1425,26 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return result.ok
       ? { ok: true, url: result.value.length > 0 ? result.value : null }
       : { ok: false, url: null, error: result.error.message }
+  })
+
+  r.register('github.list', async (params) => {
+    const cwd = await resolveScopeRoot(params)
+    const result = await listHubItems(cwd, {
+      kind: params.kind,
+      state: params.state,
+      limit: params.limit,
+    })
+    return result.ok
+      ? { ok: true, items: result.value }
+      : { ok: false, items: [], error: result.error.message }
+  })
+
+  r.register('github.view', async (params) => {
+    const cwd = await resolveScopeRoot(params)
+    const result = await viewHubItem(cwd, { kind: params.kind, number: params.number })
+    return result.ok
+      ? { ok: true, item: result.value }
+      : { ok: false, item: null, error: result.error.message }
   })
 
   r.register('fs.list', async (params) => {
