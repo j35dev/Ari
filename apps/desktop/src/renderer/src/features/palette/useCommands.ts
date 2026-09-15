@@ -1,9 +1,9 @@
 import { useMemo } from 'react'
 import {
-  CircleDot,
   FileSearch,
   Folder,
   Gauge,
+  GitCompare,
   GitPullRequest,
   Images,
   Maximize2,
@@ -126,7 +126,7 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
     {
       id: 'nav.changes',
       label: 'Go to Changes',
-      icon: GitPullRequest,
+      icon: GitCompare,
       run: () => ctx.onNavigate('changes'),
     },
     {
@@ -144,7 +144,7 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
     {
       id: 'nav.github',
       label: 'Go to PRs & issues',
-      icon: CircleDot,
+      icon: GitPullRequest,
       run: () => ctx.onNavigate('github'),
     },
     {
