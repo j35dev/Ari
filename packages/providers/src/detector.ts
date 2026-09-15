@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
@@ -44,10 +44,31 @@ export function wellKnownDirs(env: DetectEnvironment): string[] {
   return dirs.filter((d) => d.length > 0 && existsSync(d))
 }
 
+/** True when `path` names a regular file — not a directory, socket, or link to one. */
+function isRegularFile(path: string): boolean {
+  try {
+    return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false
+  } catch {
+    // `throwIfNoEntry: false` only covers a missing entry. An unusable one —
+    // a path through a file, a directory that denies traversal — still
+    // throws, and letting that escape aborted the whole scan instead of
+    // moving on to the directories after it.
+    return false
+  }
+}
+
 /** Resolves a binary across PATH plus platform-specific install dirs. */
 export function findBinary(kind: DriverKind, env: DetectEnvironment): string | null {
   if (kind === 'ari-core') return null
-  const names = BINARY_NAMES[kind]
+  // npm drops an extensionless sh shim next to the .cmd one, and Windows cannot
+  // spawn it (ENOENT). Dropping those candidates outright, rather than merely
+  // ranking them last, is what matters: the search is directory-first, so a
+  // bare shim in an earlier PATH entry would still beat a runnable .cmd in a
+  // later one. Nothing is lost — a Windows executable needs its extension.
+  const names =
+    env.platform === 'win32'
+      ? BINARY_NAMES[kind].filter((name) => /\.(?:exe|cmd)$/i.test(name)).reverse()
+      : BINARY_NAMES[kind]
   const searchDirs = [
     ...env.pathEnv.split(delimiter).filter((p) => p.length > 0),
     ...wellKnownDirs(env),
@@ -55,8 +76,10 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
   for (const dir of searchDirs) {
     for (const name of names) {
       const candidate = join(dir, name)
-      // existsSync on a file also rejects directories named like the binary.
-      if (existsSync(candidate)) return candidate
+      // isFile, not existsSync: a *directory* named `codex` (a checked-out
+      // repo, a scratch folder) is not a CLI, and treating it as one put a
+      // fully-populated provider row in front of users who never installed it.
+      if (isRegularFile(candidate)) return candidate
     }
   }
   return null
@@ -66,7 +89,9 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
  * Probes `<binary> --version`. On Windows, .cmd shims are executed through an
  * escaped cmd.exe wrapper (direct spawn is refused with EINVAL on Node ≥20).
  */
-function probeVersion(binaryPath: string, timeoutMs = 5000): Promise<string | null> {
+// Large single-file CLIs (opencode.exe is ~180 MB) can take >5s to answer when
+// every provider is probed concurrently at startup, so allow a generous window.
+function probeVersion(binaryPath: string, timeoutMs = 15000): Promise<string | null> {
   return new Promise((resolve) => {
     let stdout = ''
     let settled = false
