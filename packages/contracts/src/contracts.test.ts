@@ -350,4 +350,32 @@ describe('contracts', () => {
     expect(() => rpcParams['git.push'].parse({ projectId: '', remote: 'origin' })).toThrow()
     expect(() => rpcParams['git.push'].parse({ projectId: 'proj_1', remote: '' })).toThrow()
   })
+
+  it('validates github hub list/view params', () => {
+    expect(rpcParams['github.list'].parse({ projectId: 'proj_1', kind: 'pr' })).toEqual({
+      projectId: 'proj_1',
+      kind: 'pr',
+      state: 'open',
+      limit: 50,
+    })
+    expect(
+      rpcParams['github.list'].parse({
+        sessionId: 'sess_1',
+        kind: 'issue',
+        state: 'all',
+        limit: 10,
+      }),
+    ).toEqual({ sessionId: 'sess_1', kind: 'issue', state: 'all', limit: 10 })
+    expect(rpcParams['github.view'].parse({ projectId: 'proj_1', kind: 'pr', number: 12 })).toEqual(
+      {
+        projectId: 'proj_1',
+        kind: 'pr',
+        number: 12,
+      },
+    )
+    expect(() => rpcParams['github.list'].parse({ projectId: 'proj_1' })).toThrow()
+    expect(() =>
+      rpcParams['github.view'].parse({ projectId: 'proj_1', kind: 'pr', number: 0 }),
+    ).toThrow()
+  })
 })

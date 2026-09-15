@@ -318,4 +318,217 @@ describe('ModelSelector', () => {
     await user.click(within(listbox).getByText('Opus 4'))
     expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'opus-4' })
   })
+
+  describe('provider readiness', () => {
+    /** Replace the detected providers for one test. */
+    function detectAs(rows: unknown[]): void {
+      const base = rpcMocks.invoke.getMockImplementation()!
+      rpcMocks.invoke.mockImplementation(async (method: string) =>
+        method === 'providers.detect' ? rows : (base(method) as Promise<unknown>),
+      )
+    }
+
+    it('hides a provider whose CLI is not installed and says why', async () => {
+      // The reported case: Claude Code present, Codex never installed — yet
+      // `providers.models` still returns a full Codex catalog, so the rail has
+      // to gate on the detection rather than on the catalog being non-empty.
+      detectAs([
+        {
+          kind: 'claude',
+          installed: true,
+          binaryPath: 'C:/bin/claude',
+          version: '1',
+          authStatus: 'authenticated',
+        },
+        { kind: 'codex', installed: false, binaryPath: null, version: null, authStatus: 'unknown' },
+      ])
+      setup()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      const rail = screen.getByRole('presentation', { name: 'Providers' })
+      expect(within(rail).getByText('Claude')).toBeInTheDocument()
+      expect(within(rail).queryByText('Codex')).not.toBeInTheDocument()
+      // ...and the picker explains the absence instead of going quiet about it.
+      expect(screen.getByText(/not installed/i)).toBeInTheDocument()
+    })
+
+    it('hides a provider that is installed but logged out', async () => {
+      detectAs([
+        {
+          kind: 'claude',
+          installed: true,
+          binaryPath: 'C:/bin/claude',
+          version: '1',
+          authStatus: 'authenticated',
+        },
+        {
+          kind: 'codex',
+          installed: true,
+          binaryPath: 'C:/bin/codex',
+          version: '1',
+          authStatus: 'unauthenticated',
+        },
+      ])
+      setup()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      const rail = screen.getByRole('presentation', { name: 'Providers' })
+      expect(within(rail).getByText('Claude')).toBeInTheDocument()
+      expect(within(rail).queryByText('Codex')).not.toBeInTheDocument()
+      expect(screen.getByText(/not signed in/i)).toBeInTheDocument()
+    })
+
+    it('keeps offering a provider whose auth verdict is unknown', async () => {
+      // No ~/.claude credentials file, but ANTHROPIC_API_KEY may still work —
+      // "Ari cannot tell" must not hide a usable provider.
+      detectAs([
+        { kind: 'claude', installed: true, binaryPath: 'C:/bin/claude', version: '1', authStatus: 'unknown' },
+      ])
+      setup()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      const rail = screen.getByRole('presentation', { name: 'Providers' })
+      expect(within(rail).getByText('Claude')).toBeInTheDocument()
+    })
+
+    it('keeps a locked session on its own models even when that provider is withheld', async () => {
+      detectAs([
+        {
+          kind: 'claude',
+          installed: true,
+          binaryPath: 'C:/bin/claude',
+          version: '1',
+          authStatus: 'authenticated',
+        },
+        {
+          kind: 'codex',
+          installed: true,
+          binaryPath: 'C:/bin/codex',
+          version: '1',
+          authStatus: 'unauthenticated',
+        },
+      ])
+      setup('codex', 'gpt-5.6', 'codex')
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      // A mid-session logout must not swap the pane onto another provider.
+      const listbox = screen.getByRole('listbox', { name: 'Models' })
+      expect(within(listbox).getByText('GPT-5.6')).toBeInTheDocument()
+    })
+  })
+
+  describe('legacy models', () => {
+    /** Replace the served catalogs for one test. */
+    function modelsAs(rows: unknown[]): void {
+      const base = rpcMocks.invoke.getMockImplementation()!
+      rpcMocks.invoke.mockImplementation(async (method: string) =>
+        method === 'providers.models' ? rows : (base(method) as Promise<unknown>),
+      )
+    }
+
+    const opusCatalog = [
+      {
+        kind: 'claude',
+        source: 'live',
+        models: [
+          { id: 'claude-opus-5', label: 'Claude Opus 5', aliases: ['opus'] },
+          { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', isLegacy: true },
+        ],
+      },
+    ]
+
+    it('collapses superseded models behind a disclosure', async () => {
+      modelsAs(opusCatalog)
+      setup()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      const models = screen.getByRole('listbox', { name: 'Models' })
+      expect(within(models).getByText('Claude Opus 5')).toBeInTheDocument()
+      expect(within(models).queryByText('Claude Opus 4.8')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /older/i }))
+      expect(within(models).getByText('Claude Opus 4.8')).toBeInTheDocument()
+    })
+
+    it('checks the row a version-less saved id resolves to', async () => {
+      modelsAs(opusCatalog)
+      // The session was saved against the version-less id the CLI accepts.
+      setup('claude', 'opus')
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      const models = screen.getByRole('listbox', { name: 'Models' })
+      const selected = within(models).getByRole('option', { selected: true })
+      expect(selected).toHaveTextContent('Claude Opus 5')
+    })
+
+    it('names the resolved row on the trigger, not the raw saved id', async () => {
+      modelsAs(opusCatalog)
+      setup('claude', 'opus')
+      expect(await screen.findByRole('button', { name: /model:/i })).toHaveTextContent(
+        'Claude Opus 5',
+      )
+    })
+  })
+
+  describe('catalog provenance', () => {
+    /** Replace the served catalogs for one test. */
+    function modelsAs(rows: unknown[]): void {
+      const base = rpcMocks.invoke.getMockImplementation()!
+      rpcMocks.invoke.mockImplementation(async (method: string) =>
+        method === 'providers.models' ? rows : (base(method) as Promise<unknown>),
+      )
+    }
+
+    const bundled = [
+      {
+        kind: 'claude',
+        source: 'snapshot',
+        models: [{ id: 'claude-opus-5', label: 'Claude Opus 5' }],
+      },
+    ]
+
+    it('marks a list the agent has not confirmed as bundled, not live', async () => {
+      modelsAs(bundled)
+      setup()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      // A snapshot names models the agent may refuse outright, so the picker
+      // says where the list came from instead of implying the agent offered it.
+      expect(screen.getByText(/bundled list/i)).toBeInTheDocument()
+    })
+
+    it('does not mark a list the agent reported itself', async () => {
+      modelsAs([
+        {
+          kind: 'claude',
+          source: 'live',
+          models: [{ id: 'sonnet', label: 'Sonnet' }],
+        },
+      ])
+      setup()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+      expect(screen.queryByText(/bundled list/i)).not.toBeInTheDocument()
+    })
+
+    it('re-reads the catalogs when the refresh control is used', async () => {
+      modelsAs(bundled)
+      setup()
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+      const before = rpcMocks.invoke.mock.calls.filter(([m]) => m === 'providers.models').length
+
+      await user.click(screen.getByRole('button', { name: /refresh/i }))
+      expect(
+        rpcMocks.invoke.mock.calls.filter(([m]) => m === 'providers.models').length,
+      ).toBeGreaterThan(before)
+    })
+  })
 })

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { X, FolderPlus } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
@@ -21,8 +21,14 @@ import {
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds } from './features/session/session-tree'
-import { TerminalDock } from './features/terminal'
+import { TerminalDock, TerminalPane } from './features/terminal'
+import {
+  openTerminalTab,
+  subscribeTerminalDock,
+  terminalDockState,
+} from './features/terminal/terminal-dock'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
+import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
 import { openProjectViaPicker } from './features/projects/open-project'
@@ -40,8 +46,11 @@ import {
   MAX_PANES,
   activePaneOf,
   activeSessionOf,
+  isBlankLeaf,
+  leaves,
   paneCount,
   sessionsOnScreen,
+  terminalIdsInPanes,
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
@@ -64,7 +73,7 @@ import {
 import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings'>
+type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github'>
 
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
@@ -98,6 +107,7 @@ function Shell() {
   // are tools, so they dock to the trailing rail beside the transcript.
   const [fullPage, setFullPage] = useState<'usage' | 'changes' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [hubOpen, setHubOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [projects, setProjects] = useState<ProjectRow[]>([])
@@ -124,7 +134,7 @@ function Shell() {
   // Where the pane area is the view on screen: settings, the gallery and the
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
-  const panesVisible = !settingsOpen && !galleryOpen && fullPage === null
+  const panesVisible = !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -186,10 +196,21 @@ function Shell() {
 
   // The terminal is a tool the transcript keeps working next to, so Ctrl+`
   // docks and undocks the rail instead of navigating anywhere.
+  /**
+   * Settings and the GitHub hub take the whole window, so anything that means
+   * "take me back to my work" has to stand them down first. Without this the
+   * shortcut fires, the state changes, and the user sees nothing at all.
+   */
+  const leaveWorkspaceTool = useCallback(() => {
+    setSettingsOpen(false)
+    setHubOpen(false)
+  }, [])
+
   const toggleTerminal = useCallback(() => {
+    leaveWorkspaceTool()
     setFullPage(null)
     setInspector((prev) => (prev === 'terminal' ? null : 'terminal'))
-  }, [])
+  }, [leaveWorkspaceTool])
 
   // Switching chats must not kill a running shell; every other rail still
   // yields to the session view the way it always has.
@@ -207,10 +228,11 @@ function Shell() {
       const paneId = splitLayoutActions.paneOf(id) ?? layout.focusedPaneId
       splitLayoutActions.assign(paneId, id)
       clearTransientInspector()
+      leaveWorkspaceTool()
       // Selecting a chat must land on it, not leave Usage/Changes up.
       setFullPage(null)
     },
-    [layout, clearTransientInspector],
+    [layout, clearTransientInspector, leaveWorkspaceTool],
   )
 
   const { toast } = useToast()
@@ -354,22 +376,33 @@ function Shell() {
   const commands = useCommands({
     onNavigate: (view) => {
       if (view === 'settings') {
+        setHubOpen(false)
         setSettingsOpen(true)
+      } else if (view === 'github') {
+        setSettingsOpen(false)
+        setHubOpen(true)
       } else if (view === 'sessions') {
+        setHubOpen(false)
         clearTransientInspector()
       } else if (view === 'terminal') {
+        setHubOpen(false)
+        setSettingsOpen(false)
         setFullPage(null)
         setInspector('terminal')
       } else {
+        setHubOpen(false)
+        setSettingsOpen(false)
         setInspector(view)
       }
       setPaletteOpen(false)
     },
     onOpenGallery: () => {
+      leaveWorkspaceTool()
       setGalleryOpen(true)
       setPaletteOpen(false)
     },
     onOpenSearch: () => {
+      leaveWorkspaceTool()
       setSearchOpen(true)
       setPaletteOpen(false)
     },
@@ -510,6 +543,7 @@ function Shell() {
           return
         }
         if (settingsOpen) setSettingsOpen(false)
+        if (hubOpen) setHubOpen(false)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -517,6 +551,7 @@ function Shell() {
   }, [
     paletteOpen,
     settingsOpen,
+    hubOpen,
     panesVisible,
     navOrder,
     activeSessionId,
@@ -633,11 +668,20 @@ function Shell() {
   const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
     if (id === 'settings') {
       setSettingsOpen(true)
+      setHubOpen(false)
+      setFullPage(null)
+      setInspector(null)
+      return
+    }
+    if (id === 'github') {
+      setHubOpen(true)
+      setSettingsOpen(false)
       setFullPage(null)
       setInspector(null)
       return
     }
     setSettingsOpen(false)
+    setHubOpen(false)
     if (id === 'session') {
       setInspector(null)
       setFullPage(null)
@@ -685,21 +729,43 @@ function Shell() {
     () => shellRootFor(activeSession, activeProjectPath, projects),
     [activeSession, activeProjectPath, projects],
   )
+  const terminalDock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
+  const paneTerminalIds = useMemo(() => new Set(terminalIdsInPanes(layout)), [layout])
+  const openTerminalInPane = useCallback(
+    (paneId: string) => {
+      if (shellRoot === null) return
+      const id = openTerminalTab({ title: 'Ari Terminal', cwd: shellRoot })
+      splitLayoutActions.assignTerminal(paneId, id)
+    },
+    [shellRoot],
+  )
 
-  if (settingsOpen) {
+  if (settingsOpen || hubOpen) {
     return (
       <div className="ari-glass-pane flex h-full flex-col">
-        <Titlebar usage={{ sessionId: activeSessionId, kind: activeDriverKind }} />
-        <SettingsWorkspace
-          section={settingsSection}
-          onSectionChange={setSettingsSection}
-          onBack={() => setSettingsOpen(false)}
-          onOpenTerminal={() => {
-            setSettingsOpen(false)
-            setFullPage(null)
-            setInspector('terminal')
-          }}
+        <Titlebar
+          activeTool={settingsOpen ? 'settings' : 'github'}
+          onSelectTool={selectWorkspaceTool}
+          usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         />
+        {settingsOpen ? (
+          <SettingsWorkspace
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
+            onBack={() => setSettingsOpen(false)}
+            onOpenTerminal={() => {
+              setSettingsOpen(false)
+              setFullPage(null)
+              setInspector('terminal')
+            }}
+          />
+        ) : (
+          <HubWorkspace
+            projects={projects}
+            initialProjectId={activeSession?.projectId ?? projects[0]?.id ?? null}
+            onBack={() => setHubOpen(false)}
+          />
+        )}
         <CommandPalette
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
@@ -895,7 +961,9 @@ function Shell() {
           ) : (
             <div className="flex min-h-0 flex-1">
               <div className="min-h-0 min-w-0 flex-1">
-                {activeSessionId === null && paneCount(layout) === 1 ? (
+                {activeSessionId === null &&
+                paneCount(layout) === 1 &&
+                (leaves(layout.root)[0] === undefined || isBlankLeaf(leaves(layout.root)[0]!)) ? (
                   // Nothing open at all: the welcome panel is still the view.
                   <ErrorBoundary label="Welcome">
                     <WelcomePanel
@@ -921,6 +989,27 @@ function Shell() {
                       onResize={splitLayoutActions.resize}
                       onDropSession={splitLayoutActions.dropSession}
                       onDropPane={splitLayoutActions.dropPane}
+                      onOpenTerminal={openTerminalInPane}
+                      canOpenTerminal={shellRoot !== null}
+                      terminalTitleOf={(id) =>
+                        terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
+                      }
+                      renderTerminal={(terminalId, paneId) => {
+                        const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
+                        return (
+                          <ErrorBoundary label="Terminal">
+                            <div className="h-full min-h-0 overflow-hidden">
+                              <TerminalPane
+                                key={`${paneId}:${terminalId}`}
+                                terminalId={terminalId}
+                                cwd={tab?.cwd ?? shellRoot}
+                                initialCommand={tab?.command}
+                                active={paneId === activePaneOf(layout)}
+                              />
+                            </div>
+                          </ErrorBoundary>
+                        )
+                      }}
                       renderSession={(sessionId, paneId) => (
                         // Keyed by pane *and* session, so a pane that changes what
                         // it shows remounts: composer seeds and review notes belong
@@ -970,6 +1059,7 @@ function Shell() {
                         <ErrorBoundary label="Terminal">
                           <TerminalDock
                             cwd={shellRoot}
+                            paneTerminalIds={paneTerminalIds}
                             onAddProject={() => openProjectViaDialog()}
                             onClose={() => setInspector(null)}
                           />

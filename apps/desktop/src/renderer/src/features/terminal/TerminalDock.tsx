@@ -54,13 +54,20 @@ export function TerminalDock({
   cwd,
   onAddProject,
   onClose,
+  paneTerminalIds,
 }: {
   cwd: string | null
   /** Opens the folder picker, so a railless project can still be added. */
   onAddProject?: () => void
   onClose?: () => void
+  /** Tabs already shown in a split pane — the rail hides them so a pty is never mounted twice. */
+  paneTerminalIds?: ReadonlySet<string>
 }) {
-  const { tabs, activeId } = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
+  const dock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
+  const paneHosted = paneTerminalIds ?? new Set<string>()
+  const tabs = dock.tabs.filter((tab) => !paneHosted.has(tab.id))
+  const activeId =
+    dock.activeId !== null && paneHosted.has(dock.activeId) ? (tabs[0]?.id ?? null) : dock.activeId
   const [launcherAnchor, setLauncherAnchor] = useState<MenuAnchor | null>(null)
   const [installedKinds, setInstalledKinds] = useState<Set<string>>(new Set())
   // `terminal.create` rejections used to leave a blank blinking cursor; each
