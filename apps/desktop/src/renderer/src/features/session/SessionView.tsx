@@ -1054,11 +1054,16 @@ export function EffortChip({
 
   useEffect(() => {
     let cancelled = false
+    // A model-specific probe is the authority on this model's vocabulary, so
+    // `loaded` is withheld until it settles. Releasing it on the generic
+    // catalog alone lets the reset effect below clear a saved effort that only
+    // the model's own list advertises — the very case this control exists for.
+    const probesModel = modelId !== undefined && modelId !== null && modelId.length > 0
     const apply = (rows: { kind: string; efforts?: EffortOption[] }[]): void => {
       if (cancelled) return
       const row = rows.find((r) => r.kind === driverKind)
       setOptions(row?.efforts ?? [])
-      setLoaded(true)
+      if (!probesModel) setLoaded(true)
     }
     const load = (): void => {
       const base = rpc
@@ -1067,25 +1072,25 @@ export function EffortChip({
         .catch(() => {
           if (!cancelled) {
             setOptions([])
-            setLoaded(true)
+            if (!probesModel) setLoaded(true)
           }
         })
       // A selected model may advertise thought levels the default-model
       // catalog probe never saw; a non-empty answer wins, an empty one
       // keeps whatever the catalog reported.
-      if (modelId !== undefined && modelId !== null && modelId.length > 0) {
+      if (probesModel) {
         void base.finally(() => {
           if (cancelled) return
           void rpc
             .invoke('providers.efforts', { kind: driverKind, modelId })
             .then((result) => {
               if (cancelled) return
-              if (result.efforts.length > 0) {
-                setOptions(result.efforts)
-                setLoaded(true)
-              }
+              if (result.efforts.length > 0) setOptions(result.efforts)
             })
             .catch(() => undefined)
+            .finally(() => {
+              if (!cancelled) setLoaded(true)
+            })
         })
       }
     }
