@@ -157,5 +157,9 @@ export function TerminalPane({
     if (active) termRef.current?.focus()
   }, [active])
 
-  return <div ref={hostRef} className="h-full w-full px-3 py-2" />
+  return (
+    <div className="h-full min-h-0 w-full overflow-hidden">
+      <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden px-3 py-2" />
+    </div>
+  )
 }

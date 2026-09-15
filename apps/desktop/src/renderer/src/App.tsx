@@ -950,13 +950,15 @@ function Shell() {
                         const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
                         return (
                           <ErrorBoundary label="Terminal">
-                            <TerminalPane
-                              key={`${paneId}:${terminalId}`}
-                              terminalId={terminalId}
-                              cwd={tab?.cwd ?? shellRoot}
-                              initialCommand={tab?.command}
-                              active={paneId === activePaneOf(layout)}
-                            />
+                            <div className="h-full min-h-0 overflow-hidden">
+                              <TerminalPane
+                                key={`${paneId}:${terminalId}`}
+                                terminalId={terminalId}
+                                cwd={tab?.cwd ?? shellRoot}
+                                initialCommand={tab?.command}
+                                active={paneId === activePaneOf(layout)}
+                              />
+                            </div>
                           </ErrorBoundary>
                         )
                       }}
