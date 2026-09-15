@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { X, FolderPlus } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
@@ -21,7 +21,12 @@ import {
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds } from './features/session/session-tree'
-import { TerminalDock } from './features/terminal'
+import { TerminalDock, TerminalPane } from './features/terminal'
+import {
+  openTerminalTab,
+  subscribeTerminalDock,
+  terminalDockState,
+} from './features/terminal/terminal-dock'
 import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
@@ -41,8 +46,11 @@ import {
   MAX_PANES,
   activePaneOf,
   activeSessionOf,
+  isBlankLeaf,
+  leaves,
   paneCount,
   sessionsOnScreen,
+  terminalIdsInPanes,
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
@@ -721,6 +729,16 @@ function Shell() {
     () => shellRootFor(activeSession, activeProjectPath, projects),
     [activeSession, activeProjectPath, projects],
   )
+  const terminalDock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
+  const paneTerminalIds = useMemo(() => new Set(terminalIdsInPanes(layout)), [layout])
+  const openTerminalInPane = useCallback(
+    (paneId: string) => {
+      if (shellRoot === null) return
+      const id = openTerminalTab({ title: 'Ari Terminal', cwd: shellRoot })
+      splitLayoutActions.assignTerminal(paneId, id)
+    },
+    [shellRoot],
+  )
 
   if (settingsOpen || hubOpen) {
     return (
@@ -943,7 +961,9 @@ function Shell() {
           ) : (
             <div className="flex min-h-0 flex-1">
               <div className="min-h-0 min-w-0 flex-1">
-                {activeSessionId === null && paneCount(layout) === 1 ? (
+                {activeSessionId === null &&
+                paneCount(layout) === 1 &&
+                (leaves(layout.root)[0] === undefined || isBlankLeaf(leaves(layout.root)[0]!)) ? (
                   // Nothing open at all: the welcome panel is still the view.
                   <ErrorBoundary label="Welcome">
                     <WelcomePanel
@@ -969,6 +989,27 @@ function Shell() {
                       onResize={splitLayoutActions.resize}
                       onDropSession={splitLayoutActions.dropSession}
                       onDropPane={splitLayoutActions.dropPane}
+                      onOpenTerminal={openTerminalInPane}
+                      canOpenTerminal={shellRoot !== null}
+                      terminalTitleOf={(id) =>
+                        terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
+                      }
+                      renderTerminal={(terminalId, paneId) => {
+                        const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
+                        return (
+                          <ErrorBoundary label="Terminal">
+                            <div className="h-full min-h-0 overflow-hidden">
+                              <TerminalPane
+                                key={`${paneId}:${terminalId}`}
+                                terminalId={terminalId}
+                                cwd={tab?.cwd ?? shellRoot}
+                                initialCommand={tab?.command}
+                                active={paneId === activePaneOf(layout)}
+                              />
+                            </div>
+                          </ErrorBoundary>
+                        )
+                      }}
                       renderSession={(sessionId, paneId) => (
                         // Keyed by pane *and* session, so a pane that changes what
                         // it shows remounts: composer seeds and review notes belong
@@ -1018,6 +1059,7 @@ function Shell() {
                         <ErrorBoundary label="Terminal">
                           <TerminalDock
                             cwd={shellRoot}
+                            paneTerminalIds={paneTerminalIds}
                             onAddProject={() => openProjectViaDialog()}
                             onClose={() => setInspector(null)}
                           />

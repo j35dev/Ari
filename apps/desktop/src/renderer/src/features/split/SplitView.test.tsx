@@ -5,6 +5,7 @@ import { PANE_MIME, SESSION_MIME } from './drag-split'
 import {
   MAX_PANES,
   assignSession,
+  assignTerminal,
   initialLayout,
   leaves,
   setRatio,
@@ -92,6 +93,20 @@ describe('SplitView', () => {
     expect(screen.queryByRole('button', { name: /^Close / })).not.toBeInTheDocument()
   })
 
+  it('lets pane content overflow so composer menus are not clipped', () => {
+    renderSplit(filled())
+
+    // The composer's model picker, file suggestions and agent menu are plain
+    // absolutely-positioned children anchored `bottom-full`, not portals, so
+    // clipping anywhere on the way up cuts them off inside a narrow pane.
+    const pane = screen.getByRole('region', { name: 'Alpha' })
+    const body = screen.getByTestId('session-sA').parentElement
+    expect(body?.className).not.toMatch(/overflow-hidden/)
+    for (let node = pane as HTMLElement | null; node !== null; node = node.parentElement) {
+      expect(node.className).not.toMatch(/overflow-hidden/)
+    }
+  })
+
   it('frames every pane once there is more than one, titled by its session', () => {
     renderSplit(filled())
 
@@ -129,7 +144,35 @@ describe('SplitView', () => {
     renderSplit(pair())
 
     expect(screen.getByRole('region', { name: 'Empty pane' })).toBeInTheDocument()
-    expect(screen.getByText('No session in this pane')).toBeInTheDocument()
+    expect(screen.getByText(/Drag a session in from the sidebar/)).toBeInTheDocument()
+  })
+
+  it('opens a terminal from an empty pane and renders one already assigned', () => {
+    const onOpenTerminal = vi.fn()
+    const props = {
+      titleOf: (sessionId: string) => TITLES[sessionId] ?? null,
+      onFocus: vi.fn(),
+      onClose: vi.fn(),
+      onSplit: vi.fn(),
+      onToggleZoom: vi.fn(),
+      onResize: vi.fn(),
+      onDropSession: vi.fn(),
+      onDropPane: vi.fn(),
+      onOpenTerminal,
+      renderSession: (sessionId: string, paneId: string) => (
+        <div data-testid={`session-${sessionId}`} data-pane={paneId} />
+      ),
+      renderTerminal: (terminalId: string, paneId: string) => (
+        <div data-testid={`terminal-${terminalId}`} data-pane={paneId} />
+      ),
+    }
+    const { rerender } = render(<SplitView layout={pair()} {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open terminal' }))
+    expect(onOpenTerminal).toHaveBeenCalledWith('pane2')
+
+    rerender(<SplitView layout={assignTerminal(pair(), 'pane2', 'term_a')} {...props} />)
+    expect(screen.getByTestId('terminal-term_a')).toHaveAttribute('data-pane', 'pane2')
+    expect(screen.getByRole('region', { name: 'Terminal' })).toBeInTheDocument()
   })
 
   it('lays a split out at its ratio, leading child first', () => {

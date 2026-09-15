@@ -24,12 +24,74 @@ export interface TerminalDockState {
 
 const EMPTY: TerminalDockState = { tabs: [], activeId: null }
 
-let state: TerminalDockState = EMPTY
+/** Where the rail's tabs are remembered between renderer loads. */
+export const TERMINAL_DOCK_STORAGE_KEY = 'ari.terminal.dock'
+
+/**
+ * Restores the tab list a previous load left behind. The pane layout persists
+ * terminal ids too, so without this a reload brings back a pane pointing at a
+ * terminal the rail no longer knows: it would show the fallback title, lose the
+ * tab's cwd, and — because closing a pane only returns its terminal to the rail
+ * — strand the still-running pty with no tab to kill it from.
+ *
+ * `command` is deliberately not persisted: it is a one-shot written into the
+ * shell at spawn, and replaying it on every reload would re-run the user's
+ * `pnpm dev` (or worse) behind their back.
+ */
+function load(): TerminalDockState {
+  try {
+    const raw = localStorage.getItem(TERMINAL_DOCK_STORAGE_KEY)
+    if (raw === null) return EMPTY
+    const parsed: unknown = JSON.parse(raw)
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      !Array.isArray((parsed as Record<string, unknown>).tabs)
+    ) {
+      return EMPTY
+    }
+    const raws = (parsed as { tabs: unknown[] }).tabs
+    const tabs: TerminalTab[] = []
+    for (const entry of raws) {
+      if (typeof entry !== 'object' || entry === null) continue
+      const { id, title, cwd } = entry as Record<string, unknown>
+      if (typeof id !== 'string' || typeof title !== 'string' || typeof cwd !== 'string') continue
+      tabs.push({ id, title, cwd })
+    }
+    if (tabs.length === 0) return EMPTY
+    const storedActive = (parsed as { activeId?: unknown }).activeId
+    const activeId =
+      typeof storedActive === 'string' && tabs.some((tab) => tab.id === storedActive)
+        ? storedActive
+        : (tabs[0]?.id ?? null)
+    return { tabs, activeId }
+  } catch {
+    // Storage can refuse to be read at all (private mode, disabled cookies).
+    return EMPTY
+  }
+}
+
+let state: TerminalDockState = load()
 const listeners = new Set<() => void>()
 let seq = 0
 
+function persist(next: TerminalDockState): void {
+  try {
+    localStorage.setItem(
+      TERMINAL_DOCK_STORAGE_KEY,
+      JSON.stringify({
+        tabs: next.tabs.map((tab) => ({ id: tab.id, title: tab.title, cwd: tab.cwd })),
+        activeId: next.activeId,
+      }),
+    )
+  } catch {
+    // Best effort: the in-memory dock is already the truth for this run.
+  }
+}
+
 function commit(next: TerminalDockState): void {
   state = next
+  persist(next)
   for (const listener of listeners) listener()
 }
 

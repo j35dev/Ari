@@ -529,7 +529,7 @@ describe('Shell split panes', () => {
     await screen.findByText('Alpha', {}, { timeout: 10_000 })
 
     expect(screen.getAllByRole('region', { name: 'Empty pane' })).toHaveLength(2)
-    expect(screen.getAllByText('No session in this pane')).toHaveLength(2)
+    expect(screen.getAllByText(/Drag a session in from the sidebar/)).toHaveLength(2)
   })
 
   it('splits a pane from its own right-click menu, leaving the new pane blank', async () => {

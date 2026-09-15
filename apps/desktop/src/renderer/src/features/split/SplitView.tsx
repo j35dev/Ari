@@ -9,7 +9,9 @@ import {
   activePaneOf,
   findLeaf,
   firstLeaf,
+  isBlankLeaf,
   leaves,
+  terminalIdOf,
   type PaneEdge,
   type PaneLeaf,
   type PaneNode,
@@ -30,6 +32,11 @@ export interface SplitViewProps {
   onDropPane: (paneId: string, draggedPaneId: string) => void
   /** One pane's content. Split view owns the chrome; the shell owns this. */
   renderSession: (sessionId: string, paneId: string) => ReactNode
+  /** A pane hosting a terminal rather than a session. */
+  renderTerminal?: (terminalId: string, paneId: string) => ReactNode
+  terminalTitleOf?: (terminalId: string) => string | null
+  onOpenTerminal?: (paneId: string) => void
+  canOpenTerminal?: boolean
 }
 
 /**
@@ -50,6 +57,10 @@ export function SplitView({
   onDropSession,
   onDropPane,
   renderSession,
+  renderTerminal,
+  terminalTitleOf,
+  onOpenTerminal,
+  canOpenTerminal = true,
 }: SplitViewProps) {
   const panes = leaves(layout.root)
   const solo = panes.length === 1
@@ -58,13 +69,29 @@ export function SplitView({
 
   /** A pane's on-screen name — the fallback the frame header uses, so a divider
    * names the two panes the user sees rather than two ids. */
-  const nameOf = (leaf: PaneLeaf): string =>
-    leaf.sessionId === null ? 'Empty pane' : (titleOf(leaf.sessionId) ?? 'Empty pane')
+  const nameOf = (leaf: PaneLeaf): string => {
+    if (leaf.sessionId !== null) return titleOf(leaf.sessionId) ?? 'Empty pane'
+    const terminalId = terminalIdOf(leaf)
+    if (terminalId !== null) return terminalTitleOf?.(terminalId) ?? 'Terminal'
+    return 'Empty pane'
+  }
 
   const renderLeaf = (leaf: PaneLeaf): ReactNode => {
     const { paneId, sessionId } = leaf
-    const blank = sessionId === null
-    const content = blank ? <BlankPane /> : renderSession(sessionId, paneId)
+    const terminalId = terminalIdOf(leaf)
+    const blank = isBlankLeaf(leaf)
+    const content = blank ? (
+      <BlankPane
+        onOpenTerminal={onOpenTerminal !== undefined ? () => onOpenTerminal(paneId) : undefined}
+        canOpenTerminal={canOpenTerminal}
+      />
+    ) : sessionId !== null ? (
+      renderSession(sessionId, paneId)
+    ) : terminalId !== null && renderTerminal !== undefined ? (
+      renderTerminal(terminalId, paneId)
+    ) : (
+      <BlankPane />
+    )
     if (solo) {
       // The only pane has no chrome, but it is still what the two gestures act
       // on: the right-click that splits it, and the sidebar drag that is how
@@ -78,6 +105,8 @@ export function SplitView({
           onSplit={onSplit}
           onDropSession={onDropSession}
           onDropPane={onDropPane}
+          onOpenTerminal={blank ? onOpenTerminal : undefined}
+          canOpenTerminal={canOpenTerminal}
         >
           {content}
         </SoloDropSurface>
@@ -86,7 +115,7 @@ export function SplitView({
     return (
       <PaneFrame
         paneId={paneId}
-        title={blank ? null : titleOf(sessionId)}
+        title={blank ? null : nameOf(leaf)}
         focused={paneId === focusedPaneId}
         blank={blank}
         zoomed={layout.zoomedPaneId !== null}
@@ -97,6 +126,8 @@ export function SplitView({
         onToggleZoom={onToggleZoom}
         onDropSession={onDropSession}
         onDropPane={onDropPane}
+        onOpenTerminal={blank ? onOpenTerminal : undefined}
+        canOpenTerminal={canOpenTerminal}
       >
         {content}
       </PaneFrame>
@@ -136,6 +167,8 @@ function SoloDropSurface({
   onSplit,
   onDropSession,
   onDropPane,
+  onOpenTerminal,
+  canOpenTerminal,
   children,
 }: {
   paneId: string
@@ -145,9 +178,18 @@ function SoloDropSurface({
   onSplit: (paneId: string, edge: PaneEdge) => void
   onDropSession: (paneId: string, sessionId: string, edge: PaneEdge) => void
   onDropPane: (paneId: string, draggedPaneId: string) => void
+  onOpenTerminal?: (paneId: string) => void
+  canOpenTerminal?: boolean
   children: ReactNode
 }) {
-  const menu = usePaneMenu({ paneId, label, canSplit, onSplit })
+  const menu = usePaneMenu({
+    paneId,
+    label,
+    canSplit,
+    onSplit,
+    onOpenTerminal,
+    canOpenTerminal,
+  })
   const drop = usePaneDrop({ paneId, blank, canSplit, onDropSession, onDropPane })
   return (
     <div
