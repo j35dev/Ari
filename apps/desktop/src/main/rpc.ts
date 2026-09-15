@@ -208,6 +208,66 @@ async function probeAcpModels(
 }
 
 /**
+ * Thought/reasoning levels for one kind resolved against a specific model.
+ * Effort is per-model on some agents (OpenCode's `effort` option appears
+ * only for reasoning-capable models), so the picker asks with the selected
+ * model rather than trusting the default-model catalog probe. Throws on
+ * transport failure so the caller keeps its catalog fallback.
+ */
+async function probeEffortsForModel(
+  kind: DriverKind,
+  modelId: string | null | undefined,
+): Promise<{ id: string; label: string; description?: string; current?: boolean }[]> {
+  const { detectDriver } = await import('@ari/providers/detector')
+  const environment = await resolveDetectionEnvironment()
+  const detection = await detectDriver(kind, environment)
+  if (!detection.binaryPath) return []
+  if (process.env['ARI_ACP'] === '0') return []
+  const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath }, environment)
+  if (launch === null) return []
+  const { AcpConnection } = await import('@ari/providers/acp/connection')
+  const probeEnv = processEnvWithPath(environment.pathEnv)
+  const probe = probeLaunch(launch)
+  const connection = await AcpConnection.connect({
+    launch: probe,
+    cwd: homedir(),
+    initializeTimeoutMs: 20_000,
+    runtimeEnv: { ...probeEnv, ...probe.env },
+  })
+  try {
+    const created = await connection.newSession(homedir())
+    let configOptions = created.configOptions ?? []
+    if (typeof modelId === 'string' && modelId.length > 0) {
+      const modelOption = configOptions.find((o) => o.category === 'model' && o.type === 'select')
+      const offered = modelOption?.options?.some((v) => v.value === modelId) === true
+      if (modelOption?.id !== undefined && offered) {
+        const refreshed = await connection.setConfigOption(
+          created.sessionId as string,
+          modelOption.id,
+          modelId,
+        )
+        if (refreshed !== null && refreshed !== undefined && refreshed.length > 0) {
+          configOptions = refreshed
+        }
+      }
+    }
+    const catalog = mergeEffortCatalogs(
+      thoughtEffortsFromSession({ ...created, configOptions }),
+      thoughtEffortsFromMeta(connection.initialize._meta),
+    )
+    if (catalog.options.length > 0) setDynamicEfforts(kind, catalog)
+    return catalog.options.map((option) => ({
+      id: option.id,
+      label: option.label,
+      ...(option.description !== undefined ? { description: option.description } : {}),
+      ...(catalog.currentId === option.id ? { current: true as const } : {}),
+    }))
+  } finally {
+    await connection.shutdown()
+  }
+}
+
+/**
  * Every CLI kind probed by `providers.detect`, regardless of hydration state,
  * so the providers grid is complete even while drivers are still registering.
  */
@@ -1071,6 +1131,22 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           })),
       }
     })
+  })
+
+  // Model-aware effort lookup for the picker: a throwaway ACP session has
+  // the selected model applied, then reports that model's own thought
+  // levels. Empty on any failure — the caller keeps the catalog fallback.
+  r.register('providers.efforts', async (params) => {
+    try {
+      const efforts = await probeEffortsForModel(params.kind, params.modelId ?? null)
+      return { efforts }
+    } catch (error) {
+      log.debug('model-specific effort probe failed; keeping catalog fallback', {
+        kind: params.kind,
+        error: String(error),
+      })
+      return { efforts: [] }
+    }
   })
 
   r.register('window.minimize', () => {

@@ -22,13 +22,19 @@ import {
   replyPermissionChoice,
   replyPlanExit,
 } from './client-requests'
-import { findThoughtOption, looksLikeThoughtAxis } from './thought'
+import { findThoughtOption, looksLikeThoughtAxis, thoughtEffortsFromSession } from './thought'
+import type { EffortCatalog } from './thought'
 import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { CatalogModel } from '../catalogs'
-import { setDynamicModels } from '../catalogs'
-import { AcpUpdateFolder, configOptionsFromUpdate, currentModelId, stopReasonEvents } from './protocol'
+import { setDynamicEfforts, setDynamicModels } from '../catalogs'
+import {
+  AcpUpdateFolder,
+  configOptionsFromUpdate,
+  currentModelId,
+  stopReasonEvents,
+} from './protocol'
 import type {
   AcpConfigOption,
   AcpInitializeResult,
@@ -54,6 +60,14 @@ export interface AcpAdapter extends ProviderAdapter {
   respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
   /** Answers a pending `input-requested` question (elicitation, ask-user, plan). */
   respondInput(inputId: string, value: string): void
+  /**
+   * Thought/reasoning levels the session advertises after the model pick was
+   * applied. Effort is per-model on some agents (OpenCode exposes `effort`
+   * only for reasoning-capable models), so the host refreshes the kind's
+   * live effort catalog from this: the picker re-queries after a model
+   * switch instead of trusting the default-model probe forever.
+   */
+  advertisedEfforts: EffortCatalog
   /**
    * The models this session's agent advertises, in the agent's own vocabulary.
    * The host installs these as the kind's live catalog: discovery from the
@@ -189,7 +203,8 @@ export async function createAcpAdapter(
     if (method === 'elicitation/create') {
       const form = parseElicitationForm(params)
       if (form.url) return Promise.resolve(replyElicitationCancel())
-      const prompt = form.message.length > 0 ? form.message : (form.questions[0]?.question ?? 'Question')
+      const prompt =
+        form.message.length > 0 ? form.message : (form.questions[0]?.question ?? 'Question')
       return parkInput(
         form.questions.length > 1 ? form.message || `${form.questions.length} questions` : prompt,
         encodeQuestionnaire({ kind: 'questionnaire', questions: form.questions }),
@@ -248,7 +263,10 @@ export async function createAcpAdapter(
     if (typeof resumeId === 'string' && resumeId.length > 0) {
       if (sessionResumeSupported(connection.initialize)) {
         try {
-          return { created: await connection.resumeSession(resumeId, session.workspacePath), resumed: true }
+          return {
+            created: await connection.resumeSession(resumeId, session.workspacePath),
+            resumed: true,
+          }
         } catch (error) {
           log.warn('acp: session/resume failed; trying session/load', {
             resumeId,
@@ -258,7 +276,10 @@ export async function createAcpAdapter(
       }
       if (connection.initialize.agentCapabilities?.loadSession === true) {
         try {
-          return { created: await connection.loadSession(resumeId, session.workspacePath), resumed: true }
+          return {
+            created: await connection.loadSession(resumeId, session.workspacePath),
+            resumed: true,
+          }
         } catch (error) {
           log.warn('acp: session/load failed; starting a fresh session', {
             resumeId,
@@ -286,10 +307,7 @@ export async function createAcpAdapter(
   // folder has the exact prelude before that notification can be folded.
   folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   const sessionId = created.sessionId as string
-  const drift = new ModelDriftWatch(
-    session.modelId,
-    currentModelId(created.configOptions ?? null),
-  )
+  const drift = new ModelDriftWatch(session.modelId, currentModelId(created.configOptions ?? null))
   connection.onSessionUpdate = (notification) => {
     push(folder.fold(notification))
     // The agent announcing a configuration move has no transcript surface, but
@@ -306,11 +324,29 @@ export async function createAcpAdapter(
 
   const selectors = resolveSelectors(launch.label, created, resumed)
   try {
-    const applied = await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
+    const applied = await applyModel(
+      connection,
+      sessionId,
+      selectors.configOptions,
+      session.modelId,
+    )
     // The pick did not reach the agent, so a different model is about to
     // answer. Say it in the transcript: the composer still shows the pick.
     if (applied.kind === 'unavailable' && session.modelId !== null) {
       push([modelUnavailableNotice(session.modelId, applied.offered)])
+    }
+    // A model switch can reshape the session's own selectors: OpenCode only
+    // advertises `effort` for reasoning-capable models, so the options that
+    // came back with the switch replace the default-model vocabulary for
+    // everything below (permission modes, thought level) and for the picker.
+    // An empty reply carries no information (older agents answer `{}`), so it
+    // must not wipe the vocabulary the session opened with.
+    if (applied.kind === 'applied' && applied.refreshed !== null) {
+      selectors.configOptions = applied.refreshed
+      LEARNED_SELECTORS.set(launch.label, {
+        configOptions: selectors.configOptions,
+        availableModes: selectors.availableModes,
+      })
     }
     await applyPermissionMode(
       connection,
@@ -338,7 +374,8 @@ export async function createAcpAdapter(
    * on a request whose client has already left.
    */
   const releasePending = (): void => {
-    for (const pending of pendingPermissions.values()) pending.resolve({ outcome: { outcome: 'cancelled' } })
+    for (const pending of pendingPermissions.values())
+      pending.resolve({ outcome: { outcome: 'cancelled' } })
     pendingPermissions.clear()
     // Answer parked interactive requests as a JSON-RPC *success* cancel.
     // A method-not-found or a dropped request is what Grok reads as
@@ -431,7 +468,11 @@ export async function createAcpAdapter(
         if (event.type === 'done') return
       }
       if (connection.closed && queue.length === 0) {
-        yield { type: 'error', message: `${launch.label} ended before completing the turn`, rawJson: null }
+        yield {
+          type: 'error',
+          message: `${launch.label} ended before completing the turn`,
+          rawJson: null,
+        }
         yield { type: 'done' }
         return
       }
@@ -496,6 +537,13 @@ export async function createAcpAdapter(
       if (!connection.closed) connection.cancel(sessionId)
       await connection.shutdown()
     },
+    advertisedEfforts: thoughtEffortsFromSession({
+      configOptions: selectors.configOptions,
+      modes:
+        selectors.availableModes.length > 0
+          ? { availableModes: selectors.availableModes }
+          : undefined,
+    }),
     advertisedModels: modelsFromConfigOptions(selectors.configOptions),
   }
 }
@@ -554,10 +602,7 @@ function formatAcpSetupError(error: unknown): string {
  * flavor the agent offered, in priority order. Falls back to undefined so
  * the caller can cancel instead of fabricating an option id.
  */
-function optionFor(
-  options: AcpRequestPermission['options'],
-  kinds: string[],
-): string | undefined {
+function optionFor(options: AcpRequestPermission['options'], kinds: string[]): string | undefined {
   const list = options ?? []
   for (const kind of kinds) {
     const match = list.find((o) => o.kind === kind && typeof o.optionId === 'string')
@@ -621,7 +666,8 @@ export function __resetLearnedAcpSelectors(): void {
  * agent defaults to.
  */
 type ModelApplyOutcome =
-  | { kind: 'applied' }
+  /** `refreshed` holds the selectors the agent returned with the switch, or null when it said nothing useful. */
+  | { kind: 'applied'; refreshed: AcpConfigOption[] | null }
   | { kind: 'skipped' }
   | { kind: 'unavailable'; offered: string[] }
 
@@ -649,14 +695,21 @@ async function applyModel(
     }
   }
   try {
-    await connection.setConfigOption(sessionId, option.id as string, value)
+    // The reply carries the selectors as they stand *after* the switch, which
+    // is how a per-model effort axis is discovered. Older agents answer `{}`;
+    // an empty list says nothing, so it is reported as no refresh at all.
+    const refreshed = await connection.setConfigOption(sessionId, option.id as string, value)
+    return {
+      kind: 'applied',
+      refreshed:
+        refreshed !== null && refreshed !== undefined && refreshed.length > 0 ? refreshed : null,
+    }
   } catch (error) {
     log.debug('acp: set_config_option(model) failed', { error: String(error) })
     // The agent took the request and refused it — from the user's side that is
     // the same outcome as never offering the model: a different one answered.
     return { kind: 'unavailable', offered: [] }
   }
-  return { kind: 'applied' }
 }
 
 /**
@@ -796,7 +849,9 @@ async function applyThoughtLevel(
     }
     return
   }
-  const ids = availableModes.map((m) => m.id).filter((v): v is string => typeof v === 'string' && v.length > 0)
+  const ids = availableModes
+    .map((m) => m.id)
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
   if (looksLikeThoughtAxis(ids) && ids.includes(effort)) {
     try {
       await connection.setMode(sessionId, effort)
@@ -858,6 +913,17 @@ export function publishAdvertisedModels(kind: DriverKind, models: CatalogModel[]
  * while adapters drift — except for the auth walls {@link shouldFallBack}
  * excludes, which propagate as {@link AcpAuthRequiredError}.
  */
+/**
+ * Installs the thought/reasoning levels the running session advertises after
+ * its model pick, so the effort picker follows model switches. An empty
+ * catalog clears a stale overlay (a model without effort genuinely offers
+ * none); kinds with a static fallback (Grok, Ari Core) fall back to it.
+ */
+export function publishAdvertisedEfforts(kind: DriverKind, efforts: EffortCatalog): void {
+  setDynamicEfforts(kind, efforts)
+  log.info('effort catalog taken from the session agent', { kind, count: efforts.options.length })
+}
+
 export class AcpDriver implements Driver {
   readonly kind: DriverKind
 
@@ -881,6 +947,7 @@ export class AcpDriver implements Driver {
           this.onAuthRequired ?? undefined,
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
+        publishAdvertisedEfforts(this.kind, adapter.advertisedEfforts)
         publishAdvertisedModels(this.kind, adapter.advertisedModels)
         return adapter
       } catch (error) {
