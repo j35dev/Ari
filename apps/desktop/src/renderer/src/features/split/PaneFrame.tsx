@@ -105,7 +105,11 @@ export function PaneFrame({
           <X size={10} aria-hidden />
         </button>
       </header>
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Deliberately not `overflow-hidden`: the composer's model picker, file
+          suggestions and agent menu are plain absolutely-positioned children
+          (not portals) anchored `bottom-full`, so clipping here would cut them
+          off inside a narrow pane. Terminals clip themselves instead. */}
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {children}
         <PaneDropOverlay target={drop.target} />
       </div>
