@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { PaneEdge } from '../split/split-layout'
+import { GithubMark } from '../github/GithubMark'
 
 /** A runnable entry in the command palette. */
 export interface PaletteCommand {
@@ -38,6 +39,7 @@ export type NavigableView =
   | 'settings'
   | 'files'
   | 'usage'
+  | 'github'
 
 /**
  * What the pane commands act on, as the shell sees it: the pane the user is in,
@@ -138,6 +140,12 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       label: 'Go to Usage',
       icon: Gauge,
       run: () => ctx.onNavigate('usage'),
+    },
+    {
+      id: 'nav.github',
+      label: 'Go to PRs & issues',
+      icon: GithubMark,
+      run: () => ctx.onNavigate('github'),
     },
     {
       id: 'nav.settings',

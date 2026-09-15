@@ -654,6 +654,27 @@ describe('Shell split panes', () => {
     expect(screen.queryByRole('region', { name: 'Empty pane' })).not.toBeInTheDocument()
   })
 
+  it('lets a session shortcut stand the GitHub hub down instead of firing behind it', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    fireEvent.click(await screen.findByRole('option', { name: /Go to PRs & issues/ }))
+    await screen.findByRole('navigation', { name: 'Projects' }, { timeout: 10_000 })
+
+    // The hub takes the whole window, so a jump to a session has to close it —
+    // otherwise the session loads behind a view the user is still looking at.
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true })
+
+    await vi.waitFor(
+      () => {
+        expect(screen.queryByRole('navigation', { name: 'Projects' })).not.toBeInTheDocument()
+      },
+      { timeout: 10_000 },
+    )
+    expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+  })
+
   it('leaves the pane chords to a field that has the keyboard', async () => {
     render(<App />)
     const search = await screen.findByRole('searchbox', {}, { timeout: 10_000 })
