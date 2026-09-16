@@ -68,7 +68,6 @@ const SETTINGS = {
   appearance: {
     themeId: 'obsidian',
     mode: 'system',
-    glass: true,
     reducedMotion: false,
     wallpaper: 'none',
   },

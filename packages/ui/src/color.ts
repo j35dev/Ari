@@ -78,7 +78,7 @@ function encodeSrgb(channel: number): number {
  * Converts an `oklch(...)` literal to `#rrggbb`. Electron's `backgroundColor`
  * and `titleBarOverlay.symbolColor` only accept hex, so theme colors have to
  * be flattened before they cross into the main process. Alpha is dropped: the
- * window backdrop must be opaque for non-glass themes.
+ * window backdrop must remain opaque.
  * Returns null when the literal cannot be parsed.
  */
 export function oklchToHex(value: string): string | null {

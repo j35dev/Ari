@@ -742,7 +742,7 @@ function Shell() {
 
   if (settingsOpen || hubOpen) {
     return (
-      <div className="ari-glass-pane flex h-full flex-col">
+      <div className="ari-wallpaper-pane flex h-full flex-col">
         <Titlebar
           activeTool={settingsOpen ? 'settings' : 'github'}
           onSelectTool={selectWorkspaceTool}
@@ -778,7 +778,7 @@ function Shell() {
 
   if (galleryOpen) {
     return (
-      <div className="ari-glass-pane flex h-full flex-col bg-bg">
+      <div className="ari-wallpaper-pane flex h-full flex-col bg-bg">
         <header className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center gap-2 pl-3">
           <span className="text-fg text-xs font-semibold tracking-[0.18em]">ARI</span>
           <span className="text-fg-subtle text-xs">/</span>
@@ -800,7 +800,7 @@ function Shell() {
   }
 
   return (
-    <div className="ari-glass-pane flex h-full flex-col">
+    <div className="ari-wallpaper-pane flex h-full flex-col">
       <Titlebar
         activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
@@ -809,7 +809,7 @@ function Shell() {
       />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen ? (
-          <aside className="ari-glass flex shrink-0 flex-col" style={{ width: sidebar.width }}>
+          <aside className="flex shrink-0 flex-col bg-surface-0" style={{ width: sidebar.width }}>
             <SidebarHeader
               onSearch={() => sidebarSearchRef.current?.focus()}
               onCollapse={toggleSidebar}
@@ -1076,7 +1076,7 @@ function Shell() {
                             type="button"
                             aria-label="Close inspector"
                             onClick={() => setInspector(null)}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                           >
                             <X size={13} />
                           </button>

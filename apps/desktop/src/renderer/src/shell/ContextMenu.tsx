@@ -101,7 +101,7 @@ export function ContextMenu({
         role="menu"
         aria-label={label}
         style={{ left: position.x, top: position.y, width: MENU_WIDTH }}
-        className="ari-glass-overlay fixed z-[61] overflow-hidden rounded-lg border border-border p-1 shadow-2"
+        className="fixed z-[61] overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
       >
         {items.map((item, index) => {
           const Icon = item.icon

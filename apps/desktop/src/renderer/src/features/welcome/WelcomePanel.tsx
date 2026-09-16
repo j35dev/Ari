@@ -280,7 +280,7 @@ export function WelcomePanel({
         {needsSetup ? (
           <form
             onSubmit={(e) => void connect(e)}
-            className="flex flex-col gap-3 rounded-xl border border-border bg-glass-input p-4"
+            className="flex flex-col gap-3 rounded-xl border border-border bg-surface-1 p-4"
           >
             <div className="flex items-center gap-2">
               <PlugZap size={14} className="text-accent" />

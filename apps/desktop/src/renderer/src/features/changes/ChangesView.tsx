@@ -233,7 +233,7 @@ export function ShipSection({
             disabled={busy || !hasChanges}
             placeholder={hasChanges ? 'Commit message — stages all changes' : 'Worktree clean'}
             aria-label="Commit message"
-            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-glass-input px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
           />
           <button
             type="button"
@@ -253,7 +253,7 @@ export function ShipSection({
             onChange={(e) => setPrTitle(e.target.value)}
             aria-label="Pull request title"
             placeholder="PR title"
-            className="h-7 w-full rounded-md border border-border bg-glass-input px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+            className="h-7 w-full rounded-md border border-border bg-surface-1 px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
           />
           <textarea
             value={prBody}
@@ -261,7 +261,7 @@ export function ShipSection({
             aria-label="Pull request description"
             placeholder="Description (optional)"
             rows={3}
-            className="w-full resize-none rounded-md border border-border bg-glass-input px-2 py-1 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+            className="w-full resize-none rounded-md border border-border bg-surface-1 px-2 py-1 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
           />
           <div className="flex items-center gap-2">
             <button

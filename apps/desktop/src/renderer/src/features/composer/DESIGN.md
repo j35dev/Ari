@@ -12,13 +12,13 @@
 
 ## Evidence
 
-- Local: M22 cloned T3 (provider-chip pill, left send, `focus-within` halo, icon rail in an earlier pass). Neighbors use ghost chips, `rounded-lg`, `focus-visible` rings, Geist, glass overlays.
+- Local: M22 cloned T3 (provider-chip pill, left send, `focus-within` halo, icon rail in an earlier pass). Neighbors use ghost chips, `rounded-lg`, `focus-visible` rings, Geist, and elevated overlays.
 - Contrast: T3 (icon rail, starred recents, Ctrl+N, left send) and Cursor (right circular send). Ari is agent-first, not model-marketplace-first.
 - Inference: users pick an *agent* then a model; the chrome should say that.
 
 ## Thesis
 
-One glass plate. Identity is a **mono letter mark** (C Claude, X Codex, O OpenCode, A Ari Core) plus the model name — not an all-caps vendor chip and not a logo rail. Context (agent, permission) sits left; prompt actions (stash, send) sit right. Send is a rounded-md square, not a circle, so it shares geometry with the chips. No leftover `focus-within` halo after clicking a chip; keyboard rings stay on `:focus-visible`.
+One elevated surface. Identity is a **mono letter mark** (C Claude, X Codex, O OpenCode, A Ari Core) plus the model name — not an all-caps vendor chip and not a logo rail. Context (agent, permission) sits left; prompt actions (stash, send) sit right. Send is a rounded-md square, not a circle, so it shares geometry with the chips. No leftover `focus-within` halo after clicking a chip; keyboard rings stay on `:focus-visible`.
 
 ## Picker (2026-08-25 revision)
 
@@ -42,7 +42,7 @@ The dock above the plate is preserved by leaving it in normal flow: the rail's `
 
 ## Semantic reuse
 
-- Color: `bg-glass-input`, `border-border`, `bg-surface-2` hover/active, `bg-accent` only on an armed send, `text-fg-subtle` for marks/hints.
+- Color: `bg-surface-1`, `border-border`, `bg-surface-2` hover/active, `bg-accent` only on an armed send, `text-fg-subtle` for marks/hints.
 - Type: Geist UI + Geist Mono for the mark and hints.
 - Radius: plate `rounded-lg`; chips/send `rounded-md`; mark `rounded-sm`.
 - Motion: named `transition-colors` / `transition-transform`; chevron rotates; `motion-reduce:transition-none`.

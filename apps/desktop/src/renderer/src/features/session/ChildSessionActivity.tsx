@@ -46,7 +46,7 @@ export function ChildSessionActivity({
                       onOpen?.(session.id)
                       setOpen(false)
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                   >
                     <span className="flex size-2.5 shrink-0 items-center justify-center">
                       {activity ? (

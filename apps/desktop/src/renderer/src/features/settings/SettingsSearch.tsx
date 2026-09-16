@@ -21,7 +21,7 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-appearance',
     label: 'Theme',
-    keywords: 'comet glass accent light dark preview appearance',
+    keywords: 'theme accent light dark preview appearance',
   },
   {
     section: 'settings-appearance',

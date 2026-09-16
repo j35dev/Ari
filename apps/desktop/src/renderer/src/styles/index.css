@@ -6,7 +6,7 @@
    takes its image URL from the provider rather than a relative `url()`. */
 @import 'tailwindcss';
 @import '@ari/ui/tokens.css';
-@import '@ari/ui/glass.css';
+@import '@ari/ui/surface-effects.css';
 @import '@ari/ui/wallpaper.css';
 @import '@ari/ui/scroll-area.css';
 
@@ -20,7 +20,7 @@
 @source '../../../../../../packages/ui/src';
 
 /* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
-   resolve to live CSS variables and follow the single glass appearance. */
+   resolve to live CSS variables and follow the active palette. */
 @theme inline {
   --color-bg: var(--ari-bg);
   --color-surface-0: var(--ari-surface-0);
