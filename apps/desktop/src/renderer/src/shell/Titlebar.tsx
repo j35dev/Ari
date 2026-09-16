@@ -63,7 +63,7 @@ export function Titlebar({
 
   return (
     <header
-      className="ari-glass flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50"
+      className="flex h-[var(--ari-titlebar-height)] shrink-0 items-center border-b border-border/50 bg-surface-0"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div
@@ -75,7 +75,7 @@ export function Titlebar({
             aria-label="Expand sidebar"
             title="Expand sidebar (Ctrl+B)"
             onClick={onExpandSidebar}
-            className="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <PanelLeftOpen size={15} aria-hidden />
@@ -178,7 +178,7 @@ function WindowButton({
       aria-label={label}
       onClick={onClick}
       className={`flex w-11 items-center justify-center text-fg-muted transition-colors ${
-        danger ? 'hover:bg-danger hover:text-fg-on-accent' : 'hover:bg-glass-hover hover:text-fg'
+        danger ? 'hover:bg-danger hover:text-fg-on-accent' : 'hover:bg-surface-2 hover:text-fg'
       }`}
     >
       {children}

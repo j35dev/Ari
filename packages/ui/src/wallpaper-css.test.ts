@@ -11,15 +11,15 @@ import { describe, expect, it } from 'vitest'
 const css = readFileSync(resolve(process.cwd(), 'src/wallpaper.css'), 'utf8')
 
 describe('wallpaper.css', () => {
-  it('paints one continuous plate carrying the glass recipe', () => {
-    expect(css).toContain('[data-ari-wallpaper] .ari-glass-pane {')
-    expect(css).toMatch(/\.ari-glass-pane \{[^}]*background: var\(--ari-glass-scrim\)/)
-    expect(css).toMatch(/\.ari-glass-pane \{[^}]*backdrop-filter: blur\(28px\) saturate\(1\.35\)/)
+  it('paints one continuous wallpaper pane', () => {
+    expect(css).toContain('[data-ari-wallpaper] .ari-wallpaper-pane {')
+    expect(css).toMatch(/\.ari-wallpaper-pane \{[^}]*background: var\(--ari-wallpaper-pane\)/)
+    expect(css).toMatch(/\.ari-wallpaper-pane \{[^}]*backdrop-filter: blur\(28px\) saturate\(1\.35\)/)
   })
 
   it('neutralizes nested chrome and pane fills so no surface double-tints', () => {
-    expect(css).toContain('[data-ari-wallpaper] .ari-glass-pane .ari-glass,')
-    expect(css).toContain('[data-ari-wallpaper] .ari-glass-pane .bg-bg {')
+    expect(css).toContain('[data-ari-wallpaper] .ari-wallpaper-pane .bg-surface-0,')
+    expect(css).toContain('[data-ari-wallpaper] .ari-wallpaper-pane .bg-bg {')
     expect(css).toMatch(/\.bg-bg \{[^}]*background-color: transparent/)
   })
 
@@ -41,7 +41,7 @@ describe('wallpaper.css', () => {
     expect(css).toContain('@media (prefers-reduced-transparency: reduce)')
     const media = css.slice(css.indexOf('@media (prefers-reduced-transparency: reduce)'))
     expect(media).toContain('backdrop-filter: none')
-    expect(media).toContain('--ari-glass-scrim')
+    expect(media).toContain('--ari-wallpaper-pane')
   })
 
   it('derives every color from theme tokens (no raw literals outside tokens.css)', () => {

@@ -100,7 +100,7 @@ function HunkRow({ line, path, onComment }: { line: DiffLine; path?: string; onC
             rows={2}
             aria-label={`Review note for ${path ?? 'line'}`}
             placeholder="Review note — sent with your next message (Mod+Enter to save)"
-            className="w-full resize-none rounded-sm border border-border bg-glass-input px-2 py-1 font-mono text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="w-full resize-none rounded-sm border border-border bg-surface-1 px-2 py-1 font-mono text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           />
           <div className="mt-1 flex items-center justify-end gap-1">
             <button

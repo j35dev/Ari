@@ -25,8 +25,6 @@ describe('theme registry', () => {
     expect(themeIds).toHaveLength(6)
     expect(themeList.filter((t) => t.scheme === 'dark').length).toBeGreaterThanOrEqual(2)
     expect(themeList.filter((t) => t.scheme === 'light')).toHaveLength(2)
-    expect(themeList.some((t) => t.glass)).toBe(true)
-    expect(themeList.some((t) => !t.glass)).toBe(true)
   })
 
   it.each(themeList)('$id defines every color role exactly once', (theme) => {

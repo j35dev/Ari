@@ -201,7 +201,7 @@ describe('contracts', () => {
     expect(settingsUpdateSchema.safeParse({ appearance: { wallpaper: 'aurora' } }).success).toBe(
       false,
     )
-    // The visibility-look field was retired in M26.5 (one uniform glass look);
+    // The visibility-look field was retired in M26.5;
     // zod strips it rather than rejecting, so a stale caller can't write it.
     expect(settingsUpdateSchema.parse({ appearance: { wallpaperLook: 'vivid' } })).toEqual({
       appearance: {},
@@ -231,6 +231,14 @@ describe('contracts', () => {
     })
     expect(parsed.appearance.wallpaper).toBe('anime-city')
     expect(parsed.appearance).not.toHaveProperty('wallpaperLook')
+  })
+
+  it('drops the retired glass preference from stored settings and patches', () => {
+    const parsed = settingsSchema.parse({ version: 1, appearance: { glass: true } })
+    expect(parsed.appearance).not.toHaveProperty('glass')
+    expect(settingsUpdateSchema.parse({ appearance: { glass: false } })).toEqual({
+      appearance: {},
+    })
   })
 
   it('validates fs.writeTextFile scope params and rejects malformed payloads', () => {

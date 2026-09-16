@@ -52,7 +52,7 @@ export function MessageRail({
             {hovered === entry.key ? (
               <span
                 role="tooltip"
-                className="ari-glass-overlay pointer-events-none absolute right-5 top-0 w-64 rounded-lg border border-border px-2.5 py-1.5 shadow-2"
+                className="pointer-events-none absolute right-5 top-0 w-64 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 shadow-2"
               >
                 <span className="line-clamp-3 block whitespace-pre-wrap break-words text-left text-2xs leading-snug text-fg-muted">
                   {entry.text}

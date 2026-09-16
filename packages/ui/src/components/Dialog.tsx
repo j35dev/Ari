@@ -142,7 +142,7 @@ export function DialogContent({
             variants={menuInVariants}
             style={style}
             className={[
-              'ari-glass-overlay border border-border rounded-lg shadow-2 outline-none',
+              'bg-surface-2 border border-border rounded-lg shadow-2 outline-none',
               SIZE_CLASS[size],
               className,
             ]

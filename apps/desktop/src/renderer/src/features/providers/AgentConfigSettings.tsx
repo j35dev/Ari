@@ -138,7 +138,7 @@ export function AgentConfigSettings() {
               className={`rounded-md border px-2.5 py-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                 entry === kind
                   ? 'border-accent-ring bg-accent-subtle font-medium text-fg'
-                  : 'border-border text-fg-muted hover:bg-glass-hover hover:text-fg'
+                  : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
               }`}
             >
               {KIND_LABELS[entry] ?? entry}
