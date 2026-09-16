@@ -176,7 +176,7 @@ export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSear
             aria-modal="true"
             aria-label="Project content search"
             onClick={(event) => event.stopPropagation()}
-            className="mt-[12vh] flex h-fit w-[min(640px,92vw)] flex-col overflow-hidden rounded-lg border border-border ari-glass-overlay"
+            className="mt-[12vh] flex h-fit w-[min(640px,92vw)] flex-col overflow-hidden rounded-lg border border-border bg-surface-2"
             style={{ boxShadow: 'var(--ari-shadow-3)' }}
           >
             <div className="flex h-12 items-center gap-2 border-b border-border px-4">

@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     "./tokens.css": "./src/tokens.css",
-    "./glass.css": "./src/glass.css",
+    "./surface-effects.css": "./src/surface-effects.css",
     "./wallpaper.css": "./src/wallpaper.css",
     "./fonts": "./src/fonts.ts",
     "./scroll-area.css": "./src/scroll-area.css",

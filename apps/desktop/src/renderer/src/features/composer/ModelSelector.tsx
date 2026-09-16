@@ -473,7 +473,7 @@ export function ModelSelector({
         <div
           role="presentation"
           onKeyDown={onMenuKeyDown}
-          className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 flex w-[25rem] flex-col overflow-hidden rounded-lg border border-border shadow-2"
+          className="absolute bottom-full left-0 z-50 mb-2 flex w-[25rem] flex-col overflow-hidden rounded-lg border border-border bg-surface-2 shadow-2"
         >
           <div className="relative border-b border-border">
             <Search
