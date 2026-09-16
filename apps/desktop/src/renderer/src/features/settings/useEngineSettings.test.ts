@@ -16,7 +16,6 @@ const baseSettings: Settings = {
   appearance: {
     themeId: 'obsidian',
     mode: 'system',
-    glass: true,
     reducedMotion: false,
     wallpaper: 'none',
   },
@@ -58,7 +57,6 @@ describe('useEngineSettings', () => {
       appearance: {
         themeId: 'obsidian',
         mode: 'system',
-        glass: true,
         reducedMotion: true,
         wallpaper: 'none',
       },
@@ -69,11 +67,13 @@ describe('useEngineSettings', () => {
 
     let returned: Settings | undefined
     await act(async () => {
-      returned = await result.current.update({ appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: true } })
+      returned = await result.current.update({
+        appearance: { themeId: 'obsidian', mode: 'system', reducedMotion: true },
+      })
     })
 
     expect(invoke).toHaveBeenCalledWith('settings.update', {
-      appearance: { themeId: 'obsidian', mode: 'system', glass: true, reducedMotion: true },
+      appearance: { themeId: 'obsidian', mode: 'system', reducedMotion: true },
     })
     expect(returned).toEqual(updated)
     expect(result.current.settings).toEqual(updated)

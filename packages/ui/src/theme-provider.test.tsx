@@ -23,22 +23,19 @@ function Probe() {
     themeId,
     mode,
     resolvedScheme,
-    glassEnabled,
     setTheme,
     setMode,
-    setGlass,
     wallpaper,
     setWallpaper,
   } = useTheme()
   return (
     <div>
       <output data-testid="state">
-        {`${themeId}|${mode}|${resolvedScheme}|${glassEnabled}|${wallpaper}`}
+        {`${themeId}|${mode}|${resolvedScheme}|${wallpaper}`}
       </output>
       <button onClick={() => setTheme('porcelain')}>light</button>
       <button onClick={() => setTheme('nocturne')}>nocturne</button>
       <button onClick={() => setMode('system')}>system</button>
-      <button onClick={() => setGlass(false)}>glass off</button>
       <button onClick={() => setWallpaper('anime-city')}>wallpaper on</button>
       <button onClick={() => setWallpaper('none')}>wallpaper off</button>
     </div>
@@ -65,8 +62,8 @@ describe('ThemeProvider', () => {
     )
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
     expect(root()['ariScheme']).toBe('dark')
-    expect(root()['ariGlass']).toBe('on')
-    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|true|none')
+    expect(root()['ariGlass']).toBeUndefined()
+    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|none')
   })
 
   it('picks the light theme when the OS prefers light', async () => {
@@ -78,8 +75,7 @@ describe('ThemeProvider', () => {
     )
     await waitFor(() => expect(root()['ariTheme']).toBe('porcelain'))
     expect(root()['ariScheme']).toBe('light')
-    // Porcelain is opaque, so glass is off even though the user opted in.
-    expect(root()['ariGlass']).toBe('off')
+    expect(root()['ariGlass']).toBeUndefined()
   })
 
   it('swaps both attributes when a theme is pinned', async () => {
@@ -92,41 +88,16 @@ describe('ThemeProvider', () => {
     await user.click(screen.getByText('light'))
     await waitFor(() => expect(root()['ariTheme']).toBe('porcelain'))
     expect(root()['ariScheme']).toBe('light')
-    expect(screen.getByTestId('state')).toHaveTextContent('porcelain|porcelain|light|false|none')
+    expect(screen.getByTestId('state')).toHaveTextContent('porcelain|porcelain|light|none')
 
     await user.click(screen.getByText('system'))
     await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
   })
 
-  it('honors the glass opt-out on a glass-capable theme', async () => {
-    render(
-      <ThemeProvider>
-        <Probe />
-      </ThemeProvider>,
-    )
-    const user = userEvent.setup()
-    await user.click(screen.getByText('nocturne'))
-    await waitFor(() => expect(root()['ariGlass']).toBe('on'))
-    await user.click(screen.getByText('glass off'))
-    await waitFor(() => expect(root()['ariGlass']).toBe('off'))
-  })
-
-  it('forces glass off under prefers-reduced-transparency', async () => {
-    stubMatchMedia(['prefers-color-scheme: dark', 'prefers-reduced-transparency'])
-    render(
-      <ThemeProvider>
-        <Probe />
-      </ThemeProvider>,
-    )
-    await waitFor(() => expect(root()['ariTheme']).toBe('obsidian'))
-    expect(root()['ariGlass']).toBe('off')
-    expect(screen.getByTestId('state')).toHaveTextContent('obsidian|system|dark|false|none')
-  })
-
   it('round-trips preferences through the injected persistence', async () => {
     const saved: unknown[] = []
     const persistence: ThemePersistence = {
-      load: () => Promise.resolve({ mode: 'verdant', glass: false, wallpaper: 'anime-city' }),
+      load: () => Promise.resolve({ mode: 'verdant', wallpaper: 'anime-city' }),
       save: (prefs) => {
         saved.push(prefs)
         return Promise.resolve()
@@ -141,7 +112,6 @@ describe('ThemeProvider', () => {
     await waitFor(() =>
       expect(saved).toContainEqual({
         mode: 'verdant',
-        glass: false,
         wallpaper: 'anime-city',
         themeId: 'verdant',
       }),
@@ -196,7 +166,7 @@ describe('ThemeProvider', () => {
   it('paints the cached scene URL before React mounts', () => {
     localStorage.setItem(
       'ari.theme',
-      JSON.stringify({ mode: 'obsidian', glass: true, wallpaper: 'moon-landscape' }),
+      JSON.stringify({ mode: 'obsidian', wallpaper: 'moon-landscape' }),
     )
     stubMatchMedia(['prefers-color-scheme: dark'])
     applyCachedTheme()
@@ -208,7 +178,7 @@ describe('ThemeProvider', () => {
   it('ignores a retired look field in the durable copy and the cache', async () => {
     const persistence: ThemePersistence = {
       load: () =>
-        Promise.resolve({ mode: 'verdant', glass: false, wallpaperLook: 'vivid' } as never),
+        Promise.resolve({ mode: 'verdant', wallpaperLook: 'vivid' } as never),
       save: () => Promise.resolve(),
     }
     const { unmount } = render(
@@ -223,7 +193,7 @@ describe('ThemeProvider', () => {
 
     localStorage.setItem(
       'ari.theme',
-      JSON.stringify({ mode: 'verdant', glass: false, wallpaper: 'anime-city', wallpaperLook: 'vivid' }),
+      JSON.stringify({ mode: 'verdant', wallpaper: 'anime-city', wallpaperLook: 'vivid' }),
     )
     applyCachedTheme()
     // The scene still paints pre-hydration; the stale look is simply ignored.
@@ -233,8 +203,8 @@ describe('ThemeProvider', () => {
 
   it('never saves the cached default over the durable copy before it loads', async () => {
     const saved: unknown[] = []
-    let release: (value: { mode: 'verdant'; glass: false }) => void = () => undefined
-    const pending = new Promise<{ mode: 'verdant'; glass: false }>((resolve) => {
+    let release: (value: { mode: 'verdant' }) => void = () => undefined
+    const pending = new Promise<{ mode: 'verdant' }>((resolve) => {
       release = resolve
     })
     const persistence: ThemePersistence = {
@@ -251,10 +221,10 @@ describe('ThemeProvider', () => {
     )
     // The cache says 'system'; saving that now would erase the stored verdant.
     expect(saved).toEqual([])
-    release({ mode: 'verdant', glass: false })
+    release({ mode: 'verdant' })
     await waitFor(() => expect(root()['ariTheme']).toBe('verdant'))
     expect(saved).toEqual([
-      { mode: 'verdant', glass: false, wallpaper: 'none', themeId: 'verdant' },
+      { mode: 'verdant', wallpaper: 'none', themeId: 'verdant' },
     ])
   })
 
@@ -277,16 +247,15 @@ describe('applyCachedTheme', () => {
     localStorage.setItem('ari.theme', JSON.stringify({ mode: 'porcelain', glass: true }))
     stubMatchMedia([])
     applyCachedTheme()
-    // Porcelain is light and opaque, so no glass regardless of the opt-in.
     expect(root()['ariTheme']).toBe('porcelain')
     expect(root()['ariScheme']).toBe('light')
-    expect(root()['ariGlass']).toBe('off')
+    expect(root()['ariGlass']).toBeUndefined()
   })
 
   it('paints the cached wallpaper attribute before React mounts', () => {
     localStorage.setItem(
       'ari.theme',
-      JSON.stringify({ mode: 'nocturne', glass: true, wallpaper: 'moon-landscape' }),
+      JSON.stringify({ mode: 'nocturne', wallpaper: 'moon-landscape' }),
     )
     stubMatchMedia(['prefers-color-scheme: dark'])
     applyCachedTheme()
@@ -296,7 +265,7 @@ describe('applyCachedTheme', () => {
   it('drops a stale wallpaper cache value and leaves no attribute', () => {
     localStorage.setItem(
       'ari.theme',
-      JSON.stringify({ mode: 'obsidian', glass: true, wallpaper: 'aurora-borealis' }),
+      JSON.stringify({ mode: 'obsidian', wallpaper: 'aurora-borealis' }),
     )
     stubMatchMedia(['prefers-color-scheme: dark'])
     applyCachedTheme()
@@ -307,6 +276,6 @@ describe('applyCachedTheme', () => {
     stubMatchMedia(['prefers-color-scheme: dark'])
     applyCachedTheme()
     expect(root()['ariTheme']).toBe('obsidian')
-    expect(root()['ariGlass']).toBe('on')
+    expect(root()['ariGlass']).toBeUndefined()
   })
 })
