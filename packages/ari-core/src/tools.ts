@@ -408,8 +408,8 @@ interface BashArgs {
   timeout?: number
 }
 
-const BASH_DEFAULT_TIMEOUT_SECONDS = 120
-const BASH_MAX_TIMEOUT_SECONDS = 600
+const BASH_DEFAULT_TIMEOUT_SECONDS = 600
+const BASH_MAX_TIMEOUT_SECONDS = 1_800
 
 /**
  * Runs a shell command in the workspace. Output is tail-truncated (errors
@@ -596,12 +596,12 @@ export const BUILT_IN_TOOLS: Tool[] = [
   {
     name: 'bash',
     description:
-      'Run a shell command in the workspace root. Output is capped (tail kept, where errors live); non-zero exits are reported. Optional timeout in seconds (default 120, max 600).',
+      'Run a shell command in the workspace root. Output is capped (tail kept, where errors live); non-zero exits are reported. Optional timeout in seconds (default 600, max 1800).',
     parameters: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'Shell command to execute' },
-        timeout: { type: 'number', description: 'Timeout in seconds (default 120, max 600)' },
+        timeout: { type: 'number', description: 'Timeout in seconds (default 600, max 1800)' },
       },
       required: ['command'],
     },

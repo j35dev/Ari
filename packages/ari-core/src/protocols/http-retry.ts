@@ -187,13 +187,14 @@ export async function* guardStream(
 /**
  * Silence allowed between two lines before a stream counts as stalled.
  *
- * Generous on purpose: a reasoning model behind a buffering gateway can take a
- * long time to produce its first token, and killing a turn that was about to
- * answer is worse than waiting. What this catches is the opposite failure — a
- * gateway that accepted the connection and then went away, which otherwise
- * hangs the turn until the user notices and interrupts it by hand.
+ * Generous on purpose: a reasoning model behind a buffering gateway can take
+ * minutes to produce its first token, and a long tool-less think is not a
+ * wedge. Killing a turn that was about to answer is worse than waiting. What
+ * this catches is the opposite failure — a gateway that accepted the
+ * connection and then went away, which otherwise hangs the turn until the
+ * user notices and interrupts it by hand.
  */
-export const DEFAULT_STREAM_IDLE_MS = 120_000
+export const DEFAULT_STREAM_IDLE_MS = 1_200_000
 
 /**
  * Wraps a line stream so a gap longer than `idleMs` ends it with a stall error
