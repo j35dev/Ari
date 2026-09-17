@@ -238,6 +238,14 @@ describe('bash tool', () => {
       await cleanup()
     }
   })
+
+  it('advertises a long default so verify-class commands can finish', () => {
+    const bash = findTool('bash')
+    expect(bash?.description).toContain('default 600, max 1800')
+    expect(bash?.parameters).toMatchObject({
+      properties: { timeout: { description: 'Timeout in seconds (default 600, max 1800)' } },
+    })
+  })
 })
 
 describe('ask_user_question tool', () => {
