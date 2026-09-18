@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
 import { PairingService } from '@ari/remote-gateway/pairing'
 import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
+import type { RemoteOperation } from '@ari/contracts/remote'
 import { DeviceKeyring, MemoryDeviceStore } from './device-key'
 import { GatewayClient } from './gateway-client'
 import { MobileSession } from './session'
@@ -28,13 +29,15 @@ type RecordingHost = RemoteHost & {
 }
 
 /** A host that records what it was asked to do, and as whom. */
-function fakeHost(): RecordingHost {
+function fakeHost(options: { withChanges?: boolean } = {}): RecordingHost {
   const executed: { op: string }[] = []
   const callers: RemoteCaller[] = []
+  const capabilities: RemoteOperation[] = ['session.list', 'session.prompt', 'events.subscribe']
+  if (options.withChanges === true) capabilities.push('changes.files', 'changes.diff')
   return {
     executed,
     callers,
-    capabilities: () => ['session.list', 'session.prompt', 'events.subscribe'],
+    capabilities: () => capabilities,
     listSessions: async (caller) => {
       callers.push(caller)
       return []
@@ -42,8 +45,24 @@ function fakeHost(): RecordingHost {
     listProjects: async () => [],
     getSession: async () => undefined,
     replay: async () => [],
-    query: async (caller, op) => {
+    query: async (caller, op, params) => {
       callers.push(caller)
+      if (op === 'changes.files') {
+        return { files: [{ path: 'a.txt' }], base: 'workspace-head', error: null }
+      }
+      if (op === 'changes.diff') {
+        const path = (params as { path?: string }).path
+        return {
+          file:
+            path === 'a.txt'
+              ? {
+                  path: 'a.txt',
+                  hunks: [{ header: '@@ -1 +1 @@', lines: [{ type: 'del', content: 'old' }] }],
+                }
+              : null,
+          error: null,
+        }
+      }
       return { op, sessions: [] }
     },
     subscribe: () => () => {},
@@ -252,6 +271,47 @@ describe('mobile commands', () => {
     // of sending the prompt again.
     expect(host.executed.filter((entry) => entry.op === 'session.prompt')).toHaveLength(1)
     expect(outcome).toEqual({ ok: true, result: { accepted: true } })
+  })
+
+  it('reads the change list and one diff from a desktop that serves them', async () => {
+    const gateway = await startGateway(fakeHost({ withChanges: true }))
+    const session = await pairPhone(gateway, new DeviceKeyring(new MemoryDeviceStore()))
+    // Capabilities arrive on connect, the way every app launch fetches them.
+    await expect(session.connect()).resolves.toBe('connected')
+
+    expect(session.supports('changes.files')).toBe(true)
+    const files = await session.query<{
+      files: { path: string }[]
+      base: string
+      error: string | null
+    }>('changes.files', { sessionId: 'sess_1' })
+    expect(files).toEqual({
+      files: [{ path: 'a.txt' }],
+      base: 'workspace-head',
+      error: null,
+    })
+
+    const one = await session.query<{
+      file: { path: string; hunks: { header: string }[] } | null
+      error: string | null
+    }>('changes.diff', { sessionId: 'sess_1', path: 'a.txt' })
+    expect(one.file?.hunks[0]?.header).toBe('@@ -1 +1 @@')
+
+    const missing = await session.query<{ file: null; error: string | null }>('changes.diff', {
+      sessionId: 'sess_1',
+      path: 'nope.txt',
+    })
+    expect(missing.file).toBeNull()
+  })
+
+  it('hides the changes tab when the desktop serves no change list', async () => {
+    const gateway = await startGateway(fakeHost())
+    const session = await pairPhone(gateway, new DeviceKeyring(new MemoryDeviceStore()))
+    await expect(session.connect()).resolves.toBe('connected')
+
+    // Capabilities come from the desktop's own discovery answer, so an older
+    // desktop simply has no Changes tab rather than a failing one.
+    expect(session.supports('changes.files')).toBe(false)
   })
 
   it('mints a key per command, so two prompts are two prompts', async () => {

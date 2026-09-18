@@ -66,5 +66,5 @@ adds a standalone window and an icon.
 Deferred by design (ADR §3), not missing by accident: a code editor, a shell,
 registering new filesystem roots, provider login or API keys, push
 notifications, and controlling a machine that is asleep. Changes are read-only
-here: the desktop does not yet expose a per-file change list, so the Changes
-tab says so instead of guessing.
+here: the Changes tab lists per-file diffs against the session's workspace,
+and integrating them happens on the computer.
