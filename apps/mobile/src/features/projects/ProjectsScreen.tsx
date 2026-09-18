@@ -69,11 +69,11 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
 
       <ul className="mt-3 space-y-2">
         {app.projects.map((project) => (
-          <li key={project.id} className="rounded-lg border border-border bg-surface-1 p-3">
+          <li key={project.id} className="rounded-xl border border-border bg-surface-1 p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm">{project.name}</p>
-                <p className="text-2xs text-fg-subtle">
+                <p className="truncate text-[15px] font-medium tracking-tight">{project.name}</p>
+                <p className="mt-0.5 text-xs text-fg-subtle">
                   {project.sessionCount} session{project.sessionCount === 1 ? '' : 's'}
                 </p>
               </div>
@@ -81,9 +81,9 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
                 type="button"
                 disabled={!canCreate}
                 onClick={() => setChosen(chosen === project.id ? null : project.id)}
-                className="h-11 shrink-0 rounded-md border border-border px-3 text-sm disabled:opacity-50"
+                className="h-11 shrink-0 rounded-lg bg-surface-2 px-4 text-sm font-medium disabled:opacity-50"
               >
-                New session
+                New
               </button>
             </div>
 
@@ -119,7 +119,7 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
                 <button
                   type="submit"
                   disabled={busy}
-                  className="h-11 w-full rounded-md bg-accent text-fg-on-accent disabled:opacity-50"
+                  className="h-12 w-full rounded-xl bg-accent font-medium text-fg-on-accent disabled:opacity-50"
                 >
                   {busy ? 'Starting…' : 'Start session'}
                 </button>

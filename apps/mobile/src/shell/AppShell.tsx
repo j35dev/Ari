@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { TabIcon } from './TabIcon'
 import { NowScreen } from '../features/now/NowScreen'
 import { ProjectsScreen } from '../features/projects/ProjectsScreen'
 import { SessionScreen } from '../features/session/SessionScreen'
@@ -43,13 +44,15 @@ export function AppShell(): ReactNode {
       {updateReady && !updateDismissed && (
         <UpdateBanner onApply={applyUpdate} onDismiss={() => setUpdateDismissed(true)} />
       )}
-      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{originLabel(app.origin)}</p>
-            <p className="truncate text-2xs text-fg-subtle">{describe(app.connection)}</p>
+            <p className="truncate text-[15px] font-semibold tracking-tight">
+              {originLabel(app.origin)}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-fg-subtle">{describe(app.connection)}</p>
           </div>
-          <ConnectionDot state={app.connection} />
+          <ConnectionPill state={app.connection} />
         </div>
       </header>
 
@@ -64,57 +67,61 @@ export function AppShell(): ReactNode {
         aria-label="Main"
         className="shrink-0 border-t border-border bg-surface-0 pb-[env(safe-area-inset-bottom)]"
       >
-        <ul className="flex">
-          {DESTINATIONS.map((entry) => (
-            <li key={entry.id} className="flex-1">
-              <button
-                type="button"
-                aria-current={destination === entry.id ? 'page' : undefined}
-                onClick={() => setDestination(entry.id)}
-                className={`flex h-14 w-full items-center justify-center text-sm ${
-                  destination === entry.id
-                    ? 'font-medium text-accent'
-                    : 'text-fg-muted'
-                }`}
-              >
-                {entry.label}
-              </button>
-            </li>
-          ))}
+        <ul className="flex gap-1 px-2 pt-1">
+          {DESTINATIONS.map((entry) => {
+            const active = destination === entry.id
+            return (
+              <li key={entry.id} className="flex-1">
+                <button
+                  type="button"
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => setDestination(entry.id)}
+                  className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 rounded-lg py-1.5 text-2xs ${
+                    active ? 'bg-surface-2 font-medium text-fg' : 'text-fg-muted'
+                  }`}
+                >
+                  <TabIcon id={entry.id} />
+                  {entry.label}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       </nav>
     </div>
   )
 }
 
-function ConnectionDot({ state }: { state: ConnectionState }): ReactNode {
+function ConnectionPill({ state }: { state: ConnectionState }): ReactNode {
   const tone = toneOf(state)
   return (
-    <span className="flex items-center gap-2">
+    <span
+      className={`flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2.5 py-1.5 text-2xs font-medium ${tone.text}`}
+    >
       {/* A dot alone would be colour-only status, so the words carry it too. */}
-      <span aria-hidden className={`h-2 w-2 rounded-full ${tone.className}`} />
-      <span className="text-2xs text-fg-muted">{tone.label}</span>
+      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+      {tone.label}
     </span>
   )
 }
 
-function toneOf(state: ConnectionState): { label: string; className: string } {
+function toneOf(state: ConnectionState): { label: string; dot: string; text: string } {
   switch (state) {
     case 'connected':
-      return { label: 'Connected', className: 'bg-success' }
+      return { label: 'Connected', dot: 'bg-success', text: 'text-fg' }
     case 'connecting':
     case 'reconnecting':
-      return { label: 'Reconnecting', className: 'bg-warning' }
+      return { label: 'Reconnecting', dot: 'bg-warning', text: 'text-fg' }
     case 'revoked':
-      return { label: 'Access revoked', className: 'bg-danger' }
+      return { label: 'Revoked', dot: 'bg-danger', text: 'text-danger' }
     case 'unknown-device':
-      return { label: 'Needs pairing', className: 'bg-warning' }
+      return { label: 'Needs pairing', dot: 'bg-warning', text: 'text-fg' }
     case 'version-mismatch':
-      return { label: 'Update needed', className: 'bg-danger' }
+      return { label: 'Update needed', dot: 'bg-danger', text: 'text-danger' }
     case 'unreachable':
-      return { label: 'Unreachable', className: 'bg-danger' }
+      return { label: 'Unreachable', dot: 'bg-danger', text: 'text-danger' }
     default:
-      return { label: 'Not paired', className: 'bg-fg-subtle' }
+      return { label: 'Not paired', dot: 'bg-fg-subtle', text: 'text-fg-muted' }
   }
 }
 
