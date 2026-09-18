@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Message } from '@ari/contracts/message'
-import type { RemoteApproval, RemoteInput } from '@ari/contracts/remote'
+import type {
+  RemoteApproval,
+  RemoteChangeFile,
+  RemoteChanges,
+  RemoteInput,
+} from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { useApp } from '../../lib/app-state'
@@ -205,7 +210,7 @@ export function SessionScreen({
           </>
         )}
 
-        {tab === 'changes' && <Changes />}
+        {tab === 'changes' && <Changes sessionId={sessionId} />}
 
         {tab === 'details' && snapshot !== null && (
           <dl className="space-y-2 text-sm">
@@ -405,15 +410,42 @@ function Conversation({ messages }: { messages: Message[] }): ReactNode {
 /**
  * Changes: whether this can be answered at all is the desktop's to say.
  *
- * No desktop serves a per-file change list yet — the only integration that
- * exists is the agent-to-agent one, which the remote surface deliberately
- * keeps off — so this says so rather than showing an empty list that would
- * read as "nothing changed". The capability check is what makes that honest:
- * a desktop that starts serving it makes this screen work without an update.
+ * The file list loads eagerly and each diff lazily, so opening the tab on a
+ * large change costs one small read. Integration is deliberately absent: the
+ * only integration the desktop has is the agent-to-agent one, which the
+ * remote surface keeps off.
  */
-function Changes(): ReactNode {
+function Changes({ sessionId }: { sessionId: string }): ReactNode {
   const app = useApp()
-  if (!(app.session?.supports('changes.files') ?? false)) {
+  const supported = app.session?.supports('changes.files') ?? false
+  const [listing, setListing] = useState<RemoteChanges | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [openPath, setOpenPath] = useState<string | null>(null)
+  const [openFile, setOpenFile] = useState<RemoteChangeFile | null>(null)
+  const [openFailure, setOpenFailure] = useState<string | null>(null)
+  const [loadingFile, setLoadingFile] = useState(false)
+
+  useEffect(() => {
+    if (!supported || app.session === null) return
+    const session = app.session
+    let cancelled = false
+    setListing(null)
+    setFailure(null)
+    setOpenPath(null)
+    void session
+      .query<RemoteChanges>('changes.files', { sessionId })
+      .then((next) => {
+        if (!cancelled) setListing(next)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setFailure(messageOf(error))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId, app.session, supported])
+
+  if (!supported) {
     return (
       <p className="text-sm text-fg-muted">
         This desktop does not offer a per-file change list for a session. Read the conversation for
@@ -421,10 +453,172 @@ function Changes(): ReactNode {
       </p>
     )
   }
+
+  async function open(path: string): Promise<void> {
+    if (app.session === null) return
+    setOpenPath(path)
+    setOpenFile(null)
+    setOpenFailure(null)
+    setLoadingFile(true)
+    try {
+      const next = await app.session.query<{
+        file: RemoteChangeFile | null
+        error: string | null
+      }>('changes.diff', { sessionId, path })
+      if (next.error !== null) setOpenFailure(next.error)
+      else if (next.file === null) setOpenFailure('that file is no longer in the change list')
+      else setOpenFile(next.file)
+    } catch (error) {
+      setOpenFailure(messageOf(error))
+    } finally {
+      setLoadingFile(false)
+    }
+  }
+
+  function close(): void {
+    setOpenPath(null)
+    setOpenFile(null)
+    setOpenFailure(null)
+  }
+
+  if (openPath !== null) {
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={close}
+          aria-label="Back to changed files"
+          className="flex min-h-11 items-center gap-2 text-sm text-fg-muted"
+        >
+          ← Files
+        </button>
+        <h3 className="mt-1 break-words font-mono text-sm font-medium">{openPath}</h3>
+        {loadingFile && <p className="mt-2 text-sm text-fg-muted">Reading that file…</p>}
+        {openFailure !== null && (
+          <p role="alert" className="mt-2 text-sm text-danger">
+            {openFailure}
+          </p>
+        )}
+        {openFile !== null && <FileDiff file={openFile} />}
+      </div>
+    )
+  }
+
+  if (failure !== null) {
+    return (
+      <div>
+        <p role="alert" className="text-sm text-danger">
+          {failure}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setFailure(null)
+            setListing(null)
+            void app.session
+              ?.query<RemoteChanges>('changes.files', { sessionId })
+              .then(setListing)
+              .catch((error: unknown) => setFailure(messageOf(error)))
+          }}
+          className="mt-2 min-h-11 rounded-md border border-border bg-surface-1 px-3 text-sm"
+        >
+          Try again
+        </button>
+      </div>
+    )
+  }
+
+  if (listing === null) {
+    return <p className="text-sm text-fg-muted">Reading changes…</p>
+  }
+
+  if (listing.error !== null) {
+    return <p className="text-sm text-fg-muted">{listing.error}</p>
+  }
+
+  if (listing.files.length === 0) {
+    return <p className="text-sm text-fg-muted">Nothing has changed in this session yet.</p>
+  }
+
   return (
-    <p className="text-sm text-fg-muted">
-      This desktop can list changes, but this build has no view for them yet.
-    </p>
+    <div>
+      <p className="mb-2 text-2xs text-fg-subtle">
+        {listing.base === 'session-base'
+          ? 'Against where this session started.'
+          : 'Uncommitted changes in the project.'}
+      </p>
+      <ol className="space-y-2">
+        {listing.files.map((file) => (
+          <li key={file.path}>
+            <button
+              type="button"
+              onClick={() => void open(file.path).catch(() => undefined)}
+              aria-label={`Show changes in ${file.path}`}
+              className="min-h-11 w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-left"
+            >
+              <span className="block break-words font-mono text-sm">{file.path}</span>
+              <span className="mt-0.5 block text-2xs text-fg-subtle">{fileStatus(file)}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+/** A file's change kind in words, never color alone. */
+function fileStatus(file: {
+  oldPath?: string
+  isNew?: boolean
+  isDeleted?: boolean
+  isBinary?: boolean
+}): string {
+  if (file.isBinary === true) return 'Binary file'
+  if (file.isNew === true) return 'Added'
+  if (file.isDeleted === true) return 'Deleted'
+  if (file.oldPath !== undefined) return `Renamed from ${file.oldPath}`
+  return 'Modified'
+}
+
+/** One file's hunks, with `+`/`-` markers in text rather than color alone. */
+function FileDiff({ file }: { file: RemoteChangeFile }): ReactNode {
+  if (file.isBinary === true) {
+    return <p className="mt-2 text-sm text-fg-muted">A binary file cannot be previewed here.</p>
+  }
+  if (file.hunks.length === 0) {
+    return (
+      <p className="mt-2 text-sm text-fg-muted">
+        {file.isNew === true
+          ? 'An added file with no preview in this build — read it on the computer.'
+          : 'No preview for this file in this build.'}
+      </p>
+    )
+  }
+  return (
+    <div className="mt-2 space-y-3">
+      {file.hunks.map((hunk, index) => (
+        <section key={`${hunk.header}-${index}`} aria-label={`Change ${index + 1}`}>
+          <p className="font-mono text-2xs text-fg-subtle">{hunk.header}</p>
+          <pre className="mt-1 overflow-x-auto rounded-md border border-border bg-surface-1 p-2 font-mono text-2xs leading-relaxed">
+            {hunk.lines.map((line, lineIndex) => (
+              <div
+                key={lineIndex}
+                className={
+                  line.type === 'add'
+                    ? 'bg-accent-subtle'
+                    : line.type === 'del'
+                      ? 'bg-danger-subtle'
+                      : undefined
+                }
+              >
+                {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}
+                {line.content}
+              </div>
+            ))}
+          </pre>
+        </section>
+      ))}
+    </div>
   )
 }
 
