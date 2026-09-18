@@ -3,6 +3,7 @@ import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gat
 import { PairingService } from '@ari/remote-gateway/pairing'
 import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
 import type { RemoteOperation } from '@ari/contracts/remote'
+import { sessionIdOf } from './command-result'
 import { DeviceKeyring, MemoryDeviceStore } from './device-key'
 import { GatewayClient } from './gateway-client'
 import { MobileSession } from './session'
@@ -32,7 +33,12 @@ type RecordingHost = RemoteHost & {
 function fakeHost(options: { withChanges?: boolean } = {}): RecordingHost {
   const executed: { op: string }[] = []
   const callers: RemoteCaller[] = []
-  const capabilities: RemoteOperation[] = ['session.list', 'session.prompt', 'events.subscribe']
+  const capabilities: RemoteOperation[] = [
+    'session.list',
+    'session.create',
+    'session.prompt',
+    'events.subscribe',
+  ]
   if (options.withChanges === true) capabilities.push('changes.files', 'changes.diff')
   return {
     executed,
@@ -69,6 +75,9 @@ function fakeHost(options: { withChanges?: boolean } = {}): RecordingHost {
     execute: async (caller, command) => {
       callers.push(caller)
       executed.push({ op: command.op })
+      if (command.op === 'session.create') {
+        return { ok: true, result: { sessionId: 'sess_new' } }
+      }
       return { ok: true, result: { accepted: true } }
     },
   }
@@ -312,6 +321,19 @@ describe('mobile commands', () => {
     // Capabilities come from the desktop's own discovery answer, so an older
     // desktop simply has no Changes tab rather than a failing one.
     expect(session.supports('changes.files')).toBe(false)
+  })
+
+  it('names the created session inside the gateway envelope', async () => {
+    const host = fakeHost()
+    const gateway = await startGateway(host)
+    const session = await pairPhone(gateway, new DeviceKeyring(new MemoryDeviceStore()))
+    await expect(session.connect()).resolves.toBe('connected')
+
+    // The host's answer travels inside the gateway's own envelope. A client
+    // that reads the outer layer reports a failure for a session that exists,
+    // and the retry creates a duplicate.
+    const created = await session.send({ op: 'session.create', projectId: 'proj_1' })
+    expect(sessionIdOf(created)).toBe('sess_new')
   })
 
   it('mints a key per command, so two prompts are two prompts', async () => {
