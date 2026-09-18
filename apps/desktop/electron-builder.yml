@@ -17,6 +17,11 @@ files:
 extraResources:
   - from: resources/cli
     to: agent-cli
+  # The phone's PWA, served by the gateway under Tailscale (see mobileWebRoot).
+  # Built by `@ari/mobile`; the `dist` script builds it before packing, and
+  # afterPack fails the build when it is missing.
+  - from: ../mobile/dist
+    to: mobile
   # Tiny music-helper manifest (no binaries): the Focus engine downloads
   # only the host target into application data on first use.
   - from: resources/music-runtime.json
