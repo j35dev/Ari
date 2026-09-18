@@ -1,8 +1,14 @@
+import { realpath } from 'node:fs/promises'
+import { join, sep } from 'node:path'
+import { GitService } from '@ari/engine/git'
+import { parseDiff, type DiffFile } from '@ari/shared/diff-parse'
+import { createLogger } from '@ari/shared/logger'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
 import type { Message } from '@ari/contracts/message'
 import type {
   RemoteApproval,
+  RemoteChanges,
   RemoteCommand,
   RemoteInput,
   RemoteOperation,
@@ -57,14 +63,6 @@ export interface RemoteHostDeps {
   mintSessionId: () => string
 }
 
-/**
- * What this host serves today. Notably absent: `changes.files`, `changes.diff`
- * and `changes.integrate`. Nothing in the desktop produces a per-file change
- * list for a session yet, and the only `integrate` that exists is the
- * agent-to-agent delegation one, which ADR §19 keeps off this surface. They are
- * absent here rather than refused at call time, so a client learns what is
- * possible from `gateway.info` instead of from a failure.
- */
 const OPERATIONS: readonly RemoteOperation[] = [
   'session.list',
   'session.get',
@@ -76,6 +74,8 @@ const OPERATIONS: readonly RemoteOperation[] = [
   'session.interrupt',
   'approval.respond',
   'input.respond',
+  'changes.files',
+  'changes.diff',
   'project.list',
   'events.subscribe',
   'device.list',
@@ -160,6 +160,87 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     return { session, summary, seq: lastSeq, messages, pendingApprovals, pendingInputs }
   }
 
+  interface SessionChanges {
+    files: DiffFile[]
+    base: RemoteChanges['base']
+    error: string | null
+  }
+
+  /**
+   * The session's working tree as a per-file change list, read with git alone.
+   *
+   * The workspace resolves server-side from the session the caller was granted;
+   * no client-supplied path reaches the disk. Only a workspace at or inside the
+   * repo it belongs to is read, so a session whose folder moved out from under
+   * git answers "unavailable" rather than a diff of the wrong tree. Untracked
+   * files come from status rather than the diff, which never contains them, and
+   * carry no hunks — the phone says so instead of showing an empty preview.
+   */
+  async function changes(caller: RemoteCaller, sessionId: string): Promise<SessionChanges | null> {
+    const session = await visible(caller, sessionId)
+    if (session === undefined) return null
+    const workspace = await engine.workspace(session)
+    const base: RemoteChanges['base'] =
+      session.workspace?.kind === 'managed-worktree' ? 'session-base' : 'workspace-head'
+    const unavailable: SessionChanges = {
+      files: [],
+      base,
+      error: 'Changes are unavailable for this workspace.',
+    }
+    if (workspace === null) return unavailable
+    const git = new GitService()
+    const root = await git.runPlumbing(workspace, ['rev-parse', '--show-toplevel'])
+    if (!root.ok) return unavailable
+    let top: string
+    let dir: string
+    try {
+      // Both resolved: a symlinked checkout must not escape the comparison.
+      top = await realpath(root.value.stdout.trim())
+      dir = await realpath(workspace)
+    } catch {
+      createLogger('desktop:remote').warn('remote workspace resolution failed')
+      return unavailable
+    }
+    if (dir !== top && !dir.startsWith(top + sep)) return unavailable
+    const ref =
+      session.workspace?.kind === 'managed-worktree' ? session.workspace.baseCommit : 'HEAD'
+    const diff = await git.runPlumbing(workspace, [
+      '-c',
+      'core.quotePath=false',
+      'diff',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--ignore-submodules=all',
+      '--no-color',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      ref,
+      '--',
+    ])
+    if (!diff.ok) {
+      createLogger('desktop:remote').warn('remote diff failed', { code: diff.error.code })
+      return {
+        ...unavailable,
+        error: 'Could not read changes. The diff may exceed the size limit.',
+      }
+    }
+    const files = parseDiff(diff.value.stdout).files
+    const seen = new Set(files.map((file) => file.path))
+    const status = await git.status(workspace)
+    if (status.ok) {
+      for (const entry of status.value.files) {
+        // Repo-relative by construction; anything else is not listed.
+        if (entry.kind !== 'untracked' || seen.has(entry.path)) continue
+        if (entry.path.includes('..')) continue
+        if (!join(top, entry.path).startsWith(top + sep)) continue
+        files.push({ path: entry.path, isNew: true, hunks: [] })
+        seen.add(entry.path)
+      }
+    }
+    files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    return { files, base, error: null }
+  }
+
   return {
     capabilities: () => OPERATIONS,
     listSessions,
@@ -176,6 +257,28 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           return listSessions(caller)
         case 'session.get':
           return (await getSession(caller, String(params['sessionId']))) ?? null
+        case 'changes.files': {
+          const result = await changes(caller, String(params['sessionId']))
+          if (result === null) return null
+          return {
+            ...result,
+            files: result.files.map((file) => ({
+              path: file.path,
+              ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }),
+              ...(file.isNew === true ? { isNew: true as const } : {}),
+              ...(file.isDeleted === true ? { isDeleted: true as const } : {}),
+              ...(file.isBinary === true ? { isBinary: true as const } : {}),
+            })),
+          }
+        }
+        case 'changes.diff': {
+          const result = await changes(caller, String(params['sessionId']))
+          if (result === null) return null
+          return {
+            file: result.files.find((file) => file.path === params['path']) ?? null,
+            error: result.error,
+          }
+        }
         case 'project.list':
           return listProjects(caller)
         case 'device.list':

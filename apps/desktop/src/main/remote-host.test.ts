@@ -2,11 +2,14 @@ import { generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { mkdir } from 'node:fs/promises'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { GitService } from '@ari/engine/git'
 import { SessionStore } from '@ari/engine/session-store'
+import { ok, err } from '@ari/shared/result'
 import type { DriverKind } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
-import type { RemoteCommand } from '@ari/contracts/remote'
+import { remoteChangesSchema, type RemoteCommand } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { RemoteCaller } from '@ari/remote-gateway/host'
@@ -16,6 +19,7 @@ import { createRemoteHost, type RemoteHostDeps } from './remote-host'
 const roots: string[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
@@ -75,6 +79,7 @@ interface FakeEngine {
   dispatch: RemoteHostDeps['engine']['dispatch']
   createSession: RemoteHostDeps['engine']['createSession']
   replaySession: RemoteHostDeps['engine']['replaySession']
+  workspace: RemoteHostDeps['engine']['workspace']
 }
 
 function fakeEngine(overrides: Partial<FakeEngine> = {}): FakeEngine {
@@ -91,6 +96,7 @@ function fakeEngine(overrides: Partial<FakeEngine> = {}): FakeEngine {
       created.push(session)
     },
     replaySession: async () => [],
+    workspace: async () => null,
     ...overrides,
   }
 }
@@ -127,10 +133,8 @@ describe('remote host capabilities', () => {
     expect(caps).toContain('session.prompt')
     expect(caps).toContain('approval.respond')
     expect(caps).toContain('events.subscribe')
-    // Nothing here has an implementation yet, and a capability a client can see
-    // is a promise the host has to keep.
-    expect(caps).not.toContain('changes.files')
-    expect(caps).not.toContain('changes.diff')
+    expect(caps).toContain('changes.files')
+    expect(caps).toContain('changes.diff')
     expect(caps).not.toContain('changes.integrate')
   })
 
@@ -496,6 +500,172 @@ describe('devices', () => {
       revoked: boolean
     }
     expect(result.revoked).toBe(false)
+  })
+})
+
+describe('session changes', () => {
+  const DIFF = [
+    'diff --git a/a.txt b/a.txt',
+    '--- a/a.txt',
+    '+++ b/a.txt',
+    '@@ -1 +1 @@',
+    '-old',
+    '+new',
+    'diff --git a/b.txt b/b.txt',
+    '--- a/b.txt',
+    '+++ b/b.txt',
+    '@@ -1 +1 @@',
+    '-gone',
+    '+here',
+  ].join('\n')
+
+  interface GitStubs {
+    /** Repo top the stub reports; 'auto' answers the workspace itself. */
+    toplevel: string
+    diff?: string
+    untracked?: string[]
+  }
+
+  /** A workspace that is a real directory, with git hidden behind stubs. */
+  async function changedHost(
+    stubs: GitStubs,
+    sessionId = 'sess_a',
+    workspaceOverride?: string,
+  ): Promise<{ host: ReturnType<typeof createRemoteHost>; workspace: string }> {
+    const store = await tempStore()
+    await store.append(sessionId, sessionCreated(sessionId))
+    const workspace =
+      workspaceOverride ?? (await mkdtemp(join(tmpdir(), 'ari-remote-changes-')))
+    roots.push(workspace)
+    const engine = fakeEngine({ workspace: async () => workspace })
+    vi.spyOn(GitService.prototype, 'runPlumbing').mockImplementation(async (cwd, args) => {
+      if (args.includes('rev-parse')) {
+        const top = stubs.toplevel === 'auto' ? String(cwd) : stubs.toplevel
+        return ok({ stdout: `${top}\n` })
+      }
+      if (stubs.diff === undefined) return err({ code: 'output_overflow', message: 'too big' })
+      return ok({ stdout: stubs.diff })
+    })
+    vi.spyOn(GitService.prototype, 'status').mockImplementation(async () => {
+      await Promise.resolve()
+      return ok({
+        branch: 'main',
+        files: (stubs.untracked ?? []).map((path) => ({
+          path,
+          staged: false,
+          kind: 'untracked' as const,
+        })),
+      })
+    })
+    return { host: hostFor(store, engine), workspace }
+  }
+
+  it('answers null for a session the device was not granted', async () => {
+    const store = await tempStore()
+    await store.append('sess_theirs', sessionCreated('sess_theirs', 'proj_ungranted'))
+    const host = hostFor(store, fakeEngine())
+
+    expect(await host.query(CALLER, 'changes.files', { sessionId: 'sess_theirs' })).toBeNull()
+    expect(
+      await host.query(CALLER, 'changes.diff', { sessionId: 'sess_theirs', path: 'a.txt' }),
+    ).toBeNull()
+  })
+
+  it('reports unavailable when the session has no workspace', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    const host = hostFor(store, fakeEngine())
+
+    const files = (await host.query(CALLER, 'changes.files', { sessionId: 'sess_a' })) as {
+      error: string | null
+    }
+
+    expect(files.error).toMatch(/unavailable/)
+  })
+
+  it('reports unavailable when the workspace left its repo', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'ari-remote-elsewhere-'))
+    roots.push(outside)
+    const { host, workspace } = await changedHost({ toplevel: outside, diff: DIFF })
+
+    const files = (await host.query(CALLER, 'changes.files', { sessionId: 'sess_a' })) as {
+      error: string | null
+    }
+
+    expect(workspace).not.toBe(outside)
+    expect(files.error).toMatch(/unavailable/)
+  })
+
+  it('lists files without hunks and serves one file with them', async () => {
+    const { host } = await changedHost({ toplevel: 'auto', diff: DIFF })
+
+    const files = await host.query(CALLER, 'changes.files', { sessionId: 'sess_a' })
+    expect(remoteChangesSchema.safeParse(files).success).toBe(true)
+    expect(files).toMatchObject({
+      base: 'workspace-head',
+      error: null,
+      files: [{ path: 'a.txt' }, { path: 'b.txt' }],
+    })
+    // Hunks travel only with the single-file read, not the list.
+    for (const file of (files as { files: Record<string, unknown>[] }).files) {
+      expect(file).not.toHaveProperty('hunks')
+    }
+
+    const one = (await host.query(CALLER, 'changes.diff', {
+      sessionId: 'sess_a',
+      path: 'a.txt',
+    })) as { file: { path: string; hunks: { header: string }[] } | null; error: string | null }
+    expect(one.error).toBeNull()
+    expect(one.file?.path).toBe('a.txt')
+    expect(one.file?.hunks[0]?.header).toContain('@@ -1 +1 @@')
+
+    const missing = (await host.query(CALLER, 'changes.diff', {
+      sessionId: 'sess_a',
+      path: 'nope.txt',
+    })) as { file: null; error: string | null }
+    expect(missing.file).toBeNull()
+    expect(missing.error).toBeNull()
+  })
+
+  it('names an untracked file with no hunks to preview', async () => {
+    const { host } = await changedHost({ toplevel: 'auto', diff: DIFF, untracked: ['new.txt'] })
+
+    const files = (await host.query(CALLER, 'changes.files', { sessionId: 'sess_a' })) as {
+      files: { path: string; isNew?: boolean }[]
+    }
+
+    expect(files.files.map((file) => file.path)).toEqual(['a.txt', 'b.txt', 'new.txt'])
+    const one = (await host.query(CALLER, 'changes.diff', {
+      sessionId: 'sess_a',
+      path: 'new.txt',
+    })) as { file: { hunks: unknown[] } | null }
+    expect(one.file?.hunks).toEqual([])
+  })
+
+  it('says the diff was too large instead of failing the query', async () => {
+    const { host } = await changedHost({ toplevel: 'auto' })
+
+    const files = (await host.query(CALLER, 'changes.files', { sessionId: 'sess_a' })) as {
+      error: string | null
+    }
+
+    expect(files.error).toMatch(/size limit/)
+  })
+
+  it('reads a subdirectory of the repo, not only its top', async () => {
+    const top = await mkdtemp(join(tmpdir(), 'ari-remote-repo-'))
+    roots.push(top)
+    const sub = join(top, 'packages', 'app')
+    await mkdir(sub, { recursive: true })
+    const { host } = await changedHost({ toplevel: top, diff: DIFF }, 'sess_a', sub)
+
+    const files = (await host.query(CALLER, 'changes.files', { sessionId: 'sess_a' })) as {
+      files: unknown[]
+      error: string | null
+    }
+
+    expect(files.error).toBeNull()
+    expect(files.files).toHaveLength(2)
   })
 })
 

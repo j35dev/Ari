@@ -224,6 +224,36 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
 ])
 export type RemoteQuery = z.infer<typeof remoteQuerySchema>
 
+export const remoteChangeFileSchema = z.object({
+  path: z.string(),
+  oldPath: z.string().optional(),
+  isNew: z.boolean().optional(),
+  isDeleted: z.boolean().optional(),
+  isBinary: z.boolean().optional(),
+  hunks: z.array(z.object({
+    header: z.string(),
+    lines: z.array(z.object({
+      type: z.enum(['context', 'add', 'del']),
+      content: z.string(),
+      oldLineNo: z.number().int().positive().optional(),
+      newLineNo: z.number().int().positive().optional(),
+    })),
+  })),
+})
+export type RemoteChangeFile = z.infer<typeof remoteChangeFileSchema>
+
+export const remoteChangesSchema = z.object({
+  files: z.array(remoteChangeFileSchema.omit({ hunks: true })),
+  base: z.enum(['workspace-head', 'session-base']),
+  error: z.string().nullable(),
+})
+export type RemoteChanges = z.infer<typeof remoteChangesSchema>
+
+export const remoteChangeDiffSchema = z.object({
+  file: remoteChangeFileSchema.nullable(),
+  error: z.string().nullable(),
+})
+
 /**
  * A project as a phone may name it. The path is deliberately absent: starting
  * a session needs the id, and a filesystem location is the desktop's business.
