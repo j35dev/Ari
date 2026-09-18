@@ -1034,10 +1034,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('remote.tailscale.enable', async () => {
     // Serve needs a listener to proxy to; the panel disables the button when
     // remote access is off, and this is the same answer for any other caller.
-    if (!remote.running) return remote.state()
-    await tailscale.enable(gatewayPort())
+    if (!remote.running) return { remote: remote.state(), tailscale: await refreshTailscale() }
+    const tailscaleState = await tailscale.enable(gatewayPort())
+    // Origins are re-read because a new mapping is what turns the pairing
+    // notice into a QR code — but the enable answer itself is kept, since a
+    // refusal would otherwise vanish into a healthy-looking re-read.
     await refreshTailscale()
-    return remote.state()
+    return { remote: remote.state(), tailscale: tailscaleState }
   })
   r.register('remote.tailscale.disable', async () => {
     await tailscale.disable()

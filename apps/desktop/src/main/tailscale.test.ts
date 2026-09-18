@@ -135,6 +135,26 @@ describe('tailscale serve detection', () => {
     })
   })
 
+  it('keeps a refusal that names an admin page actionable with its link', async () => {
+    const runner: TailscaleRunner = async (args) => {
+      if (args.join(' ') === 'status --json') return { code: 0, stdout: statusJson(), stderr: '' }
+      if (args.join(' ') === 'serve status --json') {
+        return { code: 0, stdout: serveStatus({}), stderr: '' }
+      }
+      return {
+        code: 1,
+        stdout: '',
+        stderr:
+          'Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=n123\n',
+      }
+    }
+    const state = await serve(runner).enable(PORT)
+
+    expect(state.serving).toBe(false)
+    expect(state.error).toContain('Serve is not enabled on your tailnet.')
+    expect(state.error).toContain('https://login.tailscale.com/f/serve?node=n123')
+  })
+
   it('keeps the CLI refusal as the readable reason', async () => {
     const refused = fakeTailscale({
       status: { code: 1, stderr: 'Tailscale is stopped.\n' },

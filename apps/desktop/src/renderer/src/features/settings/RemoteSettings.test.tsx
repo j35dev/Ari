@@ -93,7 +93,7 @@ beforeEach(() => {
     // does, so the panel can be driven through the whole flow.
     if (method === 'remote.tailscale.enable') {
       tailscaleState = tailscale({ serving: true })
-      return remoteState
+      return { remote: remoteState, tailscale: tailscaleState }
     }
     if (method === 'remote.tailscale.disable') {
       tailscaleState = tailscale({ serving: false })
@@ -267,13 +267,35 @@ describe('RemoteSettings', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Serve Ari over Tailscale' }))
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.enable'))
-    // The panel refreshes the status itself, not only the remote state.
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.status'))
 
     const stop = await screen.findByRole('button', { name: 'Stop serving Ari' })
     expect(screen.getByText(`Serving Ari at ${TAILNET}.`)).toBeInTheDocument()
     await user.click(stop)
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('remote.tailscale.disable'))
+  })
+
+  it('shows a Serve refusal instead of silently staying unserved', async () => {
+    remoteState = remote({ enabled: true, clientUrl: TAILNET })
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'remote.tailscale.enable') {
+        // The refusal lives in the enable answer: a re-read afterwards would
+        // report a healthy tailnet with nothing served, which reads as "the
+        // button did nothing".
+        const refused = tailscale({ error: 'Tailscale refused to change the Serve configuration.' })
+        return { remote: remoteState, tailscale: refused }
+      }
+      if (method === 'remote.tailscale.status') return tailscale()
+      if (method === 'remote.status') return remoteState
+      if (method === 'project.list') return [PROJECT]
+      throw new Error(`unexpected method: ${method}`)
+    })
+    const user = userEvent.setup()
+    render(<RemoteSettings />)
+
+    await user.click(await screen.findByRole('button', { name: 'Serve Ari over Tailscale' }))
+    expect(
+      await screen.findByText('Tailscale refused to change the Serve configuration.'),
+    ).toBeInTheDocument()
   })
 
   it('reports Tailscale as absent without offering Serve', async () => {
