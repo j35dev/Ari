@@ -110,10 +110,9 @@ export function RemoteSettings() {
     void rpc
       .invoke('remote.tailscale.enable')
       .then((state) => {
-        setRemote(state)
-        return rpc.invoke('remote.tailscale.status')
+        setRemote(state.remote)
+        setTailscale(state.tailscale)
       })
-      .then(setTailscale)
       .catch((error: unknown) => log.warn('enabling Tailscale Serve failed', { error }))
   }
 
