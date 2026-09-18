@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "dist": "pnpm --filter @ari/mobile build && electron-builder",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
