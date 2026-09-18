@@ -10,7 +10,7 @@
   they have not answered yet.
 */
 
-const VERSION = 'ari-mobile-v1'
+const VERSION = 'ari-mobile-v2'
 const SHELL = `${VERSION}-shell`
 
 /** Never cached, whatever the method or headers say. */
@@ -18,7 +18,16 @@ const NEVER_CACHE = ['/command', '/query', '/info', '/pair/', '/device/', '/even
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL).then((cache) => cache.addAll(['/', '/manifest.webmanifest', '/icon.svg'])),
+    caches.open(SHELL).then((cache) =>
+      cache.addAll([
+        '/',
+        '/manifest.webmanifest',
+        '/icon.svg',
+        '/icon-192.png',
+        '/icon-512.png',
+        '/apple-touch-icon.png',
+      ]),
+    ),
   )
 })
 
