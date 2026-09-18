@@ -164,9 +164,15 @@ export class TailscaleServe {
       }
     }
     const parsed = parseJson(result.stdout)
-    const self = parsed === null ? null : asRecord(asRecord(parsed)?.['Self'])
+    const top = asRecord(parsed)
+    const self = top === null ? null : asRecord(top['Self'])
     const dnsName = tailnetName(self?.['DNSName'])
-    const backendState = self?.['BackendState']
+    // The CLI reports the daemon state at the top level; older shapes nested
+    // it under Self, so both are read rather than assuming one.
+    const topState = top?.['BackendState']
+    const selfState = self?.['BackendState']
+    const backendState =
+      typeof topState === 'string' ? topState : typeof selfState === 'string' ? selfState : undefined
     if (backendState !== 'Running') {
       return {
         installed: true,
