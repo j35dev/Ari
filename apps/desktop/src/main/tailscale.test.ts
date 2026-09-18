@@ -111,6 +111,30 @@ describe('tailscale serve detection', () => {
     expect(state.error).toMatch(/not running/)
   })
 
+  it('reads the daemon state from the top level, where the real CLI puts it', async () => {
+    // The real `tailscale status --json` reports BackendState beside Self, not
+    // inside it. A fixture carrying both shapes passed while the panel showed
+    // "could not read Tailscale's status output" on a running machine.
+    const realShape = fakeTailscale({
+      status: {
+        code: 0,
+        stdout: JSON.stringify({
+          BackendState: 'Running',
+          Self: { DNSName: 'ari.tailnet.ts.net.' },
+        }),
+      },
+    })
+    const state = await serve(realShape.runner).status()
+
+    expect(state).toEqual({
+      installed: true,
+      dnsName: 'ari.tailnet.ts.net',
+      origin: 'https://ari.tailnet.ts.net',
+      serving: false,
+      error: null,
+    })
+  })
+
   it('keeps the CLI refusal as the readable reason', async () => {
     const refused = fakeTailscale({
       status: { code: 1, stderr: 'Tailscale is stopped.\n' },
