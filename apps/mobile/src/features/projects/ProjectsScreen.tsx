@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useApp } from '../../lib/app-state'
+import { sessionIdOf } from '../../lib/command-result'
 
 /**
  * Projects, and starting work in one (ADR §14).
@@ -32,7 +33,7 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
         // check it would fail.
         ...(provider.trim().length === 0 ? {} : { driverKind: provider.trim() }),
       })
-      const sessionId = idOf(created)
+      const sessionId = sessionIdOf(created)
       if (sessionId === null) throw new Error('the desktop did not name the new session')
       if (prompt.trim().length > 0) {
         await app.session.send({ op: 'session.prompt', sessionId, text: prompt.trim() })
@@ -136,11 +137,4 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
       )}
     </div>
   )
-}
-
-/** The new session's id, whichever shape the desktop's answer took. */
-function idOf(result: unknown): string | null {
-  if (result === null || typeof result !== 'object') return null
-  const value = (result as Record<string, unknown>)['sessionId']
-  return typeof value === 'string' && value.length > 0 ? value : null
 }
