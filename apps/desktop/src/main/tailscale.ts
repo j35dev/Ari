@@ -301,9 +301,17 @@ function serveFailure(result: { stdout: string; stderr: string }): string {
   if (detail !== null && /already|in use|conflict/i.test(detail)) {
     return 'Something is already served at that address; Ari did not change it.'
   }
+  // A refusal that names an admin page — "Serve is not enabled on your
+  // tailnet, visit …" — is only actionable with the link, which lives past
+  // the first line.
+  const adminUrl = /https:\/\/\S+/.exec(result.stderr)?.[0]
+  const action =
+    adminUrl !== undefined && (detail === null || !detail.includes(adminUrl))
+      ? ` See ${adminUrl}`
+      : ''
   return detail === null
-    ? 'Tailscale refused to change the Serve configuration.'
-    : `Tailscale refused to change the Serve configuration: ${detail}`
+    ? `Tailscale refused to change the Serve configuration.${action}`
+    : `Tailscale refused to change the Serve configuration: ${detail}${action}`
 }
 
 function unreadableConfiguration(stderr: string): string {

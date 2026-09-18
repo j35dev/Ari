@@ -997,8 +997,13 @@ export interface RpcResults {
   'remote.deny': RemoteState
   'remote.revokeDevice': RemoteState
   'remote.tailscale.status': TailscaleState
-  /** Enabling Serve exposes the running gateway, so the fresh remote state comes back. */
-  'remote.tailscale.enable': RemoteState
+  /**
+   * Enabling Serve exposes the running gateway, so both fresh states come
+   * back. The refusal travels in `tailscale.error`: a re-read after a failed
+   * enable would report a healthy tailnet with nothing served, which reads as
+   * "the button did nothing".
+   */
+  'remote.tailscale.enable': { remote: RemoteState; tailscale: TailscaleState }
   'remote.tailscale.disable': TailscaleState
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
