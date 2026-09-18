@@ -56,7 +56,7 @@ export function SessionsScreen({ onOpen }: { onOpen: (sessionId: string) => void
           placeholder="Search sessions"
           type="search"
           aria-label="Search sessions"
-          className="h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-fg placeholder:text-fg-subtle"
+          className="h-11 w-full rounded-xl border border-border bg-surface-1 px-4 text-fg placeholder:text-fg-subtle"
         />
         <label className="flex items-center gap-2 text-xs text-fg-muted">
           <input
