@@ -147,7 +147,11 @@ export function SessionScreen({
           </button>
         </div>
 
-        <div role="tablist" aria-label="Session views" className="mt-2 flex gap-1">
+        <div
+          role="tablist"
+          aria-label="Session views"
+          className="mt-3 flex gap-1 rounded-xl bg-surface-1 p-1"
+        >
           {(['conversation', 'changes', 'details'] as const).map((entry) => (
             <button
               key={entry}
@@ -155,8 +159,8 @@ export function SessionScreen({
               aria-selected={tab === entry}
               type="button"
               onClick={() => setTab(entry)}
-              className={`h-9 flex-1 rounded-md text-xs capitalize ${
-                tab === entry ? 'bg-surface-2 font-medium text-fg' : 'text-fg-muted'
+              className={`h-9 flex-1 rounded-lg text-xs capitalize ${
+                tab === entry ? 'bg-surface-0 font-medium text-fg' : 'text-fg-muted'
               }`}
             >
               {entry}
@@ -276,7 +280,7 @@ function ApprovalCard({
 }): ReactNode {
   const [busy, setBusy] = useState<string | null>(null)
   return (
-    <section className="mb-3 rounded-lg border border-warning bg-warning-subtle p-3">
+    <section className="mb-3 rounded-2xl border border-warning bg-warning-subtle p-4">
       <h3 className="text-sm font-medium">Approval needed · {approval.toolName}</h3>
       <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-1 p-2 font-mono text-2xs text-fg-muted">
         {summarizeToolDetail(approval.summaryJson)}
@@ -293,7 +297,7 @@ function ApprovalCard({
                 .catch((failure: unknown) => error(messageOf(failure)))
                 .finally(() => setBusy(null))
             }}
-            className="min-h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-left text-sm disabled:opacity-50"
+            className="min-h-11 w-full rounded-xl border border-border bg-surface-1 px-3 py-2 text-left text-sm disabled:opacity-50"
           >
             {option.name}
             {option.kind !== null && (
@@ -320,7 +324,7 @@ function QuestionCard({
   const choices: string[] = parseChoices(input.choicesJson)
 
   return (
-    <section className="mb-3 rounded-lg border border-info bg-info-subtle p-3">
+    <section className="mb-3 rounded-2xl border border-info bg-info-subtle p-4">
       <h3 className="text-sm font-medium">The agent is asking</h3>
       <p className="mt-2 whitespace-pre-wrap text-sm">{input.prompt}</p>
       {choices.length > 0 ? (
@@ -371,7 +375,7 @@ function Conversation({ messages }: { messages: Message[] }): ReactNode {
       {messages.map((message) => (
         <li
           key={message.id}
-          className={`rounded-lg border p-3 ${
+          className={`rounded-2xl border p-4 ${
             message.role === 'user'
               ? 'border-accent bg-accent-subtle'
               : 'border-border bg-surface-1'
@@ -554,7 +558,7 @@ function Changes({ sessionId }: { sessionId: string }): ReactNode {
               type="button"
               onClick={() => void open(file.path).catch(() => undefined)}
               aria-label={`Show changes in ${file.path}`}
-              className="min-h-11 w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-left"
+              className="min-h-11 w-full rounded-xl border border-border bg-surface-1 px-3 py-2 text-left"
             >
               <span className="block break-words font-mono text-sm">{file.path}</span>
               <span className="mt-0.5 block text-2xs text-fg-subtle">{fileStatus(file)}</span>
@@ -668,13 +672,13 @@ function Composer({
         disabled={disabled}
         placeholder={disabled ? 'This desktop cannot take prompts' : 'Message the agent'}
         aria-label="Message the agent"
-        className="w-full resize-none rounded-md border border-border bg-surface-1 p-3 text-fg placeholder:text-fg-subtle disabled:opacity-50"
+        className="w-full resize-none rounded-xl border border-border bg-surface-1 p-3 text-fg placeholder:text-fg-subtle disabled:opacity-50"
       />
       <div className="mt-2 flex gap-2">
         <button
           type="submit"
           disabled={disabled || busy}
-          className="h-11 flex-1 rounded-md bg-accent px-3 text-fg-on-accent disabled:opacity-50"
+          className="h-12 flex-1 rounded-xl bg-accent px-3 font-medium text-fg-on-accent disabled:opacity-50"
         >
           {running ? 'Queue' : 'Send'}
         </button>

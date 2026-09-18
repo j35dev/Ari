@@ -84,20 +84,18 @@ export function NowScreen({ onOpen }: { onOpen: (sessionId: string) => void }): 
             key={entry.session.id}
             type="button"
             onClick={() => onOpen(entry.session.id)}
-            className="block w-full rounded-md border border-warning bg-warning-subtle p-3 text-left"
+            className="block w-full rounded-xl border border-warning bg-warning-subtle p-4 text-left"
           >
-            <p className="text-sm font-medium">{entry.session.title || 'Untitled session'}</p>
-            <p className="mt-1 text-xs text-fg-muted">
-              {entry.approvals.length > 0 &&
-                `${entry.approvals.length} approval${entry.approvals.length === 1 ? '' : 's'} waiting`}
-              {entry.approvals.length > 0 && entry.inputs.length > 0 && ' · '}
-              {entry.inputs.length > 0 &&
-                `${entry.inputs.length} question${entry.inputs.length === 1 ? '' : 's'}`}
-            </p>
+            <span className="flex items-center justify-between gap-2">
+              <span className="truncate text-[15px] font-semibold tracking-tight">
+                {entry.session.title || 'Untitled session'}
+              </span>
+              <StatusPill tone="warning" label={waitingLabel(entry)} />
+            </span>
             {entry.approvals[0] !== undefined && (
-              <p className="mt-2 line-clamp-2 font-mono text-2xs text-fg-subtle">
+              <span className="mt-2 line-clamp-2 block rounded-md bg-surface-0 px-2 py-1.5 font-mono text-2xs text-fg-muted">
                 {entry.approvals[0].toolName}: {summarizeToolDetail(entry.approvals[0].summaryJson)}
-              </p>
+              </span>
             )}
           </button>
         ))}
@@ -159,16 +157,62 @@ export function SessionRow({
     <button
       type="button"
       onClick={() => onOpen(session.id)}
-      className="flex w-full items-center justify-between gap-3 rounded-md border border-border bg-surface-1 p-3 text-left"
+      className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-surface-1 p-4 text-left"
     >
       <span className="min-w-0">
-        <span className="block truncate text-sm">{session.title || 'Untitled session'}</span>
-        <span className="mt-0.5 block text-2xs text-fg-subtle">
+        <span className="block truncate text-[15px] font-medium tracking-tight">
+          {session.title || 'Untitled session'}
+        </span>
+        <span className="mt-1 block text-xs text-fg-subtle">
           {relativeTime(session.updatedAt)} · {session.messageCount} message
           {session.messageCount === 1 ? '' : 's'}
         </span>
       </span>
-      <span className="shrink-0 text-2xs text-fg-muted">{session.status}</span>
+      <StatusPill
+        tone={session.status === 'running' ? 'active' : 'idle'}
+        label={session.status ?? 'idle'}
+      />
     </button>
   )
+}
+
+/** A status in words with a dot, never colour alone. */
+export function StatusPill({
+  tone,
+  label,
+}: {
+  tone: 'warning' | 'active' | 'idle'
+  label: string
+}): ReactNode {
+  return (
+    <span
+      className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-2xs font-medium ${
+        tone === 'warning'
+          ? 'bg-warning-subtle text-fg'
+          : tone === 'active'
+            ? 'bg-accent-subtle text-fg'
+            : 'bg-surface-2 text-fg-muted'
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`h-1.5 w-1.5 rounded-full ${
+          tone === 'warning' ? 'bg-warning' : tone === 'active' ? 'bg-accent' : 'bg-fg-subtle'
+        }`}
+      />
+      {label}
+    </span>
+  )
+}
+
+/** "2 approvals · 1 question", collapsed to what is waiting. */
+function waitingLabel(entry: Waiting): string {
+  const parts: string[] = []
+  if (entry.approvals.length > 0) {
+    parts.push(`${entry.approvals.length} approval${entry.approvals.length === 1 ? '' : 's'}`)
+  }
+  if (entry.inputs.length > 0) {
+    parts.push(`${entry.inputs.length} question${entry.inputs.length === 1 ? '' : 's'}`)
+  }
+  return parts.join(' · ')
 }
