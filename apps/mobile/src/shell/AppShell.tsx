@@ -56,6 +56,16 @@ export function AppShell(): ReactNode {
         </div>
       </header>
 
+      {app.connection === 'unreachable' && (
+        <button
+          type="button"
+          onClick={() => void app.reconnect()}
+          className="flex min-h-11 w-full shrink-0 items-center justify-center gap-2 border-b border-border bg-surface-1 px-4 text-sm text-fg"
+        >
+          No answer from the desktop — tap to try again
+        </button>
+      )}
+
       <main className="min-h-0 flex-1 overflow-hidden">
         {destination === 'now' && <NowScreen onOpen={setOpen} />}
         {destination === 'sessions' && <SessionsScreen onOpen={setOpen} />}
