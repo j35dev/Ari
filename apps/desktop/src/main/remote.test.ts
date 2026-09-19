@@ -68,6 +68,7 @@ function makeService(overrides: Partial<RemoteServiceDeps> = {}, port = 0): Harn
       defaultDriverKind: () => 'claude',
       hasProject: async () => true,
       listProjects: async () => [{ id: 'proj_1', name: 'Ari' }],
+      listModels: async () => [],
       // Distinct per service so a restart is a different gateway identity.
       mintSessionId: () => `sess_${++counter}`,
       clientOrigin: () => null,
@@ -192,6 +193,7 @@ describe('remote service lifecycle', () => {
         defaultDriverKind: () => 'claude',
         hasProject: async () => true,
         listProjects: async () => [{ id: 'proj_1', name: 'Ari' }],
+        listModels: async () => [],
         mintSessionId: () => `sess_${++counter}`,
         clientOrigin: () => null,
         allowedOrigins: () => [ALLOWED],

@@ -39,6 +39,9 @@ export const remoteOperationSchema = z.enum([
   // Projects. A name and an id, never a path: the phone names a project to
   // start work in, and has no use for where it lives on someone's disk.
   'project.list',
+  // Models. What the desktop can actually run right now, so the phone offers
+  // a choice instead of a text field it cannot validate.
+  'models.list',
   // Agent actions.
   'session.prompt',
   'session.queue',
@@ -216,6 +219,7 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('session.list') }),
   z.object({ op: z.literal('session.get'), sessionId: sessionIdSchema }),
   z.object({ op: z.literal('project.list') }),
+  z.object({ op: z.literal('models.list') }),
   z.object({ op: z.literal('changes.files'), sessionId: sessionIdSchema }),
   z.object({ op: z.literal('changes.diff'), sessionId: sessionIdSchema, path: z.string().min(1) }),
   z.object({ op: z.literal('command.status'), idempotencyKey: idempotencyKeySchema }),
@@ -265,6 +269,22 @@ export const remoteProjectSchema = z.object({
   sessionCount: z.number().int().nonnegative(),
 })
 export type RemoteProject = z.infer<typeof remoteProjectSchema>
+
+/**
+ * The desktop's runnable providers and their models, as the phone's picker
+ * shows them. Ids are the desktop's own catalog entries — the same ones its
+ * picker offers — so a choice made on the phone names something the desktop
+ * accepts. No keys, paths, or provider logins travel with it.
+ */
+export const remoteModelCatalogSchema = z.object({
+  providers: z.array(
+    z.object({
+      driverKind: driverKindSchema,
+      models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })),
+    }),
+  ),
+})
+export type RemoteModelCatalog = z.infer<typeof remoteModelCatalogSchema>
 
 /**
  * Content-free: a version to compare and the operation names this gateway

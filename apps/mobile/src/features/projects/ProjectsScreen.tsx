@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import { useApp } from '../../lib/app-state'
 import { sessionIdOf } from '../../lib/command-result'
 
@@ -15,10 +16,61 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
   const [chosen, setChosen] = useState<string | null>(null)
   const [prompt, setPrompt] = useState('')
   const [provider, setProvider] = useState('')
+  const [model, setModel] = useState('')
+  const [catalog, setCatalog] = useState<RemoteModelCatalog | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const canCreate = app.session?.supports('session.create') ?? false
+  const canListModels = app.session?.supports('models.list') ?? false
+
+  // The desktop's runnable providers, asked once per expansion: the catalog
+  // is small and the desktop's own picker reads the same merged snapshot.
+  useEffect(() => {
+    if (chosen === null || !canListModels || app.session === null) return
+    const session = app.session
+    let cancelled = false
+    setCatalog(null)
+    void session
+      .query<RemoteModelCatalog>('models.list')
+      .then((next) => {
+        if (!cancelled) setCatalog(next)
+      })
+      .catch(() => {
+        // An unreadable catalog must not block creation: the desktop's
+        // defaults still apply, and the selects simply stay hidden.
+        if (!cancelled) setCatalog(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chosen, canListModels, app.session])
+
+  // The last choice per project, restored when the form opens and validated
+  // against what the desktop serves now rather than trusted blindly.
+  useEffect(() => {
+    if (chosen === null || catalog === null) return
+    const remembered = readChoice(chosen)
+    const entry = catalog.providers.find((item) => item.driverKind === remembered.driverKind)
+    if (entry === undefined) {
+      setProvider('')
+      setModel('')
+      return
+    }
+    setProvider(entry.driverKind)
+    setModel(entry.models.some((item) => item.id === remembered.modelId) ? remembered.modelId : '')
+  }, [chosen, catalog])
+
+  function chooseProvider(driverKind: string): void {
+    setProvider(driverKind)
+    setModel('')
+    if (chosen !== null) writeChoice(chosen, { driverKind, modelId: '' })
+  }
+
+  function chooseModel(modelId: string): void {
+    setModel(modelId)
+    if (chosen !== null) writeChoice(chosen, { driverKind: provider, modelId })
+  }
 
   async function start(projectId: string): Promise<void> {
     if (app.session === null) return
@@ -28,10 +80,10 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
       const created = await app.session.send({
         op: 'session.create',
         projectId,
-        // Left out entirely when the user did not name one, so the desktop's
-        // configured default applies rather than an empty string reaching a
-        // check it would fail.
-        ...(provider.trim().length === 0 ? {} : { driverKind: provider.trim() }),
+        // Left out entirely when the desktop default applies, so an empty
+        // string never reaches a check it would fail.
+        ...(provider.length === 0 ? {} : { driverKind: provider }),
+        ...(provider.length === 0 || model.length === 0 ? {} : { modelId: model }),
       })
       const sessionId = sessionIdOf(created)
       if (sessionId === null) throw new Error('the desktop did not name the new session')
@@ -41,6 +93,7 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
       setPrompt('')
       setChosen(null)
       setProvider('')
+      setModel('')
       await app.refresh()
       onOpen(sessionId)
     } catch (failure) {
@@ -95,17 +148,54 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
                   void start(project.id)
                 }}
               >
-                <label className="block text-xs text-fg-muted" htmlFor={`provider-${project.id}`}>
-                  Provider (optional — the desktop's default is used otherwise)
-                </label>
-                <input
-                  id={`provider-${project.id}`}
-                  value={provider}
-                  onChange={(event) => setProvider(event.target.value)}
-                  placeholder="claude, codex, …"
-                  autoCapitalize="none"
-                  className="h-11 w-full rounded-md border border-border bg-bg px-3"
-                />
+                {catalog !== null && catalog.providers.length > 0 && (
+                  <>
+                    <label
+                      className="block text-xs text-fg-muted"
+                      htmlFor={`provider-${project.id}`}
+                    >
+                      Provider
+                    </label>
+                    <select
+                      id={`provider-${project.id}`}
+                      value={provider}
+                      onChange={(event) => chooseProvider(event.target.value)}
+                      className="h-11 w-full rounded-xl border border-border bg-bg px-3"
+                    >
+                      <option value="">Desktop default</option>
+                      {catalog.providers.map((entry) => (
+                        <option key={entry.driverKind} value={entry.driverKind}>
+                          {entry.driverKind}
+                        </option>
+                      ))}
+                    </select>
+                    {provider.length > 0 && (
+                      <>
+                        <label
+                          className="block text-xs text-fg-muted"
+                          htmlFor={`model-${project.id}`}
+                        >
+                          Model
+                        </label>
+                        <select
+                          id={`model-${project.id}`}
+                          value={model}
+                          onChange={(event) => chooseModel(event.target.value)}
+                          className="h-11 w-full rounded-xl border border-border bg-bg px-3"
+                        >
+                          <option value="">Desktop default</option>
+                          {catalog.providers
+                            .find((entry) => entry.driverKind === provider)
+                            ?.models.map((entry) => (
+                              <option key={entry.id} value={entry.id}>
+                                {entry.label}
+                              </option>
+                            ))}
+                        </select>
+                      </>
+                    )}
+                  </>
+                )}
                 <label className="block text-xs text-fg-muted" htmlFor={`prompt-${project.id}`}>
                   First message (optional)
                 </label>
@@ -137,4 +227,37 @@ export function ProjectsScreen({ onOpen }: { onOpen: (sessionId: string) => void
       )}
     </div>
   )
+}
+
+interface ModelChoice {
+  driverKind: string
+  modelId: string
+}
+
+/** The last provider/model choice per project, so a repeated task starts the same way. */
+function choiceKey(projectId: string): string {
+  return `ari.mobile.models.${projectId}`
+}
+
+function readChoice(projectId: string): ModelChoice {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(choiceKey(projectId)) ?? 'null')
+    if (parsed !== null && typeof parsed === 'object') {
+      const choice = parsed as Record<string, unknown>
+      if (typeof choice['driverKind'] === 'string' && typeof choice['modelId'] === 'string') {
+        return { driverKind: choice['driverKind'], modelId: choice['modelId'] }
+      }
+    }
+  } catch {
+    // A corrupt entry is forgotten, not fatal.
+  }
+  return { driverKind: '', modelId: '' }
+}
+
+function writeChoice(projectId: string, choice: ModelChoice): void {
+  try {
+    localStorage.setItem(choiceKey(projectId), JSON.stringify(choice))
+  } catch {
+    // Private browsing may refuse storage; the choice simply does not persist.
+  }
 }
