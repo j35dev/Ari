@@ -45,7 +45,11 @@ export function SessionScreen({
   const [tab, setTab] = useState<Tab>('conversation')
   const [error, setError] = useState<string | null>(null)
   const [activity, setActivity] = useState(false)
+  const [showJump, setShowJump] = useState(false)
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  /** Whether a fresh snapshot may move the scroll: only when the user is already at the bottom. */
+  const stick = useRef(true)
 
   async function load(): Promise<void> {
     if (app.session === null) return
@@ -114,10 +118,38 @@ export function SessionScreen({
     if (snapshot !== null) resumeFrom.current = snapshot.seq
   }, [snapshot])
 
+  // Follow the conversation only while the user is at the bottom. Reading
+  // older messages pins the scroll; a control appears instead of the view
+  // being stolen from under them.
+  useEffect(() => {
+    if (snapshot !== null && stick.current) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    }
+  }, [snapshot])
+
+  function onScroll(): void {
+    const el = scrollRef.current
+    if (el === null) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
+    stick.current = nearBottom
+    setShowJump(!nearBottom)
+  }
+
+  function jumpToLatest(): void {
+    stick.current = true
+    setShowJump(false)
+    const el = scrollRef.current
+    if (el === null) return
+    const smooth =
+      typeof window !== 'undefined' &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    el.scrollTo({ top: el.scrollHeight, ...(smooth ? { behavior: 'smooth' as const } : {}) })
+  }
+
   const can = (operation: string): boolean => app.session?.supports(operation) ?? false
 
   return (
-    <div className="flex h-full flex-col bg-bg text-fg">
+    <div className="relative flex h-full flex-col bg-bg text-fg">
       <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-3">
           <button
@@ -133,7 +165,9 @@ export function SessionScreen({
               {snapshot?.summary.title ?? 'Session'}
             </p>
             <p className="truncate text-2xs text-fg-subtle">
-              {snapshot === null ? 'Loading…' : `${snapshot.session.driverKind} · ${snapshot.session.status}`}
+              {snapshot === null
+                ? 'Loading…'
+                : `${snapshot.session.driverKind} · ${snapshot.session.modelId ?? 'default'} · ${snapshot.session.status}`}
               {activity && ' · working…'}
             </p>
           </div>
@@ -175,7 +209,7 @@ export function SessionScreen({
         </p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {tab === 'conversation' && snapshot !== null && (
           <>
             {snapshot.pendingApprovals.map((approval) => (
@@ -229,6 +263,17 @@ export function SessionScreen({
           </dl>
         )}
       </div>
+
+      {tab === 'conversation' && showJump && (
+        <button
+          type="button"
+          onClick={jumpToLatest}
+          aria-label="Jump to latest messages"
+          className="absolute bottom-28 right-4 z-10 flex min-h-11 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-4 text-sm font-medium shadow-lg"
+        >
+          Latest ↓
+        </button>
+      )}
 
       <Composer
         disabled={!can('session.prompt') || snapshot === null}
