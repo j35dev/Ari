@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import type { Project } from '@ari/contracts/project'
 import type { RemoteState, TailscaleState } from '@ari/contracts/rpc'
@@ -63,10 +63,20 @@ export function RemoteSettings() {
   const invitation = remote?.invitation ?? null
   const clientUrl = remote?.clientUrl ?? null
 
-  // A new device means a new grant: nothing carries over from the last one.
+  // A new device starts granted everything: the approval itself is the
+  // deliberate act, and narrowing is the exception rather than the chore.
+  // Tracked by invitation so a project list arriving late still fills the
+  // grant instead of leaving an empty one.
+  const grantedFor = useRef<string | null>(null)
   useEffect(() => {
-    setGranted([])
-  }, [pending?.invitationId])
+    if (pending === null) {
+      grantedFor.current = null
+      return
+    }
+    if (grantedFor.current === pending.invitationId) return
+    grantedFor.current = pending.invitationId
+    setGranted(projects.map((project) => project.id))
+  }, [pending, projects])
 
   const invitationUrl = clientUrl === null ? null : (invitation?.url ?? null)
 
@@ -252,6 +262,24 @@ export function RemoteSettings() {
           </p>
           <fieldset className="space-y-1">
             <legend className="text-xs font-medium text-fg">Projects this device may reach</legend>
+            {projects.length > 1 ? (
+              <div className="flex gap-4 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setGranted(projects.map((project) => project.id))}
+                  className="min-h-11 text-xs text-fg-muted underline"
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGranted([])}
+                  className="min-h-11 text-xs text-fg-muted underline"
+                >
+                  Select none
+                </button>
+              </div>
+            ) : null}
             {projects.length === 0 ? (
               <p className="text-xs text-fg-muted">No projects are registered yet.</p>
             ) : (
