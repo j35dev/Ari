@@ -21,6 +21,12 @@ const ORIGIN_KEY = 'ari.remote.origin'
 export interface AppValue {
   /** The desktop this phone talks to, once one is known. */
   origin: string | null
+  /**
+   * True once the first connection attempt has settled. Before that the app
+   * is still deciding between "paired" and "never paired", and must show
+   * neither the shell nor the pairing screen.
+   */
+  booted: boolean
   connection: ConnectionState
   /**
    * The live session, or null until the device store has been read. Screens
@@ -37,6 +43,8 @@ export interface AppValue {
   refresh: () => Promise<void>
   /** Pairs with an invitation id read from a link or a QR code. */
   pair: (invitationId: string, displayName: string) => Promise<void>
+  /** Runs the connection attempt again, for the retry control. */
+  reconnect: () => Promise<void>
   /** Forgets this browser's device key and the remembered address. */
   forget: () => Promise<void>
   /** Used when a pairing link names a desktop this browser has not stored. */
@@ -78,7 +86,8 @@ function initialOrigin(): string | null {
 
 export function AppProvider({ store, children }: { store: DeviceStore; children: ReactNode }): ReactNode {
   const [origin, setOrigin] = useState<string | null>(initialOrigin)
-  const [connection, setConnection] = useState<ConnectionState>('unpaired')
+  const [connection, setConnection] = useState<ConnectionState>('connecting')
+  const [booted, setBooted] = useState(false)
   const [capabilities, setCapabilities] = useState<readonly string[]>([])
   const [projects, setProjects] = useState<RemoteProject[]>([])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -90,7 +99,11 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
   const keyring = useMemo(() => new DeviceKeyring(store), [store])
 
   useEffect(() => {
-    if (origin === null) return
+    // No address and nothing to decide: the pairing screen owns this case.
+    if (origin === null) {
+      setBooted(true)
+      return
+    }
     let cancelled = false
     const client = new GatewayClient({ origin })
     const session = new MobileSession({ keyring, client, onState: setConnection })
@@ -103,6 +116,7 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
       setConnection(next)
       setCapabilities(session.capabilities)
       if (next === 'connected') await refreshWith(session)
+      setBooted(true)
     })()
 
     const onVisible = (): void => {
@@ -145,6 +159,14 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
     [linked, refreshWith],
   )
 
+  const reconnect = useCallback(async () => {
+    if (linked === null) return
+    const next = await linked.session.connect()
+    setConnection(next)
+    setCapabilities(linked.session.capabilities)
+    if (next === 'connected') await refreshWith(linked.session)
+  }, [linked, refreshWith])
+
   const forget = useCallback(async () => {
     await keyring.forget()
     localStorage.removeItem(ORIGIN_KEY)
@@ -163,6 +185,7 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
 
   const value: AppValue = {
     origin,
+    booted,
     connection,
     session: linked?.session ?? null,
     capabilities,
@@ -174,6 +197,7 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
       if (linked !== null) await refreshWith(linked.session)
     },
     pair,
+    reconnect,
     forget,
     rememberOrigin,
   }
