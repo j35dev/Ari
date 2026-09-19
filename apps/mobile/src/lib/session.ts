@@ -43,6 +43,8 @@ export interface SessionDeps {
   decisionPollMs?: number
   /** How long to wait for that decision before giving up. */
   decisionTimeoutMs?: number
+  /** Base backoff between connection attempts. Tests shorten it. */
+  connectRetryMs?: number
 }
 
 /** The protocol this build speaks; the gateway answers with its own. */
@@ -51,6 +53,9 @@ export const CLIENT_PROTOCOL_VERSION = 1
 /** An invitation lives five minutes; the wait must not outlast it. */
 const DECISION_POLL_MS = 1000
 const DECISION_TIMEOUT_MS = 5 * 60 * 1000
+/** A cold tailnet is the usual reason the first attempt fails; three tries. */
+const CONNECT_ATTEMPTS = 3
+const CONNECT_RETRY_MS = 900
 
 export class MobileSession {
   readonly #client: GatewayClient
@@ -64,6 +69,7 @@ export class MobileSession {
   #projectIds: string[] = []
   #capabilities: readonly string[] = []
   #listeners = new Set<() => void>()
+  #connectRetryMs: number
 
   constructor(deps: SessionDeps) {
     this.#client = deps.client
@@ -71,6 +77,7 @@ export class MobileSession {
     this.#onState = deps.onState
     this.#decisionPollMs = deps.decisionPollMs ?? DECISION_POLL_MS
     this.#decisionTimeoutMs = deps.decisionTimeoutMs ?? DECISION_TIMEOUT_MS
+    this.#connectRetryMs = deps.connectRetryMs ?? CONNECT_RETRY_MS
   }
 
   get state(): ConnectionState {
@@ -116,7 +123,8 @@ export class MobileSession {
    * Called on every app start and on every return from the background. If this
    * browser holds a device key, the desktop hands back a fresh token; if it
    * does not, the caller is told to pair — never asked to retry something the
-   * user cannot fix.
+   * user cannot fix. A failure that could be the tailnet still waking up is
+   * retried a few times before the UI is told anything is wrong.
    */
   async connect(): Promise<ConnectionState> {
     await this.#keyring.load()
@@ -124,20 +132,24 @@ export class MobileSession {
     if (deviceId === null) return this.#set('unpaired')
 
     this.#set('connecting')
-    try {
-      // Asked before anything else is sent: a client that speaks a different
-      // protocol should say so, not discover it from a failed command.
-      const info = await this.#client.info()
-      if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION) {
-        return this.#set('version-mismatch')
+    for (let attempt = 0; ; attempt++) {
+      try {
+        // Asked before anything else is sent: a client that speaks a different
+        // protocol should say so, not discover it from a failed command.
+        const info = await this.#client.info()
+        if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION) {
+          return this.#set('version-mismatch')
+        }
+        this.#capabilities = info.capabilities
+        await this.#authorize(deviceId)
+        return this.#set('connected')
+      } catch (error) {
+        if (attempt + 1 >= CONNECT_ATTEMPTS || !retryable(error)) {
+          return this.#set(stateForError(error))
+        }
+        await new Promise((resolve) => setTimeout(resolve, this.#connectRetryMs * (attempt + 1)))
       }
-      this.#capabilities = info.capabilities
-      await this.#authorize(deviceId)
-      this.#set('connected')
-    } catch (error) {
-      this.#set(stateForError(error))
     }
-    return this.#state
   }
 
   /**
@@ -321,6 +333,15 @@ export class MobileSession {
       return undefined
     }
   }
+}
+
+/**
+ * Whether trying again could help. A refusal the desktop made on purpose —
+ * revoked, unknown device, wrong version — will not change on retry, and
+ * neither will a browser without a key.
+ */
+function retryable(error: unknown): boolean {
+  return error instanceof RemoteError && error.retryable
 }
 
 function stateForError(error: unknown): ConnectionState {

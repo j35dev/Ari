@@ -131,6 +131,7 @@ function sessionFor(
     // tests tap it in the statement after the next one.
     decisionPollMs: 2,
     decisionTimeoutMs: 2000,
+    connectRetryMs: 1,
   })
 }
 
@@ -193,6 +194,47 @@ describe('mobile reconnection', () => {
 
     await expect(session.connect()).resolves.toBe('connected')
     expect(restarted.pairing.devices()).toHaveLength(1)
+  })
+
+  it('rides out a cold tailnet instead of stranding the launch', async () => {
+    const gateway = await startGateway()
+    const store = new MemoryDeviceStore()
+    await pairPhone(gateway, new DeviceKeyring(store))
+
+    // The phone's network is up before the tailnet is: the first attempt
+    // fails, and the launch must survive it rather than land on "not
+    // connected" with no way back.
+    let attempts = 0
+    const flaky = (async (input: unknown, init?: unknown) => {
+      attempts++
+      if (attempts === 1) throw new TypeError('network connection lost')
+      return browserFetch()(input as never, init as never)
+    }) as unknown as typeof fetch
+    const session = sessionFor(gateway, new DeviceKeyring(store), flaky)
+
+    await expect(session.connect()).resolves.toBe('connected')
+    expect(attempts).toBeGreaterThan(1)
+  })
+
+  it('does not retry a refusal the desktop made on purpose', async () => {
+    const gateway = await startGateway()
+    const store = new MemoryDeviceStore()
+    await pairPhone(gateway, new DeviceKeyring(store))
+    const deviceId = gateway.pairing.devices()[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+    gateway.pairing.revoke(deviceId)
+
+    let attempts = 0
+    const counting = (async (input: unknown, init?: unknown) => {
+      attempts++
+      return browserFetch()(input as never, init as never)
+    }) as unknown as typeof fetch
+    const session = sessionFor(gateway, new DeviceKeyring(store), counting)
+
+    await expect(session.connect()).resolves.toBe('revoked')
+    // info, challenge, then the authorization that reports the revocation:
+    // nothing after the refusal.
+    expect(attempts).toBe(3)
   })
 
   it('reports a revoked device as revoked rather than as unpaired', async () => {
