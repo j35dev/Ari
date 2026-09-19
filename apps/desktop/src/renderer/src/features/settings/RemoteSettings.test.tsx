@@ -153,17 +153,14 @@ describe('RemoteSettings', () => {
     expect(screen.getByText(/must match the one on the phone's screen/)).toBeInTheDocument()
   })
 
-  it('approves with the projects the user selected', async () => {
+  it('approves with every project unless the user narrows the grant', async () => {
     remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
     const user = userEvent.setup()
     render(<RemoteSettings />)
 
+    // The grant starts full: the approval is the deliberate act, and picking
+    // projects one by one is the exception.
     const approve = await screen.findByRole('button', { name: 'Approve' })
-    // A device granted nothing can reach nothing, so an empty grant is not an
-    // approval the user could have meant.
-    expect(approve).toBeDisabled()
-
-    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
     expect(approve).toBeEnabled()
     await user.click(approve)
 
@@ -173,6 +170,17 @@ describe('RemoteSettings', () => {
         projectIds: ['proj_ari'],
       }),
     )
+  })
+
+  it('lets the user narrow the grant before approving', async () => {
+    remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
+    const user = userEvent.setup()
+    render(<RemoteSettings />)
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Ari' }))
+    // A device granted nothing can reach nothing, so an empty grant is not an
+    // approval the user could have meant.
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled()
   })
 
   it('denies a device without granting anything', async () => {
