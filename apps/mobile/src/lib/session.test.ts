@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
 import { PairingService } from '@ari/remote-gateway/pairing'
 import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
-import type { RemoteOperation } from '@ari/contracts/remote'
+import { remoteModelCatalogSchema, type RemoteOperation } from '@ari/contracts/remote'
 import { sessionIdOf } from './command-result'
 import { DeviceKeyring, MemoryDeviceStore } from './device-key'
 import { GatewayClient } from './gateway-client'
@@ -37,6 +37,7 @@ function fakeHost(options: { withChanges?: boolean } = {}): RecordingHost {
     'session.list',
     'session.create',
     'session.prompt',
+    'models.list',
     'events.subscribe',
   ]
   if (options.withChanges === true) capabilities.push('changes.files', 'changes.diff')
@@ -53,6 +54,11 @@ function fakeHost(options: { withChanges?: boolean } = {}): RecordingHost {
     replay: async () => [],
     query: async (caller, op, params) => {
       callers.push(caller)
+      if (op === 'models.list') {
+        return {
+          providers: [{ driverKind: 'claude', models: [{ id: 'model-a', label: 'Model A' }] }],
+        }
+      }
       if (op === 'changes.files') {
         return { files: [{ path: 'a.txt' }], base: 'workspace-head', error: null }
       }
@@ -376,6 +382,22 @@ describe('mobile commands', () => {
     // and the retry creates a duplicate.
     const created = await session.send({ op: 'session.create', projectId: 'proj_1' })
     expect(sessionIdOf(created)).toBe('sess_new')
+  })
+
+  it('lists the desktop catalog for the new-session picker', async () => {
+    const gateway = await startGateway(fakeHost())
+    const session = await pairPhone(gateway, new DeviceKeyring(new MemoryDeviceStore()))
+    await expect(session.connect()).resolves.toBe('connected')
+
+    expect(session.supports('models.list')).toBe(true)
+    const catalog = await session.query<{
+      providers: { driverKind: string; models: { id: string; label: string }[] }[]
+    }>('models.list')
+    expect(remoteModelCatalogSchema.safeParse(catalog).success).toBe(true)
+    expect(catalog.providers[0]).toEqual({
+      driverKind: 'claude',
+      models: [{ id: 'model-a', label: 'Model A' }],
+    })
   })
 
   it('mints a key per command, so two prompts are two prompts', async () => {

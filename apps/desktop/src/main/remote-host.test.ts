@@ -9,7 +9,11 @@ import { SessionStore } from '@ari/engine/session-store'
 import { ok, err } from '@ari/shared/result'
 import type { DriverKind } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
-import { remoteChangesSchema, type RemoteCommand } from '@ari/contracts/remote'
+import {
+  remoteChangesSchema,
+  remoteModelCatalogSchema,
+  type RemoteCommand,
+} from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { RemoteCaller } from '@ari/remote-gateway/host'
@@ -114,6 +118,10 @@ function hostFor(
     defaultDriverKind: () => 'claude',
     hasProject: async () => true,
     listProjects: async () => [{ id: 'proj_1', name: 'Ari' }],
+    listModels: async () => [
+      { driverKind: 'claude', models: [{ id: 'model-a', label: 'Model A' }] },
+      { driverKind: 'codex', models: [] },
+    ],
     pairing: new PairingService(),
     mintSessionId: () => 'sess_remote_1',
     ...overrides,
@@ -153,6 +161,7 @@ function commandOrReadExists(op: string): boolean {
     'session.list',
     'session.get',
     'project.list',
+    'models.list',
     'changes.files',
     'changes.diff',
     'command.status',
@@ -666,6 +675,23 @@ describe('session changes', () => {
 
     expect(files.error).toBeNull()
     expect(files.files).toHaveLength(2)
+  })
+})
+
+describe('model catalog', () => {
+  it('serves the providers with their catalog models', async () => {
+    const host = hostFor(await tempStore(), fakeEngine())
+
+    expect(host.capabilities()).toContain('models.list')
+    const catalog = await host.query(CALLER, 'models.list', {})
+
+    expect(remoteModelCatalogSchema.safeParse(catalog).success).toBe(true)
+    expect(catalog).toEqual({
+      providers: [
+        { driverKind: 'claude', models: [{ id: 'model-a', label: 'Model A' }] },
+        { driverKind: 'codex', models: [] },
+      ],
+    })
   })
 })
 
