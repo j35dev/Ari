@@ -11,6 +11,7 @@ import type {
   RemoteChanges,
   RemoteCommand,
   RemoteInput,
+  RemoteModelCatalog,
   RemoteOperation,
   RemoteProject,
 } from '@ari/contracts/remote'
@@ -58,6 +59,8 @@ export interface RemoteHostDeps {
   hasProject: (projectId: string) => Promise<boolean>
   /** Every project this desktop has registered, for the phone's picker. */
   listProjects: () => Promise<{ id: string; name: string }[]>
+  /** Providers this desktop can run, with their catalog models. */
+  listModels: () => Promise<RemoteModelCatalog['providers']>
   /** Owns the device records `device.list` and `device.revoke` read and write. */
   pairing: PairingService
   mintSessionId: () => string
@@ -77,6 +80,7 @@ const OPERATIONS: readonly RemoteOperation[] = [
   'changes.files',
   'changes.diff',
   'project.list',
+  'models.list',
   'events.subscribe',
   'device.list',
   'device.revoke',
@@ -281,6 +285,10 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
         }
         case 'project.list':
           return listProjects(caller)
+        case 'models.list':
+          // Capability-gated like everything else, but not project-scoped: it
+          // names providers and catalog models, nothing about the user's work.
+          return { providers: await deps.listModels() }
         case 'device.list':
           // A paired device already acts as the user, so seeing and revoking
           // the user's other devices is the management feature the design

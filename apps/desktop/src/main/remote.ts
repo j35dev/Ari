@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import type { RemoteDeviceView, RemoteState } from '@ari/contracts/rpc'
 import { PairingService, type PersistedPairing } from '@ari/remote-gateway/pairing'
 import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
@@ -39,6 +40,8 @@ export interface RemoteServiceDeps {
   hasProject: (projectId: string) => Promise<boolean>
   /** Every project this desktop has registered, for the phone's picker. */
   listProjects: () => Promise<{ id: string; name: string }[]>
+  /** Providers this desktop can run, with their catalog models. */
+  listModels: () => Promise<RemoteModelCatalog['providers']>
   mintSessionId: () => string
   /**
    * The address a phone should open, or null when none is configured yet.
@@ -98,6 +101,7 @@ export class RemoteService {
           defaultDriverKind: this.#deps.defaultDriverKind,
           hasProject: this.#deps.hasProject,
           listProjects: this.#deps.listProjects,
+          listModels: this.#deps.listModels,
           pairing: this.#pairing,
           mintSessionId: this.#deps.mintSessionId,
         }),

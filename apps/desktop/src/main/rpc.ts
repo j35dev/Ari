@@ -984,6 +984,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           .list()
           .map((project) => ({ id: project.id, name: project.name }))
       },
+      // The picker's own catalog, filtered to what this desktop can drive.
+      // Synchronous reads of the merged snapshot; a background refresh
+      // replaces the data the next call sees.
+      listModels: () =>
+        Promise.resolve(
+          ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null).map((kind) => ({
+            driverKind: kind,
+            models: modelsFor(kind).map((model) => ({ id: model.id, label: model.label })),
+          })),
+        ),
       mintSessionId: () =>
         `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       // No address is reachable from a phone until Serve (or a tunnel) is in
