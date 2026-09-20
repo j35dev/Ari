@@ -4,7 +4,7 @@ import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
 import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { AcpAuthRequiredError, AcpConnection, AcpConnectionError } from './connection'
-import type { AcpChildProcess, AcpLaunch } from './connection'
+import type { AcpChildProcess, AcpLaunch, AcpMcpServer } from './connection'
 import {
   encodeQuestionnaire,
   isAskUserQuestionMethod,
@@ -90,6 +90,7 @@ export async function createAcpAdapter(
   session: AdapterSession,
   spawn?: (childLaunch: AcpLaunch, cwd: string) => AcpChildProcess,
   onAuthRequired?: AcpAuthRequiredHandler,
+  mcpServers: AcpMcpServer[] = [],
 ): Promise<AcpAdapter> {
   const pendingPermissions = new Map<
     string,
@@ -236,6 +237,7 @@ export async function createAcpAdapter(
       ...(session.runtimeEnv ? { runtimeEnv: session.runtimeEnv } : {}),
       cwd: session.workspacePath,
       ...(spawn !== undefined ? { spawn } : {}),
+      ...(mcpServers.length > 0 ? { mcpServers } : {}),
     })
   } catch (error) {
     throw setupFailure(error)
@@ -933,6 +935,7 @@ export class AcpDriver implements Driver {
     private readonly fallback: Driver | null,
     /** Notified whenever the agent refuses for want of a login. */
     private readonly onAuthRequired: AcpAuthRequiredHandler | null = null,
+    private readonly mcpServers: () => AcpMcpServer[] = () => [],
   ) {
     this.kind = kind
   }
@@ -945,6 +948,7 @@ export class AcpDriver implements Driver {
           session,
           undefined,
           this.onAuthRequired ?? undefined,
+          this.mcpServers(),
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
         publishAdvertisedEfforts(this.kind, adapter.advertisedEfforts)
