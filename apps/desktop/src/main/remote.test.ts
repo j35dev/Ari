@@ -174,6 +174,19 @@ describe('remote service lifecycle', () => {
     expect(states[states.length - 1]?.invitation).not.toBeNull()
   })
 
+  it('withdraws the approval prompt and the used code once a phone pairs', async () => {
+    const key = deviceKey()
+    const { service } = makeService()
+    await service.start()
+    await pair(service, key)
+
+    // The prompt answered itself: leaving it up invites Approve clicks that
+    // can only fail as conflicts, and the code must not be scanned twice.
+    expect(service.state().pending).toBeNull()
+    expect(service.state().invitation).toBeNull()
+    expect(service.state().devices).toHaveLength(1)
+  })
+
   it('keeps a phone that paired before a restart', async () => {
     const key = deviceKey()
     const first = makeService()
