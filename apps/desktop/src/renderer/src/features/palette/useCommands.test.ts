@@ -20,6 +20,7 @@ describe('buildAppCommands', () => {
     for (const view of [
       'sessions',
       'terminal',
+      'browser',
       'changes',
       'settings',
       'files',
