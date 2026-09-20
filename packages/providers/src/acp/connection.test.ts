@@ -1,6 +1,11 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
-import { AcpAuthRequiredError, AcpConnection, AcpConnectionError, acpPromptStallMs } from './connection'
+import {
+  AcpAuthRequiredError,
+  AcpConnection,
+  AcpConnectionError,
+  acpPromptStallMs,
+} from './connection'
 import type { AcpChildProcess, AcpLaunch } from './connection'
 
 const LAUNCH: AcpLaunch = { label: 'test-agent', command: 'fake', args: [] }
@@ -65,11 +70,7 @@ function fakeChild(): FakeChild {
   return child
 }
 
-type AgentHandler = (
-  method: string | undefined,
-  params: unknown,
-  id: number | undefined,
-) => unknown
+type AgentHandler = (method: string | undefined, params: unknown, id: number | undefined) => unknown
 
 /** Sentinel: the scripted agent never replies to this request (wedge sim). */
 export const NO_REPLY = Symbol('no-reply')
@@ -117,7 +118,8 @@ function script(child: FakeChild, handler: AgentHandler): void {
 }
 
 const STANDARD_AGENT: AgentHandler = (method) => {
-  if (method === 'initialize') return { protocolVersion: 1, agentInfo: { name: 'TestAgent', version: '1.2.3' } }
+  if (method === 'initialize')
+    return { protocolVersion: 1, agentInfo: { name: 'TestAgent', version: '1.2.3' } }
   if (method === 'session/new') return { sessionId: 'sess_9' }
   if (method === 'session/prompt') return { stopReason: 'end_turn' }
   return undefined
@@ -130,11 +132,14 @@ async function drain(ms = 15): Promise<void> {
 describe('AcpConnection', () => {
   it('bounds a usage prompt even when the agent never answers', async () => {
     const child = fakeChild()
-    script(child, (method, params, id) => method === 'session/prompt' ? NO_REPLY : STANDARD_AGENT(method, params, id))
+    script(child, (method, params, id) =>
+      method === 'session/prompt' ? NO_REPLY : STANDARD_AGENT(method, params, id),
+    )
     const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/', spawn: () => child })
     try {
-      await expect(connection.prompt('probe', '/usage', { timeoutMs: 25, stallSilenceMs: 0 }))
-        .rejects.toThrow('timed out after 25ms')
+      await expect(
+        connection.prompt('probe', '/usage', { timeoutMs: 25, stallSilenceMs: 0 }),
+      ).rejects.toThrow('timed out after 25ms')
     } finally {
       await connection.shutdown()
     }
@@ -142,10 +147,16 @@ describe('AcpConnection', () => {
 
   it('reads namespaced billing extensions through the response multiplexer', async () => {
     const child = fakeChild()
-    script(child, (method, params, id) => method === '_x.ai/billing' ? { config: { creditUsagePercent: 23 } } : STANDARD_AGENT(method, params, id))
+    script(child, (method, params, id) =>
+      method === '_x.ai/billing'
+        ? { config: { creditUsagePercent: 23 } }
+        : STANDARD_AGENT(method, params, id),
+    )
     const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/', spawn: () => child })
     try {
-      await expect(connection.requestExtension('_x.ai/billing', {})).resolves.toEqual({ config: { creditUsagePercent: 23 } })
+      await expect(connection.requestExtension('_x.ai/billing', {})).resolves.toEqual({
+        config: { creditUsagePercent: 23 },
+      })
     } finally {
       await connection.shutdown()
     }
@@ -158,7 +169,9 @@ describe('AcpConnection', () => {
         label: 'environment fixture',
         command: process.execPath,
         env: { CODEX_PATH: '/fixture/CLI with spaces/codex' },
-        args: ['-e', `
+        args: [
+          '-e',
+          `
           require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
             const message = JSON.parse(line);
             if (message.method === 'initialize') {
@@ -168,12 +181,15 @@ describe('AcpConnection', () => {
               } }));
             }
           });
-        `],
+        `,
+        ],
       },
     })
     try {
       expect(connection.initialize.agentInfo?.name).toBe('/fixture/CLI with spaces/codex')
-      expect(connection.initialize.agentInfo?.version).toBe(process.env['PATH'] ?? process.env['Path'])
+      expect(connection.initialize.agentInfo?.version).toBe(
+        process.env['PATH'] ?? process.env['Path'],
+      )
     } finally {
       await connection.shutdown()
     }
@@ -182,7 +198,11 @@ describe('AcpConnection', () => {
   it('completes the initialize handshake and exposes agent info', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     expect(connection.initialize.agentInfo?.name).toBe('TestAgent')
 
     const created = await connection.newSession('/w')
@@ -193,16 +213,154 @@ describe('AcpConnection', () => {
     expect(child.killed).toBe(true)
   })
 
+  it('hands HTTP MCP servers to session/new unless the agent opted out', async () => {
+    const httpServer = {
+      type: 'http' as const,
+      name: 'ari-browser',
+      url: 'http://127.0.0.1:9/mcp',
+      headers: [{ name: 'Authorization', value: 'Bearer t' }],
+    }
+    const withHttp = fakeChild()
+    script(withHttp, (method) => {
+      if (method === 'initialize') {
+        return {
+          protocolVersion: 1,
+          agentCapabilities: { mcpCapabilities: { http: true } },
+        }
+      }
+      if (method === 'session/new') return { sessionId: 'sess_mcp' }
+      return undefined
+    })
+    const httpConn = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => withHttp,
+      mcpServers: [httpServer],
+    })
+    await httpConn.newSession('/w')
+    const created = withHttp.sent.find((m) => m['method'] === 'session/new') as
+      { params?: { mcpServers?: unknown[] } } | undefined
+    expect(created?.params?.mcpServers).toEqual([httpServer])
+    httpConn.kill()
+
+    const implied = fakeChild()
+    script(implied, STANDARD_AGENT)
+    const impliedConn = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => implied,
+      mcpServers: [httpServer],
+    })
+    await impliedConn.newSession('/w')
+    const impliedNew = implied.sent.find((m) => m['method'] === 'session/new') as
+      { params?: { mcpServers?: unknown[] } } | undefined
+    expect(impliedNew?.params?.mcpServers).toEqual([httpServer])
+    impliedConn.kill()
+
+    const optedOut = fakeChild()
+    script(optedOut, (method) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: false } } }
+      }
+      if (method === 'session/new') return { sessionId: 'sess_no_http' }
+      return undefined
+    })
+    const opted = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => optedOut,
+      mcpServers: [httpServer],
+    })
+    await opted.newSession('/w')
+    const skipped = optedOut.sent.find((m) => m['method'] === 'session/new') as
+      { params?: { mcpServers?: unknown[] } } | undefined
+    expect(skipped?.params?.mcpServers).toEqual([])
+    opted.kill()
+  })
+
+  it('always forwards stdio MCP servers so the in-app browser reaches every agent', async () => {
+    const stdioServer = {
+      name: 'ari-browser',
+      command: '/bin/proxy',
+      args: ['/tmp/proxy.mjs'],
+      env: [{ name: 'ARI_BROWSER_MCP_URL', value: 'http://127.0.0.1:9/mcp' }],
+    }
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+      mcpServers: [stdioServer],
+    })
+    await connection.newSession('/w')
+    const created = child.sent.find((m) => m['method'] === 'session/new') as
+      { params?: { mcpServers?: unknown[] } } | undefined
+    expect(created?.params?.mcpServers).toEqual([stdioServer])
+    connection.kill()
+  })
+
+  it('prefers HTTP MCP and falls back to stdio when HTTP is opted out', async () => {
+    const httpServer = {
+      type: 'http' as const,
+      name: 'ari-browser',
+      url: 'http://127.0.0.1:9/mcp',
+      headers: [{ name: 'Authorization', value: 'Bearer t' }],
+    }
+    const stdioServer = {
+      name: 'ari-browser',
+      command: '/bin/proxy',
+      args: ['/tmp/proxy.mjs'],
+    }
+    const both = [httpServer, stdioServer]
+    const httpChild = fakeChild()
+    script(httpChild, STANDARD_AGENT)
+    const httpConn = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => httpChild,
+      mcpServers: both,
+    })
+    await httpConn.newSession('/w')
+    const httpNew = httpChild.sent.find((m) => m['method'] === 'session/new') as
+      { params?: { mcpServers?: unknown[] } } | undefined
+    expect(httpNew?.params?.mcpServers).toEqual([httpServer])
+    httpConn.kill()
+
+    const stdioChild = fakeChild()
+    script(stdioChild, (method) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: false } } }
+      }
+      if (method === 'session/new') return { sessionId: 'sess_stdio' }
+      return undefined
+    })
+    const stdioConn = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => stdioChild,
+      mcpServers: both,
+    })
+    await stdioConn.newSession('/w')
+    const stdioNew = stdioChild.sent.find((m) => m['method'] === 'session/new') as
+      { params?: { mcpServers?: unknown[] } } | undefined
+    expect(stdioNew?.params?.mcpServers).toEqual([stdioServer])
+    stdioConn.kill()
+  })
+
   it('sends prompts as text content blocks and resolves the stop reason', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const created = await connection.newSession('/w')
     const stopReason = await connection.prompt(created.sessionId as string, 'do things')
     expect(stopReason).toBe('end_turn')
     const promptRequest = child.sent.find((m) => m['method'] === 'session/prompt') as
-      | { params?: { prompt?: { type: string; text: string }[] } }
-      | undefined
+      { params?: { prompt?: { type: string; text: string }[] } } | undefined
     expect(promptRequest?.params?.prompt?.[0]).toEqual({ type: 'text', text: 'do things' })
     connection.kill()
   })
@@ -210,14 +368,20 @@ describe('AcpConnection', () => {
   it('sends staged images as image blocks after the text', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const created = await connection.newSession('/w')
     const stopReason = await connection.prompt(created.sessionId as string, 'look', {
       images: [{ data: 'aGk=', mimeType: 'image/png' }],
     })
     expect(stopReason).toBe('end_turn')
     const promptRequest = child.sent.find((m) => m['method'] === 'session/prompt') as
-      | { params?: { prompt?: { type: string; text?: string; data?: string; mimeType?: string }[] } }
+      | {
+          params?: { prompt?: { type: string; text?: string; data?: string; mimeType?: string }[] }
+        }
       | undefined
     expect(promptRequest?.params?.prompt).toEqual([
       { type: 'text', text: 'look' },
@@ -230,17 +394,21 @@ describe('AcpConnection', () => {
     // Spec: session/load's response body is null; the agent re-attaches the id.
     const child = fakeChild()
     script(child, (method) => {
-      if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+      if (method === 'initialize')
+        return { protocolVersion: 1, agentCapabilities: { loadSession: true } }
       if (method === 'session/load') return null
       return undefined
     })
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
 
     const resumed = await connection.loadSession('sess_old', '/next')
     expect(resumed.sessionId).toBe('sess_old')
     const load = child.sent.find((m) => m['method'] === 'session/load') as
-      | { params?: Record<string, unknown> }
-      | undefined
+      { params?: Record<string, unknown> } | undefined
     expect(load?.params).toEqual({ sessionId: 'sess_old', cwd: '/next', mcpServers: [] })
     connection.kill()
   })
@@ -248,7 +416,11 @@ describe('AcpConnection', () => {
   it('routes session/update notifications to the hook', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const seen: unknown[] = []
     connection.onSessionUpdate = (notification) => seen.push(notification)
     child.stdout.write(
@@ -269,7 +441,11 @@ describe('AcpConnection', () => {
   it('bridges server permission requests through the handler', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     connection.onRequestPermission = async () => ({
       outcome: { outcome: 'selected', optionId: 'allow_once' },
     })
@@ -278,20 +454,33 @@ describe('AcpConnection', () => {
         jsonrpc: '2.0',
         id: 42,
         method: 'session/request_permission',
-        params: { sessionId: 's', options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }] },
+        params: {
+          sessionId: 's',
+          options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }],
+        },
       })}\n`,
     )
     await drain()
     const reply = child.sent.find((m) => m['id'] === 42 && m['method'] === undefined)
-    expect(reply).toMatchObject({ id: 42, result: { outcome: { outcome: 'selected', optionId: 'allow_once' } } })
+    expect(reply).toMatchObject({
+      id: 42,
+      result: { outcome: { outcome: 'selected', optionId: 'allow_once' } },
+    })
     connection.kill()
   })
 
   it('bridges elicitation/create through onClientRequest as a JSON-RPC success', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
-    connection.onClientRequest = async () => ({ action: 'accept', content: { strategy: 'balanced' } })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
+    connection.onClientRequest = async () => ({
+      action: 'accept',
+      content: { strategy: 'balanced' },
+    })
     child.stdout.write(
       `${JSON.stringify({
         jsonrpc: '2.0',
@@ -318,12 +507,15 @@ describe('AcpConnection', () => {
       if (method === 'session/resume') return null
       return undefined
     })
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const resumed = await connection.resumeSession('sess_old', '/next')
     expect(resumed.sessionId).toBe('sess_old')
     const resume = child.sent.find((m) => m['method'] === 'session/resume') as
-      | { params?: Record<string, unknown> }
-      | undefined
+      { params?: Record<string, unknown> } | undefined
     expect(resume?.params).toEqual({ sessionId: 'sess_old', cwd: '/next', mcpServers: [] })
     connection.kill()
   })
@@ -331,7 +523,11 @@ describe('AcpConnection', () => {
   it('answers unadvertised client methods with method-not-found', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     child.stdout.write(
       `${JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'fs/read_text_file', params: { path: '/x' } })}\n`,
     )
@@ -374,7 +570,11 @@ describe('AcpConnection', () => {
           ? NO_REPLY
           : { ok: true },
     )
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const created = await connection.newSession('/w')
     await expect(
       connection.prompt(created.sessionId as string, 'hello?', { stallSilenceMs: 120 }),
@@ -396,7 +596,11 @@ describe('AcpConnection', () => {
       }
       return { ok: true }
     })
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const created = await connection.newSession('/w')
     let resolvePermission: ((outcome: unknown) => void) | undefined
     connection.onRequestPermission = () =>
@@ -414,7 +618,10 @@ describe('AcpConnection', () => {
         jsonrpc: '2.0',
         id: 99,
         method: 'session/request_permission',
-        params: { sessionId: created.sessionId, options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }] },
+        params: {
+          sessionId: created.sessionId,
+          options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }],
+        },
       })}\n`,
     )
     await new Promise((resolve) => setTimeout(resolve, 200))
@@ -449,7 +656,11 @@ describe('AcpConnection', () => {
   it('advertises the terminal-auth capability so agents offer their logins', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const initialize = child.sent[0] as {
       params?: { clientCapabilities?: { _meta?: Record<string, unknown> } }
     }
@@ -468,7 +679,9 @@ describe('AcpConnection', () => {
               id: 'claude-ai-login',
               name: 'Claude Subscription',
               type: 'terminal',
-              _meta: { 'terminal-auth': { command: 'node', args: ['acp.js', '--cli', 'auth', 'login'] } },
+              _meta: {
+                'terminal-auth': { command: 'node', args: ['acp.js', '--cli', 'auth', 'login'] },
+              },
             },
           ],
         }
@@ -481,7 +694,11 @@ describe('AcpConnection', () => {
       }
       return undefined
     })
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     expect(connection.terminalLogins.map((l) => l.methodId)).toEqual(['claude-ai-login'])
 
     const failure = await connection.newSession('/w').catch((error: unknown) => error)
@@ -505,15 +722,25 @@ describe('AcpConnection', () => {
       }
       return undefined
     })
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
-    await expect(connection.newSession('/w')).rejects.toThrow(/not authenticated yet — run its login flow/)
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
+    await expect(connection.newSession('/w')).rejects.toThrow(
+      /not authenticated yet — run its login flow/,
+    )
     connection.kill()
   })
 
   it('inbound traffic proves liveness and disarms the stall watchdog', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     const created = await connection.newSession('/w')
     // Stream updates every 40ms while the (delayed) answer is pending.
     const spam = setInterval(() => {
@@ -545,7 +772,11 @@ describe('AcpConnection.shutdown', () => {
     child.stdin.on('end', () => {
       if (!child.killed) child.kill()
     })
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     await connection.shutdown()
     expect(connection.closed).toBe(true)
     expect(child.signals).toEqual([])
@@ -554,7 +785,11 @@ describe('AcpConnection.shutdown', () => {
   it('escalates to SIGTERM when the agent ignores the EOF', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     await connection.shutdown()
     expect(child.signals).toEqual(['SIGTERM'])
     expect(child.killed).toBe(true)
@@ -563,7 +798,11 @@ describe('AcpConnection.shutdown', () => {
   it('is a no-op on an already-closed connection', async () => {
     const child = fakeChild()
     script(child, STANDARD_AGENT)
-    const connection = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => child })
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+    })
     connection.kill()
     await connection.waitClosed()
     child.signals.length = 0

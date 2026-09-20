@@ -3,11 +3,7 @@ import { createLogger } from '@ari/shared/logger'
 import { explainExitCode } from '../exit-codes'
 import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
-import {
-  AUTH_REQUIRED_ERROR,
-  describeAcpFailure,
-  terminalLoginsFrom,
-} from './protocol'
+import { AUTH_REQUIRED_ERROR, describeAcpFailure, terminalLoginsFrom } from './protocol'
 import { isInteractiveClientMethod } from './client-requests'
 import type {
   AcpInitializeResult,
@@ -55,11 +51,28 @@ export interface AcpChildProcess {
   pid?: number | undefined
 }
 
+/** MCP server handed to the agent on session/new so it can use client tools. */
+export type AcpMcpServer =
+  | {
+      name: string
+      command: string
+      args: string[]
+      env?: { name: string; value: string }[]
+    }
+  | {
+      type: 'http'
+      name: string
+      url: string
+      headers: { name: string; value: string }[]
+    }
+
 export interface AcpConnectOptions {
   launch: AcpLaunch
   cwd: string
   clientName?: string
   clientVersion?: string
+  /** Client-hosted MCP servers (Ari's in-app browser). Empty when none. */
+  mcpServers?: AcpMcpServer[]
   /** Handshake ceiling; provider runtimes can spend time starting on first use. */
   initializeTimeoutMs?: number
   /** Client-side handler for `session/request_permission` server calls. */
@@ -146,6 +159,7 @@ export class AcpConnection {
 
   launch: AcpLaunch
   initialize: AcpInitializeResult
+  #mcpServers: AcpMcpServer[]
 
   /** Hook for `session/update` notifications; assigned by the driver. */
   onSessionUpdate: ((notification: AcpSessionNotification) => void) | null = null
@@ -173,6 +187,7 @@ export class AcpConnection {
     this.#child = child
     this.launch = launch
     this.initialize = {}
+    this.#mcpServers = []
     this.onRequestPermission = onRequestPermission
     this.onClientRequest = null
     this.#closeWaiter = closeWaiter
@@ -240,7 +255,12 @@ export class AcpConnection {
       child.stdout.once('close', () => resolveClose())
     })
 
-    const connection = new AcpConnection(child, launch, options.onRequestPermission ?? null, closeWaiter)
+    const connection = new AcpConnection(
+      child,
+      launch,
+      options.onRequestPermission ?? null,
+      closeWaiter,
+    )
 
     child.stderr.on('data', (chunk: string) => {
       if (connection.#stderrTail.length > 6) connection.#stderrTail.shift()
@@ -256,9 +276,12 @@ export class AcpConnection {
     // this listener they crash the host as unhandled 'error' events.
     child.on('error', (error: Error) => {
       log.debug('acp: process error', { label: launch.label, error: error.message })
-      connection.#failAllPending(new AcpConnectionError(`${launch.label} process error: ${error.message}`))
+      connection.#failAllPending(
+        new AcpConnectionError(`${launch.label} process error: ${error.message}`),
+      )
     })
 
+    connection.#mcpServers = options.mcpServers ?? []
     connection.#wireStdout()
     connection.#watchExit()
 
@@ -315,11 +338,9 @@ export class AcpConnection {
       // An auth wall on the handshake itself predates any authMethods, so
       // there is nothing to offer — but the kind must survive so callers still
       // route it to the sign-in path rather than a generic transport failure.
-      if (error instanceof AcpAuthRequiredError) throw new AcpAuthRequiredError(detail, error.logins)
-      throw new AcpConnectionError(
-        detail,
-        error instanceof AcpConnectionError ? error.code : null,
-      )
+      if (error instanceof AcpAuthRequiredError)
+        throw new AcpAuthRequiredError(detail, error.logins)
+      throw new AcpConnectionError(detail, error instanceof AcpConnectionError ? error.code : null)
     }
   }
 
@@ -417,7 +438,11 @@ export class AcpConnection {
       if (method === 'session/request_permission' && this.onRequestPermission !== null) {
         try {
           const result = await this.onRequestPermission(params as AcpRequestPermission)
-          this.#write({ jsonrpc: '2.0', id, result: result ?? { outcome: { outcome: 'cancelled' } } })
+          this.#write({
+            jsonrpc: '2.0',
+            id,
+            result: result ?? { outcome: { outcome: 'cancelled' } },
+          })
         } catch (error) {
           log.debug('acp: permission handler failed', { error: String(error) })
           this.#write({
@@ -467,7 +492,12 @@ export class AcpConnection {
     return true
   }
 
-  #request(method: string, params: unknown, timeoutMs?: number, stallSilenceMs?: number): Promise<unknown> {
+  #request(
+    method: string,
+    params: unknown,
+    timeoutMs?: number,
+    stallSilenceMs?: number,
+  ): Promise<unknown> {
     if (this.#closed) {
       return Promise.reject(new AcpConnectionError(`${this.launch.label} connection is closed`))
     }
@@ -481,7 +511,9 @@ export class AcpConnection {
           if (timer !== null) clearTimeout(timer)
           if (stallTimer !== null) clearInterval(stallTimer)
           reject(
-            new AcpConnectionError(`${this.launch.label}: ${method} timed out after ${timeoutMs}ms`),
+            new AcpConnectionError(
+              `${this.launch.label}: ${method} timed out after ${timeoutMs}ms`,
+            ),
           )
         }, timeoutMs)
         timer.unref?.()
@@ -491,23 +523,26 @@ export class AcpConnection {
         // proves liveness; total silence past the ceiling fails the request —
         // unless the agent is parked on an unanswered server→client request,
         // where the silence is Ari's user taking their time, not a wedge.
-        const interval = setInterval(() => {
-          if (Date.now() - this.#lastInboundAt < stallSilenceMs) return
-          if (this.#pendingServerRequests > 0) return
-          if (timer !== null) clearTimeout(timer)
-          clearInterval(interval)
-          this.#pending.delete(id)
-          const quiet =
-            stallSilenceMs < 1000
-              ? `${stallSilenceMs}ms`
-              : `${Math.round(stallSilenceMs / 1000)}s`
-          reject(
-            new AcpConnectionError(
-              `${this.launch.label} went silent for ${quiet} mid-${method} — ` +
-                `the agent may be wedged or waiting for login${this.#tailReport()}`,
-            ),
-          )
-        }, Math.min(2000, Math.max(25, Math.floor(stallSilenceMs / 8))))
+        const interval = setInterval(
+          () => {
+            if (Date.now() - this.#lastInboundAt < stallSilenceMs) return
+            if (this.#pendingServerRequests > 0) return
+            if (timer !== null) clearTimeout(timer)
+            clearInterval(interval)
+            this.#pending.delete(id)
+            const quiet =
+              stallSilenceMs < 1000
+                ? `${stallSilenceMs}ms`
+                : `${Math.round(stallSilenceMs / 1000)}s`
+            reject(
+              new AcpConnectionError(
+                `${this.launch.label} went silent for ${quiet} mid-${method} — ` +
+                  `the agent may be wedged or waiting for login${this.#tailReport()}`,
+              ),
+            )
+          },
+          Math.min(2000, Math.max(25, Math.floor(stallSilenceMs / 8))),
+        )
         interval.unref?.()
         stallTimer = interval
       }
@@ -525,9 +560,26 @@ export class AcpConnection {
     this.#write({ jsonrpc: '2.0', method, params })
   }
 
+  /**
+   * Prefer HTTP MCP (Grok and other modern ACP agents) unless the agent
+   * explicitly set `mcpCapabilities.http` to false. Otherwise stdio.
+   * Never send both — duplicate tool names confuse the model.
+   */
+  #sessionMcpServers(): AcpMcpServer[] {
+    const allowHttp = this.initialize.agentCapabilities?.mcpCapabilities?.http !== false
+    const http = this.#mcpServers.filter((server) => 'type' in server && server.type === 'http')
+    const stdio = this.#mcpServers.filter((server) => !('type' in server && server.type === 'http'))
+    if (allowHttp && http.length > 0) return http
+    return stdio
+  }
+
   /** Creates a session bound to `cwd`; throws descriptive errors on auth walls. */
   async newSession(cwd: string): Promise<AcpNewSessionResult> {
-    const result = await this.#request('session/new', { cwd, mcpServers: [] }, 30_000)
+    const result = await this.#request(
+      'session/new',
+      { cwd, mcpServers: this.#sessionMcpServers() },
+      30_000,
+    )
     const created = (result ?? {}) as AcpNewSessionResult
     if (typeof created.sessionId !== 'string') {
       throw new AcpConnectionError(`${this.launch.label} returned no sessionId`)
@@ -546,7 +598,11 @@ export class AcpConnection {
    * only after this promise resolves.
    */
   async loadSession(sessionId: string, cwd: string): Promise<AcpNewSessionResult> {
-    const result = await this.#request('session/load', { sessionId, cwd, mcpServers: [] }, 60_000)
+    const result = await this.#request(
+      'session/load',
+      { sessionId, cwd, mcpServers: this.#sessionMcpServers() },
+      60_000,
+    )
     return { ...((result ?? {}) as AcpNewSessionResult), sessionId }
   }
 
@@ -555,7 +611,11 @@ export class AcpConnection {
    * {@link loadSession} when the agent advertised `sessionCapabilities.resume`.
    */
   async resumeSession(sessionId: string, cwd: string): Promise<AcpNewSessionResult> {
-    const result = await this.#request('session/resume', { sessionId, cwd, mcpServers: [] }, 60_000)
+    const result = await this.#request(
+      'session/resume',
+      { sessionId, cwd, mcpServers: this.#sessionMcpServers() },
+      60_000,
+    )
     return { ...((result ?? {}) as AcpNewSessionResult), sessionId }
   }
 
@@ -568,7 +628,11 @@ export class AcpConnection {
   async prompt(
     sessionId: string,
     text: string,
-    options: { images?: { data: string; mimeType: string }[]; stallSilenceMs?: number; timeoutMs?: number } = {},
+    options: {
+      images?: { data: string; mimeType: string }[]
+      stallSilenceMs?: number
+      timeoutMs?: number
+    } = {},
   ): Promise<string> {
     const { images = [], stallSilenceMs = acpPromptStallMs() } = options
     const blocks: { type: string; text?: string; data?: string; mimeType?: string }[] = []

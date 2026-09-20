@@ -47,6 +47,7 @@ import {
 } from './terminal-service'
 import { BrowserService } from './browser-service'
 import { createElectronBrowserGuest } from './browser-electron'
+import { startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
 import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
@@ -83,7 +84,7 @@ import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
-import type { AcpLaunch } from '@ari/providers/acp/connection'
+import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
   ProviderAuthState,
@@ -98,6 +99,7 @@ import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
+import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
 import { todoFilenameFor } from '@ari/ari-core/todo'
 
 const log = createLogger('desktop:rpc')
@@ -471,6 +473,9 @@ function publishAuthWall(
   } satisfies ProvidersUpdateFrame)
 }
 
+let browserMcpServers: AcpMcpServer[] = []
+let browserCoreMcpServers: McpServerConfig[] = []
+
 /**
  * Registers each installed CLI driver as its detection resolves, preferring
  * the ACP transport (M16) with the legacy one-shot CLI driver as automatic
@@ -499,8 +504,12 @@ function hydrateDrivers(registry: DriverRegistry): void {
             cliBinaryPath: detection.binaryPath,
           })
           registry.register(
-            new AcpDriver(candidate.kind, launch, candidate.make(detection.binaryPath), (wall) =>
-              publishAuthWall(candidate.kind, wall),
+            new AcpDriver(
+              candidate.kind,
+              launch,
+              candidate.make(detection.binaryPath),
+              (wall) => publishAuthWall(candidate.kind, wall),
+              () => browserMcpServers,
             ),
           )
           log.info('driver registered', {
@@ -588,6 +597,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       conversations: new FileConversationStore(
         join(app.getPath('userData'), 'ari-core', 'conversations'),
       ),
+      mcpServers: () => browserCoreMcpServers,
     }),
   )
   driverRegistryRef = driverRegistry
@@ -734,7 +744,50 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
     (state) => rpcRegistry.publish('browser.updated', state),
   )
-  contents.once('destroyed', () => browsers.dispose())
+  contents.once('destroyed', () => {
+    browsers.dispose()
+    browserMcpServers = []
+    browserCoreMcpServers = []
+  })
+  void startBrowserMcpServer(browsers)
+    .then(async (handle) => {
+      const proxyPath = await writeBrowserMcpProxy(app.getPath('userData'))
+      const stdioEnv = [
+        { name: 'ELECTRON_RUN_AS_NODE', value: '1' },
+        { name: 'ARI_BROWSER_MCP_URL', value: handle.url },
+        { name: 'ARI_BROWSER_MCP_TOKEN', value: handle.token },
+      ]
+      browserMcpServers = [
+        {
+          type: 'http',
+          name: 'ari-browser',
+          url: handle.url,
+          headers: [{ name: 'Authorization', value: `Bearer ${handle.token}` }],
+        },
+        {
+          name: 'ari-browser',
+          command: process.execPath,
+          args: [proxyPath],
+          env: stdioEnv,
+        },
+      ]
+      browserCoreMcpServers = [
+        {
+          id: 'ari-browser',
+          name: 'ari-browser',
+          command: process.execPath,
+          args: [proxyPath],
+          env: {
+            ELECTRON_RUN_AS_NODE: '1',
+            ARI_BROWSER_MCP_URL: handle.url,
+            ARI_BROWSER_MCP_TOKEN: handle.token,
+          },
+          disabled: false,
+        },
+      ]
+      contents.once('destroyed', () => handle.close())
+    })
+    .catch((error: unknown) => log.warn('browser mcp failed to start', { error: String(error) }))
 
   const r = rpcRegistry
   r.register('ping', () => ({ pong: true, at: Date.now() }))
@@ -1227,6 +1280,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       { x: params.x, y: params.y, width: params.width, height: params.height },
       params.visible,
     ),
+  }))
+  r.register('browser.pick', async (params) => browsers.pick(params.id))
+  r.register('browser.cancelPick', async (params) => ({
+    cancelled: await browsers.cancelPick(params.id),
   }))
 
   r.register('project.list', async () => getProjectStore().load())

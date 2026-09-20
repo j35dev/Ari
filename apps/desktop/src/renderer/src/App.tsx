@@ -6,7 +6,12 @@ import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { useAppUpdateToast } from './features/updates'
-import type { RpcResults, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
+import type {
+  BrowserTabState,
+  RpcResults,
+  SessionEventFrame,
+  SessionSummary,
+} from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
@@ -212,6 +217,16 @@ function Shell() {
     leaveWorkspaceTool()
     setFullPage(null)
     setInspector((prev) => (prev === 'terminal' ? null : 'terminal'))
+  }, [leaveWorkspaceTool])
+
+  useEffect(() => {
+    return rpc.subscribe('browser.updated', {}, (payload) => {
+      const next = payload as BrowserTabState
+      if (next.reveal !== true) return
+      leaveWorkspaceTool()
+      setFullPage(null)
+      setInspector('browser')
+    })
   }, [leaveWorkspaceTool])
 
   // Switching chats must not kill a running shell; every other rail still

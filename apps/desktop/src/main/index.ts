@@ -1,16 +1,15 @@
-import { app, BrowserWindow, shell } from 'electron'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { app, BrowserWindow } from 'electron'
 import { isolateDevInstance } from './dev-instance'
 import { registerRpc, startAppUpdateChecks } from './rpc'
 import { createTray, type TrayHandle } from './tray'
 import { updateTrayStatus } from './tray-status'
 import { createMainWindow } from './window'
-import { isAppUrl, isExternalOpenable } from './external-links'
 
 // The launch animation's signature sound is Web Audio; without this switch
 // Chromium blocks it until the first user gesture.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+// Google properties (YouTube) often fail with net::ERR_FAILED under HTTP/3 in Electron.
+app.commandLine.appendSwitch('disable-quic')
 
 // Unpackaged `pnpm dev` must take this identity before the lock: Electron keys
 // the mutex (and every userData store) off app name. Installed Ari stays on
@@ -61,28 +60,5 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
-  })
-
-  app.on('web-contents-created', (_event, contents) => {
-    // Popups (window.open / target=_blank) open in the OS browser.
-    contents.setWindowOpenHandler(({ url }) => {
-      if (isExternalOpenable(url)) void shell.openExternal(url)
-      return { action: 'deny' }
-    })
-    // Same-window clicks (bare <a href> from transcript markdown) never
-    // navigate the ADE: the app entry stays, everything openable goes to the
-    // OS browser, everything else is dropped. Only the packaged renderer's
-    // own entry file counts as the app — never an arbitrary file:/data: URL.
-    const devServerUrl = process.env['ELECTRON_RENDERER_URL']
-    const appFileUrl = devServerUrl
-      ? undefined
-      : pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href
-    const guardNavigation = (_navEvent: { preventDefault(): void }, url: string): void => {
-      if (isAppUrl(url, devServerUrl, appFileUrl)) return
-      _navEvent.preventDefault()
-      if (isExternalOpenable(url)) void shell.openExternal(url)
-    }
-    contents.on('will-navigate', guardNavigation)
-    contents.on('will-redirect', guardNavigation)
   })
 }

@@ -35,6 +35,8 @@ describe('BrowserPanel', () => {
       if (method === 'browser.navigate') return { ok: true, tab: { id: 'inspector' } }
       if (method === 'browser.go') return { id: 'inspector' }
       if (method === 'browser.layout') return { applied: true }
+      if (method === 'browser.cancelPick') return { cancelled: true }
+      if (method === 'browser.pick') return { ok: false, error: 'cancelled' }
       if (method === 'shell.openUrl') return { opened: true }
       throw new Error(`unexpected method: ${method}`)
     })
@@ -45,6 +47,7 @@ describe('BrowserPanel', () => {
     render(<BrowserPanel />)
 
     expect(await screen.findByLabelText('Address')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pick element for agent')).toBeDisabled()
     expect(invokeFn).toHaveBeenCalledWith('browser.open', { id: 'inspector' })
 
     await user.type(screen.getByLabelText('Address'), 'example.com')
