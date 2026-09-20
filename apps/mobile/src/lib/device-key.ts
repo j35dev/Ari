@@ -259,15 +259,53 @@ export class MemoryDeviceStore implements DeviceStore {
  *
  * Some privacy modes expose `indexedDB` and then fail every transaction, so
  * this probes with a real write rather than trusting the property to exist.
+ * The probe lives in its own throwaway database: an earlier version probed
+ * the real store and cleaned up with `clear()`, which deleted the saved key
+ * on every launch — pairing worked until the tab closed, and the next open
+ * landed on "no pairing link was found".
  */
-export async function defaultDeviceStore(): Promise<DeviceStore> {
-  if (typeof indexedDB === 'undefined') return new MemoryDeviceStore()
-  const store = new IndexedDbDeviceStore()
+export async function defaultDeviceStore(probe: () => Promise<boolean> = probeIndexedDb): Promise<DeviceStore> {
   try {
-    await store.saveRecord({ deviceId: 'probe', displayName: 'probe', projectIds: [] })
-    await store.clear()
-    return store
+    if (await probe()) return new IndexedDbDeviceStore()
   } catch {
-    return new MemoryDeviceStore()
+    // A probe that throws is a probe that failed.
   }
+  return new MemoryDeviceStore()
+}
+
+/** True when IndexedDB accepts a real write. Touches nothing but its own database. */
+export function probeIndexedDb(): Promise<boolean> {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(false)
+  return new Promise((resolve) => {
+    try {
+      const request = indexedDB.open('ari-mobile-probe', 1)
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore('probe')
+      }
+      request.onsuccess = () => {
+        const db = request.result
+        let settled = false
+        const done = (ok: boolean): void => {
+          if (settled) return
+          settled = true
+          db.close()
+          indexedDB.deleteDatabase('ari-mobile-probe')
+          resolve(ok)
+        }
+        try {
+          const tx = db.transaction('probe', 'readwrite')
+          tx.objectStore('probe').put(1, 'probe')
+          tx.oncomplete = () => done(true)
+          tx.onerror = () => done(false)
+          tx.onabort = () => done(false)
+        } catch {
+          done(false)
+        }
+      }
+      request.onerror = () => resolve(false)
+      request.onblocked = () => resolve(false)
+    } catch {
+      resolve(false)
+    }
+  })
 }

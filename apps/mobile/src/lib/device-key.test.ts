@@ -1,6 +1,12 @@
 import { verify, createPublicKey } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { DeviceKeyring, MemoryDeviceStore, rawSignatureToDer } from './device-key'
+import {
+  DeviceKeyring,
+  IndexedDbDeviceStore,
+  MemoryDeviceStore,
+  defaultDeviceStore,
+  rawSignatureToDer,
+} from './device-key'
 
 /**
  * The one piece of this client that a mistake would hide until a user is
@@ -70,6 +76,14 @@ describe('device key', () => {
     const compact = rawSignatureToDer(plain)
     // Leading zeros are dropped, so s is a single byte here.
     expect(compact.length).toBeLessThan(der.length)
+  })
+
+  it('chooses durable storage when the probe passes, memory when it fails', async () => {
+    expect(await defaultDeviceStore(async () => true)).toBeInstanceOf(IndexedDbDeviceStore)
+    expect(await defaultDeviceStore(async () => false)).toBeInstanceOf(MemoryDeviceStore)
+    expect(await defaultDeviceStore(async () => Promise.reject(new Error('nope')))).toBeInstanceOf(
+      MemoryDeviceStore,
+    )
   })
 
   it('forgets only when told to', async () => {
