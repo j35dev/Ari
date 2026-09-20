@@ -263,6 +263,8 @@ export class PairingService {
     // never happened.
     if (!this.#proveKey({ invitationId }, pending.publicKey, proof)) {
       invitation.denied = true
+      invitation.pending = undefined
+      this.#notify()
       return { ok: false, code: 'invalid_signature' }
     }
 
@@ -275,8 +277,13 @@ export class PairingService {
       lastSeenAt: null,
     }
     invitation.redeemedDeviceId = device.deviceId
+    // The request is answered: leaving it in place would keep the desktop's
+    // approval prompt on screen for a phone that already paired, and every
+    // Approve click after that fails as a conflict.
+    invitation.pending = undefined
     this.#devices.set(device.deviceId, device)
     this.#save()
+    this.#notify()
     return { ok: true, device: publicDevice(device), token: this.#mintToken(device.deviceId) }
   }
 
