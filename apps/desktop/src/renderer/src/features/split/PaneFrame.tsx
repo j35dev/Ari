@@ -89,6 +89,7 @@ export function PaneFrame({
       >
         <GripVertical size={10} aria-hidden className="shrink-0 text-fg-subtle/60" />
         <span
+          title={label}
           className={`min-w-0 flex-1 truncate text-2xs ${
             focused ? 'font-medium text-fg' : 'text-fg-subtle'
           }`}

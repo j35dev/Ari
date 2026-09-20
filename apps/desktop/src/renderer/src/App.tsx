@@ -15,6 +15,7 @@ import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
 import {
+  UNFILED_GROUP_ID,
   moveProjectInList,
   projectMoveForDelta,
   shellRootFor,
@@ -39,6 +40,7 @@ import { useCommands } from './features/palette/useCommands'
 import { ContentSearchOverlay } from './features/search'
 import { AwakenSplash, AWAKEN_MAX_MS } from './features/moment'
 import { useSessionActivity } from './features/session/use-session-activity'
+import { formatPaneTitle } from './features/split/pane-title'
 import { SplitView } from './features/split/SplitView'
 import { splitLayoutActions, useSplitLayout } from './features/split/use-split-layout'
 import { focusNeighbour } from './features/split/split-geometry'
@@ -981,7 +983,15 @@ function Shell() {
                   <ErrorBoundary label="Session">
                     <SplitView
                       layout={layout}
-                      titleOf={(id) => sessions.find((s) => s.id === id)?.title ?? null}
+                      titleOf={(id) => {
+                        const session = sessions.find((s) => s.id === id)
+                        if (session === undefined) return null
+                        const projectName =
+                          session.projectId === UNFILED_GROUP_ID
+                            ? null
+                            : (projects.find((p) => p.id === session.projectId)?.name ?? null)
+                        return formatPaneTitle(session.title, projectName)
+                      }}
                       onFocus={splitLayoutActions.focus}
                       onClose={splitLayoutActions.close}
                       onSplit={splitLayoutActions.split}
