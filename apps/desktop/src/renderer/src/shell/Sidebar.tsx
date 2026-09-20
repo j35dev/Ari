@@ -1624,6 +1624,7 @@ export function SidebarSearch({
 export type SidebarNavId =
   | 'session'
   | 'terminal'
+  | 'browser'
   | 'changes'
   | 'settings'
   | 'files'
