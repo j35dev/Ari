@@ -4,6 +4,7 @@ import { oklchToHex } from '@ari/ui/color'
 import { themeOf } from '@ari/ui/themes'
 import type { Theme } from '@ari/ui/themes'
 import { appDisplayName } from './dev-instance'
+import { attachAppShellNavigationGuard } from './app-shell-guard'
 import { getSettingsStore } from './store'
 
 /**
@@ -159,6 +160,8 @@ export function createMainWindow(): BrowserWindow {
   win.on('moved', persistBounds)
   win.on('maximize', persistBounds)
   win.on('unmaximize', persistBounds)
+
+  attachAppShellNavigationGuard(win.webContents)
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL'])

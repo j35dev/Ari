@@ -168,6 +168,10 @@ export interface AcpInitializeResult {
   agentInfo?: { name?: string; version?: string }
   agentCapabilities?: {
     loadSession?: boolean
+    mcpCapabilities?: {
+      http?: boolean
+      sse?: boolean
+    }
     sessionCapabilities?: {
       resume?: boolean
       close?: boolean

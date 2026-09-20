@@ -6,7 +6,12 @@ import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { useAppUpdateToast } from './features/updates'
-import type { RpcResults, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
+import type {
+  BrowserTabState,
+  RpcResults,
+  SessionEventFrame,
+  SessionSummary,
+} from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
@@ -21,6 +26,7 @@ import {
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds } from './features/session/session-tree'
+import { BrowserPanel } from './features/browser/BrowserPanel'
 import { TerminalDock, TerminalPane } from './features/terminal'
 import {
   openTerminalTab,
@@ -78,6 +84,7 @@ type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github'>
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
   terminal: 'Terminal',
+  browser: 'Browser',
   changes: 'Changes',
   files: 'Files',
   usage: 'Usage',
@@ -212,10 +219,20 @@ function Shell() {
     setInspector((prev) => (prev === 'terminal' ? null : 'terminal'))
   }, [leaveWorkspaceTool])
 
+  useEffect(() => {
+    return rpc.subscribe('browser.updated', {}, (payload) => {
+      const next = payload as BrowserTabState
+      if (next.reveal !== true) return
+      leaveWorkspaceTool()
+      setFullPage(null)
+      setInspector('browser')
+    })
+  }, [leaveWorkspaceTool])
+
   // Switching chats must not kill a running shell; every other rail still
   // yields to the session view the way it always has.
   const clearTransientInspector = useCallback(() => {
-    setInspector((prev) => (prev === 'terminal' ? prev : null))
+    setInspector((prev) => (prev === 'terminal' || prev === 'browser' ? prev : null))
   }, [])
 
   // Visiting a session lands on it and clears its settled badge — done/error
@@ -389,6 +406,11 @@ function Shell() {
         setSettingsOpen(false)
         setFullPage(null)
         setInspector('terminal')
+      } else if (view === 'browser') {
+        setHubOpen(false)
+        setSettingsOpen(false)
+        setFullPage(null)
+        setInspector('browser')
       } else {
         setHubOpen(false)
         setSettingsOpen(false)
@@ -1063,6 +1085,12 @@ function Shell() {
                             onAddProject={() => openProjectViaDialog()}
                             onClose={() => setInspector(null)}
                           />
+                        </ErrorBoundary>
+                      </div>
+                    ) : inspector === 'browser' ? (
+                      <div className="min-h-0 flex-1">
+                        <ErrorBoundary label="Browser">
+                          <BrowserPanel onClose={() => setInspector(null)} />
                         </ErrorBoundary>
                       </div>
                     ) : (
