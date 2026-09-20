@@ -211,6 +211,16 @@ export class RemoteService {
     const gateway = this.#gateway
     const invitation = this.#invitation
     if (gateway === null || invitation === null) return null
+    // Actionable only while a device is waiting on the user's decision. An
+    // approved or redeemed invitation keeps no prompt: the phone finishes on
+    // its own, and an Approve button left behind would only fail as a
+    // conflict. A used code is dropped with the prompt so it cannot be
+    // scanned again.
+    const status = gateway.pairing.status(invitation.invitationId)
+    if (status !== 'pending') {
+      this.#invitation = null
+      return null
+    }
     const pending = gateway.pairing.pending(invitation.invitationId)
     if (pending === undefined) return null
     return {

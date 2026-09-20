@@ -113,6 +113,31 @@ describe('pairing', () => {
     expect(service.status(invitationId)).toBe('redeemed')
   })
 
+  it('withdraws the approval prompt once the invitation is answered', () => {
+    // The desktop kept showing "a device wants to connect" after the phone
+    // had paired, and every Approve click then failed as a conflict.
+    const changes: string[] = []
+    const clock = { now: 1_000 }
+    const service = new PairingService({ now: () => clock.now, onChange: () => changes.push('changed') })
+    const key = deviceKey()
+    const invitation = service.begin('http://127.0.0.1:8787')
+    const registered = service.request(invitation.invitationId, {
+      displayName: 'Pixel',
+      publicKey: key.jwk,
+    })
+    if (!registered.ok) throw new Error('expected the registration to be accepted')
+    service.approve(invitation.invitationId, ['proj_1'])
+    expect(service.pending(invitation.invitationId)).toBeDefined()
+
+    const redeemed = service.redeem(invitation.invitationId, {
+      nonce: registered.nonce,
+      signature: key.sign(registered.nonce),
+    })
+    expect(redeemed.ok).toBe(true)
+    expect(service.pending(invitation.invitationId)).toBeUndefined()
+    expect(changes.length).toBeGreaterThan(0)
+  })
+
   it('refuses a signature made by a different key', () => {
     const { service, invitationId, nonce } = approved()
     const impostor = deviceKey()
