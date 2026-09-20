@@ -419,6 +419,60 @@ describe('Shell split panes', () => {
     expect(screen.getByRole('region', { name: 'Beta' })).toHaveClass('border-accent/40')
   })
 
+  it('prefixes each pane header with the session\'s project title', async () => {
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: 'C:\\Users\\tester' }
+        case 'session.list':
+          return [
+            {
+              id: 'sess-alpha',
+              projectId: 'proj-ari',
+              title: 'New session',
+              updatedAt: NOW - 60_000,
+              messageCount: 1,
+            },
+            {
+              id: 'sess-beta',
+              projectId: 'proj-docs',
+              title: 'Draft notes',
+              updatedAt: NOW - 120_000,
+              messageCount: 1,
+            },
+          ]
+        case 'project.list':
+          return [
+            { id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true },
+            { id: 'proj-docs', name: 'Docs', path: '/projects/docs', status: 'ok', open: true },
+          ]
+        case 'providers.detect':
+          return []
+        case 'providers.models':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        case 'endpoints.list':
+          return []
+        case 'session.load':
+          return { session: null, activeTurnId: null }
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+
+    openTwoPanes()
+    render(<App />)
+
+    expect(
+      await screen.findByRole('region', { name: 'Ari - New session' }, { timeout: 10_000 }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Docs - Draft notes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close Ari - New session' })).toBeInTheDocument()
+  })
+
   it('keeps the newest session list when an older one answers last', async () => {
     // Lists overlap at boot and on the event feed, so answers can arrive out of
     // order. A stale one — started before Beta existed — would prune Beta's pane.
