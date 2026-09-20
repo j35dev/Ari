@@ -67,7 +67,7 @@ export interface AriCoreDriverOptions {
    * entries are skipped; a server that fails to start is logged and
    * omitted so the turn always runs.
    */
-  mcpServers?: McpServerConfig[]
+  mcpServers?: McpServerConfig[] | (() => McpServerConfig[])
   /** Connection seam for tests; production connects over real stdio. */
   mcpConnect?: (server: McpServerConfig) => Promise<McpConnection>
   /**
@@ -305,7 +305,7 @@ export class AriCoreDriver implements Driver {
   readonly #clients: AriCoreDriverClients
   readonly #contextCharLimit: number
   readonly #allowlist: AllowRule[] | undefined
-  readonly #mcpServers: McpServerConfig[]
+  readonly #mcpServers: McpServerConfig[] | (() => McpServerConfig[])
   readonly #mcpConnectOverride?: (server: McpServerConfig) => Promise<McpConnection>
   readonly #conversations: ConversationStore
   readonly #compaction: boolean
@@ -345,7 +345,9 @@ export class AriCoreDriver implements Driver {
     const allowlist = this.#allowlist
     const conversations = this.#conversations
     const compaction = this.#compaction
-    const mcpServers = this.#mcpServers.filter((s) => !s.disabled)
+    const configured =
+      typeof this.#mcpServers === 'function' ? this.#mcpServers() : this.#mcpServers
+    const mcpServers = configured.filter((s) => !s.disabled)
     const mcpConnect =
       this.#mcpConnectOverride ??
       ((server: McpServerConfig) =>

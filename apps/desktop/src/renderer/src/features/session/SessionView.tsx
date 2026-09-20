@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
 import type { SessionActivity } from './session-activity'
 import { Check, ChevronDown, X } from 'lucide-react'
@@ -24,6 +24,14 @@ import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
 import { TurnErrorBanner } from './TurnErrorBanner'
+import { ElementChips } from '../browser/ElementChips'
+import {
+  browserPicksState,
+  promptForPicks,
+  restoreBrowserPicks,
+  subscribeBrowserPicks,
+  takeBrowserPicks,
+} from '../browser/browser-picks'
 
 interface PendingApproval {
   approvalId: string
@@ -222,6 +230,7 @@ export function SessionView({
   const [reviewNotes, setReviewNotes] = useState<
     { path: string; line: number | null; text: string }[]
   >([])
+  const elementPicks = useSyncExternalStore(subscribeBrowserPicks, browserPicksState)
   const sessionTitleRef = useRef('Session')
   const fetchedTurnIdsRef = useRef(new Set<string>())
   const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
@@ -544,18 +553,26 @@ export function SessionView({
       // defer an updater, and one that has not run yet would leave `outgoing`
       // without the notes this dispatch is about to send.
       const notes = reviewNotes
-      const outgoing =
+      const picks = takeBrowserPicks()
+      const elementBlock = promptForPicks(picks)
+      const outgoing = [
+        elementBlock,
         notes.length > 0
           ? `Review notes on your changes:\n${notes
               .map((n) => `- ${n.path}${n.line !== null ? `:${n.line}` : ''} — ${n.text}`)
-              .join('\n')}\n\n${text}`
-          : text
+              .join('\n')}`
+          : '',
+        text,
+      ]
+        .filter((part) => part.length > 0)
+        .join('\n\n')
       if (notes.length > 0) setReviewNotes([])
       // A rejected send must cost a retry, not the message: the composer
       // already cleared its draft — text, images and the notes above — so put
       // all of it back and the retry carries the same context.
       const restoreDraft = (): void => {
         if (notes.length > 0) setReviewNotes((prev) => (prev.length === 0 ? notes : prev))
+        if (picks.length > 0) restoreBrowserPicks(picks)
         setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
       }
       if (running) {
@@ -582,19 +599,23 @@ export function SessionView({
 
   const handleSend = useCallback(
     (text: string, files: File[]) => {
+      const pickImages = browserPicksState()
+        .map((pick) => pick.image)
+        .filter((file): file is File => file !== null)
+      const allFiles = [...pickImages, ...files]
       // Staging is async; imageless sends skip it and dispatch synchronously.
-      if (files.length === 0) {
+      if (allFiles.length === 0) {
         dispatchSend(text, [], [])
         return
       }
-      void stageImages(files).then(
-        (attachments) => dispatchSend(text, attachments, files),
+      void stageImages(allFiles).then(
+        (attachments) => dispatchSend(text, attachments, allFiles),
         (err: unknown) => {
           // The composer already cleared: restore the draft so the failure
           // costs a retry, not the message, and never send text-only behind
           // images the user explicitly attached. The notes were never spent —
           // no dispatch happened — so they are still in state.
-          setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
+          setComposerSeed((prev) => ({ text, files: allFiles, nonce: (prev?.nonce ?? 0) + 1 }))
           toast({
             title: 'Couldn’t attach images',
             description: err instanceof Error ? err.message : String(err),
@@ -883,6 +904,7 @@ export function SessionView({
             onDismiss={() => setTurnError(null)}
           />
         ) : null}
+        <ElementChips picks={elementPicks} />
         {reviewNotes.length > 0 ? (
           <div
             className="mx-4 mb-1 flex flex-wrap items-center gap-1"

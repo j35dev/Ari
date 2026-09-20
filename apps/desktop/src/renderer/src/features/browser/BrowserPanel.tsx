@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ExternalLink, Globe, RotateCw, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  ExternalLink,
+  Globe,
+  MousePointer2,
+  RotateCw,
+  X,
+} from 'lucide-react'
 import { IconButton } from '@ari/ui/icon-button'
 import { Input } from '@ari/ui/input'
 import type { BrowserTabState } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import { addBrowserPick, fileFromPngBase64 } from './browser-picks'
 
 const TAB_ID = 'inspector'
 
@@ -26,6 +35,7 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [tab, setTab] = useState<BrowserTabState>(EMPTY)
   const [draft, setDraft] = useState('')
+  const [picking, setPicking] = useState(false)
 
   const syncLayout = useCallback((visible: boolean) => {
     const host = hostRef.current
@@ -59,6 +69,7 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
     })
     return () => {
       unsub()
+      void rpc.invoke('browser.cancelPick', { id: TAB_ID })
       void rpc.invoke('browser.layout', {
         id: TAB_ID,
         visible: false,
@@ -94,12 +105,30 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
     void rpc.invoke('browser.go', { id: TAB_ID, action }).catch(() => undefined)
   }
 
+  const blank = !showGuest
+
   const openExternal = (): void => {
     if (tab.url === 'about:blank') return
     void rpc.invoke('shell.openUrl', { url: tab.url }).catch(() => undefined)
   }
 
-  const blank = !showGuest
+  const pickElement = (): void => {
+    if (blank || picking) return
+    setPicking(true)
+    void rpc
+      .invoke('browser.pick', { id: TAB_ID })
+      .then((result) => {
+        if (result.ok) {
+          const image =
+            result.pngBase64 !== null
+              ? fileFromPngBase64(result.pngBase64, `${result.element.tag}.png`)
+              : null
+          addBrowserPick(result.element, image)
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setPicking(false))
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-bg">
@@ -158,6 +187,15 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
           />
         </form>
         <IconButton
+          icon={<MousePointer2 size={13} />}
+          aria-label="Pick element for agent"
+          title="Pick an element to mention to the agent"
+          size="sm"
+          variant="ghost"
+          disabled={blank || picking}
+          onClick={pickElement}
+        />
+        <IconButton
           icon={<ExternalLink size={13} />}
           aria-label="Open in system browser"
           size="sm"
@@ -174,7 +212,7 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
           <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
             <p className="text-xs text-fg-subtle">In-app browser</p>
             <p className="max-w-56 text-2xs text-fg-subtle/70">
-              Type a URL to preview a page. Agents will be able to drive this same view.
+              Type a URL, then pick an element to mention it to the agent.
             </p>
           </div>
         ) : null}

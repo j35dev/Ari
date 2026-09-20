@@ -27,6 +27,8 @@ function fakeGuest(): {
     getURL: () => url,
     getTitle: () => 'Example',
     isLoading: () => false,
+    executeJavaScript: vi.fn(async () => null),
+    capturePage: vi.fn(async () => null),
     setBounds,
     setVisible,
     destroy,
@@ -64,5 +66,34 @@ describe('BrowserService', () => {
     expect(service.close('tab1')).toBe(true)
     expect(destroy).toHaveBeenCalledOnce()
     expect(service.layout('tab1', { x: 0, y: 0, width: 1, height: 1 }, false)).toBe(false)
+  })
+
+  it('returns a picked element from the guest script', async () => {
+    const picked = {
+      url: 'https://example.com/',
+      selector: 'button',
+      tag: 'button',
+      text: 'Go',
+      role: 'button',
+      ariaLabel: null,
+      html: '<button>Go</button>',
+      x: 1,
+      y: 2,
+      width: 3,
+      height: 4,
+    }
+    const { guest } = fakeGuest()
+    guest.executeJavaScript = vi.fn(async (code: string) =>
+      code.includes('__ariCancelPick') && !code.includes('new Promise') ? undefined : picked,
+    )
+    guest.capturePage = vi.fn(async () => Buffer.from('png'))
+    const service = new BrowserService(() => guest, vi.fn())
+    await service.open('tab1')
+    const result = await service.pick('tab1')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.element.selector).toBe('button')
+      expect(result.pngBase64).toBe(Buffer.from('png').toString('base64'))
+    }
   })
 })
