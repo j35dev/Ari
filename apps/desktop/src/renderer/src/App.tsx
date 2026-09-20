@@ -21,6 +21,7 @@ import {
   sidebarOrder,
 } from './features/session/session-nav'
 import { descendantIds } from './features/session/session-tree'
+import { BrowserPanel } from './features/browser/BrowserPanel'
 import { TerminalDock, TerminalPane } from './features/terminal'
 import {
   openTerminalTab,
@@ -78,6 +79,7 @@ type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github'>
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
   terminal: 'Terminal',
+  browser: 'Browser',
   changes: 'Changes',
   files: 'Files',
   usage: 'Usage',
@@ -215,7 +217,7 @@ function Shell() {
   // Switching chats must not kill a running shell; every other rail still
   // yields to the session view the way it always has.
   const clearTransientInspector = useCallback(() => {
-    setInspector((prev) => (prev === 'terminal' ? prev : null))
+    setInspector((prev) => (prev === 'terminal' || prev === 'browser' ? prev : null))
   }, [])
 
   // Visiting a session lands on it and clears its settled badge — done/error
@@ -389,6 +391,11 @@ function Shell() {
         setSettingsOpen(false)
         setFullPage(null)
         setInspector('terminal')
+      } else if (view === 'browser') {
+        setHubOpen(false)
+        setSettingsOpen(false)
+        setFullPage(null)
+        setInspector('browser')
       } else {
         setHubOpen(false)
         setSettingsOpen(false)
@@ -1063,6 +1070,12 @@ function Shell() {
                             onAddProject={() => openProjectViaDialog()}
                             onClose={() => setInspector(null)}
                           />
+                        </ErrorBoundary>
+                      </div>
+                    ) : inspector === 'browser' ? (
+                      <div className="min-h-0 flex-1">
+                        <ErrorBoundary label="Browser">
+                          <BrowserPanel onClose={() => setInspector(null)} />
                         </ErrorBoundary>
                       </div>
                     ) : (

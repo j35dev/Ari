@@ -45,6 +45,8 @@ import {
   type PtyFactory,
   type PtyLike,
 } from './terminal-service'
+import { BrowserService } from './browser-service'
+import { createElectronBrowserGuest } from './browser-electron'
 import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
@@ -724,6 +726,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
     ptyFactory,
   )
+  const browsers = new BrowserService(
+    (_id, onUpdated) => {
+      const win = BrowserWindow.fromWebContents(contents)
+      if (win === null) throw new Error('browser host window is gone')
+      return createElectronBrowserGuest(win, onUpdated)
+    },
+    (state) => rpcRegistry.publish('browser.updated', state),
+  )
+  contents.once('destroyed', () => browsers.dispose())
 
   const r = rpcRegistry
   r.register('ping', () => ({ pong: true, at: Date.now() }))
@@ -1205,6 +1216,18 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     terminals.kill(params.id)
     return { killed: true }
   })
+
+  r.register('browser.open', async (params) => browsers.open(params.id, params.url))
+  r.register('browser.navigate', async (params) => browsers.navigate(params.id, params.url))
+  r.register('browser.go', (params) => browsers.go(params.id, params.action))
+  r.register('browser.close', (params) => ({ closed: browsers.close(params.id) }))
+  r.register('browser.layout', (params) => ({
+    applied: browsers.layout(
+      params.id,
+      { x: params.x, y: params.y, width: params.width, height: params.height },
+      params.visible,
+    ),
+  }))
 
   r.register('project.list', async () => getProjectStore().load())
 

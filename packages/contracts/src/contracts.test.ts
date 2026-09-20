@@ -233,6 +233,22 @@ describe('contracts', () => {
     expect(parsed.appearance).not.toHaveProperty('wallpaperLook')
   })
 
+  it('validates in-app browser RPC params', () => {
+    expect(rpcParams['browser.open'].parse({ id: 'inspector' })).toEqual({ id: 'inspector' })
+    expect(
+      rpcParams['browser.navigate'].parse({ id: 'inspector', url: 'https://example.com' }),
+    ).toEqual({
+      id: 'inspector',
+      url: 'https://example.com',
+    })
+    expect(rpcParams['browser.go'].parse({ id: 'inspector', action: 'back' })).toEqual({
+      id: 'inspector',
+      action: 'back',
+    })
+    expect(() => rpcParams['browser.navigate'].parse({ id: 'inspector', url: '' })).toThrow()
+    expect(() => rpcParams['browser.go'].parse({ id: 'inspector', action: 'jump' })).toThrow()
+  })
+
   it('validates fs.writeTextFile scope params and rejects malformed payloads', () => {
     const params = { projectId: 'proj_1', path: 'src/main.ts', content: 'export {}\n' }
     expect(rpcParams['fs.writeTextFile'].parse(params)).toEqual(params)
