@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { RemoteProject } from '@ari/contracts/remote'
+import type { RemoteModelCatalog, RemoteProject } from '@ari/contracts/remote'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { DeviceKeyring, type DeviceStore } from './device-key'
 import { GatewayClient } from './gateway-client'
@@ -37,6 +37,8 @@ export interface AppValue {
   capabilities: readonly string[]
   projects: RemoteProject[]
   sessions: SessionSummary[]
+  /** The model catalog available from the desktop, kept in sync. */
+  catalog: RemoteModelCatalog | null
   /** Set when something could not be refreshed, in words a user can act on. */
   error: string | null
   refreshing: boolean
@@ -91,6 +93,7 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
   const [capabilities, setCapabilities] = useState<readonly string[]>([])
   const [projects, setProjects] = useState<RemoteProject[]>([])
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [catalog, setCatalog] = useState<RemoteModelCatalog | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   /** Rebuilt whenever the desktop changes: a token belongs to one origin. */
@@ -134,12 +137,16 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
     if (!session.usable) return
     setRefreshing(true)
     try {
-      const [projectList, sessionList] = await Promise.all([
+      const [projectList, sessionList, modelCatalog] = await Promise.all([
         session.query<RemoteProject[]>('project.list'),
         session.query<SessionSummary[]>('session.list'),
+        session.supports('models.list')
+          ? session.query<RemoteModelCatalog>('models.list').catch(() => null)
+          : Promise.resolve(null),
       ])
       setProjects(projectList)
       setSessions(sessionList)
+      if (modelCatalog !== null) setCatalog(modelCatalog)
       setError(null)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'the desktop did not answer')
@@ -176,6 +183,7 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
     setCapabilities([])
     setProjects([])
     setSessions([])
+    setCatalog(null)
   }, [keyring])
 
   const rememberOrigin = useCallback((next: string) => {
@@ -191,6 +199,7 @@ export function AppProvider({ store, children }: { store: DeviceStore; children:
     capabilities,
     projects,
     sessions,
+    catalog,
     error,
     refreshing,
     refresh: async () => {

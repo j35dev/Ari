@@ -53,7 +53,7 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
 
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-bg px-5 pb-[env(safe-area-inset-bottom)] pt-[max(1rem,env(safe-area-inset-top))] text-fg">
-      <h1 className="mt-6 text-xl font-medium">Pair this phone</h1>
+      <h1 className="mt-6 text-[28px] font-bold leading-tight tracking-tight">Pair this phone</h1>
       <p className="mt-2 text-sm text-fg-muted">
         Ari keeps running on your computer. This phone becomes a remote control for it —
         and the desktop decides what it may reach.
@@ -72,12 +72,12 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
             inputMode="url"
             autoCapitalize="none"
             autoCorrect="off"
-            className="mt-2 h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-fg placeholder:text-fg-subtle"
+            className="mt-2 h-12 w-full rounded-xl border border-border bg-surface-1 px-4 text-fg placeholder:text-fg-subtle"
           />
           <button
             type="button"
             onClick={() => connectTo(address)}
-            className="mt-3 h-11 w-full rounded-md bg-accent text-fg-on-accent"
+            className="mt-3 h-12 w-full rounded-xl bg-accent font-medium text-fg-on-accent"
           >
             Use this desktop
           </button>
@@ -108,13 +108,13 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
                 maxLength={80}
-                className="mt-2 h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-fg"
+                className="mt-2 h-12 w-full rounded-xl border border-border bg-surface-1 px-4 text-fg"
               />
               <button
                 type="button"
                 disabled={busy || displayName.trim().length === 0}
                 onClick={() => void start()}
-                className="mt-3 h-11 w-full rounded-md bg-accent text-fg-on-accent disabled:opacity-50"
+                className="mt-3 h-12 w-full rounded-xl bg-accent font-medium text-fg-on-accent disabled:opacity-50"
               >
                 {busy ? 'Waiting for approval…' : 'Ask the desktop to approve'}
               </button>

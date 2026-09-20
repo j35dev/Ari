@@ -21,23 +21,23 @@ export function TabIcon({ id, className }: { id: string; className?: string }): 
       aria-hidden
       className={className}
     >
-      {id === 'now' && <path d="M11 1.8 4.2 11.4h4.4L8 18.2l6.9-9.6H10.4L11 1.8Z" />}
-      {id === 'sessions' && (
+      {id === 'now' && (
         <>
-          <path d="M3.5 5.5h13" />
-          <path d="M3.5 10h13" />
-          <path d="M3.5 14.5h8" />
+          <rect x="2.5" y="3.5" width="15" height="10" rx="2" />
+          <path d="M7 16.5h6M10 13.5v3" />
         </>
       )}
+      {id === 'sessions' && (
+        <path d="M16.5 9.5a5 5 0 0 1-5 5H6l-3.5 3V5a5 5 0 0 1 5-5h4a5 5 0 0 1 5 4.5v5Z" />
+      )}
       {id === 'projects' && (
-        <path d="M2.8 6.2c0-1 .8-1.9 1.9-1.9h3.2l1.7 2h5.7c1 0 1.9.8 1.9 1.9v6.6c0 1-.8 1.9-1.9 1.9H4.7c-1 0-1.9-.8-1.9-1.9V6.2Z" />
+        <path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h3.5l1.8 2H16a1.5 1.5 0 0 1 1.5 1.5V14A1.5 1.5 0 0 1 16 15.5H4A1.5 1.5 0 0 1 2.5 14V5.5Z" />
       )}
       {id === 'settings' && (
         <>
-          <path d="M3 7h14" />
-          <circle cx="8" cy="7" r="2.1" fill="var(--ari-surface-0)" />
-          <path d="M3 13.5h14" />
-          <circle cx="12.5" cy="13.5" r="2.1" fill="var(--ari-surface-0)" />
+          <circle cx="5" cy="10" r="1.6" fill="currentColor" stroke="none" />
+          <circle cx="10" cy="10" r="1.6" fill="currentColor" stroke="none" />
+          <circle cx="15" cy="10" r="1.6" fill="currentColor" stroke="none" />
         </>
       )}
     </svg>
