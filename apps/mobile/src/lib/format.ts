@@ -23,6 +23,11 @@ export function connectionLabel(state: ConnectionState): string {
   }
 }
 
+/** "8:48 PM" — the clock time beside a message or under a group. */
+export function formatClock(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
 /** "2m ago", "3h ago", "just now" — relative, because a phone is never precise. */
 export function relativeTime(at: number, now = Date.now()): string {
   const seconds = Math.max(0, Math.round((now - at) / 1000))

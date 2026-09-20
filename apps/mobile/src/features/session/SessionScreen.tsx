@@ -9,20 +9,21 @@ import type {
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { useApp } from '../../lib/app-state'
-import { relativeTime, summarizeToolDetail } from '../../lib/format'
+import { formatClock, relativeTime, summarizeToolDetail } from '../../lib/format'
 
 /**
  * One session: the conversation, the composer, and what is waiting to be
  * answered (ADR §13–14).
  *
- * The three views are tabs rather than routes, and the snapshot is the source
- * of truth: events arriving over the socket say activity happened, and the
- * snapshot is re-read once the burst is over. That trades a little bandwidth
- * for not having a second, subtly different projection of the journal on the
- * phone — the desktop's projection is the one the user's other screen shows.
+ * Conversation is the view; changes and details live behind the menu, because
+ * a phone spends its time in the thread. The snapshot is the source of truth:
+ * events arriving over the socket say activity happened, and the snapshot is
+ * re-read once the burst is over. That trades a little bandwidth for not
+ * having a second, subtly different projection of the journal on the phone —
+ * the desktop's projection is the one the user's other screen shows.
  */
 
-type Tab = 'conversation' | 'changes' | 'details'
+type View = 'conversation' | 'changes' | 'details'
 
 interface Snapshot {
   session: Session
@@ -42,7 +43,9 @@ export function SessionScreen({
 }): ReactNode {
   const app = useApp()
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
-  const [tab, setTab] = useState<Tab>('conversation')
+  const [view, setView] = useState<View>('conversation')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [confirmingArchive, setConfirmingArchive] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activity, setActivity] = useState(false)
   const [showJump, setShowJump] = useState(false)
@@ -135,6 +138,12 @@ export function SessionScreen({
     setShowJump(!nearBottom)
   }
 
+  function jumpToTop(): void {
+    stick.current = false
+    setShowJump(true)
+    scrollRef.current?.scrollTo({ top: 0 })
+  }
+
   function jumpToLatest(): void {
     stick.current = true
     setShowJump(false)
@@ -147,60 +156,116 @@ export function SessionScreen({
   }
 
   const can = (operation: string): boolean => app.session?.supports(operation) ?? false
+  const projectName =
+    snapshot === null
+      ? null
+      : (app.projects.find((project) => project.id === snapshot.summary.projectId)?.name ??
+        snapshot.summary.projectId)
+  const turnCount = snapshot?.messages.length ?? 0
+
+  async function archive(): Promise<void> {
+    if (app.session === null) return
+    try {
+      await app.session.send({ op: 'session.archive', sessionId })
+      await app.refresh()
+      onBack()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'could not archive that session')
+    }
+  }
+
+  function pickView(next: View): void {
+    setView(next)
+    setMenuOpen(false)
+    setConfirmingArchive(false)
+  }
 
   return (
     <div className="relative flex h-full flex-col bg-bg text-fg">
-      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <div className="flex items-center gap-3">
+      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-3 pt-[max(0.5rem,env(safe-area-inset-top))]">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={onBack}
-            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-md text-fg-muted"
+            className="-ml-2 flex h-11 w-8 items-center justify-center text-fg"
             aria-label="Back to sessions"
           >
-            ←
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="m12.5 4-6 6 6 6" />
+            </svg>
           </button>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">
+            <p className="truncate text-[17px] font-semibold tracking-tight">
               {snapshot?.summary.title ?? 'Session'}
             </p>
-            <p className="truncate text-2xs text-fg-subtle">
-              {snapshot === null
+            <p className="mt-0.5 truncate text-xs text-fg-subtle">
+              {snapshot === null || projectName === null
                 ? 'Loading…'
-                : `${snapshot.session.driverKind} · ${snapshot.session.modelId ?? 'default'} · ${snapshot.session.status}`}
+                : `${projectName} · ${turnCount} turn${turnCount === 1 ? '' : 's'}`}
               {activity && ' · working…'}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => void load()}
-            className="h-11 px-2 text-xs text-fg-muted"
-            aria-label="Refresh this session"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-label="Session options"
+            aria-expanded={menuOpen}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-fg"
           >
-            Refresh
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+              <circle cx="4.5" cy="10" r="1.6" />
+              <circle cx="10" cy="10" r="1.6" />
+              <circle cx="15.5" cy="10" r="1.6" />
+            </svg>
           </button>
         </div>
-
-        <div
-          role="tablist"
-          aria-label="Session views"
-          className="mt-3 flex gap-1 rounded-xl bg-surface-1 p-1"
-        >
-          {(['conversation', 'changes', 'details'] as const).map((entry) => (
+        {menuOpen && (
+          <>
             <button
-              key={entry}
-              role="tab"
-              aria-selected={tab === entry}
               type="button"
-              onClick={() => setTab(entry)}
-              className={`h-9 flex-1 rounded-lg text-xs capitalize ${
-                tab === entry ? 'bg-surface-0 font-medium text-fg' : 'text-fg-muted'
-              }`}
+              aria-label="Close menu"
+              onClick={() => pickView(view)}
+              className="fixed inset-0 z-10 cursor-default bg-black/40"
+            />
+            <div
+              role="menu"
+              aria-label="Session options"
+              className="absolute right-4 top-[max(3.5rem,env(safe-area-inset-top))] z-20 w-56 rounded-2xl border border-border bg-surface-1 p-1.5 shadow-lg"
             >
-              {entry}
-            </button>
-          ))}
-        </div>
+              {(['conversation', 'changes', 'details'] as const).map((entry) => (
+                <button
+                  key={entry}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pickView(entry)}
+                  className={`flex min-h-11 w-full items-center rounded-xl px-3 text-left text-sm capitalize ${
+                    view === entry ? 'bg-surface-2 font-medium' : ''
+                  }`}
+                >
+                  {entry}
+                </button>
+              ))}
+              {can('session.archive') && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    if (confirmingArchive) {
+                      setMenuOpen(false)
+                      setConfirmingArchive(false)
+                      void archive()
+                    } else {
+                      setConfirmingArchive(true)
+                    }
+                  }}
+                  className="flex min-h-11 w-full items-center rounded-xl px-3 text-left text-sm text-danger"
+                >
+                  {confirmingArchive ? 'Tap again to confirm archive' : 'Archive session'}
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </header>
 
       {error !== null && (
@@ -210,8 +275,32 @@ export function SessionScreen({
       )}
 
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {tab === 'conversation' && snapshot !== null && (
+        {view === 'conversation' && snapshot !== null && (
           <>
+            {(snapshot.pendingApprovals.length > 0 || snapshot.pendingInputs.length > 0) && (
+              <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                {snapshot.pendingApprovals.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => jumpToTop()}
+                    className="h-9 shrink-0 rounded-full bg-warning-subtle px-4 text-sm font-medium"
+                  >
+                    {snapshot.pendingApprovals.length} approval
+                    {snapshot.pendingApprovals.length === 1 ? '' : 's'} — review
+                  </button>
+                )}
+                {snapshot.pendingInputs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => jumpToTop()}
+                    className="h-9 shrink-0 rounded-full bg-info-subtle px-4 text-sm font-medium"
+                  >
+                    {snapshot.pendingInputs.length} question
+                    {snapshot.pendingInputs.length === 1 ? '' : 's'} — answer
+                  </button>
+                )}
+              </div>
+            )}
             {snapshot.pendingApprovals.map((approval) => (
               <ApprovalCard
                 key={approval.approvalId}
@@ -248,9 +337,9 @@ export function SessionScreen({
           </>
         )}
 
-        {tab === 'changes' && <Changes sessionId={sessionId} />}
+        {view === 'changes' && <Changes sessionId={sessionId} />}
 
-        {tab === 'details' && snapshot !== null && (
+        {view === 'details' && snapshot !== null && (
           <dl className="space-y-2 text-sm">
             <Row label="Provider" value={snapshot.session.driverKind} />
             <Row label="Model" value={snapshot.session.modelId ?? 'default'} />
@@ -264,7 +353,7 @@ export function SessionScreen({
         )}
       </div>
 
-      {tab === 'conversation' && showJump && (
+      {view === 'conversation' && showJump && (
         <button
           type="button"
           onClick={jumpToLatest}
@@ -276,6 +365,12 @@ export function SessionScreen({
       )}
 
       <Composer
+        modelLabel={
+          snapshot === null
+            ? null
+            : `${snapshot.session.driverKind} · ${snapshot.session.modelId ?? 'default'} · ${snapshot.session.permissionMode}`
+        }
+        onModelPress={() => pickView('details')}
         disabled={!can('session.prompt') || snapshot === null}
         status={snapshot?.session.status ?? 'idle'}
         onSend={async (text, mode) => {
@@ -416,44 +511,75 @@ function Conversation({ messages }: { messages: Message[] }): ReactNode {
     return <p className="text-sm text-fg-muted">Nothing has been said yet.</p>
   }
   return (
-    <ol className="space-y-3">
-      {messages.map((message) => (
-        <li
-          key={message.id}
-          className={`rounded-2xl border p-4 ${
-            message.role === 'user'
-              ? 'border-accent bg-accent-subtle'
-              : 'border-border bg-surface-1'
-          }`}
-        >
-          <p className="mb-1 text-2xs uppercase tracking-wide text-fg-subtle">
-            {message.role}
-            {message.origin?.kind === 'session' && ' · from another session'}
-          </p>
-          {message.parts.map((part, index) => (
-            <p
-              key={`${message.id}-${index}`}
-              className={
-                part.type === 'text'
-                  ? 'whitespace-pre-wrap text-sm'
-                  : 'font-mono text-2xs text-fg-subtle'
-              }
+    <ol className="space-y-4">
+      {messages.map((message) =>
+        message.role === 'user' ? (
+          <li key={message.id} className="flex flex-col items-end">
+            <span className="mb-1 text-2xs text-fg-subtle">{formatClock(message.createdAt)}</span>
+            {message.parts.map((part, index) => (
+              <p
+                key={`${message.id}-${index}`}
+                className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-[15px] leading-relaxed text-fg-on-accent"
+              >
+                {part.type === 'text' ? part.text : partLabel(part)}
+              </p>
+            ))}
+            <span aria-hidden className="mt-1 text-xs text-accent">
+              ✓✓
+            </span>
+          </li>
+        ) : (
+          <li key={message.id} className="flex gap-2.5">
+            <span
+              aria-hidden
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-fg-on-accent"
             >
-              {part.type === 'text'
-                ? part.text
-                : part.type === 'tool-call'
-                  ? `↳ ${part.name}`
-                  : part.type === 'tool-result'
-                    ? '↳ result'
-                    : part.type === 'thinking'
-                      ? '↳ thinking'
-                      : '↳ image'}
-            </p>
-          ))}
-        </li>
-      ))}
+              A
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="mb-1 text-xs text-fg-subtle">
+                <span className="font-medium text-fg">Ari</span> · {formatClock(message.createdAt)}
+                {message.origin?.kind === 'session' && ' · from another session'}
+              </p>
+              <div className="rounded-2xl rounded-tl-md border border-border bg-surface-1 px-4 py-2.5">
+                {message.parts.map((part, index) =>
+                  part.type === 'text' ? (
+                    <p
+                      key={`${message.id}-${index}`}
+                      className="whitespace-pre-wrap text-[15px] leading-relaxed"
+                    >
+                      {part.text}
+                    </p>
+                  ) : (
+                    <p
+                      key={`${message.id}-${index}`}
+                      className="font-mono text-2xs text-fg-subtle"
+                    >
+                      {partLabel(part)}
+                    </p>
+                  ),
+                )}
+              </div>
+            </div>
+          </li>
+        ),
+      )}
     </ol>
   )
+}
+
+/** A non-text part in one quiet line. */
+function partLabel(part: Message['parts'][number]): string {
+  switch (part.type) {
+    case 'tool-call':
+      return `↳ ${part.name}`
+    case 'tool-result':
+      return '↳ result'
+    case 'thinking':
+      return '↳ thinking'
+    default:
+      return '↳ image'
+  }
 }
 
 /**
@@ -674,12 +800,17 @@ function FileDiff({ file }: { file: RemoteChangeFile }): ReactNode {
 function Composer({
   disabled,
   status,
+  modelLabel,
+  onModelPress,
   onSend,
   onInterrupt,
   onError,
 }: {
   disabled: boolean
   status: string
+  /** What is handling this session, in the desktop's own words. */
+  modelLabel: string | null
+  onModelPress: () => void
   onSend: (text: string, mode: 'send' | 'queue' | 'steer') => Promise<void>
   onInterrupt: (() => Promise<void>) | null
   onError: (message: string) => void
@@ -703,54 +834,68 @@ function Composer({
   }
 
   return (
-    <form
-      className="shrink-0 border-t border-border bg-surface-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3"
-      onSubmit={(event) => {
-        event.preventDefault()
-        void submit(running ? 'queue' : 'send')
-      }}
-    >
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        rows={2}
-        disabled={disabled}
-        placeholder={disabled ? 'This desktop cannot take prompts' : 'Message the agent'}
-        aria-label="Message the agent"
-        className="w-full resize-none rounded-xl border border-border bg-surface-1 p-3 text-fg placeholder:text-fg-subtle disabled:opacity-50"
-      />
-      <div className="mt-2 flex gap-2">
+    <div className="shrink-0 border-t border-border bg-surface-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <button
-          type="submit"
-          disabled={disabled || busy}
-          className="h-12 flex-1 rounded-xl bg-accent px-3 font-medium text-fg-on-accent disabled:opacity-50"
+          type="button"
+          onClick={onModelPress}
+          aria-label="Session details, including provider and model"
+          className="flex min-h-11 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-3 text-xs text-fg-muted"
         >
-          {running ? 'Queue' : 'Send'}
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+          {modelLabel ?? 'Loading…'}
         </button>
-        {running && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void submit('steer')}
-            className="h-11 rounded-md border border-border bg-surface-1 px-3 text-sm disabled:opacity-50"
-          >
-            Steer
-          </button>
-        )}
         {running && onInterrupt !== null && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              void onInterrupt().catch((failure: unknown) => onError(messageOf(failure)))
-            }}
-            className="h-11 rounded-md border border-danger px-3 text-sm text-danger disabled:opacity-50"
-          >
-            Interrupt
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void submit('steer')}
+              className="h-9 rounded-full border border-border px-3 text-xs disabled:opacity-50"
+            >
+              Steer
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                void onInterrupt().catch((failure: unknown) => onError(messageOf(failure)))
+              }}
+              className="h-9 rounded-full border border-danger px-3 text-xs text-danger disabled:opacity-50"
+            >
+              Interrupt
+            </button>
+          </div>
         )}
       </div>
-    </form>
+      <form
+        className="flex items-end gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit(running ? 'queue' : 'send')
+        }}
+      >
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          rows={1}
+          disabled={disabled}
+          placeholder={disabled ? 'This desktop cannot take prompts' : 'Message Ari…'}
+          aria-label="Message the agent"
+          className="max-h-28 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-surface-1 px-4 py-2.5 text-fg placeholder:text-fg-subtle disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={disabled || busy || text.trim().length === 0}
+          aria-label={running ? 'Queue message' : 'Send message'}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-fg-on-accent disabled:opacity-40"
+        >
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M10 16.5v-13M4.5 8 10 2.5 15.5 8" />
+          </svg>
+        </button>
+      </form>
+    </div>
   )
 }
 

@@ -9,6 +9,82 @@
 
 @source '../../../../packages/ui/src';
 
+/* Clean, modern palette for mobile without purplish/indigo tints */
+:root,
+[data-ari-scheme='dark'] {
+  --ari-bg: oklch(0.12 0.005 240);
+  --ari-surface-0: oklch(0.15 0.006 240);
+  --ari-surface-1: oklch(0.185 0.008 240);
+  --ari-surface-2: oklch(0.235 0.01 240);
+  --ari-surface-3: oklch(0.29 0.012 240);
+
+  --ari-border: oklch(0.9 0.01 240 / 10%);
+  --ari-border-strong: oklch(0.9 0.01 240 / 18%);
+  --ari-inner-stroke: oklch(1 0 0 / 5%);
+
+  --ari-fg: oklch(0.96 0.004 240);
+  --ari-fg-muted: oklch(0.74 0.01 240);
+  --ari-fg-subtle: oklch(0.56 0.012 240);
+  --ari-fg-on-accent: oklch(0.99 0 0);
+
+  --ari-accent: oklch(0.64 0.18 245);
+  --ari-accent-hover: oklch(0.69 0.16 245);
+  --ari-accent-active: oklch(0.59 0.19 245);
+  --ari-accent-subtle: oklch(0.64 0.18 245 / 15%);
+  --ari-accent-ring: oklch(0.64 0.18 245 / 45%);
+
+  --ari-success: oklch(0.76 0.17 155);
+  --ari-success-subtle: oklch(0.76 0.17 155 / 14%);
+  --ari-warning: oklch(0.82 0.16 80);
+  --ari-warning-subtle: oklch(0.82 0.16 80 / 14%);
+  --ari-danger: oklch(0.68 0.19 25);
+  --ari-danger-hover: oklch(0.74 0.17 25);
+  --ari-danger-subtle: oklch(0.68 0.19 25 / 15%);
+  --ari-info: oklch(0.74 0.14 220);
+  --ari-info-subtle: oklch(0.74 0.14 220 / 14%);
+  --ari-busy: oklch(0.74 0.18 340);
+  --ari-busy-subtle: oklch(0.74 0.18 340 / 14%);
+
+  color-scheme: dark;
+}
+
+[data-ari-scheme='light'] {
+  --ari-bg: #ffffff;
+  --ari-surface-0: oklch(0.98 0.004 240);
+  --ari-surface-1: oklch(0.955 0.006 240);
+  --ari-surface-2: oklch(0.92 0.008 240);
+  --ari-surface-3: oklch(0.875 0.01 240);
+
+  --ari-border: oklch(0.2 0.01 240 / 10%);
+  --ari-border-strong: oklch(0.2 0.01 240 / 18%);
+  --ari-inner-stroke: oklch(1 0 0 / 60%);
+
+  --ari-fg: oklch(0.18 0.015 240);
+  --ari-fg-muted: oklch(0.42 0.018 240);
+  --ari-fg-subtle: oklch(0.58 0.015 240);
+  --ari-fg-on-accent: #ffffff;
+
+  --ari-accent: oklch(0.56 0.2 250);
+  --ari-accent-hover: oklch(0.5 0.21 250);
+  --ari-accent-active: oklch(0.44 0.2 250);
+  --ari-accent-subtle: oklch(0.56 0.2 250 / 12%);
+  --ari-accent-ring: oklch(0.56 0.2 250 / 35%);
+
+  --ari-success: oklch(0.52 0.15 155);
+  --ari-success-subtle: oklch(0.52 0.15 155 / 12%);
+  --ari-warning: oklch(0.58 0.14 75);
+  --ari-warning-subtle: oklch(0.58 0.14 75 / 14%);
+  --ari-danger: oklch(0.55 0.2 25);
+  --ari-danger-hover: oklch(0.48 0.2 25);
+  --ari-danger-subtle: oklch(0.55 0.2 25 / 12%);
+  --ari-info: oklch(0.55 0.15 225);
+  --ari-info-subtle: oklch(0.55 0.15 225 / 12%);
+  --ari-busy: oklch(0.54 0.18 340);
+  --ari-busy-subtle: oklch(0.54 0.18 340 / 12%);
+
+  color-scheme: light;
+}
+
 /* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
    resolve to live CSS variables. Mirrors the desktop's mapping; a token added
    there and not here shows up as a missing utility rather than a wrong colour. */

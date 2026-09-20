@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { RemoteApproval, RemoteInput } from '@ari/contracts/remote'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import { ScreenHeader } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
 import { relativeTime, summarizeToolDetail } from '../../lib/format'
 
@@ -68,6 +69,8 @@ export function NowScreen({ onOpen }: { onOpen: (sessionId: string) => void }): 
 
   return (
     <div className="h-full overflow-y-auto px-4 pb-6 pt-4">
+      <ScreenHeader title="Now" subtitle="What needs you." />
+      <div className="mt-4" />
       {app.error !== null && (
         <p role="alert" className="mb-4 rounded-md border border-danger bg-danger-subtle p-3 text-sm">
           {app.error}
@@ -139,7 +142,7 @@ function Section({
 }): ReactNode {
   return (
     <section className="mb-6">
-      <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-subtle">{title}</h2>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">{title}</h2>
       {hasItems ? <div className="space-y-2">{children}</div> : null}
       {!hasItems && empty !== null && <p className="text-sm text-fg-muted">{empty}</p>}
     </section>

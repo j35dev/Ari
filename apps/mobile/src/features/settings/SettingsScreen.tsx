@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { ScreenHeader } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
 import { connectionLabel, relativeTime } from '../../lib/format'
 
@@ -17,9 +18,10 @@ export function SettingsScreen(): ReactNode {
 
   return (
     <div className="h-full overflow-y-auto px-4 pb-6 pt-4">
-      <section className="mb-6">
-        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-subtle">Computer</h2>
-        <div className="rounded-lg border border-border bg-surface-1 p-3 text-sm">
+      <ScreenHeader title="Settings" subtitle="This phone and its desktop." />
+      <section className="mb-6 mt-4">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">Computer</h2>
+        <div className="rounded-2xl border border-border bg-surface-1 p-4 text-sm">
           <p className="font-mono text-xs break-all">{app.origin ?? 'None'}</p>
           <p className="mt-1 text-fg-muted">{connectionLabel(app.connection)}</p>
           <p className="mt-2 text-2xs text-fg-subtle">
@@ -29,8 +31,8 @@ export function SettingsScreen(): ReactNode {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-subtle">This device</h2>
-        <dl className="rounded-lg border border-border bg-surface-1 p-3 text-sm">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">This device</h2>
+        <dl className="rounded-2xl border border-border bg-surface-1 p-4 text-sm">
           <div className="flex justify-between gap-3">
             <dt className="text-fg-muted">Projects shared</dt>
             <dd>{app.projects.length}</dd>
@@ -50,10 +52,10 @@ export function SettingsScreen(): ReactNode {
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-subtle">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">
           What this desktop allows
         </h2>
-        <ul className="rounded-lg border border-border bg-surface-1 p-3 text-xs text-fg-muted">
+        <ul className="rounded-2xl border border-border bg-surface-1 p-4 text-xs text-fg-muted">
           {app.capabilities.length === 0 && <li>Nothing yet — the desktop has not been asked.</li>}
           {app.capabilities.map((capability) => (
             <li key={capability} className="font-mono">
@@ -73,7 +75,7 @@ export function SettingsScreen(): ReactNode {
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="h-11 w-full rounded-md border border-danger text-sm text-danger"
+          className="h-12 w-full rounded-xl border border-danger text-sm font-medium text-danger"
         >
           Forget this computer
         </button>

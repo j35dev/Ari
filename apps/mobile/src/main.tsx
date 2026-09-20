@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@ari/ui/fonts'
+import { applyCachedTheme, ThemeProvider } from '@ari/ui/theme-provider'
 import { App } from './App'
 import { AppProvider } from './lib/app-state'
 import { defaultDeviceStore } from './lib/device-key'
@@ -8,6 +9,9 @@ import './styles/index.css'
 
 const container = document.getElementById('root')
 if (container === null) throw new Error('missing #root element')
+
+// Paints the cached theme immediately before hydration to prevent flashes
+applyCachedTheme()
 
 /**
  * The device store is resolved before the first render rather than inside the
@@ -19,8 +23,10 @@ const store = await defaultDeviceStore()
 
 createRoot(container).render(
   <StrictMode>
-    <AppProvider store={store}>
-      <App />
-    </AppProvider>
+    <ThemeProvider>
+      <AppProvider store={store}>
+        <App />
+      </AppProvider>
+    </ThemeProvider>
   </StrictMode>,
 )

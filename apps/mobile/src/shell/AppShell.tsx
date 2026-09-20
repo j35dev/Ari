@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { useTheme } from '@ari/ui/theme-provider'
 import { TabIcon } from './TabIcon'
 import { NowScreen } from '../features/now/NowScreen'
-import { ProjectsScreen } from '../features/projects/ProjectsScreen'
+import { NewSessionSheet, ProjectsScreen } from '../features/projects/ProjectsScreen'
 import { SessionScreen } from '../features/session/SessionScreen'
 import { SessionsScreen } from '../features/sessions/SessionsScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
@@ -15,21 +16,32 @@ import type { ConnectionState } from '../lib/session'
  * the top because it is a place you go and come back from.
  */
 
-type Destination = 'now' | 'sessions' | 'projects' | 'settings'
+type Destination = 'projects' | 'sessions' | 'now' | 'settings'
 
 const DESTINATIONS: { id: Destination; label: string }[] = [
-  { id: 'now', label: 'Now' },
-  { id: 'sessions', label: 'Sessions' },
   { id: 'projects', label: 'Projects' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'sessions', label: 'Sessions' },
+  { id: 'now', label: 'Remote' },
+  { id: 'settings', label: 'More' },
 ]
 
 export function AppShell(): ReactNode {
   const app = useApp()
-  const [destination, setDestination] = useState<Destination>('now')
+  const { resolvedScheme, setMode } = useTheme()
+  const [destination, setDestination] = useState<Destination>('projects')
   const [open, setOpen] = useState<string | null>(null)
   const [updateReady, setUpdateReady] = useState(false)
   const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [expandRequest, setExpandRequest] = useState<{ projectId: string; nonce: number } | null>(
+    null,
+  )
+
+  const runningCount = app.sessions.filter((s) => s.status === 'running').length
+
+  const toggleTheme = (): void => {
+    setMode(resolvedScheme === 'dark' ? 'sandstone' : 'graphite')
+  }
 
   useEffect(() => {
     registerServiceWorker(() => setUpdateReady(true))
@@ -44,15 +56,38 @@ export function AppShell(): ReactNode {
       {updateReady && !updateDismissed && (
         <UpdateBanner onApply={applyUpdate} onDismiss={() => setUpdateDismissed(true)} />
       )}
-      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex items-center justify-between gap-3">
+          {/* Brand mark matching mockup */}
           <div className="min-w-0">
-            <p className="truncate text-[15px] font-semibold tracking-tight">
-              {originLabel(app.origin)}
-            </p>
-            <p className="mt-0.5 truncate text-xs text-fg-subtle">{describe(app.connection)}</p>
+            <span className="text-xl font-bold tracking-tight text-fg">
+              Ari<span className="text-accent">.</span>
+            </span>
           </div>
-          <ConnectionPill state={app.connection} />
+
+          <div className="flex items-center gap-2">
+            <ConnectionPill state={app.connection} host={originLabel(app.origin)} />
+
+            {/* Dark / Light Mode Toggle */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-1 text-fg transition-colors hover:bg-surface-2 active:scale-95"
+              aria-label={resolvedScheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={resolvedScheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {resolvedScheme === 'dark' ? (
+                <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <circle cx="10" cy="10" r="4" />
+                  <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" />
+                </svg>
+              ) : (
+                <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M17.5 11.5A7.5 7.5 0 1 1 8.5 2.5a6 6 0 0 0 9 9Z" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -69,9 +104,26 @@ export function AppShell(): ReactNode {
       <main className="min-h-0 flex-1 overflow-hidden">
         {destination === 'now' && <NowScreen onOpen={setOpen} />}
         {destination === 'sessions' && <SessionsScreen onOpen={setOpen} />}
-        {destination === 'projects' && <ProjectsScreen onOpen={setOpen} />}
+        {destination === 'projects' && (
+          <ProjectsScreen
+            onOpen={setOpen}
+            expandRequest={expandRequest}
+            onNewSession={() => setSheetOpen(true)}
+          />
+        )}
         {destination === 'settings' && <SettingsScreen />}
       </main>
+
+      {sheetOpen && (
+        <NewSessionSheet
+          onClose={() => setSheetOpen(false)}
+          onPick={(projectId) => {
+            setSheetOpen(false)
+            setExpandRequest({ projectId, nonce: Date.now() })
+            setDestination('projects')
+          }}
+        />
+      )}
 
       <nav
         aria-label="Main"
@@ -81,16 +133,24 @@ export function AppShell(): ReactNode {
           {DESTINATIONS.map((entry) => {
             const active = destination === entry.id
             return (
-              <li key={entry.id} className="flex-1">
+              <li key={entry.id} className="relative flex-1">
                 <button
                   type="button"
                   aria-current={active ? 'page' : undefined}
                   onClick={() => setDestination(entry.id)}
-                  className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 rounded-lg py-1.5 text-2xs ${
-                    active ? 'bg-surface-2 font-medium text-fg' : 'text-fg-muted'
+                  className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 py-1.5 text-2xs ${
+                    active ? 'font-medium text-accent' : 'text-fg-muted'
                   }`}
                 >
-                  <TabIcon id={entry.id} />
+                  <div className="relative">
+                    <TabIcon id={entry.id} />
+                    {entry.id === 'now' && runningCount > 0 && (
+                      <span
+                        aria-label={`${runningCount} running`}
+                        className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-accent"
+                      />
+                    )}
+                  </div>
                   {entry.label}
                 </button>
               </li>
@@ -102,16 +162,22 @@ export function AppShell(): ReactNode {
   )
 }
 
-function ConnectionPill({ state }: { state: ConnectionState }): ReactNode {
+function ConnectionPill({ state, host }: { state: ConnectionState; host: string }): ReactNode {
   const tone = toneOf(state)
   return (
-    <span
-      className={`flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2.5 py-1.5 text-2xs font-medium ${tone.text}`}
-    >
-      {/* A dot alone would be colour-only status, so the words carry it too. */}
+    <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-surface-1 px-2.5 py-1">
       <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-      {tone.label}
-    </span>
+      <div className="min-w-0 text-left">
+        <span className={`block text-2xs font-semibold leading-none ${tone.text}`}>
+          {tone.label}
+        </span>
+        {state === 'connected' && (
+          <span className="block max-w-[130px] truncate text-[10px] text-fg-subtle leading-tight">
+            {host}
+          </span>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -145,24 +211,4 @@ function originLabel(origin: string | null): string {
   }
 }
 
-/** The banner's sentence, which says only what the client actually knows. */
-function describe(state: ConnectionState): string {
-  switch (state) {
-    case 'connected':
-      return 'Agents keep running here while you are away'
-    case 'connecting':
-      return 'Connecting…'
-    case 'reconnecting':
-      return 'Lost the connection — retrying'
-    case 'revoked':
-      return 'This device was revoked on the desktop'
-    case 'unknown-device':
-      return 'The desktop no longer knows this device'
-    case 'version-mismatch':
-      return 'This app and the desktop speak different versions'
-    case 'unreachable':
-      return 'No answer from the desktop. It may be off, asleep, or offline.'
-    default:
-      return 'Pair with the desktop to start'
-  }
-}
+
