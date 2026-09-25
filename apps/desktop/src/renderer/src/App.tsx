@@ -777,6 +777,7 @@ function Shell() {
             section={settingsSection}
             onSectionChange={setSettingsSection}
             onBack={() => setSettingsOpen(false)}
+            workspacePath={sessionWorkspace?.path ?? null}
             onOpenTerminal={() => {
               setSettingsOpen(false)
               setFullPage(null)

@@ -21,7 +21,11 @@ export interface AppServerStartOptions {
   cwd: string
   env?: Record<string, string | undefined>
   /** Process factory seam for tests; defaults to the Windows-safe spawner. */
-  spawn?: (binaryPath: string, cwd: string) => CodexChildProcess
+  spawn?: (
+    binaryPath: string,
+    cwd: string,
+    env: Record<string, string | undefined> | undefined,
+  ) => CodexChildProcess
 }
 
 interface PendingRequest {
@@ -64,7 +68,7 @@ export class AppServerConnection {
     try {
       child =
         options.spawn !== undefined
-          ? options.spawn(options.binaryPath, options.cwd)
+          ? options.spawn(options.binaryPath, options.cwd, options.env)
           : spawnCli(options.binaryPath, ['app-server'], {
               cwd: options.cwd,
               ...(options.env ? { env: options.env } : {}),
