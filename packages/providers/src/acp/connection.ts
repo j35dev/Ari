@@ -232,7 +232,7 @@ export class AcpConnection {
         options.spawn !== undefined
           ? options.spawn(launch, options.cwd)
           : spawnCli(launch.command, launch.args, {
-              env: { ...process.env, ...launch.env, ...options.runtimeEnv },
+              env: { ...process.env, ...options.runtimeEnv, ...launch.env },
               cwd: options.cwd,
               stdio: ['pipe', 'pipe', 'pipe'],
               windowsHide: true,
