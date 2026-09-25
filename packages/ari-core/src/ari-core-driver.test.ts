@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '@ari/contracts/agent-event'
@@ -805,6 +805,63 @@ describe('ari core driver compaction', () => {
       expect(events.at(-1)).toEqual({ type: 'done' })
     } finally {
       await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
+  })
+})
+
+describe('ari core skills on a turn', () => {
+  it('appends a slash skill to the system prompt and leaves the user message unchanged', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-driver-skill-'))
+    try {
+      const home = join(dir, 'home')
+      const project = join(dir, 'proj')
+      await mkdir(join(home, '.agents', 'skills', 'hello'), { recursive: true })
+      await mkdir(join(project, '.agents', 'skills', 'secret'), { recursive: true })
+      await writeFile(
+        join(home, '.agents', 'skills', 'hello', 'SKILL.md'),
+        '---\nname: hello\ndescription: Hi\n---\nHello body\n',
+      )
+      await writeFile(
+        join(project, '.agents', 'skills', 'secret', 'SKILL.md'),
+        '---\nname: secret\n---\nSecret body\n',
+      )
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'gpt-test',
+        headers: {},
+      })
+      const requests: ChatRequest[] = []
+      const conversations = new MemoryConversationStore()
+      const driver = new AriCoreDriver(endpoints, {
+        conversations,
+        skills: { homeDir: home, trustDir: join(dir, 'trust') },
+        clients: {
+          openai: async function* (request) {
+            requests.push(request)
+            yield { type: 'text-delta', text: 'ok' }
+            yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const adapter = await driver.create(makeSession(project, '/hello please', 'ep'))
+      await collect(adapter.start())
+      const system = requests[0]?.messages?.[0]
+      expect(system?.role).toBe('system')
+      expect(system?.content).toContain('<invoked_skill name="hello">')
+      expect(system?.content).toContain('Hello body')
+      expect(system?.content).not.toContain('Secret body')
+      expect(requests[0]?.messages?.at(-1)).toEqual({ role: 'user', content: '/hello please' })
+      expect(requests[0]?.tools?.some((tool) => tool.name === 'skill')).toBe(true)
+      const saved = await conversations.load('s1')
+      expect(JSON.stringify(saved)).not.toContain('Hello body')
+      expect(saved.some((message) => message.role === 'user' && message.content === '/hello please')).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
     }
   })
 })

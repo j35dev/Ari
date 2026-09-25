@@ -48,6 +48,7 @@ import {
 import { BrowserService } from './browser-service'
 import { createElectronBrowserGuest } from './browser-electron'
 import { startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
+import { buildExtensionInventory, readInventoriedSkill } from './extension-inventory'
 import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
@@ -98,6 +99,10 @@ import { importPiSessionCandidate, listImportableSessions } from './session-impo
 import type { SessionImportDeps } from './session-import'
 import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
+import { McpServerStore, mergeCoreMcp, publicMcpServer } from '@ari/ari-core/mcp-servers'
+import { sanitizeMcpSegment } from '@ari/ari-core/mcp-tools'
+import { listAriCoreSkills, readTrustedSkillRoots, setWorkspaceSkillTrust } from '@ari/ari-core/skills'
+import { BUILT_IN_TOOLS } from '@ari/ari-core/tools'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
 import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
 import { todoFilenameFor } from '@ari/ari-core/todo'
@@ -590,14 +595,28 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // The registry exists immediately with Ari Core attached; CLI drivers are
   // added as background detection completes. Nothing waits on that to answer.
   const driverRegistry = new DriverRegistry()
+  const coreDir = join(app.getPath('userData'), 'ari-core')
+  const mcpStore = new McpServerStore({ dir: coreDir })
+  let mcpStoreReady: Promise<void> | null = null
+  const ensureMcpStore = (): Promise<void> => {
+    mcpStoreReady ??= mcpStore.load().then(() => undefined)
+    return mcpStoreReady
+  }
+  void ensureMcpStore()
   driverRegistry.register(
     new AriCoreDriver(getEndpointStore(), {
       // Ari Core owns its transcript (it has no provider-side thread to
       // resume), so conversation memory is persisted per session on disk.
-      conversations: new FileConversationStore(
-        join(app.getPath('userData'), 'ari-core', 'conversations'),
-      ),
-      mcpServers: () => browserCoreMcpServers,
+      conversations: new FileConversationStore(join(coreDir, 'conversations')),
+      skills: { homeDir: homedir(), trustDir: coreDir },
+      mcpServers: () => {
+        for (const server of mcpStore.list()) {
+          if (!server.disabled && sanitizeMcpSegment(server.name) === 'ari_browser') {
+            log.warn('mcp server name is reserved', { server: server.name, reason: 'reserved-name' })
+          }
+        }
+        return mergeCoreMcp(mcpStore.list(), browserCoreMcpServers)
+      },
     }),
   )
   driverRegistryRef = driverRegistry
@@ -1165,6 +1184,67 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('providers.writeConfig', (params) =>
     writeProviderConfig(params.kind, params.fileId, params.content),
   )
+
+  const resolveInventoryWorkspace = async (workspacePath: string | null): Promise<string> => {
+    if (workspacePath === null) return homedir()
+    return resolveInsideRoots(resolve(workspacePath), await collectFsRoots())
+  }
+
+  r.register('providers.extensionInventory', async (params) => {
+    const workspace = await resolveInventoryWorkspace(params.workspacePath)
+    if (params.kind === 'ari-core') {
+      await ensureMcpStore()
+      const trusted = await readTrustedSkillRoots(coreDir)
+      const skills = await listAriCoreSkills(workspace, trusted, {
+        homeDir: homedir(),
+        builtInNames: BUILT_IN_TOOLS.map((tool) => tool.name),
+      })
+      return buildExtensionInventory({
+        kind: 'ari-core',
+        workspacePath: workspace,
+        coreServers: mcpStore.list(),
+        coreSkills: skills,
+      })
+    }
+    return buildExtensionInventory({ kind: params.kind, workspacePath: workspace })
+  })
+
+  r.register('providers.readExtensionFile', async (params) => {
+    const workspace = await resolveInventoryWorkspace(params.workspacePath)
+    if (params.kind === 'ari-core') await ensureMcpStore()
+    const inventory =
+      params.kind === 'ari-core'
+        ? await buildExtensionInventory({
+            kind: 'ari-core',
+            workspacePath: workspace,
+            coreServers: mcpStore.list(),
+            coreSkills: await listAriCoreSkills(workspace, await readTrustedSkillRoots(coreDir), {
+              homeDir: homedir(),
+              builtInNames: BUILT_IN_TOOLS.map((tool) => tool.name),
+            }),
+          })
+        : await buildExtensionInventory({ kind: params.kind, workspacePath: workspace })
+    return readInventoriedSkill(inventory, params.path)
+  })
+
+  r.register('ariCore.mcp.list', async () => {
+    await ensureMcpStore()
+    return { servers: mcpStore.list().map(publicMcpServer) }
+  })
+  r.register('ariCore.mcp.upsert', async (params) => {
+    await ensureMcpStore()
+    const saved = await mcpStore.patch(params)
+    return publicMcpServer(saved)
+  })
+  r.register('ariCore.mcp.remove', async (params) => {
+    await ensureMcpStore()
+    return { removed: await mcpStore.remove(params.id) }
+  })
+  r.register('ariCore.skills.trust', async (params) => {
+    const workspace = await resolveInsideRoots(resolve(params.workspacePath), await collectFsRoots())
+    const trusted = await setWorkspaceSkillTrust(coreDir, workspace, params.trusted)
+    return { trusted }
+  })
 
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
   r.register('providers.models', () => {
