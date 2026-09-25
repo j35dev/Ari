@@ -16,6 +16,8 @@
     "./mcp": "./src/mcp.ts",
     "./mcp-servers": "./src/mcp-servers.ts",
     "./mcp-tools": "./src/mcp-tools.ts",
+    "./skills": "./src/skills.ts",
+    "./tools": "./src/tools.ts",
     "./conversation-store": "./src/conversation-store.ts",
     "./todo": "./src/tools/todo.ts"
   },

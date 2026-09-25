@@ -41,6 +41,7 @@ beforeEach(() => {
     if (method === 'providers.writeConfig') return { ok: true, bytesWritten: 12 }
     // The pi page also offers session import.
     if (method === 'sessions.importable') return []
+    if (method === 'providers.extensionInventory') return { records: [], truncated: false }
     throw new Error(`unexpected ${method}`)
   })
 })
@@ -89,6 +90,7 @@ describe('AgentConfigSettings', () => {
         return { content: '{}', exists: true, path: 'x', truncated: false }
       }
       if (method === 'sessions.importable') return []
+      if (method === 'providers.extensionInventory') return { records: [], truncated: false }
       return { ok: false, error: 'settings.json is not valid JSON: Unexpected end of input' }
     })
     render(<AgentConfigSettings />)
@@ -110,9 +112,11 @@ describe('AgentConfigSettings', () => {
   })
 
   it('says so plainly when Ari has no layout for an agent', async () => {
-    mocks.invoke.mockImplementation(async (method: string) =>
-      method === 'sessions.importable' ? [] : { dir: null, files: [] },
-    )
+    mocks.invoke.mockImplementation(async (method: string) => {
+      if (method === 'sessions.importable') return []
+      if (method === 'providers.extensionInventory') return { records: [], truncated: false }
+      return { dir: null, files: [] }
+    })
     render(<AgentConfigSettings />)
     expect(await screen.findByText(/no confirmed config layout/i)).toBeInTheDocument()
   })

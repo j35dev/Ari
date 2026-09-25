@@ -54,7 +54,11 @@ export interface CodexDriverOptions {
   /** Legacy one-shot spawner seam; defaults to the real Windows-safe spawn. */
   spawnLegacy?: (binaryPath: string, args: string[]) => LegacyChildProcess
   /** App-server process factory seam; defaults to the real spawner. */
-  spawnAppServer?: (binaryPath: string, cwd: string) => CodexChildProcess
+  spawnAppServer?: (
+    binaryPath: string,
+    cwd: string,
+    env: Record<string, string | undefined> | undefined,
+  ) => CodexChildProcess
 }
 
 /** Structural child surface the exec --json pump needs. */
@@ -85,7 +89,9 @@ export class CodexDriver implements Driver {
           const adapter = await createCodexAppServerAdapter(
             this.binaryPath,
             session,
-            this.options.spawnAppServer,
+            this.options.spawnAppServer
+              ? (binaryPath, cwd, env) => this.options.spawnAppServer!(binaryPath, cwd, env)
+              : undefined,
           )
           log.info('turn started over codex app-server', { sessionId: session.sessionId })
           return adapter
@@ -164,7 +170,11 @@ const APPROVAL_DECISIONS: Record<AdapterApprovalDecision, string> = {
 export async function createCodexAppServerAdapter(
   binaryPath: string,
   session: AdapterSession,
-  spawn?: (binaryPath: string, cwd: string) => CodexChildProcess,
+  spawn?: (
+    binaryPath: string,
+    cwd: string,
+    env: Record<string, string | undefined> | undefined,
+  ) => CodexChildProcess,
 ): Promise<CodexAppServerAdapter> {
   const mapper = createAppServerMapper()
   const connection = AppServerConnection.start({
