@@ -51,6 +51,11 @@ export interface McpConnectOptions {
   requestTimeoutMs?: number
   /** Working directory for the spawned server process. */
   cwd?: string
+  /**
+   * Environment under `server.env`. Defaults to `process.env`. Turns pass
+   * `session.runtimeEnv` so the server sees the same PATH as the agent.
+   */
+  baseEnv?: NodeJS.ProcessEnv
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -125,7 +130,7 @@ export class McpConnection {
     // PATH etc., explicit keys win.
     const child = spawnCli(server.command, server.args, {
       cwd: options.cwd,
-      env: { ...process.env, ...server.env },
+      env: { ...(options.baseEnv ?? process.env), ...server.env },
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     })

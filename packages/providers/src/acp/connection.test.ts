@@ -165,6 +165,8 @@ describe('AcpConnection', () => {
   it('passes launch overrides and inherited environment to the real child', async () => {
     const connection = await AcpConnection.connect({
       cwd: process.cwd(),
+      // A full runtime env with a stale CODEX_PATH must not beat the launch.
+      runtimeEnv: { ...process.env, CODEX_PATH: '/stale/codex' },
       launch: {
         label: 'environment fixture',
         command: process.execPath,
@@ -410,7 +412,59 @@ describe('AcpConnection', () => {
     const load = child.sent.find((m) => m['method'] === 'session/load') as
       { params?: Record<string, unknown> } | undefined
     expect(load?.params).toEqual({ sessionId: 'sess_old', cwd: '/next', mcpServers: [] })
+    expect(load?.params).not.toHaveProperty('_meta')
     connection.kill()
+  })
+
+  it('sends the browser MCP list on load and resume, and the stdio proxy when HTTP is refused', async () => {
+    const httpServer = {
+      type: 'http' as const,
+      name: 'ari-browser',
+      url: 'http://127.0.0.1:9/mcp',
+      headers: [{ name: 'Authorization', value: 'Bearer t' }],
+    }
+    const stdioServer = { name: 'ari-browser', command: 'node', args: ['proxy.js'], env: [] }
+    const httpChild = fakeChild()
+    script(httpChild, (method) => {
+      if (method === 'initialize') return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } }
+      return null
+    })
+    const httpConn = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => httpChild,
+      mcpServers: [httpServer, stdioServer],
+    })
+    await httpConn.loadSession('sess_old', '/next')
+    await httpConn.resumeSession('sess_old', '/next')
+    for (const method of ['session/load', 'session/resume']) {
+      const frame = httpChild.sent.find((message) => message['method'] === method) as
+        | { params?: Record<string, unknown> }
+        | undefined
+      expect(frame?.params?.['mcpServers']).toEqual([httpServer])
+      expect(frame?.params).not.toHaveProperty('_meta')
+    }
+    httpConn.kill()
+
+    const stdioChild = fakeChild()
+    script(stdioChild, (method) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: false } } }
+      }
+      return null
+    })
+    const stdioConn = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => stdioChild,
+      mcpServers: [httpServer, stdioServer],
+    })
+    await stdioConn.resumeSession('sess_old', '/next')
+    const resumed = stdioChild.sent.find((message) => message['method'] === 'session/resume') as
+      | { params?: { mcpServers?: unknown[] } }
+      | undefined
+    expect(resumed?.params?.mcpServers).toEqual([stdioServer])
+    stdioConn.kill()
   })
 
   it('routes session/update notifications to the hook', async () => {

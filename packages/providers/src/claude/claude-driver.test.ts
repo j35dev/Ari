@@ -1,6 +1,30 @@
 import { describe, expect, it } from 'vitest'
 import type { AdapterSession } from '../driver'
-import { buildClaudeArgs, buildUserFrame } from './claude-driver'
+import { buildClaudeArgs, buildUserFrame, ClaudeDriver } from './claude-driver'
+
+describe('ClaudeDriver spawn', () => {
+  it('passes session.runtimeEnv through the spawn seam', async () => {
+    let seen: Record<string, string | undefined> | undefined
+    const driver = new ClaudeDriver('claude', {
+      spawn: (_binary, _args, options) => {
+        seen = options.env
+        throw new Error('stop')
+      },
+    })
+    expect(() =>
+      driver.create({
+        sessionId: 's',
+        workspacePath: 'D:\\proj',
+        prompt: 'hi',
+        modelId: null,
+        permissionMode: 'ask',
+        resumeOf: null,
+        runtimeEnv: { CLAUDE_CONFIG_DIR: 'D:\\home\\.claude', PATH: 'D:\\bin' },
+      }),
+    ).toThrow('stop')
+    expect(seen).toMatchObject({ CLAUDE_CONFIG_DIR: 'D:\\home\\.claude' })
+  })
+})
 
 describe('buildClaudeArgs', () => {
   const base: AdapterSession = {

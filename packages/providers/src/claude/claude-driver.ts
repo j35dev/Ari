@@ -125,6 +125,7 @@ export function buildUnsupportedControlResponse(requestId: string, subtype: stri
  * test doubles satisfy it without spawning a real process.
  */
 export interface ControlProcessLike extends PumpableProcess {
+  pid?: number | undefined
   stdin: Writable | null
   readonly killed: boolean
   kill(): boolean
@@ -244,18 +245,39 @@ export function wireClaudeControl(
   }
 }
 
+export interface ClaudeDriverOptions {
+  /** Test seam. Production uses {@link spawnCli}. */
+  spawn?: (
+    binaryPath: string,
+    args: string[],
+    options: {
+      cwd: string
+      env?: Record<string, string | undefined>
+      stdio: ['pipe', 'pipe', 'pipe']
+      windowsHide: boolean
+    },
+  ) => ControlProcessLike
+}
+
 export class ClaudeDriver implements Driver {
   readonly kind = 'claude' as const
 
-  constructor(private readonly binaryPath: string) {}
+  constructor(
+    private readonly binaryPath: string,
+    private readonly options: ClaudeDriverOptions = {},
+  ) {}
 
   create(session: AdapterSession): Promise<ProviderAdapter> {
-    const child = spawnCli(this.binaryPath, buildClaudeArgs(session), {
+    const spawnOptions = {
       cwd: session.workspacePath,
       ...(session.runtimeEnv ? { env: session.runtimeEnv } : {}),
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-    })
+    }
+    const child =
+      this.options.spawn !== undefined
+        ? this.options.spawn(this.binaryPath, buildClaudeArgs(session), spawnOptions)
+        : spawnCli(this.binaryPath, buildClaudeArgs(session), spawnOptions)
     log.debug('claude spawned', { pid: child.pid })
 
     return loadImageData(stagedImagesOf(session)).then(({ loaded, missing }) =>

@@ -43,6 +43,8 @@ export interface SettingsWorkspaceProps {
    * staring at Settings; without this the tab is queued until they navigate.
    */
   onOpenTerminal?: () => void
+  /** Active session workspace. Null inventories the home directory. */
+  workspacePath?: string | null
 }
 
 function isSettingsSection(value: string): value is SettingsSectionId {
@@ -63,6 +65,7 @@ export function SettingsWorkspace({
   onSectionChange,
   onBack,
   onOpenTerminal,
+  workspacePath = null,
 }: SettingsWorkspaceProps) {
   const [internal, setInternal] = useState<SettingsSectionId>('appearance')
   const section = controlledSection ?? internal
@@ -145,7 +148,7 @@ export function SettingsWorkspace({
               <ProvidersView onOpenTerminal={onOpenTerminal} />
             </div>
           ) : null}
-          {section === 'agents' ? <AgentConfigSettings /> : null}
+          {section === 'agents' ? <AgentConfigSettings workspacePath={workspacePath} /> : null}
           {section === 'endpoints' ? (
             <div id="settings-endpoints" className="mx-auto max-w-2xl p-8">
               <EndpointsManager />
