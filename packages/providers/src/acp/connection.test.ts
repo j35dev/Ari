@@ -574,11 +574,11 @@ describe('AcpConnection.shutdown', () => {
 
 describe('acpPromptStallMs', () => {
   it('parses the env knob with sane fallbacks', () => {
-    expect(acpPromptStallMs(undefined)).toBe(300_000)
-    expect(acpPromptStallMs('')).toBe(300_000)
+    expect(acpPromptStallMs(undefined)).toBe(1_200_000)
+    expect(acpPromptStallMs('')).toBe(1_200_000)
     expect(acpPromptStallMs('30000')).toBe(30_000)
     expect(acpPromptStallMs('0')).toBe(0)
-    expect(acpPromptStallMs('nonsense')).toBe(300_000)
-    expect(acpPromptStallMs('-5')).toBe(300_000)
+    expect(acpPromptStallMs('nonsense')).toBe(1_200_000)
+    expect(acpPromptStallMs('-5')).toBe(1_200_000)
   })
 })
