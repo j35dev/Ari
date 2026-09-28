@@ -500,6 +500,29 @@ export const rpcParams = {
   'providers.authProbe': z.object({ kind: driverKindSchema }),
   'providers.login': z.object({ kind: driverKindSchema }),
   'providers.configFiles': z.object({ kind: driverKindSchema }),
+  'providers.extensionInventory': z.object({
+    kind: driverKindSchema,
+    workspacePath: z.string().nullable(),
+  }),
+  'providers.readExtensionFile': z.object({
+    kind: driverKindSchema,
+    workspacePath: z.string().nullable(),
+    path: z.string().min(1),
+  }),
+  'ariCore.mcp.list': z.undefined(),
+  'ariCore.mcp.upsert': z.object({
+    id: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    disabled: z.boolean().optional(),
+  }),
+  'ariCore.mcp.remove': z.object({ id: z.string().min(1) }),
+  'ariCore.skills.trust': z.object({
+    workspacePath: z.string().min(1),
+    trusted: z.boolean(),
+  }),
   'providers.readConfig': z.object({ kind: driverKindSchema, fileId: z.string().min(1) }),
   'providers.writeConfig': z.object({
     kind: driverKindSchema,
@@ -819,6 +842,44 @@ export interface RpcResults {
   'providers.readConfig': { content: string; exists: boolean; path: string; truncated: boolean }
   /** Failure comes back as data: an invalid path or unparseable JSON is expected. */
   'providers.writeConfig': { ok: true; bytesWritten: number } | { ok: false; error: string }
+  'providers.extensionInventory': {
+    records: {
+      kind: 'mcp' | 'skill' | 'plugin'
+      scope: 'user' | 'project' | 'plugin' | 'ari'
+      provider: DriverKind
+      id: string
+      name: string
+      summary?: string
+      sourcePath: string | null
+      transport?: 'stdio' | 'http' | 'sse' | 'unknown'
+      command?: string
+      disabled: boolean
+      delivery: 'delegated' | 'injected' | 'hosted'
+      problem?: 'missing-binary' | 'unreadable' | 'duplicate-name' | 'untrusted-project'
+    }[]
+    truncated: boolean
+  }
+  'providers.readExtensionFile': { content: string; truncated: boolean }
+  'ariCore.mcp.list': {
+    servers: {
+      id: string
+      name: string
+      command: string
+      args: string[]
+      envKeys: string[]
+      disabled: boolean
+    }[]
+  }
+  'ariCore.mcp.upsert': {
+    id: string
+    name: string
+    command: string
+    args: string[]
+    envKeys: string[]
+    disabled: boolean
+  }
+  'ariCore.mcp.remove': { removed: boolean }
+  'ariCore.skills.trust': { trusted: boolean }
   'window.minimize': { done: boolean }
   'window.toggleMaximize': { maximized: boolean }
   'window.close': { done: boolean }

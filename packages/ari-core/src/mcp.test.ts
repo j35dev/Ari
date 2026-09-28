@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { McpConnection } from './mcp'
-import { McpServerStore } from './mcp-servers'
+import { McpServerStore, mergeCoreMcp } from './mcp-servers'
 import { mountMcpTools, mcpToolName, sanitizeMcpSegment } from './mcp-tools'
 
 /**
@@ -259,6 +259,39 @@ describe('McpServerStore', () => {
       await writeFile(join(dir, 'mcp-servers.json'), '[{ "id": "x" }]', 'utf8')
       const invalid = new McpServerStore({ dir })
       expect((await invalid.load()).length).toBe(0)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('patch keeps env when a disable omits it, and merge puts the browser first', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-mcp-patch-'))
+    try {
+      const store = new McpServerStore({ dir })
+      const created = await store.patch({
+        name: 'Fetch',
+        command: 'npx',
+        env: { TOKEN: 'secret' },
+      })
+      const disabled = await store.patch({ id: created.id, disabled: true })
+      expect(disabled.env).toEqual({ TOKEN: 'secret' })
+      expect(disabled.disabled).toBe(true)
+      const browser = {
+        id: 'ari-browser',
+        name: 'ari-browser',
+        command: 'node',
+        args: [],
+        env: {},
+        disabled: false,
+      }
+      const merged = mergeCoreMcp(
+        [
+          { ...created, disabled: false, name: 'Ari Browser' },
+          { ...created, id: 'ok', name: 'Fetch', disabled: false },
+        ],
+        [browser],
+      )
+      expect(merged.map((server) => server.name)).toEqual(['ari-browser', 'Fetch'])
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

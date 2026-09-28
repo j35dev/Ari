@@ -38,6 +38,14 @@ import { BUILT_IN_TOOLS, type Tool } from './tools'
 import { loadImageData, missingImagesNote } from '@ari/providers/attachments'
 import { buildSystemPrompt } from './system-prompt'
 import {
+  activeSkillSets,
+  formatSkillCatalog,
+  listAriCoreSkills,
+  matchSlashSkill,
+  readSkillBody,
+  readTrustedSkillRoots,
+} from './skills'
+import {
   MemoryConversationStore,
   type ConversationStore,
 } from './conversation-store'
@@ -76,6 +84,12 @@ export interface AriCoreDriverOptions {
    * session's history survives a restart.
    */
   conversations?: ConversationStore
+  /**
+   * When set, the turn reads `.agents/skills` from this home and the
+   * workspace. Project skills load only when `workspacePath` is an exact
+   * entry in `trustDir/trusted-skill-roots.json`.
+   */
+  skills?: { homeDir: string; trustDir: string }
   /**
    * Summarize older history instead of dropping it once the context budget is
    * mostly used. Costs one extra model call when it triggers; disable to keep
@@ -309,6 +323,7 @@ export class AriCoreDriver implements Driver {
   readonly #mcpConnectOverride?: (server: McpServerConfig) => Promise<McpConnection>
   readonly #conversations: ConversationStore
   readonly #compaction: boolean
+  readonly #skills: { homeDir: string; trustDir: string } | undefined
 
   constructor(endpoints: EndpointStore, options: AriCoreDriverOptions = {}) {
     this.#endpoints = endpoints
@@ -319,9 +334,10 @@ export class AriCoreDriver implements Driver {
     this.#mcpConnectOverride = options.mcpConnect
     this.#conversations = options.conversations ?? new MemoryConversationStore()
     this.#compaction = options.compaction ?? true
+    this.#skills = options.skills
   }
 
-  create(session: AdapterSession): Promise<ProviderAdapter> {
+  async create(session: AdapterSession): Promise<ProviderAdapter> {
     // The UI namespaces endpoint models as `ep:<endpointId>:<model>` in the
     // shared selector (legacy `ep:<endpointId>` falls back to the endpoint's
     // default model); the driver owns stripping that prefix so every caller
@@ -351,9 +367,13 @@ export class AriCoreDriver implements Driver {
     const mcpConnect =
       this.#mcpConnectOverride ??
       ((server: McpServerConfig) =>
-        McpConnection.connect(server, { cwd: session.workspacePath }))
+        McpConnection.connect(server, {
+          cwd: session.workspacePath,
+          ...(session.runtimeEnv ? { baseEnv: session.runtimeEnv } : {}),
+        }))
 
     const abort = new AbortController()
+    const skillsOption = this.#skills
 
     // Mode-gated calls park here until the host answers via respondApproval.
     const pendingApprovals = new Map<string, (decision: AdapterApprovalDecision) => void>()
@@ -410,6 +430,7 @@ export class AriCoreDriver implements Driver {
         (session.attachments ?? []).map((a) => ({ ...a })),
       )
       const userPrompt = session.prompt + missingImagesNote(missing)
+      const skillPlan = await prepareSkills(skillsOption, session.workspacePath, userPrompt)
       const userImages: ChatImage[] = loaded.map((img) => ({
         dataBase64: img.dataBase64,
         mimeType: img.mimeType,
@@ -437,6 +458,7 @@ export class AriCoreDriver implements Driver {
         }
         extraTools = await mountMcpTools(mounted)
       }
+      if (skillPlan.tool) extraTools = [...extraTools, skillPlan.tool]
       const advertised = [...BUILT_IN_TOOLS, ...extraTools].map((tool) => ({
         name: tool.name,
         description: tool.description,
@@ -540,7 +562,8 @@ export class AriCoreDriver implements Driver {
       try {
         yield* runAgentLoop({
           round,
-          systemPrompt: await buildSystemPrompt({ workspacePath: session.workspacePath }),
+          systemPrompt:
+            (await buildSystemPrompt({ workspacePath: session.workspacePath })) + skillPlan.suffix,
           userPrompt,
           ...(userImages.length > 0 ? { userImages } : {}),
           workspacePath: session.workspacePath,
@@ -590,4 +613,43 @@ export class AriCoreDriver implements Driver {
       },
     })
   }
+}
+
+async function prepareSkills(
+  options: { homeDir: string; trustDir: string } | undefined,
+  workspacePath: string,
+  userPrompt: string,
+): Promise<{ suffix: string; tool?: Tool }> {
+  if (!options) return { suffix: '' }
+  const trusted = await readTrustedSkillRoots(options.trustDir)
+  const listed = await listAriCoreSkills(workspacePath, trusted, {
+    homeDir: options.homeDir,
+    builtInNames: BUILT_IN_TOOLS.map((tool) => tool.name),
+  })
+  const { slashSkills, toolSkills } = activeSkillSets(listed)
+  const catalog = formatSkillCatalog(slashSkills)
+  let suffix = catalog.length > 0 ? `\n\nSkills:\n${catalog}` : ''
+  const invoked = matchSlashSkill(userPrompt, slashSkills)
+  if (invoked) {
+    const body = await readSkillBody(invoked.sourcePath)
+    suffix += `\n\n<invoked_skill name="${invoked.name}">\n${body}\n</invoked_skill>`
+  }
+  if (toolSkills.length === 0) return { suffix }
+  const tool: Tool = {
+    name: 'skill',
+    description: "Read one enabled skill by name. Returns its SKILL.md body.",
+    parameters: {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+    },
+    readOnly: true,
+    execute: async (args) => {
+      const name = typeof args['name'] === 'string' ? args['name'] : ''
+      const match = toolSkills.find((skill) => skill.name === name)
+      if (!match) return `No enabled skill named "${name}".`
+      return readSkillBody(match.sourcePath)
+    },
+  }
+  return { suffix, tool }
 }
