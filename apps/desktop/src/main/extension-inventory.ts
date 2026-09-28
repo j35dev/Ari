@@ -11,7 +11,7 @@ import type { AriSkillRecord } from '@ari/ari-core/skills'
 const READ_CAP = 64 * 1024
 
 const BROWSER_SUMMARY =
-  'HTTP preferred, same as session MCP selection. The stdio proxy is registered too. Which one is sent is decided when the turn starts. This page does not know mcpCapabilities.'
+  'Sent as HTTP only when the agent advertises mcpCapabilities.http. Otherwise the stdio proxy is sent. Never both.'
 
 export function browserExtensionRecord(provider: DriverKind): ExtensionRecord {
   return {
