@@ -187,12 +187,42 @@ export const usageSummarySchema = z.object({
 })
 export type UsageSummary = z.infer<typeof usageSummarySchema>
 
+/** Live state of one in-app browser tab. */
+export const browserTabStateSchema = z.object({
+  id: z.string().min(1),
+  url: z.string(),
+  title: z.string(),
+  canGoBack: z.boolean(),
+  canGoForward: z.boolean(),
+  loading: z.boolean(),
+  error: z.string().nullable(),
+  reveal: z.boolean().optional(),
+})
+export type BrowserTabState = z.infer<typeof browserTabStateSchema>
+
+/** One DOM node picked from the in-app browser for the next agent turn. */
+export const pickedElementSchema = z.object({
+  url: z.string(),
+  selector: z.string(),
+  tag: z.string(),
+  text: z.string(),
+  role: z.string().nullable(),
+  ariaLabel: z.string().nullable(),
+  html: z.string(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+})
+export type PickedElement = z.infer<typeof pickedElementSchema>
+
 /** Stream names the renderer may subscribe to. */
 export const streamNames = [
   'session.events',
   'terminal.data',
   'providers.updates',
   'app.updates',
+  'browser.updated',
 ] as const
 export type StreamName = (typeof streamNames)[number]
 
@@ -488,6 +518,23 @@ export const rpcParams = {
     rows: z.number().int().positive(),
   }),
   'terminal.kill': z.object({ id: z.string().min(1) }),
+  'browser.open': z.object({ id: z.string().min(1), url: z.string().max(2048).optional() }),
+  'browser.navigate': z.object({ id: z.string().min(1), url: z.string().min(1).max(2048) }),
+  'browser.go': z.object({
+    id: z.string().min(1),
+    action: z.enum(['back', 'forward', 'reload']),
+  }),
+  'browser.close': z.object({ id: z.string().min(1) }),
+  'browser.layout': z.object({
+    id: z.string().min(1),
+    visible: z.boolean(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number().nonnegative(),
+    height: z.number().nonnegative(),
+  }),
+  'browser.pick': z.object({ id: z.string().min(1) }),
+  'browser.cancelPick': z.object({ id: z.string().min(1) }),
   'project.list': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
@@ -781,6 +828,14 @@ export interface RpcResults {
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }
   'terminal.kill': { killed: boolean }
+  'browser.open': BrowserTabState
+  'browser.navigate': { ok: true; tab: BrowserTabState } | { ok: false; error: string }
+  'browser.go': BrowserTabState
+  'browser.close': { closed: boolean }
+  'browser.layout': { applied: boolean }
+  'browser.pick':
+    { ok: true; element: PickedElement; pngBase64: string | null } | { ok: false; error: string }
+  'browser.cancelPick': { cancelled: boolean }
   'project.list': Project[]
   'project.add': Project
   'project.open': Project

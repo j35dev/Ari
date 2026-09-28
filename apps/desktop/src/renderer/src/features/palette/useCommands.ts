@@ -4,6 +4,7 @@ import {
   Folder,
   Gauge,
   GitPullRequest,
+  Globe,
   Images,
   Maximize2,
   MessageSquare,
@@ -35,6 +36,7 @@ export interface PaletteCommand {
 export type NavigableView =
   | 'sessions'
   | 'terminal'
+  | 'browser'
   | 'changes'
   | 'settings'
   | 'files'
@@ -122,6 +124,12 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       icon: TerminalSquare,
       hint: 'Ctrl+`',
       run: () => ctx.onNavigate('terminal'),
+    },
+    {
+      id: 'nav.browser',
+      label: 'Go to Browser',
+      icon: Globe,
+      run: () => ctx.onNavigate('browser'),
     },
     {
       id: 'nav.changes',
