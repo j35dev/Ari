@@ -13,6 +13,7 @@ describe('hermes mapper', () => {
     const events = mapHermesStream(fixture('success-session.jsonl'))
     const types = events.map((e) => e.type)
     expect(types).toEqual([
+      'session-ref',
       'thinking-delta',
       'text-delta',
       'tool-started',
@@ -21,8 +22,11 @@ describe('hermes mapper', () => {
       'usage',
       'done',
     ])
+    if (events[0]?.type === 'session-ref') {
+      expect(events[0].ref).toBe('9f2c7b31-2222-4a58-8c10-6b7e4a2d5f02')
+    }
 
-    const toolStart = events[2]
+    const toolStart = events[3]
     if (toolStart?.type === 'tool-started') {
       expect(toolStart.callId).toBe('call_h01')
       expect(toolStart.name).toBe('bash')
@@ -34,7 +38,7 @@ describe('hermes mapper', () => {
       throw new Error('expected tool-started')
     }
 
-    const toolDone = events[3]
+    const toolDone = events[4]
     if (toolDone?.type === 'tool-completed') {
       expect(toolDone.callId).toBe('call_h01')
       expect(toolDone.isError).toBe(false)
@@ -43,7 +47,7 @@ describe('hermes mapper', () => {
       throw new Error('expected tool-completed')
     }
 
-    const usage = events[5]
+    const usage = events[6]
     if (usage?.type === 'usage') {
       expect(usage.inputTokens).toBe(420)
       expect(usage.outputTokens).toBe(115)
@@ -71,9 +75,11 @@ describe('hermes mapper', () => {
     }
   })
 
-  it('ignores system/init lines without emitting transcript noise', () => {
+  it('records the session id from system/init and nothing else', () => {
     const [init] = fixture('success-session.jsonl')
-    expect(mapHermesLine(init ?? '')).toEqual([])
+    expect(mapHermesLine(init ?? '')).toEqual([
+      { type: 'session-ref', ref: '9f2c7b31-2222-4a58-8c10-6b7e4a2d5f02' },
+    ])
   })
 
   it('maps tool errors with isError=true', () => {

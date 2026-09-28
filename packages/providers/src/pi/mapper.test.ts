@@ -13,6 +13,7 @@ describe('pi mapper', () => {
     const events = mapPiStream(fixture('success-session.jsonl'))
     const types = events.map((e) => e.type)
     expect(types).toEqual([
+      'session-ref',
       'thinking-delta',
       'tool-started',
       'tool-completed',
@@ -20,23 +21,26 @@ describe('pi mapper', () => {
       'usage',
       'done',
     ])
-    if (events[0]?.type === 'thinking-delta') {
-      expect(events[0].text).toBe('User wants a listing first.')
+    if (events[0]?.type === 'session-ref') {
+      expect(events[0].ref).toBe('01a0231d-d596-772a-be45-b0f56eb563a9')
     }
-    if (events[1]?.type === 'tool-started') {
-      expect(events[1].name).toBe('read')
-      expect(JSON.parse(events[1].argsJson)).toEqual({ path: 'README.md' })
+    if (events[1]?.type === 'thinking-delta') {
+      expect(events[1].text).toBe('User wants a listing first.')
     }
-    if (events[2]?.type === 'tool-completed') {
-      expect(events[2].isError).toBe(false)
-      expect(JSON.parse(events[2].resultJson)).toEqual({ output: '# proj' })
+    if (events[2]?.type === 'tool-started') {
+      expect(events[2].name).toBe('read')
+      expect(JSON.parse(events[2].argsJson)).toEqual({ path: 'README.md' })
     }
-    if (events[3]?.type === 'text-delta') expect(events[3].text).toBe('hello')
-    if (events[4]?.type === 'usage') {
+    if (events[3]?.type === 'tool-completed') {
+      expect(events[3].isError).toBe(false)
+      expect(JSON.parse(events[3].resultJson)).toEqual({ output: '# proj' })
+    }
+    if (events[4]?.type === 'text-delta') expect(events[4].text).toBe('hello')
+    if (events[5]?.type === 'usage') {
       // Usage comes from the last assistant message of agent_end.
-      expect(events[4].inputTokens).toBe(60)
-      expect(events[4].outputTokens).toBe(25)
-      expect(events[4].costUsd).toBeCloseTo(0.000305, 8)
+      expect(events[5].inputTokens).toBe(60)
+      expect(events[5].outputTokens).toBe(25)
+      expect(events[5].costUsd).toBeCloseTo(0.000305, 8)
     }
   })
 

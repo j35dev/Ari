@@ -518,7 +518,7 @@ export function Composer({
             type="button"
             aria-label="Send message"
             onClick={send}
-            disabled={(text.trim().length === 0 && images.length === 0) || disabled || running}
+            disabled={(text.trim().length === 0 && images.length === 0) || disabled}
             tabIndex={-1}
             className="sr-only"
           >
@@ -665,46 +665,63 @@ function SendStopButton({
   onStop?: () => void
   canSend: boolean
 }) {
+  const buttonClass = (busy: boolean, enabled: boolean): string =>
+    `flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm ${
+      busy
+        ? 'bg-busy text-fg-on-accent hover:brightness-110 shadow-busy/20'
+        : enabled
+          ? 'bg-accent text-fg-on-accent hover:bg-accent-hover hover:scale-105 active:scale-95 shadow-accent/25'
+          : 'bg-surface-3/50 text-fg-subtle opacity-60'
+    }`
   return (
-    <motion.button
-      type="button"
-      aria-label={running ? 'Stop' : 'Send'}
-      title={running ? 'Stop' : 'Send'}
-      onClick={() => (running ? onStop?.() : onSend())}
-      disabled={!running && !canSend}
-      whileTap={{ scale: 0.96 }}
-      transition={transitions.morph}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm ${
-        running
-          ? 'bg-busy text-fg-on-accent hover:brightness-110 shadow-busy/20'
-          : canSend
-            ? 'bg-accent text-fg-on-accent hover:bg-accent-hover hover:scale-105 active:scale-95 shadow-accent/25'
-            : 'bg-surface-3/50 text-fg-subtle opacity-60'
-      }`}
-    >
-      <AnimatePresence mode="wait" initial={false}>
-        {running ? (
-          <motion.span
-            key="stop"
-            initial={{ opacity: 0, scale: 0.7 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.7 }}
-            transition={{ duration: 0.09 }}
-          >
-            <Square size={12} fill="currentColor" />
-          </motion.span>
-        ) : (
-          <motion.span
-            key="send"
-            initial={{ opacity: 0, scale: 0.7 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.7 }}
-            transition={{ duration: 0.09 }}
-          >
-            <ArrowUp size={15} strokeWidth={2.4} />
-          </motion.span>
-        )}
-      </AnimatePresence>
-    </motion.button>
+    <>
+      {running && canSend ? (
+        <motion.button
+          type="button"
+          aria-label="Queue message"
+          title="Queue message"
+          onClick={onSend}
+          whileTap={{ scale: 0.96 }}
+          transition={transitions.morph}
+          className={buttonClass(false, true)}
+        >
+          <ArrowUp size={15} strokeWidth={2.4} />
+        </motion.button>
+      ) : null}
+      <motion.button
+        type="button"
+        aria-label={running ? 'Stop' : 'Send'}
+        title={running ? 'Stop' : 'Send'}
+        onClick={() => (running ? onStop?.() : onSend())}
+        disabled={!running && !canSend}
+        whileTap={{ scale: 0.96 }}
+        transition={transitions.morph}
+        className={buttonClass(running, canSend)}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {running ? (
+            <motion.span
+              key="stop"
+              initial={{ opacity: 0, scale: 0.7 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.7 }}
+              transition={{ duration: 0.09 }}
+            >
+              <Square size={12} fill="currentColor" />
+            </motion.span>
+          ) : (
+            <motion.span
+              key="send"
+              initial={{ opacity: 0, scale: 0.7 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.7 }}
+              transition={{ duration: 0.09 }}
+            >
+              <ArrowUp size={15} strokeWidth={2.4} />
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.button>
+    </>
   )
 }

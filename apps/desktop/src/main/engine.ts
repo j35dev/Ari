@@ -292,34 +292,14 @@ export class Engine {
       this.#activeTurns.get(command.sessionId)?.respondInput(command.inputId, command.value)
     }
 
-    if (command.type === 'message.enqueue') {
-      // A user message arriving behind a running turn steers that turn in
-      // providers whose control channel confirms delivery (claude stdin, ACP,
-      // codex turn/steer) — the text is consumed mid-turn, so it is dequeued
-      // immediately and must never re-run as a follow-up turn. Transports that
-      // decline the steer keep the message queued; settle dispatches it as the
-      // next turn. Messages carrying images never steer: steering is text-only,
-      // so they stay queued and run as the follow-up turn with their images.
-      const attachments = command.attachments ?? []
-      const steered =
-        attachments.length === 0
-          ? ((await this.#activeTurns
-              .get(command.sessionId)
-              ?.steer(attributedInput(command.text, origin))) ?? false)
-          : false
-      if (steered) {
-        await this.#recordSteered(command.sessionId, model.activeTurnId, {
-          text: command.text,
-          attachments,
-          ...(origin ? { origin } : {}),
-        })
-      } else {
-        // The turn may have settled concurrently after this dispatch's
-        // snapshot saw it active: the message is journaled as queued but no
-        // settle-drain will cover it. Schedule a serialized drain so a
-        // post-settle enqueue self-heals instead of stranding.
-        this.#scheduleQueueDrain(command.sessionId, model.session?.rootSessionId ?? null)
-      }
+    if (command.type === 'message.enqueue' && decision.startsTurn !== true) {
+      // A send during a live turn stays queued and runs after a clean settle,
+      // on every provider. Steering is the explicit `message.steer` command:
+      // auto-steering here dequeued the text before ACP, the harness, and
+      // one-shot CLIs could actually take it, so the queue looked empty and
+      // the follow-up never ran. If the turn settled between this dispatch's
+      // snapshot and now, the drain starts the message immediately.
+      this.#scheduleQueueDrain(command.sessionId, model.session?.rootSessionId ?? null)
     }
 
     if (command.type === 'message.steer') {
