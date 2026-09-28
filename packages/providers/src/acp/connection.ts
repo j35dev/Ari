@@ -562,12 +562,12 @@ export class AcpConnection {
   }
 
   /**
-   * Prefer HTTP MCP (Grok and other modern ACP agents) unless the agent
-   * explicitly set `mcpCapabilities.http` to false. Otherwise stdio.
+   * Send HTTP MCP only when the agent advertised `mcpCapabilities.http`.
+   * Omitted means unsupported. Otherwise stdio, which every agent can spawn.
    * Never send both — duplicate tool names confuse the model.
    */
   #sessionMcpServers(): AcpMcpServer[] {
-    const allowHttp = this.initialize.agentCapabilities?.mcpCapabilities?.http !== false
+    const allowHttp = this.initialize.agentCapabilities?.mcpCapabilities?.http === true
     const http = this.#mcpServers.filter((server) => 'type' in server && server.type === 'http')
     const stdio = this.#mcpServers.filter((server) => !('type' in server && server.type === 'http'))
     if (allowHttp && http.length > 0) return http

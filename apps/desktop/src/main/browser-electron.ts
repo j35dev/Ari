@@ -42,9 +42,13 @@ export function createElectronBrowserGuest(
     if (isMainFrame) emit()
   })
 
-  wc.on('will-navigate', (event, url) => {
+  const blockDisallowed = (event: { preventDefault(): void }, url: string): void => {
     if (!isBrowserNavigable(url)) event.preventDefault()
-  })
+  }
+  // will-navigate misses 3xx. A guest redirect to file: or an OS protocol
+  // has to be cancelled on will-redirect, same as the shell guard.
+  wc.on('will-navigate', blockDisallowed)
+  wc.on('will-redirect', blockDisallowed)
   wc.setWindowOpenHandler(({ url }) => {
     if (isBrowserNavigable(url)) void wc.loadURL(url)
     return { action: 'deny' }
