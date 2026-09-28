@@ -33,7 +33,7 @@ function ThemePreview({ theme }: { theme: Theme }) {
         style={{ background: colors['surface-0'], borderRight: `1px solid ${colors.border}` }}
       >
         {line('60%', colors['fg-subtle'])}
-        <span className="mt-0.5 h-1.5 rounded-sm" style={{ background: colors['glass-active'] }} />
+        <span className="mt-0.5 h-1.5 rounded-sm" style={{ background: colors['surface-2'] }} />
         {line('80%', colors['surface-3'])}
         {line('65%', colors['surface-3'])}
       </span>
@@ -72,7 +72,7 @@ function ThemeCard({
       className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         selected
           ? 'border-accent/60 bg-accent-subtle'
-          : 'border-border bg-glass-input hover:border-border-strong hover:bg-glass-hover'
+          : 'border-border bg-surface-1 hover:border-border-strong hover:bg-surface-2'
       }`}
     >
       {chips}
@@ -173,14 +173,13 @@ function WallpaperGroup({
 
 /**
  * Appearance settings: theme picker (Light/Dark groups plus "Follow system"),
- * the wallpaper picker, the glass opt-in for glass-capable themes, and reduced
- * motion. Theme and wallpaper state live in the ThemeProvider, which persists
- * through the engine settings store; reduced motion is written here directly.
+ * wallpaper picker, and reduced motion. Theme and wallpaper state live in the
+ * ThemeProvider, which persists through the engine settings store; reduced
+ * motion is written here directly.
  */
 export function AppearanceSettings() {
   const { settings, update } = useEngineSettings()
-  const { mode, setMode, theme, glassPreference, glassEnabled, setGlass, wallpaper, setWallpaper } =
-    useTheme()
+  const { mode, setMode, theme, wallpaper, setWallpaper } = useTheme()
   const reducedMotion = settings?.appearance.reducedMotion ?? false
 
   const handleReducedMotionChange = (checked: boolean) => {
@@ -217,22 +216,6 @@ export function AppearanceSettings() {
       <WallpaperGroup theme={theme} selected={wallpaper} onSelect={setWallpaper} />
 
       <div className="mt-4">
-        {theme.glass ? (
-          <SettingsRow
-            label="Glass chrome"
-            hint={
-              glassEnabled
-                ? 'Translucent sidebar, titlebar, and overlays.'
-                : 'Disabled by the system reduced-transparency setting.'
-            }
-          >
-            <Switch
-              checked={glassPreference}
-              onCheckedChange={setGlass}
-              aria-label="Glass chrome"
-            />
-          </SettingsRow>
-        ) : null}
         <SettingsRow label="Reduce motion" hint="Minimize animations throughout the app.">
           <Switch
             checked={reducedMotion}

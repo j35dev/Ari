@@ -90,7 +90,7 @@ const MAX_HEIGHT = 260
 const RUNNING_PLACEHOLDER = 'Message will queue…'
 
 /**
- * Message composer: one glass plate. Draft on top; agent + permission on
+ * Message composer: one elevated surface. Draft on top; agent + permission on
  * the left of the foot, stash + send on the right. Enter sends, Shift+Enter
  * breaks the line. The @file popover sits above the field. Pasted or
  * dropped images land in an attachment strip inside the plate and are handed
@@ -397,7 +397,7 @@ export function Composer({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={transitions.fadeUp}
-            className="mb-2 rounded-md border border-border bg-glass-input py-1.5 text-xs text-fg-muted"
+            className="mb-2 rounded-md border border-border bg-surface-1 py-1.5 text-xs text-fg-muted"
           >
             <div className="flex items-center gap-2 px-3">
               <Clock size={12} className="shrink-0 text-fg-subtle" />
@@ -551,7 +551,7 @@ export function Composer({
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 4, scale: 0.97 }}
                       transition={transitions.menuIn}
-                      className="ari-glass-overlay absolute bottom-full right-0 z-40 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border p-1 shadow-2"
+                      className="absolute bottom-full right-0 z-40 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border bg-surface-2 p-1 shadow-2"
                       role="menu"
                       aria-label="Stashed prompts"
                     >

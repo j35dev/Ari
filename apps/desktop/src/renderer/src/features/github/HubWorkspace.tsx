@@ -167,14 +167,14 @@ export function HubWorkspace({ projects, initialProjectId, onBack }: HubWorkspac
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
+      <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col bg-surface-0">
         <div className="flex items-center gap-1.5 px-2 pb-1 pt-3">
           <button
             type="button"
             aria-label="Back"
             title="Back to workspace"
             onClick={onBack}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <ArrowLeft size={14} strokeWidth={1.8} aria-hidden />
           </button>
@@ -199,7 +199,7 @@ export function HubWorkspace({ projects, initialProjectId, onBack }: HubWorkspac
                       className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                         selected
                           ? 'bg-accent-subtle font-medium text-fg'
-                          : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
+                          : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
                       }`}
                     >
                       <span className="min-w-0 truncate">{entry.name}</span>
@@ -252,7 +252,7 @@ export function HubWorkspace({ projects, initialProjectId, onBack }: HubWorkspac
                     aria-label="Refresh"
                     title="Refresh"
                     onClick={() => setReloadToken((token) => token + 1)}
-                    className="ml-auto flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    className="ml-auto flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                   >
                     <RefreshCw size={13} aria-hidden />
                   </button>
@@ -290,7 +290,7 @@ export function HubWorkspace({ projects, initialProjectId, onBack }: HubWorkspac
                             aria-current={selected ? 'true' : undefined}
                             onClick={() => setSelectedNumber(item.number)}
                             className={`flex w-full flex-col gap-1 px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring ${
-                              selected ? 'bg-accent-subtle' : 'hover:bg-glass-hover'
+                              selected ? 'bg-accent-subtle' : 'hover:bg-surface-2'
                             }`}
                           >
                             <span className="flex items-start gap-2">

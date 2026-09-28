@@ -76,7 +76,7 @@ html {
   --ari-dur-slow: 260ms;
 }
 
-/* Obsidian — Near-black glass with an indigo accent. Ari’s signature look. (dark, glass-capable) */
+/* Obsidian — Near-black surfaces with an indigo accent. Ari’s signature look. */
 :root,
 [data-ari-theme='obsidian'] {
   /* surfaces */
@@ -118,12 +118,6 @@ html {
   --ari-busy: oklch(0.72 0.2 350);
   --ari-busy-subtle: oklch(0.72 0.2 350 / 14%);
 
-  /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.088 0.009 278 / 78%);
-  --ari-glass-overlay: oklch(0.33 0.028 278 / 34%);
-  --ari-glass-input: oklch(0.95 0.012 278 / 4.5%);
-  --ari-glass-hover: oklch(0.93 0.012 278 / 9%);
-  --ari-glass-active: oklch(0.93 0.012 278 / 14%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 35%);
@@ -173,12 +167,6 @@ html {
   --ari-busy: oklch(0.75 0.15 330);
   --ari-busy-subtle: oklch(0.75 0.15 330 / 15%);
 
-  /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.185 0.007 65);
-  --ari-glass-overlay: oklch(0.28 0.011 65);
-  --ari-glass-input: oklch(0.23 0.009 65);
-  --ari-glass-hover: oklch(0.95 0.008 70 / 8%);
-  --ari-glass-active: oklch(0.95 0.008 70 / 13%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 40%);
@@ -188,7 +176,7 @@ html {
   color-scheme: dark;
 }
 
-/* Nocturne — Deep indigo night with a cyan accent and frosted chrome. (dark, glass-capable) */
+/* Nocturne — Deep indigo surfaces with a cyan accent. */
 [data-ari-theme='nocturne'] {
   /* surfaces */
   --ari-bg: oklch(0.13 0.032 271);
@@ -228,12 +216,6 @@ html {
   --ari-busy: oklch(0.75 0.17 305);
   --ari-busy-subtle: oklch(0.75 0.17 305 / 15%);
 
-  /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.13 0.032 271 / 76%);
-  --ari-glass-overlay: oklch(0.32 0.05 268 / 32%);
-  --ari-glass-input: oklch(0.9 0.04 250 / 6%);
-  --ari-glass-hover: oklch(0.92 0.03 250 / 9%);
-  --ari-glass-active: oklch(0.92 0.03 250 / 14%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0.05 0.03 270 / 45%);
@@ -283,12 +265,6 @@ html {
   --ari-busy: oklch(0.78 0.15 195);
   --ari-busy-subtle: oklch(0.78 0.15 195 / 15%);
 
-  /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.18 0.027 152);
-  --ari-glass-overlay: oklch(0.27 0.034 150);
-  --ari-glass-input: oklch(0.22 0.03 151);
-  --ari-glass-hover: oklch(0.92 0.03 150 / 8%);
-  --ari-glass-active: oklch(0.92 0.03 150 / 13%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0.05 0.02 150 / 42%);
@@ -338,12 +314,6 @@ html {
   --ari-busy: oklch(0.52 0.19 340);
   --ari-busy-subtle: oklch(0.52 0.19 340 / 13%);
 
-  /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.99 0.003 285 / 82%);
-  --ari-glass-overlay: oklch(1 0 0 / 78%);
-  --ari-glass-input: oklch(1 0 0 / 72%);
-  --ari-glass-hover: oklch(0.28 0.02 285 / 6%);
-  --ari-glass-active: oklch(0.28 0.02 285 / 11%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0.3 0.02 285 / 10%);
@@ -393,12 +363,6 @@ html {
   --ari-busy: oklch(0.52 0.17 350);
   --ari-busy-subtle: oklch(0.52 0.17 350 / 13%);
 
-  /* glass planes (opaque in non-glass themes) */
-  --ari-glass-scrim: oklch(0.98 0.012 84 / 84%);
-  --ari-glass-overlay: oklch(0.995 0.008 84 / 80%);
-  --ari-glass-input: oklch(1 0.004 84 / 74%);
-  --ari-glass-hover: oklch(0.3 0.03 62 / 7%);
-  --ari-glass-active: oklch(0.3 0.03 62 / 12%);
 
   /* elevation */
   --ari-shadow-1: 0 1px 2px oklch(0.35 0.04 62 / 12%);
