@@ -1145,7 +1145,7 @@ export function EffortChip({
         <div
           role="listbox"
           aria-label="Effort"
-          className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border p-1 shadow-2"
+          className="absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
         >
           {options.map((option) => (
             <button
@@ -1337,7 +1337,7 @@ export function PermissionModeChip({
           role="listbox"
           aria-label="Permission mode"
           onKeyDown={onMenuKeyDown}
-          className="ari-glass-overlay absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border p-1 shadow-2"
+          className="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
         >
           {entries.map((m) => {
             const selected = m === current

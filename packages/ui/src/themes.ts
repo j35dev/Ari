@@ -40,11 +40,6 @@ export const themeColorRoles = [
   'info-subtle',
   'busy',
   'busy-subtle',
-  'glass-scrim',
-  'glass-overlay',
-  'glass-input',
-  'glass-hover',
-  'glass-active',
   'shadow-1',
   'shadow-2',
   'shadow-3',
@@ -67,8 +62,6 @@ export interface Theme {
   /** One-line description shown under the label in the picker. */
   description: string
   scheme: 'light' | 'dark'
-  /** Whether the theme opts into translucent chrome (acrylic/vibrancy + blur). */
-  glass: boolean
   colors: Record<ThemeColorRole, string>
 }
 
@@ -77,9 +70,8 @@ export const defaultThemeId: ThemeId = 'obsidian'
 const obsidian: Theme = {
   id: 'obsidian',
   label: 'Obsidian',
-  description: 'Near-black glass with an indigo accent. Ari’s signature look.',
+  description: 'Near-black surfaces with an indigo accent. Ari’s signature look.',
   scheme: 'dark',
-  glass: true,
   colors: {
     bg: 'oklch(0.095 0.008 278)',
     'surface-0': 'oklch(0.12 0.011 278)',
@@ -109,11 +101,6 @@ const obsidian: Theme = {
     'info-subtle': 'oklch(0.78 0.13 212 / 14%)',
     busy: 'oklch(0.72 0.2 350)',
     'busy-subtle': 'oklch(0.72 0.2 350 / 14%)',
-    'glass-scrim': 'oklch(0.088 0.009 278 / 78%)',
-    'glass-overlay': 'oklch(0.33 0.028 278 / 34%)',
-    'glass-input': 'oklch(0.95 0.012 278 / 4.5%)',
-    'glass-hover': 'oklch(0.93 0.012 278 / 9%)',
-    'glass-active': 'oklch(0.93 0.012 278 / 14%)',
     'shadow-1': '0 1px 2px oklch(0 0 0 / 35%)',
     'shadow-2': '0 4px 16px oklch(0 0 0 / 40%)',
     'shadow-3': '0 12px 40px oklch(0 0 0 / 50%)',
@@ -123,9 +110,8 @@ const obsidian: Theme = {
 const graphite: Theme = {
   id: 'graphite',
   label: 'Graphite',
-  description: 'Opaque warm charcoal with a warm amber accent. No blur.',
+  description: 'Warm charcoal surfaces with a warm amber accent.',
   scheme: 'dark',
-  glass: false,
   colors: {
     bg: 'oklch(0.145 0.006 65)',
     'surface-0': 'oklch(0.185 0.007 65)',
@@ -155,11 +141,6 @@ const graphite: Theme = {
     'info-subtle': 'oklch(0.76 0.11 235 / 15%)',
     busy: 'oklch(0.75 0.15 330)',
     'busy-subtle': 'oklch(0.75 0.15 330 / 15%)',
-    'glass-scrim': 'oklch(0.185 0.007 65)',
-    'glass-overlay': 'oklch(0.28 0.011 65)',
-    'glass-input': 'oklch(0.23 0.009 65)',
-    'glass-hover': 'oklch(0.95 0.008 70 / 8%)',
-    'glass-active': 'oklch(0.95 0.008 70 / 13%)',
     'shadow-1': '0 1px 2px oklch(0 0 0 / 40%)',
     'shadow-2': '0 4px 16px oklch(0 0 0 / 45%)',
     'shadow-3': '0 12px 40px oklch(0 0 0 / 55%)',
@@ -169,9 +150,8 @@ const graphite: Theme = {
 const nocturne: Theme = {
   id: 'nocturne',
   label: 'Nocturne',
-  description: 'Deep indigo night with a cyan accent and frosted chrome.',
+  description: 'Deep indigo surfaces with a cyan accent.',
   scheme: 'dark',
-  glass: true,
   colors: {
     bg: 'oklch(0.13 0.032 271)',
     'surface-0': 'oklch(0.165 0.036 271)',
@@ -201,11 +181,6 @@ const nocturne: Theme = {
     'info-subtle': 'oklch(0.78 0.115 255 / 15%)',
     busy: 'oklch(0.75 0.17 305)',
     'busy-subtle': 'oklch(0.75 0.17 305 / 15%)',
-    'glass-scrim': 'oklch(0.13 0.032 271 / 76%)',
-    'glass-overlay': 'oklch(0.32 0.05 268 / 32%)',
-    'glass-input': 'oklch(0.9 0.04 250 / 6%)',
-    'glass-hover': 'oklch(0.92 0.03 250 / 9%)',
-    'glass-active': 'oklch(0.92 0.03 250 / 14%)',
     'shadow-1': '0 1px 2px oklch(0.05 0.03 270 / 45%)',
     'shadow-2': '0 4px 16px oklch(0.05 0.03 270 / 50%)',
     'shadow-3': '0 12px 40px oklch(0.04 0.03 270 / 60%)',
@@ -215,9 +190,8 @@ const nocturne: Theme = {
 const verdant: Theme = {
   id: 'verdant',
   label: 'Verdant',
-  description: 'Dark moss surfaces with a lime accent. Opaque and low-glare.',
+  description: 'Dark moss surfaces with a lime accent. Low-glare.',
   scheme: 'dark',
-  glass: false,
   colors: {
     bg: 'oklch(0.145 0.024 152)',
     'surface-0': 'oklch(0.18 0.027 152)',
@@ -247,11 +221,6 @@ const verdant: Theme = {
     'info-subtle': 'oklch(0.79 0.11 215 / 15%)',
     busy: 'oklch(0.78 0.15 195)',
     'busy-subtle': 'oklch(0.78 0.15 195 / 15%)',
-    'glass-scrim': 'oklch(0.18 0.027 152)',
-    'glass-overlay': 'oklch(0.27 0.034 150)',
-    'glass-input': 'oklch(0.22 0.03 151)',
-    'glass-hover': 'oklch(0.92 0.03 150 / 8%)',
-    'glass-active': 'oklch(0.92 0.03 150 / 13%)',
     'shadow-1': '0 1px 2px oklch(0.05 0.02 150 / 42%)',
     'shadow-2': '0 4px 16px oklch(0.05 0.02 150 / 48%)',
     'shadow-3': '0 12px 40px oklch(0.04 0.02 150 / 58%)',
@@ -263,7 +232,6 @@ const porcelain: Theme = {
   label: 'Porcelain',
   description: 'Cool off-white paper with a soft violet accent.',
   scheme: 'light',
-  glass: false,
   colors: {
     bg: 'oklch(0.985 0.003 285)',
     'surface-0': 'oklch(0.968 0.006 285)',
@@ -293,11 +261,6 @@ const porcelain: Theme = {
     'info-subtle': 'oklch(0.5 0.14 250 / 13%)',
     busy: 'oklch(0.52 0.19 340)',
     'busy-subtle': 'oklch(0.52 0.19 340 / 13%)',
-    'glass-scrim': 'oklch(0.99 0.003 285 / 82%)',
-    'glass-overlay': 'oklch(1 0 0 / 78%)',
-    'glass-input': 'oklch(1 0 0 / 72%)',
-    'glass-hover': 'oklch(0.28 0.02 285 / 6%)',
-    'glass-active': 'oklch(0.28 0.02 285 / 11%)',
     'shadow-1': '0 1px 2px oklch(0.3 0.02 285 / 10%)',
     'shadow-2': '0 4px 16px oklch(0.3 0.02 285 / 12%)',
     'shadow-3': '0 12px 40px oklch(0.3 0.02 285 / 16%)',
@@ -309,7 +272,6 @@ const sandstone: Theme = {
   label: 'Sandstone',
   description: 'Warm paper tones with a deep teal accent.',
   scheme: 'light',
-  glass: false,
   colors: {
     bg: 'oklch(0.975 0.012 84)',
     'surface-0': 'oklch(0.955 0.017 82)',
@@ -339,11 +301,6 @@ const sandstone: Theme = {
     'info-subtle': 'oklch(0.505 0.13 240 / 13%)',
     busy: 'oklch(0.52 0.17 350)',
     'busy-subtle': 'oklch(0.52 0.17 350 / 13%)',
-    'glass-scrim': 'oklch(0.98 0.012 84 / 84%)',
-    'glass-overlay': 'oklch(0.995 0.008 84 / 80%)',
-    'glass-input': 'oklch(1 0.004 84 / 74%)',
-    'glass-hover': 'oklch(0.3 0.03 62 / 7%)',
-    'glass-active': 'oklch(0.3 0.03 62 / 12%)',
     'shadow-1': '0 1px 2px oklch(0.35 0.04 62 / 12%)',
     'shadow-2': '0 4px 16px oklch(0.35 0.04 62 / 14%)',
     'shadow-3': '0 12px 40px oklch(0.35 0.04 62 / 18%)',

@@ -1167,9 +1167,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { done: true }
   })
 
-  // Live theme change: repaint native chrome (Windows overlay symbols + the OS
-  // light/dark hint). Window material is fixed at creation, so a glass <-> opaque
-  // switch only takes full effect on the next launch.
+  // Live theme change: repaint Windows overlay symbols and the OS light/dark hint.
   r.register('theme.apply', (params) => {
     const win = BrowserWindow.fromWebContents(contents)
     if (!win) return { applied: false }

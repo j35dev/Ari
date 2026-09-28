@@ -55,7 +55,7 @@ export function readDragPane(event: DragEvent<HTMLElement>): string | null {
 function setDragChip(event: DragEvent<HTMLElement>, title: string): void {
   const chip = document.createElement('div')
   chip.textContent = title
-  chip.className = 'ari-glass-overlay'
+  chip.className = 'bg-surface-2'
   Object.assign(chip.style, {
     position: 'fixed',
     top: '-1000px',

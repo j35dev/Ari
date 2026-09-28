@@ -107,11 +107,11 @@ function SessionTreeGuides({ lastAtDepth }: { lastAtDepth: readonly boolean[] })
 }
 
 const ICON_BTN =
-  'flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg active:bg-glass-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+  'flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg active:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
 /** Small trailing affordance (session / project menu) revealed on row hover. */
 const ROW_ACTION_BTN =
-  'flex size-5 items-center justify-center rounded-sm text-fg-subtle hover:bg-glass-active hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+  'flex size-5 items-center justify-center rounded-sm text-fg-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
 /** Hover cluster that takes over the timestamp slot. */
 const ROW_ACTION_CLUSTER =
@@ -251,7 +251,7 @@ function SessionRow({
               setEditing(false)
             }
           }}
-          className="min-w-0 flex-1 rounded-sm border border-border bg-glass-input px-1.5 py-0.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="min-w-0 flex-1 rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 text-sm text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         />
         <button
           type="button"
@@ -345,8 +345,8 @@ function SessionRow({
             ? 'bg-accent/15 text-fg'
             : isActive ? 'bg-accent/15 text-fg font-medium'
             : activity !== undefined
-              ? 'text-fg hover:bg-glass-hover'
-              : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
+              ? 'text-fg hover:bg-surface-2'
+              : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
         }`}
       >
         <span className="flex size-3 shrink-0 items-center justify-center">
@@ -525,7 +525,7 @@ function SessionList({
                       expanded ? `Collapse children of ${s.title}` : `Expand children of ${s.title}`
                     }
                     aria-expanded={expanded}
-                    className="flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    className="flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                     onClick={() => toggle(s.id)}
                     onKeyDown={(event) => {
                       if (
@@ -613,7 +613,7 @@ function CollapsibleSessions({
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
           onContextMenu={(e) => menu.open('archived', e)}
-          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-fg-muted transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <ContextMark variant="archived" active={shelfActive} />
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{label}</span>
@@ -815,7 +815,7 @@ function ProjectGroupSection({
               drag.controls.start(e)
             }}
             onContextMenu={(e) => menu.open(menuId, e)}
-            className={`flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+            className={`flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
               missing ? 'opacity-60' : ''
             } ${isActiveGroup ? 'text-fg' : 'text-fg-muted hover:text-fg'}`}
           >
@@ -1451,7 +1451,7 @@ export function SessionsUnderProjects({
           aria-label="New session"
           title="New session (Mod+N)"
           onClick={(e) => onNewSession?.(anchorBelow(e.currentTarget))}
-          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-glass-input px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <SquarePen size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
           New session
@@ -1464,7 +1464,7 @@ export function SessionsUnderProjects({
           aria-label="Add project"
           title="Add a folder as a project"
           onClick={() => onOpenProject?.()}
-          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-glass-input px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-glass-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
           Add project
@@ -1614,7 +1614,7 @@ export function SidebarSearch({
           }}
           placeholder="Search…"
           aria-label="Search sessions"
-          className="h-7 w-full rounded-lg border border-border bg-glass-input pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
+          className="h-7 w-full rounded-lg border border-border bg-surface-1 pl-7 pr-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none"
         />
       </div>
     </div>
