@@ -408,9 +408,10 @@ export async function createAcpAdapter(
       ? []
       : [
           {
-            type: 'error',
+            // A notice, not an error: failing the turn would hold every other
+            // queued message. The steered text is already in the transcript.
+            type: 'notice',
             message: `steering lost after transport failure: ${lost.join(' | ')}`,
-            rawJson: null,
           },
         ]
   const launchPrompt = (

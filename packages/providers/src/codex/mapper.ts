@@ -44,7 +44,11 @@ export function mapCodexLine(line: string): AgentEvent[] {
   }
 
   switch (parsed.type) {
-    case 'thread.started':
+    case 'thread.started': {
+      const ref = parsed.thread_id
+      return typeof ref === 'string' && ref.length > 0 ? [{ type: 'session-ref', ref }] : []
+    }
+
     case 'turn.started':
       return []
 
