@@ -12,9 +12,10 @@ const base: AdapterSession = {
 }
 
 describe('buildPiArgs', () => {
-  it('uses json print mode without session persistence', () => {
+  it('uses json print mode and persists the session for follow-ups', () => {
     const args = buildPiArgs(base)
-    expect(args.slice(0, 3)).toEqual(['--mode', 'json', '--no-session'])
+    expect(args.slice(0, 2)).toEqual(['--mode', 'json'])
+    expect(args).not.toContain('--no-session')
     expect(args[args.length - 1]).toBe('do the thing')
     expect(args[args.length - 2]).toBe('-p')
   })

@@ -43,6 +43,16 @@ export interface AgentLoopOptions {
    */
   onTranscript?: (messages: ChatMessage[]) => void
   /**
+   * Mid-turn user texts the host accepted via `steer`. Pulled at each round
+   * boundary (and once more before the turn would otherwise end) so a
+   * follow-up lands in the conversation the model is already in.
+   */
+  takeSteering?: () => string[]
+  /** Refuse further steering. Called synchronously before the loop finishes. */
+  closeSteering?: () => void
+  /** Re-open steering after a boundary consumed a message and the loop continues. */
+  openSteering?: () => void
+  /**
    * Called with the full message list before every model round. Returning a
    * shorter list replaces the loop's own history, which is how compaction
    * lands: the summary survives, the summarized span does not. Returning the
@@ -274,8 +284,26 @@ export async function* runAgentLoop(
   // work, which is how a stuck model hides from the back-to-back guard above.
   let freshReadHits = new Map<string, number>()
 
+  /** Appends steered user texts. True when the model still has something to read. */
+  const absorbSteering = (): boolean => {
+    const extra = (options.takeSteering?.() ?? []).filter((text) => text.length > 0)
+    if (extra.length === 0) return false
+    for (const text of extra) messages.push({ role: 'user', content: text })
+    publishTranscript()
+    // The user changed the task. A repeated tool call after that is new work.
+    lastSignature = null
+    identicalRounds = 0
+    redirected = false
+    freshReadHits = new Map()
+    return true
+  }
+  const closeSteering = (): void => {
+    options.closeSteering?.()
+  }
+
   for (let current = 0; maxRounds === undefined || current < maxRounds; current++) {
     if (signal?.aborted) {
+      closeSteering()
       yield { type: 'error', message: 'aborted', rawJson: null }
       yield { type: 'done' }
       return
@@ -294,6 +322,10 @@ export async function* runAgentLoop(
         freshReadHits = new Map()
       }
     }
+
+    // A steer that arrived during the previous round's tools (or before the
+    // first call) joins the transcript before the model sees this round.
+    absorbSteering()
 
     // Empty-response guard: a round with no content and no tool calls is
     // retried instead of ending the turn silently. Usage events are deferred
@@ -353,11 +385,13 @@ export async function* runAgentLoop(
         // here would stack instant attempts on top of the client's backoff and
         // then blame the model for an "empty response" it never sent.
         if (roundFailed) {
+          closeSteering()
           yield { type: 'done' }
           return
         }
         emptyAttempts++
         if (emptyAttempts > maxEmptyRetries) {
+          closeSteering()
           yield {
             type: 'error',
             message: `model returned an empty response (${emptyAttempts} attempts)`,
@@ -380,6 +414,14 @@ export async function* runAgentLoop(
       if (assistantText.length > 0) {
         messages.push({ role: 'assistant', content: assistantText })
         publishTranscript()
+      }
+      // Seal first so a steer that lands while this check runs is either
+      // inside the snapshot just taken or refused. Anything already accepted
+      // keeps the turn alive instead of being dropped on the floor.
+      closeSteering()
+      if (absorbSteering()) {
+        options.openSteering?.()
+        continue
       }
       yield { type: 'done' }
       return
@@ -409,6 +451,7 @@ export async function* runAgentLoop(
     if (allFreshDuplicates || identicalRounds >= MAX_IDENTICAL_ROUNDS) {
       if (redirected) {
         const names = [...new Set(pending.map((p) => p.name))].join(', ')
+        closeSteering()
         yield {
           type: 'error',
           message:
@@ -588,6 +631,7 @@ export async function* runAgentLoop(
   // Only reachable when the caller set an explicit ceiling: the default loop
   // has none and leaves through the model finishing, the repetition guard, or
   // the user's interrupt.
+  closeSteering()
   yield {
     type: 'error',
     message:

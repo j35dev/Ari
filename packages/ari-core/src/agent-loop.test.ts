@@ -131,6 +131,51 @@ describe('agent loop', () => {
       throw new Error('expected tool-completed')
     }
   })
+
+  it('injects steering before the next model round', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-steer-'))
+    try {
+      await writeFile(join(dir, 'note.txt'), 'hello from file', 'utf8')
+      const seen: ChatMessage[][] = []
+      let call = 0
+      const round = async function* (messages: ChatMessage[]): AsyncGenerator<AgentEvent> {
+        seen.push(messages.map((message) => ({ ...message })))
+        call += 1
+        if (call === 1) {
+          yield {
+            type: 'tool-started',
+            callId: 'c1',
+            name: 'read',
+            argsJson: JSON.stringify({ path: 'note.txt' }),
+          }
+        } else {
+          yield { type: 'text-delta', text: 'adjusted' }
+        }
+        yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+        yield { type: 'done' }
+      }
+      let pulls = 0
+      const events = []
+      for await (const event of runAgentLoop({
+        round,
+        systemPrompt: 's',
+        userPrompt: 'read the note',
+        workspacePath: dir,
+        takeSteering: () => {
+          pulls += 1
+          return pulls === 2 ? ['focus on the tests'] : []
+        },
+      })) {
+        events.push(event)
+      }
+      expect(events.at(-1)?.type).toBe('done')
+      expect(
+        seen[1]?.some((message) => message.role === 'user' && message.content === 'focus on the tests'),
+      ).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('permission modes', () => {
