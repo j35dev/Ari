@@ -105,16 +105,17 @@ interface PendingRequest {
  * Prompt-stall ceiling from `ARI_ACP_PROMPT_STALL_MS`: how long an agent may
  * stay completely silent mid-turn before its prompt fails legibly instead of
  * spinning forever (comet's wedge detection). Number in ms; 0 disables;
- * unset falls back to the 300s default. The ceiling is generous on purpose:
- * agents can be legitimately — and detectably — silent for minutes (Claude's
- * adapter emits no session/update while it compacts a long conversation),
- * and only a true wedge has neither inbound traffic nor a pending
- * server→client request to explain the quiet.
+ * unset falls back to the 20-minute default. The ceiling is generous on
+ * purpose: agents can be legitimately silent for a long stretch — Claude's
+ * adapter emits no session/update while it compacts a long conversation, and
+ * a long shell command (test suites, builds) can run for many minutes with
+ * no protocol traffic. Only a true wedge has neither inbound traffic nor a
+ * pending server→client request to explain the quiet.
  */
 export function acpPromptStallMs(raw = process.env['ARI_ACP_PROMPT_STALL_MS']): number {
-  if (raw === undefined || raw.trim() === '') return 300_000
+  if (raw === undefined || raw.trim() === '') return 1_200_000
   const value = Number(raw)
-  if (!Number.isFinite(value) || value < 0) return 300_000
+  if (!Number.isFinite(value) || value < 0) return 1_200_000
   return value
 }
 
