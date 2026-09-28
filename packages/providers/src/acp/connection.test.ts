@@ -254,7 +254,8 @@ describe('AcpConnection', () => {
     await impliedConn.newSession('/w')
     const impliedNew = implied.sent.find((m) => m['method'] === 'session/new') as
       { params?: { mcpServers?: unknown[] } } | undefined
-    expect(impliedNew?.params?.mcpServers).toEqual([httpServer])
+    // No `mcpCapabilities.http` means the agent did not advertise HTTP.
+    expect(impliedNew?.params?.mcpServers).toEqual([])
     impliedConn.kill()
 
     const optedOut = fakeChild()
@@ -300,7 +301,7 @@ describe('AcpConnection', () => {
     connection.kill()
   })
 
-  it('prefers HTTP MCP and falls back to stdio when HTTP is opted out', async () => {
+  it('sends HTTP MCP only when advertised, and stdio otherwise', async () => {
     const httpServer = {
       type: 'http' as const,
       name: 'ari-browser',
@@ -314,7 +315,13 @@ describe('AcpConnection', () => {
     }
     const both = [httpServer, stdioServer]
     const httpChild = fakeChild()
-    script(httpChild, STANDARD_AGENT)
+    script(httpChild, (method) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } }
+      }
+      if (method === 'session/new') return { sessionId: 'sess_http' }
+      return undefined
+    })
     const httpConn = await AcpConnection.connect({
       launch: LAUNCH,
       cwd: '/w',
@@ -328,13 +335,7 @@ describe('AcpConnection', () => {
     httpConn.kill()
 
     const stdioChild = fakeChild()
-    script(stdioChild, (method) => {
-      if (method === 'initialize') {
-        return { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: false } } }
-      }
-      if (method === 'session/new') return { sessionId: 'sess_stdio' }
-      return undefined
-    })
+    script(stdioChild, STANDARD_AGENT)
     const stdioConn = await AcpConnection.connect({
       launch: LAUNCH,
       cwd: '/w',
