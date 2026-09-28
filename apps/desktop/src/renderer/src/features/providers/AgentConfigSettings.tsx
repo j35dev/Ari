@@ -8,6 +8,7 @@ import { Textarea } from '@ari/ui/textarea'
 import { createLogger } from '@ari/shared/logger'
 import { SettingsPage } from '../settings/SettingsPage'
 import { SessionImport } from './SessionImport'
+import { ExtensionInventory } from './ExtensionInventory'
 import { rpc } from '../../lib/rpc'
 
 const log = createLogger('ui:agent-config')
@@ -19,7 +20,7 @@ type ConfigFile = RpcResults['providers.configFiles']['files'][number]
  * process is the authority — an agent with no mapping answers with an empty
  * file list — but the picker needs names before any call returns.
  */
-const CONFIGURABLE: DriverKind[] = ['pi', 'claude', 'codex', 'opencode', 'grok']
+const CONFIGURABLE: DriverKind[] = ['pi', 'claude', 'codex', 'opencode', 'grok', 'ari-core']
 
 const KIND_LABELS: Partial<Record<DriverKind, string>> = {
   pi: 'pi',
@@ -27,6 +28,7 @@ const KIND_LABELS: Partial<Record<DriverKind, string>> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   grok: 'Grok',
+  'ari-core': 'Ari Core',
 }
 
 /**
@@ -40,7 +42,7 @@ const KIND_LABELS: Partial<Record<DriverKind, string>> = {
  * refuses a JSON file it could not parse, which is the one mistake that loses
  * an agent's configuration silently.
  */
-export function AgentConfigSettings() {
+export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: string | null }) {
   const [kind, setKind] = useState<DriverKind>('pi')
   const [dir, setDir] = useState<string | null>(null)
   const [files, setFiles] = useState<ConfigFile[]>([])
@@ -156,7 +158,7 @@ export function AgentConfigSettings() {
         </h2>
         {loading ? (
           <Spinner size="sm" />
-        ) : files.length === 0 ? (
+        ) : files.length === 0 && kind !== 'ari-core' ? (
           <p className="text-sm text-fg-muted">
             Ari has no confirmed config layout for this agent, so it will not guess at a path.
           </p>
@@ -229,6 +231,8 @@ export function AgentConfigSettings() {
           {notice !== null ? <p className="text-sm text-fg-muted">{notice}</p> : null}
         </section>
       ) : null}
+
+      <ExtensionInventory kind={kind} workspacePath={workspacePath} />
 
       {kind === 'pi' ? <SessionImport /> : null}
     </SettingsPage>
