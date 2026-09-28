@@ -378,6 +378,9 @@ export class AriCoreDriver implements Driver {
     // Mode-gated calls park here until the host answers via respondApproval.
     const pendingApprovals = new Map<string, (decision: AdapterApprovalDecision) => void>()
     const pendingInputs = new Map<string, (value: string) => void>()
+    // Texts `steer` accepted. The loop pulls them at each round boundary.
+    const steeredTexts: string[] = []
+    let acceptingSteer = true
     // Live MCP connections for this turn; disposed with the adapter or at
     // the end of the loop, whichever comes first (dispose is idempotent).
     const mcpConnections: McpConnection[] = []
@@ -413,6 +416,7 @@ export class AriCoreDriver implements Driver {
 
     async function* start(): AsyncGenerator<AgentEvent> {
       if (!endpoint) {
+        acceptingSteer = false
         yield {
           type: 'error',
           message: `no ari-core endpoint configured (${endpointId || 'none'})`,
@@ -574,6 +578,13 @@ export class AriCoreDriver implements Driver {
           onTranscript: (messages) => {
             latest = messages
           },
+          takeSteering: () => steeredTexts.splice(0),
+          closeSteering: () => {
+            acceptingSteer = false
+          },
+          openSteering: () => {
+            acceptingSteer = true
+          },
           ...(compaction ? { compact } : {}),
           requestApproval,
           requestInput,
@@ -604,6 +615,11 @@ export class AriCoreDriver implements Driver {
         if (!resolve) return
         pendingInputs.delete(inputId)
         resolve(value)
+      },
+      steer: (text) => {
+        if (!acceptingSteer || text.length === 0) return false
+        steeredTexts.push(text)
+        return true
       },
       interrupt: () => abort.abort(),
       dispose: () => {

@@ -27,6 +27,7 @@ interface OpencodePart {
 
 interface NativeLine {
   type?: string
+  sessionID?: string
   part?: OpencodePart
   error?: { name?: string; data?: { message?: string } }
 }
@@ -70,8 +71,10 @@ export function mapOpencodeLine(line: string): AgentEvent[] {
   }
 
   switch (parsed.type) {
-    case 'step_start':
-      return []
+    case 'step_start': {
+      const id = parsed.sessionID
+      return typeof id === 'string' && id.length > 0 ? [{ type: 'session-ref', ref: id }] : []
+    }
 
     case 'text':
       return parsed.part?.text ? [{ type: 'text-delta', text: parsed.part.text }] : []

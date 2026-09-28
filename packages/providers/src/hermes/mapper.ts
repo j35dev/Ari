@@ -68,9 +68,12 @@ export function mapHermesLine(line: string): AgentEvent[] {
   }
 
   switch (parsed.type) {
-    case 'system':
-      // init carries session metadata; nothing to surface in the transcript.
-      break
+    case 'system': {
+      // init carries the CLI session id. Without it a queued follow-up
+      // cannot `--resume` and the next turn starts a new chat.
+      const sid = parsed.session_id
+      return typeof sid === 'string' && sid.length > 0 ? [{ type: 'session-ref', ref: sid }] : []
+    }
 
     case 'assistant': {
       for (const block of parsed.message?.content ?? []) {
