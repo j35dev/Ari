@@ -15,7 +15,9 @@ const log = createLogger('providers:pi')
  * ask → read-only tools, allow-edits → everything except bash, full → all.
  */
 export function buildPiArgs(session: AdapterSession): string[] {
-  const args = ['--mode', 'json', '--no-session']
+  // Sessions are persisted so a queued follow-up can `--session` the same
+  // thread. `--no-session` dropped that id and every later turn started cold.
+  const args = ['--mode', 'json']
   args.push(...permissionFlags(session.permissionMode))
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--session', session.resumeOf)

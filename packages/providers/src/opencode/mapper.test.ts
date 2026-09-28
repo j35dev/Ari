@@ -12,12 +12,13 @@ describe('opencode mapper', () => {
   it('maps the live-recorded hello run: text, usage, done (step_start skipped)', () => {
     const events = mapOpencodeStream(fixture('live-run.jsonl'))
     const types = events.map((e) => e.type)
-    expect(types).toEqual(['text-delta', 'usage', 'done'])
-    if (events[0]?.type === 'text-delta') expect(events[0].text).toBe('hello')
-    if (events[1]?.type === 'usage') {
-      expect(events[1].inputTokens).toBe(9371)
-      expect(events[1].outputTokens).toBe(15)
-      expect(events[1].costUsd).toBe(0)
+    expect(types).toEqual(['session-ref', 'text-delta', 'usage', 'done'])
+    if (events[0]?.type === 'session-ref') expect(events[0].ref).toBe('ses_fdce38260ffeZPFcxwzIXfDyU2')
+    if (events[1]?.type === 'text-delta') expect(events[1].text).toBe('hello')
+    if (events[2]?.type === 'usage') {
+      expect(events[2].inputTokens).toBe(9371)
+      expect(events[2].outputTokens).toBe(15)
+      expect(events[2].costUsd).toBe(0)
     }
   })
 

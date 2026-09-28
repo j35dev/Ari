@@ -23,12 +23,15 @@ const log = createLogger('providers:codex')
  * flag, and the picker advertises the level the native catalog probe read.
  */
 export function buildCodexArgs(session: AdapterSession): string[] {
-  const args = ['exec', '--json', '--skip-git-repo-check']
+  const args = ['--json', '--skip-git-repo-check']
   if (session.modelId) args.push('--model', session.modelId)
   if (hasEffort(session.effort)) args.push('-c', `model_reasoning_effort=${session.effort}`)
   args.push(...sandboxFlags(session.permissionMode))
-  args.push(promptWithAttachments(session))
-  return args
+  const prompt = promptWithAttachments(session)
+  // `exec resume <id>` continues the thread a queued follow-up belongs to.
+  // A fresh `exec` drops that thread and the agent starts over.
+  if (session.resumeOf) return ['exec', 'resume', session.resumeOf, ...args, prompt]
+  return ['exec', ...args, prompt]
 }
 
 /** True when the session picked a thought/reasoning level to apply. */

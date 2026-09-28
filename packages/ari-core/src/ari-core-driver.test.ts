@@ -865,3 +865,54 @@ describe('ari core skills on a turn', () => {
     }
   })
 })
+
+describe('ari core mid-turn steering', () => {
+  it('steers a follow-up into the live turn and refuses one after it ends', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-steer-driver-'))
+    try {
+      await writeFile(join(dir, 'note.txt'), 'hello from file', 'utf8')
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'gpt-test',
+        headers: {},
+      })
+      const requests: ChatRequest[] = []
+      const driver = new AriCoreDriver(endpoints, {
+        clients: {
+          openai: async function* (request) {
+            requests.push(request)
+            if (requests.length === 1) {
+              yield {
+                type: 'tool-started',
+                callId: 'c1',
+                name: 'read',
+                argsJson: JSON.stringify({ path: 'note.txt' }),
+              }
+            } else {
+              yield { type: 'text-delta', text: 'ok' }
+            }
+            yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const adapter = await driver.create(makeSession(dir, 'read the note', 'ep'))
+      for await (const event of adapter.start()) {
+        if (event.type === 'tool-completed') {
+          expect(adapter.steer?.('focus on the parser')).toBe(true)
+        }
+      }
+      expect(adapter.steer?.('too late')).toBe(false)
+      const followUp = requests[1]?.messages?.find(
+        (message) => message.role === 'user' && message.content === 'focus on the parser',
+      )
+      expect(followUp).toBeDefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
+  })
+})
