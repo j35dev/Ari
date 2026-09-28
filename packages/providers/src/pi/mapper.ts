@@ -38,6 +38,7 @@ interface Message {
 
 interface NativeLine {
   type?: string
+  id?: string
   message?: Message
   messages?: Message[]
   toolCallId?: string
@@ -85,7 +86,11 @@ export function mapPiLine(line: string): AgentEvent[] {
   }
 
   switch (parsed.type) {
-    case 'session':
+    case 'session': {
+      const id = parsed.id
+      return typeof id === 'string' && id.length > 0 ? [{ type: 'session-ref', ref: id }] : []
+    }
+
     case 'agent_start':
     case 'turn_start':
     case 'message_start':

@@ -648,9 +648,10 @@ describe('engine end-to-end with scripted driver', () => {
     expect(created[1]?.resumeOf).toBe('native-thread-1')
   }, 10000)
 
-  it('steers a live adapter when a message is enqueued mid-turn', async () => {
+  it('keeps an enqueue queued even when the provider can steer', async () => {
     const steered: string[] = []
-    let release: (() => void) | null = null
+    const releaseTurnRef = { current: null as (() => void) | null }
+    let started = 0
     const steerableDriver: Driver = {
       kind: 'claude',
       create: (_session: AdapterSession) =>
@@ -658,9 +659,11 @@ describe('engine end-to-end with scripted driver', () => {
           start: () => ({
             async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
               yield { type: 'status', status: 'running' as const }
-              await new Promise<void>((resolve) => {
-                release = resolve
-              })
+              if (++started === 1) {
+                await new Promise<void>((resolve) => {
+                  releaseTurnRef.current = resolve
+                })
+              }
               yield { type: 'done' }
             },
           }),
@@ -668,7 +671,6 @@ describe('engine end-to-end with scripted driver', () => {
           dispose: () => Promise.resolve(),
           steer: (text) => {
             steered.push(text)
-            release?.()
             return true
           },
         }),
@@ -693,14 +695,23 @@ describe('engine end-to-end with scripted driver', () => {
       attachments: [],
     })
     expect(queued.accepted).toBe(true)
+    // Sending while a turn is live queues. Steer is a separate command, so a
+    // provider that *could* inject must not swallow the message on send.
+    expect(steered).toEqual([])
+    const mid = await store.load(sessionId)
+    expect(mid.queuedMessages).toEqual([{ text: 'focus on the parser instead', attachments: [] }])
 
+    releaseTurnRef.current?.()
     for (let i = 0; i < 150; i++) {
       const model = await store.load(sessionId)
-      if (model.activeTurnId === null) break
-      if (i === 149) throw new Error('turn never settled after steer')
+      const texts = model.messages
+        .filter((m) => m.role === 'user')
+        .flatMap((m) => m.parts.filter((p) => p.type === 'text').map((p) => p.text))
+      if (model.activeTurnId === null && texts.length === 2) break
+      if (i === 149) throw new Error('queued message never ran after the turn')
       await new Promise((r) => setTimeout(r, 20))
     }
-    expect(steered).toEqual(['focus on the parser instead'])
+    expect(steered).toEqual([])
     const folded = await store.load(sessionId)
     expect(
       folded.messages
@@ -1457,13 +1468,23 @@ describe('Engine durable queue continuation', () => {
     await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
     await new Promise((r) => setTimeout(r, 50))
 
-    const enqueued = await engine.dispatch({
-      type: 'message.enqueue',
+    expect(
+      (
+        await engine.dispatch({
+          type: 'message.enqueue',
+          sessionId,
+          text: 'steer away',
+          attachments: [],
+        })
+      ).accepted,
+    ).toBe(true)
+    const steered = await engine.dispatch({
+      type: 'message.steer',
       sessionId,
       text: 'steer away',
       attachments: [],
     })
-    expect(enqueued.accepted).toBe(true)
+    expect(steered.accepted).toBe(true)
 
     // The steering-capable transport consumed the text; the journal must
     // reflect that the queue is empty again, and the follow-up must still
@@ -1611,6 +1632,16 @@ describe('Engine durable queue continuation', () => {
       })
     expect((await enqueue()).accepted).toBe(true)
     expect((await enqueue()).accepted).toBe(true)
+    expect(
+      (
+        await engine.dispatch({
+          type: 'message.steer',
+          sessionId,
+          text: 'run the tests',
+          attachments: [],
+        })
+      ).accepted,
+    ).toBe(true)
 
     // The steered copy left, the declined twin is still waiting its turn.
     const mid = await store.load(sessionId)
@@ -1659,6 +1690,16 @@ describe('Engine durable queue continuation', () => {
           sessionId,
           text: 'look',
           attachments: [ref],
+        })
+      ).accepted,
+    ).toBe(true)
+    expect(
+      (
+        await engine.dispatch({
+          type: 'message.steer',
+          sessionId,
+          text: 'look',
+          attachments: [],
         })
       ).accepted,
     ).toBe(true)

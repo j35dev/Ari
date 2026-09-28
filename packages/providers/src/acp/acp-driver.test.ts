@@ -717,7 +717,7 @@ describe('createAcpAdapter', () => {
     const events = await collected
     expect(
       events.some(
-        (e) => e.type === 'error' && e.message.includes('actually focus on the tests'),
+        (e) => e.type === 'notice' && e.message.includes('actually focus on the tests'),
       ),
     ).toBe(true)
   }, 15000)

@@ -47,4 +47,11 @@ describe('buildCodexArgs', () => {
     expect(buildCodexArgs(base)).not.toContain('-c')
     expect(buildCodexArgs({ ...base, effort: null })).not.toContain('-c')
   })
+
+  it('resumes an exec thread when resumeOf is set', () => {
+    const args = buildCodexArgs({ ...base, resumeOf: 'thr_old' })
+    expect(args.slice(0, 3)).toEqual(['exec', 'resume', 'thr_old'])
+    expect(args).toContain('--json')
+    expect(args[args.length - 1]).toBe('do the thing')
+  })
 })

@@ -261,6 +261,18 @@ describe('Composer resting state', () => {
     render(<Composer onSend={vi.fn()} running />)
     expect(screen.getByLabelText('Message')).toHaveAttribute('placeholder', 'Message will queue…')
   })
+
+  it('queues a draft from the button while a turn is running and still stops', async () => {
+    const user = userEvent.setup()
+    const onSend = vi.fn()
+    const onStop = vi.fn()
+    render(<Composer onSend={onSend} onStop={onStop} running />)
+    await user.type(screen.getByLabelText('Message'), 'do this next')
+    await user.click(screen.getByRole('button', { name: 'Queue message' }))
+    expect(onSend).toHaveBeenCalledWith('do this next', [])
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(onStop).toHaveBeenCalledOnce()
+  })
 })
 
 describe('Composer prompt stash', () => {

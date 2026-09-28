@@ -30,12 +30,15 @@ describe('codex mapper', () => {
   it('maps a successful session: reasoning, message, usage, done', () => {
     const events = mapCodexStream(fixture('success-session.jsonl'))
     const types = events.map((e) => e.type)
-    expect(types).toEqual(['thinking-delta', 'text-delta', 'usage', 'done'])
-    if (events[1]?.type === 'text-delta') expect(events[1].text).toBe('hello')
-    if (events[2]?.type === 'usage') {
-      expect(events[2].inputTokens).toBe(42)
-      expect(events[2].outputTokens).toBe(3)
-      expect(events[2].costUsd).toBeNull()
+    expect(types).toEqual(['session-ref', 'thinking-delta', 'text-delta', 'usage', 'done'])
+    if (events[0]?.type === 'session-ref') {
+      expect(events[0].ref).toBe('01a022f5-a55a-7c42-b17a-016b8d692443')
+    }
+    if (events[2]?.type === 'text-delta') expect(events[2].text).toBe('hello')
+    if (events[3]?.type === 'usage') {
+      expect(events[3].inputTokens).toBe(42)
+      expect(events[3].outputTokens).toBe(3)
+      expect(events[3].costUsd).toBeNull()
     }
   })
 
