@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   backoffDelayMs,
+  DEFAULT_STREAM_IDLE_MS,
   describeFailure,
   guardStream,
   isContextOverflow,
@@ -282,6 +283,10 @@ describe('guardStream', () => {
 })
 
 describe('withIdleDeadline', () => {
+  it('defaults to twenty minutes of silence before declaring a stall', () => {
+    expect(DEFAULT_STREAM_IDLE_MS).toBe(1_200_000)
+  })
+
   it('passes a stream that keeps talking straight through', async () => {
     const seen: string[] = []
     for await (const line of withIdleDeadline(
