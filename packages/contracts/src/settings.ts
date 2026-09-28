@@ -32,7 +32,6 @@ export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 const defaultAppearance = {
   themeId: 'obsidian',
   mode: 'system',
-  glass: true,
   reducedMotion: false,
   wallpaper: 'none',
 } as const
@@ -53,8 +52,6 @@ export const settingsSchema = z.object({
         .default(defaultAppearance.themeId),
       /** User's selection: 'system' tracks the OS, otherwise a pinned theme. */
       mode: themeModeSchema.default(defaultAppearance.mode),
-      /** Opt-in translucent chrome; only honored by glass-capable themes. */
-      glass: z.boolean().default(defaultAppearance.glass),
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
@@ -103,7 +100,6 @@ export const settingsUpdateSchema = z.object({
     .object({
       themeId: themeIdSchema,
       mode: themeModeSchema,
-      glass: z.boolean(),
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
     })

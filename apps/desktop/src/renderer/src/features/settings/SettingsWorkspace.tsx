@@ -83,7 +83,7 @@ export function SettingsWorkspace({
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside className="ari-glass flex w-[var(--ari-sidebar-width)] shrink-0 flex-col">
+      <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col bg-surface-0">
         {/* Back leads the header rather than sitting in a footer. The row is
             below the titlebar, so it clears the macOS hiddenInset traffic
             lights without needing a leading inset. */}
@@ -93,7 +93,7 @@ export function SettingsWorkspace({
             aria-label="Back"
             title="Back to workspace"
             onClick={onBack}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-glass-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <ArrowLeft size={14} strokeWidth={1.8} aria-hidden />
           </button>
@@ -119,7 +119,7 @@ export function SettingsWorkspace({
                     className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                       selected
                         ? 'bg-accent-subtle font-medium text-fg'
-                        : 'text-fg-muted hover:bg-glass-hover hover:text-fg'
+                        : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
                     }`}
                   >
                     <Icon size={15} strokeWidth={1.8} className="shrink-0 opacity-80" aria-hidden />

@@ -33,7 +33,7 @@ describe('SettingsStore', () => {
     const settings = await store.load()
     expect(settings.appearance.themeId).toBe('obsidian')
     expect(settings.appearance.mode).toBe('system')
-    expect(settings.appearance.glass).toBe(true)
+    expect(settings.appearance).not.toHaveProperty('glass')
     expect(settings.sessions.defaultPermissionMode).toBe('ask')
     const raw: unknown = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8'))
     expect((raw as { version: number }).version).toBe(1)
@@ -78,12 +78,16 @@ describe('SettingsStore', () => {
     const { writeFile } = await import('node:fs/promises')
     await writeFile(
       join(dir, 'settings.json'),
-      JSON.stringify({ version: 1, appearance: { themeId: 'comet-glass', reducedMotion: true } }),
+      JSON.stringify({
+        version: 1,
+        appearance: { themeId: 'comet-glass', glass: false, reducedMotion: true },
+      }),
       'utf8',
     )
     const settings = await new SettingsStore({ dir }).load()
     expect(settings.appearance.themeId).toBe('obsidian')
     expect(settings.appearance.reducedMotion).toBe(true)
+    expect(settings.appearance).not.toHaveProperty('glass')
   })
 
   it('drops unknown fields via schema validation', async () => {

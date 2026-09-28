@@ -60,7 +60,7 @@ const iconButton =
   'flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40'
 
 const fieldInput =
-  'h-7 rounded-md border border-border bg-glass-input px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none'
+  'h-7 rounded-md border border-border bg-surface-1 px-2 text-xs text-fg placeholder:text-fg-subtle focus:border-border-strong focus:outline-none'
 
 /**
  * Compact header pill combining music state and an optional focus timer.

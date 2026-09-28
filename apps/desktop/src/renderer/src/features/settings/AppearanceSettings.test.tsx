@@ -21,7 +21,6 @@ const engineSettings: Settings = {
   appearance: {
     themeId: 'obsidian',
     mode: 'system',
-    glass: true,
     reducedMotion: false,
     wallpaper: 'none',
   },
@@ -73,26 +72,6 @@ describe('AppearanceSettings', () => {
     )
   })
 
-  it('offers the glass toggle only for glass-capable themes', async () => {
-    renderPage()
-    const user = userEvent.setup()
-
-    await user.click(screen.getByRole('radio', { name: /Nocturne/ }))
-    const glass = await screen.findByRole('switch', { name: 'Glass chrome' })
-    expect(glass).toHaveAttribute('aria-checked', 'true')
-
-    await user.click(glass)
-    await waitFor(() => {
-      expect(document.documentElement.dataset['ariGlass']).toBe('off')
-    })
-
-    // Graphite is opaque by design — no toggle at all.
-    await user.click(screen.getByRole('radio', { name: /Graphite/ }))
-    await waitFor(() => {
-      expect(screen.queryByRole('switch', { name: 'Glass chrome' })).not.toBeInTheDocument()
-    })
-  })
-
   it('lists every bundled wallpaper and applies the selection to the html attribute', async () => {
     renderPage()
     expect(screen.getByRole('radiogroup', { name: 'Wallpaper' })).toBeInTheDocument()
@@ -115,7 +94,7 @@ describe('AppearanceSettings', () => {
     })
   })
 
-  it('offers no visibility control — one uniform glass look per wallpaper', async () => {
+  it('offers no visibility control for wallpapers', async () => {
     renderPage()
     const user = userEvent.setup()
     await user.click(screen.getByRole('radio', { name: /Anime City/ }))
@@ -132,7 +111,6 @@ describe('AppearanceSettings', () => {
       appearance: {
         themeId: 'obsidian',
         mode: 'system',
-        glass: true,
         reducedMotion: true,
         wallpaper: 'none',
       },
