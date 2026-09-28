@@ -3,6 +3,7 @@ import {
   Folder,
   Gauge,
   GitPullRequest,
+  Globe,
   PanelLeftOpen,
   Settings,
   TerminalSquare,
@@ -24,6 +25,7 @@ const TITLEBAR_TOOLS: {
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
+  { id: 'browser', label: 'Browser', icon: Globe },
   { id: 'github', label: 'PRs & issues', icon: GithubMark },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
