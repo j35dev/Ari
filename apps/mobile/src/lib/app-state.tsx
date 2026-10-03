@@ -104,14 +104,18 @@ export function AppProvider({
           ? session.query<RemoteModelCatalog>('models.list')
           : Promise.resolve(null),
       ])
-      if (live.current !== session) return
+      if (live.current !== session || !session.usable) return
       setProjects(nextProjects)
       setSessions(nextSessions)
       setCatalog(nextCatalog)
       setLastSyncedAt(Date.now())
       setError(null)
     } catch (failure) {
-      if (live.current === session)
+      if (
+        live.current === session &&
+        session.state !== 'revoked' &&
+        session.state !== 'unknown-device'
+      )
         setError(failure instanceof Error ? failure.message : 'The computer did not answer.')
     } finally {
       if (refreshingSession.current === session) {
@@ -141,7 +145,16 @@ export function AppProvider({
       client,
       ...(managedComputerId === null ? {} : { managedComputerId }),
       onState: (state) => {
-        if (!cancelled) setConnection(state)
+        if (cancelled) return
+        setConnection(state)
+        if (state === 'revoked' || state === 'unknown-device') {
+          setCapabilities([])
+          setProjects([])
+          setSessions([])
+          setCatalog(null)
+          setLastSyncedAt(null)
+          setError(null)
+        }
       },
       onPairCode: (code) => {
         if (!cancelled) setPairingCode(code)
@@ -156,7 +169,7 @@ export function AppProvider({
         const state = await session.connect()
         if (cancelled) return
         setConnection(state)
-        setCapabilities(session.capabilities)
+        setCapabilities(session.usable ? session.capabilities : [])
         if (state === 'connected') await refreshWith(session)
       } catch (failure) {
         if (!cancelled) {
@@ -172,7 +185,12 @@ export function AppProvider({
     }
     void connect()
     const visible = (): void => {
-      if (document.visibilityState === 'visible') void connect()
+      if (
+        document.visibilityState === 'visible' &&
+        session.state !== 'revoked' &&
+        session.state !== 'unknown-device'
+      )
+        void connect()
     }
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') void refreshWith(session)
@@ -204,7 +222,7 @@ export function AppProvider({
     if (linked === null) return
     const state = await linked.connect()
     setConnection(state)
-    setCapabilities(linked.capabilities)
+    setCapabilities(linked.usable ? linked.capabilities : [])
     if (state === 'connected') await refreshWith(linked)
   }, [linked, refreshWith])
   const forget = useCallback(async (): Promise<void> => {

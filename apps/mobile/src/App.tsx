@@ -1,22 +1,27 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { PairScreen } from './features/pair/PairScreen'
 import { AppShell } from './shell/AppShell'
 import { takeInvitationFromUrl, useApp } from './lib/app-state'
 import { IS_CONNECT_BUILD } from './lib/connect'
 import { ConnectScreen } from './features/connect/ConnectScreen'
 
-/**
- * Three states, never two: still deciding, not yet paired, or driving.
- *
- * A pairing link is read once, at boot, before anything renders — and the
- * fragment is cleared from the address bar immediately, so a screenshot, a
- * share or a reload cannot hand the invitation on to anyone else. The splash
- * matters because a paired phone must never see the pairing screen on its
- * way in: that reads as "you are not connected" on every launch.
- */
+/** Pairing links also work when an installed PWA receives a new fragment. */
 export function App(): ReactNode {
   const app = useApp()
-  const [invitation] = useState<string | null>(() => takeInvitationFromUrl(location.href))
+  const [invitation, setInvitation] = useState<string | null>(() =>
+    takeInvitationFromUrl(location.href),
+  )
+  useEffect(() => {
+    const receiveInvitation = (): void => {
+      const next = takeInvitationFromUrl(location.href)
+      if (next !== null) setInvitation(next)
+    }
+    window.addEventListener('hashchange', receiveInvitation)
+    return () => window.removeEventListener('hashchange', receiveInvitation)
+  }, [])
+  useEffect(() => {
+    if (app.connection === 'connected') setInvitation(null)
+  }, [app.connection])
 
   if (IS_CONNECT_BUILD && app.origin === null) return <ConnectScreen />
 
@@ -30,8 +35,14 @@ export function App(): ReactNode {
       </div>
     )
   }
-  if (app.connection === 'unpaired' || app.origin === null) {
-    return <PairScreen invitationId={invitation} />
+  if (
+    app.connection === 'unpaired' ||
+    app.connection === 'revoked' ||
+    app.connection === 'unknown-device' ||
+    app.origin === null ||
+    (invitation !== null && app.connection !== 'connected')
+  ) {
+    return <PairScreen key={invitation} invitationId={invitation} />
   }
   return <AppShell />
 }
