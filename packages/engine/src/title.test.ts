@@ -3,6 +3,7 @@ import {
   MAX_TITLE_LENGTH,
   deriveSliceTitle,
   deterministicTitleStrategy,
+  generateAutoTitle,
   generateQualityTitle,
   isAutoTitle,
 } from './title'
@@ -93,5 +94,38 @@ describe('deterministicTitleStrategy', () => {
       'Auth deep dive',
     )
     await expect(llm.generate({ prompt: 'unrelated', currentTitle: 'kept' })).resolves.toBeNull()
+  })
+})
+
+describe('generateAutoTitle', () => {
+  it('prefers a substantive assistant response over the prompt', () => {
+    expect(generateAutoTitle('fix it', 'Fixed the login redirect loop.')).toBe(
+      'Fixed the login redirect loop',
+    )
+  })
+
+  it('falls back to the prompt when the response is a short ack', () => {
+    expect(generateAutoTitle('can you fix the login redirect loop please', 'ok')).toBe(
+      'Fix the login redirect loop please',
+    )
+    expect(generateAutoTitle('can you fix the login redirect loop please', '')).toBe(
+      'Fix the login redirect loop please',
+    )
+  })
+
+  it('falls back to the prompt when no response is given', () => {
+    expect(generateAutoTitle('Add retry logic to the fetch client')).toBe(
+      'Add retry logic to the fetch client',
+    )
+  })
+
+  it('exposes the response through the bundled strategy', async () => {
+    await expect(
+      deterministicTitleStrategy.generate({
+        prompt: 'fix it',
+        response: 'Refactored the parser module to stream results.',
+        currentTitle: 'fix it',
+      }),
+    ).resolves.toBe('Refactored the parser module to stream results')
   })
 })

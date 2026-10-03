@@ -1187,6 +1187,33 @@ describe('engine end-to-end with scripted driver', () => {
     expect((await store.load(sessionId)).session?.title).toBe('Fix the login redirect loop please')
   }, 10000)
 
+  it('names the session from the assistant response with prompt fallback', async () => {
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'Fixed the login redirect loop.' }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_title_ai'
+    await seedSession(store, sessionId)
+    await store.append(sessionId, {
+      type: 'session.updated',
+      title: 'New session',
+    })
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'fix it' } as Command)
+    const startedAt = Date.now()
+    while (true) {
+      const model = await store.load(sessionId)
+      if (model.session?.title === 'Fixed the login redirect loop') break
+      if (Date.now() - startedAt > 30000) throw new Error('AI response title never landed')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect((await store.load(sessionId)).session?.title).toBe('Fixed the login redirect loop')
+  }, 10000)
+
   it('never generates a title off an error-settled turn', async () => {
     function failingDriver(): Driver {
       return {

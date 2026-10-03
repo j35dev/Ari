@@ -2,8 +2,9 @@
  * Session title generation. The decider stamps an immediate slice of the
  * first prompt (`deriveSliceTitle`) when a turn starts; after the first turn
  * settles, the engine upgrades the title through a {@link TitleStrategy}.
- * The bundled strategy is deterministic (no network); a later worker can
- * plug an LLM-backed strategy without touching the engine flow.
+ * The bundled strategy prefers the assistant's first response (the AI names
+ * the session) and falls back to the prompt slice when the response is
+ * missing or trivial. Custom strategies receive both via {@link TitleRequest}.
  */
 
 /** Hard sidebar-title cap, shared by every strategy. */
@@ -12,10 +13,22 @@ export const MAX_TITLE_LENGTH = 48
 /** Title the UI assigns to pristine sessions until something names them. */
 export const DEFAULT_SESSION_TITLE = 'New session'
 
+/**
+ * Minimum assistant-response length (chars) before it can name the session.
+ * Short acks ("ok", "done") fall back to the prompt so the sidebar keeps a
+ * useful title.
+ */
+export const MIN_AI_RESPONSE_CHARS = 24
+
+/** Minimum derived-title length before an AI response wins over the prompt. */
+export const MIN_AI_TITLE_CHARS = 8
+
 /** Input to a title strategy. */
 export interface TitleRequest {
-  /** First user message of the conversation. */
+  /** First user message of the conversation (fallback source). */
   prompt: string
+  /** First assistant text of the conversation, when the turn produced one. */
+  response?: string
   /** Current sidebar title — the automatic slice while untouched. */
   currentTitle: string
 }
@@ -100,9 +113,9 @@ function stripMarkdown(text: string): string {
     .replace(/(\*|_)(.*?)\1/g, '$2')
 }
 
-/** Deterministic quality title from the first prompt; null when nothing usable remains. */
-export function generateQualityTitle(prompt: string): string | null {
-  const flattened = stripMarkdown(prompt.replace(/\r/g, '')).replace(/\s+/g, ' ').trim()
+/** Deterministic quality title from text; null when nothing usable remains. */
+export function generateQualityTitle(text: string): string | null {
+  const flattened = stripMarkdown(text.replace(/\r/g, '')).replace(/\s+/g, ' ').trim()
   if (flattened.length === 0) return null
   const firstSentence = flattened.split(/(?<=[.!?])\s+/)[0] ?? flattened
   const words = firstSentence.split(' ').filter((w) => w.length > 0)
@@ -120,7 +133,20 @@ export function generateQualityTitle(prompt: string): string | null {
   return `${titled.slice(0, MAX_TITLE_LENGTH - 1)}…`
 }
 
-/** Bundled no-network strategy backed by {@link generateQualityTitle}. */
+/** Bundled no-network strategy: AI response first, prompt fallback. */
 export const deterministicTitleStrategy: TitleStrategy = {
-  generate: (request) => Promise.resolve(generateQualityTitle(request.prompt)),
+  generate: (request) => Promise.resolve(generateAutoTitle(request.prompt, request.response)),
+}
+
+/**
+ * Automatic title: the assistant's response names the session when it is
+ * substantive, otherwise the prompt does (previous first-message behavior).
+ */
+export function generateAutoTitle(prompt: string, response?: string): string | null {
+  const trimmed = (response ?? '').trim()
+  if (trimmed.length >= MIN_AI_RESPONSE_CHARS) {
+    const candidate = generateQualityTitle(trimmed)
+    if (candidate !== null && candidate.length >= MIN_AI_TITLE_CHARS) return candidate
+  }
+  return generateQualityTitle(prompt)
 }
