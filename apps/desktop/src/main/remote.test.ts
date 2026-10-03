@@ -20,13 +20,23 @@ import { RemoteService, type RemoteServiceDeps } from './remote'
 
 const ALLOWED = 'http://127.0.0.1:5173'
 
-function deviceKey(): { jwk: { kty: 'EC'; crv: 'P-256'; x: string; y: string }; sign: (n: string) => string } {
+function deviceKey(): {
+  jwk: { kty: 'EC'; crv: 'P-256'; x: string; y: string }
+  sign: (n: string) => string
+} {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
-  const jwk = publicKey.export({ format: 'jwk' }) as { kty: 'EC'; crv: 'P-256'; x: string; y: string }
+  const jwk = publicKey.export({ format: 'jwk' }) as {
+    kty: 'EC'
+    crv: 'P-256'
+    x: string
+    y: string
+  }
   return {
     jwk,
     sign: (nonce) =>
-      sign('sha256', Buffer.from(nonce), { key: privateKey, dsaEncoding: 'der' }).toString('base64'),
+      sign('sha256', Buffer.from(nonce), { key: privateKey, dsaEncoding: 'der' }).toString(
+        'base64',
+      ),
   }
 }
 
@@ -125,7 +135,8 @@ async function pair(
     signature: key.sign(nonce),
   })
   const token = (redeemed.body['result'] as Record<string, unknown>)['token']
-  if (typeof token !== 'string') throw new Error(`expected a token, got ${JSON.stringify(redeemed.body)}`)
+  if (typeof token !== 'string')
+    throw new Error(`expected a token, got ${JSON.stringify(redeemed.body)}`)
   return token
 }
 
@@ -301,7 +312,12 @@ describe('remote service pairing decisions', () => {
 
     const origin = service.state().origin
     if (origin === null) throw new Error('expected a running gateway')
-    const listing = await call(origin, '/query', { op: 'session.list' }, { authorization: `Bearer ${token}` })
+    const listing = await call(
+      origin,
+      '/query',
+      { op: 'session.list' },
+      { authorization: `Bearer ${token}` },
+    )
     expect(listing.status).toBe(200)
 
     const deviceId = service.state().devices[0]?.deviceId
@@ -377,15 +393,51 @@ describe('remote service addressing', () => {
 
     // Enabling Tailscale adds its origin to a gateway that is already serving;
     // restarting it would drop every phone's token mid-session.
-    const before = await call(origin, '/info', {}, { origin: 'https://ari.tailnet.ts.net', authorization: `Bearer ${token}` })
+    const before = await call(
+      origin,
+      '/info',
+      {},
+      { origin: 'https://ari.tailnet.ts.net', authorization: `Bearer ${token}` },
+    )
     expect(before.status).toBe(403)
     origins.push('https://ari.tailnet.ts.net')
-    const after = await call(origin, '/info', {}, { origin: 'https://ari.tailnet.ts.net', authorization: `Bearer ${token}` })
+    const after = await call(
+      origin,
+      '/info',
+      {},
+      { origin: 'https://ari.tailnet.ts.net', authorization: `Bearer ${token}` },
+    )
     expect(after.status).toBe(200)
   })
 })
 
 describe('remote service host wiring', () => {
+  it('master disable closes both listeners while managed origins cannot use the Tailscale listener', async () => {
+    const { service } = makeService()
+    const local = (await service.start()).origin
+    const port = await service.startManaged({
+      port: 0,
+      issuer: 'https://connect.example',
+      hostname: 'computer.tunnel.example',
+      computerId: 'computer',
+      verifier: () => null,
+    })
+    if (local === null || port === null) throw new Error('Listeners did not start')
+    const managed = `http://127.0.0.1:${port}`
+    expect(
+      (await fetch(`${managed}/info`, { headers: { origin: 'https://connect.example' } })).status,
+    ).toBe(200)
+    expect(
+      (await fetch(`${local}/info`, { headers: { origin: 'https://connect.example' } })).status,
+    ).toBe(403)
+    expect(service.invite('connect').invitation?.url).toContain(
+      'https://connect.example/?computer=computer#pair=',
+    )
+    await service.stop()
+    await expect(fetch(`${local}/info`)).rejects.toThrow()
+    await expect(fetch(`${managed}/info`)).rejects.toThrow()
+    expect(service.running).toBe(false)
+  })
   it('serves the built PWA from the gateway, same-origin with the API', async () => {
     const build = mkdtempSync(join(tmpdir(), 'ari-pwa-'))
     writeFileSync(join(build, 'index.html'), '<!doctype html><title>Ari Remote</title>', 'utf8')

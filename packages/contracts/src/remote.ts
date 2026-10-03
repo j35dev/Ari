@@ -1,14 +1,19 @@
 import { z } from 'zod'
-import { approvalOptionSchema, driverKindSchema, timestampSchema } from './common'
+import {
+  approvalOptionSchema,
+  driverKindSchema,
+  sessionStatusSchema,
+  timestampSchema,
+} from './common'
+import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 
 /**
  * The remote surface is an allowlist, not a filter.
  *
  * Everything a paired phone may do is named here; an operation with no schema
- * has no route, so the gateway cannot perform what was never declared. ADR §3
- * defers terminal and shell access, provider login, arbitrary filesystem
- * roots, API-key configuration and `fs.writeTextFile` — their absence below is
- * the enforcement. Adding one is a deliberate, reviewable act.
+ * has no route, so the gateway cannot perform what was never declared. Shell
+ * terminals require a separate desktop pairing grant. Provider login,
+ * arbitrary filesystem roots and API-key configuration have no remote route.
  */
 
 /** Bumped only for changes a client of the previous version cannot survive. */
@@ -35,7 +40,19 @@ export const remoteOperationSchema = z.enum([
   'session.list',
   'session.get',
   'session.create',
+  'session.fork',
   'session.archive',
+  'session.update',
+  'attention.list',
+  'files.list',
+  'files.read',
+  'attachments.stage',
+  'attachments.read',
+  'terminal.create',
+  'terminal.read',
+  'terminal.write',
+  'terminal.resize',
+  'terminal.kill',
   // Projects. A name and an id, never a path: the phone names a project to
   // start work in, and has no use for where it lives on someone's disk.
   'project.list',
@@ -53,6 +70,7 @@ export const remoteOperationSchema = z.enum([
   // Changes.
   'changes.files',
   'changes.diff',
+  'changes.preview',
   'changes.integrate',
   // Events.
   'events.snapshot',
@@ -144,6 +162,42 @@ const clientCommandIdSchema = z.string().min(1).max(200)
 const sessionIdSchema = z.string().min(1).max(200)
 const approvalIdSchema = z.string().min(1).max(200)
 
+/** Portable workspace-relative paths; absolute paths and traversal have no remote meaning. */
+export const remoteFilePathSchema = z
+  .string()
+  .max(1024)
+  .refine(
+    (path) =>
+      path === '' ||
+      path
+        .split('/')
+        .every(
+          (part) =>
+            part.length > 0 &&
+            part !== '.' &&
+            part !== '..' &&
+            !/[. ]$/.test(part) &&
+            !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part) &&
+            !/[\\:]/.test(part) &&
+            [...part].every((char) => char.charCodeAt(0) >= 32),
+        ),
+    { message: 'expected a workspace-relative path' },
+  )
+
+/** Remote uploads stay small enough for a phone and are raster images only. */
+export const MAX_REMOTE_IMAGE_BYTES = 1024 * 1024
+export const remoteImageUploadSchema = z
+  .object({
+    name: z.string().trim().min(1).max(128),
+    mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+    dataBase64: z
+      .string()
+      .min(4)
+      .max(Math.ceil(MAX_REMOTE_IMAGE_BYTES / 3) * 4)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  })
+  .strict()
+
 /**
  * Commands carrying an idempotency key; every mutation is one of these.
  *
@@ -176,19 +230,62 @@ export const remoteCommandEnvelopeSchema = z.discriminatedUnion('op', [
   envelope({
     op: z.literal('session.prompt'),
     sessionId: sessionIdSchema,
-    text: z.string().min(1),
+    text: z.string(),
     /** Staged attachment ids already uploaded; never raw paths. */
-    attachmentIds: z.array(z.string().min(1)).optional(),
+    attachmentIds: z.array(z.string().min(1).max(128)).max(MAX_ATTACHMENTS).optional(),
+  }),
+  envelope({
+    op: z.literal('session.fork'),
+    sessionId: sessionIdSchema,
+    title: z.string().trim().min(1).max(120),
+    driverKind: driverKindSchema.optional(),
+    modelId: z.string().min(1).max(200).optional(),
   }),
   envelope({
     op: z.literal('session.queue'),
     sessionId: sessionIdSchema,
-    text: z.string().min(1),
-    attachmentIds: z.array(z.string().min(1)).optional(),
+    text: z.string(),
+    attachmentIds: z.array(z.string().min(1).max(128)).max(MAX_ATTACHMENTS).optional(),
   }),
   envelope({ op: z.literal('session.steer'), sessionId: sessionIdSchema, text: z.string().min(1) }),
   envelope({ op: z.literal('session.interrupt'), sessionId: sessionIdSchema }),
   envelope({ op: z.literal('session.archive'), sessionId: sessionIdSchema }),
+  envelope({
+    op: z.literal('session.update'),
+    sessionId: sessionIdSchema,
+    title: z.string().trim().min(1).max(200).optional(),
+    pinned: z.boolean().optional(),
+    modelId: z.string().min(1).max(200).nullable().optional(),
+  }),
+  envelope({
+    op: z.literal('attachments.stage'),
+    sessionId: sessionIdSchema,
+    files: z.array(remoteImageUploadSchema).min(1).max(1),
+  }),
+  envelope({
+    op: z.literal('terminal.create'),
+    sessionId: sessionIdSchema,
+    cols: z.number().int().min(20).max(300).default(80),
+    rows: z.number().int().min(5).max(100).default(24),
+  }),
+  envelope({
+    op: z.literal('terminal.write'),
+    sessionId: sessionIdSchema,
+    terminalId: z.string().min(1).max(128),
+    data: z.string().min(1).max(16_384),
+  }),
+  envelope({
+    op: z.literal('terminal.resize'),
+    sessionId: sessionIdSchema,
+    terminalId: z.string().min(1).max(128),
+    cols: z.number().int().min(20).max(300),
+    rows: z.number().int().min(5).max(100),
+  }),
+  envelope({
+    op: z.literal('terminal.kill'),
+    sessionId: sessionIdSchema,
+    terminalId: z.string().min(1).max(128),
+  }),
   // The exact option the provider offered. The coarse decision vocabulary is
   // deliberately not accepted: a remote client always has the offered options
   // in hand, and two of them can share a kind.
@@ -207,20 +304,62 @@ export const remoteCommandEnvelopeSchema = z.discriminatedUnion('op', [
   envelope({
     op: z.literal('changes.integrate'),
     sessionId: sessionIdSchema,
-    snapshotCommit: z.string().min(1),
-    allowStale: z.boolean().optional(),
+    snapshotCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
+    expectedParentSnapshot: z.string().regex(/^[a-f0-9]{40,64}$/),
   }),
 ])
 export type RemoteCommand = z.infer<typeof remoteCommandEnvelopeSchema>
+
+/** Only the child identifier from native delegation leaves the fork adapter. */
+export const remoteForkNativeResultSchema = z.object({ child: z.object({ id: sessionIdSchema }) })
 
 /** Reads carry no idempotency key: they change nothing and may repeat freely. */
 export const remoteQuerySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('gateway.info') }),
   z.object({ op: z.literal('session.list') }),
   z.object({ op: z.literal('session.get'), sessionId: sessionIdSchema }),
+  z
+    .object({
+      op: z.literal('attention.list'),
+      cursor: sessionIdSchema.optional(),
+      limit: z.number().int().min(1).max(100).default(50),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('files.list'),
+      sessionId: sessionIdSchema,
+      path: remoteFilePathSchema.default(''),
+      cursor: z.string().max(256).optional(),
+      limit: z.number().int().min(1).max(200).default(100),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('files.read'),
+      sessionId: sessionIdSchema,
+      path: remoteFilePathSchema.refine((path) => path.length > 0),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('attachments.read'),
+      sessionId: sessionIdSchema,
+      attachmentId: z.string().min(1).max(128),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('terminal.read'),
+      sessionId: sessionIdSchema,
+      terminalId: z.string().min(1).max(128),
+      fromSeq: z.number().int().nonnegative().default(0),
+    })
+    .strict(),
   z.object({ op: z.literal('project.list') }),
   z.object({ op: z.literal('models.list') }),
   z.object({ op: z.literal('changes.files'), sessionId: sessionIdSchema }),
+  z.object({ op: z.literal('changes.preview'), sessionId: sessionIdSchema }).strict(),
   z.object({ op: z.literal('changes.diff'), sessionId: sessionIdSchema, path: z.string().min(1) }),
   z.object({ op: z.literal('command.status'), idempotencyKey: idempotencyKeySchema }),
   z.object({ op: z.literal('device.list') }),
@@ -234,15 +373,19 @@ export const remoteChangeFileSchema = z.object({
   isNew: z.boolean().optional(),
   isDeleted: z.boolean().optional(),
   isBinary: z.boolean().optional(),
-  hunks: z.array(z.object({
-    header: z.string(),
-    lines: z.array(z.object({
-      type: z.enum(['context', 'add', 'del']),
-      content: z.string(),
-      oldLineNo: z.number().int().positive().optional(),
-      newLineNo: z.number().int().positive().optional(),
-    })),
-  })),
+  hunks: z.array(
+    z.object({
+      header: z.string(),
+      lines: z.array(
+        z.object({
+          type: z.enum(['context', 'add', 'del']),
+          content: z.string(),
+          oldLineNo: z.number().int().positive().optional(),
+          newLineNo: z.number().int().positive().optional(),
+        }),
+      ),
+    }),
+  ),
 })
 export type RemoteChangeFile = z.infer<typeof remoteChangeFileSchema>
 
@@ -307,6 +450,97 @@ export const pairingKeySchema = z.object({
 })
 export type PairingPublicKey = z.infer<typeof pairingKeySchema>
 
+export const connectJwksSchema = z.object({
+  keys: z
+    .array(
+      pairingKeySchema.extend({
+        alg: z.literal('ES256'),
+        use: z.literal('sig'),
+        kid: z.string().min(1).max(100),
+      }),
+    )
+    .min(1)
+    .max(4),
+})
+export type ConnectJwks = z.infer<typeof connectJwksSchema>
+
+export const connectLeaseClaimsSchema = z
+  .object({
+    iss: z.string().url(),
+    aud: z.string(),
+    sub: z.string().min(1),
+    computerId: z.string().min(1),
+    deviceId: z.string().min(1),
+    deviceKeyFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    projectIds: z.array(z.string().min(1)).max(100),
+    iat: z.number().int().nonnegative(),
+    exp: z.number().int().nonnegative(),
+    jti: z.string().min(1),
+  })
+  .strict()
+
+export const connectDesktopStartSchema = z.object({
+  transactionId: z.string().min(8).max(128),
+  browserUrl: z.string().url(),
+  pollToken: z.string().min(16).max(256),
+  expiresAt: z.string().datetime(),
+  intervalSeconds: z.number().int().min(5).max(30),
+})
+export const connectDesktopPollSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('pending') }),
+  z.object({ status: z.literal('denied') }),
+  z.object({ status: z.literal('expired') }),
+  z.object({
+    status: z.literal('approved'),
+    computer: z.object({
+      computerId: z.string().min(8).max(128),
+      name: z.string().min(1).max(80),
+      credential: z.string().min(16).max(256),
+    }),
+  }),
+])
+export const connectComputerSchema = z.object({
+  computer: z.object({
+    computerId: z.string().min(8).max(128),
+    name: z.string(),
+    hostname: z.string().regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/),
+    state: z.enum([
+      'registered',
+      'provisioning',
+      'ready',
+      'offline',
+      'failed',
+      'suspended',
+      'deleting',
+      'deleted',
+    ]),
+    provision: z.object({
+      attempts: z.number().int().nonnegative(),
+      lastError: z.string().nullable(),
+      nextAttemptAt: z.string().datetime().nullable(),
+    }),
+  }),
+})
+export const connectConnectorSchema = z.object({
+  computerId: z.string().min(8).max(128),
+  hostname: z.string(),
+  token: z.string().min(16).max(4096),
+})
+export const connectStoredStateSchema = z.object({
+  origin: z.string().url(),
+  computerId: z.string().min(8).max(128).nullable(),
+  computerName: z.string().max(80).nullable(),
+  secretCipher: z.string().max(16_384).nullable(),
+  publicKey: pairingKeySchema.nullable(),
+  port: z.number().int().min(1).max(65535),
+  jwks: connectJwksSchema.nullable(),
+  disconnectPending: z.boolean().default(false),
+})
+export const connectStoredSecretSchema = z.object({
+  credential: z.string().min(16).max(256),
+  privateKeyPem: z.string().max(8192),
+})
+
 export const pairingRequestSchema = z.object({
   invitationId: z.string().min(1),
   displayName: z.string().min(1).max(80),
@@ -370,6 +604,81 @@ export const remoteInputSchema = z.object({
 })
 export type RemoteInput = z.infer<typeof remoteInputSchema>
 
+export const remoteAttentionSchema = z.object({
+  items: z.array(
+    z.object({
+      sessionId: sessionIdSchema,
+      projectId: z.string(),
+      title: z.string(),
+      status: sessionStatusSchema,
+      updatedAt: timestampSchema,
+      seq: z.number().int().nonnegative(),
+      pendingApprovals: z.array(remoteApprovalSchema),
+      pendingInputs: z.array(remoteInputSchema),
+      error: z.string().nullable(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+})
+export type RemoteAttention = z.infer<typeof remoteAttentionSchema>
+
+export const remoteFilesSchema = z.object({
+  path: z.string(),
+  entries: z.array(
+    z.object({
+      name: z.string(),
+      path: z.string(),
+      kind: z.enum(['file', 'directory']),
+      size: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+  error: z.string().nullable(),
+})
+export type RemoteFiles = z.infer<typeof remoteFilesSchema>
+
+export const remoteFileSchema = z.object({
+  path: z.string(),
+  kind: z.enum(['text', 'binary', 'too-large']).nullable(),
+  size: z.number().int().nonnegative().nullable(),
+  content: z.string().nullable(),
+  error: z.string().nullable(),
+})
+export type RemoteFile = z.infer<typeof remoteFileSchema>
+
+export const remoteAttachmentSchema = z.object({
+  attachment: attachmentRefSchema.omit({ id: true }).extend({ dataBase64: z.string() }).nullable(),
+  error: z.string().nullable(),
+})
+
+export const remoteTerminalSchema = z.object({
+  terminalId: z.string(),
+  data: z.string(),
+  seq: z.number().int().nonnegative(),
+  reset: z.boolean(),
+  exited: z.boolean(),
+  hasMore: z.boolean(),
+  error: z.string().nullable(),
+})
+export type RemoteTerminal = z.infer<typeof remoteTerminalSchema>
+
+export const remoteIntegrationPreviewSchema = z.object({
+  sessionId: z.string(),
+  parentSessionId: z.string(),
+  snapshotCommit: z.string(),
+  expectedParentSnapshot: z.string(),
+  files: z.array(
+    z.object({
+      path: z.string(),
+      status: z.string(),
+      additions: z.number(),
+      deletions: z.number(),
+      binary: z.boolean(),
+    }),
+  ),
+})
+export type RemoteIntegrationPreview = z.infer<typeof remoteIntegrationPreviewSchema>
+
 /**
  * Projected state plus the journal sequence it was taken at. The pair travels
  * together so a client can subscribe from exactly the high-water mark and see
@@ -415,7 +724,11 @@ export const remoteClientMessageSchema = z.discriminatedUnion('type', [
     fromSeq: z.number().int().nonnegative().optional(),
   }),
   z.object({ type: z.literal('events.unsubscribe'), sessionId: sessionIdSchema }),
-  z.object({ type: z.literal('events.ack'), sessionId: sessionIdSchema, seq: z.number().int().nonnegative() }),
+  z.object({
+    type: z.literal('events.ack'),
+    sessionId: sessionIdSchema,
+    seq: z.number().int().nonnegative(),
+  }),
 ])
 export type RemoteClientMessage = z.infer<typeof remoteClientMessageSchema>
 

@@ -44,6 +44,7 @@ interface Invitation {
   createdAt: number
   pending?: PendingDevice
   projectIds?: string[]
+  allowTerminal?: boolean
   redeemedDeviceId?: string
   denied?: boolean
 }
@@ -54,6 +55,7 @@ export interface PairedDevice {
   projectIds: string[]
   pairedAt: number
   lastSeenAt: number | null
+  allowTerminal?: boolean
 }
 
 /** A device record as it is written down: the public shape plus its key. */
@@ -79,7 +81,7 @@ export interface PairingPersistence {
   save(state: PersistedPairing): void
 }
 
-export type PairingResult<T> = { ok: true } & T | { ok: false; code: RemoteErrorCode }
+export type PairingResult<T> = ({ ok: true } & T) | { ok: false; code: RemoteErrorCode }
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000
 const DEFAULT_TOKEN_TTL_MS = 12 * 60 * 60 * 1000
@@ -140,7 +142,11 @@ export class PairingService {
     this.#persist = options.persist
     this.#onChange = options.onChange
     for (const device of options.restored?.devices ?? []) {
-      if (isUsableP256Key(device.publicKey)) this.#devices.set(device.deviceId, device)
+      if (isUsableP256Key(device.publicKey))
+        this.#devices.set(device.deviceId, {
+          ...device,
+          allowTerminal: device.allowTerminal === true,
+        })
     }
     for (const entry of options.restored?.revoked ?? []) {
       this.#revoked.set(entry.deviceId, entry.revokedAt)
@@ -155,7 +161,10 @@ export class PairingService {
         projectIds: [...device.projectIds],
         publicKey: { ...device.publicKey },
       })),
-      revoked: [...this.#revoked.entries()].map(([deviceId, revokedAt]) => ({ deviceId, revokedAt })),
+      revoked: [...this.#revoked.entries()].map(([deviceId, revokedAt]) => ({
+        deviceId,
+        revokedAt,
+      })),
     }
   }
 
@@ -215,7 +224,11 @@ export class PairingService {
     }
   }
 
-  approve(invitationId: string, projectIds: readonly string[]): PairingResult<object> {
+  approve(
+    invitationId: string,
+    projectIds: readonly string[],
+    allowTerminal = false,
+  ): PairingResult<object> {
     const invitation = this.#invitations.get(invitationId)
     if (invitation === undefined) return { ok: false, code: 'not_found' }
     if (this.status(invitationId) !== 'pending') return { ok: false, code: 'conflict' }
@@ -225,6 +238,7 @@ export class PairingService {
       return { ok: false, code: 'conflict' }
     }
     invitation.projectIds = [...projectIds]
+    invitation.allowTerminal = allowTerminal
     this.#notify()
     return { ok: true }
   }
@@ -275,6 +289,7 @@ export class PairingService {
       publicKey: { ...pending.publicKey },
       pairedAt: this.#now(),
       lastSeenAt: null,
+      allowTerminal: invitation.allowTerminal === true,
     }
     invitation.redeemedDeviceId = device.deviceId
     // The request is answered: leaving it in place would keep the desktop's
@@ -342,6 +357,11 @@ export class PairingService {
     return [...this.#devices.values()].map(publicDevice)
   }
 
+  /** Desktop-only association used to register explicitly managed pairings with Connect. */
+  redeemedDeviceId(invitationId: string): string | undefined {
+    return this.#invitations.get(invitationId)?.redeemedDeviceId
+  }
+
   isDeviceActive(deviceId: string): boolean {
     return this.#devices.has(deviceId)
   }
@@ -364,7 +384,10 @@ export class PairingService {
     device.lastSeenAt = this.#now()
   }
 
-  #issueChallenge(expiresAt: number, binding: { invitationId?: string; deviceId?: string }): string {
+  #issueChallenge(
+    expiresAt: number,
+    binding: { invitationId?: string; deviceId?: string },
+  ): string {
     const nonce = randomBytes(32).toString('base64url')
     this.#pruneChallenges()
     this.#challenges.set(nonce, { expiresAt, ...binding })
@@ -433,6 +456,7 @@ function publicDevice(device: PersistedDevice): PairedDevice {
     projectIds: [...device.projectIds],
     pairedAt: device.pairedAt,
     lastSeenAt: device.lastSeenAt,
+    allowTerminal: device.allowTerminal === true,
   }
 }
 
@@ -452,7 +476,10 @@ function isUsableP256Key(key: PairingPublicKey | undefined): key is PairingPubli
   }
 }
 
-function signatureMatches(key: PairingPublicKey, proof: { nonce: string; signature: string }): boolean {
+function signatureMatches(
+  key: PairingPublicKey,
+  proof: { nonce: string; signature: string },
+): boolean {
   if (proof.signature.length === 0 || proof.nonce.length === 0) return false
   try {
     return verify(
