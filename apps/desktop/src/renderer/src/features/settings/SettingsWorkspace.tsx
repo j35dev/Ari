@@ -29,7 +29,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'endpoints', label: 'Endpoints', icon: Plug },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'permissions', label: 'Permissions', icon: Shield },
-  { id: 'remote', label: 'Remote', icon: Smartphone },
+  { id: 'remote', label: 'Mobile access', icon: Smartphone },
   { id: 'keybindings', label: 'Keybindings', icon: Keyboard },
   { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
 ] as const
@@ -108,10 +108,7 @@ export function SettingsWorkspace({
         <div className="px-3 pb-2 pt-1">
           <SettingsSearch onJump={handleSearchJump} />
         </div>
-        <nav
-          aria-label="Settings sections"
-          className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
-        >
+        <nav aria-label="Settings sections" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           <ul className="flex flex-col gap-0.5">
             {SETTINGS_SECTIONS.map((entry) => {
               const Icon: LucideIcon = entry.icon
