@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   approvalOptionSchema,
   driverKindSchema,
+  permissionModeSchema,
   sessionStatusSchema,
   timestampSchema,
 } from './common'
@@ -420,10 +421,32 @@ export type RemoteProject = z.infer<typeof remoteProjectSchema>
  * accepts. No keys, paths, or provider logins travel with it.
  */
 export const remoteModelCatalogSchema = z.object({
+  defaults: z
+    .object({
+      driverKind: driverKindSchema.nullable(),
+      modelId: z.string().nullable(),
+      permissionMode: permissionModeSchema,
+      configuredDriverKind: driverKindSchema.nullable(),
+    })
+    .optional(),
   providers: z.array(
     z.object({
       driverKind: driverKindSchema,
-      models: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) })),
+      installed: z.boolean().optional(),
+      available: z.boolean().optional(),
+      authStatus: z.enum(['authenticated', 'unauthenticated', 'unknown']).optional(),
+      reason: z.string().nullable().optional(),
+      source: z.enum(['live', 'cache', 'snapshot', 'static']).optional(),
+      defaultModelId: z.string().nullable().optional(),
+      models: z.array(
+        z.object({
+          id: z.string().min(1),
+          label: z.string().min(1),
+          aliases: z.array(z.string()).optional(),
+          contextHint: z.string().optional(),
+          isLegacy: z.boolean().optional(),
+        }),
+      ),
     }),
   ),
 })
