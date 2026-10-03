@@ -1,5 +1,6 @@
 export { SpaceTabs, type SpaceTabsProps } from './SpaceTabs'
 export { spaceStatus, type SpaceStatus } from './space-status'
+export { useSpaceSwipe, type SwipeDirection } from './use-space-swipe'
 export {
   MAX_SPACES,
   activeLayoutOf,

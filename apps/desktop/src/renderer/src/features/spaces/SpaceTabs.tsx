@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useReducedMotionConfig } from 'motion/react'
-import { Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil, Plus, X } from 'lucide-react'
 import { EASE_OUT_EXPO } from '@ari/ui/motion'
+import { ContextMenu, useContextMenu, type ContextMenuItem } from '../../shell/ContextMenu'
 import type { DragEvent, KeyboardEvent } from 'react'
-import type { Space } from './spaces'
+import { MAX_SPACES, type Space } from './spaces'
 import type { SpaceStatus } from './space-status'
 
 /** Payload type for the tab drag, kept off the pane drags' namespaces. */
@@ -61,6 +62,8 @@ export function SpaceTabs({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dropBeforeId, setDropBeforeId] = useState<string | null | undefined>(undefined)
   const listRef = useRef<HTMLDivElement>(null)
+  const menu = useContextMenu()
+  const menuSpace = spaces.find((space) => space.id === menu.openFor) ?? null
 
   // Keep the selected tab in view when it changes from the keyboard or a jump,
   // so a strip that has scrolled does not hide the tab the user just chose.
@@ -80,6 +83,12 @@ export function SpaceTabs({
   }
 
   const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    // F2 is the platform's rename key; it opens the active tab for editing.
+    if (event.key === 'F2') {
+      event.preventDefault()
+      setEditingId(activeSpaceId)
+      return
+    }
     const tabs = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])
     const current = Math.max(
       0,
@@ -124,6 +133,54 @@ export function SpaceTabs({
 
   const animation = reducedMotion ? { duration: 0 } : { duration: 0.18, ease: EASE_OUT_EXPO }
 
+  /**
+   * The right-click entries for one tab. Rename is the item the user asked for;
+   * the rest are the tab moves that have nowhere else to live.
+   */
+  const itemsFor = (space: Space): ContextMenuItem[] => {
+    const index = spaces.findIndex((entry) => entry.id === space.id)
+    const items: ContextMenuItem[] = [
+      {
+        id: 'rename',
+        label: 'Rename…',
+        icon: Pencil,
+        onSelect: () => setEditingId(space.id),
+      },
+      {
+        id: 'new',
+        label: 'New space',
+        icon: Plus,
+        disabled: !canCreate,
+        disabledReason: `Ari holds at most ${String(MAX_SPACES)} spaces`,
+        onSelect: onCreate,
+      },
+      {
+        id: 'move-left',
+        label: 'Move left',
+        icon: ChevronLeft,
+        disabled: onReorder === undefined || index <= 0,
+        onSelect: () => onReorder?.(space.id, spaces[index - 1]?.id ?? null),
+      },
+      {
+        id: 'move-right',
+        label: 'Move right',
+        icon: ChevronRight,
+        disabled: onReorder === undefined || index >= spaces.length - 1,
+        onSelect: () => onReorder?.(space.id, spaces[index + 2]?.id ?? null),
+      },
+    ]
+    if (spaces.length > 1) {
+      items.push({
+        id: 'close',
+        label: 'Close space',
+        icon: X,
+        danger: true,
+        onSelect: () => onClose(space.id),
+      })
+    }
+    return items
+  }
+
   return (
     <div className="flex h-9 shrink-0 items-stretch border-b border-border/50 bg-surface-0">
       <div
@@ -159,6 +216,7 @@ export function SpaceTabs({
                 tabIndex={selected ? 0 : -1}
                 title={status === null ? space.name : `${space.name} — ${STATUS_LABEL[status]}`}
                 draggable={!editing}
+                onContextMenu={(event) => menu.open(space.id, event)}
                 onClick={() => {
                   if (!editing) onSelect(space.id)
                 }}
@@ -281,6 +339,15 @@ export function SpaceTabs({
           <Plus size={14} aria-hidden />
         </button>
       </div>
+
+      {menuSpace !== null ? (
+        <ContextMenu
+          anchor={menu.anchor}
+          label={`${menuSpace.name} space`}
+          items={itemsFor(menuSpace)}
+          onClose={menu.close}
+        />
+      ) : null}
     </div>
   )
 }
