@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RemoteState } from '@ari/contracts/rpc'
+import type { DriverKind } from '@ari/contracts/common'
 import type { Engine } from './engine'
 import type { SessionStore } from '@ari/engine/session-store'
 import { RemoteService, type RemoteServiceDeps } from './remote'
@@ -412,6 +413,47 @@ describe('remote service addressing', () => {
 })
 
 describe('remote service host wiring', () => {
+  it('accepts OpenCode after hydration without restarting the running gateway', async () => {
+    let kinds: DriverKind[] = ['ari-core']
+    const engine = fakeEngine()
+    const created = vi.spyOn(engine, 'createSession')
+    const { service } = makeService({
+      engine,
+      driverKinds: () => kinds,
+      listModels: async () => [
+        { driverKind: 'opencode', models: [{ id: 'default', label: 'CLI default' }] },
+      ],
+    })
+    const origin = (await service.start()).origin
+    if (origin === null) throw new Error('Gateway did not start')
+    const token = await pair(service, deviceKey())
+    const create = {
+      op: 'session.create',
+      projectId: 'proj_1',
+      driverKind: 'opencode',
+      modelId: 'default',
+      clientCommandId: 'c-1',
+      idempotencyKey: 'before-hydration-key',
+    }
+    expect(
+      (await call(origin, '/command', create, { authorization: `Bearer ${token}` })).status,
+    ).toBe(400)
+    kinds = ['ari-core', 'opencode']
+    expect(
+      (
+        await call(
+          origin,
+          '/command',
+          { ...create, idempotencyKey: 'after-hydration-key' },
+          { authorization: `Bearer ${token}` },
+        )
+      ).status,
+    ).toBe(200)
+    expect(created).toHaveBeenCalledWith(
+      expect.objectContaining({ driverKind: 'opencode', modelId: null }),
+    )
+    expect(service.state().origin).toBe(origin)
+  })
   it('master disable closes both listeners while managed origins cannot use the Tailscale listener', async () => {
     const { service } = makeService()
     const local = (await service.start()).origin

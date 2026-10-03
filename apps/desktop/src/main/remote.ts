@@ -131,7 +131,7 @@ export class RemoteService {
         host: createRemoteHost({
           engine: this.#deps.engine,
           store: this.#deps.store,
-          driverKinds: this.#deps.driverKinds(),
+          driverKinds: this.#deps.driverKinds,
           defaultPermissionMode: this.#deps.defaultPermissionMode,
           defaultDriverKind: this.#deps.defaultDriverKind,
           hasProject: this.#deps.hasProject,
@@ -197,7 +197,7 @@ export class RemoteService {
       host: createRemoteHost({
         engine: this.#deps.engine,
         store: this.#deps.store,
-        driverKinds: this.#deps.driverKinds(),
+        driverKinds: this.#deps.driverKinds,
         defaultPermissionMode: this.#deps.defaultPermissionMode,
         defaultDriverKind: this.#deps.defaultDriverKind,
         hasProject: this.#deps.hasProject,
