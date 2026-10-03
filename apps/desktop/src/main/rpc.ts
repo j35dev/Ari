@@ -14,6 +14,7 @@ import { Engine } from './engine'
 import { RemoteService } from './remote'
 import { RemoteConnectService } from './remote-connect'
 import { forkRemoteSession } from './remote-fork'
+import { remoteCatalogProviders } from './remote-catalog'
 import { safeStorageBox } from './secret-box'
 import { RemoteOrigins } from './remote-origins'
 import { TailscaleServe, type TailscaleState } from './tailscale'
@@ -997,16 +998,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             .list()
             .map((project) => ({ id: project.id, name: project.name }))
         },
-        // The picker's own catalog, filtered to what this desktop can drive.
-        // Synchronous reads of the merged snapshot; a background refresh
-        // replaces the data the next call sees.
-        listModels: () =>
-          Promise.resolve(
-            ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null).map((kind) => ({
-              driverKind: kind,
-              models: modelsFor(kind).map((model) => ({ id: model.id, label: model.label })),
-            })),
-          ),
+        listModels: async () => {
+          void catalogService.refreshIfStale()
+          const [detections, endpoints] = await Promise.all([
+            probeAllDetections(),
+            getEndpointStore().load(),
+          ])
+          return remoteCatalogProviders({
+            detections,
+            endpoints,
+            registered: (kind) => driverRegistry.get(kind) !== null,
+            models: modelsFor,
+            source: catalogSource,
+          })
+        },
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         terminalFactory: ptyFactory,
