@@ -1,171 +1,193 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { ArrowRight, Laptop, Network, ShieldCheck, Smartphone } from 'lucide-react'
 import { useApp } from '../../lib/app-state'
-import { connectionLabel } from '../../lib/format'
+import { IS_CONNECT_BUILD } from '../../lib/connect'
 
-/**
- * Pairing, which is the one screen the user cannot get past with a tap.
- *
- * The desktop approves this device, not the other way round: the invitation
- * only says which computer to ask, and the code below is derived from this
- * browser's own public key so the user can check that the two screens are
- * talking about the same phone.
- */
+/** Pairing is a deliberate desktop approval with the same confirmation code on both screens. */
 export function PairScreen({ invitationId }: { invitationId: string | null }): ReactNode {
   const app = useApp()
-  const [displayName, setDisplayName] = useState(() => defaultDeviceName())
+  const [name, setName] = useState(
+    /iPhone|iPad/.test(navigator.userAgent)
+      ? 'My iPhone'
+      : navigator.userAgent.includes('Android')
+        ? 'My Android'
+        : 'My browser',
+  )
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-  const [address, setAddress] = useState(app.origin ?? '')
-  const [waiting, setWaiting] = useState(false)
-
-  useEffect(() => {
-    if (invitationId !== null && app.origin !== null) void start()
-    // Attempted once per invitation: re-running would register a second key.
-  }, [invitationId, app.origin])
-
-  async function start(): Promise<void> {
-    if (invitationId === null) return
+  const [address, setAddress] = useState('')
+  async function pair(): Promise<void> {
+    if (invitationId === null || busy) return
     setBusy(true)
-    setWaiting(false)
     setFailure(null)
     try {
-      // The wait is the flow: this call returns only once the desktop has asked
-      // the user and they have answered.
-      setWaiting(true)
-      await app.pair(invitationId, displayName)
+      await app.pair(invitationId, name.trim())
     } catch (error) {
-      setFailure(messageFor(error))
+      setFailure(
+        error instanceof Error
+          ? error.message
+          : 'Pairing did not finish. Show a fresh code on your computer and try again.',
+      )
     } finally {
       setBusy(false)
-      setWaiting(false)
     }
   }
-
-  function connectTo(address: string): void {
-    const trimmed = address.trim().replace(/\/+$/, '')
-    if (trimmed.length === 0) return
+  function openAddress(): void {
     try {
-      app.rememberOrigin(new URL(trimmed).origin)
-    } catch {
-      setFailure('That does not look like an address. It should start with https://')
+      const url = new URL(address.trim())
+      if (url.protocol !== 'https:' || url.username || url.password)
+        throw new Error('Use the HTTPS address shown in desktop Mobile access settings.')
+      // Each private gateway serves its own PWA; navigation avoids a cross-origin credential handoff.
+      location.assign(url.href)
+    } catch (error) {
+      setFailure(
+        error instanceof Error ? error.message : 'Enter the HTTPS address of your computer.',
+      )
     }
   }
-
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-bg px-5 pb-[env(safe-area-inset-bottom)] pt-[max(1rem,env(safe-area-inset-top))] text-fg">
-      <h1 className="mt-6 text-[28px] font-bold leading-tight tracking-tight">Pair this phone</h1>
-      <p className="mt-2 text-sm text-fg-muted">
-        Ari keeps running on your computer. This phone becomes a remote control for it —
-        and the desktop decides what it may reach.
-      </p>
-
-      {app.origin === null ? (
-        <section className="mt-6">
-          <label className="block text-sm" htmlFor="desktop-address">
-            Desktop address
+    <div className="mobile-shell overflow-y-auto px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <header className="flex items-center justify-between">
+        <span className="text-2xl font-semibold tracking-[-0.06em]">
+          ari<span className="text-accent">.</span>
+        </span>
+        <span className="rounded-full border border-border px-3 py-1.5 text-[11px] text-fg-muted">
+          Mobile workspace
+        </span>
+      </header>
+      <div className="mb-8 mt-12">
+        <div className="mb-5 flex items-center gap-3">
+          <span className="flex size-12 items-center justify-center rounded-2xl border border-border bg-surface-1">
+            <Laptop size={23} />
+          </span>
+          <span className="h-px w-8 bg-border-strong" />
+          <span className="flex size-12 items-center justify-center rounded-2xl border border-border bg-surface-1">
+            <Smartphone size={22} />
+          </span>
+        </div>
+        <h1 className="text-[32px] font-semibold leading-tight tracking-[-0.055em]">
+          {invitationId === null ? 'Ari, in your pocket.' : 'Make this phone yours.'}
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-fg-muted">
+          {invitationId === null
+            ? 'Build, review, and guide your agents from anywhere. Your computer remains the workspace.'
+            : 'Give this phone a name. Confirm the matching code in Ari on your computer, then choose the projects it can access.'}
+        </p>
+      </div>
+      {invitationId !== null ? (
+        <section>
+          <label className="block text-xs text-fg-muted" htmlFor="device-name">
+            Device name
           </label>
           <input
-            id="desktop-address"
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder="https://your-desktop.tailnet.ts.net"
-            inputMode="url"
-            autoCapitalize="none"
-            autoCorrect="off"
-            className="mt-2 h-12 w-full rounded-xl border border-border bg-surface-1 px-4 text-fg placeholder:text-fg-subtle"
+            id="device-name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={80}
+            disabled={busy}
+            className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-4"
           />
           <button
             type="button"
-            onClick={() => connectTo(address)}
-            className="mt-3 h-12 w-full rounded-xl bg-accent font-medium text-fg-on-accent"
+            className="primary-button mt-4 w-full"
+            disabled={busy || !name.trim() || app.session === null}
+            onClick={() => void pair()}
           >
-            Use this desktop
+            {busy ? 'Waiting for your computer…' : 'Pair this phone'}
+            {!busy && <ArrowRight size={17} />}
           </button>
-          <p className="mt-3 text-xs text-fg-subtle">
-            The address is shown in Ari on the desktop under Settings → Remote access. Opening
-            the pairing link from there fills this in for you.
-          </p>
-        </section>
-      ) : (
-        <section className="mt-6">
-          <p className="text-sm text-fg-muted">
-            Desktop: <span className="font-mono text-fg">{app.origin}</span>
-          </p>
-
-          {invitationId === null ? (
-            <p className="mt-4 rounded-md border border-border bg-surface-1 p-3 text-sm">
-              No pairing link was found. Open Ari on the desktop, choose{' '}
-              <span className="font-medium">Settings → Remote access → Show pairing code</span>, and
-              scan that QR code with this phone's camera.
-            </p>
-          ) : (
-            <>
-              <label className="mt-4 block text-sm" htmlFor="device-name">
-                Name for this device
-              </label>
-              <input
-                id="device-name"
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-                maxLength={80}
-                className="mt-2 h-12 w-full rounded-xl border border-border bg-surface-1 px-4 text-fg"
-              />
-              <button
-                type="button"
-                disabled={busy || displayName.trim().length === 0}
-                onClick={() => void start()}
-                className="mt-3 h-12 w-full rounded-xl bg-accent font-medium text-fg-on-accent disabled:opacity-50"
-              >
-                {busy ? 'Waiting for approval…' : 'Ask the desktop to approve'}
-              </button>
-              {waiting && (
-                <p role="status" className="mt-3 text-sm text-fg-muted">
-                  Look at Ari on your computer: it shows this device and a short code. Approve it
-                  there to finish.
-                </p>
-              )}
-            </>
+          {busy && (
+            <div
+              role="status"
+              className="mt-5 rounded-2xl border border-border bg-surface-1 p-5 text-center"
+            >
+              <p className="text-xs text-fg-muted">Match this code on your computer</p>
+              <p className="my-3 font-mono text-[28px] font-medium tracking-[0.18em]">
+                {app.pairingCode ?? '••••••'}
+              </p>
+              <p className="text-xs leading-relaxed text-fg-subtle">
+                Approve only if both screens show the same code. Choose projects explicitly before
+                granting access.
+              </p>
+            </div>
           )}
         </section>
+      ) : (
+        <>
+          <section className="rounded-2xl border border-border bg-surface-1 p-5">
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+              <Network size={18} />
+              {IS_CONNECT_BUILD ? 'Approve this phone on your desktop' : 'Use your own Tailscale'}
+            </div>
+            <ol className="space-y-3 text-sm leading-relaxed text-fg-muted">
+              <li>
+                <span className="mr-2 text-fg-subtle">1.</span>Open Settings → Mobile access in Ari.
+              </li>
+              <li>
+                <span className="mr-2 text-fg-subtle">2.</span>
+                {IS_CONNECT_BUILD
+                  ? 'Choose Ari Connect and create a pairing code.'
+                  : 'Connect your phone and computer to your Tailscale network.'}
+              </li>
+              <li>
+                <span className="mr-2 text-fg-subtle">3.</span>Scan the pairing QR with your phone's
+                camera.
+              </li>
+            </ol>
+          </section>
+          {!IS_CONNECT_BUILD && (
+            <details className="mt-5">
+              <summary className="flex min-h-11 cursor-pointer items-center text-xs text-fg-muted">
+                Already have your computer's address?
+              </summary>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  openAddress()
+                }}
+                className="mt-2 space-y-3"
+              >
+                <input
+                  type="url"
+                  value={address}
+                  onChange={(event) => setAddress(event.target.value)}
+                  placeholder="https://computer.tailnet.ts.net"
+                  aria-label="Desktop address"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  className="min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3"
+                />
+                <button type="submit" className="secondary-button w-full">
+                  Open computer
+                  <ArrowRight size={15} />
+                </button>
+              </form>
+            </details>
+          )}
+        </>
       )}
-
-      {failure !== null && (
-        <p role="alert" className="mt-4 rounded-md border border-danger bg-danger-subtle p-3 text-sm">
-          {failure}
+      {(failure ?? app.error) !== null && (
+        <p role="alert" className="error-banner">
+          {failure ?? app.error}
         </p>
       )}
-
-      <p className="mt-auto pt-6 text-xs text-fg-subtle">
-        {connectionLabel(app.connection)}
-        {app.origin !== null && ' — the invitation expires five minutes after it is shown.'}
-      </p>
+      {IS_CONNECT_BUILD && (
+        <button
+          type="button"
+          className="mt-4 min-h-11 text-xs text-fg-muted"
+          onClick={app.changeComputer}
+        >
+          Choose another computer
+        </button>
+      )}
+      <div className="mt-auto flex gap-2 border-t border-border pt-5 text-[11px] leading-relaxed text-fg-subtle">
+        <ShieldCheck size={16} className="shrink-0" />
+        <p>
+          {IS_CONNECT_BUILD
+            ? 'Your account and this phone’s approved device key are both required.'
+            : 'A private connection. No Ari account required. Your device key stays on this phone.'}
+        </p>
+      </div>
     </div>
   )
-}
-
-/** A name the user will recognise in the desktop's device list. */
-function defaultDeviceName(): string {
-  const platform = navigator.userAgent.includes('Android')
-    ? 'Android'
-    : /iPhone|iPad/.test(navigator.userAgent)
-      ? 'iPhone'
-      : 'Browser'
-  return `${platform} phone`
-}
-
-function messageFor(error: unknown): string {
-  if (error instanceof Error) {
-    switch (error.message) {
-      case 'this device was not approved':
-        return 'The desktop declined this device.'
-      case 'the invitation expired':
-      case 'the desktop did not answer in time':
-        return 'The invitation expired. Show a new pairing code on the desktop and scan it again.'
-      case 'this invitation was already used':
-        return 'That pairing code has already been used. Show a new one and try again.'
-      default:
-        return error.message
-    }
-  }
-  return 'Pairing did not finish.'
 }

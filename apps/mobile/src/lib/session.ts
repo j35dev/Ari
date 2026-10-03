@@ -1,5 +1,7 @@
 import { RemoteError, type GatewayClient } from './gateway-client'
 import type { DeviceKeyring } from './device-key'
+import { ManagedLeaseClient } from './connect'
+import type { RemoteServerMessage } from '@ari/contracts/remote'
 
 /**
  * The connection a phone actually lives with (ADR §17).
@@ -39,6 +41,8 @@ export interface SessionDeps {
   keyring: DeviceKeyring
   /** Called whenever the state changes, for the UI banner. */
   onState?: (state: ConnectionState) => void
+  onPairCode?: (code: string) => void
+  managedComputerId?: string
   /** How often to ask whether the desktop has decided. Tests shorten it. */
   decisionPollMs?: number
   /** How long to wait for that decision before giving up. */
@@ -61,20 +65,28 @@ export class MobileSession {
   readonly #client: GatewayClient
   readonly #keyring: DeviceKeyring
   readonly #onState: ((state: ConnectionState) => void) | undefined
+  readonly #onPairCode: ((code: string) => void) | undefined
   readonly #decisionPollMs: number
   readonly #decisionTimeoutMs: number
   #state: ConnectionState = 'unpaired'
   #token: string | null = null
   /** Resolved project ids the desktop reported at the last authorization. */
   #projectIds: string[] = []
+  #allowTerminal = false
   #capabilities: readonly string[] = []
   #listeners = new Set<() => void>()
   #connectRetryMs: number
+  readonly #managed: ManagedLeaseClient | null
 
   constructor(deps: SessionDeps) {
     this.#client = deps.client
     this.#keyring = deps.keyring
     this.#onState = deps.onState
+    this.#onPairCode = deps.onPairCode
+    this.#managed =
+      deps.managedComputerId === undefined
+        ? null
+        : new ManagedLeaseClient(deps.managedComputerId, deps.keyring)
     this.#decisionPollMs = deps.decisionPollMs ?? DECISION_POLL_MS
     this.#decisionTimeoutMs = deps.decisionTimeoutMs ?? DECISION_TIMEOUT_MS
     this.#connectRetryMs = deps.connectRetryMs ?? CONNECT_RETRY_MS
@@ -99,7 +111,13 @@ export class MobileSession {
   }
 
   supports(operation: string): boolean {
+    if (operation.startsWith('terminal.') && !this.#allowTerminal) return false
     return this.#capabilities.includes(operation)
+  }
+
+  /** A separate desktop approval is required for a phone-controlled shell. */
+  get allowTerminal(): boolean {
+    return this.#allowTerminal
   }
 
   get projectIds(): readonly string[] {
@@ -164,12 +182,25 @@ export class MobileSession {
    */
   async pair(invitationId: string, displayName: string): Promise<void> {
     const publicKey = await this.#keyring.publicKey()
-    const { nonce } = await this.#client.pairRequest(invitationId, displayName, publicKey)
+    const { nonce, confirmationCode } = await this.#client.pairRequest(
+      invitationId,
+      displayName,
+      publicKey,
+    )
+    this.#onPairCode?.(confirmationCode)
     await this.#awaitDecision(invitationId)
     const signature = await this.#keyring.sign(nonce)
     const redeemed = await this.#client.pairRedeem(invitationId, { nonce, signature })
     this.#useToken(redeemed.token)
     await this.#keyring.remember({ deviceId: redeemed.deviceId, displayName, projectIds: [] })
+    const info = await this.#client.info()
+    if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION)
+      throw new RemoteError(
+        'unsupported_version',
+        'Update Ari on your computer to pair this version.',
+      )
+    this.#capabilities = info.capabilities
+    await this.#authorize(redeemed.deviceId)
     this.#set('connected')
   }
 
@@ -211,10 +242,8 @@ export class MobileSession {
    * command that fails for a reason the desktop can explain is not retried at
    * all — repeating it would ask the same question and get the same answer.
    */
-  async send<T extends { op: string }>(
-    envelope: T,
-  ): Promise<unknown> {
-    const idempotencyKey = mintKey()
+  async send<T extends { op: string }>(envelope: T, idempotencyKey = mintKey()): Promise<unknown> {
+    await this.#renewLease()
     const body = {
       ...envelope,
       clientCommandId: idempotencyKey,
@@ -247,10 +276,14 @@ export class MobileSession {
 
   /** A read, renewed once if the token has aged out. */
   async query<T>(op: string, params: Record<string, unknown> = {}): Promise<T> {
+    await this.#renewLease()
     try {
       return await this.#client.query<T>(op, params)
     } catch (error) {
-      if (error instanceof RemoteError && error.code === 'unauthenticated') {
+      if (
+        error instanceof RemoteError &&
+        (error.code === 'unauthenticated' || error.code === 'authentication_expired')
+      ) {
         await this.#reauth()
         return await this.#client.query<T>(op, params)
       }
@@ -267,18 +300,56 @@ export class MobileSession {
       onClose: (info: { code: number; reason: string }) => void
     },
   ): () => void {
-    return this.#client.subscribe(sessionId, {
-      ...(options.fromSeq === undefined ? {} : { fromSeq: options.fromSeq }),
-      onFrame: (message) => options.onFrame(message),
-      onClose: (info) => {
-        // 1006 is an abnormal close — the phone lost the network, or the
-        // desktop went away. Anything the gateway closed deliberately is
-        // reported as it was, because the reason is on screen.
-        if (info.code === 1006) this.#set('reconnecting')
-        else if (info.code === 1008) this.#set('revoked')
-        options.onClose(info)
-      },
-    })
+    let disposed = false
+    let close: (() => void) | null = null
+    let renewal: ReturnType<typeof setTimeout> | null = null
+    let cursor = options.fromSeq
+    const onFrame = (message: RemoteServerMessage): void => {
+      if (message.type === 'events.frame')
+        for (const event of message.events) cursor = Math.max(cursor ?? 0, event.seq)
+      options.onFrame(message)
+    }
+    const open = (): void => {
+      if (disposed) return
+      close = this.#client.subscribe(sessionId, {
+        ...(cursor === undefined ? {} : { fromSeq: cursor }),
+        onFrame,
+        onClose: (info) => {
+          // 1006 is an abnormal close — the phone lost the network, or the
+          // desktop went away. Anything the gateway closed deliberately is
+          // reported as it was, because the reason is on screen.
+          if (info.code === 1006) this.#set('reconnecting')
+          else if (info.code === 1008)
+            this.#set(this.#managed === null ? 'revoked' : 'reconnecting')
+          options.onClose(info)
+        },
+      })
+      if (this.#managed !== null)
+        renewal = setTimeout(() => {
+          void this.#renewLease(true)
+            .then(() => {
+              if (!disposed) {
+                close?.()
+                open()
+              }
+            })
+            .catch((error: unknown) => {
+              if (!disposed) {
+                close?.()
+                options.onClose({
+                  code: 1013,
+                  reason: error instanceof Error ? error.message : 'Membership renewal failed.',
+                })
+              }
+            })
+        }, 45000)
+    }
+    open()
+    return () => {
+      disposed = true
+      close?.()
+      if (renewal !== null) clearTimeout(renewal)
+    }
   }
 
   #set(state: ConnectionState): ConnectionState {
@@ -297,6 +368,19 @@ export class MobileSession {
     const authorized = await this.#client.deviceAuthorize(deviceId, { nonce, signature })
     this.#useToken(authorized.token)
     this.#projectIds = authorized.projectIds
+    this.#allowTerminal = authorized.allowTerminal === true
+    await this.#renewLease()
+  }
+
+  async #renewLease(force = false): Promise<void> {
+    if (this.#managed === null) return
+    try {
+      this.#client.lease = await this.#managed.token(force)
+    } catch (error) {
+      this.#client.lease = null
+      this.#set('unreachable')
+      throw error
+    }
   }
 
   /** The one place the token moves, so it cannot be set but not installed. */
@@ -330,7 +414,7 @@ export class MobileSession {
       if (error instanceof RemoteError && error.code === 'conflict') {
         throw new RemoteError('conflict', 'the desktop is still working on that')
       }
-      return undefined
+      throw error
     }
   }
 }

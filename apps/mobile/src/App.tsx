@@ -2,6 +2,8 @@ import { useState, type ReactNode } from 'react'
 import { PairScreen } from './features/pair/PairScreen'
 import { AppShell } from './shell/AppShell'
 import { takeInvitationFromUrl, useApp } from './lib/app-state'
+import { IS_CONNECT_BUILD } from './lib/connect'
+import { ConnectScreen } from './features/connect/ConnectScreen'
 
 /**
  * Three states, never two: still deciding, not yet paired, or driving.
@@ -15,6 +17,8 @@ import { takeInvitationFromUrl, useApp } from './lib/app-state'
 export function App(): ReactNode {
   const app = useApp()
   const [invitation] = useState<string | null>(() => takeInvitationFromUrl(location.href))
+
+  if (IS_CONNECT_BUILD && app.origin === null) return <ConnectScreen />
 
   if (!app.booted) {
     return (
