@@ -247,7 +247,7 @@ export class ManagedWorkspaces {
     return this.snapshot(workspace.path, `${this.#ref(child.id)}/current`, workspace.baseCommit)
   }
 
-  async diff(child: Session, patch: boolean): Promise<unknown> {
+  async diff(child: Session, patch: boolean) {
     const workspace = await this.#workspace(child)
     const currentSnapshotCommit = await this.snapshot(
       workspace.path,
@@ -331,6 +331,7 @@ export class ManagedWorkspaces {
     child: Session,
     snapshotCommit: string,
     previous?: string,
+    expectedParentSnapshot?: string,
   ): Promise<{ status: 'integrated' | 'conflict'; snapshotCommit: string; files: string[] }> {
     const workspace = await this.#workspace(child)
     if (!oid.test(snapshotCommit)) throw new ControlFailure('invalid_request', 'Invalid snapshot.')
@@ -358,6 +359,11 @@ export class ManagedWorkspaces {
         )
     }
     const parentSnapshot = await this.snapshot(cwd, `${this.#ref(parent.id)}/integration-parent`)
+    if (expectedParentSnapshot !== undefined && parentSnapshot !== expectedParentSnapshot)
+      throw new ControlFailure(
+        'stale_snapshot',
+        'Parent workspace changed after preview. Review a fresh preview before integrating.',
+      )
     const merge = await this.git.runPlumbing(
       cwd,
       [

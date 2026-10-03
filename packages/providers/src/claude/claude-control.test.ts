@@ -142,6 +142,23 @@ describe('claude stdin control frames', () => {
     })
   })
 
+  it('accepts an exact option id from callers holding the offered options', () => {
+    const { child, adapter } = harness()
+
+    startPump(adapter)
+    emitStdout(child, {
+      type: 'control_request',
+      request_id: 'req_3',
+      request: { subtype: 'can_use_tool', tool_name: 'Edit', input: {} },
+    })
+    return new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
+      adapter.respondApproval('req_3', { optionId: 'deny' })
+      expect(child.lines.at(-1)).toEqual(
+        `${JSON.stringify(buildApprovalResponseFrame('req_3', 'deny'))}\n`,
+      )
+    })
+  })
+
   it('respondApproval still answers (plain allow) when no matching request was seen', () => {
     const { child, adapter } = harness()
 

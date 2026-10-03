@@ -1,4 +1,5 @@
 import type { JournalEvent } from '@ari/contracts/events'
+import type { ApprovalOption } from '@ari/contracts/common'
 import type { Message } from '@ari/contracts/message'
 import type { QueuedMessage } from '@ari/contracts/attachments'
 import type { Session, SessionStatus } from '@ari/contracts/session'
@@ -28,7 +29,18 @@ export interface SessionReadModel {
   streamingMessageId: string | null
   activeTurnId: string | null
   status: SessionStatus | 'unknown'
-  pendingApprovals: { approvalId: string; toolName: string; summaryJson: string }[]
+  /**
+   * Approvals awaiting an answer, with the choices their provider offered.
+   * The options ride along so an answer can be checked against what was
+   * actually on the table — two grants may share a kind, so the id is the
+   * only thing that names one.
+   */
+  pendingApprovals: {
+    approvalId: string
+    toolName: string
+    summaryJson: string
+    options: ApprovalOption[]
+  }[]
   /** Agent questions awaiting an `input.respond` answer. */
   pendingInputs: { inputId: string; prompt: string; choicesJson: string | null }[]
   /** User messages queued behind the active turn (survives reload via replay). */
@@ -151,7 +163,12 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'approval.requested':
       next.pendingApprovals = [
         ...next.pendingApprovals,
-        { approvalId: event.approvalId, toolName: event.toolName, summaryJson: event.summaryJson },
+        {
+          approvalId: event.approvalId,
+          toolName: event.toolName,
+          summaryJson: event.summaryJson,
+          options: event.options,
+        },
       ]
       break
 

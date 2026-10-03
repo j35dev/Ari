@@ -27,3 +27,16 @@ export const sessionStatusSchema = z.enum([
   'error',
 ])
 export type SessionStatus = z.infer<typeof sessionStatusSchema>
+
+/**
+ * One choice an approval request offers. Several options may share a `kind` —
+ * Codex advertises both a session-scoped and a prefix-scoped persistent grant
+ * as `allow_always` — so the id, never the kind, identifies what the user
+ * chose. `kind` is null for providers that advertise none.
+ */
+export const approvalOptionSchema = z.object({
+  optionId: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.string().min(1).nullable().default(null),
+})
+export type ApprovalOption = z.infer<typeof approvalOptionSchema>

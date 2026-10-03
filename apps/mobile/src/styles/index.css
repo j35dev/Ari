@@ -1,0 +1,199 @@
+/* Ari's tokens, not a second palette: the phone and the desktop are one
+   product, and a colour that means "failed" here must mean it there too. Only
+   the layout differs. Fonts load from main.tsx through `@ari/ui/fonts` for the
+   same reason the desktop does it that way â€” Tailwind inlines CSS `@import`s
+   before Vite can hash the font files they reference. */
+@import 'tailwindcss';
+@import '@ari/ui/tokens.css';
+@import '@ari/ui/scroll-area.css';
+
+@source '../../../../packages/ui/src';
+
+/* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
+   resolve to live CSS variables. Mirrors the desktop's mapping; a token added
+   there and not here shows up as a missing utility rather than a wrong colour. */
+@theme inline {
+  --color-bg: var(--ari-bg);
+  --color-surface-0: var(--ari-surface-0);
+  --color-surface-1: var(--ari-surface-1);
+  --color-surface-2: var(--ari-surface-2);
+  --color-surface-3: var(--ari-surface-3);
+  --color-border: var(--ari-border);
+  --color-border-strong: var(--ari-border-strong);
+  --color-fg: var(--ari-fg);
+  --color-fg-muted: var(--ari-fg-muted);
+  --color-fg-subtle: var(--ari-fg-subtle);
+  --color-fg-on-accent: var(--ari-fg-on-accent);
+  --color-accent: var(--ari-accent);
+  --color-accent-hover: var(--ari-accent-hover);
+  --color-accent-active: var(--ari-accent-active);
+  --color-accent-subtle: var(--ari-accent-subtle);
+  --color-accent-ring: var(--ari-accent-ring);
+  --color-success: var(--ari-success);
+  --color-success-subtle: var(--ari-success-subtle);
+  --color-warning: var(--ari-warning);
+  --color-warning-subtle: var(--ari-warning-subtle);
+  --color-danger: var(--ari-danger);
+  --color-danger-hover: var(--ari-danger-hover);
+  --color-danger-subtle: var(--ari-danger-subtle);
+  --color-info: var(--ari-info);
+  --color-info-subtle: var(--ari-info-subtle);
+  --color-busy: var(--ari-busy);
+  --color-busy-subtle: var(--ari-busy-subtle);
+  --radius-sm: var(--ari-radius-sm);
+  --radius-md: var(--ari-radius-md);
+  --radius-lg: var(--ari-radius-lg);
+  --radius-xl: var(--ari-radius-xl);
+  --radius-2xl: var(--ari-radius-2xl);
+  --radius-full: var(--ari-radius-full);
+  --font-ui: var(--ari-font-ui);
+  --font-mono: var(--ari-font-mono);
+  --text-2xs: var(--ari-text-2xs);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--ari-font-ui);
+    font-size: var(--ari-text-md);
+    background: var(--ari-bg);
+    color: var(--ari-fg);
+    -webkit-font-smoothing: antialiased;
+    /* The page itself never scrolls: each screen owns its scroll area, so a
+       streaming reply cannot move the fragment the user is reading. */
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* 16px keeps iOS Safari from zooming when a field takes focus. */
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
+    font-size: 16px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ari-accent-ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--ari-accent-subtle);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .mobile-shell {
+    @apply flex h-full flex-col bg-bg text-fg;
+  }
+  .screen-heading {
+    @apply shrink-0 px-5 pb-3 pt-5;
+  }
+  .section-label {
+    @apply mb-1 mt-4 text-[11px] font-medium tracking-wide text-fg-subtle;
+  }
+  .icon-button {
+    @apply flex size-11 shrink-0 items-center justify-center rounded-xl disabled:opacity-40;
+  }
+  .primary-button {
+    @apply flex min-h-12 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-fg-on-accent disabled:opacity-40;
+  }
+  .secondary-button {
+    @apply flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border bg-surface-1 px-4 text-sm font-medium disabled:opacity-40;
+  }
+  .error-banner {
+    @apply my-3 rounded-xl border border-danger bg-danger-subtle p-3 text-sm text-danger;
+  }
+  .markdown {
+    @apply min-w-0 break-words text-[15px] leading-[1.75];
+  }
+  .markdown > :first-child {
+    margin-top: 0;
+  }
+  .markdown > :last-child {
+    margin-bottom: 0;
+  }
+  .markdown p {
+    margin: 0.75em 0;
+  }
+  .markdown h1,
+  .markdown h2,
+  .markdown h3 {
+    @apply mb-2 mt-5 font-semibold leading-snug tracking-tight;
+  }
+  .markdown h1 {
+    font-size: 1.3em;
+  }
+  .markdown h2 {
+    font-size: 1.15em;
+  }
+  .markdown ul,
+  .markdown ol {
+    @apply my-3 space-y-1 pl-5;
+  }
+  .markdown ul {
+    list-style: disc;
+  }
+  .markdown ol {
+    list-style: decimal;
+  }
+  .markdown a {
+    @apply text-accent underline underline-offset-2;
+  }
+  .markdown pre {
+    @apply my-3 overflow-x-auto rounded-xl border border-border bg-surface-1 p-3 font-mono text-xs leading-relaxed;
+  }
+  .markdown :not(pre) > code {
+    @apply rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .markdown blockquote {
+    @apply my-3 border-l-2 border-border-strong pl-3 text-fg-muted;
+  }
+  .markdown table {
+    @apply my-3 block max-w-full overflow-auto text-xs;
+  }
+  .markdown th,
+  .markdown td {
+    @apply border border-border px-3 py-2 text-left;
+  }
+  .markdown hr {
+    @apply my-5 border-border;
+  }
+}
+
+#root {
+  height: var(--ari-mobile-height, 100dvh);
+}
+button,
+a,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  touch-action: manipulation;
+}
+@media (min-width: 720px) {
+  #root {
+    max-width: 720px;
+    margin-inline: auto;
+    border-inline: 1px solid var(--ari-border);
+  }
+}

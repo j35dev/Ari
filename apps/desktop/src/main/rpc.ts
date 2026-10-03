@@ -1,7 +1,7 @@
 import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, safeStorage, type WebContents } from 'electron'
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
@@ -11,6 +11,14 @@ import type { AppUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
+import { RemoteService } from './remote'
+import { RemoteConnectService } from './remote-connect'
+import { forkRemoteSession } from './remote-fork'
+import { remoteCatalogProviders } from './remote-catalog'
+import { safeStorageBox } from './secret-box'
+import { RemoteOrigins } from './remote-origins'
+import { TailscaleServe, type TailscaleState } from './tailscale'
+import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
@@ -101,7 +109,11 @@ import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 import { McpServerStore, mergeCoreMcp, publicMcpServer } from '@ari/ari-core/mcp-servers'
 import { sanitizeMcpSegment } from '@ari/ari-core/mcp-tools'
-import { listAriCoreSkills, readTrustedSkillRoots, setWorkspaceSkillTrust } from '@ari/ari-core/skills'
+import {
+  listAriCoreSkills,
+  readTrustedSkillRoots,
+  setWorkspaceSkillTrust,
+} from '@ari/ari-core/skills'
 import { BUILT_IN_TOOLS } from '@ari/ari-core/tools'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
 import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
@@ -446,6 +458,49 @@ let driverRegistryRef: DriverRegistry | null = null
  * so the controller rebinds to whichever registry is current when it speaks.
  */
 let appUpdaterRef: UpdateController | null = null
+/**
+ * Remote access as well is process-wide: a second window must show the same
+ * gateway and the same paired devices rather than starting its own listener
+ * on a port the first one already holds.
+ */
+let remoteRef: RemoteService | null = null
+let remoteConnectRef: RemoteConnectService | null = null
+
+/** The port the gateway is bound to, or the one settings name before it runs. */
+function gatewayPort(): number {
+  const origin = remoteRef?.state().origin ?? null
+  const bound = origin === null ? Number.NaN : Number(new URL(origin).port)
+  return Number.isInteger(bound) && bound > 0 ? bound : getSettingsStore().current.remote.port
+}
+
+let remoteServicesRef: { origins: RemoteOrigins; tailscale: TailscaleServe } | null = null
+
+/**
+ * Tailscale Serve and the origins it contributes, built once per process.
+ *
+ * Shared rather than per-window because the running gateway reads its allowlist
+ * from the {@linkcode RemoteOrigins} instance: a second window refreshing a
+ * private copy would leave the listener trusting an origin set nobody updates.
+ */
+function remoteServices(): { origins: RemoteOrigins; tailscale: TailscaleServe } {
+  if (remoteServicesRef !== null) return remoteServicesRef
+  const tailscale = new TailscaleServe({ port: gatewayPort })
+  remoteServicesRef = {
+    tailscale,
+    origins: new RemoteOrigins({
+      status: () => tailscale.status(),
+      configured: () => getSettingsStore().current.remote.allowedOrigins,
+      remember: async (origin) => {
+        const store = getSettingsStore()
+        if (store.current.remote.allowedOrigins.includes(origin)) return
+        await store.update({
+          remote: { allowedOrigins: [...store.current.remote.allowedOrigins, origin] },
+        })
+      },
+    }),
+  }
+  return remoteServicesRef
+}
 
 /** Answer for update RPCs that arrive before any window registered the RPC layer. */
 const REFUSED = { started: false, reason: 'The update service is not running.' }
@@ -612,7 +667,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       mcpServers: () => {
         for (const server of mcpStore.list()) {
           if (!server.disabled && sanitizeMcpSegment(server.name) === 'ari_browser') {
-            log.warn('mcp server name is reserved', { server: server.name, reason: 'reserved-name' })
+            log.warn('mcp server name is reserved', {
+              server: server.name,
+              reason: 'reserved-name',
+            })
           }
         }
         return mergeCoreMcp(mcpStore.list(), browserCoreMcpServers)
@@ -899,6 +957,177 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('settings.update', async (params) => getSettingsStore().update(params))
+
+  // Remote access (ADR §5): the gateway stays off until the user turns it on,
+  // and the records it outlives the process with — paired devices and command
+  // deduplication — live beside the rest of the desktop's state.
+  //
+  // Reachability is Tailscale's (P3): Serve exposes the loopback listener as
+  // https://<machine>.<tailnet>.ts.net, and the gateway serves the PWA from
+  // the same origin, so the phone's app talks to an API it is not cross-origin
+  // with. The Serve state is process-wide for the same reason the gateway is:
+  // the running listener reads its allowlist from this instance.
+  const { origins, tailscale } = remoteServices()
+  /**
+   * Re-reads Tailscale and republishes, because a tailnet address appearing is
+   * exactly what turns the panel's pairing notice into a QR code.
+   */
+  const refreshTailscale = async (): Promise<TailscaleState> => {
+    const state = await origins.refresh()
+    rpcRegistry.publish('remote.updates', remote.state())
+    return state
+  }
+
+  const remote =
+    remoteRef ??
+    new RemoteService(
+      {
+        engine,
+        store: getSessionStore(),
+        dir: join(app.getPath('userData'), 'remote'),
+        driverKinds: () => ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null),
+        defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
+        defaultDriverKind: () => getSettingsStore().current.sessions.defaultDriverKind,
+        hasProject: async (projectId) => {
+          await getProjectStore().load()
+          return getProjectStore().get(projectId) !== undefined
+        },
+        listProjects: async () => {
+          await getProjectStore().load()
+          return getProjectStore()
+            .list()
+            .map((project) => ({ id: project.id, name: project.name }))
+        },
+        listModels: async () => {
+          void catalogService.refreshIfStale()
+          const [detections, endpoints] = await Promise.all([
+            probeAllDetections(),
+            getEndpointStore().load(),
+          ])
+          return remoteCatalogProviders({
+            detections,
+            endpoints,
+            registered: (kind) => driverRegistry.get(kind) !== null,
+            models: modelsFor,
+            source: catalogSource,
+          })
+        },
+        mintSessionId: () =>
+          `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        terminalFactory: ptyFactory,
+        fork: async (deviceId, command) =>
+          forkRemoteSession((await controlReady).service, deviceId, command),
+        // No address is reachable from a phone until Serve (or a tunnel) is in
+        // front of the loopback listener; until then the panel says so rather
+        // than showing a QR code that would resolve to the phone itself.
+        clientOrigin: () => origins.clientOrigin(),
+        allowedOrigins: () => origins.allowedOrigins(),
+        webRoot: () =>
+          mobileWebRoot({
+            isPackaged: app.isPackaged,
+            resourcesPath: process.resourcesPath,
+            appPath: app.getAppPath(),
+          }),
+        onChange: (state) => {
+          rpcRegistry.publish('remote.updates', state)
+          remoteConnectRef?.syncDevices()
+        },
+      },
+      { port: getSettingsStore().current.remote.port },
+    )
+  remoteRef = remote
+  const connect =
+    remoteConnectRef ??
+    new RemoteConnectService({
+      dir: join(app.getPath('userData'), 'remote'),
+      version: app.getVersion(),
+      remote,
+      secretBox: () => {
+        if (!safeStorage.isEncryptionAvailable()) return null
+        if (
+          process.platform === 'linux' &&
+          safeStorage.getSelectedStorageBackend() === 'basic_text'
+        )
+          return null
+        return safeStorageBox(safeStorage)
+      },
+      openExternal: (url) => shell.openExternal(url),
+      onChange: () => rpcRegistry.publish('remote.updates', remote.state()),
+    })
+  remoteConnectRef = connect
+  r.register('remote.connect.status', () => connect.status())
+  r.register('remote.connect.configure', (params) => connect.configure(params.origin))
+  r.register('remote.connect.signIn', (params) => connect.signIn(params.computerName))
+  r.register('remote.connect.signOut', () => connect.signOut())
+
+  r.register('remote.status', () => remote.state())
+  r.register('remote.enable', async (params) => {
+    // The setting is written first: it is what makes the choice survive a
+    // restart, and a gateway that failed to listen must not look enabled.
+    await getSettingsStore().update({ remote: { enabled: true, port: params.port } })
+    const state = await remote.start(params.port)
+    // Now there is a listener for Serve to point at, and a tailnet address is
+    // what the pairing panel needs before it can show a QR code.
+    await refreshTailscale()
+    await connect.status()
+    return state
+  })
+  r.register('remote.disable', async () => {
+    await getSettingsStore().update({ remote: { enabled: false } })
+    await connect.stop()
+    await remote.stop()
+    // Leaving the mapping would send every phone to a listener that is gone,
+    // so the mapping Ari made is removed with the gateway. A mapping the user
+    // configured for something else is not Ari's to remove, and is not touched.
+    await tailscale.disable()
+    await refreshTailscale()
+    return remote.state()
+  })
+  r.register('remote.invite', (params) => remote.invite(params?.method))
+  r.register('remote.cancelInvite', () => remote.cancelInvite())
+  r.register('remote.approve', (params) =>
+    remote.approve(params.invitationId, params.projectIds, params.allowTerminal),
+  )
+  r.register('remote.deny', (params) => remote.deny(params.invitationId))
+  r.register('remote.revokeDevice', (params) => remote.revokeDevice(params.deviceId))
+
+  r.register('remote.tailscale.status', () => refreshTailscale())
+  r.register('remote.tailscale.enable', async () => {
+    // Serve needs a listener to proxy to; the panel disables the button when
+    // remote access is off, and this is the same answer for any other caller.
+    if (!remote.running) return { remote: remote.state(), tailscale: await refreshTailscale() }
+    const tailscaleState = await tailscale.enable(gatewayPort())
+    // Origins are re-read because a new mapping is what turns the pairing
+    // notice into a QR code — but the enable answer itself is kept, since a
+    // refusal would otherwise vanish into a healthy-looking re-read.
+    await refreshTailscale()
+    return { remote: remote.state(), tailscale: tailscaleState }
+  })
+  r.register('remote.tailscale.disable', async () => {
+    await tailscale.disable()
+    return refreshTailscale()
+  })
+
+  // Coming back on the port the user chose, if they left remote access on.
+  // Serve is deliberately not torn down on quit: the mapping is the address a
+  // phone has saved, and a desktop that is switched off is the "computer
+  // unreachable" state the design names, not a reason to redo the setup.
+  void getSettingsStore()
+    .load()
+    .then(async (settings) => {
+      if (!settings.remote.enabled) return
+      await remote.start(settings.remote.port)
+      await refreshTailscale()
+      await connect.status()
+    })
+    .catch(() => log.error('remote access did not start on boot'))
+
+  app.once('before-quit', () => {
+    void connect
+      .stop()
+      .then(() => remote.stop())
+      .catch(() => log.error('remote access failed to close'))
+  })
 
   r.register('session.list', async () => getSessionStore().listSessions())
 
@@ -1241,7 +1470,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { removed: await mcpStore.remove(params.id) }
   })
   r.register('ariCore.skills.trust', async (params) => {
-    const workspace = await resolveInsideRoots(resolve(params.workspacePath), await collectFsRoots())
+    const workspace = await resolveInsideRoots(
+      resolve(params.workspacePath),
+      await collectFsRoots(),
+    )
     const trusted = await setWorkspaceSkillTrust(coreDir, workspace, params.trusted)
     return { trusted }
   })

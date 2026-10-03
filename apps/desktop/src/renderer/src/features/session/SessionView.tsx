@@ -8,6 +8,7 @@ import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import type { ApprovalOption } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { TranscriptView } from '../transcript'
@@ -37,6 +38,8 @@ interface PendingApproval {
   approvalId: string
   toolName: string
   summaryJson: string
+  /** The choices the provider offered; empty on pre-option journals. */
+  options: ApprovalOption[]
 }
 
 /** A question the agent is waiting on (drives the QuestionPanel mount). */
@@ -478,6 +481,7 @@ export function SessionView({
             approvalId: event.approvalId,
             toolName: event.toolName,
             summaryJson: event.summaryJson,
+            options: event.options,
           },
         ])
         // An approval blocks the turn silently while away — say so.
@@ -714,10 +718,10 @@ export function SessionView({
   }, [running, lastUserMessage, dispatchSend])
 
   const respondApproval = useCallback(
-    (approvalId: string, decision: 'allow' | 'deny' | 'always-allow') => {
+    (approvalId: string, optionId: string) => {
       void rpc
         .invoke('command.dispatch', {
-          command: { type: 'approval.respond', sessionId, approvalId, decision },
+          command: { type: 'approval.respond', sessionId, approvalId, optionId },
         })
         .catch(() => undefined)
     },
@@ -976,14 +980,10 @@ export function SessionView({
                         approvalId={a.approvalId}
                         toolName={a.toolName}
                         summaryJson={a.summaryJson}
+                        options={a.options}
                         position={i + 1}
                         total={approvals.length}
-                        onRespond={(decision) =>
-                          respondApproval(
-                            a.approvalId,
-                            decision === 'always_allow' ? 'always-allow' : decision,
-                          )
-                        }
+                        onRespond={(optionId) => respondApproval(a.approvalId, optionId)}
                       />
                     ))}
                   </div>

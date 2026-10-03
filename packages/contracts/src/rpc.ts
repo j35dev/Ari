@@ -223,6 +223,7 @@ export const streamNames = [
   'providers.updates',
   'app.updates',
   'browser.updated',
+  'remote.updates',
 ] as const
 export type StreamName = (typeof streamNames)[number]
 
@@ -662,6 +663,37 @@ export const rpcParams = {
   }),
   'plan.get': z.object({ sessionId: z.string().min(1) }),
   'scripts.list': gitScopeSchema,
+  'remote.status': z.undefined(),
+  /**
+   * Turning remote access on is the act that starts the gateway and records
+   * the choice; there is no path that starts one without the other.
+   */
+  'remote.enable': z.object({ port: z.number().int().min(0).max(65535).optional() }),
+  'remote.disable': z.undefined(),
+  /** Mint a single-use invitation to show as a QR code. */
+  'remote.invite': z.object({ method: z.enum(['tailscale', 'connect']) }).optional(),
+  'remote.cancelInvite': z.undefined(),
+  /** The user's decision on the device that asked, with its project grant. */
+  'remote.approve': z.object({
+    invitationId: z.string().min(1),
+    projectIds: z.array(z.string().min(1)),
+    allowTerminal: z.boolean().default(false),
+  }),
+  'remote.deny': z.object({ invitationId: z.string().min(1) }),
+  'remote.revokeDevice': z.object({ deviceId: z.string().min(1) }),
+  /**
+   * Tailscale Serve (P3). The desktop owns the mapping; these methods only
+   * read its state and ask for it to be added or removed.
+   */
+  'remote.tailscale.status': z.undefined(),
+  /** Expose the running gateway on the tailnet at https://<dnsName>. */
+  'remote.tailscale.enable': z.undefined(),
+  /** Remove Ari's Serve mapping, leaving the user's own mappings alone. */
+  'remote.tailscale.disable': z.undefined(),
+  'remote.connect.status': z.undefined(),
+  'remote.connect.configure': z.object({ origin: z.string().url().max(200) }).strict(),
+  'remote.connect.signIn': z.object({ computerName: z.string().trim().min(1).max(64) }).strict(),
+  'remote.connect.signOut': z.undefined(),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -961,8 +993,118 @@ export interface RpcResults {
   }
   /** npm-style scripts declared in the folder's package.json (M21.3). */
   'scripts.list': { scripts: { name: string; command: string }[]; error?: string }
+  'remote.status': RemoteState
+  'remote.enable': RemoteState
+  'remote.disable': RemoteState
+  'remote.invite': RemoteState
+  'remote.cancelInvite': RemoteState
+  'remote.approve': RemoteState
+  'remote.deny': RemoteState
+  'remote.revokeDevice': RemoteState
+  'remote.tailscale.status': TailscaleState
+  /**
+   * Enabling Serve exposes the running gateway, so both fresh states come
+   * back. The refusal travels in `tailscale.error`: a re-read after a failed
+   * enable would report a healthy tailnet with nothing served, which reads as
+   * "the button did nothing".
+   */
+  'remote.tailscale.enable': { remote: RemoteState; tailscale: TailscaleState }
+  'remote.tailscale.disable': TailscaleState
+  'remote.connect.status': RemoteConnectState
+  'remote.connect.configure': RemoteConnectState
+  'remote.connect.signIn': RemoteConnectState
+  'remote.connect.signOut': RemoteConnectState
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
+}
+
+/** A device the user approved, as the desktop's settings list shows it. */
+export interface RemoteDeviceView {
+  deviceId: string
+  displayName: string
+  /** Projects this device may reach. Empty reaches nothing. */
+  projectIds: string[]
+  pairedAt: number
+  lastSeenAt: number | null
+  allowTerminal?: boolean
+}
+
+/** Hosted identity and tunnel status; credentials never cross the renderer boundary. */
+export interface RemoteConnectState {
+  phase:
+    | 'unconfigured'
+    | 'signed-out'
+    | 'awaiting-approval'
+    | 'provisioning'
+    | 'missing-cloudflared'
+    | 'connecting'
+    | 'ready'
+    | 'denied'
+    | 'error'
+  origin: string | null
+  computerName: string | null
+  computerId: string | null
+  clientUrl: string | null
+  error: string | null
+  browserUrl: string | null
+  expiresAt: number | null
+  cloudflaredAvailable: boolean
+}
+
+/** The device waiting for the user's decision, with the code both show. */
+export interface RemotePairingRequestView {
+  invitationId: string
+  displayName: string
+  confirmationCode: string
+  expiresAt: number
+}
+
+/**
+ * Everything the desktop shows about remote access, in one object.
+ *
+ * Sent whole rather than as deltas: it is small, it is rendered as one panel,
+ * and a partial update that a client fails to apply leaves the user reading a
+ * pairing prompt for a device that already paired.
+ */
+export interface RemoteState {
+  enabled: boolean
+  /** The loopback origin the gateway serves, or null when it is not running. */
+  origin: string | null
+  /**
+   * The address to put in the QR code, once one exists. Null means no address
+   * is reachable from a phone yet — the gateway is loopback-only until
+   * Tailscale or a tunnel is in front of it, and saying so is better than
+   * showing a QR code that leads nowhere.
+   */
+  clientUrl: string | null
+  /** Exact origins currently allowed to call, the loopback one included. */
+  allowedOrigins: string[]
+  devices: RemoteDeviceView[]
+  /** The invitation on screen, if the user has one open. */
+  invitation: { invitationId: string; url: string; expiresAt: number } | null
+  pending: RemotePairingRequestView | null
+  /** Why the gateway is not running, when the user asked it to be. */
+  error: string | null
+}
+
+/**
+ * Tailscale Serve as the desktop last read it (P3).
+ *
+ * Declared here rather than beside its implementation because it crosses IPC;
+ * `apps/desktop/src/main/tailscale.ts` is the one that produces it. `origin` is
+ * null until this machine is on a tailnet, and `serving` is true only while a
+ * Serve mapping for Ari's own loopback port exists.
+ */
+export interface TailscaleState {
+  installed: boolean
+  /** The tailnet DNS name this machine is reachable at, when known. */
+  dnsName: string | null
+  /** https://<dnsName> — the origin a phone would open. */
+  origin: string | null
+  /** Whether a Serve mapping for our port already exists. */
+  serving: boolean
+  /** Why the last attempt failed, in a sentence a user can read. */
+  error: string | null
 }
 
 /** Payload shape for events delivered on a subscribed stream. */
