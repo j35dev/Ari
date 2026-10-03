@@ -6,6 +6,9 @@ import { IS_CONNECT_BUILD } from '../../lib/connect'
 /** Pairing is a deliberate desktop approval with the same confirmation code on both screens. */
 export function PairScreen({ invitationId }: { invitationId: string | null }): ReactNode {
   const app = useApp()
+  const revoked = app.connection === 'revoked'
+  const missingDevice = app.connection === 'unknown-device'
+  const recovering = revoked || missingDevice
   const [name, setName] = useState(
     /iPhone|iPad/.test(navigator.userAgent)
       ? 'My iPhone'
@@ -66,12 +69,24 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
           </span>
         </div>
         <h1 className="text-[32px] font-semibold leading-tight tracking-[-0.055em]">
-          {invitationId === null ? 'Ari, in your pocket.' : 'Make this phone yours.'}
+          {recovering
+            ? revoked
+              ? 'Pair this phone again.'
+              : 'Reconnect this phone.'
+            : invitationId === null
+              ? 'Ari, in your pocket.'
+              : 'Make this phone yours.'}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-fg-muted">
-          {invitationId === null
-            ? 'Build, review, and guide your agents from anywhere. Your computer remains the workspace.'
-            : 'Give this phone a name. Confirm the matching code in Ari on your computer, then choose the projects it can access.'}
+          {recovering
+            ? invitationId !== null
+              ? 'A fresh pairing link is ready. Confirm the matching code in Ari on your computer, then choose the projects this phone can access again.'
+              : revoked
+                ? 'This phone’s access was revoked. Scan a fresh pairing QR in desktop Settings → Mobile access, then approve this phone again. Retrying the old connection cannot restore access.'
+                : 'Your computer no longer recognizes this phone. Scan a fresh pairing QR in desktop Settings → Mobile access, then approve this phone again.'
+            : invitationId === null
+              ? 'Build, review, and guide your agents from anywhere. Your computer remains the workspace.'
+              : 'Give this phone a name. Confirm the matching code in Ari on your computer, then choose the projects it can access.'}
         </p>
       </div>
       {invitationId !== null ? (

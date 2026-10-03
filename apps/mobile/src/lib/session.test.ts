@@ -213,6 +213,33 @@ describe('mobile pairing', () => {
 })
 
 describe('mobile reconnection', () => {
+  it('re-pairs a revoked phone only after fresh approval and keeps its old identity revoked', async () => {
+    const gateway = await startGateway()
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    const session = await pairPhone(gateway, keyring)
+    const oldId = keyring.deviceId
+    if (oldId === null) throw new Error('expected a paired device')
+    gateway.pairing.revoke(oldId)
+    await expect(session.connect()).resolves.toBe('revoked')
+
+    const invitation = gateway.pairing.begin(gateway.origin)
+    const pairing = session.pair(invitation.invitationId, 'Pixel 9 again')
+    await vi.waitFor(() => expect(gateway.pairing.pending(invitation.invitationId)).toBeDefined())
+    expect(session.usable).toBe(false)
+    expect(gateway.pairing.devices()).toHaveLength(0)
+    expect(gateway.pairing.approve(invitation.invitationId, ['proj_1'])).toEqual({ ok: true })
+    await pairing
+
+    expect(session.state).toBe('connected')
+    expect(keyring.deviceId).not.toBe(oldId)
+    expect(session.projectIds).toEqual(['proj_1'])
+    expect(gateway.pairing.authorize(oldId, { nonce: 'unused', signature: 'unused' })).toEqual({
+      ok: false,
+      code: 'access_revoked',
+    })
+    await expect(session.query('session.list')).resolves.toBeDefined()
+  })
+
   it('comes back with a signature after the desktop restarts', async () => {
     const first = await startGateway()
     const store = new MemoryDeviceStore()
