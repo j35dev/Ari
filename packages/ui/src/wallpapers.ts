@@ -12,8 +12,14 @@
 import animeCity from './assets/wallpapers/anime-city.jpg'
 import moonLandscape from './assets/wallpapers/moon-landscape.jpg'
 import moonLandscape2 from './assets/wallpapers/moon-landscape-2.jpg'
+import stillwater from './assets/wallpapers/stillwater.jpg'
 
-export const wallpaperIds = ['anime-city', 'moon-landscape', 'moon-landscape-2'] as const
+export const wallpaperIds = [
+  'stillwater',
+  'anime-city',
+  'moon-landscape',
+  'moon-landscape-2',
+] as const
 export type WallpaperId = (typeof wallpaperIds)[number]
 
 /** A wallpaper preference: a bundled scene, or 'none' for the plain theme. */
@@ -30,6 +36,12 @@ export interface Wallpaper {
 
 /** Picker order; ids must match `wallpaperIdSchema` in @ari/contracts. */
 export const wallpapers: readonly Wallpaper[] = [
+  {
+    id: 'stillwater',
+    label: 'Stillwater',
+    description: 'Quiet mountain silhouettes over a lake at first light.',
+    src: stillwater,
+  },
   {
     id: 'anime-city',
     label: 'Anime City',

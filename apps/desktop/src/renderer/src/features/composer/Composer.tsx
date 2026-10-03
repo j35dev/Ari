@@ -76,6 +76,8 @@ export interface ComposerProps {
    * asks nothing of the user.
    */
   attentionRequired?: boolean
+  /** Keeps the welcome composer open without replacing its editor. */
+  centered?: boolean
 }
 
 const MIN_HEIGHT = 52
@@ -121,6 +123,7 @@ export function Composer({
   sessionId,
   above,
   attentionRequired = false,
+  centered = false,
 }: ComposerProps) {
   const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
@@ -143,7 +146,12 @@ export function Composer({
    * though the state is intact.
    */
   const resting =
-    !disabled && !focused && !attentionRequired && text.trim().length === 0 && images.length === 0
+    !centered &&
+    !disabled &&
+    !focused &&
+    !attentionRequired &&
+    text.trim().length === 0 &&
+    images.length === 0
 
   /** Puts the caret back in the field and lets focus expand the plate. */
   const focusField = useCallback(() => {
@@ -257,12 +265,12 @@ export function Composer({
     // Resting drops the floor: the foot row is gone, so one line plus the
     // resting padding is the whole plate. `resting` is a dependency so the
     // field re-measures against the padding it now carries.
-    const floor = resting ? 0 : MIN_HEIGHT
+    const floor = resting ? 0 : centered ? 88 : MIN_HEIGHT
     el.style.height = 'auto'
     el.style.height = `${Math.min(Math.max(el.scrollHeight, floor), MAX_HEIGHT)}px`
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden'
     syncOverlayScroll()
-  }, [syncOverlayScroll, resting])
+  }, [syncOverlayScroll, resting, centered])
 
   useEffect(resize, [text, resize])
 
@@ -508,7 +516,7 @@ export function Composer({
               ? // The foot becomes an overlay on the field's own row, so the
                 // SendStopButton sits beside the placeholder instead of below.
                 'absolute inset-y-0 right-2 flex items-center'
-              : 'flex items-center gap-1 px-2.5 pb-2 pt-1'
+              : 'flex flex-wrap items-center gap-1 px-2.5 pb-2 pt-1'
           }
         >
           {/* `contents` keeps the chips as direct flex children, so expanding
