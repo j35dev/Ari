@@ -93,7 +93,8 @@ export interface EngineDeps {
   }) => Promise<AttachmentRef>
   /**
    * Upgrades the auto-slice title after the first settled turn (M18.2).
-   * Defaults to the deterministic strategy; an LLM-backed one can be
+   * Receives the first prompt plus the first assistant response; defaults to
+   * the deterministic response-first strategy. An LLM-backed one can be
    * injected without touching the turn flow. Failures never surface.
    */
   titleStrategy?: TitleStrategy
@@ -933,7 +934,9 @@ export class Engine {
    * Title generation hook (M18.2): after the session's first settled turn
    * that did not end in error — and only while the title is still the
    * automatic slice of the first prompt — upgrades it through the configured
-   * {@link TitleStrategy}. Fire-and-forget: never blocks or fails the turn.
+   * {@link TitleStrategy}. The assistant's response names the session when
+   * substantive; the prompt remains the fallback. Fire-and-forget: never
+   * blocks or fails the turn.
    */
   #onFirstSettle(sessionId: string): void {
     if (this.#titleSettled.has(sessionId)) return
@@ -950,8 +953,13 @@ export class Engine {
     if (!session || !firstPrompt) return
     const prompt = firstPrompt.parts.find((p) => p.type === 'text')?.text ?? ''
     if (!isAutoTitle(session.title, prompt)) return
+    const response = model.messages
+      .find((m) => m.role === 'assistant')
+      ?.parts.filter((p) => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n')
     const strategy = this.#deps.titleStrategy ?? deterministicTitleStrategy
-    const title = await strategy.generate({ prompt, currentTitle: session.title })
+    const title = await strategy.generate({ prompt, response, currentTitle: session.title })
     if (title === null || title.length === 0 || title === session.title) return
     await this.#append(sessionId, { type: 'session.updated', title })
   }
