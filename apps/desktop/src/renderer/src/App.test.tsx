@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { fireEvent } from '@testing-library/react'
 import { useToast } from '@ari/ui/toast'
+import { settingsSchema } from '@ari/contracts/settings'
+import { useEngineSettings } from './features/settings/useEngineSettings'
 import { AppProviders, App } from './App'
 import { BRANCH_POLL_MS, SessionBranchChip } from './features/session/SessionBranchChip'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
@@ -19,6 +21,12 @@ function ToastProbe() {
 }
 
 describe('AppProviders', () => {
+  beforeEach(() => {
+    invokeMock.mockImplementation(async (method) =>
+      method === 'settings.get' ? settingsSchema.parse({ version: 1 }) : undefined,
+    )
+  })
+
   it('lets useToast consumers fire without a wrapping gallery', async () => {
     const user = userEvent.setup()
     render(
@@ -29,6 +37,24 @@ describe('AppProviders', () => {
 
     await user.click(screen.getByRole('button', { name: 'ping toast' }))
     expect(await screen.findByText('Ready')).toBeInTheDocument()
+  })
+
+  it('applies the persisted motion preference and updates it without reloading', async () => {
+    const user = userEvent.setup()
+    const settings = settingsSchema.parse({ version: 1, appearance: { reducedMotion: true } })
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return settings
+      if (method === 'settings.update') return { ...settings, appearance: { ...settings.appearance, reducedMotion: false } }
+      return undefined
+    })
+    function MotionProbe() {
+      const { update } = useEngineSettings()
+      return <button onClick={() => { void update({ appearance: { reducedMotion: false } }) }}>Enable motion</button>
+    }
+    render(<AppProviders><MotionProbe /></AppProviders>)
+    await vi.waitFor(() => expect(document.documentElement).toHaveAttribute('data-ari-reduced-motion'))
+    await user.click(screen.getByRole('button', { name: 'Enable motion' }))
+    await vi.waitFor(() => expect(document.documentElement).not.toHaveAttribute('data-ari-reduced-motion'))
   })
 })
 
