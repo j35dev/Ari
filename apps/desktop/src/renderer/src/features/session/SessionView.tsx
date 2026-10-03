@@ -885,7 +885,7 @@ export function SessionView({
           />
         </div>
         <div
-          className={`flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle ${centered ? 'invisible' : ''}`}
+          className={`mx-auto flex h-6 w-full max-w-3xl shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle ${centered ? 'invisible' : ''}`}
         >
           {telemetry.turnCount > 0 ? (
             <>
