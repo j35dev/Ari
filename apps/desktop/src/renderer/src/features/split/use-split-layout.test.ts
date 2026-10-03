@@ -1,17 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  leaves,
-  parseLayout,
-  serializeLayout,
-  sessionIdsInPanes,
-  terminalIdsInPanes,
-} from './split-layout'
+import { leaves, sessionIdsInPanes, terminalIdsInPanes } from './split-layout'
 import type { SplitLayout } from './split-layout'
 import {
-  SPLIT_LAYOUT_STORAGE_KEY,
-  splitLayoutActions,
-  splitLayoutSnapshot,
-} from './use-split-layout'
+  activeLayoutOf,
+  LEGACY_SPLIT_LAYOUT_STORAGE_KEY,
+  parseSpaceStore,
+  serializeSpaceStore,
+  SPACES_STORAGE_KEY,
+} from '../spaces'
+import { splitLayoutActions, splitLayoutSnapshot } from './use-split-layout'
 
 /** Adds a second pane to the right of the focused one and returns its id. */
 function splitRight(): string {
@@ -120,16 +117,17 @@ describe('splitLayoutActions', () => {
     expect(splitLayoutSnapshot().zoomedPaneId).toBeNull()
   })
 
-  it('persists once a burst of edits settles, not on every one', () => {
+  it('persists the active space once a burst of edits settles, not on every one', () => {
     vi.useFakeTimers()
     const first = splitLayoutSnapshot().focusedPaneId
     splitLayoutActions.assign(first, 'sA')
     splitLayoutActions.split(first, 'right')
     splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sB')
 
-    expect(localStorage.getItem(SPLIT_LAYOUT_STORAGE_KEY)).toBeNull()
+    expect(localStorage.getItem(SPACES_STORAGE_KEY)).toBeNull()
     vi.advanceTimersByTime(200)
-    expect(parseLayout(localStorage.getItem(SPLIT_LAYOUT_STORAGE_KEY))?.root).toEqual(
+    const persisted = parseSpaceStore(localStorage.getItem(SPACES_STORAGE_KEY))
+    expect(persisted === null ? null : activeLayoutOf(persisted).root).toEqual(
       splitLayoutSnapshot().root,
     )
   })
@@ -151,27 +149,46 @@ describe('split layout restore', () => {
     return import('./use-split-layout')
   }
 
+  const left = {
+    root: {
+      kind: 'split' as const,
+      nodeId: 'split1',
+      direction: 'row' as const,
+      ratio: 0.5,
+      a: { kind: 'leaf' as const, paneId: 'pane1', sessionId: 'sA' },
+      b: { kind: 'leaf' as const, paneId: 'pane2', sessionId: null },
+    },
+    focusedPaneId: 'pane2',
+    zoomedPaneId: null,
+  }
+
   it('comes back to the panes the user left', async () => {
-    const left = {
-      root: {
-        kind: 'split' as const,
-        nodeId: 'split1',
-        direction: 'row' as const,
-        ratio: 0.5,
-        a: { kind: 'leaf' as const, paneId: 'pane1', sessionId: 'sA' },
-        b: { kind: 'leaf' as const, paneId: 'pane2', sessionId: null },
-      },
-      focusedPaneId: 'pane2',
-      zoomedPaneId: null,
-    }
-    localStorage.setItem(SPLIT_LAYOUT_STORAGE_KEY, serializeLayout(left))
+    localStorage.setItem(
+      SPACES_STORAGE_KEY,
+      serializeSpaceStore({
+        spaces: [{ id: 'space-1', name: 'Space 1', layout: left }],
+        activeSpaceId: 'space-1',
+      }),
+    )
+
+    const store = await relaunch()
+    expect(store.splitLayoutSnapshot()).toEqual(left)
+  })
+
+  it('wraps a pre-spaces layout as the first tab on upgrade', async () => {
+    // A build without spaces wrote one bare layout; the store reads it as tab 1
+    // so the upgrade keeps the panes the user left open.
+    localStorage.setItem(LEGACY_SPLIT_LAYOUT_STORAGE_KEY, JSON.stringify(left))
 
     const store = await relaunch()
     expect(store.splitLayoutSnapshot()).toEqual(left)
   })
 
   it('starts clean rather than rendering a layout it cannot read', async () => {
-    localStorage.setItem(SPLIT_LAYOUT_STORAGE_KEY, '{"root":{"kind":"cluster"}}')
+    localStorage.setItem(
+      SPACES_STORAGE_KEY,
+      '{"version":1,"spaces":[{"id":"a","name":"A","layout":"{"}]}',
+    )
 
     const store = await relaunch()
     expect(leaves(store.splitLayoutSnapshot().root)).toHaveLength(1)

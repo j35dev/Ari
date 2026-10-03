@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
 import {
+  ChevronLeft,
+  ChevronRight,
   FileSearch,
   Folder,
   Gauge,
@@ -10,6 +12,7 @@ import {
   MessageSquare,
   PanelBottom,
   PanelRight,
+  Plus,
   Settings,
   TerminalSquare,
   X,
@@ -34,14 +37,7 @@ export interface PaletteCommand {
 
 /** Views the palette can navigate to; mirrors the shell rail targets. */
 export type NavigableView =
-  | 'sessions'
-  | 'terminal'
-  | 'browser'
-  | 'changes'
-  | 'settings'
-  | 'files'
-  | 'usage'
-  | 'github'
+  'sessions' | 'terminal' | 'browser' | 'changes' | 'settings' | 'files' | 'usage' | 'github'
 
 /**
  * What the pane commands act on, as the shell sees it: the pane the user is in,
@@ -57,12 +53,32 @@ export interface PaneCommands {
   single: boolean
 }
 
+/**
+ * What the space commands act on, as the shell sees it: the tab list and which
+ * one is active. Absent where no tab strip is mounted, so the gallery and the
+ * tests get the navigation list alone.
+ */
+export interface SpaceCommands {
+  /** The tabs, in order, for the "Switch to …" entries. */
+  spaces: { id: string; name: string }[]
+  /** True while a new tab would be refused at the ceiling. */
+  atCeiling: boolean
+  /** True while there is only one tab, where closing means nothing. */
+  single: boolean
+  create: () => void
+  close: () => void
+  next: () => void
+  previous: () => void
+  select: (spaceId: string) => void
+}
+
 /** Callbacks the app command list is built from. */
 export interface CommandsContext {
   onNavigate: (view: NavigableView) => void
   onOpenGallery: () => void
   onOpenSearch: () => void
   panes?: PaneCommands
+  spaces?: SpaceCommands
 }
 
 /**
@@ -106,11 +122,63 @@ function paneCommands(panes: PaneCommands): PaletteCommand[] {
 }
 
 /**
+ * The space entries: create, cycle, close, and a direct jump per tab. The
+ * ceiling entry and the single-tab close are left out where they would be
+ * no-ops, the same rule the pane commands follow.
+ */
+function spaceCommands(spaces: SpaceCommands): PaletteCommand[] {
+  const commands: PaletteCommand[] = []
+  if (!spaces.atCeiling) {
+    commands.push({
+      id: 'space.new',
+      label: 'New space',
+      icon: Plus,
+      hint: 'Ctrl+Alt+T',
+      run: spaces.create,
+    })
+  }
+  commands.push(
+    {
+      id: 'space.next',
+      label: 'Next space',
+      icon: ChevronRight,
+      hint: 'Ctrl+PageDown',
+      run: spaces.next,
+    },
+    {
+      id: 'space.previous',
+      label: 'Previous space',
+      icon: ChevronLeft,
+      hint: 'Ctrl+PageUp',
+      run: spaces.previous,
+    },
+  )
+  if (!spaces.single) {
+    commands.push({
+      id: 'space.close',
+      label: 'Close space',
+      icon: X,
+      hint: 'Ctrl+Alt+W',
+      run: spaces.close,
+    })
+  }
+  spaces.spaces.forEach((space, index) => {
+    commands.push({
+      id: `space.switch.${space.id}`,
+      label: `Switch to ${space.name}`,
+      hint: index < 9 ? `Ctrl+Alt+${String(index + 1)}` : undefined,
+      run: () => spaces.select(space.id),
+    })
+  })
+  return commands
+}
+
+/**
  * Pure factory for the app command list: rail navigation targets, the component
- * gallery, and — when the shell mounts a split view — the pane commands.
+ * gallery, and — when the shell mounts them — the pane and space commands.
  */
 export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
-  const { panes } = ctx
+  const { panes, spaces } = ctx
   return [
     {
       id: 'nav.sessions',
@@ -175,14 +243,15 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
       run: () => ctx.onOpenGallery(),
     },
     ...(panes === undefined ? [] : paneCommands(panes)),
+    ...(spaces === undefined ? [] : spaceCommands(spaces)),
   ]
 }
 
 /** Memoized app command list built from the passed context object. */
 export function useCommands(ctx: CommandsContext): PaletteCommand[] {
-  const { onNavigate, onOpenGallery, onOpenSearch, panes } = ctx
+  const { onNavigate, onOpenGallery, onOpenSearch, panes, spaces } = ctx
   return useMemo(
-    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch, panes }),
-    [onNavigate, onOpenGallery, onOpenSearch, panes],
+    () => buildAppCommands({ onNavigate, onOpenGallery, onOpenSearch, panes, spaces }),
+    [onNavigate, onOpenGallery, onOpenSearch, panes, spaces],
   )
 }
