@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useEffect, useEffectEvent, useRef, type ReactNode } from 'react'
+import { X } from 'lucide-react'
 
 /**
  * The shared pieces every destination is built from.
@@ -21,8 +22,8 @@ export function ScreenHeader({
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-[28px] font-bold leading-tight tracking-tight">{title}</h1>
-        <p className="mt-0.5 truncate text-sm text-fg-muted">{subtitle}</p>
+        <h1 className="text-[25px] font-semibold leading-tight tracking-[-0.04em]">{title}</h1>
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">{subtitle}</p>
       </div>
       {action}
     </div>
@@ -120,10 +121,8 @@ export function FilterChips<T extends string>({
             type="button"
             aria-pressed={selected}
             onClick={() => onPick(option.id)}
-            className={`h-9 shrink-0 rounded-full px-4 text-sm ${
-              selected
-                ? 'bg-accent font-medium text-fg-on-accent'
-                : 'border border-border text-fg-muted'
+            className={`min-h-11 shrink-0 rounded-lg px-3 text-xs ${
+              selected ? 'bg-surface-2 font-medium text-fg' : 'text-fg-muted'
             }`}
           >
             {option.label}
@@ -144,15 +143,57 @@ export function BottomSheet({
   onClose: () => void
   children: ReactNode
 }): ReactNode {
+  const panel = useRef<HTMLDivElement>(null)
+  const close = useEffectEvent(onClose)
+  useEffect(() => {
+    const previous = document.activeElement
+    const getControls = (): HTMLElement[] =>
+      Array.from(
+        panel.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]',
+        ) ?? [],
+      )
+    getControls()[0]?.focus()
+    const key = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        close()
+      }
+      if (event.key !== 'Tab') return
+      const controls = getControls()
+      const first = controls[0]
+      const last = controls.at(-1)
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first?.focus()
+      }
+    }
+    document.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('keydown', key)
+      if (previous instanceof HTMLElement) previous.focus()
+    }
+  }, [])
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end" role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      className="fixed inset-0 z-50 flex flex-col justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <button
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-black/60"
+        className="absolute inset-0 cursor-default bg-bg/80 backdrop-blur-sm"
       />
-      <div className="relative max-h-[75%] overflow-y-auto rounded-t-3xl bg-surface-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
+      <div
+        ref={panel}
+        className="relative max-h-[85%] overflow-y-auto rounded-t-3xl border-t border-border bg-surface-0 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2"
+      >
         <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full bg-border-strong" />
         <div className="flex items-center justify-between gap-3 py-2">
           <h2 className="text-[17px] font-semibold tracking-tight">{title}</h2>
@@ -162,7 +203,7 @@ export function BottomSheet({
             className="flex h-11 w-11 items-center justify-center rounded-full text-fg-muted"
             aria-label="Close panel"
           >
-            ✕
+            <X size={18} />
           </button>
         </div>
         {children}

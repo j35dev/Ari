@@ -21,9 +21,9 @@ function pngSize(file: string): { width: number; height: number } {
 
 describe('PWA install assets', () => {
   it('points every manifest icon at a file that exists, at the claimed size', () => {
-    const manifest = JSON.parse(
-      readFileSync(join(publicDir, 'manifest.webmanifest'), 'utf8'),
-    ) as { icons: { src: string; sizes: string }[] }
+    const manifest = JSON.parse(readFileSync(join(publicDir, 'manifest.webmanifest'), 'utf8')) as {
+      icons: { src: string; sizes: string }[]
+    }
     expect(manifest.icons.length).toBeGreaterThan(0)
     for (const icon of manifest.icons) {
       const file = icon.src.replace(/^\//, '')
@@ -43,7 +43,9 @@ describe('PWA install assets', () => {
 
   it('precaches only shell files that exist', () => {
     const worker = readFileSync(join(publicDir, 'sw.js'), 'utf8')
-    const cached = [...worker.matchAll(/'(\/[^']+)'/g)].map((match) => match[1] as string)
+    const precache = /const SHELL_FILES = \[([\s\S]*?)\]/.exec(worker)?.[1] ?? ''
+    expect(precache).not.toBe('')
+    const cached = [...precache.matchAll(/'(\/[^']+)'/g)].map((match) => match[1] as string)
     for (const path of new Set(cached)) {
       // Routes without an extension are served, not files; the API exclusion
       // list is covered by the gateway's own tests.

@@ -23,6 +23,8 @@ export interface DeviceRecord {
 
 /** Where the key and the device id live. Swapped out in tests. */
 export interface DeviceStore {
+  /** A computer's identity must never be reused with a different origin. */
+  forOrigin?(origin: string): DeviceStore
   loadKey(): Promise<CryptoKeyPair | null>
   saveKey(pair: CryptoKeyPair): Promise<void>
   loadRecord(): Promise<DeviceRecord | null>
@@ -99,6 +101,19 @@ export class DeviceKeyring {
     return bytesToBase64(rawSignatureToDer(raw))
   }
 
+  /** Managed membership proof uses Web Crypto's 64-byte P1363 encoding. */
+  async signManagedProof(text: string): Promise<string> {
+    const { privateKey } = await this.key()
+    const signature = new Uint8Array(
+      await crypto.subtle.sign(
+        { name: 'ECDSA', hash: 'SHA-256' },
+        privateKey,
+        new TextEncoder().encode(text),
+      ),
+    )
+    return bytesToBase64(signature).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }
+
   async remember(record: DeviceRecord): Promise<void> {
     await this.#store.saveRecord(record)
     this.#record = record
@@ -153,6 +168,10 @@ export class IndexedDbDeviceStore implements DeviceStore {
 
   constructor(name = 'ari-mobile') {
     this.#name = name
+  }
+
+  forOrigin(origin: string): DeviceStore {
+    return new IndexedDbDeviceStore(`ari-mobile:${new URL(origin).origin}`)
   }
 
   async loadKey(): Promise<CryptoKeyPair | null> {
@@ -229,6 +248,17 @@ export class IndexedDbDeviceStore implements DeviceStore {
 export class MemoryDeviceStore implements DeviceStore {
   #key: CryptoKeyPair | null = null
   #record: DeviceRecord | null = null
+  readonly #origins = new Map<string, MemoryDeviceStore>()
+
+  forOrigin(origin: string): DeviceStore {
+    const canonical = new URL(origin).origin
+    let store = this.#origins.get(canonical)
+    if (store === undefined) {
+      store = new MemoryDeviceStore()
+      this.#origins.set(canonical, store)
+    }
+    return store
+  }
 
   /* eslint-disable @typescript-eslint/require-await -- see above */
   async loadKey(): Promise<CryptoKeyPair | null> {
@@ -264,9 +294,32 @@ export class MemoryDeviceStore implements DeviceStore {
  * on every launch — pairing worked until the tab closed, and the next open
  * landed on "no pairing link was found".
  */
-export async function defaultDeviceStore(probe: () => Promise<boolean> = probeIndexedDb): Promise<DeviceStore> {
+export async function defaultDeviceStore(
+  probe: () => Promise<boolean> = probeIndexedDb,
+): Promise<DeviceStore> {
   try {
-    if (await probe()) return new IndexedDbDeviceStore()
+    if (await probe()) {
+      const store = new IndexedDbDeviceStore()
+      // Migrate the original single-computer store only to its remembered computer.
+      const remembered =
+        typeof localStorage === 'undefined'
+          ? null
+          : (localStorage.getItem('ari.remote.origin') ??
+            (typeof location === 'undefined' ? null : location.origin))
+      if (remembered !== null) {
+        const scoped = store.forOrigin(remembered)
+        if ((await scoped.loadRecord()) === null) {
+          const record = await store.loadRecord()
+          const key = await store.loadKey()
+          if (record !== null && key !== null) {
+            await scoped.saveKey(key)
+            await scoped.saveRecord(record)
+            await store.clear()
+          }
+        }
+      }
+      return store
+    }
   } catch {
     // A probe that throws is a probe that failed.
   }
