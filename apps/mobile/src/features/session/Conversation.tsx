@@ -7,6 +7,7 @@ import { Markdown } from '../../components/Markdown'
 import { EmptyState } from '../../components/EmptyState'
 import { useApp } from '../../lib/app-state'
 import { formatClock } from '../../lib/format'
+import { conversationBlocks, conversationParts } from '../../lib/conversation-parts'
 
 /** Conversation parts retain tool output, reasoning, and authorized image previews. */
 export function Conversation({
@@ -25,45 +26,66 @@ export function Conversation({
     )
   return (
     <ol className="space-y-7">
-      {messages.map((message) => (
-        <li
-          key={message.id}
-          className={message.role === 'user' ? 'flex flex-col items-end' : 'min-w-0'}
-        >
-          <div
-            className={`mb-2 flex items-center gap-2 text-[11px] text-fg-subtle ${message.role === 'user' ? 'justify-end' : ''}`}
-          >
-            {message.role !== 'user' && (
-              <span className="flex size-5 items-center justify-center rounded-md bg-surface-2 font-semibold text-fg">
-                a
-              </span>
-            )}
-            <span className="font-medium text-fg-muted">
-              {message.role === 'user' ? 'You' : message.role === 'system' ? 'System' : 'Ari'}
-            </span>
-            <span>{formatClock(message.createdAt)}</span>
-            {message.origin?.kind === 'session' && <span>· Linked session</span>}
-          </div>
-          <div
+      {messages.map((message) => {
+        const presentation = conversationParts(message.parts)
+        return (
+          <li
+            key={message.id}
             className={
-              message.role === 'user'
-                ? 'max-w-[92%] rounded-2xl rounded-tr-md bg-surface-2 px-4 py-3'
-                : 'min-w-0'
+              message.role === 'user' ? 'flex w-full min-w-0 flex-col items-end' : 'w-full min-w-0'
             }
           >
-            {message.parts.map((part, index) => (
-              <Part key={`${message.id}:${index}`} part={part} sessionId={sessionId} />
-            ))}
-          </div>
-          {message.role === 'assistant' && message.parts.some((part) => part.type === 'text') && (
-            <CopyMessage
-              text={message.parts
-                .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-                .join('\n\n')}
-            />
-          )}
-        </li>
-      ))}
+            <div
+              className={`mb-2 flex items-center gap-2 text-[11px] text-fg-subtle ${message.role === 'user' ? 'justify-end' : ''}`}
+            >
+              {message.role !== 'user' && (
+                <span className="flex size-5 items-center justify-center rounded-md bg-surface-2 font-semibold text-fg">
+                  a
+                </span>
+              )}
+              <span className="font-medium text-fg-muted">
+                {message.role === 'user' ? 'You' : message.role === 'system' ? 'System' : 'Ari'}
+              </span>
+              <span>{formatClock(message.createdAt)}</span>
+              {message.origin?.kind === 'session' && <span>· Linked session</span>}
+            </div>
+            <div
+              className={
+                message.role === 'user'
+                  ? 'max-w-[92%] rounded-2xl rounded-tr-md bg-surface-2 px-4 py-3'
+                  : 'min-w-0'
+              }
+            >
+              {conversationBlocks(presentation.parts).map((block) =>
+                block.kind === 'content' ? (
+                  <Part
+                    key={`${message.id}:${block.sourceIndex}`}
+                    part={block.part}
+                    sessionId={sessionId}
+                  />
+                ) : (
+                  <details key={`${message.id}:${block.sourceIndex}`} className="my-3">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-xs text-fg-muted">
+                      <ChevronRight size={14} />
+                      Agent activity
+                    </summary>
+                    {block.parts.map(({ part, sourceIndex }) => (
+                      <Part
+                        key={`${message.id}:${sourceIndex}`}
+                        part={part}
+                        sessionId={sessionId}
+                      />
+                    ))}
+                  </details>
+                ),
+              )}
+            </div>
+            {message.role === 'assistant' && message.parts.some((part) => part.type === 'text') && (
+              <CopyMessage text={presentation.copyText} />
+            )}
+          </li>
+        )
+      })}
     </ol>
   )
 }
