@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitService } from '@ari/engine/git'
 import { SessionStore } from '@ari/engine/session-store'
 import { ok, err } from '@ari/shared/result'
-import type { DriverKind } from '@ari/contracts/common'
+import { driverKindSchema, type DriverKind } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
 import {
   remoteChangesSchema,
@@ -313,6 +313,92 @@ describe('reading sessions', () => {
 })
 
 describe('creating a session', () => {
+  it.each(driverKindSchema.options)(
+    'uses live registration for %s after background hydration and refuses it again if removed',
+    async (driverKind) => {
+      const engine = fakeEngine()
+      let registered: DriverKind[] = []
+      const host = hostFor(await tempStore(), engine, {
+        driverKinds: () => registered,
+        listModels: async () =>
+          driverKindSchema.options.map((kind) => ({
+            driverKind: kind,
+            models: [],
+            available: true,
+          })),
+      })
+      const create = command('session.create', { projectId: 'proj_1', driverKind })
+      expect(await host.execute(CALLER, create)).toMatchObject({
+        ok: false,
+        code: 'unsupported_capability',
+      })
+      registered = [driverKind]
+      expect(await host.execute(CALLER, create)).toMatchObject({ ok: true })
+      expect(engine.created[0]).toMatchObject({ driverKind, modelId: null, permissionMode: 'ask' })
+      registered = []
+      expect(await host.execute(CALLER, create)).toMatchObject({
+        ok: false,
+        code: 'unsupported_capability',
+      })
+      expect(engine.created).toHaveLength(1)
+    },
+  )
+
+  it('uses effective desktop defaults and rechecks availability while preserving arbitrary native IDs', async () => {
+    const engine = fakeEngine()
+    const providers = [
+      {
+        driverKind: 'opencode' as const,
+        available: true,
+        defaultModelId: null,
+        models: [{ id: 'default', label: 'CLI default' }],
+      },
+      {
+        driverKind: 'ari-core' as const,
+        available: true,
+        defaultModelId: 'ep:local:model:latest',
+        models: [{ id: 'ep:local:model:latest', label: 'Local' }],
+      },
+    ]
+    const host = hostFor(await tempStore(), engine, {
+      driverKinds: () => ['opencode', 'ari-core'],
+      defaultDriverKind: () => null,
+      listModels: async () => providers,
+    })
+    expect(await host.query(CALLER, 'models.list', {})).toMatchObject({
+      defaults: { driverKind: 'opencode', modelId: null, permissionMode: 'ask' },
+    })
+    await host.execute(CALLER, command('session.create', { projectId: 'proj_1' }))
+    await host.execute(
+      CALLER,
+      command('session.create', {
+        projectId: 'proj_1',
+        driverKind: 'opencode',
+        modelId: 'default',
+      }),
+    )
+    await host.execute(
+      CALLER,
+      command('session.create', {
+        projectId: 'proj_1',
+        driverKind: 'opencode',
+        modelId: 'native/custom:model',
+      }),
+    )
+    expect(engine.created.map((row) => row.modelId)).toEqual([null, null, 'native/custom:model'])
+    providers[0]!.available = false
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.create', { projectId: 'proj_1', driverKind: 'opencode' }),
+      ),
+    ).toMatchObject({ ok: false })
+    await host.execute(CALLER, command('session.create', { projectId: 'proj_1' }))
+    expect(engine.created.at(-1)).toMatchObject({
+      driverKind: 'ari-core',
+      modelId: 'ep:local:model:latest',
+    })
+  })
   it('takes the permission mode from the desktop, never from the caller', async () => {
     const engine = fakeEngine()
     // The ceiling the user set. A remote client has no way to name this — the
@@ -721,6 +807,79 @@ describe('session changes', () => {
 })
 
 describe('model catalog', () => {
+  it('keeps native aliases and defaults usable for model updates and isolated forks', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    await store.append('sess_core', {
+      type: 'session.created',
+      session: { ...sessionFixture('sess_core'), driverKind: 'ari-core', modelId: 'ep:local' },
+    })
+    const engine = fakeEngine()
+    const fork = vi.fn(async () => ({ ok: true as const, result: { sessionId: 'child' } }))
+    const host = hostFor(store, engine, {
+      driverKinds: () => ['claude', 'ari-core'],
+      fork,
+      listModels: async () => [
+        {
+          driverKind: 'claude',
+          available: true,
+          models: [{ id: 'claude-opus-current', label: 'Opus', aliases: ['opus'] }],
+        },
+        {
+          driverKind: 'ari-core',
+          available: true,
+          defaultModelId: 'ep:local:model',
+          models: [{ id: 'ep:local:model', label: 'Local', aliases: ['ep:local', 'local'] }],
+        },
+      ],
+    })
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.update', { sessionId: 'sess_a', modelId: 'opus' }),
+      ),
+    ).toMatchObject({ ok: true })
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.update', { sessionId: 'sess_a', modelId: 'default' }),
+      ),
+    ).toMatchObject({ ok: true })
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.update', { sessionId: 'sess_core', modelId: null }),
+      ),
+    ).toMatchObject({ ok: true })
+    expect(engine.dispatched).toEqual([
+      { type: 'session.update', sessionId: 'sess_a', modelId: 'opus' },
+      { type: 'session.update', sessionId: 'sess_a', modelId: null },
+      { type: 'session.update', sessionId: 'sess_core', modelId: 'ep:local:model' },
+    ])
+    await host.execute(
+      CALLER,
+      command('session.fork', { sessionId: 'sess_a', title: 'Alias', modelId: 'opus' }),
+    )
+    expect(fork).toHaveBeenLastCalledWith(
+      CALLER.deviceId,
+      expect.objectContaining({ modelId: 'claude-opus-current' }),
+    )
+    await host.execute(
+      CALLER,
+      command('session.fork', { sessionId: 'sess_a', title: 'Default', modelId: 'default' }),
+    )
+    expect(
+      (fork.mock.calls.at(-1) as unknown as [string, Record<string, unknown>])[1]['modelId'],
+    ).toBeUndefined()
+    await host.execute(
+      CALLER,
+      command('session.fork', { sessionId: 'sess_core', title: 'Endpoint default' }),
+    )
+    expect(fork).toHaveBeenLastCalledWith(
+      CALLER.deviceId,
+      expect.objectContaining({ modelId: 'ep:local:model' }),
+    )
+  })
   it('serves the providers with their catalog models', async () => {
     const host = hostFor(await tempStore(), fakeEngine())
 
@@ -729,9 +888,15 @@ describe('model catalog', () => {
 
     expect(remoteModelCatalogSchema.safeParse(catalog).success).toBe(true)
     expect(catalog).toEqual({
+      defaults: {
+        driverKind: 'claude',
+        modelId: null,
+        permissionMode: 'ask',
+        configuredDriverKind: 'claude',
+      },
       providers: [
-        { driverKind: 'claude', models: [{ id: 'model-a', label: 'Model A' }] },
-        { driverKind: 'codex', models: [] },
+        { driverKind: 'claude', available: true, models: [{ id: 'model-a', label: 'Model A' }] },
+        { driverKind: 'codex', available: true, models: [] },
       ],
     })
   })

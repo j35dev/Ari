@@ -30,6 +30,7 @@ import type { RemoteTerminals } from './remote-terminals'
 import type { RemoteIntegration } from './remote-integration'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { RemoteForkCommand, RemoteForkResult } from './remote-fork'
+import { remoteCatalogDefaults } from './remote-catalog'
 
 /**
  * The desktop's implementation of the gateway's port.
@@ -56,7 +57,7 @@ export interface RemoteHostDeps {
   engine: Engine
   store: SessionStore
   /** Providers this desktop can actually drive right now. */
-  driverKinds: readonly DriverKind[]
+  driverKinds: readonly DriverKind[] | (() => readonly DriverKind[])
   /**
    * The ceiling for a session the caller did not explicitly configure. Read at
    * call time rather than captured, so changing the setting takes effect
@@ -111,6 +112,25 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
   const { store, engine, pairing } = deps
   const attachments =
     deps.attachments === undefined ? null : new RemoteAttachments(deps.attachments)
+  function registered(kind: DriverKind): boolean {
+    return (
+      typeof deps.driverKinds === 'function' ? deps.driverKinds() : deps.driverKinds
+    ).includes(kind)
+  }
+  async function modelCatalog(): Promise<RemoteModelCatalog> {
+    const providers = (await deps.listModels()).map((provider) => ({
+      ...provider,
+      available: provider.available !== false && registered(provider.driverKind),
+    }))
+    return {
+      providers,
+      defaults: remoteCatalogDefaults(
+        providers,
+        deps.defaultDriverKind(),
+        deps.defaultPermissionMode(),
+      ),
+    }
+  }
 
   /** Whether the caller was granted this project at pairing. */
   function granted(caller: RemoteCaller, projectId: string): boolean {
@@ -443,7 +463,7 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
         case 'models.list':
           // Capability-gated like everything else, but not project-scoped: it
           // names providers and catalog models, nothing about the user's work.
-          return { providers: await deps.listModels() }
+          return modelCatalog()
         case 'device.list':
           // A paired device already acts as the user, so seeing and revoking
           // the user's other devices is the management feature the design
@@ -512,18 +532,28 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           message: 'Isolated child tasks are unavailable on this desktop.',
         }
       const driverKind = command.driverKind ?? session.driverKind
+      const provider = (await modelCatalog()).providers.find((row) => row.driverKind === driverKind)
+      const { modelId: requestedModel, ...request } = command
       const modelId =
-        command.modelId ?? (driverKind === session.driverKind ? session.modelId : null)
-      if (!deps.driverKinds.includes(driverKind))
+        requestedModel ??
+        (driverKind === session.driverKind ? session.modelId : null) ??
+        provider?.defaultModelId ??
+        null
+      if (provider?.available !== true)
         return {
           ok: false,
           code: 'unsupported_capability',
-          message: 'Requested provider is unavailable.',
+          message: provider?.reason ?? 'Requested provider is unavailable.',
         }
       return deps.fork(caller.deviceId, {
-        ...command,
+        ...request,
         driverKind,
-        ...(modelId === null ? {} : { modelId }),
+        ...(modelId === null || (modelId === 'default' && driverKind !== 'ari-core')
+          ? {}
+          : {
+              modelId:
+                provider.models.find((model) => model.aliases?.includes(modelId))?.id ?? modelId,
+            }),
       })
     }
     if (
@@ -578,11 +608,32 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       ) {
         return { ok: false, code: 'conflict', message: 'no session changes were supplied' }
       }
+      if (command.modelId === null && session.driverKind === 'ari-core') {
+        const provider = (await modelCatalog()).providers.find(
+          (row) => row.driverKind === 'ari-core',
+        )
+        if (provider?.defaultModelId == null || provider.available !== true)
+          return {
+            ok: false,
+            code: 'unsupported_capability',
+            message:
+              provider?.reason ??
+              'Configure an endpoint on the desktop before selecting its default.',
+          }
+        return dispatch(commandToEngine({ ...command, modelId: provider.defaultModelId }))
+      }
       if (command.modelId !== undefined && command.modelId !== null) {
-        const provider = (await deps.listModels()).find(
+        const provider = (await modelCatalog()).providers.find(
           (entry) => entry.driverKind === session.driverKind,
         )
-        if (!provider?.models.some((model) => model.id === command.modelId)) {
+        if (command.modelId === 'default' && session.driverKind !== 'ari-core')
+          return dispatch(commandToEngine({ ...command, modelId: null }))
+        if (
+          !provider?.models.some(
+            (model) =>
+              model.id === command.modelId || model.aliases?.includes(command.modelId as string),
+          )
+        ) {
           return {
             ok: false,
             code: 'unsupported_capability',
@@ -618,12 +669,16 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     if (!(await deps.hasProject(command.projectId))) {
       return { ok: false, code: 'not_found', message: 'no such project' }
     }
-    const driverKind = command.driverKind ?? deps.defaultDriverKind()
-    if (driverKind === null || !deps.driverKinds.includes(driverKind)) {
+    const catalog = await modelCatalog()
+    const driverKind = command.driverKind ?? catalog.defaults?.driverKind ?? null
+    const provider = catalog.providers.find((row) => row.driverKind === driverKind)
+    if (driverKind === null || provider?.available !== true) {
       return {
         ok: false,
         code: 'unsupported_capability',
-        message: 'this desktop cannot run that provider',
+        message:
+          provider?.reason ??
+          'No provider is available. Configure or sign in to a provider on the desktop.',
       }
     }
 
@@ -634,7 +689,10 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       projectId: command.projectId,
       title: command.title ?? 'New session',
       driverKind,
-      modelId: command.modelId ?? null,
+      modelId:
+        command.modelId === 'default' && driverKind !== 'ari-core'
+          ? null
+          : (command.modelId ?? provider.defaultModelId ?? null),
       // Never from the client: the envelope cannot carry a permission mode, and
       // this is the ceiling the user set at the desktop.
       permissionMode: deps.defaultPermissionMode(),
