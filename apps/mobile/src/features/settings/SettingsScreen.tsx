@@ -46,7 +46,7 @@ export function SettingsScreen(): ReactNode {
   ].filter((item) => app.session?.supports(item.op))
   return (
     <div className="h-full overflow-y-auto px-5 pb-8 pt-5">
-      <ScreenHeader title="Settings" subtitle="A workspace that feels like yours." />
+      <ScreenHeader title="Settings" subtitle="" />
       <h2 className="section-label mt-6">Connected computer</h2>
       <section className="rounded-2xl border border-border bg-surface-1 p-4">
         <div className="flex items-center gap-3">

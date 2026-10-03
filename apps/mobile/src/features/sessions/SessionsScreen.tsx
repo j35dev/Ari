@@ -1,9 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { ArrowUpRight, CircleCheck, LoaderCircle, Plus, RefreshCw, Pin } from 'lucide-react'
+import { Plus, RefreshCw, Pin, Search } from 'lucide-react'
 import { useApp } from '../../lib/app-state'
 import { relativeTime } from '../../lib/format'
 import { EmptyState } from '../../components/EmptyState'
-import { FilterChips, ScreenHeader, SearchField } from '../../components/ui'
+import { FilterChips, SearchField } from '../../components/ui'
 
 const filters = [
   { id: 'all', label: 'All' },
@@ -24,8 +24,7 @@ export function SessionsScreen({
   const app = useApp()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const [failure, setFailure] = useState<string | null>(null)
-  const [pinning, setPinning] = useState<string | null>(null)
+  const [searching, setSearching] = useState(false)
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase()
     const today = new Date().setHours(0, 0, 0, 0)
@@ -44,52 +43,60 @@ export function SessionsScreen({
       map.has(name) ? [{ name, sessions: map.get(name) ?? [] }] : [],
     )
   }, [app.sessions, app.projects, query, filter])
-  async function pin(id: string, pinned: boolean): Promise<void> {
-    setPinning(id)
-    try {
-      await app.session?.send({ op: 'session.update', sessionId: id, pinned })
-      await app.refresh()
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : 'Could not update this session.')
-    } finally {
-      setPinning(null)
-    }
-  }
-  const running = app.sessions.filter((session) => session.status === 'running').length
   return (
     <div className="flex h-full flex-col">
       <div className="screen-heading space-y-3">
-        <ScreenHeader
-          title="Your workspace"
-          subtitle={
-            running > 0
-              ? `${running} session${running === 1 ? '' : 's'} running on your computer.`
-              : 'Pick up a conversation. Make something happen.'
-          }
-          action={
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-[23px] font-semibold tracking-tight">Sessions</h1>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              aria-label="Search and filter sessions"
+              aria-expanded={searching}
+              className="icon-button text-fg-muted"
+              onClick={() => setSearching((open) => !open)}
+            >
+              <Search size={19} />
+            </button>
             <button
               type="button"
               aria-label="New session"
-              className="icon-button bg-accent text-fg-on-accent"
+              className="icon-button text-fg"
               onClick={onNewSession}
               disabled={!app.session?.supports('session.create')}
             >
               <Plus size={21} />
             </button>
-          }
-        />
-        <SearchField
-          value={query}
-          onChange={setQuery}
-          placeholder="Search sessions or projects"
-          label="Search sessions"
-        />
-        <FilterChips options={filters} active={filter} onPick={setFilter} />
+          </div>
+        </div>
+        {searching && (
+          <>
+            <SearchField
+              value={query}
+              onChange={setQuery}
+              placeholder="Search sessions or projects"
+              label="Search sessions"
+            />
+            <FilterChips options={filters} active={filter} onPick={setFilter} />
+          </>
+        )}
+        {!searching && (query || filter !== 'all') && (
+          <button
+            type="button"
+            className="min-h-11 text-xs text-fg-muted"
+            onClick={() => {
+              setQuery('')
+              setFilter('all')
+            }}
+          >
+            Clear {filter !== 'all' ? filter : 'search'} filter
+          </button>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
-        {(failure ?? app.error) !== null && (
+        {app.error !== null && (
           <p role="alert" className="error-banner">
-            {failure ?? app.error}
+            {app.error}
           </p>
         )}
         {groups.length === 0 && (
@@ -118,7 +125,6 @@ export function SessionsScreen({
           <section key={group.name} className="mb-5">
             <h2 className="section-label flex items-center justify-between">
               <span>{group.name}</span>
-              <span>{group.sessions.length}</span>
             </h2>
             <ul className="divide-y divide-border">
               {group.sessions.map((session) => {
@@ -130,53 +136,32 @@ export function SessionsScreen({
                     <button
                       type="button"
                       onClick={() => onOpen(session.id)}
-                      className="flex min-h-[88px] min-w-0 flex-1 items-start gap-3 py-4 text-left"
+                      className="flex min-h-[84px] min-w-0 flex-1 items-start py-4 text-left"
                       aria-label={`Open ${session.title || 'Untitled session'}`}
                     >
-                      <span
-                        className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border ${session.status === 'running' ? 'bg-success-subtle text-success' : 'bg-surface-1 text-fg-subtle'}`}
-                      >
-                        {session.status === 'running' ? (
-                          <LoaderCircle size={15} className="animate-spin" />
-                        ) : (
-                          <CircleCheck size={15} />
-                        )}
-                      </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[15px] font-medium tracking-tight">
-                          {session.title || 'Untitled session'}
-                        </span>
-                        <span className="mt-1 block truncate text-xs text-fg-muted">
-                          {project}{' '}
-                          <span className="text-fg-subtle">
-                            · {relativeTime(session.updatedAt)}
+                        <span className="mb-1.5 flex items-center justify-between gap-3 text-xs text-fg-muted">
+                          <span className="truncate">{project}</span>
+                          <span
+                            className={`shrink-0 text-[11px] ${session.status === 'running' ? 'text-success' : session.status === 'error' ? 'text-danger' : session.status === 'waiting-approval' ? 'text-warning' : 'text-fg-subtle'}`}
+                          >
+                            {session.status === 'running'
+                              ? 'Working'
+                              : session.status === 'waiting-approval'
+                                ? 'Approval'
+                                : session.status === 'error'
+                                  ? 'Needs attention'
+                                  : relativeTime(session.updatedAt)}
                           </span>
                         </span>
-                        <span
-                          className={`mt-2 inline-flex items-center gap-1.5 text-[11px] ${session.status === 'running' ? 'text-success' : session.status === 'error' ? 'text-danger' : 'text-fg-subtle'}`}
-                        >
-                          <span className="size-1 rounded-full bg-current" />
-                          {session.status === 'running'
-                            ? 'Working'
-                            : session.status === 'error'
-                              ? 'Needs attention'
-                              : `${session.messageCount} messages`}
+                        <span className="flex items-center gap-2 text-[16px] font-medium tracking-tight">
+                          <span className="truncate">{session.title || 'Untitled session'}</span>
+                          {session.pinned === true && (
+                            <Pin size={12} className="shrink-0 text-fg-subtle" />
+                          )}
                         </span>
                       </span>
-                      <ArrowUpRight size={14} className="mt-1 shrink-0 text-fg-subtle" />
                     </button>
-                    {app.session?.supports('session.update') && (
-                      <button
-                        type="button"
-                        className={`icon-button ${session.pinned === true ? 'text-accent' : 'text-fg-subtle'}`}
-                        aria-label={`${session.pinned === true ? 'Unpin' : 'Pin'} ${session.title}`}
-                        aria-pressed={session.pinned === true}
-                        disabled={pinning !== null}
-                        onClick={() => void pin(session.id, session.pinned !== true)}
-                      >
-                        <Pin size={15} />
-                      </button>
-                    )}
                   </li>
                 )
               })}

@@ -94,7 +94,7 @@ export function AppShell(): ReactNode {
         <button
           type="button"
           onClick={() => navigate({ destination: 'settings', sessionId: null })}
-          className="flex min-h-11 max-w-[75%] items-center gap-2 rounded-full border border-border bg-surface-1 px-3 text-xs"
+          className="flex min-h-11 max-w-[75%] items-center gap-2 px-1 text-xs text-fg-muted"
           aria-label={`Computer: ${host}. ${connectionLabel(app.connection)}`}
         >
           <span
@@ -175,9 +175,7 @@ export function AppShell(): ReactNode {
                 onClick={() => navigate({ destination: id, sessionId: null })}
                 className={`relative flex min-h-14 w-full flex-col items-center justify-center gap-1 text-[11px] ${route.destination === id ? 'font-medium text-fg' : 'text-fg-subtle'}`}
               >
-                <span
-                  className={`relative flex h-7 w-12 items-center justify-center rounded-lg ${route.destination === id ? 'bg-surface-2' : ''}`}
-                >
+                <span className="relative flex h-7 w-12 items-center justify-center">
                   <Icon size={19} strokeWidth={1.7} />
                   {id === 'sessions' && running > 0 && (
                     <span
