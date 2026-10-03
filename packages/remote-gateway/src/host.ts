@@ -3,7 +3,13 @@ import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind } from '@ari/contracts/common'
-import type { RemoteApproval, RemoteCommand, RemoteInput, RemoteOperation, RemoteProject } from '@ari/contracts/remote'
+import type {
+  RemoteApproval,
+  RemoteCommand,
+  RemoteInput,
+  RemoteOperation,
+  RemoteProject,
+} from '@ari/contracts/remote'
 
 /**
  * The authenticated device a call is made on behalf of.
@@ -18,6 +24,8 @@ export interface RemoteCaller {
   deviceId: string
   /** Projects the user granted at pairing. Empty grants nothing. */
   projectIds: readonly string[]
+  /** Explicit desktop approval; shells run as the host user, not inside a filesystem sandbox. */
+  allowTerminal?: boolean
 }
 
 /**
@@ -85,7 +93,11 @@ export interface RemoteHost {
    * journal cannot be replayed from there — the gateway then says so and the
    * client re-snapshots rather than silently missing events.
    */
-  replay(caller: RemoteCaller, sessionId: string, fromSeq: number): Promise<JournalEvent[] | undefined>
+  replay(
+    caller: RemoteCaller,
+    sessionId: string,
+    fromSeq: number,
+  ): Promise<JournalEvent[] | undefined>
 
   /**
    * Runs a validated command. The gateway has already checked the operation is
@@ -98,7 +110,11 @@ export interface RemoteHost {
   ): Promise<{ ok: true; result: unknown } | { ok: false; code: string; message: string }>
 
   /** Projected state for a query operation. */
-  query(caller: RemoteCaller, op: RemoteOperation, params: Record<string, unknown>): Promise<unknown>
+  query(
+    caller: RemoteCaller,
+    op: RemoteOperation,
+    params: Record<string, unknown>,
+  ): Promise<unknown>
 
   /**
    * Subscribes to a session's live events. Returns an unsubscribe function.

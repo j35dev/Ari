@@ -671,12 +671,13 @@ export const rpcParams = {
   'remote.enable': z.object({ port: z.number().int().min(0).max(65535).optional() }),
   'remote.disable': z.undefined(),
   /** Mint a single-use invitation to show as a QR code. */
-  'remote.invite': z.undefined(),
+  'remote.invite': z.object({ method: z.enum(['tailscale', 'connect']) }).optional(),
   'remote.cancelInvite': z.undefined(),
   /** The user's decision on the device that asked, with its project grant. */
   'remote.approve': z.object({
     invitationId: z.string().min(1),
     projectIds: z.array(z.string().min(1)),
+    allowTerminal: z.boolean().default(false),
   }),
   'remote.deny': z.object({ invitationId: z.string().min(1) }),
   'remote.revokeDevice': z.object({ deviceId: z.string().min(1) }),
@@ -689,6 +690,10 @@ export const rpcParams = {
   'remote.tailscale.enable': z.undefined(),
   /** Remove Ari's Serve mapping, leaving the user's own mappings alone. */
   'remote.tailscale.disable': z.undefined(),
+  'remote.connect.status': z.undefined(),
+  'remote.connect.configure': z.object({ origin: z.string().url().max(200) }).strict(),
+  'remote.connect.signIn': z.object({ computerName: z.string().trim().min(1).max(64) }).strict(),
+  'remote.connect.signOut': z.undefined(),
   'stream.subscribe': z.object({
     id: z.string().min(1),
     name: z.enum(streamNames),
@@ -1005,6 +1010,10 @@ export interface RpcResults {
    */
   'remote.tailscale.enable': { remote: RemoteState; tailscale: TailscaleState }
   'remote.tailscale.disable': TailscaleState
+  'remote.connect.status': RemoteConnectState
+  'remote.connect.configure': RemoteConnectState
+  'remote.connect.signIn': RemoteConnectState
+  'remote.connect.signOut': RemoteConnectState
   'stream.subscribe': { subscribed: boolean }
   'stream.unsubscribe': { unsubscribed: boolean }
 }
@@ -1017,6 +1026,29 @@ export interface RemoteDeviceView {
   projectIds: string[]
   pairedAt: number
   lastSeenAt: number | null
+  allowTerminal?: boolean
+}
+
+/** Hosted identity and tunnel status; credentials never cross the renderer boundary. */
+export interface RemoteConnectState {
+  phase:
+    | 'unconfigured'
+    | 'signed-out'
+    | 'awaiting-approval'
+    | 'provisioning'
+    | 'missing-cloudflared'
+    | 'connecting'
+    | 'ready'
+    | 'denied'
+    | 'error'
+  origin: string | null
+  computerName: string | null
+  computerId: string | null
+  clientUrl: string | null
+  error: string | null
+  browserUrl: string | null
+  expiresAt: number | null
+  cloudflaredAvailable: boolean
 }
 
 /** The device waiting for the user's decision, with the code both show. */

@@ -2,13 +2,23 @@ import { createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { PairingService, type PersistedPairing } from './pairing'
 
-function deviceKey(): { jwk: { kty: 'EC'; crv: 'P-256'; x: string; y: string }; sign: (nonce: string) => string } {
+function deviceKey(): {
+  jwk: { kty: 'EC'; crv: 'P-256'; x: string; y: string }
+  sign: (nonce: string) => string
+} {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
-  const jwk = publicKey.export({ format: 'jwk' }) as { kty: 'EC'; crv: 'P-256'; x: string; y: string }
+  const jwk = publicKey.export({ format: 'jwk' }) as {
+    kty: 'EC'
+    crv: 'P-256'
+    x: string
+    y: string
+  }
   return {
     jwk,
     sign: (nonce) =>
-      sign('sha256', Buffer.from(nonce), { key: privateKey, dsaEncoding: 'der' }).toString('base64'),
+      sign('sha256', Buffer.from(nonce), { key: privateKey, dsaEncoding: 'der' }).toString(
+        'base64',
+      ),
   }
 }
 
@@ -80,7 +90,9 @@ describe('pairing', () => {
     if (!result.ok) return
     // Derived from the registered key, so a swapped key changes the digits.
     expect(result.pending.confirmationCode).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/)
-    expect(result.pending.confirmationCode).toBe(service.pending(invitation.invitationId)?.confirmationCode)
+    expect(result.pending.confirmationCode).toBe(
+      service.pending(invitation.invitationId)?.confirmationCode,
+    )
     expect(result.pending.displayName).toBe('Pixel')
   })
 
@@ -98,7 +110,10 @@ describe('pairing', () => {
     // The server's nonce is not anything the client supplied, so a client
     // cannot fix in advance what it will be asked to prove.
     expect(
-      service.redeem(invitationId, { nonce: 'client-chosen', signature: key.sign('client-chosen') }),
+      service.redeem(invitationId, {
+        nonce: 'client-chosen',
+        signature: key.sign('client-chosen'),
+      }),
     ).toEqual({ ok: false, code: 'invalid_signature' })
   })
 
@@ -118,7 +133,10 @@ describe('pairing', () => {
     // had paired, and every Approve click then failed as a conflict.
     const changes: string[] = []
     const clock = { now: 1_000 }
-    const service = new PairingService({ now: () => clock.now, onChange: () => changes.push('changed') })
+    const service = new PairingService({
+      now: () => clock.now,
+      onChange: () => changes.push('changed'),
+    })
     const key = deviceKey()
     const invitation = service.begin('http://127.0.0.1:8787')
     const registered = service.request(invitation.invitationId, {
@@ -191,10 +209,14 @@ describe('pairing', () => {
     ).toEqual({ ok: false, code: 'invalid_signature' })
   })
 
-  it('refuses a replayed nonce', () => {    const { service, invitationId, nonce, key } = approved()
+  it('refuses a replayed nonce', () => {
+    const { service, invitationId, nonce, key } = approved()
     expect(service.redeem(invitationId, { nonce, signature: key.sign(nonce) }).ok).toBe(true)
     const second = service.begin('http://127.0.0.1:8787')
-    const registered = service.request(second.invitationId, { displayName: 'Pixel', publicKey: key.jwk })
+    const registered = service.request(second.invitationId, {
+      displayName: 'Pixel',
+      publicKey: key.jwk,
+    })
     if (!registered.ok) throw new Error('expected the registration to be accepted')
     service.approve(second.invitationId, [])
 
@@ -307,7 +329,8 @@ describe('pairing', () => {
     const registeredB = service.request(invB.invitationId, { displayName: 'B', publicKey: b.jwk })
     service.approve(invA.invitationId, [])
     service.approve(invB.invitationId, [])
-    if (!registeredA.ok || !registeredB.ok) throw new Error('expected the registrations to be accepted')
+    if (!registeredA.ok || !registeredB.ok)
+      throw new Error('expected the registrations to be accepted')
 
     expect(
       service.redeem(invA.invitationId, {
@@ -384,8 +407,14 @@ describe('device credentials', () => {
     if (!regA.ok || !regB.ok) throw new Error('expected the registrations to be accepted')
     service.approve(invA.invitationId, [])
     service.approve(invB.invitationId, [])
-    const first = service.redeem(invA.invitationId, { nonce: regA.nonce, signature: a.sign(regA.nonce) })
-    const second = service.redeem(invB.invitationId, { nonce: regB.nonce, signature: b.sign(regB.nonce) })
+    const first = service.redeem(invA.invitationId, {
+      nonce: regA.nonce,
+      signature: a.sign(regA.nonce),
+    })
+    const second = service.redeem(invB.invitationId, {
+      nonce: regB.nonce,
+      signature: b.sign(regB.nonce),
+    })
     if (!first.ok || !second.ok) throw new Error('expected both redemptions')
     expect(first.token).not.toBe(second.token)
     expect(service.authenticate(first.token)?.displayName).toBe('A')
@@ -607,6 +636,26 @@ describe('pairing persistence', () => {
 })
 
 describe('pairing public key material', () => {
+  it('defaults terminal authority off and persists only explicit desktop approval', () => {
+    for (const grant of [false, true]) {
+      const service = serviceAt({ now: 1000 })
+      const key = deviceKey()
+      const { invitationId } = service.begin('http://127.0.0.1:8787')
+      const requested = service.request(invitationId, { displayName: 'Phone', publicKey: key.jwk })
+      if (!requested.ok) throw new Error('Registration refused')
+      const nonce = requested.nonce
+      if (grant) service.approve(invitationId, ['proj_1'], true)
+      else service.approve(invitationId, ['proj_1'])
+      const result = service.redeem(invitationId, { nonce, signature: key.sign(nonce) })
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.device.allowTerminal).toBe(grant)
+      expect(
+        new PairingService({ now: () => 1000, restored: service.toPersisted() }).devices()[0]
+          ?.allowTerminal,
+      ).toBe(grant)
+    }
+  })
   it('rejects a key that is not a P-256 EC key', () => {
     const service = serviceAt({ now: 1_000 })
     const invitation = service.begin('http://127.0.0.1:8787')

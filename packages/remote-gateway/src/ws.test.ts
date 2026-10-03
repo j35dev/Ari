@@ -98,7 +98,9 @@ describe('websocket upgrade', () => {
   it('carries payloads past the 125-byte boundary and past 64 KiB', async () => {
     const url = await serve((connection) => connection.onMessage((text) => connection.send(text)))
     const socket = new WebSocket(url)
-    await new Promise<void>((resolve) => socket.addEventListener('open', () => resolve(), { once: true }))
+    await new Promise<void>((resolve) =>
+      socket.addEventListener('open', () => resolve(), { once: true }),
+    )
 
     // 126..65535 needs the 16-bit length; above that needs the 64-bit one, and
     // both are where an off-by-one in the length encoding shows up.
@@ -133,7 +135,9 @@ describe('websocket upgrade', () => {
   it('closes cleanly and reports the close code', async () => {
     const url = await serve((connection) => connection.onMessage((text) => connection.send(text)))
     const socket = new WebSocket(url)
-    await new Promise<void>((resolve) => socket.addEventListener('open', () => resolve(), { once: true }))
+    await new Promise<void>((resolve) =>
+      socket.addEventListener('open', () => resolve(), { once: true }),
+    )
     socket.close(1000, 'done')
     expect(await closed(socket)).toBe(1000)
   })
@@ -144,7 +148,9 @@ describe('websocket upgrade', () => {
       serverSide = connection
     })
     const socket = new WebSocket(url)
-    await new Promise<void>((resolve) => socket.addEventListener('open', () => resolve(), { once: true }))
+    await new Promise<void>((resolve) =>
+      socket.addEventListener('open', () => resolve(), { once: true }),
+    )
     serverSide!.close(1001, 'going away')
     expect(await closed(socket)).toBe(1001)
     expect(serverSide!.open).toBe(false)
@@ -158,7 +164,10 @@ describe('websocket upgrade', () => {
     servers.push(server)
     let offered: string[] = []
     server.on('upgrade', (req, socket) => {
-      offered = (req.headers['sec-websocket-protocol'] ?? '').toString().split(',').map((p) => p.trim())
+      offered = (req.headers['sec-websocket-protocol'] ?? '')
+        .toString()
+        .split(',')
+        .map((p) => p.trim())
       acceptUpgrade(req, socket, undefined, offered[0])
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -186,7 +195,9 @@ describe('websocket upgrade', () => {
       }),
     )
     const socket = new WebSocket(url)
-    await new Promise<void>((resolve) => socket.addEventListener('open', () => resolve(), { once: true }))
+    await new Promise<void>((resolve) =>
+      socket.addEventListener('open', () => resolve(), { once: true }),
+    )
     socket.send('before')
     expect(await nextMessage(socket)).toBe('before')
     // A keepalive must not be mistaken for application data.

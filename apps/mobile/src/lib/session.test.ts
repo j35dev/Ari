@@ -50,7 +50,34 @@ function fakeHost(options: { withChanges?: boolean } = {}): RecordingHost {
       return []
     },
     listProjects: async () => [],
-    getSession: async () => undefined,
+    getSession: async (caller, id) =>
+      caller.projectIds.includes('proj_1') && ['sess_1', 'sess_new'].includes(id)
+        ? {
+            session: {
+              id,
+              projectId: 'proj_1',
+              title: 'Test',
+              driverKind: 'claude',
+              permissionMode: 'ask',
+              modelId: null,
+              status: 'idle',
+              createdAt: 1,
+              updatedAt: 1,
+            },
+            summary: {
+              id,
+              projectId: 'proj_1',
+              title: 'Test',
+              status: 'idle',
+              updatedAt: 1,
+              messageCount: 0,
+            },
+            seq: 0,
+            messages: [],
+            pendingApprovals: [],
+            pendingInputs: [],
+          }
+        : undefined,
     replay: async () => [],
     query: async (caller, op, params) => {
       callers.push(caller)
@@ -276,9 +303,12 @@ describe('mobile reconnection', () => {
 
     const stub = vi.fn(
       async () =>
-        new Response(JSON.stringify({ ok: true, result: { protocolVersion: 99, capabilities: [] } }), {
-          headers: { 'content-type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ ok: true, result: { protocolVersion: 99, capabilities: [] } }),
+          {
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
     ) as unknown as typeof fetch
     const session = new MobileSession({
       client: new GatewayClient({ origin: gateway.origin, fetch: stub }),
@@ -315,7 +345,11 @@ describe('mobile commands', () => {
     // the lost answer and nothing else.
     await pairPhone(gateway, new DeviceKeyring(store))
 
-    const lossy = sessionFor(gateway, new DeviceKeyring(store), browserFetch({ loseFirstMutation: true }))
+    const lossy = sessionFor(
+      gateway,
+      new DeviceKeyring(store),
+      browserFetch({ loseFirstMutation: true }),
+    )
     await expect(lossy.connect()).resolves.toBe('connected')
 
     const outcome = await lossy.send({

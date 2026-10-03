@@ -8,6 +8,7 @@ import type { Command } from '@ari/contracts/commands'
 import type { Message } from '@ari/contracts/message'
 import type {
   RemoteApproval,
+  RemoteAttention,
   RemoteChanges,
   RemoteCommand,
   RemoteInput,
@@ -21,14 +22,23 @@ import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
 import type { PairingService } from '@ari/remote-gateway/pairing'
 import type { Engine } from './engine'
 import type { SessionStore } from '@ari/engine/session-store'
+import { queryRemoteFiles } from './remote-files'
+import { RemoteAttachments } from './remote-attachments'
+import type { AttachmentStore } from './attachments'
+import type { AttachmentRef } from '@ari/contracts/attachments'
+import type { RemoteTerminals } from './remote-terminals'
+import type { RemoteIntegration } from './remote-integration'
+import { ControlFailure } from '@ari/contracts/agent-control'
+import type { RemoteForkCommand, RemoteForkResult } from './remote-fork'
 
 /**
  * The desktop's implementation of the gateway's port.
  *
  * Everything a remote client can reach goes through here, and what it can
  * reach is the list in {@linkcode OPERATIONS} — not the RPC surface the
- * renderer uses. There is no path from this file to a terminal, a shell, a
- * provider login, an arbitrary file read, or the agent-to-agent control socket.
+ * renderer uses. Optional terminal access requires an explicit device grant;
+ * files use the session workspace boundary. No provider login or arbitrary
+ * IPC is exposed. Forking uses a fixed native delegation operation in process.
  *
  * Two rules shape every method below:
  *
@@ -64,6 +74,13 @@ export interface RemoteHostDeps {
   /** Owns the device records `device.list` and `device.revoke` read and write. */
   pairing: PairingService
   mintSessionId: () => string
+  attachments?: Pick<AttachmentStore, 'stage' | 'read'>
+  terminals?: RemoteTerminals
+  integration?: RemoteIntegration
+  fork?: (
+    deviceId: string,
+    command: RemoteForkCommand & { driverKind: DriverKind; modelId?: string },
+  ) => Promise<RemoteForkResult>
 }
 
 const OPERATIONS: readonly RemoteOperation[] = [
@@ -71,6 +88,10 @@ const OPERATIONS: readonly RemoteOperation[] = [
   'session.get',
   'session.create',
   'session.archive',
+  'session.update',
+  'attention.list',
+  'files.list',
+  'files.read',
   'session.prompt',
   'session.queue',
   'session.steer',
@@ -88,6 +109,8 @@ const OPERATIONS: readonly RemoteOperation[] = [
 
 export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
   const { store, engine, pairing } = deps
+  const attachments =
+    deps.attachments === undefined ? null : new RemoteAttachments(deps.attachments)
 
   /** Whether the caller was granted this project at pairing. */
   function granted(caller: RemoteCaller, projectId: string): boolean {
@@ -110,6 +133,45 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
     // `SessionListEntry` is the shape `SessionSummary` describes, so the two
     // listings are the same objects rather than two mappings that could drift.
     return all.filter((entry) => granted(caller, entry.projectId))
+  }
+
+  async function attention(
+    caller: RemoteCaller,
+    params: Record<string, unknown>,
+  ): Promise<RemoteAttention> {
+    const sessions = (await listSessions(caller)).sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+    )
+    const limit = Math.min(100, Math.max(1, Number(params['limit'] ?? 50)))
+    const items: RemoteAttention['items'] = []
+    for (const summary of sessions) {
+      if (typeof params['cursor'] === 'string' && summary.id <= params['cursor']) continue
+      const model = await store.load(summary.id)
+      const session = model.session
+      if (session === null || !granted(caller, session.projectId)) continue
+      if (
+        model.pendingApprovals.length === 0 &&
+        model.pendingInputs.length === 0 &&
+        session.status !== 'error'
+      )
+        continue
+      if (items.length === limit) return { items, nextCursor: items.at(-1)?.sessionId ?? null }
+      items.push({
+        sessionId: session.id,
+        projectId: session.projectId,
+        title: session.title,
+        status: session.status,
+        updatedAt: session.updatedAt,
+        seq: Math.max(0, model.lastSeq),
+        pendingApprovals: model.pendingApprovals,
+        pendingInputs: model.pendingInputs,
+        error:
+          session.status === 'error'
+            ? 'The last run failed. Open the session to inspect the failure.'
+            : null,
+      })
+    }
+    return { items, nextCursor: null }
   }
 
   /**
@@ -151,7 +213,8 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       }
     | undefined
   > {
-    const { session, messages, lastSeq, pendingApprovals, pendingInputs } = await store.load(sessionId)
+    const { session, messages, lastSeq, pendingApprovals, pendingInputs } =
+      await store.load(sessionId)
     if (session === null || !granted(caller, session.projectId)) return undefined
     const summary = (await listSessions(caller)).find((entry) => entry.id === sessionId)
     if (summary === undefined) return undefined
@@ -246,7 +309,23 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
   }
 
   return {
-    capabilities: () => OPERATIONS,
+    capabilities: () => [
+      ...OPERATIONS,
+      ...(deps.fork === undefined ? [] : (['session.fork'] as const)),
+      ...(attachments === null ? [] : (['attachments.stage', 'attachments.read'] as const)),
+      ...(deps.terminals === undefined
+        ? []
+        : ([
+            'terminal.create',
+            'terminal.read',
+            'terminal.write',
+            'terminal.resize',
+            'terminal.kill',
+          ] as const)),
+      ...(deps.integration === undefined
+        ? []
+        : (['changes.preview', 'changes.integrate'] as const)),
+    ],
     listSessions,
     listProjects,
     getSession,
@@ -261,6 +340,82 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           return listSessions(caller)
         case 'session.get':
           return (await getSession(caller, String(params['sessionId']))) ?? null
+        case 'attention.list':
+          return attention(caller, params)
+        case 'attachments.read': {
+          const sessionId = String(params['sessionId'])
+          const model = await store.load(sessionId)
+          if (model.session === null || !granted(caller, model.session.projectId)) return null
+          const attachment =
+            (await attachments?.read(caller, sessionId, String(params['attachmentId']), model)) ??
+            null
+          return {
+            attachment,
+            error:
+              attachment === null
+                ? 'This image is unavailable or exceeds the mobile size limit.'
+                : null,
+          }
+        }
+        case 'terminal.read': {
+          const sessionId = String(params['sessionId'])
+          if ((await visible(caller, sessionId)) === undefined) return null
+          return (
+            deps.terminals?.read(
+              caller,
+              sessionId,
+              String(params['terminalId']),
+              Number(params['fromSeq'] ?? 0),
+            ) ?? null
+          )
+        }
+        case 'changes.preview': {
+          if ((await visible(caller, String(params['sessionId']))) === undefined) return null
+          if (deps.integration === undefined)
+            return { preview: null, error: 'Integration is unavailable.' }
+          try {
+            return {
+              preview: await deps.integration.preview(caller, String(params['sessionId'])),
+              error: null,
+            }
+          } catch (error) {
+            return {
+              preview: null,
+              error:
+                error instanceof ControlFailure
+                  ? error.message
+                  : 'Unable to inspect changes. Check Git on the desktop.',
+            }
+          }
+        }
+        case 'files.list':
+        case 'files.read': {
+          const session = await visible(caller, String(params['sessionId']))
+          if (session === undefined) return null
+          const workspace = await engine.workspace(session)
+          const path = typeof params['path'] === 'string' ? params['path'] : ''
+          if (workspace === null)
+            return op === 'files.list'
+              ? {
+                  path,
+                  entries: [],
+                  nextCursor: null,
+                  error: 'Files are unavailable for this workspace.',
+                }
+              : {
+                  path,
+                  kind: null,
+                  size: null,
+                  content: null,
+                  error: 'Files are unavailable for this workspace.',
+                }
+          return queryRemoteFiles(workspace, {
+            op,
+            path,
+            ...(typeof params['cursor'] === 'string' ? { cursor: params['cursor'] } : {}),
+            ...(typeof params['limit'] === 'number' ? { limit: params['limit'] } : {}),
+          })
+        }
         case 'changes.files': {
           const result = await changes(caller, String(params['sessionId']))
           if (result === null) return null
@@ -317,21 +472,124 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
   ): Promise<{ ok: true; result: unknown } | { ok: false; code: string; message: string }> {
     if (command.op === 'session.create') return createSession(caller, command)
     if (command.op === 'changes.integrate') {
-      // Declared by the contract but not served here, so it is also absent from
-      // OPERATIONS. Refused explicitly as well: the only integration the
-      // desktop has is the agent-to-agent delegation one, which ADR §19 keeps
-      // off this surface, and adding the capability without an implementation
-      // must not fall through to something that looks like success.
-      return {
-        ok: false,
-        code: 'unsupported_capability',
-        message: 'integrating changes is not available on this desktop',
+      if (deps.integration === undefined)
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'integrating changes is not available on this desktop',
+        }
+      try {
+        return {
+          ok: true,
+          result: await deps.integration.integrate(
+            caller,
+            command.sessionId,
+            command.snapshotCommit,
+            command.expectedParentSnapshot,
+          ),
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          code: 'conflict',
+          message:
+            error instanceof ControlFailure
+              ? error.message
+              : 'Integration failed. Inspect the parent workspace before retrying.',
+        }
       }
     }
 
     const session = await visible(caller, command.sessionId)
     if (session === undefined) {
       return { ok: false, code: 'not_found', message: 'no such session' }
+    }
+    if (command.op === 'session.fork') {
+      if (deps.fork === undefined)
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'Isolated child tasks are unavailable on this desktop.',
+        }
+      const driverKind = command.driverKind ?? session.driverKind
+      const modelId =
+        command.modelId ?? (driverKind === session.driverKind ? session.modelId : null)
+      if (!deps.driverKinds.includes(driverKind))
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'Requested provider is unavailable.',
+        }
+      return deps.fork(caller.deviceId, {
+        ...command,
+        driverKind,
+        ...(modelId === null ? {} : { modelId }),
+      })
+    }
+    if (
+      command.op === 'terminal.create' ||
+      command.op === 'terminal.write' ||
+      command.op === 'terminal.resize' ||
+      command.op === 'terminal.kill'
+    ) {
+      const workspace = await engine.workspace(session)
+      if (deps.terminals === undefined || workspace === null)
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'Terminal access is unavailable for this workspace.',
+        }
+      return deps.terminals.execute(caller, command, workspace)
+    }
+    if (command.op === 'attachments.stage') {
+      if (attachments === null)
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'image attachments are unavailable',
+        }
+      const refs = await attachments.stage(caller, command)
+      return refs === null
+        ? {
+            ok: false,
+            code: 'conflict',
+            message:
+              'Use a PNG, JPEG, GIF or WebP under 1 MB; remove or send pending images before adding more.',
+          }
+        : { ok: true, result: { attachments: refs } }
+    }
+    if (command.op === 'session.prompt' || command.op === 'session.queue') {
+      const ids = command.attachmentIds ?? []
+      const refs =
+        ids.length === 0
+          ? []
+          : (attachments?.resolve(caller, session.id, ids, await store.load(session.id)) ?? null)
+      if (refs === null)
+        return { ok: false, code: 'not_found', message: 'an image is unavailable; attach it again' }
+      if (command.text.trim().length === 0 && refs.length === 0)
+        return { ok: false, code: 'conflict', message: 'add a message or an image' }
+      return dispatch(commandToEngine(command, refs))
+    }
+    if (command.op === 'session.update') {
+      if (
+        command.title === undefined &&
+        command.pinned === undefined &&
+        command.modelId === undefined
+      ) {
+        return { ok: false, code: 'conflict', message: 'no session changes were supplied' }
+      }
+      if (command.modelId !== undefined && command.modelId !== null) {
+        const provider = (await deps.listModels()).find(
+          (entry) => entry.driverKind === session.driverKind,
+        )
+        if (!provider?.models.some((model) => model.id === command.modelId)) {
+          return {
+            ok: false,
+            code: 'unsupported_capability',
+            message: 'this provider cannot run that model',
+          }
+        }
+      }
     }
     return dispatch(commandToEngine(command))
   }
@@ -394,24 +652,33 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
  * without a mapping fails to compile rather than falling through at runtime.
  */
 function commandToEngine(
-  command: Exclude<RemoteCommand, { op: 'session.create' | 'changes.integrate' }>,
+  command: Exclude<
+    RemoteCommand,
+    {
+      op:
+        | 'session.create'
+        | 'session.fork'
+        | 'changes.integrate'
+        | 'attachments.stage'
+        | `terminal.${string}`
+    }
+  >,
+  attachments: AttachmentRef[] = [],
 ): Command {
   switch (command.op) {
     case 'session.prompt':
-      // Attachments are not on this surface: there is no upload route, so an
-      // id could come from nowhere the desktop can verify.
       return {
         type: 'turn.start',
         sessionId: command.sessionId,
         text: command.text,
-        attachments: [],
+        attachments,
       }
     case 'session.queue':
       return {
         type: 'message.enqueue',
         sessionId: command.sessionId,
         text: command.text,
-        attachments: [],
+        attachments,
       }
     case 'session.steer':
       return {
@@ -424,6 +691,14 @@ function commandToEngine(
       return { type: 'turn.interrupt', sessionId: command.sessionId }
     case 'session.archive':
       return { type: 'session.update', sessionId: command.sessionId, archived: true }
+    case 'session.update':
+      return {
+        type: 'session.update',
+        sessionId: command.sessionId,
+        ...(command.title === undefined ? {} : { title: command.title }),
+        ...(command.pinned === undefined ? {} : { pinned: command.pinned }),
+        ...(command.modelId === undefined ? {} : { modelId: command.modelId }),
+      }
     case 'approval.respond':
       // The exact option the provider offered. Re-expanding a coarse kind here
       // would re-introduce the ambiguity P0 removed: two persistent grants can
