@@ -23,6 +23,8 @@ import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
+import { ComposerDock } from './ComposerDock'
+import './session-canvas.css'
 import { TurnErrorBanner } from './TurnErrorBanner'
 import { ElementChips } from '../browser/ElementChips'
 import {
@@ -210,6 +212,8 @@ export function SessionView({
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
+  const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<{ text: string; attachments: AttachmentRef[] }[]>([])
   const [approvals, setApprovals] = useState<PendingApproval[]>([])
@@ -307,6 +311,7 @@ export function SessionView({
       if (frame.sessionId !== sessionId) return
       if (frame.replayDone === true) {
         replayDoneRef.current = true
+        setHistoryReadySession(sessionId)
         const buffered = liveBufferRef.current
         liveBufferRef.current = []
         for (const event of buffered) ingest(event, true)
@@ -843,12 +848,28 @@ export function SessionView({
    */
   const composerAttentionRequired =
     (pendingQuestion !== null && pendingPlan === null) || approvals.length > 0
+  const centered =
+    historyReadySession === sessionId &&
+    !loading &&
+    messages.length === 0 &&
+    !running &&
+    !composerAttentionRequired &&
+    pendingPlan === null &&
+    turnError === null
 
   return (
     <div className="flex h-full min-h-0">
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div
+        ref={canvasRef}
+        className="ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
+      >
+        <div
+          className="ari-session-scene pointer-events-none absolute inset-0 -z-10"
+          data-visible={centered || undefined}
+          aria-hidden
+        />
         <SessionBranchChip sessionId={sessionId} />
-        <div className="min-h-0 flex-1">
+        <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <TranscriptView
             sessionId={sessionId}
             messages={messages}
@@ -863,7 +884,9 @@ export function SessionView({
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
           />
         </div>
-        <div className="flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle">
+        <div
+          className={`flex h-6 shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle ${centered ? 'invisible' : ''}`}
+        >
           {telemetry.turnCount > 0 ? (
             <>
               <span>
@@ -935,91 +958,99 @@ export function SessionView({
             ))}
           </div>
         ) : null}
-        <Composer
-          sessionId={sessionId}
-          onSend={handleSend}
-          onStop={handleStop}
-          running={running}
-          queued={queued}
-          onSteerQueued={handleSteerQueued}
-          onRemoveQueued={handleRemoveQueued}
-          seed={composerSeed ?? undefined}
-          suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
-          attentionRequired={composerAttentionRequired}
-          above={
-            // A plan approval is answered in the side panel, so it mounts no
-            // QuestionPanel and must not raise the strip on its own — an
-            // `above` of empty children still draws the border.
-            composerAttentionRequired || childSessions.length > 0 ? (
-              <>
-                {/* The question rides in the same layer as the approvals: the
+        <ComposerDock
+          centered={centered}
+          canvasRef={canvasRef}
+          reducedMotion={engineSettings?.appearance.reducedMotion ?? false}
+          onStart={(text) => setComposerSeed({ text, nonce: Date.now() })}
+        >
+          <Composer
+            centered={centered}
+            sessionId={sessionId}
+            onSend={handleSend}
+            onStop={handleStop}
+            running={running}
+            queued={queued}
+            onSteerQueued={handleSteerQueued}
+            onRemoveQueued={handleRemoveQueued}
+            seed={composerSeed ?? undefined}
+            suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
+            attentionRequired={composerAttentionRequired}
+            above={
+              // A plan approval is answered in the side panel, so it mounts no
+              // QuestionPanel and must not raise the strip on its own — an
+              // `above` of empty children still draws the border.
+              composerAttentionRequired || childSessions.length > 0 ? (
+                <>
+                  {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
                   is not asked here — it has the side panel. */}
-                {pendingQuestion !== null && pendingPlan === null ? (
-                  <>
-                    <QuestionPanel
-                      prompt={pendingQuestion.prompt}
-                      choicesJson={pendingQuestion.choicesJson}
-                      onRespond={respondQuestion}
-                      onCancel={cancelQuestion}
-                    />
-                    {approvals.length > 0 || childSessions.length > 0 ? (
-                      <div className="mx-3 border-t border-border/60" />
-                    ) : null}
-                  </>
-                ) : null}
-                {approvals.length > 0 ? (
-                  <div className="max-h-40 space-y-px overflow-y-auto">
-                    {approvals.map((a, i) => (
-                      <ApprovalCard
-                        key={a.approvalId}
-                        approvalId={a.approvalId}
-                        toolName={a.toolName}
-                        summaryJson={a.summaryJson}
-                        position={i + 1}
-                        total={approvals.length}
-                        onRespond={(decision) =>
-                          respondApproval(
-                            a.approvalId,
-                            decision === 'always_allow' ? 'always-allow' : decision,
-                          )
-                        }
+                  {pendingQuestion !== null && pendingPlan === null ? (
+                    <>
+                      <QuestionPanel
+                        prompt={pendingQuestion.prompt}
+                        choicesJson={pendingQuestion.choicesJson}
+                        onRespond={respondQuestion}
+                        onCancel={cancelQuestion}
                       />
-                    ))}
-                  </div>
-                ) : null}
-                {childSessions.length > 0 ? (
-                  <ChildSessionActivity
-                    sessions={childSessions}
-                    activityOf={activityOf}
-                    onOpen={onOpenSession}
-                  />
-                ) : null}
+                      {approvals.length > 0 || childSessions.length > 0 ? (
+                        <div className="mx-3 border-t border-border/60" />
+                      ) : null}
+                    </>
+                  ) : null}
+                  {approvals.length > 0 ? (
+                    <div className="max-h-40 space-y-px overflow-y-auto">
+                      {approvals.map((a, i) => (
+                        <ApprovalCard
+                          key={a.approvalId}
+                          approvalId={a.approvalId}
+                          toolName={a.toolName}
+                          summaryJson={a.summaryJson}
+                          position={i + 1}
+                          total={approvals.length}
+                          onRespond={(decision) =>
+                            respondApproval(
+                              a.approvalId,
+                              decision === 'always_allow' ? 'always-allow' : decision,
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  {childSessions.length > 0 ? (
+                    <ChildSessionActivity
+                      sessions={childSessions}
+                      activityOf={activityOf}
+                      onOpen={onOpenSession}
+                    />
+                  ) : null}
+                </>
+              ) : null
+            }
+            leading={
+              <>
+                <ModelSelector
+                  driverKind={defaults.driverKind}
+                  modelId={defaults.modelId}
+                  onChange={changeModel}
+                  lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
+                />
+                <EffortChip
+                  driverKind={defaults.driverKind}
+                  modelId={defaults.modelId}
+                  effort={defaults.effort}
+                  onChange={changeEffort}
+                />
+                <PermissionModeChip
+                  driverKind={defaults.driverKind}
+                  mode={defaults.permissionMode}
+                  onChange={changePermissionMode}
+                />
               </>
-            ) : null
-          }
-          leading={
-            <>
-              <ModelSelector
-                driverKind={defaults.driverKind}
-                modelId={defaults.modelId}
-                onChange={changeModel}
-                lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
-              />
-              <EffortChip
-                driverKind={defaults.driverKind}
-                modelId={defaults.modelId}
-                effort={defaults.effort}
-                onChange={changeEffort}
-              />
-              <PermissionModeChip
-                driverKind={defaults.driverKind}
-                mode={defaults.permissionMode}
-                onChange={changePermissionMode}
-              />
-            </>
-          }
-        />
+            }
+          />
+        </ComposerDock>
       </div>
       {pendingPlan !== null ? (
         <PlanReviewRail
