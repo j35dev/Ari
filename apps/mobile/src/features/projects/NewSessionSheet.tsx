@@ -6,6 +6,8 @@ import { sessionIdOf } from '../../lib/command-result'
 import { writeDraft } from '../../lib/draft'
 import { readCreation, writeCreation, type NewSessionRequest } from '../../lib/new-session'
 import { RemoteError } from '../../lib/gateway-client'
+import { ChevronDown } from 'lucide-react'
+import { ModelPicker, modelSelectionLabel } from '../../components/ModelPicker'
 
 /** Create once, retaining the receipt through a lost response, and hand the draft to the thread. */
 export function NewSessionSheet({
@@ -33,6 +35,7 @@ export function NewSessionSheet({
       : 'An unconfirmed creation was restored. Retry checks the same receipt.',
   )
   const [pending, setPending] = useState<NewSessionRequest | null>(restored)
+  const [pickingModel, setPickingModel] = useState(false)
   async function create(): Promise<void> {
     if (busy || app.session === null || !project) return
     const command = pending ?? {
@@ -90,7 +93,18 @@ export function NewSessionSheet({
       setBusy(false)
     }
   }
-  const models = app.catalog?.providers.find((entry) => entry.driverKind === provider)?.models ?? []
+  if (pickingModel)
+    return (
+      <ModelPicker
+        driverKind={provider}
+        modelId={model}
+        onClose={() => setPickingModel(false)}
+        onSelect={(nextProvider, nextModel) => {
+          setProvider(nextProvider)
+          setModel(nextModel)
+        }}
+      />
+    )
   return (
     <BottomSheet title="New session" onClose={onClose}>
       {app.projects.length === 0 ? (
@@ -121,42 +135,20 @@ export function NewSessionSheet({
               ))}
             </select>
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-xs text-fg-muted">
-              Agent
-              <select
-                value={provider}
-                onChange={(event) => {
-                  setProvider(event.target.value)
-                  setModel('')
-                }}
-                disabled={pending !== null || busy}
-                className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
-              >
-                <option value="">Desktop default</option>
-                {app.catalog?.providers.map((entry) => (
-                  <option key={entry.driverKind} value={entry.driverKind}>
-                    {entry.driverKind}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-xs text-fg-muted">
-              Model
-              <select
-                value={model}
-                onChange={(event) => setModel(event.target.value)}
-                disabled={pending !== null || busy || provider === ''}
-                className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
-              >
-                <option value="">Default</option>
-                {models.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div>
+            <p className="text-xs text-fg-muted">Agent & model</p>
+            <button
+              type="button"
+              aria-label="Choose agent and model"
+              disabled={pending !== null || busy}
+              onClick={() => setPickingModel(true)}
+              className="mt-2 flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-surface-1 px-3 text-left text-sm"
+            >
+              <span className="min-w-0 truncate">
+                {modelSelectionLabel(app.catalog, provider, model)}
+              </span>
+              <ChevronDown size={16} className="shrink-0 text-fg-muted" />
+            </button>
           </div>
           <label className="block text-xs text-fg-muted">
             Task draft
