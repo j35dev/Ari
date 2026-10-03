@@ -66,8 +66,8 @@ export const SETTINGS_SEARCH_INDEX = [
   },
   {
     section: 'settings-remote',
-    label: 'Remote access',
-    keywords: 'phone mobile remote gateway pair qr pairing device revoke invitation serve',
+    label: 'Mobile access',
+    keywords: 'phone mobile remote gateway pair qr pairing device revoke invitation serve connect',
   },
   {
     section: 'settings-remote',
@@ -82,7 +82,8 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-notifications',
     label: 'Completion sound',
-    keywords: 'audio chime bell ding alert sound effect finish settle turn complete agent done notification',
+    keywords:
+      'audio chime bell ding alert sound effect finish settle turn complete agent done notification',
   },
   {
     section: 'settings-keybindings',
@@ -181,7 +182,9 @@ export function SettingsSearch({
                 className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
               >
                 <span className="text-xs text-fg">{entry.label}</span>
-                <span className="shrink-0 text-2xs text-fg-subtle">{groupLabel(entry.section)}</span>
+                <span className="shrink-0 text-2xs text-fg-subtle">
+                  {groupLabel(entry.section)}
+                </span>
               </button>
             </li>
           ))}
