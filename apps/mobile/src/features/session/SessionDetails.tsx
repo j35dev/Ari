@@ -3,6 +3,8 @@ import type { Session } from '@ari/contracts/session'
 import { BottomSheet } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
 import { ForkSheet } from './ForkSheet'
+import { ChevronDown } from 'lucide-react'
+import { ModelPicker, modelSelectionLabel } from '../../components/ModelPicker'
 
 /** Editable session metadata uses the desktop's model catalog and permission ceiling. */
 export function SessionDetails({
@@ -20,15 +22,14 @@ export function SessionDetails({
 }): ReactNode {
   const app = useApp()
   const [title, setTitle] = useState(session.title)
+  const [pinned, setPinned] = useState(session.pinned === true)
   const [model, setModel] = useState(session.modelId ?? '')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [forking, setForking] = useState(false)
+  const [pickingModel, setPickingModel] = useState(false)
   const editable =
     app.connection === 'connected' && app.session?.supports('session.update') === true
-  const models =
-    app.catalog?.providers.find((provider) => provider.driverKind === session.driverKind)?.models ??
-    []
   async function save(): Promise<void> {
     setBusy(true)
     try {
@@ -36,6 +37,7 @@ export function SessionDetails({
         op: 'session.update',
         sessionId: session.id,
         title: title.trim(),
+        ...(pinned === (session.pinned === true) ? {} : { pinned }),
         ...(model === (session.modelId ?? '') ? {} : { modelId: model || null }),
       })
       await onChanged()
@@ -49,6 +51,16 @@ export function SessionDetails({
   }
   if (forking && onForked !== undefined)
     return <ForkSheet parent={session} onClose={() => setForking(false)} onForked={onForked} />
+  if (pickingModel)
+    return (
+      <ModelPicker
+        fixedProvider
+        driverKind={session.driverKind}
+        modelId={model}
+        onClose={() => setPickingModel(false)}
+        onSelect={(_driver, nextModel) => setModel(nextModel)}
+      />
+    )
   return (
     <BottomSheet title="Session details" onClose={onClose}>
       <form
@@ -68,24 +80,30 @@ export function SessionDetails({
             className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
           />
         </label>
-        <label className="block text-xs text-fg-muted">
-          Model
-          <select
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
+        <div>
+          <p className="text-xs text-fg-muted">Model</p>
+          <button
+            type="button"
+            aria-label="Choose model"
+            onClick={() => setPickingModel(true)}
             disabled={!editable || busy || session.status === 'running'}
-            className="mt-2 min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-fg"
+            className="mt-2 flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-surface-1 px-3 text-left text-sm"
           >
-            <option value="">Desktop default</option>
-            {!models.some((entry) => entry.id === model) && model !== '' && (
-              <option value={model}>{model}</option>
-            )}
-            {models.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
+            <span className="min-w-0 truncate">
+              {modelSelectionLabel(app.catalog, session.driverKind, model)}
+            </span>
+            <ChevronDown size={16} className="shrink-0 text-fg-muted" />
+          </button>
+        </div>
+        <label className="flex min-h-12 items-center justify-between gap-3 text-sm">
+          Pin session
+          <input
+            type="checkbox"
+            checked={pinned}
+            disabled={!editable || busy}
+            onChange={(event) => setPinned(event.target.checked)}
+            className="size-5 accent-accent"
+          />
         </label>
         <dl className="divide-y divide-border text-sm">
           {[

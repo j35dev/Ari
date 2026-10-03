@@ -141,7 +141,11 @@ export function ForkSheet({
                 <option value={provider}>{provider}</option>
               )}
               {app.catalog?.providers.map((entry) => (
-                <option key={entry.driverKind} value={entry.driverKind}>
+                <option
+                  key={entry.driverKind}
+                  value={entry.driverKind}
+                  disabled={entry.available === false}
+                >
                   {entry.driverKind}
                 </option>
               ))}
