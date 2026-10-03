@@ -25,5 +25,10 @@ export const APP_SHORTCUTS: readonly AppShortcut[] = [
   { id: 'SplitRight', label: 'Split pane right', chord: 'Mod+\\' },
   { id: 'SplitDown', label: 'Split pane down', chord: 'Mod+Shift+\\' },
   { id: 'FocusPane', label: 'Focus the pane in that direction', chord: 'Mod+Shift+Arrow' },
+  { id: 'NewSpace', label: 'New space', chord: 'Mod+Alt+T' },
+  { id: 'NextSpace', label: 'Next space', chord: 'Ctrl+PageDown' },
+  { id: 'PreviousSpace', label: 'Previous space', chord: 'Ctrl+PageUp' },
+  { id: 'JumpToSpace', label: 'Jump to space 1–9', chord: 'Mod+Alt+1…9' },
+  { id: 'CloseSpace', label: 'Close space', chord: 'Mod+Alt+W' },
   { id: 'ClosePalette', label: 'Close palette', chord: 'Escape' },
 ]
