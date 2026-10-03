@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdir } from 'node:fs/promises'
@@ -11,6 +11,9 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
 import {
   remoteChangesSchema,
+  remoteAttentionSchema,
+  remoteQuerySchema,
+  remoteCommandEnvelopeSchema,
   remoteModelCatalogSchema,
   type RemoteCommand,
 } from '@ari/contracts/remote'
@@ -19,6 +22,7 @@ import type { UnstampedEvent } from '@ari/engine/projection'
 import type { RemoteCaller } from '@ari/remote-gateway/host'
 import { PairingService } from '@ari/remote-gateway/pairing'
 import { createRemoteHost, type RemoteHostDeps } from './remote-host'
+import { AttachmentStore } from './attachments'
 
 const roots: string[] = []
 
@@ -160,6 +164,9 @@ function commandOrReadExists(op: string): boolean {
     'gateway.info',
     'session.list',
     'session.get',
+    'attention.list',
+    'files.list',
+    'files.read',
     'project.list',
     'models.list',
     'changes.files',
@@ -175,6 +182,7 @@ function commandOrReadExists(op: string): boolean {
     'session.steer',
     'session.interrupt',
     'session.archive',
+    'session.update',
     'approval.respond',
     'input.respond',
     'changes.integrate',
@@ -184,6 +192,31 @@ function commandOrReadExists(op: string): boolean {
 }
 
 describe('reading sessions', () => {
+  it('forks only visible parents and selects providers without carrying another provider model', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    const fork = vi.fn(async () => ({ ok: true as const, result: { sessionId: 'child' } }))
+    const host = hostFor(store, fakeEngine(), { fork })
+    expect(host.capabilities()).toContain('session.fork')
+    const request = command('session.fork', {
+      sessionId: 'sess_a',
+      title: 'Task',
+      driverKind: 'codex',
+    })
+    expect(await host.execute(STRANGER, request)).toMatchObject({ ok: false, code: 'not_found' })
+    expect(fork).not.toHaveBeenCalled()
+    expect(await host.execute(CALLER, request)).toMatchObject({
+      ok: true,
+      result: { sessionId: 'child' },
+    })
+    expect(fork).toHaveBeenCalledWith(CALLER.deviceId, { ...request, driverKind: 'codex' })
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.fork', { sessionId: 'sess_a', title: 'Task', driverKind: 'gemini' }),
+      ),
+    ).toMatchObject({ ok: false, code: 'unsupported_capability' })
+  })
   it('lists only the sessions in projects this device was granted', async () => {
     const store = await tempStore()
     await store.append('sess_mine', sessionCreated('sess_mine', 'proj_1'))
@@ -404,7 +437,13 @@ describe('agent actions', () => {
     const engine = fakeEngine()
     const host = hostFor(store, engine)
 
-    for (const op of ['session.prompt', 'session.queue', 'session.steer', 'session.interrupt', 'session.archive'] as const) {
+    for (const op of [
+      'session.prompt',
+      'session.queue',
+      'session.steer',
+      'session.interrupt',
+      'session.archive',
+    ] as const) {
       const result = await host.execute(
         CALLER,
         command(op, { sessionId: 'sess_theirs', text: 'x', approvalId: 'a', optionId: 'o' }),
@@ -435,7 +474,11 @@ describe('agent actions', () => {
 
     const result = await host.execute(
       CALLER,
-      command('changes.integrate', { sessionId: 'sess_a', snapshotCommit: 'a'.repeat(40) }),
+      command('changes.integrate', {
+        sessionId: 'sess_a',
+        snapshotCommit: 'a'.repeat(40),
+        expectedParentSnapshot: 'b'.repeat(40),
+      }),
     )
 
     // The contract declares the operation; this host does not serve it. The
@@ -543,8 +586,7 @@ describe('session changes', () => {
   ): Promise<{ host: ReturnType<typeof createRemoteHost>; workspace: string }> {
     const store = await tempStore()
     await store.append(sessionId, sessionCreated(sessionId))
-    const workspace =
-      workspaceOverride ?? (await mkdtemp(join(tmpdir(), 'ari-remote-changes-')))
+    const workspace = workspaceOverride ?? (await mkdtemp(join(tmpdir(), 'ari-remote-changes-')))
     roots.push(workspace)
     const engine = fakeEngine({ workspace: async () => workspace })
     vi.spyOn(GitService.prototype, 'runPlumbing').mockImplementation(async (cwd, args) => {
@@ -708,5 +750,209 @@ describe('event subscription', () => {
     await store.append('sess_a', { type: 'session.updated', title: 'after' })
 
     expect(seen).toEqual(['sess_a'])
+  })
+})
+
+describe('mobile workspace capabilities', () => {
+  it('finds attention across every granted session and paginates without including other projects', async () => {
+    const store = await tempStore()
+    for (let i = 0; i < 16; i++)
+      await store.append(
+        `sess_${String(i).padStart(2, '0')}`,
+        sessionCreated(`sess_${String(i).padStart(2, '0')}`),
+      )
+    await store.append('sess_14', {
+      type: 'approval.requested',
+      approvalId: 'a',
+      toolName: 'Bash',
+      summaryJson: '{}',
+      options: [{ optionId: 'exact', name: 'Allow once', kind: 'allow_once' }],
+    })
+    await store.append('sess_15', {
+      type: 'input.requested',
+      inputId: 'q',
+      prompt: 'Which branch?',
+      choicesJson: '["main"]',
+    })
+    await store.append('sess_secret', sessionCreated('sess_secret', 'proj_ungranted'))
+    await store.append('sess_secret', {
+      type: 'approval.requested',
+      approvalId: 'secret',
+      toolName: 'Bash',
+      summaryJson: '{}',
+      options: [],
+    })
+    const host = hostFor(store, fakeEngine())
+    const first = await host.query(CALLER, 'attention.list', { limit: 1 })
+    expect(remoteAttentionSchema.safeParse(first).success).toBe(true)
+    expect(first).toMatchObject({
+      items: [{ sessionId: 'sess_14', pendingApprovals: [{ options: [{ optionId: 'exact' }] }] }],
+      nextCursor: 'sess_14',
+    })
+    expect(
+      await host.query(CALLER, 'attention.list', { cursor: 'sess_14', limit: 1 }),
+    ).toMatchObject({
+      items: [{ sessionId: 'sess_15', pendingInputs: [{ inputId: 'q' }] }],
+      nextCursor: null,
+    })
+    expect(await host.query(STRANGER, 'attention.list', {})).toEqual({
+      items: [],
+      nextCursor: null,
+    })
+  })
+
+  it('reads files only from the authorized session workspace', async () => {
+    const store = await tempStore()
+    const root = await mkdtemp(join(tmpdir(), 'ari-remote-scope-'))
+    roots.push(root)
+    await writeFile(join(root, 'code.ts'), 'const scoped = true')
+    await store.append('sess_a', sessionCreated('sess_a'))
+    const engine = fakeEngine({ workspace: async () => root })
+    const host = hostFor(store, engine)
+    expect(
+      await host.query(CALLER, 'files.read', { sessionId: 'sess_a', path: 'code.ts' }),
+    ).toMatchObject({ content: 'const scoped = true' })
+    expect(
+      await host.query(STRANGER, 'files.read', { sessionId: 'sess_a', path: 'code.ts' }),
+    ).toBeNull()
+    expect(await host.query(STRANGER, 'files.list', { sessionId: 'sess_a' })).toBeNull()
+  })
+
+  it('validates model changes and maps only allowed session updates', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    const engine = fakeEngine()
+    const host = hostFor(store, engine)
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.update', {
+          sessionId: 'sess_a',
+          title: 'New title',
+          pinned: true,
+          modelId: 'model-a',
+        }),
+      ),
+    ).toMatchObject({ ok: true })
+    expect(engine.dispatched).toEqual([
+      {
+        type: 'session.update',
+        sessionId: 'sess_a',
+        title: 'New title',
+        pinned: true,
+        modelId: 'model-a',
+      },
+    ])
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.update', { sessionId: 'sess_a', modelId: 'invented-model' }),
+      ),
+    ).toMatchObject({ ok: false, code: 'unsupported_capability' })
+    expect(
+      await host.execute(
+        STRANGER,
+        command('session.update', { sessionId: 'sess_a', pinned: true }),
+      ),
+    ).toMatchObject({ ok: false, code: 'not_found' })
+    expect(
+      remoteCommandEnvelopeSchema.safeParse(
+        command('session.update', { sessionId: 'sess_a', permissionMode: 'full' }),
+      ).success,
+    ).toBe(false)
+    for (const path of ['../secret', '/etc/passwd', 'C:\\Windows', 'x:stream']) {
+      expect(
+        remoteQuerySchema.safeParse({ op: 'files.read', sessionId: 'sess_a', path }).success,
+      ).toBe(false)
+    }
+  })
+
+  it('stages verified raster images for one device/session and resolves authorized prompt references', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    await store.append('sess_b', sessionCreated('sess_b'))
+    const root = await mkdtemp(join(tmpdir(), 'ari-remote-images-'))
+    roots.push(root)
+    const attachments = new AttachmentStore(root)
+    const engine = fakeEngine()
+    const host = hostFor(store, engine, { attachments })
+    const image = {
+      name: 'screen.png',
+      mimeType: 'image/png',
+      dataBase64:
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+    }
+    const staged = await host.execute(
+      CALLER,
+      command('attachments.stage', { sessionId: 'sess_a', files: [image] }),
+    )
+    expect(staged.ok).toBe(true)
+    const refs = (staged as { result: { attachments: { id: string; name: string }[] } }).result
+      .attachments
+    const id = refs[0]?.id
+    expect(
+      await host.query(CALLER, 'attachments.read', { sessionId: 'sess_a', attachmentId: id }),
+    ).toMatchObject({ attachment: { dataBase64: image.dataBase64 }, error: null })
+    const peer = { ...CALLER, deviceId: 'another_phone' }
+    expect(
+      await host.query(peer, 'attachments.read', { sessionId: 'sess_a', attachmentId: id }),
+    ).toMatchObject({ attachment: null })
+    expect(
+      await host.query(CALLER, 'attachments.read', { sessionId: 'sess_b', attachmentId: id }),
+    ).toMatchObject({ attachment: null })
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.prompt', { sessionId: 'sess_b', text: 'look', attachmentIds: [id] }),
+      ),
+    ).toMatchObject({ ok: false, code: 'not_found' })
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.prompt', { sessionId: 'sess_a', text: '', attachmentIds: [id] }),
+      ),
+    ).toMatchObject({ ok: true })
+    expect(engine.dispatched[0]).toMatchObject({ type: 'turn.start', text: '', attachments: refs })
+    expect(
+      await host.execute(
+        CALLER,
+        command('attachments.stage', {
+          sessionId: 'sess_a',
+          files: [{ ...image, dataBase64: 'aGVsbG8=' }],
+        }),
+      ),
+    ).toMatchObject({ ok: false })
+    expect(
+      await host.execute(
+        STRANGER,
+        command('attachments.stage', { sessionId: 'sess_a', files: [image] }),
+      ),
+    ).toMatchObject({ ok: false, code: 'not_found' })
+    expect(
+      await host.execute(CALLER, command('session.prompt', { sessionId: 'sess_a', text: ' ' })),
+    ).toMatchObject({ ok: false })
+    await store.append('sess_a', {
+      type: 'user.message.added',
+      message: {
+        id: 'm',
+        sessionId: 'sess_a',
+        turnId: null,
+        role: 'user',
+        parts: [
+          {
+            type: 'image',
+            attachmentId: String(id),
+            name: image.name,
+            mimeType: image.mimeType,
+            size: Buffer.from(image.dataBase64, 'base64').length,
+          },
+        ],
+        createdAt: 1,
+      },
+    })
+    const afterRestart = hostFor(store, engine, { attachments })
+    expect(
+      await afterRestart.query(peer, 'attachments.read', { sessionId: 'sess_a', attachmentId: id }),
+    ).toMatchObject({ attachment: { name: image.name } })
   })
 })

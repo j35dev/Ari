@@ -4,11 +4,20 @@ import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import type { RemoteDeviceView, RemoteState } from '@ari/contracts/rpc'
 import { PairingService, type PersistedPairing } from '@ari/remote-gateway/pairing'
-import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
+import {
+  createRemoteGateway,
+  type RemoteGateway,
+  type ConnectLeaseVerifier,
+} from '@ari/remote-gateway/gateway'
 import { createLogger } from '@ari/shared/logger'
-import { createRemoteHost } from './remote-host'
+import { createRemoteHost, type RemoteHostDeps } from './remote-host'
 import type { Engine } from './engine'
 import type { SessionStore } from '@ari/engine/session-store'
+import { AttachmentStore } from './attachments'
+import { RemoteTerminals } from './remote-terminals'
+import type { PtyFactory } from './terminal-service'
+import { ManagedWorkspaces } from '@ari/engine/git'
+import { RemoteIntegration } from './remote-integration'
 
 const log = createLogger('desktop:remote')
 
@@ -60,11 +69,19 @@ export interface RemoteServiceDeps {
   /** Called whenever the state a user sees changes. */
   onChange?: (state: RemoteState) => void
   now?: () => number
+  terminalFactory?: PtyFactory
+  fork?: RemoteHostDeps['fork']
 }
 
 export class RemoteService {
   readonly #deps: RemoteServiceDeps
   #gateway: RemoteGateway | null = null
+  #managedGateway: RemoteGateway | null = null
+  #managedClientUrl: string | null = null
+  #terminals: RemoteTerminals | undefined
+  readonly #integration: RemoteIntegration
+  readonly #managedInvitations = new Set<string>()
+  readonly #managedDeviceIds = new Set<string>()
   #pairing: PairingService
   #invitation: { invitationId: string; url: string; expiresAt: number } | null = null
   /** The port the user chose, so a restart can come back on the same one. */
@@ -73,8 +90,20 @@ export class RemoteService {
 
   constructor(deps: RemoteServiceDeps, options: { port?: number } = {}) {
     this.#deps = deps
+    this.#integration = new RemoteIntegration(
+      new ManagedWorkspaces(join(dirname(deps.dir), 'worktrees')),
+      deps.engine,
+      deps.store,
+    )
     this.#port = options.port ?? 8787
     this.#pairing = this.#makePairing()
+    try {
+      const ids: unknown = JSON.parse(this.#read('managed-devices.json') ?? '[]')
+      if (Array.isArray(ids))
+        for (const id of ids) if (typeof id === 'string') this.#managedDeviceIds.add(id)
+    } catch {
+      log.warn('managed device registrations unreadable')
+    }
   }
 
   get running(): boolean {
@@ -91,6 +120,12 @@ export class RemoteService {
       // construction, and a gateway that failed to start must not leave a
       // service whose devices are the ones from a previous run.
       this.#pairing = this.#makePairing()
+      if (this.#deps.terminalFactory !== undefined)
+        this.#terminals = new RemoteTerminals(this.#deps.terminalFactory, (id) =>
+          this.#pairing
+            .devices()
+            .some((device) => device.deviceId === id && device.allowTerminal === true),
+        )
       const webRoot = this.#deps.webRoot?.()
       this.#gateway = await createRemoteGateway({
         host: createRemoteHost({
@@ -104,6 +139,10 @@ export class RemoteService {
           listModels: this.#deps.listModels,
           pairing: this.#pairing,
           mintSessionId: this.#deps.mintSessionId,
+          attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
+          integration: this.#integration,
+          ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+          ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
         }),
         // Exact origins, plus whatever the gateway is bound to. A phone on
         // the tailnet reaches it through the tailnet address, and the managed
@@ -120,6 +159,8 @@ export class RemoteService {
       })
       log.info('remote access listening', { port: this.#gateway.port })
     } catch (error) {
+      this.#terminals?.close()
+      this.#terminals = undefined
       this.#error = error instanceof Error ? error.message : String(error)
       log.error('remote access failed to start', { error: this.#error })
       this.#gateway = null
@@ -128,6 +169,9 @@ export class RemoteService {
   }
 
   async stop(): Promise<void> {
+    this.#terminals?.close()
+    this.#terminals = undefined
+    await this.stopManaged()
     const gateway = this.#gateway
     this.#gateway = null
     this.#invitation = null
@@ -136,6 +180,64 @@ export class RemoteService {
     if (gateway !== null) await gateway.close()
     log.info('remote access stopped')
     this.#changed()
+  }
+
+  /** An independent listener makes a forged Origin unable to bypass managed membership. */
+  async startManaged(options: {
+    port: number
+    issuer: string
+    hostname: string
+    computerId: string
+    verifier: () => ConnectLeaseVerifier | null
+  }): Promise<number | null> {
+    if (!this.running) await this.start()
+    if (!this.running) return null
+    await this.stopManaged()
+    this.#managedGateway = await createRemoteGateway({
+      host: createRemoteHost({
+        engine: this.#deps.engine,
+        store: this.#deps.store,
+        driverKinds: this.#deps.driverKinds(),
+        defaultPermissionMode: this.#deps.defaultPermissionMode,
+        defaultDriverKind: this.#deps.defaultDriverKind,
+        hasProject: this.#deps.hasProject,
+        listProjects: this.#deps.listProjects,
+        listModels: this.#deps.listModels,
+        pairing: this.#pairing,
+        mintSessionId: this.#deps.mintSessionId,
+        attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
+        integration: this.#integration,
+        ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+        ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
+      }),
+      allowedOrigins: [options.issuer, `https://${options.hostname}`],
+      port: options.port,
+      pairing: this.#pairing,
+      managedAccess: { verifier: options.verifier },
+      idempotency: {
+        restore: this.#read('managed-idempotency.json') ?? undefined,
+        persist: (json) => this.#write('managed-idempotency.json', json),
+      },
+    })
+    this.#managedClientUrl = `${options.issuer}/?computer=${encodeURIComponent(options.computerId)}`
+    this.#changed()
+    return this.#managedGateway.port
+  }
+
+  async stopManaged(): Promise<void> {
+    const gateway = this.#managedGateway
+    this.#managedGateway = null
+    this.#managedClientUrl = null
+    if (gateway !== null) await gateway.close()
+    this.#changed()
+  }
+
+  pairedRecords(): PersistedPairing {
+    const records = this.#pairing.toPersisted()
+    return {
+      devices: records.devices.filter((device) => this.#managedDeviceIds.has(device.deviceId)),
+      revoked: records.revoked.filter((device) => this.#managedDeviceIds.has(device.deviceId)),
+    }
   }
 
   state(): RemoteState {
@@ -147,7 +249,7 @@ export class RemoteService {
       origin: gateway === null ? null : gateway.origin,
       // With no reachable address the QR would encode a loopback URL that
       // means "this phone" to the phone reading it.
-      clientUrl: gateway === null || clientUrl === null ? null : clientUrl,
+      clientUrl: gateway === null ? null : (clientUrl ?? this.#managedClientUrl),
       allowedOrigins: gateway === null ? [] : [...this.#deps.allowedOrigins(), gateway.origin],
       devices: this.#deviceViews(),
       invitation: this.#invitation,
@@ -161,16 +263,19 @@ export class RemoteService {
    * as a QR code, which anyone who can see the screen can photograph, so it is
    * the user's approval that pairs a device and never the code alone.
    */
-  invite(): RemoteState {
+  invite(method: 'tailscale' | 'connect' = 'tailscale'): RemoteState {
     const gateway = this.#gateway
     if (gateway === null) return this.state()
-    const base = this.#deps.clientOrigin() ?? gateway.origin
-    const invitation = gateway.pairing.begin(base)
+    const base =
+      method === 'connect' ? this.#managedClientUrl : (this.#deps.clientOrigin() ?? gateway.origin)
+    if (base === null) return this.state()
+    const invitation = gateway.pairing.begin(new URL(base).origin)
+    if (method === 'connect') this.#managedInvitations.add(invitation.invitationId)
     this.#invitation = {
       invitationId: invitation.invitationId,
       // The id travels in the fragment, which never reaches a server and so
       // never lands in a tunnel's request log.
-      url: `${base}/#pair=${encodeURIComponent(invitation.invitationId)}`,
+      url: `${base}${base.includes('?') ? '' : '/'}#pair=${encodeURIComponent(invitation.invitationId)}`,
       expiresAt: invitation.expiresAt,
     }
     return this.#changed()
@@ -181,10 +286,10 @@ export class RemoteService {
     return this.#changed()
   }
 
-  approve(invitationId: string, projectIds: readonly string[]): RemoteState {
+  approve(invitationId: string, projectIds: readonly string[], allowTerminal = false): RemoteState {
     const gateway = this.#gateway
     if (gateway === null) return this.state()
-    const result = gateway.pairing.approve(invitationId, projectIds)
+    const result = gateway.pairing.approve(invitationId, projectIds, allowTerminal)
     if (!result.ok) log.warn('pairing approval refused', { code: result.code })
     return this.#changed()
   }
@@ -241,6 +346,7 @@ export class RemoteService {
       projectIds: [...device.projectIds],
       pairedAt: device.pairedAt,
       lastSeenAt: device.lastSeenAt,
+      allowTerminal: device.allowTerminal === true,
     }))
   }
 
@@ -281,6 +387,13 @@ export class RemoteService {
   }
 
   #writePairing(state: PersistedPairing): void {
+    for (const id of this.#managedInvitations) {
+      const deviceId = this.#pairing.redeemedDeviceId(id)
+      if (deviceId === undefined) continue
+      this.#managedDeviceIds.add(deviceId)
+      this.#managedInvitations.delete(id)
+    }
+    this.#write('managed-devices.json', JSON.stringify([...this.#managedDeviceIds]))
     this.#write('devices.json', JSON.stringify(state, null, 2))
   }
 

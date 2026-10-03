@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +9,7 @@ import type { RemoteCaller, RemoteHost } from './host'
 import { deviceKey } from './testing/device-key'
 import { RawWebSocket, handshake } from './testing/ws-client'
 import { createRemoteGateway, type RemoteGateway } from './gateway'
+import { ConnectLeaseVerifier } from './connect-lease'
 
 const ALLOWED = 'http://127.0.0.1:5173'
 
@@ -32,7 +34,32 @@ function fakeHost(overrides: Partial<RemoteHost> = {}): RemoteHost & {
     capabilities: () => OPERATIONS,
     listSessions: async () => [],
     listProjects: async () => [],
-    getSession: async () => undefined,
+    getSession: async (_caller, sessionId) => ({
+      session: {
+        id: sessionId,
+        projectId: 'proj_1',
+        title: 'Session',
+        driverKind: 'claude',
+        modelId: null,
+        permissionMode: 'ask',
+        status: 'idle',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      summary: {
+        id: sessionId,
+        projectId: 'proj_1',
+        title: 'Session',
+        updatedAt: 1,
+        messageCount: 0,
+        archived: false,
+        pinned: false,
+      },
+      seq: 10,
+      messages: [],
+      pendingApprovals: [],
+      pendingInputs: [],
+    }),
     replay: async () => [],
     query: async () => ({ sessions: [] }),
     subscribe: () => () => {},
@@ -427,6 +454,169 @@ describe('remote gateway command allowlist', () => {
 })
 
 describe('remote gateway idempotency', () => {
+  it('keeps high-volume terminal receipts out of durable prompt records while preserving replay and key conflicts', async () => {
+    const written: string[] = []
+    const host = fakeHost({ capabilities: () => [...OPERATIONS, 'terminal.write'] })
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED],
+      port: 0,
+      idempotency: { persist: (json) => written.push(json) },
+    })
+    running.push(gateway)
+    const token = await paired(gateway, deviceKey())
+    expect((await call(gateway, '/command', COMMAND, { token })).status).toBe(200)
+    const durable = written.at(-1)
+    const chunk = {
+      op: 'terminal.write',
+      sessionId: 'sess_1',
+      terminalId: 'term_1',
+      data: 'pwd\r',
+      clientCommandId: 'terminal',
+      idempotencyKey: 'terminal-write-key-0',
+    }
+    for (let start = 0; start < 1001; start += 50) {
+      const replies = await Promise.all(
+        Array.from({ length: Math.min(50, 1001 - start) }, (_, offset) =>
+          call(
+            gateway,
+            '/command',
+            { ...chunk, idempotencyKey: `terminal-write-key-${start + offset}` },
+            { token },
+          ),
+        ),
+      )
+      expect(replies.every((reply) => reply.status === 200)).toBe(true)
+    }
+    expect(written).toHaveLength(2)
+    expect(written.at(-1)).toBe(durable)
+    expect((await call(gateway, '/command', COMMAND, { token })).status).toBe(200)
+    expect((await call(gateway, '/command', chunk, { token })).status).toBe(200)
+    expect(
+      (
+        await call(
+          gateway,
+          '/query',
+          { op: 'command.status', idempotencyKey: chunk.idempotencyKey },
+          { token },
+        )
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await call(
+          gateway,
+          '/command',
+          { ...chunk, idempotencyKey: COMMAND.idempotencyKey },
+          { token },
+        )
+      ).status,
+    ).toBe(409)
+    expect(
+      (
+        await call(
+          gateway,
+          '/command',
+          { ...COMMAND, idempotencyKey: chunk.idempotencyKey },
+          { token },
+        )
+      ).status,
+    ).toBe(409)
+    expect(host.executed).toHaveLength(1002)
+  }, 30000)
+  it('keeps command receipts private to the device that issued them', async () => {
+    const host = fakeHost()
+    const gateway = await start(host)
+    const first = await paired(gateway, deviceKey())
+    const second = await paired(gateway, deviceKey())
+    await call(gateway, '/command', COMMAND, { token: first })
+    expect(
+      (
+        await call(
+          gateway,
+          '/query',
+          { op: 'command.status', idempotencyKey: COMMAND.idempotencyKey },
+          { token: second },
+        )
+      ).status,
+    ).toBe(404)
+    expect((await call(gateway, '/command', COMMAND, { token: second })).status).toBe(200)
+    expect(host.executed).toHaveLength(2)
+  })
+
+  it('rechecks session scope before replaying a saved receipt', async () => {
+    let visible = true
+    const base = fakeHost()
+    const host = fakeHost({
+      getSession: async (caller, id) => (visible ? base.getSession(caller, id) : undefined),
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey())
+    await call(gateway, '/command', COMMAND, { token })
+    visible = false
+    expect((await call(gateway, '/command', COMMAND, { token })).status).toBe(404)
+    expect(
+      (
+        await call(
+          gateway,
+          '/query',
+          { op: 'command.status', idempotencyKey: COMMAND.idempotencyKey },
+          { token },
+        )
+      ).status,
+    ).toBe(404)
+    expect(host.executed).toHaveLength(1)
+  })
+
+  it('accepts the bounded image body while preserving the smaller normal command ceiling', async () => {
+    const host = fakeHost({ capabilities: () => [...OPERATIONS, 'attachments.stage'] })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey())
+    const bytes = Buffer.alloc(1024 * 1024)
+    const staged = await call(
+      gateway,
+      '/command',
+      {
+        ...COMMAND,
+        op: 'attachments.stage',
+        text: undefined,
+        files: [{ name: 'large.png', mimeType: 'image/png', dataBase64: bytes.toString('base64') }],
+      },
+      { token },
+    )
+    expect(staged.status).toBe(200)
+    expect(
+      (
+        await call(
+          gateway,
+          '/command',
+          { ...COMMAND, text: 'a'.repeat(1024 * 1024 + 1), idempotencyKey: 'large-text' },
+          { token },
+        )
+      ).status,
+    ).toBe(413)
+    expect(
+      (
+        await call(
+          gateway,
+          '/command',
+          {
+            ...COMMAND,
+            op: 'attachments.stage',
+            text: undefined,
+            files: [
+              {
+                name: 'huge.png',
+                mimeType: 'image/png',
+                dataBase64: Buffer.alloc(1024 * 1024 + 10_000).toString('base64'),
+              },
+            ],
+          },
+          { token },
+        )
+      ).status,
+    ).toBe(413)
+  })
   it('replays the recorded outcome instead of running a command twice', async () => {
     const host = fakeHost()
     const gateway = await start(host)
@@ -566,6 +756,137 @@ describe('remote gateway idempotency', () => {
   })
 })
 
+describe('isolated managed gateway', () => {
+  async function managed(host = fakeHost(), startAt = 100_000) {
+    let now = startAt
+    const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+    const jwk = publicKey.export({ format: 'jwk' }) as {
+      kty: 'EC'
+      crv: 'P-256'
+      x: string
+      y: string
+    }
+    const verifier = new ConnectLeaseVerifier({
+      issuer: 'https://connect.example',
+      computerId: 'comp_12345678',
+      jwks: { keys: [{ ...jwk, alg: 'ES256', use: 'sig', kid: 'trusted' }] },
+      now: () => now,
+    })
+    const gateway = await createRemoteGateway({
+      host,
+      allowedOrigins: [ALLOWED, 'https://machine.tail.ts.net'],
+      port: 0,
+      now: () => now,
+      managedAccess: { verifier: () => verifier },
+    })
+    running.push(gateway)
+    const token = await paired(gateway, deviceKey(), ['proj_1', 'proj_2'])
+    const device = gateway.pairing.toPersisted().devices[0]
+    if (device === undefined) throw new Error('expected a paired device')
+    const key = device.publicKey
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify({ crv: key.crv, kty: key.kty, x: key.x, y: key.y }))
+      .digest('hex')
+    const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: 'trusted' })).toString(
+      'base64url',
+    )
+    const payload = Buffer.from(
+      JSON.stringify({
+        iss: 'https://connect.example',
+        aud: 'ari-gateway:comp_12345678',
+        sub: 'member',
+        computerId: 'comp_12345678',
+        deviceId: device.deviceId,
+        deviceKeyFingerprint: fingerprint,
+        projectIds: ['proj_1'],
+        iat: Math.floor(now / 1000),
+        exp: Math.floor(now / 1000) + 1,
+        jti: 'unique',
+      }),
+    ).toString('base64url')
+    const lease = `${header}.${payload}.${sign('sha256', Buffer.from(`${header}.${payload}`), { key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url')}`
+    return {
+      gateway,
+      token,
+      lease,
+      advance: (milliseconds: number) => {
+        now += milliseconds
+      },
+    }
+  }
+
+  it('requires both paired-device credentials and a scoped membership lease, even with a forged Tailscale origin', async () => {
+    const host = fakeHost({ query: async (caller) => caller.projectIds })
+    const h = await managed(host)
+    expect(
+      (await call(h.gateway, '/query', { op: 'session.list' }, { token: h.token })).status,
+    ).toBe(403)
+    expect(
+      (
+        await call(
+          h.gateway,
+          '/query',
+          { op: 'session.list' },
+          { token: h.token, origin: 'https://machine.tail.ts.net' },
+        )
+      ).status,
+    ).toBe(403)
+    expect(
+      (
+        await call(
+          h.gateway,
+          '/query',
+          { op: 'session.list' },
+          { headers: { 'x-ari-connect-lease': h.lease } },
+        )
+      ).status,
+    ).toBe(401)
+    const allowed = await call(
+      h.gateway,
+      '/query',
+      { op: 'session.list' },
+      { token: h.token, headers: { 'x-ari-connect-lease': h.lease } },
+    )
+    expect(allowed).toMatchObject({ status: 200, body: { result: ['proj_1'] } })
+    h.advance(1000)
+    expect(
+      (
+        await call(h.gateway, '/command', COMMAND, {
+          token: h.token,
+          headers: { 'x-ari-connect-lease': h.lease },
+        })
+      ).status,
+    ).toBe(403)
+    expect(host.executed).toHaveLength(0)
+  })
+
+  it('closes an already open managed stream when its lease expires', async () => {
+    let stopped = false
+    const host = fakeHost({
+      subscribe: () => () => {
+        stopped = true
+      },
+    })
+    const h = await managed(host, 100_850)
+    const client = await RawWebSocket.open(h.gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${h.token}`, `lease.${h.lease}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1' }))
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    expect(stopped).toBe(true)
+    client.close()
+    expect(
+      (
+        await handshake(h.gateway.port, '/events', {
+          origin: ALLOWED,
+          protocols: ['ari-remote.v1', `bearer.${h.token}`],
+        })
+      ).statusLine,
+    ).toContain('403')
+  })
+})
+
 describe('remote gateway queries', () => {
   it('serves a read to a paired device', async () => {
     const host = fakeHost({ listSessions: async () => [] })
@@ -584,6 +905,67 @@ describe('remote gateway queries', () => {
 })
 
 describe('remote gateway event stream', () => {
+  it('does not send buffered content for an unauthorized session', async () => {
+    let stopped = false
+    const host = fakeHost({
+      getSession: async () => undefined,
+      subscribe: (_caller, sessionId, onEvent) => {
+        queueMicrotask(() =>
+          onEvent({ type: 'turn.started', seq: 1, at: 1, sessionId, turnId: 'secret' }),
+        )
+        return () => {
+          stopped = true
+        }
+      },
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey())
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'secret', fromSeq: 0 }))
+    const message = JSON.parse(await client.nextMessage()) as {
+      type: string
+      error: { code: string }
+    }
+    expect(message).toMatchObject({ type: 'error', error: { code: 'not_found' } })
+    expect(stopped).toBe(true)
+    client.close()
+  })
+
+  it('replays from the cursor and removes live events duplicated during replay', async () => {
+    let emit: RemoteHost['subscribe'] extends (...args: infer Args) => unknown
+      ? Args[2] | undefined
+      : never
+    const event = { type: 'turn.started' as const, seq: 3, at: 1, sessionId: 'sess_1', turnId: 't' }
+    const host = fakeHost({
+      subscribe: (_caller, _sessionId, onEvent) => {
+        emit = onEvent
+        return () => {}
+      },
+      replay: async (_caller, _sessionId, fromSeq) => {
+        expect(fromSeq).toBe(2)
+        emit?.(event)
+        return [event]
+      },
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey())
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1', fromSeq: 2 }))
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'events.frame',
+      events: [{ seq: 3 }],
+      caughtUp: true,
+    })
+    emit?.({ ...event, seq: 4 })
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({ events: [{ seq: 4 }] })
+    client.close()
+  })
   it('streams a subscribed session to a paired device', async () => {
     let emit: ((event: unknown) => void) | null = null
     const host = fakeHost({
@@ -837,7 +1219,7 @@ describe('remote gateway PWA hosting', () => {
     expect(response.headers.get('content-type')).toContain('text/html')
     // A navigation carries no Origin, which is why this is served before the
     // allowlist check — and the shell must never be stale.
-    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('cache-control')).toBe('no-cache')
     expect(await response.text()).toContain('<title>Ari</title>')
   })
 
@@ -858,7 +1240,7 @@ describe('remote gateway PWA hosting', () => {
 
     const manifest = await get(gateway, '/manifest.webmanifest')
     expect(manifest.headers.get('content-type')).toContain('application/manifest+json')
-    expect(manifest.headers.get('cache-control')).toBe('no-store')
+    expect(manifest.headers.get('cache-control')).toBe('no-cache')
 
     const worker = await get(gateway, '/sw.js')
     expect(worker.headers.get('content-type')).toContain('text/javascript')
@@ -868,6 +1250,7 @@ describe('remote gateway PWA hosting', () => {
 
     const icon = await get(gateway, '/icon-192.png')
     expect(icon.headers.get('content-type')).toBe('image/png')
+    expect(icon.headers.get('cache-control')).toBe('no-cache')
   })
 
   it('refuses a path that climbs out of the build directory', async () => {
@@ -894,6 +1277,7 @@ describe('remote gateway PWA hosting', () => {
     const gateway = await startWithWeb(host, buildDirectory())
 
     const info = await get(gateway, '/info', ALLOWED)
+    expect(info.headers.get('cache-control')).toBe('no-store')
     expect(info.headers.get('content-type')).toContain('application/json')
     expect(((await info.json()) as Record<string, unknown>)['ok']).toBe(true)
 

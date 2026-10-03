@@ -1,7 +1,7 @@
 import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, shell, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, safeStorage, type WebContents } from 'electron'
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
@@ -12,6 +12,9 @@ import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
 import { RemoteService } from './remote'
+import { RemoteConnectService } from './remote-connect'
+import { forkRemoteSession } from './remote-fork'
+import { safeStorageBox } from './secret-box'
 import { RemoteOrigins } from './remote-origins'
 import { TailscaleServe, type TailscaleState } from './tailscale'
 import { mobileWebRoot } from './mobile-web-root'
@@ -105,7 +108,11 @@ import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 import { McpServerStore, mergeCoreMcp, publicMcpServer } from '@ari/ari-core/mcp-servers'
 import { sanitizeMcpSegment } from '@ari/ari-core/mcp-tools'
-import { listAriCoreSkills, readTrustedSkillRoots, setWorkspaceSkillTrust } from '@ari/ari-core/skills'
+import {
+  listAriCoreSkills,
+  readTrustedSkillRoots,
+  setWorkspaceSkillTrust,
+} from '@ari/ari-core/skills'
 import { BUILT_IN_TOOLS } from '@ari/ari-core/tools'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
 import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
@@ -456,6 +463,7 @@ let appUpdaterRef: UpdateController | null = null
  * on a port the first one already holds.
  */
 let remoteRef: RemoteService | null = null
+let remoteConnectRef: RemoteConnectService | null = null
 
 /** The port the gateway is bound to, or the one settings name before it runs. */
 function gatewayPort(): number {
@@ -658,7 +666,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       mcpServers: () => {
         for (const server of mcpStore.list()) {
           if (!server.disabled && sanitizeMcpSegment(server.name) === 'ari_browser') {
-            log.warn('mcp server name is reserved', { server: server.name, reason: 'reserved-name' })
+            log.warn('mcp server name is reserved', {
+              server: server.name,
+              reason: 'reserved-name',
+            })
           }
         }
         return mergeCoreMcp(mcpStore.list(), browserCoreMcpServers)
@@ -966,52 +977,83 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return state
   }
 
-  const remote = remoteRef ?? new RemoteService(
-    {
-      engine,
-      store: getSessionStore(),
-      dir: join(app.getPath('userData'), 'remote'),
-      driverKinds: () => ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null),
-      defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
-      defaultDriverKind: () => getSettingsStore().current.sessions.defaultDriverKind,
-      hasProject: async (projectId) => {
-        await getProjectStore().load()
-        return getProjectStore().get(projectId) !== undefined
+  const remote =
+    remoteRef ??
+    new RemoteService(
+      {
+        engine,
+        store: getSessionStore(),
+        dir: join(app.getPath('userData'), 'remote'),
+        driverKinds: () => ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null),
+        defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
+        defaultDriverKind: () => getSettingsStore().current.sessions.defaultDriverKind,
+        hasProject: async (projectId) => {
+          await getProjectStore().load()
+          return getProjectStore().get(projectId) !== undefined
+        },
+        listProjects: async () => {
+          await getProjectStore().load()
+          return getProjectStore()
+            .list()
+            .map((project) => ({ id: project.id, name: project.name }))
+        },
+        // The picker's own catalog, filtered to what this desktop can drive.
+        // Synchronous reads of the merged snapshot; a background refresh
+        // replaces the data the next call sees.
+        listModels: () =>
+          Promise.resolve(
+            ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null).map((kind) => ({
+              driverKind: kind,
+              models: modelsFor(kind).map((model) => ({ id: model.id, label: model.label })),
+            })),
+          ),
+        mintSessionId: () =>
+          `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        terminalFactory: ptyFactory,
+        fork: async (deviceId, command) =>
+          forkRemoteSession((await controlReady).service, deviceId, command),
+        // No address is reachable from a phone until Serve (or a tunnel) is in
+        // front of the loopback listener; until then the panel says so rather
+        // than showing a QR code that would resolve to the phone itself.
+        clientOrigin: () => origins.clientOrigin(),
+        allowedOrigins: () => origins.allowedOrigins(),
+        webRoot: () =>
+          mobileWebRoot({
+            isPackaged: app.isPackaged,
+            resourcesPath: process.resourcesPath,
+            appPath: app.getAppPath(),
+          }),
+        onChange: (state) => {
+          rpcRegistry.publish('remote.updates', state)
+          remoteConnectRef?.syncDevices()
+        },
       },
-      listProjects: async () => {
-        await getProjectStore().load()
-        return getProjectStore()
-          .list()
-          .map((project) => ({ id: project.id, name: project.name }))
-      },
-      // The picker's own catalog, filtered to what this desktop can drive.
-      // Synchronous reads of the merged snapshot; a background refresh
-      // replaces the data the next call sees.
-      listModels: () =>
-        Promise.resolve(
-          ALL_PROVIDER_KINDS.filter((kind) => driverRegistry.get(kind) !== null).map((kind) => ({
-            driverKind: kind,
-            models: modelsFor(kind).map((model) => ({ id: model.id, label: model.label })),
-          })),
-        ),
-      mintSessionId: () =>
-        `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-      // No address is reachable from a phone until Serve (or a tunnel) is in
-      // front of the loopback listener; until then the panel says so rather
-      // than showing a QR code that would resolve to the phone itself.
-      clientOrigin: () => origins.clientOrigin(),
-      allowedOrigins: () => origins.allowedOrigins(),
-      webRoot: () =>
-        mobileWebRoot({
-          isPackaged: app.isPackaged,
-          resourcesPath: process.resourcesPath,
-          appPath: app.getAppPath(),
-        }),
-      onChange: (state) => rpcRegistry.publish('remote.updates', state),
-    },
-    { port: getSettingsStore().current.remote.port },
-  )
+      { port: getSettingsStore().current.remote.port },
+    )
   remoteRef = remote
+  const connect =
+    remoteConnectRef ??
+    new RemoteConnectService({
+      dir: join(app.getPath('userData'), 'remote'),
+      version: app.getVersion(),
+      remote,
+      secretBox: () => {
+        if (!safeStorage.isEncryptionAvailable()) return null
+        if (
+          process.platform === 'linux' &&
+          safeStorage.getSelectedStorageBackend() === 'basic_text'
+        )
+          return null
+        return safeStorageBox(safeStorage)
+      },
+      openExternal: (url) => shell.openExternal(url),
+      onChange: () => rpcRegistry.publish('remote.updates', remote.state()),
+    })
+  remoteConnectRef = connect
+  r.register('remote.connect.status', () => connect.status())
+  r.register('remote.connect.configure', (params) => connect.configure(params.origin))
+  r.register('remote.connect.signIn', (params) => connect.signIn(params.computerName))
+  r.register('remote.connect.signOut', () => connect.signOut())
 
   r.register('remote.status', () => remote.state())
   r.register('remote.enable', async (params) => {
@@ -1022,10 +1064,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // Now there is a listener for Serve to point at, and a tailnet address is
     // what the pairing panel needs before it can show a QR code.
     await refreshTailscale()
+    await connect.status()
     return state
   })
   r.register('remote.disable', async () => {
     await getSettingsStore().update({ remote: { enabled: false } })
+    await connect.stop()
     await remote.stop()
     // Leaving the mapping would send every phone to a listener that is gone,
     // so the mapping Ari made is removed with the gateway. A mapping the user
@@ -1034,9 +1078,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     await refreshTailscale()
     return remote.state()
   })
-  r.register('remote.invite', () => remote.invite())
+  r.register('remote.invite', (params) => remote.invite(params?.method))
   r.register('remote.cancelInvite', () => remote.cancelInvite())
-  r.register('remote.approve', (params) => remote.approve(params.invitationId, params.projectIds))
+  r.register('remote.approve', (params) =>
+    remote.approve(params.invitationId, params.projectIds, params.allowTerminal),
+  )
   r.register('remote.deny', (params) => remote.deny(params.invitationId))
   r.register('remote.revokeDevice', (params) => remote.revokeDevice(params.deviceId))
 
@@ -1067,11 +1113,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       if (!settings.remote.enabled) return
       await remote.start(settings.remote.port)
       await refreshTailscale()
+      await connect.status()
     })
     .catch(() => log.error('remote access did not start on boot'))
 
   app.once('before-quit', () => {
-    void remote.stop().catch(() => log.error('remote access failed to close'))
+    void connect
+      .stop()
+      .then(() => remote.stop())
+      .catch(() => log.error('remote access failed to close'))
   })
 
   r.register('session.list', async () => getSessionStore().listSessions())
@@ -1415,7 +1465,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { removed: await mcpStore.remove(params.id) }
   })
   r.register('ariCore.skills.trust', async (params) => {
-    const workspace = await resolveInsideRoots(resolve(params.workspacePath), await collectFsRoots())
+    const workspace = await resolveInsideRoots(
+      resolve(params.workspacePath),
+      await collectFsRoots(),
+    )
     const trusted = await setWorkspaceSkillTrust(coreDir, workspace, params.trusted)
     return { trusted }
   })

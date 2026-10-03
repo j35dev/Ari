@@ -14,6 +14,21 @@ import {
 } from './remote'
 
 describe('remote contract', () => {
+  it('allows isolated fork choices without a permission, shell or workspace override', () => {
+    const request = {
+      op: 'session.fork',
+      sessionId: 'parent',
+      title: 'Task',
+      clientCommandId: 'cmd',
+      idempotencyKey: 'unique-command-key',
+    }
+    expect(remoteCommandEnvelopeSchema.safeParse(request).success).toBe(true)
+    for (const field of ['permissionMode', 'workspaceMode', 'effort', 'prompt', 'path']) {
+      expect(remoteCommandEnvelopeSchema.safeParse({ ...request, [field]: 'full' }).success).toBe(
+        false,
+      )
+    }
+  })
   it('declares a protocol version', () => {
     expect(REMOTE_PROTOCOL_VERSION).toBeGreaterThan(0)
   })
@@ -23,7 +38,6 @@ describe('remote contract', () => {
     // so their absence here is the enforcement, not a missing feature.
     for (const deferred of [
       'terminal.open',
-      'terminal.write',
       'shell.exec',
       'provider.login',
       'fs.writeTextFile',
@@ -114,7 +128,14 @@ describe('remote contract', () => {
     expect(remoteOriginSchema.safeParse('*').success).toBe(false)
     expect(remoteOriginSchema.safeParse('https://*').success).toBe(false)
     expect(remoteOriginSchema.safeParse('http://127.0.0.1:8787').success).toBe(true)
-    expect(remoteServerMessageSchema.safeParse({ type: 'events.desync', sessionId: 's', reason: 'r', origin: '*' }).success).toBe(true)
+    expect(
+      remoteServerMessageSchema.safeParse({
+        type: 'events.desync',
+        sessionId: 's',
+        reason: 'r',
+        origin: '*',
+      }).success,
+    ).toBe(true)
     // ...and the field is stripped, because no server message declares one.
     const parsed = remoteServerMessageSchema.parse({
       type: 'events.desync',
@@ -171,8 +192,9 @@ describe('remote contract', () => {
       remoteClientMessageSchema.safeParse({ type: 'events.subscribe', sessionId: 's', fromSeq: 0 })
         .success,
     ).toBe(true)
-    expect(remoteClientMessageSchema.safeParse({ type: 'events.subscribe', sessionId: 's' }).success)
-      .toBe(true)
+    expect(
+      remoteClientMessageSchema.safeParse({ type: 'events.subscribe', sessionId: 's' }).success,
+    ).toBe(true)
     expect(remoteClientMessageSchema.safeParse({ type: 'command' }).success).toBe(false)
   })
 })

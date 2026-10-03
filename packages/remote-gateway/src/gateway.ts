@@ -7,6 +7,7 @@ import type { Duplex } from 'node:stream'
 import { z } from 'zod'
 import {
   REMOTE_PROTOCOL_VERSION,
+  MAX_REMOTE_IMAGE_BYTES,
   remoteClientMessageSchema,
   remoteCommandEnvelopeSchema,
   remoteErrorCodeSchema,
@@ -15,6 +16,9 @@ import {
   type RemoteErrorCode,
 } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
+import type { JournalEvent } from '@ari/contracts/events'
+import type { ConnectLeaseVerifier } from './connect-lease'
+export { ConnectLeaseVerifier } from './connect-lease'
 import { IdempotencyStore } from './idempotency'
 import { isOriginAllowed, requestOrigin } from './origin'
 import { PairingService, type PairedDevice } from './pairing'
@@ -34,6 +38,7 @@ import { acceptUpgrade, isWebSocketUpgrade } from './ws'
 
 /** Commands carry text and attachment ids; a megabyte is far more than one. */
 const MAX_BODY_BYTES = 1024 * 1024
+const MAX_IMAGE_BODY_BYTES = Math.ceil(MAX_REMOTE_IMAGE_BYTES / 3) * 4 + 4096
 
 export interface RemoteGatewayOptions {
   host: RemoteHost
@@ -54,6 +59,8 @@ export interface RemoteGatewayOptions {
   webRoot?: string
   pairing?: PairingService
   now?: () => number
+  /** Dedicated managed listener: absent verification fails closed. Local/Tailscale listeners omit this. */
+  managedAccess?: { verifier: () => ConnectLeaseVerifier | null }
   /**
    * Where command deduplication records go if they are to outlive the
    * process. Absent, they live as long as the gateway does, which is exactly
@@ -78,14 +85,26 @@ export interface RemoteGateway {
   close(): Promise<void>
 }
 
+interface RecordedOutcome {
+  reply: { ok: true; result: unknown }
+  sessionId?: string
+  projectId?: string
+}
+
 export async function createRemoteGateway(options: RemoteGatewayOptions): Promise<RemoteGateway> {
   const host = options.host
   const pairing = options.pairing ?? new PairingService()
   const idempotency =
     options.idempotency?.restore === undefined
-      ? new IdempotencyStore<unknown>({ now: options.now })
-      : IdempotencyStore.fromJSON<unknown>(options.idempotency.restore)
+      ? new IdempotencyStore<RecordedOutcome>({ now: options.now })
+      : IdempotencyStore.fromJSON<RecordedOutcome>(options.idempotency.restore)
   const remember = (): void => options.idempotency?.persist?.(idempotency.toJSON())
+  // Shell handles cannot survive this gateway lifetime. Keep their high-volume
+  // receipts separate so keyboard input cannot evict durable prompt receipts.
+  const terminalReceipts = new IdempotencyStore<RecordedOutcome>({
+    now: options.now,
+    maxEntries: 10_000,
+  })
   const sockets = new Set<Socket>()
   /**
    * The address this gateway is reachable at itself. Added to the allowlist
@@ -140,16 +159,26 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (device === undefined) return refuseUpgrade(socket, 401)
     pairing.touch(device.deviceId)
 
+    const lease = authorizeManaged(
+      protocols.find((value) => value.startsWith('lease.'))?.slice(6),
+      device,
+    )
+    if (lease === null) return refuseUpgrade(socket, 403)
     const connection = acceptUpgrade(
       req,
       socket,
       head,
       protocols.includes(WIRE_PROTOCOL) ? WIRE_PROTOCOL : undefined,
     )
-    attachEvents(connection, callerOf(device))
+    attachEvents(connection, lease?.caller ?? callerOf(device), token, lease?.expiresAt)
   })
 
-  function attachEvents(connection: ReturnType<typeof acceptUpgrade>, caller: RemoteCaller): void {
+  function attachEvents(
+    connection: ReturnType<typeof acceptUpgrade>,
+    caller: RemoteCaller,
+    token: string | undefined,
+    expiresAt?: number,
+  ): void {
     const subscriptions = new Map<string, () => void>()
 
     const teardown = (): void => {
@@ -157,8 +186,89 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       subscriptions.clear()
       connection.close(1000, 'unsubscribed')
     }
+    const expiryTimer =
+      expiresAt === undefined
+        ? undefined
+        : setTimeout(teardown, Math.max(0, expiresAt - (options.now?.() ?? Date.now())))
+    expiryTimer?.unref()
+    const credentialTimer = setInterval(() => {
+      if (token === undefined || pairing.authenticate(token) === undefined) teardown()
+    }, 1000)
+    credentialTimer.unref()
 
     const send = (message: unknown): void => connection.send(JSON.stringify(message))
+
+    async function subscribe(sessionId: string, fromSeq?: number): Promise<void> {
+      if (subscriptions.size >= 8)
+        return send(errorMessage('rate_limited', 'at most eight sessions may be streamed'))
+      const buffered: JournalEvent[] = []
+      let bytes = 0
+      let ready = false
+      let lastSeq = fromSeq ?? -1
+      let unsubscribe = (): void => {}
+      const current = (): boolean =>
+        subscriptions.get(sessionId) === unsubscribe &&
+        connection.open &&
+        token !== undefined &&
+        pairing.authenticate(token) !== undefined &&
+        (expiresAt === undefined || expiresAt > (options.now?.() ?? Date.now()))
+      const stop = (): void => {
+        unsubscribe()
+        subscriptions.delete(sessionId)
+      }
+      const deliver = (event: JournalEvent, caughtUp?: boolean): void => {
+        if (!current()) return teardown()
+        if (event.seq <= lastSeq) return
+        lastSeq = event.seq
+        send({
+          type: 'events.frame',
+          sessionId,
+          events: [{ seq: event.seq, event }],
+          ...(caughtUp === true ? { caughtUp: true } : {}),
+        })
+      }
+      unsubscribe = host.subscribe(caller, sessionId, (event) => {
+        if (!pairing.isDeviceActive(caller.deviceId) || !connection.open) return teardown()
+        if (ready) return deliver(event)
+        bytes += Buffer.byteLength(JSON.stringify(event))
+        if (buffered.length >= 2000 || bytes > 4 * 1024 * 1024) {
+          stop()
+          return send({
+            type: 'events.desync',
+            sessionId,
+            reason: 'replay buffer exceeded; refresh the session',
+          })
+        }
+        buffered.push(event)
+      })
+      subscriptions.set(sessionId, unsubscribe)
+      try {
+        const snapshot = await host.getSession(caller, sessionId)
+        if (!current()) return
+        if (snapshot === undefined) {
+          stop()
+          return send(errorMessage('not_found', 'no such session'))
+        }
+        if (fromSeq !== undefined) {
+          const events = await host.replay(caller, sessionId, fromSeq)
+          if (!current()) return
+          if (events === undefined || fromSeq > snapshot.seq || events.length > 2000) {
+            stop()
+            return send({
+              type: 'events.desync',
+              sessionId,
+              reason: 'history is unavailable; refresh the session',
+            })
+          }
+          events.forEach((event, index) => deliver(event, index === events.length - 1))
+        }
+        ready = true
+        for (const event of buffered) deliver(event)
+      } catch {
+        stop()
+        send(errorMessage('internal_error', 'the event subscription failed'))
+      }
+    }
 
     connection.onMessage((text) => {
       let parsed: unknown
@@ -184,20 +294,12 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       if (!host.capabilities().includes('events.subscribe')) {
         return send(errorMessage('unsupported_capability', 'this host cannot stream events'))
       }
-      subscriptions.set(
-        sessionId,
-        host.subscribe(caller, sessionId, (event) => {
-          // A subscription outlives the moment it was authorised, so liveness
-          // is re-checked at delivery: a device revoked mid-stream must stop
-          // receiving the user's transcript, not finish the session first.
-          if (!pairing.isDeviceActive(caller.deviceId)) return teardown()
-          if (!connection.open) return teardown()
-          send({ type: 'events.frame', sessionId, events: [{ seq: event.seq, event }] })
-        }),
-      )
+      void subscribe(sessionId, message.data.fromSeq)
     })
 
     connection.onClose(() => {
+      if (expiryTimer !== undefined) clearTimeout(expiryTimer)
+      clearInterval(credentialTimer)
       for (const unsubscribe of subscriptions.values()) unsubscribe()
       subscriptions.clear()
     })
@@ -308,6 +410,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         deviceId: result.device.deviceId,
         token: result.token,
         projectIds: result.device.projectIds,
+        allowTerminal: result.device.allowTerminal === true,
       },
     })
   }
@@ -330,7 +433,11 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (!result.ok) return reply(statusFor(result.code), fail(result.code, 'redemption refused'))
     return reply(200, {
       ok: true,
-      result: { deviceId: result.device.deviceId, token: result.token },
+      result: {
+        deviceId: result.device.deviceId,
+        token: result.token,
+        allowTerminal: result.device.allowTerminal === true,
+      },
     })
   }
 
@@ -350,11 +457,34 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     if (device === undefined) {
       return reply(401, fail('unauthenticated', 'a device credential is required'))
     }
+    const managed = authorizeManaged(headerLease(req), device)
+    if (managed === null)
+      return reply(
+        403,
+        fail('access_revoked', 'a current Ari Connect membership lease is required'),
+      )
+    const caller = managed?.caller ?? callerOf(device)
     if (!host.capabilities().includes(command.op)) {
       return reply(400, fail('unsupported_capability', 'this host cannot do that'))
     }
 
-    const outcome = idempotency.begin(command.idempotencyKey, command)
+    const key = JSON.stringify([device.deviceId, command.idempotencyKey])
+    if (idempotency.lookup(command.idempotencyKey) !== undefined) {
+      return reply(
+        409,
+        fail(
+          'conflict',
+          'this command predates device-scoped receipts; inspect the session before sending again',
+        ),
+      )
+    }
+    const terminal = command.op.startsWith('terminal.')
+    if (!terminal && terminalReceipts.lookup(key) !== undefined)
+      return reply(409, fail('idempotency_conflict', 'that key was used for another command'))
+    const receipts =
+      terminal && idempotency.lookup(key) === undefined ? terminalReceipts : idempotency
+    const durable = receipts === idempotency
+    const outcome = receipts.begin(key, command)
     if (outcome.outcome === 'conflict') {
       return reply(409, fail('idempotency_conflict', 'that key was used for another command'))
     }
@@ -369,23 +499,31 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       if (outcome.result === undefined) {
         return reply(409, fail('conflict', 'that command already failed; retry under a new key'))
       }
-      return reply(200, outcome.result)
+      if (!(await outcomeVisible(caller, outcome.result))) {
+        return reply(404, fail('not_found', 'no such command'))
+      }
+      return reply(200, outcome.result.reply)
     }
     // Written before the command runs: a desktop that dies mid-command must
     // leave the key claimed, so the retry after the restart sees "still
     // running" instead of running the prompt a second time.
-    remember()
+    if (durable) remember()
 
-    const result = await host.execute(callerOf(device), command)
+    const result = await host.execute(caller, command)
     if (result.ok) {
-      idempotency.complete(command.idempotencyKey, result)
-      remember()
+      receipts.complete(key, {
+        reply: result,
+        ...(command.op === 'session.create'
+          ? { projectId: command.projectId }
+          : { sessionId: command.sessionId }),
+      })
+      if (durable) remember()
       return reply(200, result)
     }
     // Recorded, so a retry sees the same refusal rather than re-running a
     // command that already failed for a reason that has not changed.
-    idempotency.fail(command.idempotencyKey)
-    remember()
+    receipts.fail(key)
+    if (durable) remember()
     const code = asErrorCode(result.code)
     return reply(statusFor(code), { ok: false, error: { code, message: result.message } })
   }
@@ -417,9 +555,19 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         },
       })
     }
+    const managed = device === undefined ? undefined : authorizeManaged(headerLease(req), device)
+    if (managed === null)
+      return reply(
+        403,
+        fail('access_revoked', 'a current Ari Connect membership lease is required'),
+      )
+    const caller = device === undefined ? undefined : (managed?.caller ?? callerOf(device))
 
     if (requested.op === 'command.status') {
-      const record = idempotency.lookup(requested.idempotencyKey)
+      if (device === undefined)
+        return reply(401, fail('unauthenticated', 'a device credential is required'))
+      const receiptKey = JSON.stringify([device.deviceId, requested.idempotencyKey])
+      const record = idempotency.lookup(receiptKey) ?? terminalReceipts.lookup(receiptKey)
       if (record === undefined) return reply(404, fail('not_found', 'no such key'))
       // Only the outcome goes back, not the store's own bookkeeping — when the
       // record was written is the gateway's business.
@@ -429,7 +577,10 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       if (record.result === undefined) {
         return reply(409, fail('conflict', 'that command is still running'))
       }
-      return reply(200, { ok: true, result: record.result })
+      if (caller === undefined || !(await outcomeVisible(caller, record.result))) {
+        return reply(404, fail('not_found', 'no such command'))
+      }
+      return reply(200, { ok: true, result: record.result.reply })
     }
     // Everything past this point reaches the host, which is the user's data.
     // `gateway.info` and every anonymous operation are answered above, so a
@@ -442,8 +593,38 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     }
 
     const { op, ...params } = requested
-    const result = await host.query(callerOf(device), op, params)
+    const result = await host.query(caller ?? callerOf(device), op, params)
     return reply(200, { ok: true, result })
+  }
+
+  async function outcomeVisible(caller: RemoteCaller, outcome: RecordedOutcome): Promise<boolean> {
+    if (outcome.sessionId !== undefined)
+      return (await host.getSession(caller, outcome.sessionId)) !== undefined
+    return outcome.projectId !== undefined && caller.projectIds.includes(outcome.projectId)
+  }
+
+  function authorizeManaged(
+    token: string | undefined,
+    device: PairedDevice,
+  ): { caller: RemoteCaller; expiresAt: number } | null | undefined {
+    if (options.managedAccess === undefined) return undefined
+    const registered = pairing
+      .toPersisted()
+      .devices.find((entry) => entry.deviceId === device.deviceId)
+    const lease =
+      token === undefined || registered === undefined
+        ? undefined
+        : options.managedAccess.verifier()?.validate(token, registered)
+    return lease === undefined
+      ? null
+      : {
+          caller: {
+            deviceId: device.deviceId,
+            projectIds: lease.projectIds,
+            allowTerminal: device.allowTerminal === true,
+          },
+          expiresAt: lease.expiresAt,
+        }
   }
 
   function authenticate(req: IncomingMessage): PairedDevice | undefined {
@@ -463,7 +644,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     for await (const chunk of req) {
       const buffer = chunk as Buffer
       size += buffer.length
-      if (size > MAX_BODY_BYTES) {
+      if (size > (req.url === '/command' ? MAX_IMAGE_BODY_BYTES : MAX_BODY_BYTES)) {
         reply(413, fail('unsupported_capability', 'request body is too large'))
         return undefined
       }
@@ -474,7 +655,18 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       return undefined
     }
     try {
-      return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+      const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      if (
+        size > MAX_BODY_BYTES &&
+        (typeof parsed !== 'object' ||
+          parsed === null ||
+          !('op' in parsed) ||
+          parsed.op !== 'attachments.stage')
+      ) {
+        reply(413, fail('unsupported_capability', 'request body is too large'))
+        return undefined
+      }
+      return parsed
     } catch {
       reply(400, fail('unsupported_capability', 'malformed JSON'))
       return undefined
@@ -554,6 +746,11 @@ function bearerToken(protocols: readonly string[]): string | undefined {
   return token.length === 0 ? undefined : token
 }
 
+function headerLease(req: IncomingMessage): string | undefined {
+  const value = req.headers['x-ari-connect-lease']
+  return typeof value === 'string' ? value : undefined
+}
+
 /** Answers an upgrade the gateway will not complete, then drops the socket. */
 function refuseUpgrade(socket: Duplex, status: number): void {
   const reason = status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'Not Found'
@@ -567,7 +764,11 @@ function refuseUpgrade(socket: Duplex, status: number): void {
  * provider token or a key does not start travelling into the host with it.
  */
 function callerOf(device: PairedDevice): RemoteCaller {
-  return { deviceId: device.deviceId, projectIds: [...device.projectIds] }
+  return {
+    deviceId: device.deviceId,
+    projectIds: [...device.projectIds],
+    allowTerminal: device.allowTerminal === true,
+  }
 }
 
 function errorMessage(code: RemoteErrorCode, message: string): unknown {
@@ -661,7 +862,7 @@ function preflight(res: ServerResponse, origin: string | undefined): void {
     ...corsHeaders(origin),
     'access-control-allow-methods': 'POST, GET, OPTIONS',
     // Only what the PWA sends: a JSON body and a device token.
-    'access-control-allow-headers': 'content-type, authorization',
+    'access-control-allow-headers': 'content-type, authorization, x-ari-connect-lease',
     'access-control-max-age': '600',
     'content-length': '0',
   })
@@ -705,17 +906,28 @@ const CONTENT_TYPES: Record<string, string> = {
  */
 async function serveWeb(root: string, pathname: string, res: ServerResponse): Promise<void> {
   const extension = extname(pathname).toLowerCase()
-  if (extension.length === 0) return sendFile(res, join(root, 'index.html'), 'no-store')
+  if (extension.length === 0) return sendFile(res, join(root, 'index.html'), 'no-cache')
   const type = CONTENT_TYPES[extension]
   if (type === undefined) return notFound(res)
   const target = await withinRoot(root, pathname)
   if (target === null) return notFound(res)
-  // Hashed assets never change under their name; the shell, the manifest and
-  // the service worker must never be served from a cache, or an update cannot
-  // reach a phone that already installed the app.
+  // Public shell assets may be retained for offline use but must revalidate;
+  // the worker itself and all API replies remain outside the HTTP cache.
+  const publicShell = [
+    '/index.html',
+    '/manifest.webmanifest',
+    '/icon-192.png',
+    '/icon-512.png',
+    '/icon-maskable.png',
+    '/icon.svg',
+    '/icon-maskable.svg',
+    '/apple-touch-icon.png',
+  ].includes(pathname)
   const cacheControl = pathname.startsWith('/assets/')
     ? 'public, max-age=31536000, immutable'
-    : 'no-store'
+    : publicShell
+      ? 'no-cache'
+      : 'no-store'
   return sendFile(res, target, cacheControl, type)
 }
 

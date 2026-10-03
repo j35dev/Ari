@@ -47,7 +47,10 @@ export function isWebSocketUpgrade(req: IncomingMessage): boolean {
     typeof upgrade === 'string' &&
     upgrade.toLowerCase() === 'websocket' &&
     typeof connection === 'string' &&
-    connection.toLowerCase().split(',').some((part) => part.trim() === 'upgrade') &&
+    connection
+      .toLowerCase()
+      .split(',')
+      .some((part) => part.trim() === 'upgrade') &&
     typeof req.headers['sec-websocket-key'] === 'string' &&
     req.headers['sec-websocket-version'] === '13'
   )
@@ -95,6 +98,11 @@ export function acceptUpgrade(
 
   const sendFrame = (opcode: number, payload: Buffer): void => {
     if (!open || socket.destroyed) return
+    if (payload.length + socket.writableLength > MAX_MESSAGE_BYTES) {
+      socket.destroy()
+      finish()
+      return
+    }
     const length = payload.length
     let header: Buffer
     if (length < 126) {
