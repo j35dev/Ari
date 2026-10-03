@@ -72,9 +72,7 @@ export function ProjectsScreen({
         <ScreenHeader
           title={project?.name ?? 'Projects'}
           subtitle={
-            project === undefined
-              ? 'Your computer. Your projects. Anywhere.'
-              : `${project.sessions.length} sessions in this workspace.`
+            project === undefined ? '' : `${project.sessions.length} sessions in this workspace.`
           }
           action={
             <button
