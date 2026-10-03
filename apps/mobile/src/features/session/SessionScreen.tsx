@@ -24,6 +24,7 @@ import { Composer } from './Composer'
 import { Files } from './Files'
 import { SessionDetails } from './SessionDetails'
 import { ReviewIntegration } from './ReviewIntegration'
+import { ModelPicker, modelSelectionLabel } from '../../components/ModelPicker'
 const Terminal = lazy(async () => {
   const module = await import('./Terminal')
   return { default: module.Terminal }
@@ -53,6 +54,8 @@ export function SessionScreen({
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [view, setView] = useState<View>('conversation')
   const [details, setDetails] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [pickingModel, setPickingModel] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [terminalOpened, setTerminalOpened] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -156,7 +159,12 @@ export function SessionScreen({
     <div className="mobile-shell relative">
       <header className="shrink-0 border-b border-border px-3 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-2">
-          <button type="button" className="icon-button" aria-label="Back" onClick={onBack}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Back"
+            onClick={() => (view === 'conversation' ? onBack() : setView('conversation'))}
+          >
             <ArrowLeft size={20} />
           </button>
           <button
@@ -166,7 +174,13 @@ export function SessionScreen({
             aria-label="Open session details"
           >
             <span className="block truncate text-[15px] font-semibold tracking-tight">
-              {snapshot?.summary.title || 'Session'}
+              {view === 'conversation'
+                ? snapshot?.summary.title || 'Session'
+                : view === 'changes'
+                  ? 'Changes'
+                  : view === 'files'
+                    ? 'Files'
+                    : 'Terminal'}
             </span>
             <span className="mt-1 flex items-center gap-1.5 text-[11px] text-fg-muted">
               <span
@@ -185,50 +199,59 @@ export function SessionScreen({
           <button
             type="button"
             className="icon-button text-fg-muted"
+            aria-label="Workspace tools"
+            onClick={() => setToolsOpen(true)}
+          >
+            <Folder size={20} />
+          </button>
+          <button
+            type="button"
+            className="icon-button text-fg-muted"
             aria-label="Session options"
             onClick={() => setDetails(true)}
           >
             <MoreHorizontal size={20} />
           </button>
         </div>
-        <div className="mt-1 flex" role="group" aria-label="Session workspace">
-          {(
-            [
-              { id: 'conversation', label: 'Chat', icon: MessageSquare },
-              { id: 'changes', label: 'Changes', icon: GitBranch },
-              { id: 'files', label: 'Files', icon: Folder },
-            ] as const
-          ).map(({ id, label, icon: Icon }) => (
-            <button
-              type="button"
-              key={id}
-              aria-pressed={view === id}
-              onClick={() => {
-                setView(id)
-                follow.current = id === 'conversation'
-              }}
-              className={`flex min-h-11 flex-1 items-center justify-center gap-2 border-b-2 text-xs ${view === id ? 'border-fg font-medium text-fg' : 'border-transparent text-fg-subtle'}`}
-            >
-              <Icon size={14} />
-              {label}
-            </button>
-          ))}
-          {app.session?.supports('terminal.create') && (
-            <button
-              type="button"
-              aria-pressed={view === 'terminal'}
-              onClick={() => {
-                setView('terminal')
-                setTerminalOpened(true)
-              }}
-              className={`flex min-h-11 flex-1 items-center justify-center gap-2 border-b-2 text-xs ${view === 'terminal' ? 'border-fg font-medium text-fg' : 'border-transparent text-fg-subtle'}`}
-            >
-              <TerminalSquare size={14} />
-              Terminal
-            </button>
-          )}
-        </div>
       </header>
+      {toolsOpen && (
+        <BottomSheet title="Workspace" onClose={() => setToolsOpen(false)}>
+          <ul className="divide-y divide-border pb-3">
+            {(
+              [
+                { id: 'conversation', label: 'Chat', icon: MessageSquare, enabled: true },
+                { id: 'changes', label: 'Changes', icon: GitBranch, enabled: can('changes.files') },
+                { id: 'files', label: 'Files', icon: Folder, enabled: can('files.list') },
+                {
+                  id: 'terminal',
+                  label: 'Terminal',
+                  icon: TerminalSquare,
+                  enabled: can('terminal.create'),
+                },
+              ] as const
+            )
+              .filter((entry) => entry.enabled)
+              .map(({ id, label, icon: Icon }) => (
+                <li key={id}>
+                  <button
+                    type="button"
+                    aria-pressed={view === id}
+                    className="flex min-h-14 w-full items-center gap-3 text-left text-sm"
+                    onClick={() => {
+                      setView(id)
+                      follow.current = id === 'conversation'
+                      if (id === 'terminal') setTerminalOpened(true)
+                      setToolsOpen(false)
+                    }}
+                  >
+                    <Icon size={18} className="text-fg-muted" />
+                    {label}
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </BottomSheet>
+      )}
       {failure !== null && (
         <div
           role="alert"
@@ -356,12 +379,35 @@ export function SessionScreen({
           modelLabel={
             snapshot === null
               ? null
-              : `${snapshot.session.driverKind} · ${snapshot.session.modelId ?? 'Default model'}`
+              : modelSelectionLabel(
+                  app.catalog,
+                  snapshot.session.driverKind,
+                  snapshot.session.modelId ?? '',
+                )
           }
           disabled={!can('session.prompt') || snapshot === null}
-          onDetails={() => setDetails(true)}
+          modelDisabled={!can('session.update') || snapshot?.session.status === 'running'}
+          onDetails={() => setPickingModel(true)}
           onSent={load}
           onError={setFailure}
+        />
+      )}
+      {pickingModel && snapshot !== null && (
+        <ModelPicker
+          fixedProvider
+          driverKind={snapshot.session.driverKind}
+          modelId={snapshot.session.modelId ?? ''}
+          onClose={() => setPickingModel(false)}
+          onSelect={(_driver, modelId) => {
+            if (!can('session.update') || snapshot.session.status === 'running') return
+            void app.session
+              ?.send({ op: 'session.update', sessionId, modelId: modelId || null })
+              .then(async () => {
+                await load()
+                await app.refresh()
+              })
+              .catch((error: unknown) => setFailure(messageOf(error)))
+          }}
         />
       )}
       {details && snapshot !== null && (

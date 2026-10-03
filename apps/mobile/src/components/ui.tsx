@@ -23,7 +23,7 @@ export function ScreenHeader({
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <h1 className="text-[25px] font-semibold leading-tight tracking-[-0.04em]">{title}</h1>
-        <p className="mt-1 text-xs leading-relaxed text-fg-muted">{subtitle}</p>
+        {subtitle && <p className="mt-1 text-xs leading-relaxed text-fg-muted">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -192,10 +192,10 @@ export function BottomSheet({
       />
       <div
         ref={panel}
-        className="relative max-h-[85%] overflow-y-auto rounded-t-3xl border-t border-border bg-surface-0 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2"
+        className="relative flex max-h-[85%] min-h-0 flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-0 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2"
       >
-        <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full bg-border-strong" />
-        <div className="flex items-center justify-between gap-3 py-2">
+        <div aria-hidden className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-border-strong" />
+        <div className="flex shrink-0 items-center justify-between gap-3 py-2">
           <h2 className="text-[17px] font-semibold tracking-tight">{title}</h2>
           <button
             type="button"
@@ -206,7 +206,7 @@ export function BottomSheet({
             <X size={18} />
           </button>
         </div>
-        {children}
+        <div className="min-h-0 overflow-y-auto">{children}</div>
       </div>
     </div>
   )

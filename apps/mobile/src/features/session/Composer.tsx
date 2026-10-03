@@ -17,6 +17,7 @@ export function Composer({
   status,
   modelLabel,
   disabled,
+  modelDisabled = false,
   onDetails,
   onSent,
   onError,
@@ -25,6 +26,7 @@ export function Composer({
   status: string
   modelLabel: string | null
   disabled: boolean
+  modelDisabled?: boolean
   onDetails: () => void
   onSent: () => Promise<void>
   onError: (error: string) => void
@@ -163,41 +165,26 @@ export function Composer({
     !busy &&
     !uploading &&
     (pending !== null || text.trim().length > 0 || attachments.length > 0)
+  const stopInstead =
+    running &&
+    pending === null &&
+    !text.trim() &&
+    attachments.length === 0 &&
+    app.session?.supports('session.interrupt') === true
+  function stop(): void {
+    setBusy(true)
+    void app.session
+      ?.send({ op: 'session.interrupt', sessionId })
+      .then(onSent)
+      .catch((error: unknown) =>
+        onError(error instanceof Error ? error.message : 'Could not interrupt.'),
+      )
+      .finally(() => setBusy(false))
+  }
   return (
-    <div className="shrink-0 border-t border-border bg-bg px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          className="flex min-h-11 min-w-0 items-center gap-1.5 text-xs text-fg-muted"
-          onClick={onDetails}
-          aria-label="Session details, including provider and model"
-        >
-          <span className="truncate">{modelLabel ?? 'Connecting…'}</span>
-          <ChevronDown size={13} />
-        </button>
-        {running && app.session?.supports('session.interrupt') && (
-          <button
-            type="button"
-            className="flex min-h-11 items-center gap-1.5 text-xs text-danger"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true)
-              void app.session
-                ?.send({ op: 'session.interrupt', sessionId })
-                .then(onSent)
-                .catch((error: unknown) =>
-                  onError(error instanceof Error ? error.message : 'Could not interrupt.'),
-                )
-                .finally(() => setBusy(false))
-            }}
-          >
-            <Square size={11} fill="currentColor" />
-            Stop
-          </button>
-        )}
-      </div>
+    <div className="shrink-0 bg-bg px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
       <form
-        className="rounded-2xl border border-border-strong bg-surface-1 p-2"
+        className="rounded-2xl border border-border bg-surface-1 p-2"
         onSubmit={(event) => {
           event.preventDefault()
           void submit(running ? 'queue' : 'send')
@@ -265,13 +252,16 @@ export function Composer({
               </button>
             </>
           )}
-          <span className="min-w-0 flex-1 truncate px-1 text-[11px] text-fg-subtle">
-            {disabled
-              ? 'Offline · draft kept on this phone'
-              : running
-                ? 'Follow-up will wait for this turn'
-                : 'Runs on your computer'}
-          </span>
+          <button
+            type="button"
+            className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 px-1 text-xs text-fg-muted disabled:opacity-50"
+            onClick={onDetails}
+            aria-label="Choose model"
+            disabled={modelDisabled || busy || pending !== null}
+          >
+            <span className="truncate">{modelLabel ?? 'Connecting…'}</span>
+            <ChevronDown size={13} className="shrink-0" />
+          </button>
           {running && app.session?.supports('session.steer') && (
             <button
               type="button"
@@ -283,18 +273,27 @@ export function Composer({
             </button>
           )}
           <button
-            type="submit"
+            type={stopInstead ? 'button' : 'submit'}
             className="icon-button bg-accent text-fg-on-accent"
-            disabled={!canSend}
+            disabled={stopInstead ? disabled || busy || uploading : !canSend}
+            onClick={stopInstead ? stop : undefined}
             aria-label={
-              pending !== null
-                ? 'Retry same submission'
-                : running
-                  ? 'Queue message'
-                  : 'Send message'
+              stopInstead
+                ? 'Stop'
+                : pending !== null
+                  ? 'Retry same submission'
+                  : running
+                    ? 'Queue message'
+                    : 'Send message'
             }
           >
-            {busy ? <LoaderCircle size={18} className="animate-spin" /> : <ArrowUp size={20} />}
+            {busy ? (
+              <LoaderCircle size={18} className="animate-spin" />
+            ) : stopInstead ? (
+              <Square size={14} fill="currentColor" />
+            ) : (
+              <ArrowUp size={20} />
+            )}
           </button>
         </div>
       </form>
