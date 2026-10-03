@@ -842,6 +842,20 @@ describe('Shell spaces', () => {
 
     expect(screen.getByRole('tab', { name: 'Deep work' })).toBeInTheDocument()
   })
+
+  it('switches spaces on a two-finger trackpad swipe', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New space' }))
+    expect(screen.getByRole('tab', { name: 'Space 2' })).toHaveAttribute('aria-selected', 'true')
+
+    // A leftward scroll is the previous tab, the browser reading of the gesture.
+    fireEvent.wheel(window, { deltaX: -200, deltaY: 0 })
+    await vi.waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Space 1' })).toHaveAttribute('aria-selected', 'true')
+    })
+  })
 })
 
 describe('Starting a session with no project yet', () => {
