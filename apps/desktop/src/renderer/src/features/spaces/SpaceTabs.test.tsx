@@ -116,4 +116,37 @@ describe('SpaceTabs', () => {
     expect(screen.getByRole('tab', { name: 'Beta' })).toHaveAttribute('title', 'Beta — working')
     expect(screen.getByRole('tab', { name: 'Alpha' })).toHaveAttribute('title', 'Alpha')
   })
+
+  it('renames from the tab context menu', () => {
+    const props = setup()
+    fireEvent.contextMenu(screen.getByRole('tab', { name: 'Beta' }), { clientX: 40, clientY: 20 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+
+    const input = screen.getByRole('textbox', { name: 'Rename space' })
+    expect(input).toHaveValue('Beta')
+    fireEvent.change(input, { target: { value: 'Side project' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(props.onRename).toHaveBeenCalledWith('b', 'Side project')
+  })
+
+  it('reorders from the tab context menu', () => {
+    const props = setup()
+    fireEvent.contextMenu(screen.getByRole('tab', { name: 'Alpha' }), { clientX: 40, clientY: 20 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move right' }))
+    expect(props.onReorder).toHaveBeenCalledWith('a', null)
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: 'Beta' }), { clientX: 40, clientY: 20 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move left' }))
+    expect(props.onReorder).toHaveBeenCalledWith('b', 'a')
+  })
+
+  it('opens the active tab for rename with F2', () => {
+    setup()
+    const alpha = screen.getByRole('tab', { name: 'Alpha' })
+    alpha.focus()
+    fireEvent.keyDown(alpha, { key: 'F2' })
+
+    expect(screen.getByRole('textbox', { name: 'Rename space' })).toHaveValue('Alpha')
+  })
 })

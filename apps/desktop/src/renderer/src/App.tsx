@@ -51,7 +51,14 @@ import { useSessionActivity } from './features/session/use-session-activity'
 import { formatPaneTitle } from './features/split/pane-title'
 import { SplitView } from './features/split/SplitView'
 import { splitLayoutActions, useSplitLayout } from './features/split/use-split-layout'
-import { MAX_SPACES, SpaceTabs, spaceActions, spaceStatus, useSpaces } from './features/spaces'
+import {
+  MAX_SPACES,
+  SpaceTabs,
+  spaceActions,
+  spaceStatus,
+  useSpaces,
+  useSpaceSwipe,
+} from './features/spaces'
 import { focusNeighbour } from './features/split/split-geometry'
 import {
   MAX_PANES,
@@ -293,6 +300,13 @@ function Shell() {
     }
     spaceActions.create()
   }, [spaceStore.spaces.length, toast])
+
+  // A two-finger trackpad swipe switches tabs. Disabled with a single space,
+  // where there is nowhere to go, and while a whole-window tool is up.
+  useSpaceSwipe({
+    enabled: tabsVisible && spaceStore.spaces.length > 1,
+    onSwipe: (direction) => spaceActions.cycle(direction),
+  })
 
   // A session that has just come on screen has been seen: it is the arrival in
   // a pane, not every later focus change, that clears the settled badge — and
