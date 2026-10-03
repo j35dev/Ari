@@ -1,89 +1,13 @@
 /* Ari's tokens, not a second palette: the phone and the desktop are one
    product, and a colour that means "failed" here must mean it there too. Only
    the layout differs. Fonts load from main.tsx through `@ari/ui/fonts` for the
-   same reason the desktop does it that way — Tailwind inlines CSS `@import`s
+   same reason the desktop does it that way â€” Tailwind inlines CSS `@import`s
    before Vite can hash the font files they reference. */
 @import 'tailwindcss';
 @import '@ari/ui/tokens.css';
 @import '@ari/ui/scroll-area.css';
 
 @source '../../../../packages/ui/src';
-
-/* Clean, modern palette for mobile without purplish/indigo tints */
-:root,
-[data-ari-scheme='dark'] {
-  --ari-bg: oklch(0.12 0.005 240);
-  --ari-surface-0: oklch(0.15 0.006 240);
-  --ari-surface-1: oklch(0.185 0.008 240);
-  --ari-surface-2: oklch(0.235 0.01 240);
-  --ari-surface-3: oklch(0.29 0.012 240);
-
-  --ari-border: oklch(0.9 0.01 240 / 10%);
-  --ari-border-strong: oklch(0.9 0.01 240 / 18%);
-  --ari-inner-stroke: oklch(1 0 0 / 5%);
-
-  --ari-fg: oklch(0.96 0.004 240);
-  --ari-fg-muted: oklch(0.74 0.01 240);
-  --ari-fg-subtle: oklch(0.56 0.012 240);
-  --ari-fg-on-accent: oklch(0.99 0 0);
-
-  --ari-accent: oklch(0.64 0.18 245);
-  --ari-accent-hover: oklch(0.69 0.16 245);
-  --ari-accent-active: oklch(0.59 0.19 245);
-  --ari-accent-subtle: oklch(0.64 0.18 245 / 15%);
-  --ari-accent-ring: oklch(0.64 0.18 245 / 45%);
-
-  --ari-success: oklch(0.76 0.17 155);
-  --ari-success-subtle: oklch(0.76 0.17 155 / 14%);
-  --ari-warning: oklch(0.82 0.16 80);
-  --ari-warning-subtle: oklch(0.82 0.16 80 / 14%);
-  --ari-danger: oklch(0.68 0.19 25);
-  --ari-danger-hover: oklch(0.74 0.17 25);
-  --ari-danger-subtle: oklch(0.68 0.19 25 / 15%);
-  --ari-info: oklch(0.74 0.14 220);
-  --ari-info-subtle: oklch(0.74 0.14 220 / 14%);
-  --ari-busy: oklch(0.74 0.18 340);
-  --ari-busy-subtle: oklch(0.74 0.18 340 / 14%);
-
-  color-scheme: dark;
-}
-
-[data-ari-scheme='light'] {
-  --ari-bg: #ffffff;
-  --ari-surface-0: oklch(0.98 0.004 240);
-  --ari-surface-1: oklch(0.955 0.006 240);
-  --ari-surface-2: oklch(0.92 0.008 240);
-  --ari-surface-3: oklch(0.875 0.01 240);
-
-  --ari-border: oklch(0.2 0.01 240 / 10%);
-  --ari-border-strong: oklch(0.2 0.01 240 / 18%);
-  --ari-inner-stroke: oklch(1 0 0 / 60%);
-
-  --ari-fg: oklch(0.18 0.015 240);
-  --ari-fg-muted: oklch(0.42 0.018 240);
-  --ari-fg-subtle: oklch(0.58 0.015 240);
-  --ari-fg-on-accent: #ffffff;
-
-  --ari-accent: oklch(0.56 0.2 250);
-  --ari-accent-hover: oklch(0.5 0.21 250);
-  --ari-accent-active: oklch(0.44 0.2 250);
-  --ari-accent-subtle: oklch(0.56 0.2 250 / 12%);
-  --ari-accent-ring: oklch(0.56 0.2 250 / 35%);
-
-  --ari-success: oklch(0.52 0.15 155);
-  --ari-success-subtle: oklch(0.52 0.15 155 / 12%);
-  --ari-warning: oklch(0.58 0.14 75);
-  --ari-warning-subtle: oklch(0.58 0.14 75 / 14%);
-  --ari-danger: oklch(0.55 0.2 25);
-  --ari-danger-hover: oklch(0.48 0.2 25);
-  --ari-danger-subtle: oklch(0.55 0.2 25 / 12%);
-  --ari-info: oklch(0.55 0.15 225);
-  --ari-info-subtle: oklch(0.55 0.15 225 / 12%);
-  --ari-busy: oklch(0.54 0.18 340);
-  --ari-busy-subtle: oklch(0.54 0.18 340 / 12%);
-
-  color-scheme: light;
-}
 
 /* Map Ari tokens onto Tailwind's theme so utilities like `bg-surface-1`
    resolve to live CSS variables. Mirrors the desktop's mapping; a token added
@@ -172,5 +96,104 @@
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
     }
+  }
+}
+
+@layer components {
+  .mobile-shell {
+    @apply flex h-full flex-col bg-bg text-fg;
+  }
+  .screen-heading {
+    @apply shrink-0 px-5 pb-3 pt-5;
+  }
+  .section-label {
+    @apply mb-1 mt-4 text-[11px] font-medium tracking-wide text-fg-subtle;
+  }
+  .icon-button {
+    @apply flex size-11 shrink-0 items-center justify-center rounded-xl disabled:opacity-40;
+  }
+  .primary-button {
+    @apply flex min-h-12 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-fg-on-accent disabled:opacity-40;
+  }
+  .secondary-button {
+    @apply flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border bg-surface-1 px-4 text-sm font-medium disabled:opacity-40;
+  }
+  .error-banner {
+    @apply my-3 rounded-xl border border-danger bg-danger-subtle p-3 text-sm text-danger;
+  }
+  .markdown {
+    @apply min-w-0 break-words text-[15px] leading-[1.75];
+  }
+  .markdown > :first-child {
+    margin-top: 0;
+  }
+  .markdown > :last-child {
+    margin-bottom: 0;
+  }
+  .markdown p {
+    margin: 0.75em 0;
+  }
+  .markdown h1,
+  .markdown h2,
+  .markdown h3 {
+    @apply mb-2 mt-5 font-semibold leading-snug tracking-tight;
+  }
+  .markdown h1 {
+    font-size: 1.3em;
+  }
+  .markdown h2 {
+    font-size: 1.15em;
+  }
+  .markdown ul,
+  .markdown ol {
+    @apply my-3 space-y-1 pl-5;
+  }
+  .markdown ul {
+    list-style: disc;
+  }
+  .markdown ol {
+    list-style: decimal;
+  }
+  .markdown a {
+    @apply text-accent underline underline-offset-2;
+  }
+  .markdown pre {
+    @apply my-3 overflow-x-auto rounded-xl border border-border bg-surface-1 p-3 font-mono text-xs leading-relaxed;
+  }
+  .markdown :not(pre) > code {
+    @apply rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .markdown blockquote {
+    @apply my-3 border-l-2 border-border-strong pl-3 text-fg-muted;
+  }
+  .markdown table {
+    @apply my-3 block max-w-full overflow-auto text-xs;
+  }
+  .markdown th,
+  .markdown td {
+    @apply border border-border px-3 py-2 text-left;
+  }
+  .markdown hr {
+    @apply my-5 border-border;
+  }
+}
+
+#root {
+  height: var(--ari-mobile-height, 100dvh);
+}
+button,
+a,
+input,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  touch-action: manipulation;
+}
+@media (min-width: 720px) {
+  #root {
+    max-width: 720px;
+    margin-inline: auto;
+    border-inline: 1px solid var(--ari-border);
   }
 }

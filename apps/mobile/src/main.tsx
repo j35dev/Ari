@@ -5,6 +5,7 @@ import { applyCachedTheme, ThemeProvider } from '@ari/ui/theme-provider'
 import { App } from './App'
 import { AppProvider } from './lib/app-state'
 import { defaultDeviceStore } from './lib/device-key'
+import { trackViewport } from './lib/viewport'
 import './styles/index.css'
 
 const container = document.getElementById('root')
@@ -12,6 +13,7 @@ if (container === null) throw new Error('missing #root element')
 
 // Paints the cached theme immediately before hydration to prevent flashes
 applyCachedTheme()
+trackViewport()
 
 /**
  * The device store is resolved before the first render rather than inside the

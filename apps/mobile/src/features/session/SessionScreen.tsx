@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  ArrowLeft,
+  ArrowDown,
+  MoreHorizontal,
+  GitBranch,
+  Folder,
+  MessageSquare,
+  TerminalSquare,
+} from 'lucide-react'
 import type { Message } from '@ari/contracts/message'
 import type {
   RemoteApproval,
@@ -9,21 +18,16 @@ import type {
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { useApp } from '../../lib/app-state'
-import { formatClock, relativeTime, summarizeToolDetail } from '../../lib/format'
-
-/**
- * One session: the conversation, the composer, and what is waiting to be
- * answered (ADR §13–14).
- *
- * Conversation is the view; changes and details live behind the menu, because
- * a phone spends its time in the thread. The snapshot is the source of truth:
- * events arriving over the socket say activity happened, and the snapshot is
- * re-read once the burst is over. That trades a little bandwidth for not
- * having a second, subtly different projection of the journal on the phone —
- * the desktop's projection is the one the user's other screen shows.
- */
-
-type View = 'conversation' | 'changes' | 'details'
+import { BottomSheet } from '../../components/ui'
+import { Conversation } from './Conversation'
+import { Composer } from './Composer'
+import { Files } from './Files'
+import { SessionDetails } from './SessionDetails'
+import { ReviewIntegration } from './ReviewIntegration'
+const Terminal = lazy(async () => {
+  const module = await import('./Terminal')
+  return { default: module.Terminal }
+})
 
 interface Snapshot {
   session: Session
@@ -33,279 +37,252 @@ interface Snapshot {
   pendingApprovals: RemoteApproval[]
   pendingInputs: RemoteInput[]
 }
+type View = 'conversation' | 'changes' | 'files' | 'terminal'
 
+/** A phone-sized workspace with resumable activity, explicit approvals, and durable drafts. */
 export function SessionScreen({
   sessionId,
   onBack,
+  onForked,
 }: {
   sessionId: string
   onBack: () => void
+  onForked: (sessionId: string) => void
 }): ReactNode {
   const app = useApp()
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [view, setView] = useState<View>('conversation')
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [confirmingArchive, setConfirmingArchive] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [activity, setActivity] = useState(false)
+  const [details, setDetails] = useState(false)
+  const [archiveConfirm, setArchiveConfirm] = useState(false)
+  const [terminalOpened, setTerminalOpened] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
   const [showJump, setShowJump] = useState(false)
-  const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  /** Whether a fresh snapshot may move the scroll: only when the user is already at the bottom. */
-  const stick = useRef(true)
-
-  async function load(): Promise<void> {
-    if (app.session === null) return
-    try {
-      const next = await app.session.query<Snapshot>('session.get', { sessionId })
-      setSnapshot(next)
-      setError(null)
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'could not read that session')
+  const scroll = useRef<HTMLDivElement>(null)
+  const follow = useRef(true)
+  const seq = useRef<number | null>(null)
+  const inFlight = useRef(false)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
     }
-  }
-
+  }, [])
+  const load = useCallback(async (): Promise<void> => {
+    const session = app.session
+    if (session === null || !session.usable || inFlight.current) return
+    inFlight.current = true
+    try {
+      const result = await session.query<Snapshot>('session.get', { sessionId })
+      if (!alive.current) return
+      seq.current = result.seq
+      setSnapshot(result)
+      setFailure(null)
+    } catch (error) {
+      if (alive.current) setFailure(messageOf(error))
+    } finally {
+      inFlight.current = false
+    }
+  }, [app.session, sessionId])
   useEffect(() => {
     void load()
-  }, [sessionId, app.session])
-
-  // The live stream, opened once per session and reopened if it drops.
-  //
-  // Events are coalesced into one re-read of the snapshot rather than applied
-  // one by one: the desktop's projection is the same one its own window shows,
-  // and a second, subtly different fold of the journal on the phone is how the
-  // two screens start disagreeing about what a session contains.
-  const resumeFrom = useRef<number | null>(null)
+  }, [load, app.connection])
+  const loaded = snapshot !== null
   useEffect(() => {
-    if (app.session === null) return
+    const session = app.session
+    if (session === null || !session.usable || !loaded || !session.supports('events.subscribe'))
+      return
     let closed = false
-    let close: (() => void) | null = null
+    let dispose: (() => void) | null = null
+    let scheduled: ReturnType<typeof setTimeout> | null = null
     let retry: ReturnType<typeof setTimeout> | null = null
-
     const open = (): void => {
       if (closed) return
-      const session = app.session
-      if (session === null) return
-      close = session.subscribe(sessionId, {
-        ...(resumeFrom.current === null ? {} : { fromSeq: resumeFrom.current }),
+      dispose = session.subscribe(sessionId, {
+        ...(seq.current === null ? {} : { fromSeq: seq.current }),
         onFrame: () => {
-          setActivity(true)
-          if (settle.current !== null) clearTimeout(settle.current)
-          settle.current = setTimeout(() => {
-            setActivity(false)
+          // A bounded throttle updates during continuous output; trailing debounce can starve forever.
+          if (scheduled !== null) return
+          scheduled = setTimeout(() => {
+            scheduled = null
             void load()
-          }, 1200)
+          }, 700)
         },
         onClose: (info) => {
-          setActivity(false)
-          // 1000 is the client closing on purpose; anything else is the link
-          // going away, which a phone should simply try again through.
-          if (info.code === 1000 || closed) return
-          retry = setTimeout(open, 2000)
+          if (
+            closed ||
+            info.code === 1000 ||
+            (info.code === 1008 && app.managedComputerId === null)
+          )
+            return
+          retry = setTimeout(() => {
+            void app.reconnect().then(() => {
+              if (!closed && session.usable) open()
+            })
+          }, 2000)
         },
       })
     }
     open()
-
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') void load()
+    }, 5000)
     return () => {
       closed = true
-      if (settle.current !== null) clearTimeout(settle.current)
+      dispose?.()
+      if (scheduled !== null) clearTimeout(scheduled)
       if (retry !== null) clearTimeout(retry)
-      close?.()
+      clearInterval(poll)
     }
-  }, [sessionId, app.session])
-
-  // Resume from where the last snapshot was taken, so a dropped socket does
-  // not leave a hole in the conversation.
+  }, [app.session, app.connection, app.reconnect, app.managedComputerId, sessionId, load, loaded])
   useEffect(() => {
-    if (snapshot !== null) resumeFrom.current = snapshot.seq
-  }, [snapshot])
-
-  // Follow the conversation only while the user is at the bottom. Reading
-  // older messages pins the scroll; a control appears instead of the view
-  // being stolen from under them.
-  useEffect(() => {
-    if (snapshot !== null && stick.current) {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-    }
-  }, [snapshot])
-
-  function onScroll(): void {
-    const el = scrollRef.current
-    if (el === null) return
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
-    stick.current = nearBottom
-    setShowJump(!nearBottom)
-  }
-
-  function jumpToTop(): void {
-    stick.current = false
-    setShowJump(true)
-    scrollRef.current?.scrollTo({ top: 0 })
-  }
-
-  function jumpToLatest(): void {
-    stick.current = true
-    setShowJump(false)
-    const el = scrollRef.current
-    if (el === null) return
-    const smooth =
-      typeof window !== 'undefined' &&
-      !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    el.scrollTo({ top: el.scrollHeight, ...(smooth ? { behavior: 'smooth' as const } : {}) })
-  }
-
-  const can = (operation: string): boolean => app.session?.supports(operation) ?? false
+    if (follow.current && view === 'conversation')
+      scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
+  }, [snapshot, view])
   const projectName =
-    snapshot === null
-      ? null
-      : (app.projects.find((project) => project.id === snapshot.summary.projectId)?.name ??
-        snapshot.summary.projectId)
-  const turnCount = snapshot?.messages.length ?? 0
-
+    app.projects.find((project) => project.id === snapshot?.summary.projectId)?.name ?? 'Workspace'
+  const can = (op: string): boolean =>
+    app.session?.supports(op) === true && app.connection === 'connected'
   async function archive(): Promise<void> {
-    if (app.session === null) return
     try {
-      await app.session.send({ op: 'session.archive', sessionId })
+      await app.session?.send({ op: 'session.archive', sessionId })
       await app.refresh()
       onBack()
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'could not archive that session')
+    } catch (error) {
+      setFailure(messageOf(error))
     }
   }
-
-  function pickView(next: View): void {
-    setView(next)
-    setMenuOpen(false)
-    setConfirmingArchive(false)
-  }
-
   return (
-    <div className="relative flex h-full flex-col bg-bg text-fg">
-      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-3 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onBack}
-            className="-ml-2 flex h-11 w-8 items-center justify-center text-fg"
-            aria-label="Back to sessions"
-          >
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="m12.5 4-6 6 6 6" />
-            </svg>
+    <div className="mobile-shell relative">
+      <header className="shrink-0 border-b border-border px-3 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))]">
+        <div className="flex items-center gap-2">
+          <button type="button" className="icon-button" aria-label="Back" onClick={onBack}>
+            <ArrowLeft size={20} />
           </button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[17px] font-semibold tracking-tight">
-              {snapshot?.summary.title ?? 'Session'}
-            </p>
-            <p className="mt-0.5 truncate text-xs text-fg-subtle">
-              {snapshot === null || projectName === null
-                ? 'Loading…'
-                : `${projectName} · ${turnCount} turn${turnCount === 1 ? '' : 's'}`}
-              {activity && ' · working…'}
-            </p>
-          </div>
           <button
             type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-label="Session options"
-            aria-expanded={menuOpen}
-            className="flex h-11 w-11 items-center justify-center rounded-full text-fg"
+            className="min-w-0 flex-1 py-2 text-left"
+            onClick={() => setDetails(true)}
+            aria-label="Open session details"
           >
-            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
-              <circle cx="4.5" cy="10" r="1.6" />
-              <circle cx="10" cy="10" r="1.6" />
-              <circle cx="15.5" cy="10" r="1.6" />
-            </svg>
+            <span className="block truncate text-[15px] font-semibold tracking-tight">
+              {snapshot?.summary.title || 'Session'}
+            </span>
+            <span className="mt-1 flex items-center gap-1.5 text-[11px] text-fg-muted">
+              <span
+                className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'bg-success' : 'bg-fg-subtle'}`}
+              />
+              {projectName} ·{' '}
+              {app.connection !== 'connected'
+                ? 'Offline'
+                : snapshot?.session.status === 'running'
+                  ? 'Working'
+                  : snapshot?.session.status === 'waiting-approval'
+                    ? 'Waiting for you'
+                    : 'Ready'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="icon-button text-fg-muted"
+            aria-label="Session options"
+            onClick={() => setDetails(true)}
+          >
+            <MoreHorizontal size={20} />
           </button>
         </div>
-        {menuOpen && (
-          <>
+        <div className="mt-1 flex" role="group" aria-label="Session workspace">
+          {(
+            [
+              { id: 'conversation', label: 'Chat', icon: MessageSquare },
+              { id: 'changes', label: 'Changes', icon: GitBranch },
+              { id: 'files', label: 'Files', icon: Folder },
+            ] as const
+          ).map(({ id, label, icon: Icon }) => (
             <button
               type="button"
-              aria-label="Close menu"
-              onClick={() => pickView(view)}
-              className="fixed inset-0 z-10 cursor-default bg-black/40"
-            />
-            <div
-              role="menu"
-              aria-label="Session options"
-              className="absolute right-4 top-[max(3.5rem,env(safe-area-inset-top))] z-20 w-56 rounded-2xl border border-border bg-surface-1 p-1.5 shadow-lg"
+              key={id}
+              aria-pressed={view === id}
+              onClick={() => {
+                setView(id)
+                follow.current = id === 'conversation'
+              }}
+              className={`flex min-h-11 flex-1 items-center justify-center gap-2 border-b-2 text-xs ${view === id ? 'border-fg font-medium text-fg' : 'border-transparent text-fg-subtle'}`}
             >
-              {(['conversation', 'changes', 'details'] as const).map((entry) => (
-                <button
-                  key={entry}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => pickView(entry)}
-                  className={`flex min-h-11 w-full items-center rounded-xl px-3 text-left text-sm capitalize ${
-                    view === entry ? 'bg-surface-2 font-medium' : ''
-                  }`}
-                >
-                  {entry}
-                </button>
-              ))}
-              {can('session.archive') && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    if (confirmingArchive) {
-                      setMenuOpen(false)
-                      setConfirmingArchive(false)
-                      void archive()
-                    } else {
-                      setConfirmingArchive(true)
-                    }
-                  }}
-                  className="flex min-h-11 w-full items-center rounded-xl px-3 text-left text-sm text-danger"
-                >
-                  {confirmingArchive ? 'Tap again to confirm archive' : 'Archive session'}
-                </button>
-              )}
-            </div>
-          </>
-        )}
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+          {app.session?.supports('terminal.create') && (
+            <button
+              type="button"
+              aria-pressed={view === 'terminal'}
+              onClick={() => {
+                setView('terminal')
+                setTerminalOpened(true)
+              }}
+              className={`flex min-h-11 flex-1 items-center justify-center gap-2 border-b-2 text-xs ${view === 'terminal' ? 'border-fg font-medium text-fg' : 'border-transparent text-fg-subtle'}`}
+            >
+              <TerminalSquare size={14} />
+              Terminal
+            </button>
+          )}
+        </div>
       </header>
-
-      {error !== null && (
-        <p role="alert" className="border-b border-danger bg-danger-subtle p-3 text-sm">
-          {error}
-        </p>
+      {failure !== null && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 border-b border-border bg-danger-subtle px-4 py-2 text-xs text-danger"
+        >
+          <span className="flex-1">{failure}</span>
+          <button type="button" className="min-h-11 shrink-0" onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
       )}
-
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      {view === 'conversation' &&
+        snapshot !== null &&
+        snapshot.pendingApprovals.length + snapshot.pendingInputs.length > 0 && (
+          <button
+            type="button"
+            className="flex min-h-11 shrink-0 items-center justify-between border-b border-border bg-warning-subtle px-5 text-xs"
+            onClick={() => {
+              follow.current = false
+              scroll.current?.scrollTo({ top: 0 })
+            }}
+          >
+            <span>
+              {snapshot.pendingApprovals.length} approvals · {snapshot.pendingInputs.length}{' '}
+              questions
+            </span>
+            <span className="font-medium">Review ↑</span>
+          </button>
+        )}
+      <div
+        ref={scroll}
+        onScroll={() => {
+          const element = scroll.current
+          if (element !== null) {
+            follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120
+            setShowJump(!follow.current)
+          }
+        }}
+        className={`min-h-0 flex-1 px-5 py-5 ${view === 'terminal' ? 'overflow-hidden' : 'overflow-y-auto'}`}
+      >
+        {snapshot === null && (
+          <p role="status" className="text-sm text-fg-muted">
+            Loading session…
+          </p>
+        )}
         {view === 'conversation' && snapshot !== null && (
           <>
-            {(snapshot.pendingApprovals.length > 0 || snapshot.pendingInputs.length > 0) && (
-              <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-                {snapshot.pendingApprovals.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => jumpToTop()}
-                    className="h-9 shrink-0 rounded-full bg-warning-subtle px-4 text-sm font-medium"
-                  >
-                    {snapshot.pendingApprovals.length} approval
-                    {snapshot.pendingApprovals.length === 1 ? '' : 's'} — review
-                  </button>
-                )}
-                {snapshot.pendingInputs.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => jumpToTop()}
-                    className="h-9 shrink-0 rounded-full bg-info-subtle px-4 text-sm font-medium"
-                  >
-                    {snapshot.pendingInputs.length} question
-                    {snapshot.pendingInputs.length === 1 ? '' : 's'} — answer
-                  </button>
-                )}
-              </div>
-            )}
             {snapshot.pendingApprovals.map((approval) => (
               <ApprovalCard
                 key={approval.approvalId}
                 approval={approval}
+                error={setFailure}
                 onAnswer={async (optionId) => {
+                  if (!can('approval.respond')) throw new Error('Reconnect before answering.')
                   await app.session?.send({
                     op: 'approval.respond',
                     sessionId,
@@ -314,14 +291,15 @@ export function SessionScreen({
                   })
                   await load()
                 }}
-                error={setError}
               />
             ))}
             {snapshot.pendingInputs.map((input) => (
               <QuestionCard
                 key={input.inputId}
                 input={input}
+                error={setFailure}
                 onAnswer={async (value) => {
+                  if (!can('input.respond')) throw new Error('Reconnect before answering.')
                   await app.session?.send({
                     op: 'input.respond',
                     sessionId,
@@ -330,85 +308,91 @@ export function SessionScreen({
                   })
                   await load()
                 }}
-                error={setError}
               />
             ))}
-            <Conversation messages={snapshot.messages} />
+            <Conversation messages={snapshot.messages} sessionId={sessionId} />
           </>
         )}
-
-        {view === 'changes' && <Changes sessionId={sessionId} />}
-
-        {view === 'details' && snapshot !== null && (
-          <dl className="space-y-2 text-sm">
-            <Row label="Provider" value={snapshot.session.driverKind} />
-            <Row label="Model" value={snapshot.session.modelId ?? 'default'} />
-            <Row label="Permission mode" value={snapshot.session.permissionMode} />
-            <Row label="Status" value={snapshot.session.status} />
-            <Row label="Project" value={snapshot.summary.projectId} />
-            <Row label="Parent" value={snapshot.session.parentSessionId ?? 'top level'} />
-            <Row label="Started" value={relativeTime(snapshot.session.createdAt)} />
-            <Row label="Last update" value={relativeTime(snapshot.session.updatedAt)} />
-          </dl>
+        {view === 'changes' && (
+          <>
+            {snapshot?.session.parentSessionId != null && (
+              <ReviewIntegration sessionId={sessionId} onChanged={load} />
+            )}
+            <Changes sessionId={sessionId} />
+          </>
+        )}
+        {view === 'files' && <Files sessionId={sessionId} />}
+        {terminalOpened && (
+          <Suspense
+            fallback={
+              <p role="status" className="text-sm text-fg-muted">
+                Loading terminal…
+              </p>
+            }
+          >
+            <Terminal sessionId={sessionId} active={view === 'terminal'} />
+          </Suspense>
         )}
       </div>
-
       {view === 'conversation' && showJump && (
         <button
           type="button"
-          onClick={jumpToLatest}
           aria-label="Jump to latest messages"
-          className="absolute bottom-28 right-4 z-10 flex min-h-11 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-4 text-sm font-medium shadow-lg"
+          className="absolute bottom-48 right-5 flex min-h-11 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-xs"
+          onClick={() => {
+            follow.current = true
+            setShowJump(false)
+            scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
+          }}
         >
-          Latest ↓
+          <ArrowDown size={14} />
+          Latest
         </button>
       )}
-
-      <Composer
-        modelLabel={
-          snapshot === null
-            ? null
-            : `${snapshot.session.driverKind} · ${snapshot.session.modelId ?? 'default'} · ${snapshot.session.permissionMode}`
-        }
-        onModelPress={() => pickView('details')}
-        disabled={!can('session.prompt') || snapshot === null}
-        status={snapshot?.session.status ?? 'idle'}
-        onSend={async (text, mode) => {
-          const op =
-            mode === 'queue' ? 'session.queue' : mode === 'steer' ? 'session.steer' : 'session.prompt'
-          await app.session?.send({ op, sessionId, text })
-          await load()
-        }}
-        onInterrupt={
-          can('session.interrupt')
-            ? async () => {
-                await app.session?.send({ op: 'session.interrupt', sessionId })
-                await load()
+      {view === 'conversation' && (
+        <Composer
+          sessionId={sessionId}
+          status={snapshot?.session.status ?? 'idle'}
+          modelLabel={
+            snapshot === null
+              ? null
+              : `${snapshot.session.driverKind} · ${snapshot.session.modelId ?? 'Default model'}`
+          }
+          disabled={!can('session.prompt') || snapshot === null}
+          onDetails={() => setDetails(true)}
+          onSent={load}
+          onError={setFailure}
+        />
+      )}
+      {details && snapshot !== null && (
+        <SessionDetails
+          session={snapshot.session}
+          onClose={() => setDetails(false)}
+          onChanged={load}
+          onForked={onForked}
+          {...(can('session.archive')
+            ? {
+                onArchive: () => {
+                  setDetails(false)
+                  setArchiveConfirm(true)
+                },
               }
-            : null
-        }
-        onError={setError}
-      />
+            : {})}
+        />
+      )}
+      {archiveConfirm && (
+        <BottomSheet title="Archive session?" onClose={() => setArchiveConfirm(false)}>
+          <p className="py-3 text-sm text-fg-muted">
+            The session stays on your computer and can be restored there.
+          </p>
+          <button type="button" className="primary-button w-full" onClick={() => void archive()}>
+            Archive
+          </button>
+        </BottomSheet>
+      )}
     </div>
   )
 }
-
-function Row({ label, value }: { label: string; value: string }): ReactNode {
-  return (
-    <div className="flex justify-between gap-3 border-b border-border pb-2">
-      <dt className="text-fg-muted">{label}</dt>
-      <dd className="truncate text-right">{value}</dd>
-    </div>
-  )
-}
-
-/**
- * An approval, rendered from the options the provider actually offered.
- *
- * Several persistent grants stay several buttons: Codex advertises both a
- * session-scoped and a prefix-scoped "always allow", and collapsing them into
- * one would answer a question the user was never asked.
- */
 function ApprovalCard({
   approval,
   onAnswer,
@@ -423,7 +407,7 @@ function ApprovalCard({
     <section className="mb-3 rounded-2xl border border-warning bg-warning-subtle p-4">
       <h3 className="text-sm font-medium">Approval needed · {approval.toolName}</h3>
       <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-1 p-2 font-mono text-2xs text-fg-muted">
-        {summarizeToolDetail(approval.summaryJson)}
+        {approvalDetails(approval.summaryJson)}
       </pre>
       <div className="mt-3 space-y-2">
         {approval.options.map((option) => (
@@ -440,9 +424,6 @@ function ApprovalCard({
             className="min-h-11 w-full rounded-xl border border-border bg-surface-1 px-3 py-2 text-left text-sm disabled:opacity-50"
           >
             {option.name}
-            {option.kind !== null && (
-              <span className="ml-2 text-2xs text-fg-subtle">{option.kind}</span>
-            )}
           </button>
         ))}
       </div>
@@ -461,7 +442,20 @@ function QuestionCard({
   error: (message: string) => void
 }): ReactNode {
   const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
   const choices: string[] = parseChoices(input.choicesJson)
+  async function answer(text: string): Promise<void> {
+    if (busy || text.trim().length === 0) return
+    setBusy(true)
+    try {
+      await onAnswer(text)
+      setValue('')
+    } catch (failure) {
+      error(messageOf(failure))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <section className="mb-3 rounded-2xl border border-info bg-info-subtle p-4">
@@ -473,9 +467,8 @@ function QuestionCard({
             <button
               key={choice}
               type="button"
-              onClick={() =>
-                void onAnswer(choice).catch((failure: unknown) => error(messageOf(failure)))
-              }
+              disabled={busy}
+              onClick={() => void answer(choice)}
               className="min-h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-left text-sm"
             >
               {choice}
@@ -487,18 +480,22 @@ function QuestionCard({
           className="mt-3 flex gap-2"
           onSubmit={(event) => {
             event.preventDefault()
-            void onAnswer(value).catch((failure: unknown) => error(messageOf(failure)))
-            setValue('')
+            void answer(value)
           }}
         >
           <input
             value={value}
             onChange={(event) => setValue(event.target.value)}
             aria-label="Your answer"
+            disabled={busy}
             className="h-11 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3"
           />
-          <button type="submit" className="h-11 rounded-md bg-accent px-3 text-fg-on-accent">
-            Answer
+          <button
+            type="submit"
+            disabled={busy || !value.trim()}
+            className="h-11 rounded-md bg-accent px-3 text-fg-on-accent disabled:opacity-40"
+          >
+            {busy ? 'Sending…' : 'Answer'}
           </button>
         </form>
       )}
@@ -506,90 +503,6 @@ function QuestionCard({
   )
 }
 
-function Conversation({ messages }: { messages: Message[] }): ReactNode {
-  if (messages.length === 0) {
-    return <p className="text-sm text-fg-muted">Nothing has been said yet.</p>
-  }
-  return (
-    <ol className="space-y-4">
-      {messages.map((message) =>
-        message.role === 'user' ? (
-          <li key={message.id} className="flex flex-col items-end">
-            <span className="mb-1 text-2xs text-fg-subtle">{formatClock(message.createdAt)}</span>
-            {message.parts.map((part, index) => (
-              <p
-                key={`${message.id}-${index}`}
-                className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-[15px] leading-relaxed text-fg-on-accent"
-              >
-                {part.type === 'text' ? part.text : partLabel(part)}
-              </p>
-            ))}
-            <span aria-hidden className="mt-1 text-xs text-accent">
-              ✓✓
-            </span>
-          </li>
-        ) : (
-          <li key={message.id} className="flex gap-2.5">
-            <span
-              aria-hidden
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-fg-on-accent"
-            >
-              A
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="mb-1 text-xs text-fg-subtle">
-                <span className="font-medium text-fg">Ari</span> · {formatClock(message.createdAt)}
-                {message.origin?.kind === 'session' && ' · from another session'}
-              </p>
-              <div className="rounded-2xl rounded-tl-md border border-border bg-surface-1 px-4 py-2.5">
-                {message.parts.map((part, index) =>
-                  part.type === 'text' ? (
-                    <p
-                      key={`${message.id}-${index}`}
-                      className="whitespace-pre-wrap text-[15px] leading-relaxed"
-                    >
-                      {part.text}
-                    </p>
-                  ) : (
-                    <p
-                      key={`${message.id}-${index}`}
-                      className="font-mono text-2xs text-fg-subtle"
-                    >
-                      {partLabel(part)}
-                    </p>
-                  ),
-                )}
-              </div>
-            </div>
-          </li>
-        ),
-      )}
-    </ol>
-  )
-}
-
-/** A non-text part in one quiet line. */
-function partLabel(part: Message['parts'][number]): string {
-  switch (part.type) {
-    case 'tool-call':
-      return `↳ ${part.name}`
-    case 'tool-result':
-      return '↳ result'
-    case 'thinking':
-      return '↳ thinking'
-    default:
-      return '↳ image'
-  }
-}
-
-/**
- * Changes: whether this can be answered at all is the desktop's to say.
- *
- * The file list loads eagerly and each diff lazily, so opening the tab on a
- * large change costs one small read. Integration is deliberately absent: the
- * only integration the desktop has is the agent-to-agent one, which the
- * remote surface keeps off.
- */
 function Changes({ sessionId }: { sessionId: string }): ReactNode {
   const app = useApp()
   const supported = app.session?.supports('changes.files') ?? false
@@ -797,108 +710,6 @@ function FileDiff({ file }: { file: RemoteChangeFile }): ReactNode {
   )
 }
 
-function Composer({
-  disabled,
-  status,
-  modelLabel,
-  onModelPress,
-  onSend,
-  onInterrupt,
-  onError,
-}: {
-  disabled: boolean
-  status: string
-  /** What is handling this session, in the desktop's own words. */
-  modelLabel: string | null
-  onModelPress: () => void
-  onSend: (text: string, mode: 'send' | 'queue' | 'steer') => Promise<void>
-  onInterrupt: (() => Promise<void>) | null
-  onError: (message: string) => void
-}): ReactNode {
-  const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const running = status === 'running'
-
-  async function submit(mode: 'send' | 'queue' | 'steer'): Promise<void> {
-    const value = text.trim()
-    if (value.length === 0 || disabled) return
-    setBusy(true)
-    try {
-      await onSend(value, mode)
-      setText('')
-    } catch (failure) {
-      onError(messageOf(failure))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="shrink-0 border-t border-border bg-surface-0 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={onModelPress}
-          aria-label="Session details, including provider and model"
-          className="flex min-h-11 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-3 text-xs text-fg-muted"
-        >
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-          {modelLabel ?? 'Loading…'}
-        </button>
-        {running && onInterrupt !== null && (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void submit('steer')}
-              className="h-9 rounded-full border border-border px-3 text-xs disabled:opacity-50"
-            >
-              Steer
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                void onInterrupt().catch((failure: unknown) => onError(messageOf(failure)))
-              }}
-              className="h-9 rounded-full border border-danger px-3 text-xs text-danger disabled:opacity-50"
-            >
-              Interrupt
-            </button>
-          </div>
-        )}
-      </div>
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void submit(running ? 'queue' : 'send')
-        }}
-      >
-        <textarea
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          rows={1}
-          disabled={disabled}
-          placeholder={disabled ? 'This desktop cannot take prompts' : 'Message Ari…'}
-          aria-label="Message the agent"
-          className="max-h-28 min-h-11 flex-1 resize-none rounded-2xl border border-border bg-surface-1 px-4 py-2.5 text-fg placeholder:text-fg-subtle disabled:opacity-50"
-        />
-        <button
-          type="submit"
-          disabled={disabled || busy || text.trim().length === 0}
-          aria-label={running ? 'Queue message' : 'Send message'}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent text-fg-on-accent disabled:opacity-40"
-        >
-          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M10 16.5v-13M4.5 8 10 2.5 15.5 8" />
-          </svg>
-        </button>
-      </form>
-    </div>
-  )
-}
-
 function parseChoices(choicesJson: string | null): string[] {
   if (choicesJson === null) return []
   try {
@@ -912,4 +723,12 @@ function parseChoices(choicesJson: string | null): string[] {
 
 function messageOf(failure: unknown): string {
   return failure instanceof Error ? failure.message : 'the desktop refused that'
+}
+
+function approvalDetails(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value) as unknown, null, 2)
+  } catch {
+    return value
+  }
 }

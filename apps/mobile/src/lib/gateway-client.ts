@@ -37,7 +37,9 @@ export class RemoteError extends Error {
 
   /** Whether asking again could work: the request never reached a decision. */
   get retryable(): boolean {
-    return this.code === 'unreachable' || this.code === 'internal_error' || this.code === 'rate_limited'
+    return (
+      this.code === 'unreachable' || this.code === 'internal_error' || this.code === 'rate_limited'
+    )
   }
 }
 
@@ -64,6 +66,7 @@ export class GatewayClient {
   readonly #webSocket: (url: string, protocols: string[]) => WebSocket
   /** Held in memory only: the device key, not this, is the durable credential. */
   #token: string | null = null
+  #lease: string | null = null
 
   constructor(options: GatewayClientOptions) {
     this.#origin = options.origin.replace(/\/+$/, '')
@@ -89,6 +92,11 @@ export class GatewayClient {
    */
   set token(value: string | null) {
     this.#token = value
+  }
+
+  /** Managed access requires both the paired-device token and this short-lived lease. */
+  set lease(value: string | null) {
+    this.#lease = value
   }
 
   /** Unauthenticated and content-free: what protocol is this, what can it do. */
@@ -124,7 +132,7 @@ export class GatewayClient {
   async deviceAuthorize(
     deviceId: string,
     proof: { nonce: string; signature: string },
-  ): Promise<{ deviceId: string; token: string; projectIds: string[] }> {
+  ): Promise<{ deviceId: string; token: string; projectIds: string[]; allowTerminal?: boolean }> {
     return this.#post('/device/authorize', { deviceId, ...proof })
   }
 
@@ -161,6 +169,7 @@ export class GatewayClient {
   ): () => void {
     const token = this.#token
     const protocols = token === null ? [WIRE_PROTOCOL] : [WIRE_PROTOCOL, `bearer.${token}`]
+    if (this.#lease !== null) protocols.push(`lease.${this.#lease}`)
     const url = `${this.#origin.replace(/^http/, 'ws')}/events`
     const socket = this.#webSocket(url, protocols)
     let closed = false
@@ -177,9 +186,8 @@ export class GatewayClient {
       const data = typeof event.data === 'string' ? event.data : ''
       try {
         options.onFrame(JSON.parse(data) as RemoteServerMessage)
-      } catch {
-        // A frame that cannot be parsed is a frame the client cannot act on.
-        // Dropping it keeps the stream alive for the ones that follow.
+      } catch (error) {
+        console.warn('Ari received an unreadable activity frame', error)
       }
     })
     socket.addEventListener('close', (event) => {
@@ -199,6 +207,7 @@ export class GatewayClient {
       const token = this.#token
       if (token === null) throw new RemoteError('unauthenticated', 'this device has no session yet')
       headers['authorization'] = `Bearer ${token}`
+      if (this.#lease !== null) headers['x-ari-connect-lease'] = this.#lease
     }
 
     let response: Response

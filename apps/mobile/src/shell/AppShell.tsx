@@ -1,214 +1,197 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { useTheme } from '@ari/ui/theme-provider'
-import { TabIcon } from './TabIcon'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { ChevronDown, Folder, Inbox, MessageSquare, Settings } from 'lucide-react'
 import { NowScreen } from '../features/now/NowScreen'
-import { NewSessionSheet, ProjectsScreen } from '../features/projects/ProjectsScreen'
-import { SessionScreen } from '../features/session/SessionScreen'
+import { ProjectsScreen } from '../features/projects/ProjectsScreen'
 import { SessionsScreen } from '../features/sessions/SessionsScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { useApp } from '../lib/app-state'
+import { connectionLabel } from '../lib/format'
+import { readRoute, routeUrl, type MobileRoute } from '../lib/routes'
 import { UpdateBanner, applyUpdate, registerServiceWorker } from '../lib/service-worker'
-import type { ConnectionState } from '../lib/session'
 
-/**
- * The shell ADR §13 describes: four destinations, the computer and its
- * connection state always visible above them, and a session that opens over
- * the top because it is a place you go and come back from.
- */
+const SessionScreen = lazy(async () => {
+  const module = await import('../features/session/SessionScreen')
+  return { default: module.SessionScreen }
+})
+const NewSessionSheet = lazy(async () => {
+  const module = await import('../features/projects/NewSessionSheet')
+  return { default: module.NewSessionSheet }
+})
 
-type Destination = 'projects' | 'sessions' | 'now' | 'settings'
+const destinations = [
+  { id: 'sessions', label: 'Sessions', icon: MessageSquare },
+  { id: 'projects', label: 'Projects', icon: Folder },
+  { id: 'now', label: 'Inbox', icon: Inbox },
+  { id: 'settings', label: 'Settings', icon: Settings },
+] as const
 
-const DESTINATIONS: { id: Destination; label: string }[] = [
-  { id: 'projects', label: 'Projects' },
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'now', label: 'Remote' },
-  { id: 'settings', label: 'More' },
-]
-
+/** The same workbench for a private tailnet and an approved Ari Connect computer. */
 export function AppShell(): ReactNode {
   const app = useApp()
-  const { resolvedScheme, setMode } = useTheme()
-  const [destination, setDestination] = useState<Destination>('projects')
-  const [open, setOpen] = useState<string | null>(null)
+  const [route, setRoute] = useState(() => readRoute(location.href))
   const [updateReady, setUpdateReady] = useState(false)
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [expandRequest, setExpandRequest] = useState<{ projectId: string; nonce: number } | null>(
-    null,
-  )
-
-  const runningCount = app.sessions.filter((s) => s.status === 'running').length
-
-  const toggleTheme = (): void => {
-    setMode(resolvedScheme === 'dark' ? 'sandstone' : 'graphite')
+  const [newProject, setNewProject] = useState<string | undefined>(undefined)
+  const navigate = (next: MobileRoute): void => {
+    const url = routeUrl(next, location.href)
+    if (new URL(url, location.href).href === location.href) return
+    history.pushState({ ariMobile: true }, '', url)
+    setRoute(next)
   }
-
   useEffect(() => {
+    const pop = (): void => setRoute(readRoute(location.href))
+    window.addEventListener('popstate', pop)
     registerServiceWorker(() => setUpdateReady(true))
+    return () => window.removeEventListener('popstate', pop)
   }, [])
-
-  if (open !== null) {
-    return <SessionScreen sessionId={open} onBack={() => setOpen(null)} />
-  }
-
+  const onOpen = (sessionId: string): void => navigate({ ...route, sessionId })
+  if (route.sessionId !== null)
+    return (
+      <Suspense
+        fallback={
+          <div className="mobile-shell p-5">
+            <p role="status" className="text-sm text-fg-muted">
+              Opening workspace…
+            </p>
+          </div>
+        }
+      >
+        <SessionScreen
+          key={route.sessionId}
+          sessionId={route.sessionId}
+          onForked={onOpen}
+          onBack={() => {
+            if ((history.state as { ariMobile?: boolean } | null)?.ariMobile === true)
+              history.back()
+            else {
+              const next = { ...route, sessionId: null }
+              history.replaceState(null, '', routeUrl(next, location.href))
+              setRoute(next)
+            }
+          }}
+        />
+      </Suspense>
+    )
+  const connected = app.connection === 'connected'
+  const running = app.sessions.filter((session) => session.status === 'running').length
+  const hostname = app.origin === null ? null : new URL(app.origin).hostname
+  const host =
+    hostname === null
+      ? 'Choose a computer'
+      : ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
+        ? 'This computer'
+        : hostname.split('.')[0]
   return (
-    <div className="flex h-full flex-col bg-bg text-fg">
+    <div className="mobile-shell">
       {updateReady && !updateDismissed && (
         <UpdateBanner onApply={applyUpdate} onDismiss={() => setUpdateDismissed(true)} />
       )}
-      <header className="shrink-0 border-b border-border bg-surface-0 px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="flex items-center justify-between gap-3">
-          {/* Brand mark matching mockup */}
-          <div className="min-w-0">
-            <span className="text-xl font-bold tracking-tight text-fg">
-              Ari<span className="text-accent">.</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <ConnectionPill state={app.connection} host={originLabel(app.origin)} />
-
-            {/* Dark / Light Mode Toggle */}
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-1 text-fg transition-colors hover:bg-surface-2 active:scale-95"
-              aria-label={resolvedScheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={resolvedScheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {resolvedScheme === 'dark' ? (
-                <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <circle cx="10" cy="10" r="4" />
-                  <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" />
-                </svg>
-              ) : (
-                <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M17.5 11.5A7.5 7.5 0 1 1 8.5 2.5a6 6 0 0 0 9 9Z" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {app.connection === 'unreachable' && (
+      <header className="flex shrink-0 items-center justify-between border-b border-border px-5 pb-3 pt-[max(0.9rem,env(safe-area-inset-top))]">
+        <span className="text-[21px] font-semibold tracking-[-0.06em]">
+          ari<span className="text-accent">.</span>
+        </span>
         <button
           type="button"
-          onClick={() => void app.reconnect()}
-          className="flex min-h-11 w-full shrink-0 items-center justify-center gap-2 border-b border-border bg-surface-1 px-4 text-sm text-fg"
+          onClick={() => navigate({ destination: 'settings', sessionId: null })}
+          className="flex min-h-11 max-w-[75%] items-center gap-2 rounded-full border border-border bg-surface-1 px-3 text-xs"
+          aria-label={`Computer: ${host}. ${connectionLabel(app.connection)}`}
         >
-          No answer from the desktop — tap to try again
+          <span
+            className={`size-1.5 shrink-0 rounded-full ${connected ? 'bg-success' : 'bg-warning'}`}
+          />
+          <span className="truncate">{host}</span>
+          <ChevronDown size={13} className="shrink-0 text-fg-subtle" />
         </button>
+      </header>
+      {!connected && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-3 border-b border-border bg-warning-subtle px-5 py-2 text-xs"
+        >
+          <span className="flex-1">
+            {connectionLabel(app.connection)}. Your agents continue on the desktop.
+          </span>
+          <button
+            type="button"
+            className="min-h-11 font-medium"
+            onClick={() => void app.reconnect()}
+          >
+            Retry
+          </button>
+        </div>
       )}
-
       <main className="min-h-0 flex-1 overflow-hidden">
-        {destination === 'now' && <NowScreen onOpen={setOpen} />}
-        {destination === 'sessions' && <SessionsScreen onOpen={setOpen} />}
-        {destination === 'projects' && (
+        {route.destination === 'sessions' && (
+          <SessionsScreen onOpen={onOpen} onNewSession={() => setSheetOpen(true)} />
+        )}
+        {route.destination === 'projects' && (
           <ProjectsScreen
-            onOpen={setOpen}
-            expandRequest={expandRequest}
-            onNewSession={() => setSheetOpen(true)}
+            onOpen={onOpen}
+            onNewSession={(projectId) => {
+              setNewProject(projectId)
+              setSheetOpen(true)
+            }}
           />
         )}
-        {destination === 'settings' && <SettingsScreen />}
+        {route.destination === 'now' && <NowScreen onOpen={onOpen} />}
+        {route.destination === 'settings' && <SettingsScreen />}
       </main>
-
       {sheetOpen && (
-        <NewSessionSheet
-          onClose={() => setSheetOpen(false)}
-          onPick={(projectId) => {
-            setSheetOpen(false)
-            setExpandRequest({ projectId, nonce: Date.now() })
-            setDestination('projects')
-          }}
-        />
+        <Suspense
+          fallback={
+            <p
+              role="status"
+              className="fixed bottom-20 left-0 right-0 bg-surface-1 p-4 text-center text-sm"
+            >
+              Opening new session…
+            </p>
+          }
+        >
+          <NewSessionSheet
+            {...(newProject === undefined ? {} : { projectId: newProject })}
+            onClose={() => {
+              setSheetOpen(false)
+              setNewProject(undefined)
+            }}
+            onOpen={(id) => {
+              setSheetOpen(false)
+              setNewProject(undefined)
+              onOpen(id)
+            }}
+          />
+        </Suspense>
       )}
-
       <nav
         aria-label="Main"
         className="shrink-0 border-t border-border bg-surface-0 pb-[env(safe-area-inset-bottom)]"
       >
-        <ul className="flex gap-1 px-2 pt-1">
-          {DESTINATIONS.map((entry) => {
-            const active = destination === entry.id
-            return (
-              <li key={entry.id} className="relative flex-1">
-                <button
-                  type="button"
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => setDestination(entry.id)}
-                  className={`flex min-h-14 w-full flex-col items-center justify-center gap-1 py-1.5 text-2xs ${
-                    active ? 'font-medium text-accent' : 'text-fg-muted'
-                  }`}
+        <ul className="flex px-2 py-1">
+          {destinations.map(({ id, label, icon: Icon }) => (
+            <li key={id} className="flex-1">
+              <button
+                type="button"
+                aria-current={route.destination === id ? 'page' : undefined}
+                onClick={() => navigate({ destination: id, sessionId: null })}
+                className={`relative flex min-h-14 w-full flex-col items-center justify-center gap-1 text-[11px] ${route.destination === id ? 'font-medium text-fg' : 'text-fg-subtle'}`}
+              >
+                <span
+                  className={`relative flex h-7 w-12 items-center justify-center rounded-lg ${route.destination === id ? 'bg-surface-2' : ''}`}
                 >
-                  <div className="relative">
-                    <TabIcon id={entry.id} />
-                    {entry.id === 'now' && runningCount > 0 && (
-                      <span
-                        aria-label={`${runningCount} running`}
-                        className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-accent"
-                      />
-                    )}
-                  </div>
-                  {entry.label}
-                </button>
-              </li>
-            )
-          })}
+                  <Icon size={19} strokeWidth={1.7} />
+                  {id === 'sessions' && running > 0 && (
+                    <span
+                      className="absolute right-1 top-0 size-1.5 rounded-full bg-success"
+                      aria-label={`${running} running`}
+                    />
+                  )}
+                </span>
+                {label}
+              </button>
+            </li>
+          ))}
         </ul>
       </nav>
     </div>
   )
 }
-
-function ConnectionPill({ state, host }: { state: ConnectionState; host: string }): ReactNode {
-  const tone = toneOf(state)
-  return (
-    <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-surface-1 px-2.5 py-1">
-      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-      <div className="min-w-0 text-left">
-        <span className={`block text-2xs font-semibold leading-none ${tone.text}`}>
-          {tone.label}
-        </span>
-        {state === 'connected' && (
-          <span className="block max-w-[130px] truncate text-[10px] text-fg-subtle leading-tight">
-            {host}
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function toneOf(state: ConnectionState): { label: string; dot: string; text: string } {
-  switch (state) {
-    case 'connected':
-      return { label: 'Connected', dot: 'bg-success', text: 'text-fg' }
-    case 'connecting':
-    case 'reconnecting':
-      return { label: 'Reconnecting', dot: 'bg-warning', text: 'text-fg' }
-    case 'revoked':
-      return { label: 'Revoked', dot: 'bg-danger', text: 'text-danger' }
-    case 'unknown-device':
-      return { label: 'Needs pairing', dot: 'bg-warning', text: 'text-fg' }
-    case 'version-mismatch':
-      return { label: 'Update needed', dot: 'bg-danger', text: 'text-danger' }
-    case 'unreachable':
-      return { label: 'Unreachable', dot: 'bg-danger', text: 'text-danger' }
-    default:
-      return { label: 'Not paired', dot: 'bg-fg-subtle', text: 'text-fg-muted' }
-  }
-}
-
-/** What the user calls the machine they are driving. */
-function originLabel(origin: string | null): string {
-  if (origin === null) return 'No computer'
-  try {
-    return new URL(origin).host
-  } catch {
-    return origin
-  }
-}
-
-

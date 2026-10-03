@@ -1,113 +1,234 @@
 import { useState, type ReactNode } from 'react'
-import { ScreenHeader } from '../../components/ui'
+import { Laptop, ShieldCheck, RefreshCw, ChevronRight, Smartphone, LogOut } from 'lucide-react'
+import { useTheme } from '@ari/ui/theme-provider'
+import { BottomSheet, ScreenHeader } from '../../components/ui'
 import { useApp } from '../../lib/app-state'
 import { connectionLabel, relativeTime } from '../../lib/format'
+import { connectRequest, IS_CONNECT_BUILD, type ConnectAccount } from '../../lib/connect'
+import { OwnerAccess } from '../connect/OwnerAccess'
 
-/**
- * Settings: which computer, whether the link is alive, and what this phone is
- * allowed to do (ADR §13).
- *
- * Unpairing is the one destructive action here, and it is the user's own: it
- * forgets the device key on this browser, which the desktop cannot undo for
- * them — the desktop can only revoke what it knows about.
- */
+/** Connection, appearance, and access are presented in everyday language. */
 export function SettingsScreen(): ReactNode {
   const app = useApp()
+  const { mode, resolvedScheme, setMode } = useTheme()
   const [confirming, setConfirming] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
+  const [failure, setFailure] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const installed = window.matchMedia('(display-mode: standalone)').matches
+  async function forget(): Promise<void> {
+    setBusy(true)
+    try {
+      await app.forget()
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : 'Could not forget this computer.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function logout(): Promise<void> {
+    setBusy(true)
+    try {
+      const account = await connectRequest<ConnectAccount>('/me')
+      await connectRequest('/auth/logout', { body: {}, csrfToken: account.csrfToken })
+      app.changeComputer()
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : 'Could not sign out.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const features = [
+    { op: 'session.prompt', label: 'Start and guide tasks' },
+    { op: 'approval.respond', label: 'Review approvals and questions' },
+    { op: 'changes.diff', label: 'Review code changes' },
+    { op: 'files.read', label: 'Browse workspace files' },
+    { op: 'terminal.create', label: 'Use an approved terminal' },
+  ].filter((item) => app.session?.supports(item.op))
   return (
-    <div className="h-full overflow-y-auto px-4 pb-6 pt-4">
-      <ScreenHeader title="Settings" subtitle="This phone and its desktop." />
-      <section className="mb-6 mt-4">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">Computer</h2>
-        <div className="rounded-2xl border border-border bg-surface-1 p-4 text-sm">
-          <p className="font-mono text-xs break-all">{app.origin ?? 'None'}</p>
-          <p className="mt-1 text-fg-muted">{connectionLabel(app.connection)}</p>
-          <p className="mt-2 text-2xs text-fg-subtle">
-            The agents keep running on the computer whether or not this phone is connected.
-          </p>
+    <div className="h-full overflow-y-auto px-5 pb-8 pt-5">
+      <ScreenHeader title="Settings" subtitle="A workspace that feels like yours." />
+      <h2 className="section-label mt-6">Connected computer</h2>
+      <section className="rounded-2xl border border-border bg-surface-1 p-4">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-2">
+            <Laptop size={21} className="text-fg-muted" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[15px] font-medium">
+              {app.origin === null ? 'No computer' : new URL(app.origin).hostname}
+            </p>
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
+              <span
+                className={`size-1.5 rounded-full ${app.connection === 'connected' ? 'bg-success' : 'bg-warning'}`}
+              />
+              {connectionLabel(app.connection)}
+            </p>
+          </div>
         </div>
-      </section>
-
-      <section className="mb-6">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">This device</h2>
-        <dl className="rounded-2xl border border-border bg-surface-1 p-4 text-sm">
-          <div className="flex justify-between gap-3">
-            <dt className="text-fg-muted">Projects shared</dt>
-            <dd>{app.projects.length}</dd>
-          </div>
-          <div className="mt-1 flex justify-between gap-3">
-            <dt className="text-fg-muted">Sessions visible</dt>
-            <dd>{app.sessions.length}</dd>
-          </div>
-          <div className="mt-1 flex justify-between gap-3">
-            <dt className="text-fg-muted">Last refresh</dt>
-            <dd>{relativeTime(Date.now())}</dd>
-          </div>
-        </dl>
-        <p className="mt-2 text-2xs text-fg-subtle">
-          Revoking this device is done on the computer: Settings → Remote access → Devices.
+        <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs text-fg-subtle">
+          <span>
+            {IS_CONNECT_BUILD
+              ? 'Ari Connect · Approved account'
+              : 'Private network · No Ari account'}
+          </span>
+          <button
+            type="button"
+            className="flex min-h-11 items-center gap-1.5 text-fg-muted"
+            disabled={app.refreshing || busy}
+            onClick={() => {
+              void app
+                .reconnect()
+                .catch((error: unknown) =>
+                  setFailure(error instanceof Error ? error.message : 'Could not reconnect.'),
+                )
+            }}
+          >
+            <RefreshCw size={13} />
+            Reconnect
+          </button>
+        </div>
+        <p className="text-[11px] text-fg-subtle">
+          {app.lastSyncedAt === null
+            ? 'Waiting for the first sync'
+            : `Last synced ${relativeTime(app.lastSyncedAt)}`}
         </p>
       </section>
-
-      <section className="mb-6">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-subtle">
-          What this desktop allows
-        </h2>
-        <ul className="rounded-2xl border border-border bg-surface-1 p-4 text-xs text-fg-muted">
-          {app.capabilities.length === 0 && <li>Nothing yet — the desktop has not been asked.</li>}
-          {app.capabilities.map((capability) => (
-            <li key={capability} className="font-mono">
-              {capability}
-            </li>
+      {IS_CONNECT_BUILD && (
+        <button
+          type="button"
+          className="mt-2 flex min-h-12 w-full items-center justify-between text-sm"
+          onClick={app.changeComputer}
+        >
+          Switch computer
+          <ChevronRight size={16} className="text-fg-subtle" />
+        </button>
+      )}
+      <h2 className="section-label mt-6">Appearance</h2>
+      <div
+        className="flex gap-1 rounded-xl border border-border bg-surface-1 p-1"
+        role="group"
+        aria-label="Appearance"
+      >
+        {(
+          [
+            { id: 'system', label: 'System' },
+            { id: 'porcelain', label: 'Light' },
+            { id: 'obsidian', label: 'Dark' },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={
+              mode === item.id ||
+              (mode !== 'system' &&
+                item.id === (resolvedScheme === 'dark' ? 'obsidian' : 'porcelain'))
+            }
+            onClick={() => setMode(item.id)}
+            className={`min-h-11 flex-1 rounded-lg text-xs ${mode === item.id || (mode !== 'system' && item.id === (resolvedScheme === 'dark' ? 'obsidian' : 'porcelain')) ? 'bg-surface-3 font-medium text-fg' : 'text-fg-muted'}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <h2 className="section-label mt-6">This phone's access</h2>
+      <section className="rounded-2xl border border-border p-4">
+        <div className="flex items-start gap-2.5">
+          <ShieldCheck size={19} className="shrink-0 text-fg-muted" />
+          <div>
+            <p className="text-sm font-medium">{app.projects.length} shared projects</p>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+              Project access and terminal permission are approved on your computer. Revoke this
+              phone there at any time.
+            </p>
+          </div>
+        </div>
+        <ul className="mt-3 space-y-2 border-t border-border pt-3 text-xs text-fg-muted">
+          {features.map((item) => (
+            <li key={item.op}>{item.label}</li>
           ))}
         </ul>
       </section>
-
-      {error !== null && (
-        <p role="alert" className="mb-4 rounded-md border border-danger bg-danger-subtle p-3 text-sm">
-          {error}
+      {!installed && (
+        <>
+          <h2 className="section-label mt-6">Keep Ari close</h2>
+          <section className="flex items-start gap-3 rounded-2xl border border-border p-4">
+            <Smartphone size={19} className="shrink-0 text-fg-muted" />
+            <div>
+              <p className="text-sm font-medium">Add Ari to your home screen</p>
+              <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                {/iPhone|iPad/.test(navigator.userAgent)
+                  ? 'In Safari, open Share → Add to Home Screen.'
+                  : 'Open your browser menu and choose Install app or Add to Home Screen.'}{' '}
+                Ari opens as a full-screen app with no app store required.
+              </p>
+            </div>
+          </section>
+        </>
+      )}
+      {IS_CONNECT_BUILD && <OwnerAccess />}
+      {failure !== null && (
+        <p role="alert" className="error-banner">
+          {failure}
         </p>
       )}
-
-      <section>
+      <details className="mt-6">
+        <summary className="min-h-11 cursor-pointer py-3 text-xs text-fg-subtle">
+          Connection diagnostics
+        </summary>
+        <dl className="space-y-2 break-all rounded-xl bg-surface-1 p-3 text-[11px] text-fg-muted">
+          <dt>Gateway</dt>
+          <dd>{app.origin}</dd>
+          <dt>Device ID</dt>
+          <dd>{app.session?.deviceId ?? 'Not paired'}</dd>
+          <dt>Available operations</dt>
+          <dd className="font-mono">{app.capabilities.join(', ')}</dd>
+        </dl>
+      </details>
+      <button
+        type="button"
+        className="mt-4 min-h-12 w-full rounded-xl border border-border text-sm text-danger"
+        onClick={() => setConfirming(true)}
+      >
+        Forget this computer
+      </button>
+      {IS_CONNECT_BUILD && (
         <button
           type="button"
-          onClick={() => setConfirming(true)}
-          className="h-12 w-full rounded-xl border border-danger text-sm font-medium text-danger"
+          className="mt-2 flex min-h-12 w-full items-center justify-center gap-2 text-sm text-fg-muted"
+          disabled={busy}
+          onClick={() => void logout()}
         >
-          Forget this computer
+          <LogOut size={15} />
+          Sign out of Ari Connect
         </button>
-        {confirming && (
-          <div className="mt-3 rounded-md border border-danger bg-danger-subtle p-3">
-            <p className="text-sm">
-              This erases the key stored on this phone. You will need a new pairing code from the
-              desktop to use it again.
-            </p>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                className="h-11 flex-1 rounded-md border border-border bg-surface-1 text-sm"
-                onClick={() => setConfirming(false)}
-              >
-                Keep it
-              </button>
-              <button
-                type="button"
-                className="h-11 flex-1 rounded-md bg-danger text-sm text-fg-on-accent"
-                onClick={() => {
-                  void app.forget().catch((failure: unknown) => {
-                    setError(failure instanceof Error ? failure.message : 'could not forget it')
-                  })
-                }}
-              >
-                Forget
-              </button>
-            </div>
+      )}
+      {confirming && (
+        <BottomSheet title="Forget this computer?" onClose={() => setConfirming(false)}>
+          <p className="py-3 text-sm leading-relaxed text-fg-muted">
+            This removes this computer's device key from your phone. You'll need a fresh pairing
+            code to connect again. Other computers keep their own keys.
+          </p>
+          <div className="mt-3 flex gap-3">
+            <button
+              type="button"
+              className="secondary-button flex-1"
+              onClick={() => setConfirming(false)}
+              disabled={busy}
+            >
+              Keep it
+            </button>
+            <button
+              type="button"
+              className="primary-button flex-1 bg-danger"
+              onClick={() => void forget()}
+              disabled={busy}
+            >
+              {busy ? 'Forgetting…' : 'Forget'}
+            </button>
           </div>
-        )}
-      </section>
+        </BottomSheet>
+      )}
     </div>
   )
 }
