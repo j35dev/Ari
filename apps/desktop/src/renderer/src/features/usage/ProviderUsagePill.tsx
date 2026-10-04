@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { Popover } from '@ari/ui/popover'
+import { driverKindSchema } from '@ari/contracts/common'
 import type { DriverKind } from '@ari/contracts/common'
-import type { ProviderAllowance } from '@ari/contracts/rpc'
+import type { ProviderAllowance, ResetCreditOutcome } from '@ari/contracts/rpc'
 import { useProviderAllowance } from './use-provider-allowance'
+
+const OUTCOME_TEXT: Record<ResetCreditOutcome, string> = {
+  reset: 'Reset applied.',
+  nothingToReset: 'Nothing to reset. This account is not at its limit.',
+  noCredit: 'No reset credit is available.',
+  alreadyRedeemed: 'That reset was already used.',
+}
 
 const NAMES: Record<string, string> = {
   claude: 'Claude',
@@ -24,10 +32,92 @@ function duration(ms: number): string {
 
 function stale(row: ProviderAllowance | undefined, now: number): boolean {
   return (
-    !!row && row.windows.length > 0 &&
+    !!row &&
+    row.windows.length > 0 &&
     (row.status === 'error' ||
       (row.updatedAt !== null && now - row.updatedAt > 90_000) ||
       row.windows.some((window) => window.resetsAt !== null && window.resetsAt <= now))
+  )
+}
+
+function ResetBank({
+  row,
+  now,
+  confirming,
+  working,
+  notice,
+  onAsk,
+  onCancel,
+  onConfirm,
+}: {
+  row: ProviderAllowance
+  now: number
+  confirming: boolean
+  working: boolean
+  notice: string | null
+  onAsk: () => void
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const credits = row.resetCredits
+  const count = credits?.availableCount ?? 0
+  const name = NAMES[row.kind] ?? row.kind
+  const expires = credits?.nextExpiresAt
+  if (count <= 0 && !notice) return null
+  return (
+    <div className="mt-2 rounded-md border border-border bg-surface-1 px-2 py-1.5">
+      {count > 0 ? (
+        <>
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-fg">
+              {count} banked {count === 1 ? 'reset' : 'resets'}
+            </span>
+            {confirming ? null : (
+              <button
+                type="button"
+                aria-label={`Use reset for ${name}`}
+                disabled={working}
+                onClick={onAsk}
+                className="rounded px-1.5 py-0.5 text-accent hover:bg-accent/15 focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+              >
+                Use reset
+              </button>
+            )}
+          </div>
+          {expires !== null && expires !== undefined && expires > now ? (
+            <p className="mt-1 text-[10px] text-fg-subtle">
+              Next expires in {duration(expires - now)}
+            </p>
+          ) : null}
+          {confirming ? (
+            <div className="mt-1.5 flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                aria-label={`Cancel ${name} reset`}
+                onClick={onCancel}
+                className="rounded px-1.5 py-0.5 text-[11px] text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                aria-label={`Use one ${name} reset`}
+                disabled={working}
+                onClick={onConfirm}
+                className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent hover:bg-accent/25 focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+              >
+                {working ? 'Using…' : 'Use one reset'}
+              </button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      {notice ? (
+        <p role="status" className="mt-1 text-[10px] text-fg-muted">
+          {notice}
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -39,9 +129,12 @@ export function ProviderUsagePill({
   sessionId: string | null
   kind: DriverKind
 }) {
-  const { rows, refreshing, error, refresh } = useProviderAllowance(sessionId, kind)
+  const { rows, refreshing, error, refresh, consumeReset } = useProviderAllowance(sessionId, kind)
   const [open, setOpen] = useState(false)
   const [now, setNow] = useState(Date.now)
+  const [confirmKind, setConfirmKind] = useState<string | null>(null)
+  const [workingKind, setWorkingKind] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ kind: string; text: string } | null>(null)
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(timer)
@@ -55,7 +148,30 @@ export function ProviderUsagePill({
     selected?.windows[0]
   const used = primary ? Math.round(primary.usedPercent) : null
   const outdated = stale(selected, now)
+  const banked = selected?.resetCredits?.availableCount ?? 0
   const label = NAMES[kind] ?? kind
+
+  async function useReset(row: ProviderAllowance) {
+    const parsed = driverKindSchema.safeParse(row.kind)
+    if (!parsed.success) return
+    setWorkingKind(row.kind)
+    setNotice(null)
+    try {
+      const outcome = await consumeReset(parsed.data, row.resetCredits?.nextCreditId)
+      setNotice({ kind: row.kind, text: OUTCOME_TEXT[outcome] })
+      setConfirmKind(null)
+    } catch (failure) {
+      setNotice({
+        kind: row.kind,
+        text:
+          failure instanceof Error && failure.message
+            ? failure.message
+            : 'Could not use the reset.',
+      })
+    } finally {
+      setWorkingKind(null)
+    }
+  }
   const tone = outdated
     ? 'text-fg-subtle'
     : used !== null && used >= 90
@@ -74,7 +190,7 @@ export function ProviderUsagePill({
         }}
       >
         <Popover.Trigger
-          aria-label={`${label} usage: ${used === null ? 'unavailable' : `${primary?.label} ${used}% used${outdated ? ', stale' : ''}`}`}
+          aria-label={`${label} usage: ${used === null ? 'unavailable' : `${primary?.label} ${used}% used${outdated ? ', stale' : ''}`}${banked > 0 ? `, ${banked} banked ${banked === 1 ? 'reset' : 'resets'}` : ''}`}
           className="flex h-6 items-center gap-1.5 rounded-full border border-border bg-surface-1 px-2 text-[11px] text-fg-muted transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <svg viewBox="0 0 16 16" className={`size-3.5 ${tone}`} aria-hidden="true">
@@ -108,13 +224,21 @@ export function ProviderUsagePill({
                 ? '…'
                 : '—'}
           </span>
+          {banked > 0 ? (
+            <span
+              className="font-mono tabular-nums text-fg"
+              title={`${banked} banked ${banked === 1 ? 'reset' : 'resets'}`}
+            >
+              {banked} {banked === 1 ? 'reset' : 'resets'}
+            </span>
+          ) : null}
           {outdated ? <span title="Last known usage; awaiting a fresh reading">·</span> : null}
           <ChevronDown size={11} aria-hidden="true" />
         </Popover.Trigger>
         <Popover.Content
           align="end"
           aria-label="Provider usage"
-          className="w-72 max-w-[calc(100vw-24px)] !p-0"
+          className="w-80 max-w-[calc(100vw-24px)] !p-0"
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-xs font-medium text-fg">Provider usage</span>
@@ -183,9 +307,26 @@ export function ProviderUsagePill({
                   ))
                 ) : (
                   <p className="text-[11px] text-fg-subtle" title={row.detail}>
-                    {!row.checkedAt && refreshing ? 'Checking usage…' : 'Usage unavailable'}
+                    {!row.checkedAt && refreshing
+                      ? 'Checking usage…'
+                      : (row.resetCredits?.availableCount ?? 0) > 0
+                        ? 'Window usage unavailable'
+                        : 'Usage unavailable'}
                   </p>
                 )}
+                <ResetBank
+                  row={row}
+                  now={now}
+                  confirming={confirmKind === row.kind}
+                  working={workingKind === row.kind}
+                  notice={notice?.kind === row.kind ? notice.text : null}
+                  onAsk={() => {
+                    setConfirmKind(row.kind)
+                    setNotice(null)
+                  }}
+                  onCancel={() => setConfirmKind(null)}
+                  onConfirm={() => void useReset(row)}
+                />
                 {row.status === 'error' ? (
                   <p className="mt-1 text-[10px] text-fg-subtle">
                     Refresh failed · retrying automatically
