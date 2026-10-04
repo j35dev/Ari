@@ -58,6 +58,11 @@
     height: 100%;
   }
 
+  html {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   body {
     margin: 0;
     font-family: var(--ari-font-ui);
@@ -179,7 +184,35 @@
 }
 
 #root {
+  position: fixed;
+  top: var(--ari-mobile-top, 0px);
+  inset-inline: 0;
   height: var(--ari-mobile-height, 100dvh);
+  overflow: hidden;
+}
+.mobile-composer {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+html[data-keyboard='open'] .mobile-composer {
+  padding-bottom: 0.5rem;
+}
+.mobile-working-cell {
+  animation: mobile-working 1.2s linear infinite;
+}
+@keyframes mobile-working {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-working-cell {
+    animation: none;
+    opacity: 0.8;
+  }
 }
 button,
 a,
