@@ -29,11 +29,31 @@ export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
+/** Banked rate-limit resets the signed-in account can redeem. */
+export interface ProviderResetCredits {
+  availableCount: number
+  /** Epoch ms of the soonest expiry, when the provider reports one. */
+  nextExpiresAt: number | null
+  /** Claude grant id. Codex redeems by idempotency key and omits this. */
+  nextCreditId?: string
+}
+
+/** What the provider said happened to one redemption attempt. */
+export const resetCreditOutcomeSchema = z.enum([
+  'reset',
+  'nothingToReset',
+  'noCredit',
+  'alreadyRedeemed',
+])
+export type ResetCreditOutcome = z.infer<typeof resetCreditOutcomeSchema>
+
 /** Subscription allowance, separate from session token and cost accounting. */
 export interface ProviderAllowance {
   kind: string
   status: 'available' | 'unavailable' | 'error'
   windows: { label: string; usedPercent: number; resetsAt: number | null; resetText?: string }[]
+  /** Present when the provider reports a reset bank, including a zero balance. */
+  resetCredits?: ProviderResetCredits | null
   updatedAt: number | null
   checkedAt: number
   detail: string
@@ -51,6 +71,19 @@ export const codexAllowanceSchema = z.object({
     primary: codexWindowSchema.nullable(),
     secondary: codexWindowSchema.nullable(),
   }),
+})
+/** `account/rateLimits/read` field `rateLimitResetCredits`. Absent when unsupported. */
+export const codexResetCreditsSchema = z.object({
+  availableCount: z.number().int().nonnegative(),
+  credits: z
+    .array(
+      z.object({
+        status: z.string(),
+        expiresAt: z.number().finite().nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
 })
 /** Read-only Grok billing extension used by its terminal's /usage view. */
 export const grokAllowanceSchema = z.object({
@@ -442,6 +475,13 @@ export const rpcParams = {
   }),
   'usage.summary': z.undefined(),
   'providers.allowance': z.object({ kind: driverKindSchema }),
+  'providers.consumeResetCredit': z.object({
+    kind: driverKindSchema,
+    creditId: z
+      .string()
+      .regex(/^[a-z0-9_-]{1,40}$/)
+      .optional(),
+  }),
   'usage.ccusage': z.object({ subcommand: z.enum(['daily', 'monthly', 'blocks']).optional() }),
   'focus.music.search': z.object({ query: z.string().min(1).max(200) }),
   'focus.music.browse': z.undefined(),
@@ -714,6 +754,7 @@ export interface RpcResults {
     | { ok: false; error: string }
   'usage.summary': UsageSummary
   'providers.allowance': ProviderAllowance
+  'providers.consumeResetCredit': { outcome: ResetCreditOutcome; allowance: ProviderAllowance }
   /**
    * Output of `npx ccusage` (the community Claude Code usage analyzer) run
    * out-of-process. `ok` false carries the failure reason; `output` holds the

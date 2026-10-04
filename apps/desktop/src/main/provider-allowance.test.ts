@@ -36,4 +36,23 @@ describe('account allowance reader', () => {
     })
     expect(await reader.read('pi', null)).toMatchObject({ status: 'unavailable' })
   })
+  it('keeps a reported reset bank when the next refresh fails', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        windows: [{ label: '5h', usedPercent: 10, resetsAt: null }],
+        resetCredits: { availableCount: 2, nextExpiresAt: null },
+      })
+      .mockRejectedValueOnce(new Error('offline'))
+    const reader = new ProviderAllowanceReader(fetch, () => 5)
+    expect(await reader.read('codex', 'cli')).toMatchObject({
+      status: 'available',
+      resetCredits: { availableCount: 2 },
+    })
+    expect(await reader.read('codex', 'cli')).toMatchObject({
+      status: 'error',
+      resetCredits: { availableCount: 2 },
+      windows: [{ usedPercent: 10 }],
+    })
+  })
 })
