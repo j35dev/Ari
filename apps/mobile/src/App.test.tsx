@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @vitest-environment-options {"url":"https://phone.test/"}
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
@@ -47,6 +48,51 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+describe('Home Screen setup', () => {
+  it('accepts a fresh link within the installed app and still waits for explicit pairing', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    app.connection = 'unpaired'
+    render(<App />)
+    expect(screen.getByRole('heading', { name: 'Connect this app.' })).toBeTruthy()
+    expect(screen.getByText(/own secure storage/)).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Fresh pairing link' }), {
+      target: { value: `${location.origin}/#pair=inv_installed` },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use pairing link' }))
+    expect(location.hash).toBe('')
+    expect(app.pair).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Pair this phone' }))
+    expect(app.pair).toHaveBeenCalledWith('inv_installed', 'My browser')
+  })
+
+  it.each([
+    ['https://other.test/#pair=inv_other', /another address/],
+    [`https://phone.test/`, /no pairing code/],
+    ['https://user:password@phone.test/#pair=inv_secret', /full HTTPS pairing link/],
+    ['http://phone.test/#pair=inv_http', /full HTTPS pairing link/],
+  ])('rejects an inappropriate installed-app link: %s', (link, message) => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    app.connection = 'unpaired'
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Fresh pairing link' }), {
+      target: { value: link },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Use pairing link' }))
+    expect(screen.getByRole('alert').textContent).toMatch(message)
+    expect(app.pair).not.toHaveBeenCalled()
+    expect(location.hash).toBe('')
+  })
+
+  it('opens a saved installed-app connection directly into the workspace', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    app.connection = 'connected'
+    render(<App />)
+    expect(screen.getByText('Workspace')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Connect this app.' })).toBeNull()
+  })
 })
 
 describe('revoked phone recovery', () => {
