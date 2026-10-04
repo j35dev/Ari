@@ -42,7 +42,7 @@ export function App(): ReactNode {
     app.origin === null ||
     (invitation !== null && app.connection !== 'connected')
   ) {
-    return <PairScreen key={invitation} invitationId={invitation} />
+    return <PairScreen key={invitation} invitationId={invitation} onInvitation={setInvitation} />
   }
   return <AppShell />
 }

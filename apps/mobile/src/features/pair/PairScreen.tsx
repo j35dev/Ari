@@ -4,14 +4,25 @@ import { useApp } from '../../lib/app-state'
 import { IS_CONNECT_BUILD } from '../../lib/connect'
 
 /** Pairing is a deliberate desktop approval with the same confirmation code on both screens. */
-export function PairScreen({ invitationId }: { invitationId: string | null }): ReactNode {
+export function PairScreen({
+  invitationId,
+  onInvitation,
+}: {
+  invitationId: string | null
+  onInvitation: (invitationId: string) => void
+}): ReactNode {
   const app = useApp()
+  const installed =
+    window.matchMedia?.('(display-mode: standalone)').matches === true ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
   const revoked = app.connection === 'revoked'
   const missingDevice = app.connection === 'unknown-device'
   const recovering = revoked || missingDevice
   const [name, setName] = useState(
     /iPhone|iPad/.test(navigator.userAgent)
-      ? 'My iPhone'
+      ? installed
+        ? 'My iPhone app'
+        : 'My iPhone'
       : navigator.userAgent.includes('Android')
         ? 'My Android'
         : 'My browser',
@@ -19,6 +30,7 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [address, setAddress] = useState('')
+  const [link, setLink] = useState('')
   async function pair(): Promise<void> {
     if (invitationId === null || busy) return
     setBusy(true)
@@ -48,6 +60,27 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
       )
     }
   }
+  function useLink(): void {
+    setFailure(null)
+    try {
+      const url = new URL(link.trim())
+      if (url.protocol !== 'https:' || url.username || url.password)
+        throw new Error('Use the full HTTPS pairing link from desktop Mobile access settings.')
+      if (url.origin !== location.origin)
+        throw new Error(
+          'This link belongs to another address. Use a pairing link for this Ari app’s computer.',
+        )
+      const invitation = new URLSearchParams(url.hash.slice(1)).get('pair')
+      if (!invitation?.trim())
+        throw new Error(
+          'This address has no pairing code. Copy a fresh pairing link from your computer.',
+        )
+      setLink('')
+      onInvitation(invitation)
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : 'Enter a fresh pairing link.')
+    }
+  }
   return (
     <div className="mobile-shell overflow-y-auto px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
       <header className="flex items-center justify-between">
@@ -74,7 +107,9 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
               ? 'Pair this phone again.'
               : 'Reconnect this phone.'
             : invitationId === null
-              ? 'Ari, in your pocket.'
+              ? installed
+                ? 'Connect this app.'
+                : 'Ari, in your pocket.'
               : 'Make this phone yours.'}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-fg-muted">
@@ -85,7 +120,9 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
                 ? 'This phone’s access was revoked. Scan a fresh pairing QR in desktop Settings → Mobile access, then approve this phone again. Retrying the old connection cannot restore access.'
                 : 'Your computer no longer recognizes this phone. Scan a fresh pairing QR in desktop Settings → Mobile access, then approve this phone again.'
             : invitationId === null
-              ? 'Build, review, and guide your agents from anywhere. Your computer remains the workspace.'
+              ? installed
+                ? 'On iPhone, this Home Screen app has its own secure storage. Pair it once here, even if Safari is already connected. Future launches reconnect automatically.'
+                : 'Build, review, and guide your agents from anywhere. Your computer remains the workspace.'
               : 'Give this phone a name. Confirm the matching code in Ari on your computer, then choose the projects it can access.'}
         </p>
       </div>
@@ -129,10 +166,43 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
         </section>
       ) : (
         <>
+          <form
+            className="mb-6 space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              useLink()
+            }}
+          >
+            <label htmlFor="pairing-link" className="block text-xs text-fg-muted">
+              Fresh pairing link
+            </label>
+            <input
+              id="pairing-link"
+              type="url"
+              value={link}
+              onChange={(event) => setLink(event.target.value)}
+              placeholder="https://computer.tailnet.ts.net/#pair=…"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-base"
+            />
+            <button type="submit" className="primary-button w-full" disabled={!link.trim()}>
+              Use pairing link <ArrowRight size={15} />
+            </button>
+            <p className="text-xs leading-relaxed text-fg-muted">
+              Create a fresh link in desktop Settings → Mobile access. Paste it here, then approve
+              the matching code on your computer.
+            </p>
+          </form>
           <section className="rounded-2xl border border-border bg-surface-1 p-5">
             <div className="mb-3 flex items-center gap-2 text-sm font-medium">
               <Network size={18} />
-              {IS_CONNECT_BUILD ? 'Approve this phone on your desktop' : 'Use your own Tailscale'}
+              {installed
+                ? 'Keep setup in this app'
+                : IS_CONNECT_BUILD
+                  ? 'Approve this phone on your desktop'
+                  : 'Use your own Tailscale'}
             </div>
             <ol className="space-y-3 text-sm leading-relaxed text-fg-muted">
               <li>
@@ -145,12 +215,14 @@ export function PairScreen({ invitationId }: { invitationId: string | null }): R
                   : 'Connect your phone and computer to your Tailscale network.'}
               </li>
               <li>
-                <span className="mr-2 text-fg-subtle">3.</span>Scan the pairing QR with your phone's
-                camera.
+                <span className="mr-2 text-fg-subtle">3.</span>
+                {installed
+                  ? 'Copy the pairing link and paste it above. Opening the QR in Safari pairs Safari instead of this app.'
+                  : "Scan the pairing QR with your phone's camera."}
               </li>
             </ol>
           </section>
-          {!IS_CONNECT_BUILD && (
+          {!IS_CONNECT_BUILD && !installed && (
             <details className="mt-5">
               <summary className="flex min-h-11 cursor-pointer items-center text-xs text-fg-muted">
                 Already have your computer's address?
