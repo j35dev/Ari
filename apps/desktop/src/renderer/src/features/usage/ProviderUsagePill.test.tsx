@@ -62,14 +62,13 @@ describe('provider allowance pill', () => {
     expect(screen.getByText('Usage unavailable')).toBeInTheDocument()
     view.rerender(<ProviderUsagePill sessionId="two" kind="grok" />)
     await settle()
-    expect(
-      screen.getByRole('button', { name: 'Grok usage: Weekly 23% used' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Grok usage: Weekly 23% used' })).toBeInTheDocument()
     fireEvent.keyDown(document, { key: 'Escape' })
     await settle()
-    expect(
-      screen.getByRole('button', { name: 'Grok usage: Weekly 23% used' }),
-    ).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Grok usage: Weekly 23% used' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
   })
 
   it('refetches every 60 seconds, on same-provider session switches, and clears timers on unmount', async () => {
@@ -126,6 +125,44 @@ describe('provider allowance pill', () => {
     expect(
       screen.getByRole('button', { name: 'Codex usage: 5h 12% used, stale' }),
     ).toBeInTheDocument()
+  })
+
+  it('shows a banked reset and redeems it after confirmation', async () => {
+    const expiresAt = Date.now() + 86_400_000
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'providers.detect') return [{ kind: 'codex', installed: true }]
+      if (method === 'providers.consumeResetCredit') {
+        return {
+          outcome: 'reset',
+          allowance: {
+            ...sample('codex'),
+            resetCredits: { availableCount: 1, nextExpiresAt: expiresAt },
+          },
+        }
+      }
+      return {
+        ...sample('codex'),
+        resetCredits: { availableCount: 2, nextExpiresAt: expiresAt },
+      }
+    })
+    render(<ProviderUsagePill sessionId="one" kind="codex" />)
+    await settle()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Codex usage: 5h 12% used, 2 banked resets' }),
+    )
+    await settle()
+    expect(screen.getByText('2 banked resets')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Use reset for Codex' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Codex reset' }))
+    expect(invoke.mock.calls.some(([method]) => method === 'providers.consumeResetCredit')).toBe(
+      false,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Use reset for Codex' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use one Codex reset' }))
+    await settle()
+    expect(screen.getByRole('status')).toHaveTextContent('Reset applied.')
+    expect(screen.getByText('1 banked reset')).toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith('providers.consumeResetCredit', { kind: 'codex' })
   })
 
   it('ignores late discovery from the previous session', async () => {

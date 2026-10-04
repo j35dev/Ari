@@ -4,18 +4,44 @@ import { join } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import type { ProviderAllowance } from '@ari/contracts/rpc'
 import { AcpConnection } from '@ari/providers/acp/connection'
-import {
-  probeLaunch,
-  resolveAcpLaunch,
-  type BundledAcpRuntime,
-} from '@ari/providers/acp/launches'
+import { probeLaunch, resolveAcpLaunch, type BundledAcpRuntime } from '@ari/providers/acp/launches'
 import { AppServerConnection } from '@ari/providers/codex/appserver-connection'
 import { createLogger } from '@ari/shared/logger'
 
-import { parseAllowance, parsePiAnthropicUsage, parsePiCodexUsage } from './allowance-windows'
+import {
+  parseAllowance,
+  parseCodexResetCredits,
+  parsePiAnthropicUsage,
+  parsePiCodexUsage,
+} from './allowance-windows'
+import { resetCreditService } from './reset-credits'
 
 const log = createLogger('desktop:allowance')
 type Windows = ProviderAllowance['windows']
+
+export interface AllowanceReading {
+  windows: Windows
+  resetCredits: ProviderAllowance['resetCredits']
+}
+
+function asReading(value: Windows | AllowanceReading): AllowanceReading {
+  return Array.isArray(value) ? { windows: value, resetCredits: null } : value
+}
+
+async function readCodexAllowance(binaryPath: string): Promise<AllowanceReading> {
+  const connection = AppServerConnection.start({ binaryPath, cwd: homedir() })
+  try {
+    await connection.request(
+      'initialize',
+      { clientInfo: { name: 'ari-usage', version: '0.1.0' } },
+      10_000,
+    )
+    const raw = await connection.request('account/rateLimits/read', {}, 10_000)
+    return { windows: parseAllowance('codex', raw), resetCredits: parseCodexResetCredits(raw) }
+  } finally {
+    await connection.shutdown()
+  }
+}
 
 const PI_QUOTA_TIMEOUT_MS = 15_000
 
@@ -109,9 +135,7 @@ async function fetchPiAllowance(): Promise<Windows> {
   }
   if (jobs.length === 0) return []
   const settled = await Promise.allSettled(jobs)
-  const windows = settled.flatMap((result) =>
-    result.status === 'fulfilled' ? result.value : [],
-  )
+  const windows = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
   if (windows.length > 0) return windows
   for (const result of settled) {
     if (result.status === 'rejected') throw result.reason
@@ -129,17 +153,7 @@ export async function fetchAllowance(
   if (kind === 'codex') {
     // Ari's pinned ACP /status reads a stale snapshot. The underlying native
     // account request actively fetches limits, even without an active turn.
-    const connection = AppServerConnection.start({ binaryPath, cwd: homedir() })
-    try {
-      await connection.request(
-        'initialize',
-        { clientInfo: { name: 'ari-usage', version: '0.1.0' } },
-        10_000,
-      )
-      return parseAllowance(kind, await connection.request('account/rateLimits/read', {}, 10_000))
-    } finally {
-      await connection.shutdown()
-    }
+    return (await readCodexAllowance(binaryPath)).windows
   }
   const launch = resolveAcpLaunch(kind, { cliBinaryPath: binaryPath, bundledRuntime })
   if (!launch || (kind !== 'grok' && kind !== 'claude')) return []
@@ -182,12 +196,28 @@ export async function fetchAllowance(
   }
 }
 
+/** Windows plus any banked resets the same probe was able to see. */
+export async function fetchAllowanceReading(
+  kind: DriverKind,
+  binaryPath: string,
+  bundledRuntime?: BundledAcpRuntime,
+): Promise<AllowanceReading> {
+  if (kind === 'codex') return readCodexAllowance(binaryPath)
+  const windows = await fetchAllowance(kind, binaryPath, bundledRuntime)
+  if (kind !== 'claude') return { windows, resetCredits: null }
+  return { windows, resetCredits: await resetCreditService.readClaude() }
+}
+
 /** Coalesces concurrent reads and keeps the last successful sample on failures. */
 export class ProviderAllowanceReader {
   readonly #pending = new Map<string, Promise<ProviderAllowance>>()
   readonly #last = new Map<string, ProviderAllowance>()
   constructor(
-    private readonly fetch: typeof fetchAllowance = fetchAllowance,
+    private readonly fetch: (
+      kind: DriverKind,
+      binaryPath: string,
+      bundledRuntime?: BundledAcpRuntime,
+    ) => Promise<Windows | AllowanceReading> = fetchAllowanceReading,
     private readonly now = Date.now,
   ) {}
 
@@ -200,20 +230,30 @@ export class ProviderAllowanceReader {
     return read
   }
 
+  /** Waits out a read that started before a redemption, then fetches again. */
+  async reread(kind: DriverKind, binaryPath: string | null): Promise<ProviderAllowance> {
+    const pending = this.#pending.get(`${kind}:${binaryPath ?? ''}`)
+    if (pending) await pending.catch(() => undefined)
+    return this.read(kind, binaryPath)
+  }
+
   async #read(
     kind: DriverKind,
     binaryPath: string | null,
     key: string,
   ): Promise<ProviderAllowance> {
     try {
-      const windows = binaryPath ? await this.fetch(kind, binaryPath) : []
+      const reading = asReading(binaryPath ? await this.fetch(kind, binaryPath) : [])
+      const { windows } = reading
+      const visible = windows.length > 0 || (reading.resetCredits?.availableCount ?? 0) > 0
       const result: ProviderAllowance = {
         kind,
         windows,
-        status: windows.length ? 'available' : 'unavailable',
-        updatedAt: windows.length ? this.now() : null,
+        resetCredits: reading.resetCredits ?? null,
+        status: visible ? 'available' : 'unavailable',
+        updatedAt: visible ? this.now() : null,
         checkedAt: this.now(),
-        detail: windows.length ? '' : 'This provider did not expose account allowance.',
+        detail: visible ? '' : 'This provider did not expose account allowance.',
       }
       this.#last.set(key, result)
       return result
@@ -227,6 +267,7 @@ export class ProviderAllowanceReader {
         kind,
         status: 'error',
         windows: last?.windows ?? [],
+        resetCredits: last?.resetCredits ?? null,
         updatedAt: last?.updatedAt ?? null,
         checkedAt: this.now(),
         detail: 'Could not refresh usage. Retrying automatically.',

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { fetchAllowance } from './provider-allowance'
+import { fetchAllowance, fetchAllowanceReading } from './provider-allowance'
 
 const fakes = vi.hoisted(() => ({
   native: { request: vi.fn(), shutdown: vi.fn() },
@@ -47,6 +47,25 @@ it('actively queries native Codex limits and closes the transport on failure', a
   fakes.native.request.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('offline'))
   await expect(fetchAllowance('codex', 'codex')).rejects.toThrow('offline')
   expect(fakes.native.request).toHaveBeenLastCalledWith('account/rateLimits/read', {}, 10_000)
+  expect(fakes.native.shutdown).toHaveBeenCalledOnce()
+})
+
+it('reads Codex banked resets from the same account snapshot', async () => {
+  fakes.native.request.mockResolvedValueOnce({}).mockResolvedValueOnce({
+    rateLimits: {
+      primary: { usedPercent: 10, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+      secondary: null,
+    },
+    rateLimitResetCredits: {
+      availableCount: 2,
+      credits: [{ status: 'available', expiresAt: 1_800_000_000 }],
+    },
+  })
+  await expect(fetchAllowanceReading('codex', 'codex')).resolves.toEqual({
+    windows: [{ label: '5h', usedPercent: 10, resetsAt: 1_800_000_000_000 }],
+    resetCredits: { availableCount: 2, nextExpiresAt: 1_800_000_000_000 },
+  })
+  expect(fakes.native.request).toHaveBeenNthCalledWith(2, 'account/rateLimits/read', {}, 10_000)
   expect(fakes.native.shutdown).toHaveBeenCalledOnce()
 })
 

@@ -86,5 +86,17 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
     }
   }, [refresh, sessionId, kind])
 
-  return { rows, refreshing, error, refresh }
+  const consumeReset = useCallback(async (kind: DriverKind, creditId?: string) => {
+    const current = ++generation.current
+    const result = await rpc.invoke('providers.consumeResetCredit', {
+      kind,
+      ...(creditId ? { creditId } : {}),
+    })
+    if (current === generation.current) {
+      setRows((previous) => previous.map((row) => (row.kind === kind ? result.allowance : row)))
+    }
+    return result.outcome
+  }, [])
+
+  return { rows, refreshing, error, refresh, consumeReset }
 }
