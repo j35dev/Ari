@@ -142,6 +142,15 @@ export function SessionScreen({
     if (follow.current && view === 'conversation')
       scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
   }, [snapshot, view])
+  useEffect(() => {
+    const element = scroll.current
+    if (element === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (follow.current && view === 'conversation') element.scrollTo({ top: element.scrollHeight })
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [view])
   const projectName =
     app.projects.find((project) => project.id === snapshot?.summary.projectId)?.name ?? 'Workspace'
   const can = (op: string): boolean =>
