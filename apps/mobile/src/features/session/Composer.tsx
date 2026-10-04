@@ -10,6 +10,7 @@ import {
   type PendingSubmission,
 } from '../../lib/draft'
 import { RemoteError } from '../../lib/gateway-client'
+import { WorkingIndicator } from './WorkingIndicator'
 
 /** One draft and one receipt key per submission, retained through an uncertain response. */
 export function Composer({
@@ -182,7 +183,8 @@ export function Composer({
       .finally(() => setBusy(false))
   }
   return (
-    <div className="shrink-0 bg-bg px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+    <div className="mobile-composer shrink-0 bg-bg px-4 pt-2">
+      {!disabled && (running || busy) && <WorkingIndicator sending={!running} />}
       <form
         className="rounded-2xl border border-border bg-surface-1 p-2"
         onSubmit={(event) => {
@@ -198,7 +200,7 @@ export function Composer({
           disabled={busy || pending !== null}
           placeholder="What should we work on?"
           aria-label="Message the agent"
-          className="max-h-40 min-h-11 w-full resize-none bg-transparent px-2 py-2.5 leading-relaxed outline-none placeholder:text-fg-subtle"
+          className="max-h-40 min-h-11 w-full resize-none bg-transparent px-2 py-2.5 text-base leading-relaxed outline-none placeholder:text-fg-subtle"
         />
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 px-2 pb-2">
