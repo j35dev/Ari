@@ -416,8 +416,52 @@ function approvalEvent(
       approvalId,
       toolName,
       summaryJson: JSON.stringify(summary),
+      options: codexOptions(params),
     },
   }
+}
+
+/**
+ * The choices a Codex approval offers, using the server's own decision
+ * vocabulary as the ids so a response passes straight through. `accept` is
+ * one-shot; `acceptForSession` persists for the rest of the thread.
+ */
+export const CODEX_APPROVAL_OPTIONS = [
+  { optionId: 'accept', name: 'Allow once', kind: 'allow_once' },
+  { optionId: 'acceptForSession', name: 'Allow for this session', kind: 'allow_always' },
+  { optionId: 'decline', name: 'Deny', kind: 'reject_once' },
+] as const
+
+/**
+ * Display names for the decisions the server advertises. Anything not listed
+ * still surfaces under its own id, so a server that adds a decision keeps it
+ * reachable rather than having it silently dropped.
+ */
+const CODEX_DECISION_LABELS: Record<string, { name: string; kind: string }> = {
+  accept: { name: 'Allow once', kind: 'allow_once' },
+  acceptForSession: { name: 'Allow for this session', kind: 'allow_always' },
+  decline: { name: 'Deny', kind: 'reject_once' },
+  cancel: { name: 'Cancel the turn', kind: 'reject_once' },
+}
+
+/**
+ * The decisions this particular request advertised, in the server's order.
+ * The older file-change requests omit `availableDecisions`; those keep the
+ * default three rather than offering nothing to choose from.
+ */
+function codexOptions(params: Record<string, unknown>): {
+  optionId: string
+  name: string
+  kind: string | null
+}[] {
+  const advertised = params['availableDecisions']
+  if (!Array.isArray(advertised)) return [...CODEX_APPROVAL_OPTIONS]
+  const options = advertised.flatMap((id) => {
+    if (typeof id !== 'string' || id.length === 0) return []
+    const label = CODEX_DECISION_LABELS[id]
+    return [{ optionId: id, name: label?.name ?? id, kind: label?.kind ?? null }]
+  })
+  return options.length > 0 ? options : [...CODEX_APPROVAL_OPTIONS]
 }
 
 /** Deterministic Ari-side approval id anchored on the server item id. */

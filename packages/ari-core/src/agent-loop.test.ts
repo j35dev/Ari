@@ -359,6 +359,38 @@ describe('permission modes', () => {
     expect(decisions).toEqual(['bash'])
   })
 
+  it('an exact option id is honoured, not treated as an unnamed approval', async () => {
+    const events = await collect({
+      round: await bashRound('echo must-not-run'),
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+      permissionMode: 'ask',
+      requestApproval: async () => ({ optionId: 'deny' }),
+    })
+    const completed = events.find((e) => e.type === 'tool-completed')
+    if (completed?.type !== 'tool-completed') throw new Error('expected tool-completed')
+    // Naming `deny` by its exact id must deny. Falling through to the allow
+    // branch would run the very command the user refused.
+    expect(completed.isError).toBe(true)
+    expect(completed.resultJson).toContain('denied by user')
+  })
+
+  it('an unrecognized option id fails closed', async () => {
+    const events = await collect({
+      round: await bashRound('echo must-not-run'),
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+      permissionMode: 'ask',
+      requestApproval: async () => ({ optionId: 'not-an-option-ari-offers' }),
+    })
+    const completed = events.find((e) => e.type === 'tool-completed')
+    if (completed?.type !== 'tool-completed') throw new Error('expected tool-completed')
+    expect(completed.isError).toBe(true)
+    expect(completed.resultJson).toContain('denied by user')
+  })
+
   it('an approved call runs exactly once', async () => {
     let approvals = 0
     const events = await collect({

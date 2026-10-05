@@ -129,8 +129,23 @@ export function decideCommand(
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
       const pending = model.pendingApprovals.find((a) => a.approvalId === command.approvalId)
       if (!pending) return reject('unknown or already-answered approval')
+      // An answer naming an option this approval never offered is stale or
+      // forged; journaling it would record a choice the user could not have
+      // made. Pre-option clients send only the coarse decision, which has no
+      // ids to check.
+      if (
+        command.optionId !== undefined &&
+        !pending.options.some((option) => option.optionId === command.optionId)
+      ) {
+        return reject('option not offered by this approval')
+      }
       return accept([
-        { type: 'approval.responded', approvalId: command.approvalId, decision: command.decision },
+        {
+          type: 'approval.responded',
+          approvalId: command.approvalId,
+          ...(command.optionId !== undefined ? { optionId: command.optionId } : {}),
+          ...(command.decision !== undefined ? { decision: command.decision } : {}),
+        },
       ])
     }
 

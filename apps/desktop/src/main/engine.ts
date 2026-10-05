@@ -279,14 +279,19 @@ export class Engine {
     }
 
     if (command.type === 'approval.respond') {
-      if (this.#deps.respondControlApproval?.(command.approvalId, command.decision))
+      // The exact option is the answer; the coarse decision is what older
+      // clients and replayed journals carry. Answering `deny` when neither is
+      // present is fail-closed, and unreachable through the command schema.
+      const answer: AdapterApprovalDecision =
+        command.optionId !== undefined
+          ? { optionId: command.optionId }
+          : (command.decision ?? 'deny')
+      if (this.#deps.respondControlApproval?.(command.approvalId, answer))
         return { accepted: true }
       // Route the decision to the live adapter so in-band approval protocols
       // (claude stdin control, ACP request_permission) actually proceed —
       // previously the decision was only journaled and the provider hung.
-      this.#activeTurns
-        .get(command.sessionId)
-        ?.respondApproval(command.approvalId, command.decision)
+      this.#activeTurns.get(command.sessionId)?.respondApproval(command.approvalId, answer)
     }
 
     if (command.type === 'input.respond') {
@@ -704,6 +709,7 @@ export class Engine {
               approvalId: event.approvalId,
               toolName: event.toolName,
               summaryJson: event.summaryJson,
+              options: event.options,
             })
             break
           case 'input-requested':

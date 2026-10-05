@@ -2,7 +2,7 @@ import type { PermissionMode } from '@ari/contracts/common'
 import type { Writable } from 'node:stream'
 import { createLogger } from '@ari/shared/logger'
 import { mapClaudeLine } from './mapper'
-import type { AdapterSession, Driver, ProviderAdapter } from '../driver'
+import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { PumpableProcess } from '../process-stream'
 import { streamProcessEvents } from '../process-stream'
@@ -141,7 +141,22 @@ export interface ClaudeControlAdapter extends ProviderAdapter {
   /** Steers a running turn by appending a user message; false when stdin is gone. */
   steer(text: string): boolean
   /** Answers a pending can_use_tool permission prompt via control_response. */
-  respondApproval(approvalId: string, decision: ApprovalDecision): void
+  respondApproval(approvalId: string, decision: AdapterApprovalDecision): void
+}
+
+/**
+ * The control protocol answers with a behavior, not an option id, so the ids
+ * in {@linkcode CLAUDE_APPROVAL_OPTIONS} and the decisions are one vocabulary —
+ * hence no lookup table that could drift out of step. A caller naming an exact
+ * option outside that set is allowed rather than denied: this channel has no
+ * way to express a third outcome, and silently denying a tool the user meant
+ * to run is the worse failure.
+ */
+function approvalDecision(decision: AdapterApprovalDecision): ApprovalDecision {
+  if (typeof decision !== 'object') return decision
+  return decision.optionId === 'deny' || decision.optionId === 'always-allow'
+    ? decision.optionId
+    : 'allow'
 }
 
 /**
@@ -223,7 +238,13 @@ export function wireClaudeControl(
     },
     steer: (text) => writeLine(buildUserFrame(text)),
     respondApproval: (approvalId, decision) => {
-      writeLine(buildApprovalResponseFrame(approvalId, decision, pendingPermissions.get(approvalId)))
+      writeLine(
+        buildApprovalResponseFrame(
+          approvalId,
+          approvalDecision(decision),
+          pendingPermissions.get(approvalId),
+        ),
+      )
       pendingPermissions.delete(approvalId)
     },
     interrupt: () => {

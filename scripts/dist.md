@@ -10,6 +10,7 @@ Exact commands to produce every distributable target. Config lives in
 pnpm install                                # workspace deps
 npx electron-builder install-app-deps       # run from apps/desktop; rebuilds node-pty for Electron's ABI
 pnpm --filter @ari/desktop build            # electron-vite build → apps/desktop/out/
+pnpm --filter @ari/mobile build             # vite build → apps/mobile/dist/ (afterPack fails without it)
 ```
 
 If pnpm reports `Ignored build scripts: node-pty`, approve it once first:

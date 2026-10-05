@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  approvalOptionSchema,
   driverKindSchema,
   permissionModeSchema,
   sessionStatusSchema,
@@ -88,11 +89,19 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     approvalId: z.string(),
     toolName: z.string(),
     summaryJson: z.string(),
+    /**
+     * The choices the provider actually offered, in its own order. Empty for
+     * events journalled before options were recorded.
+     */
+    options: z.array(approvalOptionSchema).default([]),
   }),
   eventBase.extend({
     type: z.literal('approval.responded'),
     approvalId: z.string(),
-    decision: z.enum(['allow', 'deny', 'always-allow']),
+    /** The exact option the user chose. Absent on pre-option events. */
+    optionId: z.string().min(1).optional(),
+    /** Retained for events journalled before exact options were recorded. */
+    decision: z.enum(['allow', 'deny', 'always-allow']).optional(),
   }),
   eventBase.extend({
     type: z.literal('input.requested'),
