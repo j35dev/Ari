@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { oklchToHex } from '@ari/ui/color'
-import { themes } from '@ari/ui/themes'
+import { themeList, themes } from '@ari/ui/themes'
 import { ThemeChrome } from '../lib/theme-chrome'
 import { ThemePicker } from './ThemePicker'
 
@@ -25,15 +25,13 @@ function picker(): void {
 describe('choosing a theme on the phone', () => {
   it('offers the system setting and every Ari theme', () => {
     picker()
+    // Read from the registry, so a theme added on the desktop reaches the phone
+    // without this list going stale.
     expect(screen.getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual([
       'System',
-      'Obsidian',
-      'Graphite',
-      'Nocturne',
-      'Verdant',
-      'Porcelain',
-      'Sandstone',
+      ...themeList.map((theme) => theme.label),
     ])
+    expect(themeList.length).toBeGreaterThanOrEqual(6)
     expect(screen.getByRole('radio', { name: 'System' }).getAttribute('aria-checked')).toBe('true')
   })
 

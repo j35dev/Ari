@@ -21,10 +21,10 @@ function themeBlock(id: string): Map<string, string> {
 }
 
 describe('theme registry', () => {
-  it('exposes six themes across both schemes', () => {
-    expect(themeIds).toHaveLength(6)
-    expect(themeList.filter((t) => t.scheme === 'dark').length).toBeGreaterThanOrEqual(2)
-    expect(themeList.filter((t) => t.scheme === 'light')).toHaveLength(2)
+  it('exposes fifteen themes across both schemes', () => {
+    expect(themeIds).toHaveLength(15)
+    expect(themeList.filter((t) => t.scheme === 'dark')).toHaveLength(11)
+    expect(themeList.filter((t) => t.scheme === 'light')).toHaveLength(4)
   })
 
   it.each(themeList)('$id defines every color role exactly once', (theme) => {
