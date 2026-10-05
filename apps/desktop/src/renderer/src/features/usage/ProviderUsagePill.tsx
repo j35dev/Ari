@@ -13,6 +13,10 @@ const OUTCOME_TEXT: Record<ResetCreditOutcome, string> = {
   alreadyRedeemed: 'Already used',
 }
 
+/** Outlasts a double-click, so its second click cannot reach an enabled Confirm. */
+const CONFIRM_ARM_MS = 600
+const OUTCOME_SHOWN_MS = 4_000
+
 const NAMES: Record<string, string> = {
   claude: 'Claude',
   codex: 'Codex',
@@ -92,6 +96,7 @@ function ResetLine({
   row,
   now,
   confirming,
+  armed,
   working,
   notice,
   onAsk,
@@ -101,6 +106,7 @@ function ResetLine({
   row: ProviderAllowance
   now: number
   confirming: boolean
+  armed: boolean
   working: boolean
   notice: string | null
   onAsk: () => void
@@ -118,7 +124,17 @@ function ResetLine({
       {notice}
     </span>
   ) : confirming ? (
+    // Cancel sits where Use was, so the second click of a double-click lands on it.
     <span className="flex items-center gap-2">
+      <button
+        type="button"
+        aria-label={`Use one ${name} reset`}
+        disabled={working || !armed}
+        onClick={onConfirm}
+        className="text-fg hover:text-accent focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+      >
+        {working ? 'Using…' : 'Confirm'}
+      </button>
       <button
         type="button"
         aria-label={`Cancel ${name} reset`}
@@ -126,15 +142,6 @@ function ResetLine({
         className="text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         Cancel
-      </button>
-      <button
-        type="button"
-        aria-label={`Use one ${name} reset`}
-        disabled={working}
-        onClick={onConfirm}
-        className="text-fg hover:text-accent focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
-      >
-        {working ? 'Using…' : 'Confirm'}
       </button>
     </span>
   ) : count > 0 ? (
@@ -181,13 +188,23 @@ export function ProviderUsagePill({
   const { rows, refreshing, error, refresh, consumeReset } = useProviderAllowance(sessionId, kind)
   const [open, setOpen] = useState(false)
   const [now, setNow] = useState(Date.now)
-  const [confirmKind, setConfirmKind] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<{ kind: string; armed: boolean } | null>(null)
   const [workingKind, setWorkingKind] = useState<string | null>(null)
-  const [notice, setNotice] = useState<{ kind: string; text: string } | null>(null)
+  const [notice, setNotice] = useState<{ kind: string; text: string; failed: boolean } | null>(null)
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(timer)
   }, [])
+  useEffect(() => {
+    if (!confirm || confirm.armed) return
+    const timer = setTimeout(() => setConfirm({ ...confirm, armed: true }), CONFIRM_ARM_MS)
+    return () => clearTimeout(timer)
+  }, [confirm])
+  useEffect(() => {
+    if (!notice || notice.failed) return
+    const timer = setTimeout(() => setNotice(null), OUTCOME_SHOWN_MS)
+    return () => clearTimeout(timer)
+  }, [notice])
   const selected = rows.find((row) => row.kind === kind)
   const primary =
     selected?.windows.find((window) => window.label === '5h') ??
@@ -205,21 +222,14 @@ export function ProviderUsagePill({
     if (!parsed.success) return
     setWorkingKind(row.kind)
     setNotice(null)
-    try {
-      const outcome = await consumeReset(parsed.data, row.resetCredits?.nextCreditId)
-      setNotice({ kind: row.kind, text: OUTCOME_TEXT[outcome] })
-      setConfirmKind(null)
-    } catch (failure) {
-      setNotice({
-        kind: row.kind,
-        text:
-          failure instanceof Error && failure.message
-            ? failure.message
-            : 'Could not use the reset.',
-      })
-    } finally {
-      setWorkingKind(null)
-    }
+    const result = await consumeReset(parsed.data, row.resetCredits?.nextCreditId)
+    setNotice({
+      kind: row.kind,
+      text: result.ok ? OUTCOME_TEXT[result.value] : result.error,
+      failed: !result.ok,
+    })
+    setConfirm((current) => (current?.kind === row.kind ? null : current))
+    setWorkingKind(null)
   }
   const tone = outdated
     ? 'text-fg-subtle'
@@ -236,6 +246,10 @@ export function ProviderUsagePill({
         onOpenChange={(next) => {
           setOpen(next)
           if (next) void refresh()
+          else {
+            setConfirm(null)
+            setNotice(null)
+          }
         }}
       >
         <Popover.Trigger
@@ -358,16 +372,22 @@ export function ProviderUsagePill({
                 <ResetLine
                   row={row}
                   now={now}
-                  confirming={confirmKind === row.kind}
+                  confirming={confirm?.kind === row.kind}
+                  armed={confirm?.armed === true}
                   working={workingKind === row.kind}
-                  notice={notice?.kind === row.kind ? notice.text : null}
+                  notice={notice?.kind === row.kind && !notice.failed ? notice.text : null}
                   onAsk={() => {
-                    setConfirmKind(row.kind)
+                    setConfirm({ kind: row.kind, armed: false })
                     setNotice(null)
                   }}
-                  onCancel={() => setConfirmKind(null)}
+                  onCancel={() => setConfirm(null)}
                   onConfirm={() => void useReset(row)}
                 />
+                {notice?.kind === row.kind && notice.failed ? (
+                  <p role="status" className="mt-1 text-[11px] text-fg-muted">
+                    {notice.text}
+                  </p>
+                ) : null}
                 {row.status === 'error' ? (
                   <p className="mt-1 text-[10px] text-fg-subtle">
                     Refresh failed · retrying automatically

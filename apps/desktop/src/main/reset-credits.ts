@@ -9,6 +9,7 @@ import { resetCreditOutcomeSchema } from '@ari/contracts/rpc'
 import type { ProviderResetCredits, ResetCreditOutcome } from '@ari/contracts/rpc'
 import { AppServerConnection } from '@ari/providers/codex/appserver-connection'
 import { createLogger } from '@ari/shared/logger'
+import { err, mapErr, ok, type Result } from '@ari/shared/result'
 
 import { parseClaudeResetCredits } from './allowance-windows'
 
@@ -51,14 +52,16 @@ export interface ConsumeResetCreditInput {
   creditId?: string | undefined
 }
 
-class RedeemError extends Error {
-  constructor(
-    message: string,
-    readonly retainKey: boolean,
-  ) {
-    super(message)
-    this.name = 'RedeemError'
-  }
+/** A refusal worded for the user. `retainKey` keeps the attempt for the retry. */
+interface RedeemFailure {
+  message: string
+  retainKey: boolean
+}
+
+type Redeemed = Result<ResetCreditOutcome, RedeemFailure>
+
+function refused(message: string, retainKey: boolean): Result<never, RedeemFailure> {
+  return err({ message, retainKey })
 }
 
 function claudeConfigDir(): string {
@@ -208,33 +211,33 @@ export async function readClaudeResetCredits(
   return parseClaudeResetCredits((json as Record<string, unknown>)['cedar_ember'], client.now())
 }
 
-function mapClaudeResult(result: string): ResetCreditOutcome | RedeemError {
+function mapClaudeResult(result: string): Redeemed {
   switch (result) {
     case 'reset':
-      return 'reset'
+      return ok('reset')
     case 'not_limited':
-      return 'nothingToReset'
+      return ok('nothingToReset')
     case 'already_used':
-      return 'alreadyRedeemed'
+      return ok('alreadyRedeemed')
     case 'ineligible':
-      return 'noCredit'
+      return ok('noCredit')
     case 'cooldown':
-      return new RedeemError('Claude resets are cooling down. Try again later.', false)
+      return refused('Claude resets are cooling down. Try again later.', false)
     case 'unavailable':
-      return new RedeemError(
+      return refused(
         'Claude could not confirm the reset. If you are still limited in a moment, try again.',
         true,
       )
     default:
-      return new RedeemError('Claude could not use the reset.', true)
+      return refused('Claude could not use the reset.', true)
   }
 }
 
 export function createResetCreditService(client: ResetCreditClient = defaultClient) {
   const pending = new Map<string, Attempt>()
-  const inflight = new Map<string, Promise<ResetCreditOutcome>>()
+  const inflight = new Map<string, Promise<Result<ResetCreditOutcome, string>>>()
 
-  async function redeemCodex(binaryPath: string, key: string): Promise<ResetCreditOutcome> {
+  async function redeemCodex(binaryPath: string, key: string): Promise<Redeemed> {
     let raw: unknown
     try {
       raw = await client.codexRequest(binaryPath, 'account/rateLimitResetCredit/consume', {
@@ -244,34 +247,33 @@ export function createResetCreditService(client: ResetCreditClient = defaultClie
       log.debug('Codex reset failed', {
         error: error instanceof Error ? error.name : 'UnknownError',
       })
-      throw new RedeemError('Codex could not use the reset.', true)
+      return refused('Codex could not use the reset.', true)
     }
     const parsed = resetCreditOutcomeSchema.safeParse(
       raw && typeof raw === 'object' ? (raw as Record<string, unknown>)['outcome'] : raw,
     )
-    if (!parsed.success) throw new RedeemError('Codex could not use the reset.', true)
-    return parsed.data
+    return parsed.success ? ok(parsed.data) : refused('Codex could not use the reset.', true)
   }
 
   async function redeemClaude(
     accountKey: string,
     attempt: Attempt,
     binaryPath: string | null,
-  ): Promise<ResetCreditOutcome> {
+  ): Promise<Redeemed> {
     const token = await readAccessToken(client)
-    if (!token) throw new RedeemError('Sign in to Claude again to use a reset.', false)
+    if (!token) return refused('Sign in to Claude again to use a reset.', false)
     const version = await client.cliVersion(binaryPath)
     let creditId = attempt.creditId
     if (!creditId) {
       creditId = (await readClaudeResetCredits(client, binaryPath))?.nextCreditId
-      if (!creditId) return 'noCredit'
+      if (!creditId) return ok('noCredit')
       pending.set(accountKey, { ...attempt, creditId })
     }
     if (!GRANT_ID.test(creditId) || !REQUEST_ID.test(attempt.key)) {
-      throw new RedeemError('That reset credit is not valid.', false)
+      return refused('That reset credit is not valid.', false)
     }
     const organization = await readOrganization(client)
-    if (!organization) throw new RedeemError('Sign in to Claude again to use a reset.', false)
+    if (!organization) return refused('Sign in to Claude again to use a reset.', false)
     let response: { status: number; json: unknown }
     try {
       response = await client.fetchJson(
@@ -291,75 +293,69 @@ export function createResetCreditService(client: ResetCreditClient = defaultClie
       log.debug('Claude reset failed', {
         error: error instanceof Error ? error.name : 'UnknownError',
       })
-      throw new RedeemError('Claude could not use the reset.', true)
+      return refused('Claude could not use the reset.', true)
     }
     if (response.status === 429) {
-      throw new RedeemError('Claude is rate limiting resets. Try again soon.', false)
+      return refused('Claude is rate limiting resets. Try again soon.', false)
     }
     if (response.status === 401 || response.status === 403) {
-      throw new RedeemError('Sign in to Claude again to use a reset.', false)
+      return refused('Sign in to Claude again to use a reset.', false)
     }
-    if (response.status !== 200) throw new RedeemError('Claude could not use the reset.', true)
+    if (response.status !== 200) return refused('Claude could not use the reset.', true)
     const result =
       response.json && typeof response.json === 'object'
         ? (response.json as Record<string, unknown>)['result']
         : undefined
-    const mapped = mapClaudeResult(typeof result === 'string' ? result : '')
-    if (mapped instanceof RedeemError) throw mapped
-    return mapped
+    return mapClaudeResult(typeof result === 'string' ? result : '')
   }
 
   async function redeem(
     accountKey: string,
     input: ConsumeResetCreditInput,
-  ): Promise<ResetCreditOutcome> {
+  ): Promise<Result<ResetCreditOutcome, string>> {
     let attempt = pending.get(accountKey) ?? { key: client.newKey() }
     if (!attempt.creditId && input.creditId) attempt = { ...attempt, creditId: input.creditId }
     pending.set(accountKey, attempt)
+    let redeemed: Redeemed
     try {
-      const outcome =
+      redeemed =
         input.kind === 'codex'
           ? await redeemCodex(input.binaryPath ?? '', attempt.key)
           : await redeemClaude(accountKey, attempt, input.binaryPath)
-      pending.delete(accountKey)
-      return outcome
     } catch (error) {
-      if (!(error instanceof RedeemError) || !error.retainKey) pending.delete(accountKey)
-      if (error instanceof RedeemError) throw error
-      throw new RedeemError('Could not use the reset.', true)
+      log.debug('Reset redemption failed', {
+        error: error instanceof Error ? error.name : 'UnknownError',
+      })
+      redeemed = refused('Could not use the reset.', false)
     }
+    if (redeemed.ok || !redeemed.error.retainKey) pending.delete(accountKey)
+    return mapErr(redeemed, (failure) => failure.message)
   }
 
-  function accountKey(input: ConsumeResetCreditInput): string | null {
-    if (input.kind === 'codex') return input.binaryPath ? 'codex' : null
-    if (input.kind !== 'claude') return null
+  function accountKey(input: ConsumeResetCreditInput): Result<string | null, string> {
+    if (input.kind === 'codex') return ok(input.binaryPath ? 'codex' : null)
+    if (input.kind !== 'claude') return ok(null)
     if (client.platform === 'darwin') {
-      throw new RedeemError(
-        'Claude resets stay in the Keychain on macOS and cannot be used from here.',
-        false,
-      )
+      return err('Claude resets stay in the Keychain on macOS and cannot be used from here.')
     }
-    return `claude:${client.configDir()}`
+    return ok(`claude:${client.configDir()}`)
   }
 
   return {
     readClaude: (binaryPath?: string | null) => readClaudeResetCredits(client, binaryPath ?? null),
-    consume(input: ConsumeResetCreditInput): Promise<ResetCreditOutcome> {
-      try {
-        const key = accountKey(input)
-        if (!key) return Promise.resolve('noCredit')
-        const existing = inflight.get(key)
-        if (existing) return existing
-        const run = redeem(key, input).finally(() => {
-          if (inflight.get(key) === run) inflight.delete(key)
-        })
-        inflight.set(key, run)
-        return run
-      } catch (error) {
-        return Promise.reject(
-          error instanceof Error ? error : new Error('Could not use the reset.'),
-        )
-      }
+    /** Resolves with the provider's outcome, or with the message to show when it refused. */
+    consume(input: ConsumeResetCreditInput): Promise<Result<ResetCreditOutcome, string>> {
+      const account = accountKey(input)
+      if (!account.ok) return Promise.resolve(account)
+      const key = account.value
+      if (!key) return Promise.resolve(ok('noCredit'))
+      const existing = inflight.get(key)
+      if (existing) return existing
+      const run = redeem(key, input).finally(() => {
+        if (inflight.get(key) === run) inflight.delete(key)
+      })
+      inflight.set(key, run)
+      return run
     },
   }
 }

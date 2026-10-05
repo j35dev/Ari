@@ -992,8 +992,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('providers.consumeResetCredit', async ({ kind, creditId }) => {
     const detections = await probeAllDetections()
     const binaryPath = detections.find((row) => row.kind === kind)?.binaryPath ?? null
-    const outcome = await resetCreditService.consume({ kind, binaryPath, creditId })
-    return { outcome, allowance: await allowanceReader.reread(kind, binaryPath) }
+    const redeemed = await resetCreditService.consume({ kind, binaryPath, creditId })
+    if (!redeemed.ok) return { ok: false as const, error: redeemed.error }
+    const allowance = await allowanceReader.reread(kind, binaryPath, redeemed.value === 'reset')
+    return { ok: true as const, outcome: redeemed.value, allowance }
   })
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.
