@@ -117,6 +117,15 @@
   .icon-button {
     @apply flex size-11 shrink-0 items-center justify-center rounded-xl disabled:opacity-40;
   }
+  /* 36px tall to sit in a row of three; the pseudo-element keeps the touch target at 44px. */
+  .control-chip {
+    @apply relative flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3 text-[13px] text-fg-muted disabled:opacity-40;
+  }
+  .control-chip::after {
+    content: '';
+    position: absolute;
+    inset: -4px 0;
+  }
   .primary-button {
     @apply flex min-h-12 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-medium text-fg-on-accent disabled:opacity-40;
   }

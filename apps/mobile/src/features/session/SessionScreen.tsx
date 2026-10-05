@@ -15,6 +15,7 @@ import type {
   RemoteChanges,
   RemoteInput,
 } from '@ari/contracts/remote'
+import type { PermissionMode } from '@ari/contracts/common'
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { useApp } from '../../lib/app-state'
@@ -25,6 +26,7 @@ import { Files } from './Files'
 import { SessionDetails } from './SessionDetails'
 import { ReviewIntegration } from './ReviewIntegration'
 import { ModelPicker, modelSelectionLabel } from '../../components/ModelPicker'
+import { SessionControls } from '../../components/SessionControls'
 const Terminal = lazy(async () => {
   const module = await import('./Terminal')
   return { default: module.Terminal }
@@ -155,6 +157,18 @@ export function SessionScreen({
     app.projects.find((project) => project.id === snapshot?.summary.projectId)?.name ?? 'Workspace'
   const can = (op: string): boolean =>
     app.session?.supports(op) === true && app.connection === 'connected'
+  /** Model, effort and mode changes are confirmed by re-reading the session, never assumed. */
+  function update(
+    change: { modelId: string | null } | { effort: string } | { permissionMode: PermissionMode },
+  ): void {
+    void app.session
+      ?.send({ op: 'session.update', sessionId, ...change })
+      .then(async () => {
+        await load()
+        await app.refresh()
+      })
+      .catch((error: unknown) => setFailure(messageOf(error)))
+  }
   async function archive(): Promise<void> {
     try {
       await app.session?.send({ op: 'session.archive', sessionId })
@@ -385,18 +399,28 @@ export function SessionScreen({
         <Composer
           sessionId={sessionId}
           status={snapshot?.session.status ?? 'idle'}
-          modelLabel={
-            snapshot === null
-              ? null
-              : modelSelectionLabel(
+          disabled={!can('session.prompt') || snapshot === null}
+          controls={
+            snapshot !== null && (
+              <SessionControls
+                driverKind={snapshot.session.driverKind}
+                modelId={snapshot.session.modelId ?? ''}
+                modelLabel={modelSelectionLabel(
                   app.catalog,
                   snapshot.session.driverKind,
                   snapshot.session.modelId ?? '',
-                )
+                )}
+                effort={snapshot.session.effort ?? null}
+                permissionMode={snapshot.session.permissionMode}
+                running={snapshot.session.status === 'running'}
+                disabled={!can('session.update')}
+                modelDisabled={snapshot.session.status === 'running'}
+                onPickModel={() => setPickingModel(true)}
+                onEffort={(effort) => update({ effort })}
+                onMode={(permissionMode) => update({ permissionMode })}
+              />
+            )
           }
-          disabled={!can('session.prompt') || snapshot === null}
-          modelDisabled={!can('session.update') || snapshot?.session.status === 'running'}
-          onDetails={() => setPickingModel(true)}
           onSent={load}
           onError={setFailure}
         />
@@ -409,13 +433,7 @@ export function SessionScreen({
           onClose={() => setPickingModel(false)}
           onSelect={(_driver, modelId) => {
             if (!can('session.update') || snapshot.session.status === 'running') return
-            void app.session
-              ?.send({ op: 'session.update', sessionId, modelId: modelId || null })
-              .then(async () => {
-                await load()
-                await app.refresh()
-              })
-              .catch((error: unknown) => setFailure(messageOf(error)))
+            update({ modelId: modelId || null })
           }}
         />
       )}

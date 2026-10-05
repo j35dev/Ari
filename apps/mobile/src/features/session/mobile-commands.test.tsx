@@ -67,9 +67,8 @@ describe('mobile command decisions', () => {
           <Composer
             sessionId="session-1"
             status="running"
-            modelLabel="Codex"
+            controls={null}
             disabled={false}
-            onDetails={vi.fn()}
             onSent={vi.fn().mockResolvedValue(undefined)}
             onError={vi.fn()}
           />,
@@ -97,9 +96,8 @@ describe('mobile command decisions', () => {
         <Composer
           sessionId="session-1"
           status="idle"
-          modelLabel="Codex"
+          controls={null}
           disabled
-          onDetails={vi.fn()}
           onSent={vi.fn()}
           onError={vi.fn()}
         />,
@@ -167,9 +165,8 @@ describe('mobile command decisions', () => {
         <Composer
           sessionId="session-1"
           status="idle"
-          modelLabel="Codex"
+          controls={null}
           disabled={false}
-          onDetails={vi.fn()}
           onSent={vi.fn()}
           onError={failure}
         />,
@@ -204,6 +201,54 @@ describe('mobile command decisions', () => {
     expect(sessionStorage.getItem('ari.draft:https://computer.example:phone-1:new-1')).toBe(
       'Build this task',
     )
+  })
+  it('creates a session with the effort and permission mode chosen before sending', async () => {
+    const withControls = app as { catalog: unknown }
+    withControls.catalog = {
+      defaults: {
+        driverKind: 'codex',
+        modelId: null,
+        configuredDriverKind: 'codex',
+        permissionMode: 'ask',
+      },
+      providers: [
+        {
+          driverKind: 'codex',
+          available: true,
+          models: [],
+          efforts: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High', current: true },
+          ],
+          modes: [],
+        },
+      ],
+    }
+    app.session.send.mockResolvedValue({ ok: true, result: { sessionId: 'new-3' } })
+    app.session.query.mockResolvedValue({ efforts: [] })
+    const choose = async (start: string): Promise<void> => {
+      const option = Array.from(document.querySelectorAll('button')).find((entry) =>
+        entry.textContent.startsWith(start),
+      )
+      expect(option, start).toBeDefined()
+      await act(async () => option?.click())
+    }
+    try {
+      await act(async () => root.render(<NewSessionSheet onClose={vi.fn()} onOpen={vi.fn()} />))
+      await click('Permissions: Ask')
+      await choose('Full auto')
+      await click('Effort: High')
+      await choose('Low')
+      await click('Create session')
+      expect(app.session.send.mock.calls[0]?.[0]).toEqual({
+        op: 'session.create',
+        projectId: 'project-1',
+        permissionMode: 'full',
+        effort: 'low',
+      })
+    } finally {
+      withControls.catalog = null
+    }
   })
   it('opens a confirmed creation even if refreshing the session list fails', async () => {
     app.session.send.mockResolvedValue({ ok: true, result: { sessionId: 'new-2' } })

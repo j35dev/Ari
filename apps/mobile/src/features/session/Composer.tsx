@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowUp, ChevronDown, ImagePlus, LoaderCircle, Square, X } from 'lucide-react'
+import { ArrowUp, ImagePlus, LoaderCircle, Square, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import { useApp } from '../../lib/app-state'
 import {
@@ -16,19 +16,16 @@ import { WorkingIndicator } from './WorkingIndicator'
 export function Composer({
   sessionId,
   status,
-  modelLabel,
+  controls,
   disabled,
-  modelDisabled = false,
-  onDetails,
   onSent,
   onError,
 }: {
   sessionId: string
   status: string
-  modelLabel: string | null
+  /** The model, effort and permission chips for this session. */
+  controls: ReactNode
   disabled: boolean
-  modelDisabled?: boolean
-  onDetails: () => void
   onSent: () => Promise<void>
   onError: (error: string) => void
 }): ReactNode {
@@ -254,16 +251,9 @@ export function Composer({
               </button>
             </>
           )}
-          <button
-            type="button"
-            className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 px-1 text-xs text-fg-muted disabled:opacity-50"
-            onClick={onDetails}
-            aria-label="Choose model"
-            disabled={modelDisabled || busy || pending !== null}
-          >
-            <span className="truncate">{modelLabel ?? 'Connecting…'}</span>
-            <ChevronDown size={13} className="shrink-0" />
-          </button>
+          <div className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+            {controls}
+          </div>
           {running && app.session?.supports('session.steer') && (
             <button
               type="button"
