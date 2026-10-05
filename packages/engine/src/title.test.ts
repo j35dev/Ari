@@ -3,11 +3,14 @@ import {
   MAX_TITLE_LENGTH,
   deriveSliceTitle,
   deterministicTitleStrategy,
+  firstReply,
   generateAutoTitle,
   generateQualityTitle,
   isAutoTitle,
+  replyText,
 } from './title'
 import type { TitleStrategy } from './title'
+import type { Message } from '@ari/contracts/message'
 
 describe('deriveSliceTitle', () => {
   it('keeps short single-line prompts verbatim', () => {
@@ -127,5 +130,80 @@ describe('generateAutoTitle', () => {
         currentTitle: 'fix it',
       }),
     ).resolves.toBe('Refactored the parser module to stream results')
+  })
+})
+
+describe('replyText', () => {
+  it('concatenates streamed deltas verbatim', () => {
+    const deltas = ['I', "'ll", ' update', ' the', ' redirect', ' guard']
+    expect(replyText(deltas.map((text) => ({ type: 'text', text })))).toBe(
+      "I'll update the redirect guard",
+    )
+  })
+
+  it('starts a new paragraph after a non-text part', () => {
+    expect(
+      replyText([
+        { type: 'text', text: 'Reading the guard' },
+        { type: 'tool-call', callId: 'c1', name: 'read', argsJson: '{}' },
+        { type: 'tool-result', callId: 'c1', resultJson: '""', isError: false },
+        { type: 'text', text: 'It skips' },
+        { type: 'text', text: ' signed-in users.' },
+      ]),
+    ).toBe('Reading the guard\n\nIt skips signed-in users.')
+  })
+
+  it('leaves out error and notice banners', () => {
+    expect(
+      replyText([
+        { type: 'text', text: '\n\n⚠ "gpt-9" is not offered by this agent.' },
+        { type: 'text', text: 'Fixed the login redirect loop.' },
+        { type: 'text', text: '\n\n⚠ Could not display chart.png.' },
+      ]),
+    ).toBe('Fixed the login redirect loop.')
+  })
+})
+
+describe('firstReply', () => {
+  const message = (role: Message['role'], turnId: string, parts: Message['parts']): Message => ({
+    id: `msg_${turnId}_${role}`,
+    sessionId: 's1',
+    turnId,
+    role,
+    parts,
+    createdAt: 0,
+  })
+  const text = (value: string): Message['parts'] => [{ type: 'text', text: value }]
+
+  it("returns the completed turn's own reply", () => {
+    const messages = [
+      message('user', 't1', text('fix it')),
+      message('assistant', 't1', text('Fixed the login redirect loop.')),
+    ]
+    expect(firstReply(messages, 't1')).toBe('Fixed the login redirect loop.')
+  })
+
+  it('looks past an earlier turn that only left a banner', () => {
+    const messages = [
+      message('user', 't1', text('fix it')),
+      message('assistant', 't1', text('\n\n⚠ Not logged in · Please run /login')),
+      message('user', 't2', text('try again')),
+      message('assistant', 't2', text('Fixed the login redirect loop.')),
+    ]
+    expect(firstReply(messages, 't2')).toBe('Fixed the login redirect loop.')
+  })
+
+  it('yields nothing once an earlier turn was answered', () => {
+    const messages = [
+      message('user', 't1', text('add retries')),
+      message('assistant', 't1', text('Added retry logic with exponential backoff.')),
+      message('user', 't2', text('raise it')),
+      message('assistant', 't2', text('Bumped the retry ceiling to five attempts.')),
+    ]
+    expect(firstReply(messages, 't2')).toBeUndefined()
+  })
+
+  it('yields nothing when the turn produced no assistant message', () => {
+    expect(firstReply([message('user', 't1', text('fix it'))], 't1')).toBeUndefined()
   })
 })

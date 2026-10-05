@@ -7,6 +7,8 @@
  * missing or trivial. Custom strategies receive both via {@link TitleRequest}.
  */
 
+import type { Message, MessagePart } from '@ari/contracts/message'
+
 /** Hard sidebar-title cap, shared by every strategy. */
 export const MAX_TITLE_LENGTH = 48
 
@@ -27,7 +29,10 @@ export const MIN_AI_TITLE_CHARS = 8
 export interface TitleRequest {
   /** First user message of the conversation (fallback source). */
   prompt: string
-  /** First assistant text of the conversation, when the turn produced one. */
+  /**
+   * Reply of the turn that first answered the session. Absent when that turn
+   * was interrupted or the session had been answered before.
+   */
   response?: string
   /** Current sidebar title — the automatic slice while untouched. */
   currentTitle: string
@@ -131,6 +136,44 @@ export function generateQualityTitle(text: string): string | null {
   const titled = body.charAt(0).toUpperCase() + body.slice(1)
   if (titled.length <= MAX_TITLE_LENGTH) return titled
   return `${titled.slice(0, MAX_TITLE_LENGTH - 1)}…`
+}
+
+/** Opens the error and notice banners the engine stores as assistant text. */
+const BANNER_MARKER = /^\s*⚠/
+
+/**
+ * An assistant message's own prose, read the way the transcript renders it:
+ * consecutive text parts are streamed deltas and concatenate verbatim, any
+ * other part ends the paragraph, and engine banners are left out.
+ */
+export function replyText(parts: readonly MessagePart[]): string {
+  const paragraphs: string[] = []
+  let open: string | null = null
+  for (const part of parts) {
+    if (part.type === 'text' && !BANNER_MARKER.test(part.text)) {
+      open = (open ?? '') + part.text
+      continue
+    }
+    if (open !== null) paragraphs.push(open)
+    open = null
+  }
+  if (open !== null) paragraphs.push(open)
+  return paragraphs.join('\n\n')
+}
+
+/**
+ * The reply that may name a session once `turnId` completes: that turn's
+ * prose, unless an earlier turn was already answered — a session with history
+ * keeps the title it has.
+ */
+export function firstReply(messages: readonly Message[], turnId: string): string | undefined {
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    const reply = replyText(message.parts)
+    if (message.turnId === turnId) return reply
+    if (reply.trim().length > 0) return undefined
+  }
+  return undefined
 }
 
 /** Bundled no-network strategy: AI response first, prompt fallback. */
