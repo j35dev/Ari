@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronRight, Copy, Check, Terminal, Sparkles } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import type { Message } from '@ari/contracts/message'
 import type { z } from 'zod'
 import type { remoteAttachmentSchema } from '@ari/contracts/remote'
@@ -8,55 +8,62 @@ import { EmptyState } from '../../components/EmptyState'
 import { useApp } from '../../lib/app-state'
 import { formatClock } from '../../lib/format'
 import { conversationBlocks, conversationParts } from '../../lib/conversation-parts'
+import { ActivityRun } from './ActivityRun'
 
-/** Conversation parts retain tool output, reasoning, and authorized image previews. */
+/** A pause this long between messages is worth marking with the time. */
+const PAUSE_MS = 10 * 60 * 1000
+
+/** The user's words in bubbles, the agent's unboxed, and its work as one-line steps between. */
 export function Conversation({
   messages,
   sessionId,
+  running = false,
 }: {
   messages: Message[]
   sessionId: string
+  /** Whether the agent is working, which keeps its newest run of steps open. */
+  running?: boolean
 }): ReactNode {
   if (messages.length === 0)
     return (
       <EmptyState
-        title="Let's build something"
-        detail="Describe a task, ask a question, or attach a reference. The agent works inside this project's workspace."
+        title="What should we work on?"
+        detail="Describe a task, ask a question, or attach a reference. The agent works inside this project on your computer."
       />
     )
   return (
-    <ol className="space-y-7">
-      {messages.map((message) => {
+    <ol className="space-y-5">
+      {messages.map((message, index) => {
         const presentation = conversationParts(message.parts)
+        const blocks = conversationBlocks(presentation.parts)
+        const previous = messages[index - 1]
+        const user = message.role === 'user'
         return (
           <li
             key={message.id}
-            className={
-              message.role === 'user' ? 'flex w-full min-w-0 flex-col items-end' : 'w-full min-w-0'
-            }
+            data-role={message.role}
+            className={user ? 'flex w-full min-w-0 flex-col items-end' : 'w-full min-w-0'}
           >
-            <div
-              className={`mb-2 flex items-center gap-2 text-[11px] text-fg-subtle ${message.role === 'user' ? 'justify-end' : ''}`}
-            >
-              {message.role !== 'user' && (
-                <span className="flex size-5 items-center justify-center rounded-md bg-surface-2 font-semibold text-fg">
-                  a
-                </span>
-              )}
-              <span className="font-medium text-fg-muted">
-                {message.role === 'user' ? 'You' : message.role === 'system' ? 'System' : 'Ari'}
-              </span>
-              <span>{formatClock(message.createdAt)}</span>
-              {message.origin?.kind === 'session' && <span>· Linked session</span>}
-            </div>
+            {(previous === undefined || message.createdAt - previous.createdAt > PAUSE_MS) && (
+              <time
+                dateTime={new Date(message.createdAt).toISOString()}
+                className="mb-3 block w-full text-center text-[11px] text-fg-subtle"
+              >
+                {formatClock(message.createdAt)}
+              </time>
+            )}
+            {message.origin?.kind === 'session' && (
+              <p className="mb-1 text-[11px] text-fg-subtle">From a linked session</p>
+            )}
+            {message.role === 'system' && <p className="mb-1 text-[11px] text-fg-subtle">System</p>}
             <div
               className={
-                message.role === 'user'
-                  ? 'max-w-[92%] rounded-2xl rounded-tr-md bg-surface-2 px-4 py-3'
+                user
+                  ? 'message-bubble max-w-[85%] rounded-[20px] bg-surface-2 px-3.5 py-2.5'
                   : 'min-w-0'
               }
             >
-              {conversationBlocks(presentation.parts).map((block) =>
+              {blocks.map((block, position) =>
                 block.kind === 'content' ? (
                   <Part
                     key={`${message.id}:${block.sourceIndex}`}
@@ -64,25 +71,21 @@ export function Conversation({
                     sessionId={sessionId}
                   />
                 ) : (
-                  <details key={`${message.id}:${block.sourceIndex}`} className="my-3">
-                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-xs text-fg-muted">
-                      <ChevronRight size={14} />
-                      Agent activity
-                    </summary>
-                    {block.parts.map(({ part, sourceIndex }) => (
-                      <Part
-                        key={`${message.id}:${sourceIndex}`}
-                        part={part}
-                        sessionId={sessionId}
-                      />
-                    ))}
-                  </details>
+                  <ActivityRun
+                    key={`${message.id}:${block.sourceIndex}`}
+                    parts={block.parts}
+                    live={
+                      running && index === messages.length - 1 && position === blocks.length - 1
+                    }
+                  />
                 ),
               )}
             </div>
-            {message.role === 'assistant' && message.parts.some((part) => part.type === 'text') && (
-              <CopyMessage text={presentation.copyText} />
-            )}
+            {message.role === 'assistant' &&
+              presentation.copyText.trim() !== '' &&
+              !(running && index === messages.length - 1) && (
+                <CopyMessage text={presentation.copyText} />
+              )}
           </li>
         )
       })}
@@ -94,65 +97,28 @@ function Part({
   part,
   sessionId,
 }: {
-  part: Message['parts'][number]
+  part: Extract<Message['parts'][number], { type: 'text' | 'image' }>
   sessionId: string
 }): ReactNode {
   if (part.type === 'text') return <Markdown text={part.text} />
-  if (part.type === 'image')
-    return <ImageAttachment sessionId={sessionId} id={part.attachmentId} name={part.name} />
-  const thinking = part.type === 'thinking'
-  const result = part.type === 'tool-result'
-  const label = thinking
-    ? 'Reasoning'
-    : part.type === 'tool-call'
-      ? part.name
-      : result && part.isError
-        ? 'Tool reported an error'
-        : 'Tool result'
-  const content = thinking ? part.text : part.type === 'tool-call' ? part.argsJson : part.resultJson
-  return (
-    <details className="my-2 rounded-xl border border-border bg-surface-1">
-      <summary
-        className={`flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 text-xs ${result && part.isError ? 'text-danger' : 'text-fg-muted'}`}
-      >
-        {thinking ? <Sparkles size={14} /> : <Terminal size={14} />}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronRight size={13} />
-      </summary>
-      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words border-t border-border p-3 font-mono text-xs leading-relaxed text-fg-muted">
-        {toolContent(content)}
-      </pre>
-    </details>
-  )
-}
-function toolContent(content: string): string {
-  try {
-    const value: unknown = JSON.parse(content)
-    return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-  } catch {
-    return content
-  }
+  return <ImageAttachment sessionId={sessionId} id={part.attachmentId} name={part.name} />
 }
 function CopyMessage({ text }: { text: string }): ReactNode {
-  const [copied, setCopied] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   return (
     <button
       type="button"
-      aria-label="Copy assistant message"
-      className="mt-1 flex min-h-11 items-center gap-1.5 text-[11px] text-fg-subtle"
+      aria-label="Copy reply"
+      className="-ml-3 flex size-11 items-center justify-center text-fg-subtle"
       onClick={() => {
         void navigator.clipboard
           .writeText(text)
-          .then(() => {
-            setCopied(true)
-            setFailed(false)
-          })
-          .catch(() => setFailed(true))
+          .then(() => setState('copied'))
+          .catch(() => setState('failed'))
       }}
     >
-      {copied ? <Check size={13} /> : <Copy size={13} />}
-      {failed ? 'Clipboard unavailable' : copied ? 'Copied' : 'Copy'}
+      {state === 'copied' ? <Check size={15} /> : <Copy size={15} />}
+      {state === 'failed' && <span className="sr-only">Clipboard unavailable</span>}
     </button>
   )
 }
