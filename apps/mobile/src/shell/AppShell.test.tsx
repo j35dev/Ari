@@ -10,16 +10,26 @@ vi.mock('../lib/service-worker', () => ({
   UpdateBanner: () => null,
 }))
 vi.mock('../features/home/HomeScreen', () => ({
-  HomeScreen: (props: { onOpen: (id: string) => void; onSettings: () => void }) => (
+  HomeScreen: (props: {
+    onOpen: (id: string) => void
+    onSettings: () => void
+    onNewSession: () => void
+  }) => (
     <div>
       <p>Home</p>
       <button onClick={() => props.onOpen('sess_1')}>Open session</button>
       <button onClick={props.onSettings}>Settings</button>
+      <button onClick={props.onNewSession}>New chat</button>
     </div>
   ),
 }))
 vi.mock('../features/settings/SettingsScreen', () => ({
   SettingsScreen: (props: { onBack: () => void }) => <button onClick={props.onBack}>Back</button>,
+}))
+vi.mock('../features/new/NewChatScreen', () => ({
+  NewChatScreen: (props: { onOpen: (id: string) => void }) => (
+    <button onClick={() => props.onOpen('sess_new')}>Create</button>
+  ),
 }))
 vi.mock('../features/session/SessionScreen', () => ({
   SessionScreen: (props: { sessionId: string; onBack: () => void }) => (
@@ -51,6 +61,17 @@ describe('navigation', () => {
     history.replaceState(null, '', '/?session=sess_9')
     render(<AppShell />)
     fireEvent.click(await screen.findByRole('button', { name: 'Leave sess_9' }))
+    expect(await screen.findByText('Home')).toBeTruthy()
+    expect(location.search).toBe('')
+  })
+
+  it('replaces the new chat with the session it creates, so back reaches the list', async () => {
+    render(<AppShell />)
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    expect(location.search).toBe('?view=new')
+    fireEvent.click(await screen.findByRole('button', { name: 'Create' }))
+    expect(location.search).toBe('?session=sess_new')
+    fireEvent.click(await screen.findByRole('button', { name: 'Leave sess_new' }))
     expect(await screen.findByText('Home')).toBeTruthy()
     expect(location.search).toBe('')
   })

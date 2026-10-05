@@ -135,7 +135,7 @@ export function BottomSheet({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-bg/80 backdrop-blur-sm"
+        className="absolute inset-0 cursor-default bg-bg/60 backdrop-blur-[2px]"
       />
       <div
         ref={panel}

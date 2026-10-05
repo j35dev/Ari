@@ -9,6 +9,7 @@ describe('workspace routes', () => {
         sessionId: null,
       })
     expect(readRoute('https://computer/?view=settings').destination).toBe('settings')
+    expect(readRoute('https://computer/?view=new').destination).toBe('new')
   })
   it('preserves the serving path, account computer selection, and invitation fragment', () => {
     const href = 'https://connect.example/app?computer=computer_1#pair=private'

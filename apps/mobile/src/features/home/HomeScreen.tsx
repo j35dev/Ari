@@ -107,7 +107,10 @@ export function HomeScreen({
           <LoaderCircle
             size={18}
             className={app.refreshing ? 'animate-spin' : ''}
-            style={{ transform: `rotate(${pull * 4}deg)`, opacity: ready || app.refreshing ? 1 : 0.5 }}
+            style={{
+              transform: `rotate(${pull * 4}deg)`,
+              opacity: ready || app.refreshing ? 1 : 0.5,
+            }}
           />
         </div>
         <label className="flex items-center gap-2 rounded-full bg-surface-1 px-4">
@@ -122,7 +125,11 @@ export function HomeScreen({
           />
         </label>
         {projects.length > 1 && (
-          <div role="group" aria-label="Project" className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5">
+          <div
+            role="group"
+            aria-label="Project"
+            className="no-scrollbar -mx-5 mt-3 flex gap-2 overflow-x-auto px-5"
+          >
             {[{ id: null, name: 'All' }, ...projects].map((project) => (
               <button
                 key={project.id ?? 'all'}

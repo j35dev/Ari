@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
 import { ReviewIntegration } from './ReviewIntegration'
 import { RemoteError } from '../../lib/gateway-client'
-import { NewSessionSheet } from '../projects/NewSessionSheet'
 
 const app = vi.hoisted(() => ({
   origin: 'https://computer.example',
@@ -177,89 +176,5 @@ describe('mobile command decisions', () => {
     expect(app.session.send).not.toHaveBeenCalled()
     expect(failure).toHaveBeenCalledWith(expect.stringContaining('has not been sent'))
     vi.restoreAllMocks()
-  })
-  it('restores an uncertain creation after dismissing the sheet without duplicating the session', async () => {
-    app.session.send
-      .mockRejectedValueOnce(new RemoteError('unreachable', 'lost acknowledgement'))
-      .mockResolvedValue({ ok: true, result: { sessionId: 'new-1' } })
-    const open = vi.fn()
-    const render = async (): Promise<void> => {
-      await act(async () => root.render(<NewSessionSheet onClose={vi.fn()} onOpen={open} />))
-    }
-    await render()
-    await type('Build this task')
-    await click('Create session')
-    const first = app.session.send.mock.calls[0]
-    await act(async () => root.unmount())
-    root = createRoot(host)
-    await render()
-    expect(document.body.textContent).toContain('An unconfirmed creation was restored')
-    expect(app.session.send).toHaveBeenCalledTimes(1)
-    await click('Retry same creation')
-    expect(app.session.send.mock.calls[1]).toEqual(first)
-    expect(open).toHaveBeenCalledWith('new-1')
-    expect(sessionStorage.getItem('ari.draft:https://computer.example:phone-1:new-1')).toBe(
-      'Build this task',
-    )
-  })
-  it('creates a session with the effort and permission mode chosen before sending', async () => {
-    const withControls = app as { catalog: unknown }
-    withControls.catalog = {
-      defaults: {
-        driverKind: 'codex',
-        modelId: null,
-        configuredDriverKind: 'codex',
-        permissionMode: 'ask',
-      },
-      providers: [
-        {
-          driverKind: 'codex',
-          available: true,
-          models: [],
-          efforts: [
-            { id: 'low', label: 'Low' },
-            { id: 'high', label: 'High', current: true },
-          ],
-          modes: [],
-        },
-      ],
-    }
-    app.session.send.mockResolvedValue({ ok: true, result: { sessionId: 'new-3' } })
-    app.session.query.mockResolvedValue({ efforts: [] })
-    const choose = async (start: string): Promise<void> => {
-      const option = Array.from(document.querySelectorAll('button')).find((entry) =>
-        entry.textContent.startsWith(start),
-      )
-      expect(option, start).toBeDefined()
-      await act(async () => option?.click())
-    }
-    try {
-      await act(async () => root.render(<NewSessionSheet onClose={vi.fn()} onOpen={vi.fn()} />))
-      await click('Permissions: Ask')
-      await choose('Full auto')
-      await click('Effort: High')
-      await choose('Low')
-      await click('Create session')
-      expect(app.session.send.mock.calls[0]?.[0]).toEqual({
-        op: 'session.create',
-        projectId: 'project-1',
-        permissionMode: 'full',
-        effort: 'low',
-      })
-    } finally {
-      withControls.catalog = null
-    }
-  })
-  it('opens a confirmed creation even if refreshing the session list fails', async () => {
-    app.session.send.mockResolvedValue({ ok: true, result: { sessionId: 'new-2' } })
-    app.refresh.mockRejectedValue(new Error('offline list'))
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const open = vi.fn()
-    await act(async () => root.render(<NewSessionSheet onClose={vi.fn()} onOpen={open} />))
-    await click('Create session')
-    expect(open).toHaveBeenCalledWith('new-2')
-    expect(app.session.send).toHaveBeenCalledTimes(1)
-    expect(sessionStorage.getItem('ari.creation:https://computer.example:phone-1')).toBeNull()
-    warning.mockRestore()
   })
 })

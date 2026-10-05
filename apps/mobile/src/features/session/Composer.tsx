@@ -259,7 +259,7 @@ export function Composer({
               </button>
             </>
           )}
-          <div className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+          <div className="no-scrollbar flex min-h-11 min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
             {controls}
           </div>
           {running && app.session?.supports('session.steer') && (

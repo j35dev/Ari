@@ -1,4 +1,4 @@
-export type Destination = 'home' | 'settings'
+export type Destination = 'home' | 'settings' | 'new'
 export interface MobileRoute {
   destination: Destination
   sessionId: string | null
@@ -7,8 +7,9 @@ export interface MobileRoute {
 /** Routes use the query string so invitation fragments remain private and disposable. */
 export function readRoute(href: string): MobileRoute {
   const params = new URL(href).searchParams
+  const view = params.get('view')
   return {
-    destination: params.get('view') === 'settings' ? 'settings' : 'home',
+    destination: view === 'settings' || view === 'new' ? view : 'home',
     sessionId: params.get('session'),
   }
 }
