@@ -228,6 +228,66 @@ describe('ThemeProvider', () => {
     ])
   })
 
+  describe('theme reveal', () => {
+    const transition = () => {
+      const start = vi.fn((update: () => void) => {
+        update()
+        return { finished: Promise.resolve() }
+      })
+      Object.defineProperty(document, 'startViewTransition', { value: start, configurable: true })
+      return start
+    }
+
+    afterEach(() => {
+      delete (document as { startViewTransition?: unknown }).startViewTransition
+      delete document.documentElement.dataset['ariReducedMotion']
+    })
+
+    it('changes theme inside a view transition, opening from the click', async () => {
+      const start = transition()
+      const user = userEvent.setup()
+      render(
+        <ThemeProvider>
+          <Probe />
+        </ThemeProvider>,
+      )
+      // The first paint only confirms the cached theme: nothing to reveal.
+      expect(start).not.toHaveBeenCalled()
+
+      await user.click(screen.getByText('nocturne'))
+      expect(start).toHaveBeenCalledTimes(1)
+      expect(root()['ariTheme']).toBe('nocturne')
+      // The reveal markers are cleared once the transition settles.
+      await waitFor(() => expect('ariThemeReveal' in root()).toBe(false))
+    })
+
+    it('does not start a transition for a wallpaper change', async () => {
+      const start = transition()
+      const user = userEvent.setup()
+      render(
+        <ThemeProvider>
+          <Probe />
+        </ThemeProvider>,
+      )
+      await user.click(screen.getByText('wallpaper on'))
+      expect(start).not.toHaveBeenCalled()
+    })
+
+    it('applies the theme directly under reduced motion', async () => {
+      const start = transition()
+      document.documentElement.dataset['ariReducedMotion'] = ''
+      const user = userEvent.setup()
+      render(
+        <ThemeProvider>
+          <Probe />
+        </ThemeProvider>,
+      )
+      await user.click(screen.getByText('nocturne'))
+      expect(start).not.toHaveBeenCalled()
+      expect(root()['ariTheme']).toBe('nocturne')
+    })
+  })
+
   it('throws when useTheme is called outside the provider', () => {
     expect(() => render(<Probe />)).toThrow(/within ThemeProvider/)
   })
