@@ -81,7 +81,9 @@ describe('WCAG contrast floors', () => {
     expect(contrastRatio(c.fg, c.bg)).toBeGreaterThanOrEqual(7)
     expect(contrastRatio(c['fg-muted'], c.bg)).toBeGreaterThanOrEqual(4.5)
     expect(contrastRatio(c.accent, c['surface-1'])).toBeGreaterThanOrEqual(3)
-    expect(contrastRatio(c['fg-on-accent'], c.accent)).toBeGreaterThanOrEqual(2.9)
+    expect(contrastRatio(c['fg-on-accent'], c.accent)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(c['fg-muted'], c['surface-1'])).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(c['fg-subtle'], c['surface-1'])).toBeGreaterThanOrEqual(4.5)
   })
 
   it.each(themeList)('$id semantic colors stay legible on surface-1', (theme) => {

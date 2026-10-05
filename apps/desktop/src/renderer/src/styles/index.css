@@ -11,6 +11,7 @@
 @import '@ari/ui/theme-effects.css';
 @import '@ari/ui/motion.css';
 @import '@ari/ui/scroll-area.css';
+@import './interaction-motion.css';
 
 /* Tailwind v4's automatic source detection only reaches this app's own tree,
    so utilities that appear solely in the shared UI package — reached here

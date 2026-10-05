@@ -158,7 +158,7 @@ function revealTheme(root: HTMLElement, apply: () => void): void {
   const start = (
     document as { startViewTransition?: (update: () => void) => { finished: Promise<void> } }
   ).startViewTransition
-  const still = 'ariReduceMotion' in root.dataset || matches('(prefers-reduced-motion: reduce)')
+  const still = 'ariReducedMotion' in root.dataset || matches('(prefers-reduced-motion: reduce)')
   if (typeof start !== 'function' || still) {
     apply()
     return
