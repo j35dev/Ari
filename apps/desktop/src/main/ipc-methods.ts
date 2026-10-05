@@ -34,6 +34,7 @@ export const IPC_METHODS = [
   'focus.playlists.remove',
   'focus.playlists.update',
   'providers.allowance',
+  'providers.consumeResetCredit',
   'usage.ccusage',
   'command.dispatch',
   'attachments.stage',

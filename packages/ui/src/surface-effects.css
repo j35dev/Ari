@@ -60,3 +60,21 @@
   pointer-events: none;
   opacity: 0.8;
 }
+
+/* Popover entrance: answers the click that opened it, from its anchor corner. */
+.ari-pop-in {
+  animation: ari-pop-in var(--ari-dur-fast) var(--ari-ease-out-expo);
+}
+
+@keyframes ari-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-pop-in {
+    animation: none;
+  }
+}
