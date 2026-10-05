@@ -289,7 +289,7 @@ export function collapseCatalog(kind: DriverKind, models: CatalogModel[]): Catal
     const family = familyKeyOf(next, families)
     const alias = family !== undefined ? families?.[family] : undefined
     // `opus[1m]` is already the pointer; it does not need `opus` as a second name.
-    const isPointer = alias !== undefined && next.id.replace(/\[[^\]]*\]$/, '') === alias
+    const isPointer = isFamilyPointer(next, families)
     const aliases = mergeAliases(next.aliases, [
       ...(pointers.targets.get(next.id) ?? []),
       ...(alias !== undefined && !ownIds.has(alias) && !isPointer ? [alias] : []),
@@ -355,9 +355,26 @@ function familyKeyOf(
   if (model.family !== undefined) return model.family
   if (families === undefined) return undefined
   // `opus`, `opus[1m]`: the CLI's own pointer at a family's newest member.
-  const bare = model.id.replace(/\[[^\]]*\]$/, '')
+  const bare = bareId(model)
   const pointed = Object.keys(families).find((prefix) => families[prefix] === bare)
   return pointed ?? Object.keys(families).find((prefix) => model.id.startsWith(prefix))
+}
+
+/** A model id without its context-window suffix: `opus[1m]` is `opus`. */
+function bareId(model: CatalogModel): string {
+  return model.id.replace(/\[[^\]]*\]$/, '')
+}
+
+/**
+ * True for the CLI's own version-less name for a family (`opus`, `opus[1m]`).
+ * Unlike a registry pointer, which folds onto a concrete row, this one is a row
+ * the agent offers in its own right.
+ */
+function isFamilyPointer(
+  model: CatalogModel,
+  families: Record<string, string> | undefined,
+): boolean {
+  return families !== undefined && Object.values(families).includes(bareId(model))
 }
 
 /** Flags every family member after the first — the list is newest-first. */
@@ -370,8 +387,11 @@ function markSuperseded(
   for (const model of models) {
     const family = familyKeyOf(model, families)
     if (family === undefined) continue
-    // First occurrence is the family's newest member: the row to offer.
-    if (seen.has(family)) model.isLegacy = true
+    // The CLI's own pointers are current by definition, at any context size:
+    // `opus[1m]` beside `opus` is a sibling, not an older model.
+    if (isFamilyPointer(model, families)) seen.add(family)
+    // Otherwise the first occurrence is the family's newest member.
+    else if (seen.has(family)) model.isLegacy = true
     else seen.add(family)
   }
   return models

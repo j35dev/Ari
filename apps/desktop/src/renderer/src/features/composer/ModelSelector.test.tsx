@@ -455,6 +455,42 @@ describe('ModelSelector', () => {
       expect(within(models).getByText('Claude Opus 4.8')).toBeInTheDocument()
     })
 
+    it('opens the older models when the session is already on one', async () => {
+      modelsAs(opusCatalog)
+      setup('claude', 'claude-opus-4-8')
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+
+      const models = screen.getByRole('listbox', { name: 'Models' })
+      expect(within(models).getByRole('option', { selected: true })).toHaveTextContent(
+        'Claude Opus 4.8',
+      )
+    })
+
+    it('treats no saved model as the agent default and says what that is', async () => {
+      modelsAs([
+        {
+          kind: 'claude',
+          source: 'live',
+          models: [
+            { id: 'default', label: 'Default (recommended)', description: 'Opus 5.5' },
+            { id: 'opus', label: 'Opus 5.5', description: 'For complex work' },
+          ],
+        },
+      ])
+      setup('claude', null)
+      const user = userEvent.setup()
+      const trigger = await screen.findByRole('button', { name: /model:/i })
+      await waitFor(() => expect(trigger).toHaveTextContent('Default · Opus 5.5'))
+
+      await user.click(trigger)
+      const models = screen.getByRole('listbox', { name: 'Models' })
+      const selected = within(models).getByRole('option', { selected: true })
+      // The agent's "(recommended)" suffix is dropped from the row name.
+      expect(selected).toHaveTextContent('Default')
+      expect(selected).not.toHaveTextContent('recommended')
+    })
+
     it('checks the row a version-less saved id resolves to', async () => {
       modelsAs(opusCatalog)
       // The session was saved against the version-less id the CLI accepts.
