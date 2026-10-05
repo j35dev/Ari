@@ -12,6 +12,8 @@ export interface CatalogModel {
   label: string
   /** Short context-window hint rendered beside the label, e.g. `200k`. */
   contextHint?: string
+  /** One-line summary in the agent's own words, shown under the label. */
+  description?: string
   /**
    * Other ids that resolve to this same model. Carries the version-less
    * family pointers a CLI accepts (`opus` for `claude-opus-5`) and the ids of
@@ -270,6 +272,9 @@ function curateToCurrentModels(kind: DriverKind, models: CatalogModel[]): Catalo
 export function collapseCatalog(kind: DriverKind, models: CatalogModel[]): CatalogModel[] {
   const families = FAMILY_ALIASES[kind]
   const pointers = familyPointers(models)
+  // A list that already offers `opus` as its own row needs no alias for it:
+  // tagging the versioned rows with it too would mark several rows current.
+  const ownIds = new Set(models.map((model) => model.id))
   const byLabel = new Map<string, CatalogModel>()
   const kept: CatalogModel[] = []
   for (const model of models) {
@@ -283,9 +288,11 @@ export function collapseCatalog(kind: DriverKind, models: CatalogModel[]): Catal
     const next: CatalogModel = { ...model }
     const family = familyKeyOf(next, families)
     const alias = family !== undefined ? families?.[family] : undefined
+    // `opus[1m]` is already the pointer; it does not need `opus` as a second name.
+    const isPointer = isFamilyPointer(next, families)
     const aliases = mergeAliases(next.aliases, [
       ...(pointers.targets.get(next.id) ?? []),
-      ...(alias !== undefined ? [alias] : []),
+      ...(alias !== undefined && !ownIds.has(alias) && !isPointer ? [alias] : []),
     ])
     if (aliases.length > 0) next.aliases = aliases
     else delete next.aliases
@@ -347,7 +354,27 @@ function familyKeyOf(
 ): string | undefined {
   if (model.family !== undefined) return model.family
   if (families === undefined) return undefined
-  return Object.keys(families).find((prefix) => model.id.startsWith(prefix))
+  // `opus`, `opus[1m]`: the CLI's own pointer at a family's newest member.
+  const bare = bareId(model)
+  const pointed = Object.keys(families).find((prefix) => families[prefix] === bare)
+  return pointed ?? Object.keys(families).find((prefix) => model.id.startsWith(prefix))
+}
+
+/** A model id without its context-window suffix: `opus[1m]` is `opus`. */
+function bareId(model: CatalogModel): string {
+  return model.id.replace(/\[[^\]]*\]$/, '')
+}
+
+/**
+ * True for the CLI's own version-less name for a family (`opus`, `opus[1m]`).
+ * Unlike a registry pointer, which folds onto a concrete row, this one is a row
+ * the agent offers in its own right.
+ */
+function isFamilyPointer(
+  model: CatalogModel,
+  families: Record<string, string> | undefined,
+): boolean {
+  return families !== undefined && Object.values(families).includes(bareId(model))
 }
 
 /** Flags every family member after the first — the list is newest-first. */
@@ -360,8 +387,11 @@ function markSuperseded(
   for (const model of models) {
     const family = familyKeyOf(model, families)
     if (family === undefined) continue
-    // First occurrence is the family's newest member: the row to offer.
-    if (seen.has(family)) model.isLegacy = true
+    // The CLI's own pointers are current by definition, at any context size:
+    // `opus[1m]` beside `opus` is a sibling, not an older model.
+    if (isFamilyPointer(model, families)) seen.add(family)
+    // Otherwise the first occurrence is the family's newest member.
+    else if (seen.has(family)) model.isLegacy = true
     else seen.add(family)
   }
   return models

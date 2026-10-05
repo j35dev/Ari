@@ -78,6 +78,24 @@ describe('resolveAcpLaunch', () => {
     expect(launch?.label).toContain(acpAdapterSpec('claude') as string)
   })
 
+  describe('a Claude CLI that needs the cmd.exe wrapper', () => {
+    const realPlatform = process.platform
+    afterEach(() => Object.defineProperty(process, 'platform', { value: realPlatform }))
+
+    it('is not handed to the adapter, which would fail to spawn it', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      const npxPath = await makeFakeNpx()
+      const env = { ...ENV, pathEnv: dirname(npxPath) }
+
+      const shim = resolveAcpLaunch('claude', { cliBinaryPath: 'C:/npm/claude.cmd' }, env)
+      expect(shim).not.toBeNull()
+      expect(shim?.env).toBeUndefined()
+
+      const native = resolveAcpLaunch('claude', { cliBinaryPath: 'C:/bin/claude.exe' }, env)
+      expect(native?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: 'C:/bin/claude.exe' })
+    })
+  })
+
   it('launches native ACP servers with their own binary', () => {
     const opencode = resolveAcpLaunch('opencode', { cliBinaryPath: '/usr/bin/opencode' }, ENV)
     expect(opencode).toEqual({ label: 'opencode (native ACP)', command: '/usr/bin/opencode', args: ['acp'] })
@@ -93,8 +111,10 @@ describe('resolveAcpLaunch', () => {
     const launch = resolveAcpLaunch('codex', { cliBinaryPath }, { ...ENV, pathEnv: dirname(npxPath) })
     expect(launch?.env).toEqual({ CODEX_PATH: cliBinaryPath })
     expect(probeLaunch(launch!).env).toEqual({ CODEX_PATH: cliBinaryPath })
-    const claude = resolveAcpLaunch('claude', { cliBinaryPath: '/bin/claude' }, { ...ENV, pathEnv: dirname(npxPath) })
-    expect(claude?.env).toBeUndefined()
+    // A native executable on every platform, so the adapter can spawn it directly.
+    const claude = resolveAcpLaunch('claude', { cliBinaryPath: '/bin/claude.exe' }, { ...ENV, pathEnv: dirname(npxPath) })
+    expect(claude?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: '/bin/claude.exe' })
+    expect(probeLaunch(claude!).env).toEqual({ CLAUDE_CODE_EXECUTABLE: '/bin/claude.exe' })
   })
 
   it('returns null when the CLI itself is not installed', () => {

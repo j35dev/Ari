@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
@@ -15,6 +15,8 @@ export interface SelectorOption {
   label: string
   group: string
   hint?: string
+  /** One-line summary in the agent's own words, set under the label. */
+  description?: string
   /** Other ids that resolve to this same model; matched when marking selection. */
   aliases?: string[]
   /** Superseded within its family; hidden behind the picker's disclosure. */
@@ -23,7 +25,18 @@ export interface SelectorOption {
 
 /** True when an option is the current one, following version-less aliases. */
 function matchesCurrent(option: SelectorOption, currentId: string): boolean {
-  return option.id === currentId || (option.aliases?.includes(currentId) ?? false)
+  if (option.id === currentId || (option.aliases?.includes(currentId) ?? false)) return true
+  // No saved model means the agent's own default, which is its `default` row.
+  return currentId.endsWith(':') && option.id === `${currentId}default`
+}
+
+/**
+ * Agents mark their suggested row in the name itself ("Default (recommended)");
+ * the note reads better as a tag beside the name than as part of it.
+ */
+function splitRecommended(label: string): { name: string; recommended: boolean } {
+  const tagged = /^(.+?)\s*\(recommended\)$/i.exec(label)
+  return { name: tagged?.[1] ?? label, recommended: tagged !== null }
 }
 
 /** Live catalogs by kind; absent kinds fall back to the bundled snapshot. */
@@ -176,6 +189,7 @@ export function ModelSelector({
         label: model.label,
         group: driverLabel(kind),
         hint: model.contextHint,
+        description: model.description,
         aliases: model.aliases?.map((alias) => `${kind}:${alias}`),
         isLegacy: model.isLegacy,
       }))
@@ -205,11 +219,15 @@ export function ModelSelector({
     [activeKind, optionsFor],
   )
 
-  /** Pane rows: the current models, plus superseded ones once disclosed. */
-  const paneModels = useMemo(
-    () => (showLegacy ? allPaneModels : allPaneModels.filter((o) => o.isLegacy !== true)),
-    [allPaneModels, showLegacy],
-  )
+  /**
+   * Pane rows: the current models, then superseded ones once disclosed. Older
+   * rows always follow the current ones, whatever order the source listed them
+   * in, so the disclosure can sit between the two as their divider.
+   */
+  const paneModels = useMemo(() => {
+    const current = allPaneModels.filter((o) => o.isLegacy !== true)
+    return showLegacy ? [...current, ...allPaneModels.filter((o) => o.isLegacy === true)] : current
+  }, [allPaneModels, showLegacy])
 
   const legacyCount = useMemo(
     () => allPaneModels.filter((o) => o.isLegacy === true).length,
@@ -231,7 +249,10 @@ export function ModelSelector({
     let start = 0
     for (const provider of providers) {
       const options = optionsFor(provider.kind).filter(
-        (o) => o.label.toLowerCase().includes(q) || (o.hint?.toLowerCase().includes(q) ?? false),
+        (o) =>
+          o.label.toLowerCase().includes(q) ||
+          (o.hint?.toLowerCase().includes(q) ?? false) ||
+          (o.description?.toLowerCase().includes(q) ?? false),
       )
       if (options.length > 0) {
         groups.push({ kind: provider.kind, label: provider.label, start, options })
@@ -261,7 +282,14 @@ export function ModelSelector({
   useEffect(() => {
     // Each provider starts on its current models; a disclosure left open
     // across a provider switch would hide which list you are looking at.
-    setShowLegacy(false)
+    // The exception is a session already on an older model: folding that away
+    // would open the picker with nothing checked.
+    setShowLegacy(
+      activeKind !== null &&
+        optionsFor(activeKind).some((o) => o.isLegacy === true && matchesCurrent(o, currentId)),
+    )
+    // Deliberately not re-run when catalogs refresh: a late probe must not
+    // fold a list the user just opened.
   }, [activeKind])
 
   useEffect(() => {
@@ -386,17 +414,20 @@ export function ModelSelector({
         (modelId != null ? endpointModels.find((e) => e.id.startsWith(`${modelId}:`)) : undefined)
       return legacy?.label ?? modelId ?? 'Ari Core'
     }
-    const list = optionsFor(driverKind)
-    return list.find((o) => matchesCurrent(o, currentId))?.label ?? modelId ?? 'CLI default'
+    const current = optionsFor(driverKind).find((o) => matchesCurrent(o, currentId))
+    if (current === undefined) return modelId ?? 'CLI default'
+    const { name, recommended } = splitRecommended(current.label)
+    // The agent's default row says which model it resolves to; a chip reading
+    // only "Default" would hide the one thing the chip is there to show.
+    const resolved = current.description
+    return recommended && resolved !== undefined && resolved.length <= 16
+      ? `${name} · ${resolved}`
+      : name
   }, [driverKind, modelId, currentId, optionsFor, endpointModels])
 
-  const rowClasses = (isActive: boolean): string =>
-    `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-      isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
-    }`
-
-  const optionRow = (opt: SelectorOption, index: number, markKind: string | null) => {
+  const optionRow = (opt: SelectorOption, index: number) => {
     const isSelected = matchesCurrent(opt, currentId)
+    const isActive = index === activeIndex
     return (
       <button
         key={opt.id}
@@ -407,20 +438,25 @@ export function ModelSelector({
         data-option-index={index}
         onMouseEnter={() => setActiveIndex(index)}
         onClick={() => pickModel(opt)}
-        className={rowClasses(index === activeIndex)}
+        className={`flex h-8 w-full items-center gap-3 rounded-md px-2.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
+          isActive ? 'bg-surface-2 text-fg' : isSelected ? 'text-fg' : 'text-fg-muted'
+        }`}
       >
-        {markKind !== null ? <ProviderLogo kind={markKind} /> : null}
-        <span className="min-w-0 flex-1 truncate text-xs">{opt.label}</span>
-        {opt.hint ? (
-          <span className="shrink-0 font-mono text-2xs text-fg-subtle">{opt.hint}</span>
-        ) : null}
-        {isSelected ? <Check size={12} className="shrink-0 text-fg" aria-hidden /> : null}
+        <span className="min-w-0 truncate text-[13px] font-medium">
+          {splitRecommended(opt.label).name}
+        </span>
+        {/* The agent's own summary, only for the row in hand: a list of twelve
+            taglines is noise, one beside the row being considered is an answer. */}
+        <span className="min-w-0 flex-1 basis-0 truncate text-right text-xs text-fg-subtle">
+          {isActive ? (opt.description ?? opt.hint) : null}
+        </span>
+        {isSelected ? <Check size={14} aria-hidden className="shrink-0 text-accent" /> : null}
       </button>
     )
   }
 
   const emptyState = (
-    <p className="px-2 py-3 text-center text-xs text-fg-subtle">
+    <p className="px-3 py-10 text-center text-xs text-fg-subtle">
       {!loaded
         ? 'Loading…'
         : providers.length === 0
@@ -441,6 +477,28 @@ export function ModelSelector({
       ))}
     </ul>
   )
+
+  const currentCount = paneModels.length - (showLegacy ? legacyCount : 0)
+
+  /** Opens the older models, and once open marks where they begin. */
+  const olderToggle =
+    legacyCount > 0 ? (
+      <button
+        type="button"
+        onClick={() => setShowLegacy((shown) => !shown)}
+        aria-expanded={showLegacy}
+        className="flex h-8 w-full items-center gap-1.5 rounded-md px-2.5 text-xs text-fg-subtle transition-colors duration-[var(--ari-dur-fast)] hover:text-fg focus-visible:text-fg focus-visible:outline-none motion-reduce:transition-none"
+      >
+        {showLegacy ? 'Older models' : `${legacyCount} older`}
+        <ChevronDown
+          size={12}
+          aria-hidden
+          className={`transition-transform duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${showLegacy ? 'rotate-180' : ''}`}
+        />
+      </button>
+    ) : null
+
+  const noteClasses = 'border-t border-border px-3 py-2 text-[11px] leading-4 text-fg-subtle'
 
   return (
     <div ref={rootRef} className="relative min-w-0">
@@ -473,13 +531,13 @@ export function ModelSelector({
         <div
           role="presentation"
           onKeyDown={onMenuKeyDown}
-          className="absolute bottom-full left-0 z-50 mb-2 flex w-[25rem] flex-col overflow-hidden rounded-lg border border-border bg-surface-2 shadow-2"
+          className="ari-pop-in absolute bottom-full left-0 z-50 mb-2 flex w-[21rem] max-w-[calc(100vw-2rem)] origin-bottom-left flex-col overflow-hidden rounded-xl border border-border bg-surface-1 shadow-[inset_0_1px_0_0_var(--ari-inner-stroke),var(--ari-shadow-3)]"
         >
           <div className="relative border-b border-border">
             <Search
-              size={12}
+              size={13}
               aria-hidden
-              className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
+              className="pointer-events-none absolute start-3.5 top-1/2 -translate-y-1/2 text-fg-subtle"
             />
             <input
               ref={searchRef}
@@ -494,91 +552,89 @@ export function ModelSelector({
               aria-expanded
               autoComplete="off"
               spellCheck={false}
-              className="h-8 w-full bg-transparent pe-2 ps-7 text-xs text-fg placeholder:text-fg-subtle focus:outline-none"
+              className="h-10 w-full bg-transparent pe-3 ps-9 text-[13px] text-fg placeholder:text-fg-subtle focus:outline-none"
             />
           </div>
-
-          {searching ? (
+          {/* Agents run across the top as tabs: the one in view carries its
+              name, the rest are their marks. Left/Right walks them. The row stays
+              put during a search so the panel never resizes under the cursor. */}
+          {lockedTo !== null ? (
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3 text-fg">
+              <ProviderLogo kind={lockedTo} />
+              <span className="text-[13px] font-medium">{driverLabel(lockedTo)}</span>
+              <span className="min-w-0 flex-1 truncate text-right text-[11px] text-fg-subtle">
+                Start a new session to use another agent
+              </span>
+            </div>
+          ) : providers.length > 0 ? (
             <div
-              ref={listRef}
-              id={listboxId}
-              role="listbox"
-              aria-label="Search results"
-              className="ari-scroll max-h-80 overflow-y-auto p-1"
+              role="presentation"
+              aria-label="Providers"
+              className="flex h-10 shrink-0 items-center gap-0.5 border-b border-border px-1.5"
             >
-              {visibleCount === 0
-                ? emptyState
-                : results.map((group) => (
-                    <div key={group.kind} role="presentation">
-                      <p className="px-2 pb-0.5 pt-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
-                        {group.label} · {group.options.length}
-                      </p>
-                      {group.options.map((opt, i) => optionRow(opt, group.start + i, group.kind))}
-                    </div>
-                  ))}
+              {providers.map((provider) => {
+                const isCurrent = !searching && provider.kind === activeKind
+                return (
+                  <button
+                    key={provider.kind}
+                    type="button"
+                    aria-current={isCurrent}
+                    title={isCurrent ? undefined : provider.label}
+                    onClick={() => {
+                      setActiveKind(provider.kind)
+                      setQuery('')
+                    }}
+                    className={`flex h-7 shrink-0 items-center justify-center gap-2 rounded-md transition-colors duration-[var(--ari-dur-fast)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none ${
+                      isCurrent
+                        ? 'bg-surface-2 px-2.5 text-fg'
+                        : 'w-8 text-fg-muted hover:bg-surface-2/60 hover:text-fg'
+                    }`}
+                  >
+                    <ProviderLogo kind={provider.kind} />
+                    <span className={isCurrent ? 'text-[13px] font-medium' : 'sr-only'}>
+                      {provider.label}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
-          ) : (
-            <div className="flex min-h-0">
-              {lockedTo === null && providers.length > 0 ? (
-                <div
-                  role="presentation"
-                  aria-label="Providers"
-                  className="w-28 shrink-0 border-e border-border p-1"
-                >
-                  {providers.map((provider) => (
-                    <button
-                      key={provider.kind}
-                      type="button"
-                      aria-current={provider.kind === activeKind}
-                      onClick={() => {
-                        setActiveKind(provider.kind)
-                        setQuery('')
-                      }}
-                      className={`flex w-full items-center gap-1.5 rounded-md px-1.5 py-1.5 transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-                        provider.kind === activeKind
-                          ? 'bg-surface-2 text-fg'
-                          : 'text-fg-muted hover:text-fg'
-                      }`}
-                    >
-                      <ProviderLogo kind={provider.kind} />
-                      <span className="min-w-0 flex-1 truncate text-left text-xs">
-                        {provider.label}
-                      </span>
-                      <span className="shrink-0 font-mono text-2xs text-fg-subtle">
-                        {provider.count}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <div
-                ref={listRef}
-                id={listboxId}
-                role="listbox"
-                aria-label="Models"
-                className="ari-scroll max-h-80 min-w-0 flex-1 overflow-y-auto p-1"
-              >
-                {visibleCount === 0
-                  ? emptyState
-                  : paneModels.map((opt, index) => optionRow(opt, index, null))}
-              </div>
-            </div>
-          )}
-
-          {!searching && legacyCount > 0 ? (
-            <button
-              type="button"
-              onClick={() => setShowLegacy((shown) => !shown)}
-              className="border-t border-border px-2 py-1.5 text-2xs text-fg-subtle transition-colors duration-[var(--ari-dur-fast)] hover:text-fg motion-reduce:transition-none"
-            >
-              {showLegacy
-                ? 'Hide older models'
-                : `Show ${legacyCount} older model${legacyCount === 1 ? '' : 's'}`}
-            </button>
           ) : null}
 
+          {/* A fixed height: switching agents must not make the panel jump. */}
+          <div ref={listRef} className="ari-scroll h-[15.5rem] overflow-y-auto p-1.5">
+            {searching ? (
+              <div id={listboxId} role="listbox" aria-label="Search results">
+                {visibleCount === 0
+                  ? emptyState
+                  : results.map((group) => (
+                      <div key={group.kind} role="presentation" className="pb-1">
+                        <p className="flex h-7 items-center gap-2 px-2.5 text-xs text-fg-subtle">
+                          <ProviderLogo kind={group.kind} />
+                          <span>{group.label}</span>
+                        </p>
+                        {group.options.map((opt, i) => optionRow(opt, group.start + i))}
+                      </div>
+                    ))}
+              </div>
+            ) : (
+              <>
+                <div id={listboxId} role="listbox" aria-label="Models">
+                  {visibleCount === 0
+                    ? emptyState
+                    : paneModels.map((opt, index) => (
+                        <Fragment key={opt.id}>
+                          {index === currentCount ? olderToggle : null}
+                          {optionRow(opt, index)}
+                        </Fragment>
+                      ))}
+                </div>
+                {showLegacy ? null : olderToggle}
+              </>
+            )}
+          </div>
+
           {!searching && fallbackLabel !== null && activeKind !== null ? (
-            <div className="flex items-start gap-2 border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
+            <div className={`flex items-start gap-3 ${noteClasses}`}>
               <span className="min-w-0 flex-1">
                 {driverLabel(activeKind)} has not reported its own models — this is {fallbackLabel}.
                 It may not accept every entry.
@@ -587,23 +643,16 @@ export function ModelSelector({
                 type="button"
                 onClick={loadCatalogs}
                 aria-label="Refresh models from the agent"
-                className="shrink-0 rounded border border-border px-1.5 py-0.5 font-medium text-fg-muted transition-colors duration-[var(--ari-dur-fast)] hover:border-border-strong hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring motion-reduce:transition-none"
+                className="shrink-0 font-medium text-fg-muted transition-colors duration-[var(--ari-dur-fast)] hover:text-fg focus-visible:text-fg focus-visible:outline-none motion-reduce:transition-none"
               >
                 Refresh
               </button>
             </div>
           ) : null}
 
-          {lockedTo !== null ? (
-            <p className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
-              This session runs on {driverLabel(lockedTo)}. Start a new session to use another
-              agent.
-            </p>
-          ) : null}
-
           {lockedTo === null && withheld.length > 0 ? (
-            <div className="border-t border-border px-2 py-1.5 text-2xs leading-relaxed text-fg-subtle">
-              <p className="pb-0.5 font-semibold uppercase tracking-[0.14em]">Not shown</p>
+            <div className={noteClasses}>
+              <p className="pb-0.5 font-medium text-fg-muted">Not shown</p>
               {withheldNote}
             </div>
           ) : null}
