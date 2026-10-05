@@ -3,6 +3,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type WheelEvent,
@@ -123,6 +124,7 @@ export function TranscriptView({
   const seenRowsRef = useRef(new Set<string>())
   const freshRowsRef = useRef(new Set<string>())
   const historyLoadedRef = useRef(false)
+  const [, settleEntrance] = useReducer((count: number) => count + 1, 0)
 
   // Message rail (T3 minimap): one entry per user bubble row, with its row
   // index for jump-scrolling. Image-only prompts have no markdown row, so
@@ -290,7 +292,17 @@ export function TranscriptView({
       >
         <div ref={innerRef} className="mx-auto max-w-3xl">
           {rows.map((row, index) => (
-            <div key={row.key} className={freshRows.has(row.key) ? 'ari-enter-rise' : undefined}>
+            <div
+              key={row.key}
+              className={freshRows.has(row.key) ? 'ari-enter-rise' : undefined}
+              // Once it has played, the class comes off: a pane shown again
+              // after being hidden restarts CSS animations, and every row that
+              // arrived live would rise at once.
+              onAnimationEnd={(event) => {
+                if (event.target !== event.currentTarget) return
+                if (freshRows.delete(row.key)) settleEntrance()
+              }}
+            >
               <TranscriptRowView
                 row={row}
                 origin={
