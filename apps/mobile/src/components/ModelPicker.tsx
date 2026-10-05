@@ -33,6 +33,17 @@ export function modelSelectionLabel(
   return `${names[driverKind] ?? driverKind} · ${model?.label ?? (modelId || 'Default model')}`
 }
 
+/** A session's chip: the model alone, or the provider when the session uses its default. */
+export function modelChipLabel(
+  catalog: RemoteModelCatalog | null,
+  driverKind: string,
+  modelId: string,
+): string {
+  if (!modelId) return names[driverKind] ?? driverKind
+  const provider = catalog?.providers.find((entry) => entry.driverKind === driverKind)
+  return provider?.models.find((entry) => entry.id === modelId)?.label ?? modelId
+}
+
 /** One searchable picker for new sessions and the current session's native provider. */
 export function ModelPicker({
   driverKind,

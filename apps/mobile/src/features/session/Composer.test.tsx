@@ -58,3 +58,17 @@ it('shows working for a turn started on desktop and suppresses stale activity of
   view.rerender(<Composer {...props} status="running" disabled />)
   expect(screen.queryByRole('status')).toBeNull()
 })
+it('shows how long the agent has been working when it knows when the turn began', () => {
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(100_000)
+    render(<Composer {...props} status="running" workingSince={100_000 - 65_000} />)
+    expect(screen.getByRole('status', { name: 'Working' }).textContent).toBe('Working…1:05')
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    expect(screen.getByRole('status', { name: 'Working' }).textContent).toBe('Working…1:07')
+  } finally {
+    vi.useRealTimers()
+  }
+})
