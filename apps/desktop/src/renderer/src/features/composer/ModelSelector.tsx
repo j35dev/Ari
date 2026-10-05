@@ -442,12 +442,12 @@ export function ModelSelector({
           isActive ? 'bg-surface-2 text-fg' : isSelected ? 'text-fg' : 'text-fg-muted'
         }`}
       >
-        <span className="shrink-0 whitespace-nowrap text-[13px] font-medium">
+        <span className="min-w-0 truncate text-[13px] font-medium">
           {splitRecommended(opt.label).name}
         </span>
         {/* The agent's own summary, only for the row in hand: a list of twelve
             taglines is noise, one beside the row being considered is an answer. */}
-        <span className="min-w-0 flex-1 truncate text-right text-xs text-fg-subtle">
+        <span className="min-w-0 flex-1 basis-0 truncate text-right text-xs text-fg-subtle">
           {isActive ? (opt.description ?? opt.hint) : null}
         </span>
         {isSelected ? <Check size={14} aria-hidden className="shrink-0 text-accent" /> : null}
