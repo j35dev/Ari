@@ -20,8 +20,8 @@ const snapshot = {
   summary: { id: 'sess_1', projectId: 'proj_1', title: 'Fix pairing', updatedAt: 1 },
   seq: 0,
   messages: [],
-  pendingApprovals: [],
-  pendingInputs: [],
+  pendingApprovals: [] as unknown[],
+  pendingInputs: [] as unknown[],
 }
 const catalog: RemoteModelCatalog = {
   providers: [
@@ -61,6 +61,8 @@ beforeEach(() => {
   sessionStorage.clear()
   app.catalog = catalog
   snapshot.session.status = 'idle'
+  snapshot.pendingApprovals = []
+  snapshot.pendingInputs = []
   app.session.query.mockResolvedValue(snapshot)
   app.session.send.mockResolvedValue({ ok: true })
 })
@@ -100,7 +102,7 @@ describe('session controls in the composer', () => {
   it('keeps the model locked while the agent is working', async () => {
     snapshot.session.status = 'running'
     render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
-    const model = await screen.findByRole('button', { name: 'Model: Codex · GPT' })
+    const model = await screen.findByRole('button', { name: 'Model: GPT' })
     expect((model as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -110,5 +112,79 @@ describe('session controls in the composer', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Effort: High' }))
     fireEvent.click(screen.getByRole('button', { name: /^Low/ }))
     expect((await screen.findByRole('alert')).textContent).toContain('does not offer that effort')
+  })
+})
+
+describe('when the agent is waiting on the user', () => {
+  const approval = {
+    approvalId: 'ap_1',
+    toolName: 'Bash',
+    summaryJson: JSON.stringify({ command: 'pnpm verify' }),
+    options: [
+      { optionId: 'once', name: 'Allow once', kind: 'allow_once' },
+      { optionId: 'no', name: 'Deny', kind: 'reject_once' },
+    ],
+  }
+
+  it('puts the request where the composer was, and sends back the choice', async () => {
+    snapshot.session.status = 'waiting-approval'
+    snapshot.pendingApprovals = [approval]
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Run this command?' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Message the agent' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }))
+    await waitFor(() =>
+      expect(app.session.send).toHaveBeenCalledWith({
+        op: 'approval.respond',
+        sessionId: 'sess_1',
+        approvalId: 'ap_1',
+        optionId: 'once',
+      }),
+    )
+  })
+
+  it('sends back the answer to a question', async () => {
+    snapshot.pendingInputs = [{ inputId: 'in_1', prompt: 'Which branch?', choicesJson: null }]
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Your answer' }), {
+      target: { value: 'main' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
+    await waitFor(() =>
+      expect(app.session.send).toHaveBeenCalledWith({
+        op: 'input.respond',
+        sessionId: 'sess_1',
+        inputId: 'in_1',
+        value: 'main',
+      }),
+    )
+  })
+
+  it('brings the composer back once nothing is pending', async () => {
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    expect(await screen.findByRole('textbox', { name: 'Message the agent' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'The agent is waiting for you' })).toBeNull()
+  })
+})
+
+describe('the session header', () => {
+  it('opens changes directly and keeps the rest in one menu', async () => {
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    expect(await screen.findByRole('heading', { name: 'Fix pairing' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    expect(screen.getByRole('button', { name: 'Files' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Details' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Changes' }))
+    expect(screen.getByRole('heading', { name: 'Changes' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }))
+    expect(screen.getByRole('heading', { name: 'Fix pairing' })).toBeTruthy()
+  })
+
+  it('leaves the session from the chat', async () => {
+    const onBack = vi.fn()
+    render(<SessionScreen sessionId="sess_1" onBack={onBack} onForked={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    expect(onBack).toHaveBeenCalledOnce()
   })
 })
