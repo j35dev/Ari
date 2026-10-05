@@ -25,6 +25,18 @@ describe('contracts', () => {
     expect(parsed.driverKind).toBe('claude')
   })
 
+  it('accepts a reset redemption for a known provider and grant', () => {
+    expect(rpcParams['providers.consumeResetCredit'].parse({ kind: 'codex' })).toEqual({
+      kind: 'codex',
+    })
+    expect(
+      rpcParams['providers.consumeResetCredit'].parse({ kind: 'claude', creditId: 'grant_a' }),
+    ).toEqual({ kind: 'claude', creditId: 'grant_a' })
+    expect(() =>
+      rpcParams['providers.consumeResetCredit'].parse({ kind: 'codex', creditId: 'Bad Id' }),
+    ).toThrow()
+  })
+
   it('rejects unknown driver kinds and statuses', () => {
     expect(() => sessionSchema.parse({ ...baseSession, driverKind: 'skynet' })).toThrow()
     expect(() => sessionSchema.parse({ ...baseSession, status: 'quantum' })).toThrow()

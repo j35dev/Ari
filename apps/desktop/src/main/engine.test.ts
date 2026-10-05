@@ -15,6 +15,11 @@ import type {
   ProviderAdapter,
 } from '@ari/providers/driver'
 import { SessionStore } from '@ari/engine/session-store'
+import {
+  deterministicTitleStrategy,
+  type TitleRequest,
+  type TitleStrategy,
+} from '@ari/engine/title'
 import { Engine } from './engine'
 
 let dir: string
@@ -1206,6 +1211,33 @@ describe('engine end-to-end with scripted driver', () => {
     expect((await store.load(sessionId)).session?.title).toBe('Fix the login redirect loop please')
   }, 10000)
 
+  it('names the session from the assistant response with prompt fallback', async () => {
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: 'Fixed the login redirect loop.' }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_title_ai'
+    await seedSession(store, sessionId)
+    await store.append(sessionId, {
+      type: 'session.updated',
+      title: 'New session',
+    })
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'fix it' } as Command)
+    const startedAt = Date.now()
+    while (true) {
+      const model = await store.load(sessionId)
+      if (model.session?.title === 'Fixed the login redirect loop') break
+      if (Date.now() - startedAt > 30000) throw new Error('AI response title never landed')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect((await store.load(sessionId)).session?.title).toBe('Fixed the login redirect loop')
+  }, 10000)
+
   it('never generates a title off an error-settled turn', async () => {
     function failingDriver(): Driver {
       return {
@@ -1315,6 +1347,176 @@ describe('engine end-to-end with scripted driver', () => {
     expect(model.session?.pinned).toBe(false)
     expect((await store.listSessions()).find((s) => s.id === sessionId)?.archived).toBe(false)
   })
+})
+
+describe('session title source', () => {
+  /** Plays one scripted event list per turn; `hang` parks each turn after its events. */
+  function turnsDriver(turns: AgentEvent[][], hang = false): Driver {
+    let next = 0
+    return {
+      kind: 'claude',
+      create: () => {
+        const events = turns[next++] ?? []
+        return Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield* events
+              if (hang) await new Promise(() => undefined)
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        })
+      },
+    }
+  }
+
+  function engineFor(driver: Driver, titleStrategy?: TitleStrategy): Engine {
+    const registry = new DriverRegistry()
+    registry.register(driver)
+    return new Engine({
+      store,
+      registry,
+      publish: (sessionId, event) => published.push({ sessionId, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      ...(titleStrategy ? { titleStrategy } : {}),
+    })
+  }
+
+  async function untitledSession(sessionId: string): Promise<void> {
+    await seedSession(store, sessionId)
+    await store.append(sessionId, { type: 'session.updated', title: 'New session' })
+  }
+
+  async function until(what: string, check: () => boolean | Promise<boolean>): Promise<void> {
+    for (let i = 0; i < 250; i++) {
+      if (await check()) return
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    throw new Error(`${what} never happened`)
+  }
+
+  const titleOf = async (sessionId: string): Promise<string | undefined> =>
+    (await store.load(sessionId)).session?.title
+
+  const settles = (sessionId: string): number =>
+    published.filter((p) => p.sessionId === sessionId && p.event.type === 'turn.settled').length
+
+  it('joins streamed deltas into the title without injecting separators', async () => {
+    const engine = engineFor(
+      turnsDriver([
+        [
+          { type: 'text-delta', text: 'Ref' },
+          { type: 'text-delta', text: 'actored the tokenizer in package' },
+          { type: 'text-delta', text: '.json' },
+          { type: 'text-delta', text: '.' },
+        ],
+      ]),
+    )
+    const sessionId = 'sess_title_deltas'
+    await untitledSession(sessionId)
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'fix it' } as Command)
+    await until('title upgrade', async () => (await titleOf(sessionId)) !== 'fix it')
+
+    expect(await titleOf(sessionId)).toBe('Refactored the tokenizer in package.json')
+  }, 10000)
+
+  it('skips a notice banner that opens the first reply', async () => {
+    const engine = engineFor(
+      turnsDriver([
+        [
+          { type: 'notice', message: '"gpt-9" is not offered by this agent.' },
+          { type: 'text-delta', text: 'Fixed the login' },
+          { type: 'text-delta', text: ' redirect loop.' },
+        ],
+      ]),
+    )
+    const sessionId = 'sess_title_notice'
+    await untitledSession(sessionId)
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'fix it' } as Command)
+    await until('title upgrade', async () => (await titleOf(sessionId)) !== 'fix it')
+
+    expect(await titleOf(sessionId)).toBe('Fixed the login redirect loop')
+  }, 10000)
+
+  it('names a retried session from the retry, not the failed turn banner', async () => {
+    const engine = engineFor(
+      turnsDriver([
+        [{ type: 'error', message: 'Not logged in · Please run /login', rawJson: null }],
+        [{ type: 'text-delta', text: 'Fixed the login redirect loop.' }],
+      ]),
+    )
+    const sessionId = 'sess_title_retry'
+    await untitledSession(sessionId)
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'fix it' } as Command)
+    await until('failed turn settle', () => settles(sessionId) === 1)
+    expect((await store.load(sessionId)).status).toBe('error')
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'try again' } as Command)
+    await until('title upgrade', async () => (await titleOf(sessionId)) !== 'fix it')
+
+    expect(await titleOf(sessionId)).toBe('Fixed the login redirect loop')
+  }, 10000)
+
+  it('falls back to the prompt when the first turn is interrupted mid-reply', async () => {
+    const engine = engineFor(
+      turnsDriver(
+        [
+          [
+            { type: 'text-delta', text: 'Refactoring the tokenizer so that it' },
+            { type: 'tool-started', callId: 'c1', name: 'read', argsJson: '{}' },
+          ],
+        ],
+        true,
+      ),
+    )
+    const sessionId = 'sess_title_interrupt'
+    await untitledSession(sessionId)
+    const prompt = 'can you fix the login redirect loop please'
+
+    await engine.dispatch({ type: 'turn.start', sessionId, text: prompt } as Command)
+    await until('partial reply', async () =>
+      (await store.load(sessionId)).messages.some((m) => m.role === 'assistant'),
+    )
+    await engine.dispatch({ type: 'turn.interrupt', sessionId })
+    await until('title upgrade', async () => (await titleOf(sessionId)) !== prompt)
+
+    expect(await titleOf(sessionId)).toBe('Fix the login redirect loop please')
+  }, 10000)
+
+  it('keeps the title of a session that was already answered before this run', async () => {
+    const driver = turnsDriver([
+      [{ type: 'text-delta', text: 'Added retry logic with exponential backoff.' }],
+      [{ type: 'text-delta', text: 'Bumped the retry ceiling to five attempts.' }],
+    ])
+    const sessionId = 'sess_title_existing'
+    await untitledSession(sessionId)
+    const prompt = 'Add retry logic to the fetch client'
+
+    // An earlier run left the prompt slice in place, as pre-response builds did.
+    const earlier = engineFor(driver, { generate: () => Promise.resolve(null) })
+    await earlier.dispatch({ type: 'turn.start', sessionId, text: prompt } as Command)
+    await until('first turn settle', () => settles(sessionId) === 1)
+    expect(await titleOf(sessionId)).toBe(prompt)
+
+    const requests: TitleRequest[] = []
+    const restarted = engineFor(driver, {
+      generate: (request) => {
+        requests.push(request)
+        return deterministicTitleStrategy.generate(request)
+      },
+    })
+    await restarted.dispatch({ type: 'turn.start', sessionId, text: 'raise it' } as Command)
+    await until('title request', () => requests.length === 1)
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(requests[0]?.response).toBeUndefined()
+    expect(await titleOf(sessionId)).toBe(prompt)
+  }, 10000)
 })
 
 describe('turn workspace', () => {

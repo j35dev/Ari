@@ -1,6 +1,10 @@
 import type { DriverKind } from '@ari/contracts/common'
-import { codexAllowanceSchema, grokAllowanceSchema } from '@ari/contracts/rpc'
-import type { ProviderAllowance } from '@ari/contracts/rpc'
+import {
+  codexAllowanceSchema,
+  codexResetCreditsSchema,
+  grokAllowanceSchema,
+} from '@ari/contracts/rpc'
+import type { ProviderAllowance, ProviderResetCredits } from '@ari/contracts/rpc'
 
 type Windows = ProviderAllowance['windows']
 
@@ -147,6 +151,126 @@ export function parsePiAnthropicUsage(data: unknown): Windows {
   return windows
 }
 
+const COMPLETE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+const CLAUDE_GRANT_ID = /^[a-z0-9_-]{1,40}$/
+
+/** Rejects unparseable and calendar-invalid timestamps such as February 30. */
+function isFutureTimestamp(value: string, nowMs: number): boolean {
+  if (!COMPLETE_TIMESTAMP.test(value)) return false
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  if (year === undefined || month === undefined || day === undefined) return false
+  return Date.parse(value) > nowMs && Date.UTC(year, month - 1, day) <= Date.UTC(year, month, 0)
+}
+
+function codexResetCreditsValue(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return undefined
+  const root = value as Record<string, unknown>
+  if ('rateLimitResetCredits' in root) return root['rateLimitResetCredits']
+  const limits = root['rateLimits']
+  if (limits && typeof limits === 'object' && 'rateLimitResetCredits' in limits) {
+    return (limits as Record<string, unknown>)['rateLimitResetCredits']
+  }
+  return undefined
+}
+
+/**
+ * Codex banks a reset when it rate-limited the account unfairly. A missing
+ * field means this CLI does not report the bank; zero is a real balance.
+ */
+export function parseCodexResetCredits(value: unknown): ProviderResetCredits | null {
+  const raw = codexResetCreditsValue(value)
+  if (raw == null) return null
+  const parsed = codexResetCreditsSchema.safeParse(raw)
+  if (!parsed.success) return null
+  const credits = (parsed.data.credits ?? [])
+    .filter((credit) => credit.status === 'available')
+    .map((credit) =>
+      typeof credit.expiresAt === 'number' && credit.expiresAt > 0
+        ? { expiresAt: credit.expiresAt * 1000 }
+        : { expiresAt: null },
+    )
+    .sort(
+      (left, right) =>
+        (left.expiresAt ?? Number.MAX_SAFE_INTEGER) - (right.expiresAt ?? Number.MAX_SAFE_INTEGER),
+    )
+  const dated = credits.find((credit) => credit.expiresAt !== null)
+  return {
+    availableCount: parsed.data.availableCount,
+    nextExpiresAt: dated?.expiresAt ?? null,
+    credits,
+  }
+}
+
+interface ClaudeGrant {
+  id: string
+  resets_left: number
+  ends_at?: string | null
+  paused?: boolean
+  usable_now?: boolean
+}
+
+function claudeGrant(raw: unknown): ClaudeGrant | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  const id = record['id']
+  const left = record['resets_left']
+  if (typeof id !== 'string' || !CLAUDE_GRANT_ID.test(id)) return null
+  if (typeof left !== 'number' || !Number.isInteger(left) || left < 0) return null
+  const ends = record['ends_at']
+  return {
+    id,
+    resets_left: left,
+    ...(ends === null || typeof ends === 'string' ? { ends_at: ends } : {}),
+    ...(typeof record['paused'] === 'boolean' ? { paused: record['paused'] } : {}),
+    ...(typeof record['usable_now'] === 'boolean' ? { usable_now: record['usable_now'] } : {}),
+  }
+}
+
+/**
+ * Claude's `cedar_ember` block on the OAuth usage response. Paused, expired,
+ * and not-yet-usable grants do not count. Ineligible accounts report nothing.
+ */
+export function parseClaudeResetCredits(
+  block: unknown,
+  nowMs: number,
+): ProviderResetCredits | null {
+  if (!block || typeof block !== 'object') return null
+  const record = block as Record<string, unknown>
+  if (record['eligible'] !== true) return null
+  const grants = Array.isArray(record['grants']) ? record['grants'] : []
+  const live = grants.map(claudeGrant).filter((grant): grant is ClaudeGrant => {
+    if (!grant || grant.paused || grant.usable_now !== true) return false
+    return grant.ends_at == null || isFutureTimestamp(grant.ends_at, nowMs)
+  })
+  const nextId = record['next_grant_id']
+  const next = typeof nextId === 'string' ? live.find((grant) => grant.id === nextId) : undefined
+  const availableCount = next ? live.reduce((sum, grant) => sum + grant.resets_left, 0) : 0
+  const credits = next
+    ? live
+        .flatMap((grant) => {
+          const expiresAt =
+            grant.ends_at && isFutureTimestamp(grant.ends_at, nowMs)
+              ? Date.parse(grant.ends_at)
+              : null
+          return Array.from({ length: grant.resets_left }, () => ({
+            expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+          }))
+        })
+        .sort(
+          (left, right) =>
+            (left.expiresAt ?? Number.MAX_SAFE_INTEGER) -
+            (right.expiresAt ?? Number.MAX_SAFE_INTEGER),
+        )
+    : []
+  const soonest = credits.find((credit) => credit.expiresAt !== null)?.expiresAt ?? null
+  return {
+    availableCount,
+    nextExpiresAt: soonest,
+    credits,
+    ...(next ? { nextCreditId: next.id } : {}),
+  }
+}
+
 function piCodexWindow(
   rateLimit: Record<string, unknown>,
   keys: string[],
@@ -200,7 +324,12 @@ export function parsePiCodexUsage(data: unknown): Windows {
   const rateLimit = rawLimit as Record<string, unknown>
   const pairs: { window: Record<string, unknown> | null; fallback: string }[] = [
     {
-      window: piCodexWindow(rateLimit, ['primary_window', 'primary', 'five_hour_limit', 'five_hour']),
+      window: piCodexWindow(rateLimit, [
+        'primary_window',
+        'primary',
+        'five_hour_limit',
+        'five_hour',
+      ]),
       fallback: '5h',
     },
     {

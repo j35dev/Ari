@@ -11,6 +11,7 @@ interface ModelEntry {
   id?: unknown
   model?: unknown
   displayName?: unknown
+  description?: unknown
   hidden?: unknown
   isDefault?: unknown
   defaultReasoningEffort?: unknown
@@ -100,6 +101,9 @@ export async function probeCodexModelCatalog(
           typeof entry.displayName === 'string' && entry.displayName.length > 0
             ? entry.displayName
             : id,
+        ...(typeof entry.description === 'string' && entry.description.length > 0
+          ? { description: entry.description }
+          : {}),
       })
     }
 

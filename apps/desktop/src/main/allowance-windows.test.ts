@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { parseAllowance, parsePiAnthropicUsage, parsePiCodexUsage } from './allowance-windows'
+import {
+  parseAllowance,
+  parseClaudeResetCredits,
+  parseCodexResetCredits,
+  parsePiAnthropicUsage,
+  parsePiCodexUsage,
+} from './allowance-windows'
 
 describe('account allowance windows', () => {
   it('reads Grok weekly credits using the same extension as /usage', () => {
@@ -110,7 +116,12 @@ describe('account allowance windows', () => {
         'You are currently using your subscription to power your Claude Code usage\n\nCurrent session: 32% used · resets Sep 14, 7:50pm (Asia/Singapore)\nCurrent week (all models): 9% used · resets Sep 20, 3pm (Asia/Singapore)\nCurrent week (Fable): 0% used · resets Sep 20, 3pm (Asia/Singapore)',
       ),
     ).toEqual([
-      { label: '5h', usedPercent: 32, resetsAt: null, resetText: 'Sep 14, 7:50pm (Asia/Singapore)' },
+      {
+        label: '5h',
+        usedPercent: 32,
+        resetsAt: null,
+        resetText: 'Sep 14, 7:50pm (Asia/Singapore)',
+      },
       {
         label: 'Weekly',
         usedPercent: 9,
@@ -125,5 +136,82 @@ describe('account allowance windows', () => {
       },
     ])
     expect(parseAllowance('claude', 'Current session: 101% used')).toEqual([])
+  })
+  it('reads Codex banked resets without dropping the quota windows', () => {
+    const weekly = { usedPercent: 4, windowDurationMins: 10080, resetsAt: 1_800_000_000 }
+    const snapshot = {
+      rateLimits: { primary: null, secondary: weekly },
+      rateLimitResetCredits: {
+        availableCount: 2,
+        credits: [
+          { status: 'available', expiresAt: 1_900_000_000 },
+          { status: 'available', expiresAt: 1_800_000_000 },
+          { status: 'consumed', expiresAt: 1 },
+        ],
+      },
+    }
+    expect(parseAllowance('codex', snapshot)[0]).toMatchObject({ label: 'Weekly', usedPercent: 4 })
+    expect(parseCodexResetCredits(snapshot)).toEqual({
+      availableCount: 2,
+      nextExpiresAt: 1_800_000_000_000,
+      credits: [{ expiresAt: 1_800_000_000_000 }, { expiresAt: 1_900_000_000_000 }],
+    })
+    expect(
+      parseCodexResetCredits({ rateLimits: { rateLimitResetCredits: { availableCount: 0 } } }),
+    ).toEqual({
+      availableCount: 0,
+      nextExpiresAt: null,
+      credits: [],
+    })
+    expect(parseCodexResetCredits({ rateLimitResetCredits: { availableCount: -1 } })).toBeNull()
+    expect(parseCodexResetCredits({})).toBeNull()
+  })
+  it('counts only usable Claude reset grants', () => {
+    const now = Date.parse('2026-09-01T00:00:00Z')
+    expect(
+      parseClaudeResetCredits(
+        {
+          eligible: true,
+          next_grant_id: 'grant_a',
+          grants: [
+            { id: 'grant_a', resets_left: 1, usable_now: true, ends_at: '2026-10-01T00:00:00Z' },
+            { id: 'grant_c', resets_left: 1, usable_now: true, ends_at: '2026-11-15T00:00:00Z' },
+            {
+              id: 'grant_b',
+              resets_left: 1,
+              usable_now: true,
+              paused: true,
+              ends_at: '2026-09-02T00:00:00Z',
+            },
+            { id: 'old', resets_left: 4, usable_now: true, ends_at: '2026-08-01T00:00:00Z' },
+          ],
+        },
+        now,
+      ),
+    ).toEqual({
+      availableCount: 2,
+      nextExpiresAt: Date.parse('2026-10-01T00:00:00Z'),
+      nextCreditId: 'grant_a',
+      credits: [
+        { expiresAt: Date.parse('2026-10-01T00:00:00Z') },
+        { expiresAt: Date.parse('2026-11-15T00:00:00Z') },
+      ],
+    })
+    expect(parseClaudeResetCredits({ eligible: false, grants: [] }, now)).toBeNull()
+    expect(
+      parseClaudeResetCredits({ eligible: true, next_grant_id: 'missing', grants: [] }, now),
+    ).toEqual({ availableCount: 0, nextExpiresAt: null, credits: [] })
+    expect(
+      parseClaudeResetCredits(
+        {
+          eligible: true,
+          next_grant_id: 'bad',
+          grants: [
+            { id: 'bad', resets_left: 1, usable_now: true, ends_at: '2027-02-30T00:00:00Z' },
+          ],
+        },
+        now,
+      ),
+    ).toEqual({ availableCount: 0, nextExpiresAt: null, credits: [] })
   })
 })
