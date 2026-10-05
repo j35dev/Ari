@@ -4,6 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { useState } from 'react'
 import { ToastProvider } from '@ari/ui/toast'
+import { commandSchema } from '@ari/contracts/commands'
+import { journalEventSchema } from '@ari/contracts/events'
+import { sessionSchema } from '@ari/contracts/session'
+import { decideCommand, type DispatchDecision } from '@ari/engine/dispatcher'
+import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import {
   ContextMeter,
   EffortChip,
@@ -429,6 +434,99 @@ describe('SessionView question panel', () => {
       })
     })
     expect(screen.queryByRole('complementary', { name: 'Plan review' })).not.toBeInTheDocument()
+  })
+
+  // The card and the engine's decider each hold up alone; an approval dead-ends
+  // when the card's answer does not satisfy the decider's rule, so every click
+  // here is judged by the real decider against the same journalled request.
+  describe('approval answers against the engine decider', () => {
+    function request(options: unknown[]) {
+      return {
+        seq: 1,
+        at: 1,
+        sessionId: 'sess_1',
+        type: 'approval.requested',
+        approvalId: 'ap_1',
+        toolName: 'bash',
+        summaryJson: '{}',
+        options,
+      }
+    }
+
+    /** What the engine decides for the answer the view just dispatched. */
+    function decideDispatchedAnswer(requested: Record<string, unknown>): DispatchDecision {
+      const dispatched = invokeMock.mock.calls
+        .filter(([method]) => method === 'command.dispatch')
+        .map(([, params]) => commandSchema.parse((params as { command: unknown }).command))
+        .filter((command) => command.type === 'approval.respond')
+      expect(dispatched).toHaveLength(1)
+      const pending = [
+        {
+          type: 'session.created',
+          seq: 0,
+          at: 0,
+          sessionId: 'sess_1',
+          session: sessionSchema.parse(SESSION),
+        },
+        requested,
+      ].reduce(
+        (model, event) => applyEvent(model, journalEventSchema.parse(event)),
+        initialReadModel(),
+      )
+      return decideCommand(pending, dispatched[0]!, { turnId: 'turn_1', messageId: 'msg_1' })
+    }
+
+    it.each([
+      ['Allow', 'allow'],
+      ['Always allow', 'always-allow'],
+      ['Deny', 'deny'],
+    ])('resolves an approval that recorded no options: %s', async (label, decision) => {
+      const user = userEvent.setup()
+      renderView()
+      await screen.findByLabelText('Message')
+      const requested = request([])
+      emitSessionEvent(requested)
+
+      await user.click(await screen.findByRole('button', { name: label }))
+
+      const decided = decideDispatchedAnswer(requested)
+      expect(decided).toMatchObject({
+        accepted: true,
+        events: [{ type: 'approval.responded', approvalId: 'ap_1', decision }],
+      })
+    })
+
+    it('resolves an approval that recorded no options from the keyboard', async () => {
+      const user = userEvent.setup()
+      renderView()
+      await screen.findByLabelText('Message')
+      const requested = request([])
+      emitSessionEvent(requested)
+
+      ;(await screen.findByRole('group', { name: 'Approval requested: bash' })).focus()
+      await user.keyboard('y')
+
+      expect(decideDispatchedAnswer(requested).accepted).toBe(true)
+    })
+
+    it('resolves an offered option by its exact id', async () => {
+      const user = userEvent.setup()
+      renderView()
+      await screen.findByLabelText('Message')
+      const requested = request([
+        { optionId: 'accept', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'acceptForSession', name: 'Allow for this session', kind: 'allow_always' },
+        { optionId: 'decline', name: 'Deny', kind: 'reject_once' },
+      ])
+      emitSessionEvent(requested)
+
+      await user.click(await screen.findByRole('button', { name: 'Allow for this session' }))
+
+      expect(decideDispatchedAnswer(requested)).toMatchObject({
+        accepted: true,
+        events: [{ type: 'approval.responded', approvalId: 'ap_1', optionId: 'acceptForSession' }],
+      })
+    })
   })
 })
 
