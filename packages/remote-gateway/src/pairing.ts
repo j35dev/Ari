@@ -1,6 +1,11 @@
 import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto'
 import type { PairingStatus, RemoteErrorCode } from '@ari/contracts/remote'
-import { pairingConfirmationCode } from '@ari/contracts/remote'
+import {
+  PAIRING_CODE_ALPHABET,
+  PAIRING_CODE_LENGTH,
+  normalizePairingCode,
+  pairingConfirmationCode,
+} from '@ari/contracts/remote'
 
 /**
  * Local device pairing (ADR §18).
@@ -39,6 +44,9 @@ interface PendingDevice {
 
 interface Invitation {
   invitationId: string
+  /** What an installed app's user types instead of scanning; `undefined` once disabled. */
+  code?: string
+  failedResolves: number
   gatewayOrigin: string
   expiresAt: number
   createdAt: number
@@ -87,6 +95,8 @@ const DEFAULT_TTL_MS = 5 * 60 * 1000
 const DEFAULT_TOKEN_TTL_MS = 12 * 60 * 60 * 1000
 /** Challenges are one-per-attempt and short-lived; a handful is plenty. */
 const MAX_CHALLENGES = 256
+/** Wrong typed codes an open invitation tolerates before its code stops resolving. */
+const MAX_FAILED_RESOLVES = 8
 
 interface Challenge {
   /** Set for a redemption challenge, which is bound to its invitation. */
@@ -168,12 +178,58 @@ export class PairingService {
     }
   }
 
-  begin(gatewayOrigin: string): { invitationId: string; gatewayOrigin: string; expiresAt: number } {
+  begin(gatewayOrigin: string): {
+    invitationId: string
+    code: string
+    gatewayOrigin: string
+    expiresAt: number
+  } {
     const invitationId = `inv_${randomUUID()}`
+    const code = this.#mintCode()
     const createdAt = this.#now()
     const expiresAt = createdAt + this.#ttlMs
-    this.#invitations.set(invitationId, { invitationId, gatewayOrigin, createdAt, expiresAt })
-    return { invitationId, gatewayOrigin, expiresAt }
+    this.#invitations.set(invitationId, {
+      invitationId,
+      code,
+      failedResolves: 0,
+      gatewayOrigin,
+      createdAt,
+      expiresAt,
+    })
+    return { invitationId, code, gatewayOrigin, expiresAt }
+  }
+
+  /** The code the desktop displays, or `null` once it can no longer be typed. */
+  invitationCode(invitationId: string): string | null {
+    const invitation = this.#invitations.get(invitationId)
+    if (invitation === undefined || this.status(invitationId) !== 'pending') return null
+    return invitation.code ?? null
+  }
+
+  /**
+   * Names the invitation a typed code belongs to. It yields what a scanned QR
+   * yields and nothing more: the device still registers, and the user still
+   * approves it. Every refusal reads the same, so a guess learns nothing.
+   */
+  resolve(typed: string): PairingResult<{ invitationId: string }> {
+    const code = normalizePairingCode(typed)
+    if (code === null) return { ok: false, code: 'not_found' }
+    const open = [...this.#invitations.values()].filter(
+      (invitation) => this.status(invitation.invitationId) === 'pending',
+    )
+    const match = open.find((invitation) => invitation.code === code)
+    if (match !== undefined) return { ok: true, invitationId: match.invitationId }
+    let disabled = false
+    for (const invitation of open) {
+      if (invitation.code === undefined) continue
+      invitation.failedResolves += 1
+      if (invitation.failedResolves > MAX_FAILED_RESOLVES) {
+        invitation.code = undefined
+        disabled = true
+      }
+    }
+    if (disabled) this.#notify()
+    return { ok: false, code: 'not_found' }
   }
 
   status(invitationId: string): PairingStatus | undefined {
@@ -439,6 +495,14 @@ export class PairingService {
   }
 
   /** Announces a change the desktop's pairing prompt shows, without writing. */
+  #mintCode(): string {
+    // 256 is a multiple of the alphabet's 32 symbols, so the modulo is unbiased.
+    let code = ''
+    for (const byte of randomBytes(PAIRING_CODE_LENGTH))
+      code += PAIRING_CODE_ALPHABET[byte % PAIRING_CODE_ALPHABET.length]
+    return code
+  }
+
   #notify(): void {
     this.#onChange?.()
   }

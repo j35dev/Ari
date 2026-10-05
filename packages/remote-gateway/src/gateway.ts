@@ -8,6 +8,7 @@ import { z } from 'zod'
 import {
   REMOTE_PROTOCOL_VERSION,
   MAX_REMOTE_IMAGE_BYTES,
+  pairingResolveSchema,
   remoteClientMessageSchema,
   remoteCommandEnvelopeSchema,
   remoteErrorCodeSchema,
@@ -361,6 +362,8 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
         return pairStatus(reply, body)
       case '/pair/redeem':
         return pairRedeem(reply, body)
+      case '/pair/resolve':
+        return pairResolve(reply, body)
       case '/device/challenge':
         return deviceChallenge(reply, body)
       case '/device/authorize':
@@ -421,6 +424,14 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     const status = pairing.status(parsed.data.invitationId)
     if (status === undefined) return reply(404, fail('not_found', 'unknown invitation'))
     return reply(200, { ok: true, result: { status } })
+  }
+
+  function pairResolve(reply: Reply, body: unknown): void {
+    const parsed = pairingResolveSchema.safeParse(body)
+    if (!parsed.success) return reply(400, fail('unsupported_capability', 'malformed request'))
+    const result = pairing.resolve(parsed.data.code)
+    if (!result.ok) return reply(statusFor(result.code), fail(result.code, 'unknown code'))
+    return reply(200, { ok: true, result: { invitationId: result.invitationId } })
   }
 
   function pairRedeem(reply: Reply, body: unknown): void {

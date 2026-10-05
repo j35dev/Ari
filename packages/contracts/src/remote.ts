@@ -31,6 +31,9 @@ export const remoteOperationSchema = z.enum([
   'pairing.request',
   'pairing.status',
   'pairing.redeem',
+  // A typed code stands in for the QR: it names an invitation and proves
+  // nothing, so it is as anonymous as scanning one.
+  'pairing.resolve',
   // A remembered device, proving its key again without re-pairing. Anonymous
   // because the proof *is* the credential: a phone that has been through one
   // pairing holds a key the desktop already approved, and signing a fresh
@@ -103,6 +106,7 @@ export const REMOTE_ANONYMOUS_OPERATIONS: readonly RemoteOperation[] = [
   'pairing.request',
   'pairing.status',
   'pairing.redeem',
+  'pairing.resolve',
   'device.challenge',
   'device.authorize',
 ]
@@ -576,6 +580,26 @@ export const pairingRedeemSchema = z.object({
   nonce: z.string().min(1),
   signature: z.string().min(1),
 })
+
+export const pairingResolveSchema = z.object({
+  code: z.string().min(1).max(64),
+})
+
+/** Crockford base32: no I, L, O or U, so a code survives being read aloud. */
+export const PAIRING_CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+export const PAIRING_CODE_LENGTH = 8
+
+/**
+ * The canonical form of a typed pairing code, or `null` for anything that is
+ * not one. An installed app cannot scan the desktop's QR, so its user types
+ * the code instead: case, separators and the look-alike letters are forgiven.
+ */
+export function normalizePairingCode(input: string): string | null {
+  const code = input.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1')
+  if (code.length !== PAIRING_CODE_LENGTH) return null
+  for (const character of code) if (!PAIRING_CODE_ALPHABET.includes(character)) return null
+  return code
+}
 
 export const pairingStatusSchema = z.enum(['pending', 'approved', 'denied', 'expired', 'redeemed'])
 export type PairingStatus = z.infer<typeof pairingStatusSchema>
