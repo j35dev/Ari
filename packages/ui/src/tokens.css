@@ -5,6 +5,10 @@
  *                              layout, motion).
  *   [data-ari-theme='<id>']  → one complete color palette per theme; the
  *                              ThemeProvider sets the attribute on <html>.
+ *                              A theme may also override shape and type
+ *                              tokens (radii, the UI font) where that is part
+ *                              of its character; theme-effects.css adds the
+ *                              rare overlay on top.
  *                              :root also carries the default (Obsidian)
  *                              palette so pre-hydration HTML paints correctly.
  *   html                     → the launch-moment palette (see below).
@@ -15,7 +19,7 @@
 
 /*
  * Launch moment ("Ari awakens"). Deliberately theme-independent: the startup
- * animation is brand, identical under all six palettes, so these are not
+ * animation is brand, identical under every palette, so these are not
  * theme tokens and take no part in the registry mirror. They sit on `html`
  * rather than in the bare `:root` block both to keep that block color-free and
  * because the boot canvas must paint before React mounts (`[data-ari-booting]`,
@@ -368,6 +372,482 @@ html {
   --ari-shadow-1: 0 1px 2px oklch(0.35 0.04 62 / 12%);
   --ari-shadow-2: 0 4px 16px oklch(0.35 0.04 62 / 14%);
   --ari-shadow-3: 0 12px 40px oklch(0.35 0.04 62 / 18%);
+
+  color-scheme: light;
+}
+
+/* Phosphor — Green CRT terminal: monospace, square corners, a hint of scanline. (dark, monospace UI, scanlines via theme-effects.css) */
+[data-ari-theme='phosphor'] {
+  /* surfaces */
+  --ari-bg: oklch(0.115 0.02 150);
+  --ari-surface-0: oklch(0.14 0.024 150);
+  --ari-surface-1: oklch(0.175 0.03 150);
+  --ari-surface-2: oklch(0.225 0.038 150);
+  --ari-surface-3: oklch(0.285 0.046 150);
+
+  /* strokes */
+  --ari-border: oklch(0.8 0.17 148 / 16%);
+  --ari-border-strong: oklch(0.8 0.17 148 / 30%);
+  --ari-inner-stroke: oklch(0.85 0.15 148 / 6%);
+
+  /* text */
+  --ari-fg: oklch(0.88 0.14 148);
+  --ari-fg-muted: oklch(0.72 0.12 148);
+  --ari-fg-subtle: oklch(0.58 0.1 148);
+  --ari-fg-on-accent: oklch(0.14 0.04 150);
+
+  /* accent */
+  --ari-accent: oklch(0.87 0.26 142);
+  --ari-accent-hover: oklch(0.91 0.23 142);
+  --ari-accent-active: oklch(0.79 0.25 143);
+  --ari-accent-subtle: oklch(0.87 0.26 142 / 16%);
+  --ari-accent-ring: oklch(0.87 0.26 142 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.84 0.16 168);
+  --ari-success-subtle: oklch(0.84 0.16 168 / 15%);
+  --ari-warning: oklch(0.86 0.17 95);
+  --ari-warning-subtle: oklch(0.86 0.17 95 / 15%);
+  --ari-danger: oklch(0.7 0.2 25);
+  --ari-danger-hover: oklch(0.755 0.185 25);
+  --ari-danger-subtle: oklch(0.7 0.2 25 / 15%);
+  --ari-info: oklch(0.8 0.12 205);
+  --ari-info-subtle: oklch(0.8 0.12 205 / 15%);
+  --ari-busy: oklch(0.78 0.16 320);
+  --ari-busy-subtle: oklch(0.78 0.16 320 / 15%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 50%);
+  --ari-shadow-2: 0 4px 16px oklch(0 0 0 / 55%);
+  --ari-shadow-3: 0 12px 40px oklch(0 0 0 / 65%);
+
+  /* shape and type: part of this theme's character, not only its colour */
+  --ari-font-ui: var(--ari-font-mono);
+  --ari-radius-sm: 2px;
+  --ari-radius-md: 3px;
+  --ari-radius-lg: 4px;
+  --ari-radius-xl: 5px;
+  --ari-radius-2xl: 6px;
+
+  color-scheme: dark;
+}
+
+/* Tungsten — Amber monochrome monitor: warm, low-glare, monospace. (dark, monospace UI, scanlines via theme-effects.css) */
+[data-ari-theme='tungsten'] {
+  /* surfaces */
+  --ari-bg: oklch(0.12 0.015 62);
+  --ari-surface-0: oklch(0.15 0.02 62);
+  --ari-surface-1: oklch(0.185 0.025 63);
+  --ari-surface-2: oklch(0.235 0.032 64);
+  --ari-surface-3: oklch(0.295 0.04 65);
+
+  /* strokes */
+  --ari-border: oklch(0.82 0.13 75 / 15%);
+  --ari-border-strong: oklch(0.82 0.13 75 / 28%);
+  --ari-inner-stroke: oklch(0.86 0.11 75 / 6%);
+
+  /* text */
+  --ari-fg: oklch(0.87 0.13 80);
+  --ari-fg-muted: oklch(0.72 0.11 77);
+  --ari-fg-subtle: oklch(0.58 0.085 74);
+  --ari-fg-on-accent: oklch(0.16 0.03 60);
+
+  /* accent */
+  --ari-accent: oklch(0.8 0.185 55);
+  --ari-accent-hover: oklch(0.845 0.17 57);
+  --ari-accent-active: oklch(0.72 0.19 53);
+  --ari-accent-subtle: oklch(0.8 0.185 55 / 16%);
+  --ari-accent-ring: oklch(0.8 0.185 55 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.8 0.15 130);
+  --ari-success-subtle: oklch(0.8 0.15 130 / 15%);
+  --ari-warning: oklch(0.89 0.16 100);
+  --ari-warning-subtle: oklch(0.89 0.16 100 / 15%);
+  --ari-danger: oklch(0.68 0.2 25);
+  --ari-danger-hover: oklch(0.735 0.185 25);
+  --ari-danger-subtle: oklch(0.68 0.2 25 / 15%);
+  --ari-info: oklch(0.78 0.1 215);
+  --ari-info-subtle: oklch(0.78 0.1 215 / 15%);
+  --ari-busy: oklch(0.76 0.14 340);
+  --ari-busy-subtle: oklch(0.76 0.14 340 / 15%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 50%);
+  --ari-shadow-2: 0 4px 16px oklch(0 0 0 / 55%);
+  --ari-shadow-3: 0 12px 40px oklch(0 0 0 / 65%);
+
+  /* shape and type: part of this theme's character, not only its colour */
+  --ari-font-ui: var(--ari-font-mono);
+  --ari-radius-sm: 2px;
+  --ari-radius-md: 3px;
+  --ari-radius-lg: 4px;
+  --ari-radius-xl: 5px;
+  --ari-radius-2xl: 6px;
+
+  color-scheme: dark;
+}
+
+/* Outrun — Violet night with hot pink and cyan neon. (dark, neon-tinted elevation) */
+[data-ari-theme='outrun'] {
+  /* surfaces */
+  --ari-bg: oklch(0.14 0.055 295);
+  --ari-surface-0: oklch(0.175 0.065 295);
+  --ari-surface-1: oklch(0.215 0.075 294);
+  --ari-surface-2: oklch(0.27 0.085 293);
+  --ari-surface-3: oklch(0.33 0.095 292);
+
+  /* strokes */
+  --ari-border: oklch(0.75 0.16 320 / 16%);
+  --ari-border-strong: oklch(0.76 0.17 320 / 28%);
+  --ari-inner-stroke: oklch(0.85 0.1 320 / 7%);
+
+  /* text */
+  --ari-fg: oklch(0.95 0.025 310);
+  --ari-fg-muted: oklch(0.78 0.06 305);
+  --ari-fg-subtle: oklch(0.64 0.075 300);
+  --ari-fg-on-accent: oklch(0.14 0.05 300);
+
+  /* accent */
+  --ari-accent: oklch(0.72 0.25 350);
+  --ari-accent-hover: oklch(0.77 0.22 350);
+  --ari-accent-active: oklch(0.65 0.26 352);
+  --ari-accent-subtle: oklch(0.72 0.25 350 / 17%);
+  --ari-accent-ring: oklch(0.72 0.25 350 / 50%);
+
+  /* semantic */
+  --ari-success: oklch(0.84 0.17 165);
+  --ari-success-subtle: oklch(0.84 0.17 165 / 16%);
+  --ari-warning: oklch(0.87 0.17 90);
+  --ari-warning-subtle: oklch(0.87 0.17 90 / 16%);
+  --ari-danger: oklch(0.7 0.21 32);
+  --ari-danger-hover: oklch(0.755 0.19 32);
+  --ari-danger-subtle: oklch(0.7 0.21 32 / 16%);
+  --ari-info: oklch(0.82 0.14 205);
+  --ari-info-subtle: oklch(0.82 0.14 205 / 16%);
+  --ari-busy: oklch(0.75 0.19 305);
+  --ari-busy-subtle: oklch(0.75 0.19 305 / 16%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.05 0.05 300 / 50%);
+  --ari-shadow-2: 0 4px 20px oklch(0.4 0.2 320 / 26%);
+  --ari-shadow-3: 0 12px 44px oklch(0.35 0.2 310 / 40%);
+
+  color-scheme: dark;
+}
+
+/* Redline — True black with a crimson accent. Nothing else competes. (dark, tight corners) */
+[data-ari-theme='redline'] {
+  /* surfaces */
+  --ari-bg: oklch(0.07 0.004 20);
+  --ari-surface-0: oklch(0.105 0.006 20);
+  --ari-surface-1: oklch(0.14 0.008 20);
+  --ari-surface-2: oklch(0.19 0.011 20);
+  --ari-surface-3: oklch(0.25 0.014 20);
+
+  /* strokes */
+  --ari-border: oklch(0.9 0.01 20 / 10%);
+  --ari-border-strong: oklch(0.9 0.012 20 / 18%);
+  --ari-inner-stroke: oklch(0.92 0.008 20 / 5%);
+
+  /* text */
+  --ari-fg: oklch(0.93 0.004 20);
+  --ari-fg-muted: oklch(0.72 0.008 20);
+  --ari-fg-subtle: oklch(0.58 0.01 20);
+  --ari-fg-on-accent: oklch(0.985 0.004 20);
+
+  /* accent */
+  --ari-accent: oklch(0.64 0.24 25);
+  --ari-accent-hover: oklch(0.69 0.22 25);
+  --ari-accent-active: oklch(0.57 0.23 26);
+  --ari-accent-subtle: oklch(0.64 0.24 25 / 17%);
+  --ari-accent-ring: oklch(0.64 0.24 25 / 50%);
+
+  /* semantic */
+  --ari-success: oklch(0.78 0.17 150);
+  --ari-success-subtle: oklch(0.78 0.17 150 / 15%);
+  --ari-warning: oklch(0.86 0.16 92);
+  --ari-warning-subtle: oklch(0.86 0.16 92 / 15%);
+  --ari-danger: oklch(0.74 0.18 48);
+  --ari-danger-hover: oklch(0.79 0.165 50);
+  --ari-danger-subtle: oklch(0.74 0.18 48 / 15%);
+  --ari-info: oklch(0.78 0.1 230);
+  --ari-info-subtle: oklch(0.78 0.1 230 / 15%);
+  --ari-busy: oklch(0.74 0.16 320);
+  --ari-busy-subtle: oklch(0.74 0.16 320 / 15%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0 0 0 / 55%);
+  --ari-shadow-2: 0 4px 16px oklch(0 0 0 / 60%);
+  --ari-shadow-3: 0 12px 40px oklch(0 0 0 / 70%);
+
+  /* shape and type: part of this theme's character, not only its colour */
+  --ari-radius-sm: 3px;
+  --ari-radius-md: 5px;
+  --ari-radius-lg: 7px;
+  --ari-radius-xl: 9px;
+  --ari-radius-2xl: 12px;
+
+  color-scheme: dark;
+}
+
+/* Voltage — Blue-black steel with an acid yellow accent. (dark, tight corners) */
+[data-ari-theme='voltage'] {
+  /* surfaces */
+  --ari-bg: oklch(0.125 0.02 255);
+  --ari-surface-0: oklch(0.16 0.024 255);
+  --ari-surface-1: oklch(0.195 0.028 255);
+  --ari-surface-2: oklch(0.245 0.033 254);
+  --ari-surface-3: oklch(0.305 0.038 253);
+
+  /* strokes */
+  --ari-border: oklch(0.85 0.04 240 / 12%);
+  --ari-border-strong: oklch(0.86 0.05 240 / 21%);
+  --ari-inner-stroke: oklch(0.9 0.03 240 / 6%);
+
+  /* text */
+  --ari-fg: oklch(0.945 0.012 100);
+  --ari-fg-muted: oklch(0.75 0.02 240);
+  --ari-fg-subtle: oklch(0.61 0.025 245);
+  --ari-fg-on-accent: oklch(0.16 0.03 110);
+
+  /* accent */
+  --ari-accent: oklch(0.9 0.2 108);
+  --ari-accent-hover: oklch(0.93 0.18 108);
+  --ari-accent-active: oklch(0.83 0.19 106);
+  --ari-accent-subtle: oklch(0.9 0.2 108 / 15%);
+  --ari-accent-ring: oklch(0.9 0.2 108 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.82 0.19 150);
+  --ari-success-subtle: oklch(0.82 0.19 150 / 15%);
+  --ari-warning: oklch(0.8 0.17 62);
+  --ari-warning-subtle: oklch(0.8 0.17 62 / 15%);
+  --ari-danger: oklch(0.68 0.24 15);
+  --ari-danger-hover: oklch(0.735 0.22 15);
+  --ari-danger-subtle: oklch(0.68 0.24 15 / 15%);
+  --ari-info: oklch(0.82 0.14 200);
+  --ari-info-subtle: oklch(0.82 0.14 200 / 15%);
+  --ari-busy: oklch(0.72 0.24 335);
+  --ari-busy-subtle: oklch(0.72 0.24 335 / 15%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.03 0.02 255 / 50%);
+  --ari-shadow-2: 0 4px 16px oklch(0.03 0.02 255 / 55%);
+  --ari-shadow-3: 0 12px 40px oklch(0.02 0.02 255 / 65%);
+
+  /* shape and type: part of this theme's character, not only its colour */
+  --ari-radius-sm: 3px;
+  --ari-radius-md: 5px;
+  --ari-radius-lg: 7px;
+  --ari-radius-xl: 9px;
+  --ari-radius-2xl: 12px;
+
+  color-scheme: dark;
+}
+
+/* Blueprint — Drafting blue, chalk-white lines, a marker-yellow accent. (dark, drafting grid via theme-effects.css) */
+[data-ari-theme='blueprint'] {
+  /* surfaces */
+  --ari-bg: oklch(0.27 0.095 258);
+  --ari-surface-0: oklch(0.305 0.1 258);
+  --ari-surface-1: oklch(0.34 0.105 258);
+  --ari-surface-2: oklch(0.39 0.11 257);
+  --ari-surface-3: oklch(0.45 0.115 256);
+
+  /* strokes */
+  --ari-border: oklch(0.97 0.02 240 / 22%);
+  --ari-border-strong: oklch(0.97 0.02 240 / 38%);
+  --ari-inner-stroke: oklch(0.98 0.015 240 / 10%);
+
+  /* text */
+  --ari-fg: oklch(0.975 0.012 240);
+  --ari-fg-muted: oklch(0.86 0.04 245);
+  --ari-fg-subtle: oklch(0.75 0.06 248);
+  --ari-fg-on-accent: oklch(0.25 0.08 258);
+
+  /* accent */
+  --ari-accent: oklch(0.89 0.15 95);
+  --ari-accent-hover: oklch(0.92 0.13 95);
+  --ari-accent-active: oklch(0.83 0.15 92);
+  --ari-accent-subtle: oklch(0.89 0.15 95 / 16%);
+  --ari-accent-ring: oklch(0.89 0.15 95 / 50%);
+
+  /* semantic */
+  --ari-success: oklch(0.86 0.17 155);
+  --ari-success-subtle: oklch(0.86 0.17 155 / 17%);
+  --ari-warning: oklch(0.84 0.15 68);
+  --ari-warning-subtle: oklch(0.84 0.15 68 / 17%);
+  --ari-danger: oklch(0.78 0.16 22);
+  --ari-danger-hover: oklch(0.83 0.14 22);
+  --ari-danger-subtle: oklch(0.78 0.16 22 / 17%);
+  --ari-info: oklch(0.88 0.09 200);
+  --ari-info-subtle: oklch(0.88 0.09 200 / 17%);
+  --ari-busy: oklch(0.83 0.13 330);
+  --ari-busy-subtle: oklch(0.83 0.13 330 / 17%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.12 0.08 258 / 45%);
+  --ari-shadow-2: 0 4px 16px oklch(0.12 0.08 258 / 50%);
+  --ari-shadow-3: 0 12px 40px oklch(0.1 0.08 258 / 60%);
+
+  /* shape and type: part of this theme's character, not only its colour */
+  --ari-radius-sm: 2px;
+  --ari-radius-md: 3px;
+  --ari-radius-lg: 4px;
+  --ari-radius-xl: 5px;
+  --ari-radius-2xl: 6px;
+
+  color-scheme: dark;
+}
+
+/* Mulberry — Deep plum surfaces with a rose-gold accent. (dark) */
+[data-ari-theme='mulberry'] {
+  /* surfaces */
+  --ari-bg: oklch(0.135 0.03 345);
+  --ari-surface-0: oklch(0.17 0.035 345);
+  --ari-surface-1: oklch(0.21 0.04 344);
+  --ari-surface-2: oklch(0.26 0.046 343);
+  --ari-surface-3: oklch(0.32 0.052 342);
+
+  /* strokes */
+  --ari-border: oklch(0.86 0.05 20 / 12%);
+  --ari-border-strong: oklch(0.87 0.06 20 / 21%);
+  --ari-inner-stroke: oklch(0.92 0.03 20 / 6%);
+
+  /* text */
+  --ari-fg: oklch(0.94 0.012 20);
+  --ari-fg-muted: oklch(0.76 0.03 350);
+  --ari-fg-subtle: oklch(0.63 0.04 348);
+  --ari-fg-on-accent: oklch(0.18 0.04 345);
+
+  /* accent */
+  --ari-accent: oklch(0.8 0.11 45);
+  --ari-accent-hover: oklch(0.845 0.1 47);
+  --ari-accent-active: oklch(0.73 0.12 43);
+  --ari-accent-subtle: oklch(0.8 0.11 45 / 16%);
+  --ari-accent-ring: oklch(0.8 0.11 45 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.8 0.13 160);
+  --ari-success-subtle: oklch(0.8 0.13 160 / 15%);
+  --ari-warning: oklch(0.86 0.14 92);
+  --ari-warning-subtle: oklch(0.86 0.14 92 / 15%);
+  --ari-danger: oklch(0.7 0.2 15);
+  --ari-danger-hover: oklch(0.755 0.185 15);
+  --ari-danger-subtle: oklch(0.7 0.2 15 / 15%);
+  --ari-info: oklch(0.78 0.1 240);
+  --ari-info-subtle: oklch(0.78 0.1 240 / 15%);
+  --ari-busy: oklch(0.76 0.16 315);
+  --ari-busy-subtle: oklch(0.76 0.16 315 / 15%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 2px oklch(0.05 0.03 345 / 45%);
+  --ari-shadow-2: 0 4px 16px oklch(0.05 0.03 345 / 50%);
+  --ari-shadow-3: 0 12px 40px oklch(0.04 0.03 345 / 60%);
+
+  color-scheme: dark;
+}
+
+/* Platinum — Classic desktop gray: hard shadows, square corners, cobalt blue. (light, hard offset shadows, square corners) */
+[data-ari-theme='platinum'] {
+  /* surfaces */
+  --ari-bg: oklch(0.9 0.003 250);
+  --ari-surface-0: oklch(0.875 0.004 250);
+  --ari-surface-1: oklch(0.845 0.005 250);
+  --ari-surface-2: oklch(0.8 0.006 250);
+  --ari-surface-3: oklch(0.745 0.007 250);
+
+  /* strokes */
+  --ari-border: oklch(0.2 0.005 250 / 34%);
+  --ari-border-strong: oklch(0.2 0.005 250 / 62%);
+  --ari-inner-stroke: oklch(1 0 0 / 80%);
+
+  /* text */
+  --ari-fg: oklch(0.18 0.005 250);
+  --ari-fg-muted: oklch(0.4 0.008 250);
+  --ari-fg-subtle: oklch(0.5 0.008 250);
+  --ari-fg-on-accent: oklch(0.99 0 0);
+
+  /* accent */
+  --ari-accent: oklch(0.42 0.19 265);
+  --ari-accent-hover: oklch(0.36 0.19 265);
+  --ari-accent-active: oklch(0.31 0.17 265);
+  --ari-accent-subtle: oklch(0.42 0.19 265 / 15%);
+  --ari-accent-ring: oklch(0.42 0.19 265 / 45%);
+
+  /* semantic */
+  --ari-success: oklch(0.44 0.13 150);
+  --ari-success-subtle: oklch(0.44 0.13 150 / 15%);
+  --ari-warning: oklch(0.48 0.12 65);
+  --ari-warning-subtle: oklch(0.48 0.12 65 / 15%);
+  --ari-danger: oklch(0.46 0.2 27);
+  --ari-danger-hover: oklch(0.4 0.2 27);
+  --ari-danger-subtle: oklch(0.46 0.2 27 / 15%);
+  --ari-info: oklch(0.46 0.11 215);
+  --ari-info-subtle: oklch(0.46 0.11 215 / 15%);
+  --ari-busy: oklch(0.46 0.19 335);
+  --ari-busy-subtle: oklch(0.46 0.19 335 / 15%);
+
+  /* elevation */
+  --ari-shadow-1: 1px 1px 0 oklch(0.2 0.005 250 / 55%);
+  --ari-shadow-2: 3px 3px 0 oklch(0.2 0.005 250 / 42%);
+  --ari-shadow-3: 6px 6px 0 oklch(0.2 0.005 250 / 34%);
+
+  /* shape and type: part of this theme's character, not only its colour */
+  --ari-radius-sm: 1px;
+  --ari-radius-md: 2px;
+  --ari-radius-lg: 3px;
+  --ari-radius-xl: 4px;
+  --ari-radius-2xl: 5px;
+
+  color-scheme: light;
+}
+
+/* Ink — E-paper monochrome: ink on paper, colour only where it means something. (light, monochrome accent) */
+[data-ari-theme='ink'] {
+  /* surfaces */
+  --ari-bg: oklch(0.955 0.004 95);
+  --ari-surface-0: oklch(0.935 0.005 95);
+  --ari-surface-1: oklch(0.91 0.005 95);
+  --ari-surface-2: oklch(0.875 0.006 95);
+  --ari-surface-3: oklch(0.83 0.007 95);
+
+  /* strokes */
+  --ari-border: oklch(0.2 0.005 95 / 14%);
+  --ari-border-strong: oklch(0.2 0.005 95 / 26%);
+  --ari-inner-stroke: oklch(1 0 0 / 60%);
+
+  /* text */
+  --ari-fg: oklch(0.2 0.005 95);
+  --ari-fg-muted: oklch(0.42 0.006 95);
+  --ari-fg-subtle: oklch(0.54 0.006 95);
+  --ari-fg-on-accent: oklch(0.97 0.004 95);
+
+  /* accent */
+  --ari-accent: oklch(0.25 0.005 95);
+  --ari-accent-hover: oklch(0.18 0.005 95);
+  --ari-accent-active: oklch(0.12 0.005 95);
+  --ari-accent-subtle: oklch(0.25 0.005 95 / 10%);
+  --ari-accent-ring: oklch(0.25 0.005 95 / 35%);
+
+  /* semantic */
+  --ari-success: oklch(0.45 0.09 150);
+  --ari-success-subtle: oklch(0.45 0.09 150 / 13%);
+  --ari-warning: oklch(0.5 0.1 70);
+  --ari-warning-subtle: oklch(0.5 0.1 70 / 13%);
+  --ari-danger: oklch(0.46 0.16 28);
+  --ari-danger-hover: oklch(0.4 0.16 28);
+  --ari-danger-subtle: oklch(0.46 0.16 28 / 13%);
+  --ari-info: oklch(0.46 0.08 240);
+  --ari-info-subtle: oklch(0.46 0.08 240 / 13%);
+  --ari-busy: oklch(0.46 0.1 330);
+  --ari-busy-subtle: oklch(0.46 0.1 330 / 13%);
+
+  /* elevation */
+  --ari-shadow-1: 0 1px 0 oklch(0.2 0.005 95 / 12%);
+  --ari-shadow-2: 0 2px 8px oklch(0.2 0.005 95 / 10%);
+  --ari-shadow-3: 0 8px 24px oklch(0.2 0.005 95 / 14%);
 
   color-scheme: light;
 }
