@@ -40,7 +40,7 @@ describe('ApprovalCard', () => {
       />,
     )
     await user.click(screen.getByRole('button', { name: /Allow for this session/ }))
-    expect(onRespond).toHaveBeenCalledExactlyOnceWith('acceptForSession')
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'acceptForSession' })
   })
 
   it('distinguishes two grants that share one kind', async () => {
@@ -63,7 +63,7 @@ describe('ApprovalCard', () => {
     // Both persistent grants are `allow_always`; the id is what tells them
     // apart, so each has to be its own button.
     await user.click(screen.getByRole('button', { name: /Allow every git command/ }))
-    expect(onRespond).toHaveBeenCalledExactlyOnceWith('allow_prefix')
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'allow_prefix' })
     expect(screen.getByRole('button', { name: /Allow for this session/ })).toBeInTheDocument()
   })
 
@@ -98,11 +98,11 @@ describe('ApprovalCard', () => {
     )
     screen.getByRole('group', { name: 'Approval requested: bash' }).focus()
     await user.keyboard('y')
-    expect(onRespond).toHaveBeenLastCalledWith('accept')
+    expect(onRespond).toHaveBeenLastCalledWith({ optionId: 'accept' })
     await user.keyboard('a')
-    expect(onRespond).toHaveBeenLastCalledWith('acceptForSession')
+    expect(onRespond).toHaveBeenLastCalledWith({ optionId: 'acceptForSession' })
     await user.keyboard('n')
-    expect(onRespond).toHaveBeenLastCalledWith('decline')
+    expect(onRespond).toHaveBeenLastCalledWith({ optionId: 'decline' })
     expect(onRespond).toHaveBeenCalledTimes(3)
   })
 
@@ -125,7 +125,7 @@ describe('ApprovalCard', () => {
     await user.keyboard('a')
     expect(onRespond).not.toHaveBeenCalled()
     await user.keyboard('y')
-    expect(onRespond).toHaveBeenCalledExactlyOnceWith('once')
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'once' })
   })
 
   it('falls back to the decision vocabulary for pre-option journals', async () => {
@@ -141,7 +141,7 @@ describe('ApprovalCard', () => {
       />,
     )
     await user.click(screen.getByRole('button', { name: /Always allow/ }))
-    expect(onRespond).toHaveBeenCalledExactlyOnceWith('always-allow')
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ decision: 'always-allow' })
   })
 
   it('renders tool name and pretty-printed summary JSON', () => {

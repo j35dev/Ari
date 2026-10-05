@@ -15,7 +15,7 @@ import { TranscriptView } from '../transcript'
 import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
-import { ApprovalCard } from '../approvals/ApprovalCard'
+import { ApprovalCard, type ApprovalAnswer } from '../approvals/ApprovalCard'
 import { QuestionPanel } from '../approvals/QuestionPanel'
 import { PlanReviewRail } from '../approvals/PlanReviewRail'
 import { parseQuestionPayload } from '../approvals/questionnaire'
@@ -723,10 +723,10 @@ export function SessionView({
   }, [running, lastUserMessage, dispatchSend])
 
   const respondApproval = useCallback(
-    (approvalId: string, optionId: string) => {
+    (approvalId: string, answer: ApprovalAnswer) => {
       void rpc
         .invoke('command.dispatch', {
-          command: { type: 'approval.respond', sessionId, approvalId, optionId },
+          command: { type: 'approval.respond', sessionId, approvalId, ...answer },
         })
         .catch(() => undefined)
     },
@@ -1013,7 +1013,7 @@ export function SessionView({
                           options={a.options}
                           position={i + 1}
                           total={approvals.length}
-                          onRespond={(optionId) => respondApproval(a.approvalId, optionId)}
+                          onRespond={(answer) => respondApproval(a.approvalId, answer)}
                         />
                       ))}
                     </div>

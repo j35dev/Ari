@@ -1,13 +1,45 @@
 import type { KeyboardEvent } from 'react'
 import { Button } from '@ari/ui/button'
 import type { ApprovalOption } from '@ari/contracts/common'
+import type { Command } from '@ari/contracts/commands'
 
-/** The choices shown for journals recorded before options were captured. */
-const LEGACY_CHOICES: ApprovalOption[] = [
-  { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
-  { optionId: 'always-allow', name: 'Always allow', kind: 'allow_always' },
-  { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+type ApprovalRespond = Extract<Command, { type: 'approval.respond' }>
+
+/**
+ * How an approval was answered: the offered option by its exact id, or — for
+ * an approval that recorded no options — the coarse decision. The two are not
+ * interchangeable: the engine rejects any optionId the approval did not offer.
+ */
+export type ApprovalAnswer =
+  { optionId: string } | { decision: NonNullable<ApprovalRespond['decision']> }
+
+interface Choice {
+  key: string
+  name: string
+  kind: string | null
+  answer: ApprovalAnswer
+}
+
+/** The choices shown for an approval that recorded no options. */
+const LEGACY_CHOICES: Choice[] = [
+  { key: 'allow', name: 'Allow', kind: 'allow_once', answer: { decision: 'allow' } },
+  {
+    key: 'always-allow',
+    name: 'Always allow',
+    kind: 'allow_always',
+    answer: { decision: 'always-allow' },
+  },
+  { key: 'deny', name: 'Deny', kind: 'reject_once', answer: { decision: 'deny' } },
 ]
+
+function offeredChoices(options: ApprovalOption[]): Choice[] {
+  return options.map((option) => ({
+    key: option.optionId,
+    name: option.name,
+    kind: option.kind,
+    answer: { optionId: option.optionId },
+  }))
+}
 
 /**
  * Shortcut letters by kind, so `y`/`a`/`n` keep meaning what they always did.
@@ -26,10 +58,10 @@ const SHORTCUTS: readonly (readonly [string, string])[] = [
  * kind, the second gets no letter rather than a duplicate that would fire the
  * wrong one.
  */
-function shortcutKeys(options: ApprovalOption[]): (string | null)[] {
+function shortcutKeys(choices: Choice[]): (string | null)[] {
   const taken = new Set<string>()
-  return options.map((option) => {
-    const entry = SHORTCUTS.find(([kind]) => kind === option.kind)
+  return choices.map((choice) => {
+    const entry = SHORTCUTS.find(([kind]) => kind === choice.kind)
     if (entry === undefined || taken.has(entry[1])) return null
     taken.add(entry[1])
     return entry[1]
@@ -49,13 +81,13 @@ export interface ApprovalCardProps {
   /** JSON string describing what the tool intends to do. */
   summaryJson: string
   /**
-   * The choices the provider offered, in its own order. Empty only for
-   * journals recorded before options were captured, which fall back to the
-   * decision vocabulary the engine still accepts.
+   * The choices the provider offered, in its own order. Empty for journals
+   * recorded before options were captured and for providers that advertised
+   * none; both fall back to the decision vocabulary the engine still accepts.
    */
   options: ApprovalOption[]
-  /** Called with the exact optionId the user chose. */
-  onRespond: (optionId: string) => void
+  /** Called with the user's choice, ready to spread into `approval.respond`. */
+  onRespond: (answer: ApprovalAnswer) => void
   /** 1-based position among pending approvals (T3's "1/N" counter). */
   position?: number
   /** Total pending approvals; renders the counter with `position`. */
@@ -122,7 +154,7 @@ export function ApprovalCard({
   position,
   total,
 }: ApprovalCardProps) {
-  const choices = options.length > 0 ? options : LEGACY_CHOICES
+  const choices = options.length > 0 ? offeredChoices(options) : LEGACY_CHOICES
   const keys = shortcutKeys(choices)
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return
@@ -132,7 +164,7 @@ export function ApprovalCard({
     const choice = choices[index]
     if (choice === undefined) return
     event.preventDefault()
-    onRespond(choice.optionId)
+    onRespond(choice.answer)
   }
 
   const headline = approvalHeadline(summaryJson)
@@ -181,18 +213,17 @@ export function ApprovalCard({
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {choices.map((choice, index) => {
               const shortcut = keys[index] ?? null
-              const refusal =
-                choice.kind === 'reject_once' || choice.kind === 'reject_always'
+              const refusal = choice.kind === 'reject_once' || choice.kind === 'reject_always'
               return (
                 <Button
-                  key={choice.optionId}
+                  key={choice.key}
                   variant={
                     refusal ? 'ghost' : choice.kind === 'allow_always' ? 'secondary' : 'primary'
                   }
                   size="sm"
                   title={shortcut === null ? choice.name : `${choice.name} (${shortcut})`}
                   className={refusal ? 'text-danger hover:bg-danger-subtle' : undefined}
-                  onClick={() => onRespond(choice.optionId)}
+                  onClick={() => onRespond(choice.answer)}
                 >
                   {choice.name}
                   {shortcut === null ? null : <ShortcutHint>{shortcut}</ShortcutHint>}
