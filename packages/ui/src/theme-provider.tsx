@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { defaultThemeId, isThemeId, systemTheme, themes } from './themes'
 import type { Theme, ThemeId } from './themes'
@@ -120,12 +120,61 @@ function applyWallpaperAttr(root: HTMLElement, wallpaper: WallpaperSetting): voi
  */
 export function applyCachedTheme(): void {
   const prefs = readCache()
-  const theme = prefs.mode === 'system' ? systemTheme(matches('(prefers-color-scheme: dark)')) : themes[prefs.mode]
+  const theme =
+    prefs.mode === 'system'
+      ? systemTheme(matches('(prefers-color-scheme: dark)'))
+      : themes[prefs.mode]
   const root = document.documentElement
   root.dataset['ariTheme'] = theme.id
   root.dataset['ariScheme'] = theme.scheme
   delete root.dataset['ariGlass']
   applyWallpaperAttr(root, prefs.wallpaper)
+}
+
+/** Where the last click landed, so a theme change can open outward from it. */
+let lastClick: { x: number; y: number; at: number } | null = null
+
+function trackClick(event: MouseEvent): void {
+  // A keyboard-activated click reports (0, 0); use the control's own centre.
+  if (event.detail === 0 && event.target instanceof Element) {
+    const box = event.target.getBoundingClientRect()
+    lastClick = { x: box.left + box.width / 2, y: box.top + box.height / 2, at: performance.now() }
+    return
+  }
+  lastClick = { x: event.clientX, y: event.clientY, at: performance.now() }
+}
+
+/** How long after a click a theme change still counts as its consequence. */
+const REVEAL_WINDOW_MS = 800
+
+/**
+ * Applies a theme change inside a view transition where the engine has one,
+ * so the palette is revealed outward from the click that chose it rather than
+ * every colour snapping at once (see motion.css). A change nobody clicked for
+ * — the OS switching scheme — cross-fades instead. Falls back to a plain
+ * synchronous apply without the API or under reduced motion.
+ */
+function revealTheme(root: HTMLElement, apply: () => void): void {
+  const start = (
+    document as { startViewTransition?: (update: () => void) => { finished: Promise<void> } }
+  ).startViewTransition
+  const still = 'ariReducedMotion' in root.dataset || matches('(prefers-reduced-motion: reduce)')
+  if (typeof start !== 'function' || still) {
+    apply()
+    return
+  }
+  const click = lastClick
+  if (click !== null && performance.now() - click.at < REVEAL_WINDOW_MS) {
+    root.style.setProperty('--ari-reveal-x', `${click.x}px`)
+    root.style.setProperty('--ari-reveal-y', `${click.y}px`)
+    root.dataset['ariThemeReveal'] = ''
+  }
+  const settle = (): void => {
+    delete root.dataset['ariThemeReveal']
+    root.style.removeProperty('--ari-reveal-x')
+    root.style.removeProperty('--ari-reveal-y')
+  }
+  start.call(document, apply).finished.then(settle, settle)
 }
 
 /** Subscribes to a media query, returning its current match state. */
@@ -186,14 +235,29 @@ export function ThemeProvider({
   }, [persistence])
 
   const theme =
-    prefs.mode === 'system' ? systemTheme(prefersDark) : (themes[prefs.mode] ?? themes[defaultThemeId])
+    prefs.mode === 'system'
+      ? systemTheme(prefersDark)
+      : (themes[prefs.mode] ?? themes[defaultThemeId])
 
   useEffect(() => {
+    document.addEventListener('click', trackClick, true)
+    return () => document.removeEventListener('click', trackClick, true)
+  }, [])
+
+  const painted = useRef(false)
+  useEffect(() => {
     const root = document.documentElement
-    root.dataset['ariTheme'] = theme.id
-    root.dataset['ariScheme'] = theme.scheme
-    delete root.dataset['ariGlass']
-    applyWallpaperAttr(root, prefs.wallpaper)
+    const apply = (): void => {
+      root.dataset['ariTheme'] = theme.id
+      root.dataset['ariScheme'] = theme.scheme
+      delete root.dataset['ariGlass']
+      applyWallpaperAttr(root, prefs.wallpaper)
+    }
+    // The first run only confirms what applyCachedTheme already painted, and a
+    // wallpaper change is not a theme change: neither is worth a transition.
+    if (!painted.current || root.dataset['ariTheme'] === theme.id) apply()
+    else revealTheme(root, apply)
+    painted.current = true
   }, [theme.id, theme.scheme, prefs.wallpaper])
 
   useEffect(() => {
