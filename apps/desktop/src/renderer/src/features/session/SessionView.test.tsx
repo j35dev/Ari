@@ -132,6 +132,68 @@ describe('SessionView question panel', () => {
     vi.clearAllMocks()
   })
 
+  it('centers only after history has replayed and keeps the editor when docking', async () => {
+    rpcMocks.subscribe.mockImplementation(
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') sessionListener = onEvent
+        return () => undefined
+      },
+    )
+    renderView()
+    const editor = await screen.findByLabelText('Message')
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_1' }),
+    )
+    expect(screen.queryByRole('heading', { name: 'What are we building?' })).not.toBeInTheDocument()
+    emitReplayDone()
+    expect(await screen.findByRole('heading', { name: 'What are we building?' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Explore this project' }))
+    expect(editor).toHaveValue('Explore this project and explain its architecture.')
+    expect(invokeMock.mock.calls.filter(([method]) => method === 'command.dispatch')).toHaveLength(
+      0,
+    )
+    fireEvent.focus(editor)
+    ;(editor as HTMLTextAreaElement).setSelectionRange(4, 8)
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'welcome-message',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'Explore this project and explain its architecture.' }],
+        createdAt: 1,
+      },
+    })
+    expect(screen.queryByRole('heading', { name: 'What are we building?' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toBe(editor)
+    expect((editor as HTMLTextAreaElement).selectionStart).toBe(4)
+    expect((editor as HTMLTextAreaElement).selectionEnd).toBe(8)
+    expect(screen.queryByRole('button', { name: 'Explore this project' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the welcome plate open and docks it when approval requires attention', async () => {
+    renderView()
+    const editor = await screen.findByLabelText('Message')
+    await screen.findByRole('heading', { name: 'What are we building?' })
+    expect(editor.closest('.ari-composer-shell')).not.toHaveAttribute('data-resting')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'input.requested',
+      inputId: 'welcome-question',
+      prompt: 'Which approach?',
+      choicesJson: '["A","B"]',
+    })
+    expect(screen.queryByRole('heading', { name: 'What are we building?' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toBe(editor)
+    expect(await screen.findByText('Which approach?')).toBeVisible()
+  })
+
   it('mounts QuestionPanel when an input.requested event arrives', async () => {
     renderView()
     await screen.findByLabelText('Message')

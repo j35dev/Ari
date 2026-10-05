@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { X, FolderPlus } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
+import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
+import { sidebarSpring, transitions } from '@ari/ui/motion'
+import { useEngineSettings } from './features/settings/useEngineSettings'
 import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
@@ -111,6 +114,7 @@ export interface SessionDefaults {
 }
 
 function Shell() {
+  const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
   // are tools, so they dock to the trailing rail beside the transcript.
@@ -833,122 +837,132 @@ function Shell() {
         onExpandSidebar={sidebarOpen ? undefined : toggleSidebar}
       />
       <div className="flex min-h-0 flex-1">
-        {sidebarOpen ? (
-          <aside className="flex shrink-0 flex-col bg-surface-0" style={{ width: sidebar.width }}>
-            <SidebarHeader
-              onSearch={() => sidebarSearchRef.current?.focus()}
-              onCollapse={toggleSidebar}
-            />
-            <SessionsUnderProjects
-              sessions={sessions}
-              projects={openProjects}
-              knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
-              searchInputRef={sidebarSearchRef}
-              onNewSession={beginNewSession}
-              onOpenProject={openProjectViaDialog}
-              onNewSessionInProject={(projectId) => createSession(projectId)}
-              onImportSessions={setImportProjectId}
-              onRevealProject={(projectId) => {
-                const path = projects.find((p) => p.id === projectId)?.path
-                if (path === undefined) return
-                void rpc
-                  .invoke('shell.revealPath', { path })
-                  .catch((error: unknown) => log.warn('rpc call failed', error))
-              }}
-              onCloseProject={(projectId) => {
-                void rpc
-                  .invoke('project.close', { id: projectId })
-                  .then(refreshProjects)
-                  .catch((error: unknown) => log.warn('rpc call failed', error))
-              }}
-              onRemoveProject={(projectId) => {
-                void rpc
-                  .invoke('project.remove', { id: projectId })
-                  .then(refreshProjects)
-                  .catch((error: unknown) => log.warn('rpc call failed', error))
-              }}
-              onReorderProject={moveProject}
-              onMoveProject={(projectId, delta) => {
-                const move = projectMoveForDelta(
-                  openProjects.map((p) => p.id),
-                  projectId,
-                  delta,
-                )
-                if (move) moveProject(move.id, move.beforeId)
-              }}
-              onLocateProject={openProjectViaDialog}
-              activeSessionId={activeSessionId}
-              activityOf={activityOf}
-              onSelect={selectSession}
-              onOpenInSplit={splitLayoutActions.openInSplit}
-              onRename={(id, title) => {
-                void rpc
-                  .invoke('command.dispatch', {
-                    command: { type: 'session.update', sessionId: id, title },
-                  })
-                  .then(refreshSessions)
-                  .catch((error: unknown) => log.warn('rpc call failed', error))
-              }}
-              onDelete={(id) => {
-                const dropped = new Set([id, ...descendantIds(sessions, id)])
-                for (const gone of dropped) forget(gone)
-                void rpc
-                  .invoke('session.destroy', { sessionId: id })
-                  // The refreshed list blanks the panes those sessions were in.
-                  .then(refreshSessions)
-                  .catch((error: unknown) => log.warn('rpc call failed', error))
-              }}
-              onTogglePin={(id, pinned) => {
-                void rpc
-                  .invoke('command.dispatch', {
-                    command: { type: 'session.update', sessionId: id, pinned },
-                  })
-                  .then(refreshSessions)
-                  .catch((error: unknown) => log.warn('rpc call failed', error))
-              }}
-              onToggleArchive={(id, archived) => {
-                void rpc
-                  .invoke('command.dispatch', {
-                    command: { type: 'session.update', sessionId: id, archived },
-                  })
-                  .then(refreshSessions)
-                  .catch((error: unknown) => log.warn('rpc call failed', error))
-              }}
-              onArchiveMany={(ids) => {
-                void (async () => {
-                  for (const id of ids) {
-                    try {
-                      await rpc.invoke('command.dispatch', {
-                        command: { type: 'session.update', sessionId: id, archived: true },
-                      })
-                    } catch (error: unknown) {
-                      log.warn('rpc call failed', error)
+        <AnimatePresence initial={false}>
+          {sidebarOpen ? (
+            <motion.aside
+              key="sidebar"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: sidebar.width, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={sidebar.dragging || reducedMotion ? { duration: 0 } : sidebarSpring}
+              className="ari-sidebar-motion flex shrink-0 flex-col overflow-hidden bg-surface-0"
+              style={{ '--ari-sidebar-motion-width': `${sidebar.width}px` } as React.CSSProperties}
+            >
+              <SidebarHeader
+                onSearch={() => sidebarSearchRef.current?.focus()}
+                onCollapse={toggleSidebar}
+              />
+              <SessionsUnderProjects
+                sessions={sessions}
+                projects={openProjects}
+                knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
+                searchInputRef={sidebarSearchRef}
+                onNewSession={beginNewSession}
+                onOpenProject={openProjectViaDialog}
+                onNewSessionInProject={(projectId) => createSession(projectId)}
+                onImportSessions={setImportProjectId}
+                onRevealProject={(projectId) => {
+                  const path = projects.find((p) => p.id === projectId)?.path
+                  if (path === undefined) return
+                  void rpc
+                    .invoke('shell.revealPath', { path })
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onCloseProject={(projectId) => {
+                  void rpc
+                    .invoke('project.close', { id: projectId })
+                    .then(refreshProjects)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onRemoveProject={(projectId) => {
+                  void rpc
+                    .invoke('project.remove', { id: projectId })
+                    .then(refreshProjects)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onReorderProject={moveProject}
+                onMoveProject={(projectId, delta) => {
+                  const move = projectMoveForDelta(
+                    openProjects.map((p) => p.id),
+                    projectId,
+                    delta,
+                  )
+                  if (move) moveProject(move.id, move.beforeId)
+                }}
+                onLocateProject={openProjectViaDialog}
+                activeSessionId={activeSessionId}
+                activityOf={activityOf}
+                onSelect={selectSession}
+                onOpenInSplit={splitLayoutActions.openInSplit}
+                onRename={(id, title) => {
+                  void rpc
+                    .invoke('command.dispatch', {
+                      command: { type: 'session.update', sessionId: id, title },
+                    })
+                    .then(refreshSessions)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onDelete={(id) => {
+                  const dropped = new Set([id, ...descendantIds(sessions, id)])
+                  for (const gone of dropped) forget(gone)
+                  void rpc
+                    .invoke('session.destroy', { sessionId: id })
+                    // The refreshed list blanks the panes those sessions were in.
+                    .then(refreshSessions)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onTogglePin={(id, pinned) => {
+                  void rpc
+                    .invoke('command.dispatch', {
+                      command: { type: 'session.update', sessionId: id, pinned },
+                    })
+                    .then(refreshSessions)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onToggleArchive={(id, archived) => {
+                  void rpc
+                    .invoke('command.dispatch', {
+                      command: { type: 'session.update', sessionId: id, archived },
+                    })
+                    .then(refreshSessions)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onArchiveMany={(ids) => {
+                  void (async () => {
+                    for (const id of ids) {
+                      try {
+                        await rpc.invoke('command.dispatch', {
+                          command: { type: 'session.update', sessionId: id, archived: true },
+                        })
+                      } catch (error: unknown) {
+                        log.warn('rpc call failed', error)
+                      }
                     }
-                  }
-                  refreshSessions()
-                })()
-              }}
-              onDeleteMany={(ids) => {
-                const dropped = new Set<string>()
-                for (const id of ids) {
-                  dropped.add(id)
-                  for (const child of descendantIds(sessions, id)) dropped.add(child)
-                }
-                for (const gone of dropped) forget(gone)
-                void (async () => {
+                    refreshSessions()
+                  })()
+                }}
+                onDeleteMany={(ids) => {
+                  const dropped = new Set<string>()
                   for (const id of ids) {
-                    try {
-                      await rpc.invoke('session.destroy', { sessionId: id })
-                    } catch (error: unknown) {
-                      log.warn('rpc call failed', error)
-                    }
+                    dropped.add(id)
+                    for (const child of descendantIds(sessions, id)) dropped.add(child)
                   }
-                  refreshSessions()
-                })()
-              }}
-            />
-          </aside>
-        ) : null}
+                  for (const gone of dropped) forget(gone)
+                  void (async () => {
+                    for (const id of ids) {
+                      try {
+                        await rpc.invoke('session.destroy', { sessionId: id })
+                      } catch (error: unknown) {
+                        log.warn('rpc call failed', error)
+                      }
+                    }
+                    refreshSessions()
+                  })()
+                }}
+              />
+            </motion.aside>
+          ) : null}
+        </AnimatePresence>
 
         {sidebarOpen ? (
           <div
@@ -1081,7 +1095,10 @@ function Shell() {
                       dock.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
                     }`}
                   />
-                  <aside
+                  <motion.aside
+                    initial={{ opacity: 0, x: 12 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}
                     role="complementary"
                     aria-label={INSPECTOR_TITLES[inspector]}
                     className="flex shrink-0 flex-col border-l border-border"
@@ -1138,7 +1155,7 @@ function Shell() {
                         </div>
                       </>
                     )}
-                  </aside>
+                  </motion.aside>
                 </>
               ) : null}
             </div>
@@ -1190,14 +1207,24 @@ function Shell() {
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider persistence={themePersistence}>
-      <MotionProvider>
+      <RendererMotion>
         <ToastProvider>
           <UpdateToastWatcher />
           {children}
         </ToastProvider>
-      </MotionProvider>
+      </RendererMotion>
     </ThemeProvider>
   )
+}
+
+function RendererMotion({ children }: { children: React.ReactNode }) {
+  const { settings } = useEngineSettings()
+  const reducedMotion = settings?.appearance.reducedMotion ?? false
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-ari-reduced-motion', reducedMotion)
+    return () => document.documentElement.removeAttribute('data-ari-reduced-motion')
+  }, [reducedMotion])
+  return <MotionProvider reducedMotion={reducedMotion}>{children}</MotionProvider>
 }
 
 /** Headless: announces provider updates once the toast context exists. */
