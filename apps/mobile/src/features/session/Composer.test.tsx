@@ -18,9 +18,8 @@ afterEach(() => {
 })
 const props = {
   sessionId: 'session',
-  modelLabel: 'OpenCode',
+  controls: null,
   disabled: false,
-  onDetails: vi.fn(),
   onSent: async () => {},
   onError: vi.fn(),
 }
