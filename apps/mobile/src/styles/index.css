@@ -217,6 +217,18 @@
 html[data-keyboard='open'] .mobile-composer {
   padding-bottom: 0.5rem;
 }
+/* Sheets and the approval dock rise from the edge they are anchored to. */
+.sheet-rise {
+  animation: rise var(--ari-dur-base) var(--ari-ease-slide);
+}
+.dock-rise {
+  animation: rise var(--ari-dur-slow) var(--ari-ease-slide);
+}
+@keyframes rise {
+  from {
+    transform: translateY(100%);
+  }
+}
 /* A row of chips scrolls sideways; a scrollbar under it would read as a divider. */
 .no-scrollbar {
   scrollbar-width: none;

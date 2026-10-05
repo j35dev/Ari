@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
 /**
@@ -80,7 +80,10 @@ export function SearchField({
   )
 }
 
-/** A bottom sheet: backdrop dismisses, the panel holds the content. */
+/** Dragging the grip further than this closes the sheet; less, and it settles back. */
+const DISMISS_PX = 96
+
+/** A bottom sheet: the backdrop or a downward drag dismisses, the panel holds the content. */
 export function BottomSheet({
   title,
   onClose,
@@ -92,6 +95,8 @@ export function BottomSheet({
 }): ReactNode {
   const panel = useRef<HTMLDivElement>(null)
   const close = useEffectEvent(onClose)
+  const start = useRef<number | null>(null)
+  const [drag, setDrag] = useState(0)
   useEffect(() => {
     const previous = document.activeElement
     const getControls = (): HTMLElement[] =>
@@ -139,9 +144,27 @@ export function BottomSheet({
       />
       <div
         ref={panel}
-        className="relative flex max-h-[85%] min-h-0 flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-0 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2"
+        className={`sheet-rise relative flex max-h-[85%] min-h-0 flex-col overflow-hidden rounded-t-3xl border-t border-border bg-surface-0 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] ${drag > 0 ? '' : 'transition-transform duration-200'}`}
+        {...(drag > 0 ? { style: { transform: `translateY(${drag}px)` } } : {})}
       >
-        <div aria-hidden className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-border-strong" />
+        <div
+          data-testid="sheet-grip"
+          className="shrink-0 touch-none pt-2"
+          onTouchStart={(event) => {
+            start.current = event.touches[0]?.clientY ?? null
+          }}
+          onTouchMove={(event) => {
+            if (start.current !== null)
+              setDrag(Math.max(0, (event.touches[0]?.clientY ?? start.current) - start.current))
+          }}
+          onTouchEnd={() => {
+            start.current = null
+            if (drag > DISMISS_PX) onClose()
+            setDrag(0)
+          }}
+        >
+          <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full bg-border-strong" />
+        </div>
         <div className="flex shrink-0 items-center justify-between gap-3 py-2">
           <h2 className="text-[17px] font-semibold tracking-tight">{title}</h2>
           <button
