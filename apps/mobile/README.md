@@ -32,11 +32,13 @@ bundle without deploying it.
 
 ## Mobile workflow
 
-Sessions is the home screen, with search, running/pinned filters and recent
-work. Projects groups sessions and offers creation with a draft, provider and
-model. Inbox checks every authorized page for approvals, questions and
-failures. Settings contains the computer, connection, appearance,
-installation instructions and private-beta access controls for the owner.
+Home is one list of every session on the paired computer, on shelves: the
+ones waiting on you (approvals, questions and failures, read from every
+authorized page), the ones working, pinned, then recent. A project filter and
+search narrow it; press and hold a row to pin, rename or archive. Creation
+offers a draft, provider, model, effort and permission mode. Settings holds
+the computer, connection, theme, installation instructions and private-beta
+access controls for the owner.
 
 Within a session, Chat keeps the composer reachable above a software
 keyboard. Queue, Steer and Stop retain their different meanings. Tool output
@@ -81,7 +83,7 @@ explicit approval, records the matching public key against a device id.
 | Device id and name                                                                | Transcripts, diffs, tool output                     |
 | The desktop's address                                                             | Provider keys, filesystem contents                  |
 | Drafts and uncertain command receipts (sessionStorage, scoped by computer/device) | Attachment bytes or terminal input                  |
-| Shell identifiers and local project stars                                         | Account or managed-access tokens in browser storage |
+| Shell identifiers and the chosen theme                                            | Account or managed-access tokens in browser storage |
 
 Restored drafts and receipts are never sent automatically. Retrying an
 uncertain prompt, creation, fork or integration uses its original receipt.

@@ -1,6 +1,14 @@
 import { useState, type ReactNode } from 'react'
-import { Laptop, ShieldCheck, RefreshCw, ChevronRight, Smartphone, LogOut } from 'lucide-react'
-import { BottomSheet, ScreenHeader } from '../../components/ui'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Laptop,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
+  Smartphone,
+} from 'lucide-react'
+import { BottomSheet } from '../../components/ui'
 import { ThemePicker } from '../../components/ThemePicker'
 import { useApp } from '../../lib/app-state'
 import { connectionLabel, relativeTime } from '../../lib/format'
@@ -8,7 +16,7 @@ import { connectRequest, IS_CONNECT_BUILD, type ConnectAccount } from '../../lib
 import { OwnerAccess } from '../connect/OwnerAccess'
 
 /** Connection, appearance, and access are presented in everyday language. */
-export function SettingsScreen(): ReactNode {
+export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
   const app = useApp()
   const [confirming, setConfirming] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -44,8 +52,13 @@ export function SettingsScreen(): ReactNode {
     { op: 'terminal.create', label: 'Use an approved terminal' },
   ].filter((item) => app.session?.supports(item.op))
   return (
-    <div className="h-full overflow-y-auto px-5 pb-8 pt-5">
-      <ScreenHeader title="Settings" subtitle="" />
+    <div className="h-full overflow-y-auto px-5 pb-8 pt-[max(0.5rem,env(safe-area-inset-top))]">
+      <header className="-ml-3 flex items-center gap-1">
+        <button type="button" className="icon-button" aria-label="Back" onClick={onBack}>
+          <ChevronLeft size={22} />
+        </button>
+        <h1 className="text-[17px] font-semibold tracking-tight">Settings</h1>
+      </header>
       <h2 className="section-label mt-6">Connected computer</h2>
       <section className="rounded-2xl border border-border bg-surface-1 p-4">
         <div className="flex items-center gap-3">

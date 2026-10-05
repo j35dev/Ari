@@ -4,31 +4,10 @@ import { X } from 'lucide-react'
 /**
  * The shared pieces every destination is built from.
  *
- * One module because none of these earns a file alone: a screen header, a
- * search field, a filter chip row, and the bottom-sheet shell. All styling is
- * design tokens; all touch targets clear 44px.
+ * One module because neither earns a file alone: a search field and the
+ * bottom-sheet shell. All styling is design tokens; all touch targets clear
+ * 44px.
  */
-
-/** A screen's title block: large title, one quiet line beneath it. */
-export function ScreenHeader({
-  title,
-  subtitle,
-  action,
-}: {
-  title: string
-  subtitle: string
-  action?: ReactNode
-}): ReactNode {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h1 className="text-[25px] font-semibold leading-tight tracking-[-0.04em]">{title}</h1>
-        {subtitle && <p className="mt-1 text-xs leading-relaxed text-fg-muted">{subtitle}</p>}
-      </div>
-      {action}
-    </div>
-  )
-}
 
 /** A rounded search field with a magnifier, and an optional filter toggle. */
 export function SearchField({
@@ -97,38 +76,6 @@ export function SearchField({
           </svg>
         </button>
       )}
-    </div>
-  )
-}
-
-/** A single-select chip row. Exactly one chip is active at a time. */
-export function FilterChips<T extends string>({
-  options,
-  active,
-  onPick,
-}: {
-  options: readonly { id: T; label: string }[]
-  active: T
-  onPick: (id: T) => void
-}): ReactNode {
-  return (
-    <div role="group" className="flex gap-2 overflow-x-auto pb-1">
-      {options.map((option) => {
-        const selected = option.id === active
-        return (
-          <button
-            key={option.id}
-            type="button"
-            aria-pressed={selected}
-            onClick={() => onPick(option.id)}
-            className={`min-h-11 shrink-0 rounded-lg px-3 text-xs ${
-              selected ? 'bg-surface-2 font-medium text-fg' : 'text-fg-muted'
-            }`}
-          >
-            {option.label}
-          </button>
-        )
-      })}
     </div>
   )
 }
