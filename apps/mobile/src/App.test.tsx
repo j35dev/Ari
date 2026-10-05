@@ -144,6 +144,7 @@ describe('revoked phone recovery', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: 'Pair this phone again.' })).toBeTruthy()
     expect(screen.getByText(/Retrying the old connection cannot restore access/)).toBeTruthy()
+    expect(screen.getByText(/enter the new pairing code/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
     expect(app.pair).not.toHaveBeenCalled()
     expect(app.reconnect).not.toHaveBeenCalled()

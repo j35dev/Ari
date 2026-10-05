@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { ArrowRight, Laptop, Network, ShieldCheck, Smartphone } from 'lucide-react'
+import { Network, ShieldCheck } from 'lucide-react'
 import { useApp } from '../../lib/app-state'
 import { IS_CONNECT_BUILD } from '../../lib/connect'
 import { RemoteError } from '../../lib/gateway-client'
@@ -98,24 +98,12 @@ export function PairScreen({
   }
   return (
     <div className="mobile-shell overflow-y-auto px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]">
-      <header className="flex items-center justify-between">
+      <header>
         <span className="text-2xl font-semibold tracking-[-0.06em]">
           ari<span className="text-accent">.</span>
         </span>
-        <span className="rounded-full border border-border px-3 py-1.5 text-[11px] text-fg-muted">
-          Mobile workspace
-        </span>
       </header>
-      <div className="mb-8 mt-12">
-        <div className="mb-5 flex items-center gap-3">
-          <span className="flex size-12 items-center justify-center rounded-2xl border border-border bg-surface-1">
-            <Laptop size={23} />
-          </span>
-          <span className="h-px w-8 bg-border-strong" />
-          <span className="flex size-12 items-center justify-center rounded-2xl border border-border bg-surface-1">
-            <Smartphone size={22} />
-          </span>
-        </div>
+      <div className="mb-8 mt-14">
         <h1 className="text-[32px] font-semibold leading-tight tracking-[-0.055em]">
           {recovering
             ? revoked
@@ -132,8 +120,8 @@ export function PairScreen({
             ? invitationId !== null
               ? 'A fresh pairing link is ready. Confirm the matching code in Ari on your computer, then choose the projects this phone can access again.'
               : revoked
-                ? 'This phone’s access was revoked. Scan a fresh pairing QR in desktop Settings → Mobile access, then approve this phone again. Retrying the old connection cannot restore access.'
-                : 'Your computer no longer recognizes this phone. Scan a fresh pairing QR in desktop Settings → Mobile access, then approve this phone again.'
+                ? 'This phone’s access was revoked. Show a pairing code in desktop Settings → Mobile access, enter the new pairing code below, then approve this phone again. Retrying the old connection cannot restore access.'
+                : 'Your computer no longer recognizes this phone. Show a pairing code in desktop Settings → Mobile access, enter the new pairing code below, then approve this phone again.'
             : invitationId === null
               ? installed
                 ? 'On iPhone, this Home Screen app has its own secure storage. Pair it once here, even if Safari is already connected. Future launches reconnect automatically.'
@@ -167,7 +155,6 @@ export function PairScreen({
             onClick={() => void pair()}
           >
             {busy ? 'Waiting for your computer…' : 'Pair this phone'}
-            {!busy && <ArrowRight size={17} />}
           </button>
           {busy && (
             <div
@@ -207,14 +194,14 @@ export function PairScreen({
               autoComplete="off"
               spellCheck={false}
               disabled={resolving}
-              className="min-h-14 w-full rounded-xl border border-border bg-surface-1 px-4 text-center font-mono text-xl tracking-[0.14em] placeholder:text-fg-subtle"
+              className="min-h-14 w-full rounded-2xl border border-border bg-surface-1 px-4 text-center font-mono text-xl uppercase tracking-[0.14em] placeholder:text-fg-subtle"
             />
             <button
               type="submit"
               className="primary-button w-full"
               disabled={!entry.trim() || resolving}
             >
-              {resolving ? 'Checking…' : 'Continue'} {!resolving && <ArrowRight size={15} />}
+              {resolving ? 'Checking…' : 'Continue'}
             </button>
             <p className="text-xs leading-relaxed text-fg-muted">
               The code is under the QR in desktop Settings → Mobile access. A pasted pairing link
@@ -272,7 +259,6 @@ export function PairScreen({
                 />
                 <button type="submit" className="secondary-button w-full">
                   Open computer
-                  <ArrowRight size={15} />
                 </button>
               </form>
             </details>

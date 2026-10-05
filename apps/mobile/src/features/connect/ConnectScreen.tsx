@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowRight, Laptop, LogOut, RefreshCw, ShieldCheck } from 'lucide-react'
+import { ChevronRight, Laptop, LogOut, RefreshCw, ShieldCheck } from 'lucide-react'
 import { useApp } from '../../lib/app-state'
 import { connectRequest, type ConnectAccount, type ConnectComputer } from '../../lib/connect'
 import { EmptyState } from '../../components/EmptyState'
@@ -89,7 +89,6 @@ export function ConnectScreen(): ReactNode {
             className="primary-button w-full"
           >
             Sign in to Ari Connect
-            <ArrowRight size={17} />
           </a>
           <p className="mt-3 text-xs leading-relaxed text-fg-subtle">
             Access is by invitation. Sign in with the exact email approved for your Ari account.
@@ -149,7 +148,7 @@ export function ConnectScreen(): ReactNode {
                         {computer.computerId === requested && ' · Pairing link'}
                       </span>
                     </span>
-                    <ArrowRight size={16} className="text-fg-subtle" />
+                    <ChevronRight size={16} className="text-fg-subtle" />
                   </button>
                 </li>
               ))}
