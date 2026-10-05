@@ -117,6 +117,7 @@ From the repo root:
 pnpm install
 pnpm approve-builds                          # once, for node-pty
 pnpm --filter @ari/desktop build             # renderer + main bundles
+pnpm --filter @ari/mobile build              # phone PWA, packed into the installer
 cd apps/desktop
 npx electron-builder install-app-deps        # rebuild node-pty for Electron's ABI
 npx electron-builder --win                   # NSIS installer  → dist/Ari-Setup-<version>.exe
