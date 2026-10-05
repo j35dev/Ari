@@ -11,6 +11,7 @@
     "./scroll-area.css": "./src/scroll-area.css",
     "./theme-provider": "./src/theme-provider.tsx",
     "./themes": "./src/themes.ts",
+    "./tool-labels": "./src/tool-labels.ts",
     "./wallpapers": "./src/wallpapers.ts",
     "./color": "./src/color.ts",
     "./motion": "./src/motion/index.ts",
