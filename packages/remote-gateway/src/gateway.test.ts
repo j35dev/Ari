@@ -407,15 +407,15 @@ describe('remote gateway command allowlist', () => {
     const host = fakeHost()
     const gateway = await start(host)
     const token = await paired(gateway, deviceKey())
-    // A remote client asking to raise the permission ceiling must be refused,
-    // not handed a session quietly missing what it asked for.
+    // A field the contract does not know must be refused, not dropped: the
+    // client would otherwise believe it had been applied.
     const { status } = await call(
       gateway,
       '/command',
       {
         op: 'session.create',
         projectId: 'p1',
-        permissionMode: 'full',
+        workspaceMode: 'shared',
         clientCommandId: 'c',
         idempotencyKey: 'key-0123456789',
       },

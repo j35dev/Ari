@@ -3,7 +3,7 @@ import { join, sep } from 'node:path'
 import { GitService } from '@ari/engine/git'
 import { parseDiff, type DiffFile } from '@ari/shared/diff-parse'
 import { createLogger } from '@ari/shared/logger'
-import type { DriverKind, PermissionMode } from '@ari/contracts/common'
+import { driverKindSchema, type DriverKind, type PermissionMode } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
 import type { Message } from '@ari/contracts/message'
 import type {
@@ -11,6 +11,7 @@ import type {
   RemoteAttention,
   RemoteChanges,
   RemoteCommand,
+  RemoteEffortOption,
   RemoteInput,
   RemoteModelCatalog,
   RemoteOperation,
@@ -48,9 +49,9 @@ import { remoteCatalogDefaults } from './remote-catalog'
  * the caller supplied, so a device cannot name its way into someone else's
  * session.
  *
- * And the desktop's permission ceiling is authoritative. A remote client has no
- * way to name a permission mode — the strict command envelope has no such field
- * — so a session created from a phone inherits the user's configured default.
+ * A paired phone chooses a session's effort and permission mode as the desktop
+ * composer does. The desktop's configured mode is only the default for a
+ * session the phone created without choosing.
  */
 
 export interface RemoteHostDeps {
@@ -59,9 +60,9 @@ export interface RemoteHostDeps {
   /** Providers this desktop can actually drive right now. */
   driverKinds: readonly DriverKind[] | (() => readonly DriverKind[])
   /**
-   * The ceiling for a session the caller did not explicitly configure. Read at
-   * call time rather than captured, so changing the setting takes effect
-   * without restarting the gateway.
+   * The mode for a session whose creator did not choose one. Read at call time
+   * rather than captured, so changing the setting takes effect without
+   * restarting the gateway.
    */
   defaultPermissionMode: () => PermissionMode
   /** Provider for a session created from a phone, when the user has a default. */
@@ -72,6 +73,11 @@ export interface RemoteHostDeps {
   listProjects: () => Promise<{ id: string; name: string }[]>
   /** Providers this desktop can run, with their catalog models. */
   listModels: () => Promise<RemoteModelCatalog['providers']>
+  /**
+   * Effort levels for one model, where they differ from the provider's list.
+   * May start an agent to ask it, so the implementation is expected to cache.
+   */
+  effortsForModel?: (kind: DriverKind, modelId: string | null) => Promise<RemoteEffortOption[]>
   /** Owns the device records `device.list` and `device.revoke` read and write. */
   pairing: PairingService
   mintSessionId: () => string
@@ -130,6 +136,26 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
         deps.defaultPermissionMode(),
       ),
     }
+  }
+
+  /** The model's own levels when the desktop can ask for them, else the provider's. */
+  async function effortOptions(
+    kind: DriverKind,
+    modelId: string | null,
+  ): Promise<RemoteEffortOption[]> {
+    const specific = (await deps.effortsForModel?.(kind, modelId)) ?? []
+    if (specific.length > 0) return specific
+    const provider = (await modelCatalog()).providers.find((row) => row.driverKind === kind)
+    return provider?.efforts ?? []
+  }
+
+  /** The engine takes any effort string, so an id nobody offered is stopped here. */
+  async function offersEffort(
+    kind: DriverKind,
+    modelId: string | null,
+    effort: string,
+  ): Promise<boolean> {
+    return (await effortOptions(kind, modelId)).some((option) => option.id === effort)
   }
 
   /** Whether the caller was granted this project at pairing. */
@@ -345,6 +371,7 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       ...(deps.integration === undefined
         ? []
         : (['changes.preview', 'changes.integrate'] as const)),
+      ...(deps.effortsForModel === undefined ? [] : (['models.efforts'] as const)),
     ],
     listSessions,
     listProjects,
@@ -464,6 +491,11 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           // Capability-gated like everything else, but not project-scoped: it
           // names providers and catalog models, nothing about the user's work.
           return modelCatalog()
+        case 'models.efforts': {
+          const kind = driverKindSchema.parse(params['driverKind'])
+          const modelId = typeof params['modelId'] === 'string' ? params['modelId'] : null
+          return { efforts: await effortOptions(kind, modelId) }
+        }
         case 'device.list':
           // A paired device already acts as the user, so seeing and revoking
           // the user's other devices is the management feature the design
@@ -604,9 +636,25 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       if (
         command.title === undefined &&
         command.pinned === undefined &&
-        command.modelId === undefined
+        command.modelId === undefined &&
+        command.permissionMode === undefined &&
+        command.effort === undefined
       ) {
         return { ok: false, code: 'conflict', message: 'no session changes were supplied' }
+      }
+      if (
+        typeof command.effort === 'string' &&
+        !(await offersEffort(
+          session.driverKind,
+          command.modelId === undefined ? (session.modelId ?? null) : command.modelId,
+          command.effort,
+        ))
+      ) {
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'this provider does not offer that effort level',
+        }
       }
       if (command.modelId === null && session.driverKind === 'ari-core') {
         const provider = (await modelCatalog()).providers.find(
@@ -682,6 +730,21 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       }
     }
 
+    const modelId =
+      command.modelId === 'default' && driverKind !== 'ari-core'
+        ? null
+        : (command.modelId ?? provider.defaultModelId ?? null)
+    if (
+      typeof command.effort === 'string' &&
+      !(await offersEffort(driverKind, modelId, command.effort))
+    ) {
+      return {
+        ok: false,
+        code: 'unsupported_capability',
+        message: 'this provider does not offer that effort level',
+      }
+    }
+
     const sessionId = deps.mintSessionId()
     const now = Date.now()
     await engine.createSession({
@@ -689,13 +752,9 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
       projectId: command.projectId,
       title: command.title ?? 'New session',
       driverKind,
-      modelId:
-        command.modelId === 'default' && driverKind !== 'ari-core'
-          ? null
-          : (command.modelId ?? provider.defaultModelId ?? null),
-      // Never from the client: the envelope cannot carry a permission mode, and
-      // this is the ceiling the user set at the desktop.
-      permissionMode: deps.defaultPermissionMode(),
+      modelId,
+      permissionMode: command.permissionMode ?? deps.defaultPermissionMode(),
+      ...(command.effort === undefined ? {} : { effort: command.effort }),
       status: 'idle',
       createdAt: now,
       updatedAt: now,
@@ -756,6 +815,8 @@ function commandToEngine(
         ...(command.title === undefined ? {} : { title: command.title }),
         ...(command.pinned === undefined ? {} : { pinned: command.pinned }),
         ...(command.modelId === undefined ? {} : { modelId: command.modelId }),
+        ...(command.permissionMode === undefined ? {} : { permissionMode: command.permissionMode }),
+        ...(command.effort === undefined ? {} : { effort: command.effort }),
       }
     case 'approval.respond':
       // The exact option the provider offered. Re-expanding a coarse kind here
