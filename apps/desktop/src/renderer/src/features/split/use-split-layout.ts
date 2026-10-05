@@ -15,9 +15,11 @@ import {
 } from './split-layout'
 import {
   activeLayoutOf,
+  selectSpace,
   updateActiveLayoutOf,
   withoutSession,
   withoutTerminal,
+  type SpaceStore,
 } from '../spaces/spaces'
 import { spaceActions, spaceStoreSnapshot, useSpaces } from '../spaces/use-spaces'
 
@@ -37,6 +39,21 @@ export function useSplitLayout(): SplitLayout {
 /** The same layout, for the callers that are not components. */
 export function splitLayoutSnapshot(): SplitLayout {
   return activeLayoutOf(spaceStoreSnapshot())
+}
+
+/**
+ * Applies a placement to the active space of `stripped` (the store with the
+ * session already taken out of wherever else it was). A placement the layout
+ * refuses — the pane ceiling — returns `store` untouched instead, so a session
+ * is never removed from its pane without landing in another.
+ */
+function placedOrUnchanged(
+  store: SpaceStore,
+  stripped: SpaceStore,
+  place: (layout: SplitLayout) => SplitLayout,
+): SpaceStore {
+  const placed = updateActiveLayoutOf(stripped, place)
+  return activeLayoutOf(placed) === activeLayoutOf(stripped) ? store : placed
 }
 
 /**
@@ -80,13 +97,18 @@ export const splitLayoutActions = {
       updateActiveLayoutOf(store, (layout) => closePane(layout, paneId)),
     ),
 
-  /** A session dropped on a pane, from the sidebar or from another pane. */
+  /**
+   * A session dropped on a pane, from the sidebar or from another pane. One
+   * already on screen in this space is focused where it is, as before spaces;
+   * one that lives in another space moves here.
+   */
   dropSession: (paneId: string, sessionId: string, edge: PaneEdge): void =>
-    spaceActions.update((store) =>
-      updateActiveLayoutOf(withoutSession(store, sessionId), (layout) =>
+    spaceActions.update((store) => {
+      const here = paneIdForSession(activeLayoutOf(store), sessionId) !== null
+      return placedOrUnchanged(store, here ? store : withoutSession(store, sessionId), (layout) =>
         placeInPane(layout, paneId, sessionId, edge),
-      ),
-    ),
+      )
+    }),
 
   /** A pane dropped on another pane: the two trade places, tmux-style. */
   dropPane: (paneId: string, draggedPaneId: string): void =>
@@ -103,11 +125,29 @@ export const splitLayoutActions = {
     spaceActions.update((store) => {
       const open = paneIdForSession(activeLayoutOf(store), sessionId)
       if (open !== null) return updateActiveLayoutOf(store, (layout) => focusPane(layout, open))
-      const base = withoutSession(store, sessionId)
-      return updateActiveLayoutOf(base, (layout) =>
+      return placedOrUnchanged(store, withoutSession(store, sessionId), (layout) =>
         placeInPane(layout, activePaneOf(layout), sessionId, edge),
       )
     }),
+
+  /**
+   * Shows a session that is already open in some space: switches to that space
+   * and focuses its pane, rather than pulling the session out of a layout the
+   * user arranged. Returns false when no pane holds it, so the caller places it.
+   */
+  reveal: (sessionId: string): boolean => {
+    const owner = spaceStoreSnapshot().spaces.find(
+      (space) => paneIdForSession(space.layout, sessionId) !== null,
+    )
+    if (owner === undefined) return false
+    spaceActions.update((store) =>
+      updateActiveLayoutOf(selectSpace(store, owner.id), (layout) => {
+        const paneId = paneIdForSession(layout, sessionId)
+        return paneId === null ? layout : focusPane(layout, paneId)
+      }),
+    )
+    return true
+  },
 
   /** Moves one split's divider. Called every frame of a separator drag. */
   resize: (nodeId: string, ratio: number): void =>

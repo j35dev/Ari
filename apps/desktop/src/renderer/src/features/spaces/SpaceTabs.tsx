@@ -83,6 +83,8 @@ export function SpaceTabs({
   }
 
   const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    // The rename field owns its own keys: arrows, Home and End move the caret.
+    if (event.target instanceof HTMLInputElement) return
     // F2 is the platform's rename key; it opens the active tab for editing.
     if (event.key === 'F2') {
       event.preventDefault()

@@ -76,6 +76,18 @@ describe('SpaceTabs', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
+  it('leaves the arrow keys to the caret while renaming', () => {
+    const props = setup()
+    fireEvent.doubleClick(screen.getByRole('tab', { name: 'Alpha' }))
+    const input = screen.getByRole('textbox', { name: 'Rename space' })
+
+    for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End']) fireEvent.keyDown(input, { key })
+
+    expect(props.onSelect).not.toHaveBeenCalled()
+    expect(props.onRename).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox', { name: 'Rename space' })).toBeInTheDocument()
+  })
+
   it('abandons a rename on Escape', () => {
     const props = setup()
     fireEvent.doubleClick(screen.getByRole('tab', { name: 'Alpha' }))
