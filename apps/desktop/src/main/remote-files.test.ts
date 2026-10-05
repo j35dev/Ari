@@ -1,11 +1,29 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import type * as fsPromises from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { queryRemoteFiles } from './remote-files'
+
+/**
+ * Paths the filesystem resolves to a differently named entry, as an 8.3 short
+ * name does. Empty outside the alias test, where realpath is the real one.
+ */
+const aliases = vi.hoisted(() => new Map<string, string>())
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof fsPromises>()
+  const patched = {
+    ...actual,
+    realpath: (path: string) => actual.realpath(aliases.get(path) ?? path),
+  }
+  // Named imports of a Node builtin are read off its default export.
+  return { ...patched, default: patched }
+})
 
 const roots: string[] = []
 afterEach(async () => {
+  aliases.clear()
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 async function workspace(): Promise<string> {
@@ -92,6 +110,65 @@ describe('remote workspace files', () => {
       error: null,
     })
   })
+
+  it('refuses credential files reached through a name that resolves to them', async () => {
+    const root = await realpath(await workspace())
+    await writeFile(join(root, '.env'), 'SECRET')
+    await mkdir(join(root, '.git'))
+    await writeFile(join(root, '.git', 'config'), 'git metadata')
+    await mkdir(join(root, 'src'))
+    await writeFile(join(root, 'src', 'server.pem'), 'private key')
+    // Stand-ins give the aliased names something to lstat on every platform;
+    // what is served is whatever realpath says the name resolves to.
+    await writeFile(join(root, 'env-alias'), 'decoy')
+    await mkdir(join(root, 'git-alias'))
+    await writeFile(join(root, 'git-alias', 'config'), 'decoy')
+    await writeFile(join(root, 'src', 'pem-alias'), 'decoy')
+    aliases.set(join(root, 'env-alias'), join(root, '.env'))
+    aliases.set(join(root, 'git-alias'), join(root, '.git'))
+    aliases.set(join(root, 'git-alias', 'config'), join(root, '.git', 'config'))
+    aliases.set(join(root, 'src', 'pem-alias'), join(root, 'src', 'server.pem'))
+
+    for (const path of ['env-alias', 'git-alias/config', 'src/pem-alias']) {
+      expect(await queryRemoteFiles(root, { op: 'files.read', path })).toMatchObject({
+        kind: null,
+        content: null,
+        error: expect.any(String) as unknown,
+      })
+    }
+    expect(await queryRemoteFiles(root, { op: 'files.list', path: 'git-alias' })).toMatchObject({
+      entries: [],
+      error: expect.any(String) as unknown,
+    })
+  })
+
+  it.runIf(process.platform === 'win32')(
+    'refuses credential files requested by their 8.3 short names',
+    async (context) => {
+      const root = await workspace()
+      await writeFile(join(root, '.env'), 'SECRET')
+      await mkdir(join(root, '.git'))
+      await writeFile(join(root, '.git', 'config'), 'git metadata')
+      await mkdir(join(root, '.ssh'))
+      await writeFile(join(root, '.ssh', 'known_hosts'), 'hosts')
+      // Short-name generation is a per-volume setting; without it there is no alias to refuse.
+      if (!['ENV~1', 'GIT~1', 'SSH~1'].every((name) => existsSync(join(root, name)))) context.skip()
+
+      for (const path of ['ENV~1', 'env~1', 'GIT~1/config', 'SSH~1/known_hosts']) {
+        expect(await queryRemoteFiles(root, { op: 'files.read', path })).toMatchObject({
+          kind: null,
+          content: null,
+          error: expect.any(String) as unknown,
+        })
+      }
+      for (const path of ['GIT~1', 'SSH~1']) {
+        expect(await queryRemoteFiles(root, { op: 'files.list', path })).toMatchObject({
+          entries: [],
+          error: expect.any(String) as unknown,
+        })
+      }
+    },
+  )
 
   it('refuses symlinked files and junctions even when they target the workspace', async () => {
     const root = await workspace()
