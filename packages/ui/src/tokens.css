@@ -76,15 +76,15 @@ html {
   --ari-dur-slow: 260ms;
 }
 
-/* Obsidian — Near-black surfaces with an indigo accent. Ari’s signature look. */
+/* Obsidian — Smoky plum, warm ivory and luminous coral. */
 :root,
 [data-ari-theme='obsidian'] {
   /* surfaces */
-  --ari-bg: oklch(0.095 0.008 278);
-  --ari-surface-0: oklch(0.12 0.011 278);
-  --ari-surface-1: oklch(0.155 0.014 278);
-  --ari-surface-2: oklch(0.21 0.018 278);
-  --ari-surface-3: oklch(0.275 0.022 277);
+  --ari-bg: oklch(0.15 0.016 305);
+  --ari-surface-0: oklch(0.18 0.016 305);
+  --ari-surface-1: oklch(0.225 0.016 305);
+  --ari-surface-2: oklch(0.275 0.016 305);
+  --ari-surface-3: oklch(0.33 0.016 305);
 
   /* strokes */
   --ari-border: oklch(0.85 0.02 278 / 11%);
@@ -92,17 +92,17 @@ html {
   --ari-inner-stroke: oklch(0.9 0.015 278 / 5%);
 
   /* text */
-  --ari-fg: oklch(0.93 0.008 280);
-  --ari-fg-muted: oklch(0.72 0.015 278);
-  --ari-fg-subtle: oklch(0.59 0.02 278);
-  --ari-fg-on-accent: oklch(0.985 0.002 280);
+  --ari-fg: oklch(0.95 0.012 305);
+  --ari-fg-muted: oklch(0.77 0.018 305);
+  --ari-fg-subtle: oklch(0.69 0.02 305);
+  --ari-fg-on-accent: oklch(0.18 0.015 305);
 
   /* accent */
-  --ari-accent: oklch(0.665 0.19 279);
-  --ari-accent-hover: oklch(0.72 0.175 280);
-  --ari-accent-active: oklch(0.6 0.205 280);
-  --ari-accent-subtle: oklch(0.665 0.19 279 / 14%);
-  --ari-accent-ring: oklch(0.665 0.19 279 / 45%);
+  --ari-accent: oklch(0.78 0.145 30);
+  --ari-accent-hover: oklch(0.82 0.145 30);
+  --ari-accent-active: oklch(0.72 0.145 30);
+  --ari-accent-subtle: oklch(0.78 0.145 30 / 14%);
+  --ari-accent-ring: oklch(0.78 0.145 30 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.755 0.175 162);
@@ -127,14 +127,14 @@ html {
   color-scheme: dark;
 }
 
-/* Graphite — Opaque warm charcoal with an amber accent. No blur. (dark, opaque) */
+/* Graphite — Espresso charcoal with a molten amber accent. */
 [data-ari-theme='graphite'] {
   /* surfaces */
-  --ari-bg: oklch(0.145 0.006 65);
-  --ari-surface-0: oklch(0.185 0.007 65);
-  --ari-surface-1: oklch(0.23 0.009 65);
-  --ari-surface-2: oklch(0.28 0.011 65);
-  --ari-surface-3: oklch(0.34 0.013 64);
+  --ari-bg: oklch(0.17 0.014 65);
+  --ari-surface-0: oklch(0.2 0.014 65);
+  --ari-surface-1: oklch(0.245 0.014 65);
+  --ari-surface-2: oklch(0.295 0.014 65);
+  --ari-surface-3: oklch(0.35 0.014 65);
 
   /* strokes */
   --ari-border: oklch(0.92 0.015 70 / 9%);
@@ -142,17 +142,17 @@ html {
   --ari-inner-stroke: oklch(0.93 0.012 70 / 5%);
 
   /* text */
-  --ari-fg: oklch(0.945 0.003 65);
-  --ari-fg-muted: oklch(0.735 0.008 65);
-  --ari-fg-subtle: oklch(0.61 0.01 65);
-  --ari-fg-on-accent: oklch(0.17 0.02 70);
+  --ari-fg: oklch(0.95 0.012 65);
+  --ari-fg-muted: oklch(0.77 0.018 65);
+  --ari-fg-subtle: oklch(0.69 0.02 65);
+  --ari-fg-on-accent: oklch(0.18 0.015 65);
 
   /* accent */
-  --ari-accent: oklch(0.8 0.15 78);
-  --ari-accent-hover: oklch(0.845 0.14 80);
-  --ari-accent-active: oklch(0.72 0.16 75);
-  --ari-accent-subtle: oklch(0.8 0.15 78 / 16%);
-  --ari-accent-ring: oklch(0.8 0.15 78 / 45%);
+  --ari-accent: oklch(0.82 0.17 77);
+  --ari-accent-hover: oklch(0.86 0.17 77);
+  --ari-accent-active: oklch(0.76 0.17 77);
+  --ari-accent-subtle: oklch(0.82 0.17 77 / 14%);
+  --ari-accent-ring: oklch(0.82 0.17 77 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.78 0.16 152);
@@ -176,14 +176,14 @@ html {
   color-scheme: dark;
 }
 
-/* Nocturne — Deep indigo surfaces with a cyan accent. */
+/* Nocturne — Midnight blue with crisp turquoise highlights. */
 [data-ari-theme='nocturne'] {
   /* surfaces */
-  --ari-bg: oklch(0.13 0.032 271);
-  --ari-surface-0: oklch(0.165 0.036 271);
-  --ari-surface-1: oklch(0.205 0.04 270);
-  --ari-surface-2: oklch(0.255 0.044 269);
-  --ari-surface-3: oklch(0.315 0.048 268);
+  --ari-bg: oklch(0.16 0.042 260);
+  --ari-surface-0: oklch(0.19 0.042 260);
+  --ari-surface-1: oklch(0.235 0.042 260);
+  --ari-surface-2: oklch(0.285 0.042 260);
+  --ari-surface-3: oklch(0.345 0.042 260);
 
   /* strokes */
   --ari-border: oklch(0.8 0.06 250 / 14%);
@@ -191,17 +191,17 @@ html {
   --ari-inner-stroke: oklch(0.9 0.04 250 / 7%);
 
   /* text */
-  --ari-fg: oklch(0.945 0.012 260);
-  --ari-fg-muted: oklch(0.755 0.028 258);
-  --ari-fg-subtle: oklch(0.63 0.035 258);
-  --ari-fg-on-accent: oklch(0.16 0.04 230);
+  --ari-fg: oklch(0.95 0.012 260);
+  --ari-fg-muted: oklch(0.77 0.018 260);
+  --ari-fg-subtle: oklch(0.69 0.02 260);
+  --ari-fg-on-accent: oklch(0.18 0.015 260);
 
   /* accent */
-  --ari-accent: oklch(0.8 0.12 208);
-  --ari-accent-hover: oklch(0.845 0.105 206);
-  --ari-accent-active: oklch(0.73 0.13 210);
-  --ari-accent-subtle: oklch(0.8 0.12 208 / 16%);
-  --ari-accent-ring: oklch(0.8 0.12 208 / 48%);
+  --ari-accent: oklch(0.83 0.13 185);
+  --ari-accent-hover: oklch(0.87 0.13 185);
+  --ari-accent-active: oklch(0.77 0.13 185);
+  --ari-accent-subtle: oklch(0.83 0.13 185 / 14%);
+  --ari-accent-ring: oklch(0.83 0.13 185 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.8 0.15 168);
@@ -225,14 +225,14 @@ html {
   color-scheme: dark;
 }
 
-/* Verdant — Dark moss surfaces with a lime accent. Opaque and low-glare. (dark, opaque) */
+/* Verdant — Evergreen ink with an electric citrus accent. */
 [data-ari-theme='verdant'] {
   /* surfaces */
-  --ari-bg: oklch(0.145 0.024 152);
-  --ari-surface-0: oklch(0.18 0.027 152);
-  --ari-surface-1: oklch(0.22 0.03 151);
-  --ari-surface-2: oklch(0.27 0.034 150);
-  --ari-surface-3: oklch(0.33 0.038 149);
+  --ari-bg: oklch(0.16 0.032 165);
+  --ari-surface-0: oklch(0.19 0.032 165);
+  --ari-surface-1: oklch(0.235 0.032 165);
+  --ari-surface-2: oklch(0.285 0.032 165);
+  --ari-surface-3: oklch(0.345 0.032 165);
 
   /* strokes */
   --ari-border: oklch(0.88 0.045 150 / 13%);
@@ -240,17 +240,17 @@ html {
   --ari-inner-stroke: oklch(0.92 0.03 150 / 6%);
 
   /* text */
-  --ari-fg: oklch(0.94 0.014 140);
-  --ari-fg-muted: oklch(0.755 0.03 144);
-  --ari-fg-subtle: oklch(0.63 0.035 147);
-  --ari-fg-on-accent: oklch(0.17 0.05 135);
+  --ari-fg: oklch(0.95 0.012 165);
+  --ari-fg-muted: oklch(0.77 0.018 165);
+  --ari-fg-subtle: oklch(0.69 0.02 165);
+  --ari-fg-on-accent: oklch(0.18 0.015 165);
 
   /* accent */
-  --ari-accent: oklch(0.8 0.16 131);
-  --ari-accent-hover: oklch(0.845 0.145 129);
-  --ari-accent-active: oklch(0.73 0.17 133);
-  --ari-accent-subtle: oklch(0.8 0.16 131 / 16%);
-  --ari-accent-ring: oklch(0.8 0.16 131 / 45%);
+  --ari-accent: oklch(0.86 0.17 115);
+  --ari-accent-hover: oklch(0.9 0.17 115);
+  --ari-accent-active: oklch(0.8 0.17 115);
+  --ari-accent-subtle: oklch(0.86 0.17 115 / 14%);
+  --ari-accent-ring: oklch(0.86 0.17 115 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.8 0.16 158);
@@ -274,14 +274,14 @@ html {
   color-scheme: dark;
 }
 
-/* Porcelain — Cool off-white paper with a soft violet accent. (light, opaque) */
+/* Porcelain — Lavender porcelain with a rich berry accent. */
 [data-ari-theme='porcelain'] {
   /* surfaces */
-  --ari-bg: oklch(0.985 0.003 285);
-  --ari-surface-0: oklch(0.968 0.006 285);
-  --ari-surface-1: oklch(0.945 0.008 285);
-  --ari-surface-2: oklch(0.91 0.011 285);
-  --ari-surface-3: oklch(0.868 0.014 285);
+  --ari-bg: oklch(0.985 0.009 310);
+  --ari-surface-0: oklch(0.967 0.009 310);
+  --ari-surface-1: oklch(0.945 0.009 310);
+  --ari-surface-2: oklch(0.91 0.009 310);
+  --ari-surface-3: oklch(0.87 0.009 310);
 
   /* strokes */
   --ari-border: oklch(0.22 0.02 285 / 11%);
@@ -289,17 +289,17 @@ html {
   --ari-inner-stroke: oklch(1 0 0 / 70%);
 
   /* text */
-  --ari-fg: oklch(0.24 0.018 285);
-  --ari-fg-muted: oklch(0.475 0.02 285);
-  --ari-fg-subtle: oklch(0.59 0.018 285);
-  --ari-fg-on-accent: oklch(0.99 0.005 285);
+  --ari-fg: oklch(0.25 0.025 310);
+  --ari-fg-muted: oklch(0.45 0.018 310);
+  --ari-fg-subtle: oklch(0.49 0.02 310);
+  --ari-fg-on-accent: oklch(0.99 0.002 310);
 
   /* accent */
-  --ari-accent: oklch(0.5 0.2 292);
-  --ari-accent-hover: oklch(0.445 0.21 292);
-  --ari-accent-active: oklch(0.39 0.19 292);
-  --ari-accent-subtle: oklch(0.5 0.2 292 / 12%);
-  --ari-accent-ring: oklch(0.5 0.2 292 / 38%);
+  --ari-accent: oklch(0.49 0.19 335);
+  --ari-accent-hover: oklch(0.445 0.19 335);
+  --ari-accent-active: oklch(0.43 0.19 335);
+  --ari-accent-subtle: oklch(0.49 0.19 335 / 14%);
+  --ari-accent-ring: oklch(0.49 0.19 335 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.5 0.13 158);
@@ -323,14 +323,14 @@ html {
   color-scheme: light;
 }
 
-/* Sandstone — Warm paper tones with a deep teal accent. (light, opaque) */
+/* Sandstone — Warm cream, walnut ink and vivid cobalt. */
 [data-ari-theme='sandstone'] {
   /* surfaces */
-  --ari-bg: oklch(0.975 0.012 84);
-  --ari-surface-0: oklch(0.955 0.017 82);
-  --ari-surface-1: oklch(0.93 0.02 80);
-  --ari-surface-2: oklch(0.895 0.024 78);
-  --ari-surface-3: oklch(0.852 0.028 76);
+  --ari-bg: oklch(0.98 0.023 80);
+  --ari-surface-0: oklch(0.958 0.023 80);
+  --ari-surface-1: oklch(0.936 0.023 80);
+  --ari-surface-2: oklch(0.9 0.023 80);
+  --ari-surface-3: oklch(0.855 0.023 80);
 
   /* strokes */
   --ari-border: oklch(0.3 0.03 70 / 13%);
@@ -338,17 +338,17 @@ html {
   --ari-inner-stroke: oklch(1 0 0 / 65%);
 
   /* text */
-  --ari-fg: oklch(0.255 0.025 62);
-  --ari-fg-muted: oklch(0.48 0.03 62);
-  --ari-fg-subtle: oklch(0.59 0.028 62);
-  --ari-fg-on-accent: oklch(0.985 0.01 180);
+  --ari-fg: oklch(0.25 0.025 80);
+  --ari-fg-muted: oklch(0.45 0.018 80);
+  --ari-fg-subtle: oklch(0.49 0.02 80);
+  --ari-fg-on-accent: oklch(0.99 0.002 80);
 
   /* accent */
-  --ari-accent: oklch(0.47 0.105 197);
-  --ari-accent-hover: oklch(0.41 0.11 197);
-  --ari-accent-active: oklch(0.365 0.1 198);
-  --ari-accent-subtle: oklch(0.47 0.105 197 / 14%);
-  --ari-accent-ring: oklch(0.47 0.105 197 / 38%);
+  --ari-accent: oklch(0.48 0.2 265);
+  --ari-accent-hover: oklch(0.435 0.2 265);
+  --ari-accent-active: oklch(0.42 0.2 265);
+  --ari-accent-subtle: oklch(0.48 0.2 265 / 14%);
+  --ari-accent-ring: oklch(0.48 0.2 265 / 45%);
 
   /* semantic */
   --ari-success: oklch(0.485 0.13 150);
