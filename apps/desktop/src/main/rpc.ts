@@ -25,7 +25,8 @@ import { writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
-import { fetchAllowance, ProviderAllowanceReader } from './provider-allowance'
+import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
+import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
@@ -101,7 +102,11 @@ import type { Driver } from '@ari/providers/driver'
 import { AriCoreDriver } from '@ari/ari-core/driver'
 import { McpServerStore, mergeCoreMcp, publicMcpServer } from '@ari/ari-core/mcp-servers'
 import { sanitizeMcpSegment } from '@ari/ari-core/mcp-tools'
-import { listAriCoreSkills, readTrustedSkillRoots, setWorkspaceSkillTrust } from '@ari/ari-core/skills'
+import {
+  listAriCoreSkills,
+  readTrustedSkillRoots,
+  setWorkspaceSkillTrust,
+} from '@ari/ari-core/skills'
 import { BUILT_IN_TOOLS } from '@ari/ari-core/tools'
 import { FileConversationStore } from '@ari/ari-core/conversation-store'
 import type { McpServerConfig } from '@ari/ari-core/mcp-servers'
@@ -604,7 +609,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       mcpServers: () => {
         for (const server of mcpStore.list()) {
           if (!server.disabled && sanitizeMcpSegment(server.name) === 'ari_browser') {
-            log.warn('mcp server name is reserved', { server: server.name, reason: 'reserved-name' })
+            log.warn('mcp server name is reserved', {
+              server: server.name,
+              reason: 'reserved-name',
+            })
           }
         }
         return mergeCoreMcp(mcpStore.list(), browserCoreMcpServers)
@@ -964,7 +972,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
   const allowanceReader = new ProviderAllowanceReader((kind, binaryPath) =>
-    fetchAllowance(kind, binaryPath, undefined),
+    fetchAllowanceReading(kind, binaryPath, undefined),
   )
   r.register('providers.allowance', async ({ kind }) => {
     const detections = await probeAllDetections()
@@ -972,6 +980,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       kind,
       detections.find((row) => row.kind === kind)?.binaryPath ?? null,
     )
+  })
+  r.register('providers.consumeResetCredit', async ({ kind, creditId }) => {
+    const detections = await probeAllDetections()
+    const binaryPath = detections.find((row) => row.kind === kind)?.binaryPath ?? null
+    const redeemed = await resetCreditService.consume({ kind, binaryPath, creditId })
+    if (!redeemed.ok) return { ok: false as const, error: redeemed.error }
+    const allowance = await allowanceReader.reread(kind, binaryPath, redeemed.value === 'reset')
+    return { ok: true as const, outcome: redeemed.value, allowance }
   })
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.
@@ -1233,7 +1249,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { removed: await mcpStore.remove(params.id) }
   })
   r.register('ariCore.skills.trust', async (params) => {
-    const workspace = await resolveInsideRoots(resolve(params.workspacePath), await collectFsRoots())
+    const workspace = await resolveInsideRoots(
+      resolve(params.workspacePath),
+      await collectFsRoots(),
+    )
     const trusted = await setWorkspaceSkillTrust(coreDir, workspace, params.trusted)
     return { trusted }
   })
