@@ -52,6 +52,14 @@ import { useSessionActivity } from './features/session/use-session-activity'
 import { formatPaneTitle } from './features/split/pane-title'
 import { SplitView } from './features/split/SplitView'
 import { splitLayoutActions, useSplitLayout } from './features/split/use-split-layout'
+import {
+  MAX_SPACES,
+  SpaceTabs,
+  spaceActions,
+  spaceStatus,
+  useSpaces,
+  useSpaceSwipe,
+} from './features/spaces'
 import { focusNeighbour } from './features/split/split-geometry'
 import {
   MAX_PANES,
@@ -129,6 +137,7 @@ function Shell() {
   // workspace lookup below, Changes, the sidebar's highlighted row — follows
   // the pane the user is actually in rather than the last row they clicked.
   const layout = useSplitLayout()
+  const spaceStore = useSpaces()
   const activeSessionId = activeSessionOf(layout)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
@@ -148,6 +157,9 @@ function Shell() {
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
   const panesVisible = !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
+  // The tab strip rides above the pane area, so it stays visible while Usage or
+  // Changes takes the area over — only the whole-window tools hide it.
+  const tabsVisible = !settingsOpen && !hubOpen && !galleryOpen
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -245,11 +257,10 @@ function Shell() {
   // sticks until the user has seen what the agent did.
   const selectSession = useCallback(
     (id: string) => {
-      // A session already on screen is focused where it is; anything else
-      // replaces what the focused pane was showing, which is the tmux reading
-      // of a click in the session list.
-      const paneId = splitLayoutActions.paneOf(id) ?? layout.focusedPaneId
-      splitLayoutActions.assign(paneId, id)
+      // A session already open is shown where it is, in whichever space holds
+      // it; anything else replaces what the focused pane was showing, which is
+      // the tmux reading of a click in the session list.
+      if (!splitLayoutActions.reveal(id)) splitLayoutActions.assign(layout.focusedPaneId, id)
       clearTransientInspector()
       leaveWorkspaceTool()
       // Selecting a chat must land on it, not leave Usage/Changes up.
@@ -276,6 +287,26 @@ function Shell() {
     },
     [layout, toast],
   )
+
+  /**
+   * Opens a blank space and switches to it. The model refuses at the ceiling
+   * silently, which a chord cannot afford, so the refusal is announced here —
+   * the same treatment the pane ceiling gets above.
+   */
+  const createSpace = useCallback(() => {
+    if (spaceStore.spaces.length >= MAX_SPACES) {
+      toast({ tone: 'warning', title: `Ari holds at most ${String(MAX_SPACES)} spaces` })
+      return
+    }
+    spaceActions.create()
+  }, [spaceStore.spaces.length, toast])
+
+  // A two-finger trackpad swipe switches tabs. Disabled with a single space,
+  // where there is nowhere to go, and while a whole-window tool is up.
+  useSpaceSwipe({
+    enabled: tabsVisible && spaceStore.spaces.length > 1,
+    onSwipe: (direction) => spaceActions.cycle(direction),
+  })
 
   // A session that has just come on screen has been seen: it is the arrival in
   // a pane, not every later focus change, that clears the settled badge — and
@@ -442,6 +473,16 @@ function Shell() {
           single: paneCount(layout) === 1,
         }
       : undefined,
+    spaces: {
+      spaces: spaceStore.spaces.map((space) => ({ id: space.id, name: space.name })),
+      atCeiling: spaceStore.spaces.length >= MAX_SPACES,
+      single: spaceStore.spaces.length <= 1,
+      create: createSpace,
+      close: () => spaceActions.close(spaceStore.activeSpaceId),
+      next: () => spaceActions.cycle(1),
+      previous: () => spaceActions.cycle(-1),
+      select: spaceActions.select,
+    },
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
@@ -510,7 +551,41 @@ function Shell() {
         e.preventDefault()
         toggleTerminal()
       }
-      if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
+      // Spaces: Ctrl+PageUp/PageDown cycle tabs, Ctrl+Alt+T/W create and close,
+      // and Ctrl+Alt+1..9 jump straight to a tab. These are checked before the
+      // session jumps below, which share the number row across the whole app.
+      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'PageDown' || e.key === 'PageUp')) {
+        if (tabsVisible && !paletteOpen && !searchOpen) {
+          e.preventDefault()
+          spaceActions.cycle(e.key === 'PageDown' ? 1 : -1)
+        }
+      }
+      // Matched on the physical key as well as the character: on macOS, Option
+      // rewrites `key` (Option+T is "†"), so `key` alone never matches there.
+      const altDigit = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : null)
+      if ((e.ctrlKey || e.metaKey) && e.altKey && altDigit !== null) {
+        if (tabsVisible && !paletteOpen && !searchOpen) {
+          e.preventDefault()
+          spaceActions.selectAt(Number(altDigit) - 1)
+        }
+      }
+      const altLetter = (letter: string): boolean =>
+        e.code === `Key${letter.toUpperCase()}` || e.key.toLowerCase() === letter
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && altLetter('t')) {
+        if (tabsVisible && !paletteOpen && !searchOpen) {
+          e.preventDefault()
+          createSpace()
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && altLetter('w')) {
+        // The last space cannot be closed anywhere else in the UI; here it
+        // would silently reset the whole pane layout.
+        if (tabsVisible && !paletteOpen && !searchOpen && spaceStore.spaces.length > 1) {
+          e.preventDefault()
+          spaceActions.close(spaceStore.activeSpaceId)
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && /^[1-9]$/.test(e.key)) {
         // Mod+1..9 jumps to the nth sidebar row (T3/comet session jumping).
         const target = navOrder[Number(e.key) - 1]
         if (target && !paletteOpen && !searchOpen) {
@@ -581,11 +656,14 @@ function Shell() {
     settingsOpen,
     hubOpen,
     panesVisible,
+    tabsVisible,
     navOrder,
     activeSessionId,
+    spaceStore.activeSpaceId,
     toggleTerminal,
     selectSession,
     splitActivePane,
+    createSpace,
     layout,
   ])
 
@@ -758,7 +836,12 @@ function Shell() {
     [activeSession, activeProjectPath, projects],
   )
   const terminalDock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
-  const paneTerminalIds = useMemo(() => new Set(terminalIdsInPanes(layout)), [layout])
+  // Every space's panes, not only the one on screen: a terminal hosted in
+  // another space must not also appear as a rail tab that can close it.
+  const paneTerminalIds = useMemo(
+    () => new Set(spaceStore.spaces.flatMap((space) => terminalIdsInPanes(space.layout))),
+    [spaceStore.spaces],
+  )
   const openTerminalInPane = useCallback(
     (paneId: string) => {
       if (shellRoot === null) return
@@ -982,8 +1065,25 @@ function Shell() {
         ) : null}
 
         <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border/50">
+          <SpaceTabs
+            spaces={spaceStore.spaces}
+            activeSpaceId={spaceStore.activeSpaceId}
+            statusOf={(space) => spaceStatus(space, (id) => activityOf(id)?.phase)}
+            onSelect={spaceActions.select}
+            onCreate={createSpace}
+            onClose={spaceActions.close}
+            onRename={spaceActions.rename}
+            onReorder={spaceActions.move}
+            canCreate={spaceStore.spaces.length < MAX_SPACES}
+          />
           {fullPage !== null ? (
-            <div key={fullPage} className="ari-enter-rise min-h-0 flex-1">
+            <div
+              key={fullPage}
+              id="space-panel"
+              role="tabpanel"
+              aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
+              className="ari-enter-rise min-h-0 flex-1"
+            >
               {fullPage === 'usage' ? (
                 <ErrorBoundary label="Usage">
                   <UsagePage />
@@ -999,85 +1099,105 @@ function Shell() {
             </div>
           ) : (
             <div className="flex min-h-0 flex-1">
-              <div className="min-h-0 min-w-0 flex-1">
-                {activeSessionId === null &&
-                paneCount(layout) === 1 &&
-                (leaves(layout.root)[0] === undefined || isBlankLeaf(leaves(layout.root)[0]!)) ? (
-                  // Nothing open at all: the welcome panel is still the view.
-                  <ErrorBoundary label="Welcome">
-                    <WelcomePanel
-                      hasProjects={projects.length > 0}
-                      onCreateSession={beginNewSession}
-                      onConnect={(endpointId, anchor) =>
-                        beginNewSession(anchor, {
-                          driverKind: 'ari-core',
-                          modelId: `ep:${endpointId}`,
-                        })
-                      }
-                    />
-                  </ErrorBoundary>
-                ) : (
-                  <ErrorBoundary label="Session">
-                    <SplitView
-                      layout={layout}
-                      titleOf={(id) => {
-                        const session = sessions.find((s) => s.id === id)
-                        if (session === undefined) return null
-                        const projectName =
-                          session.projectId === UNFILED_GROUP_ID
-                            ? null
-                            : (projects.find((p) => p.id === session.projectId)?.name ?? null)
-                        return formatPaneTitle(session.title, projectName)
-                      }}
-                      onFocus={splitLayoutActions.focus}
-                      onClose={splitLayoutActions.close}
-                      onSplit={splitLayoutActions.split}
-                      onToggleZoom={splitLayoutActions.toggleZoom}
-                      onResize={splitLayoutActions.resize}
-                      onDropSession={splitLayoutActions.dropSession}
-                      onDropPane={splitLayoutActions.dropPane}
-                      onOpenTerminal={openTerminalInPane}
-                      canOpenTerminal={shellRoot !== null}
-                      terminalTitleOf={(id) =>
-                        terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
-                      }
-                      renderTerminal={(terminalId, paneId) => {
-                        const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
-                        return (
-                          <ErrorBoundary label="Terminal">
-                            <div className="h-full min-h-0 overflow-hidden">
-                              <TerminalPane
-                                key={`${paneId}:${terminalId}`}
-                                terminalId={terminalId}
-                                cwd={tab?.cwd ?? shellRoot}
-                                initialCommand={tab?.command}
-                                active={paneId === activePaneOf(layout)}
-                              />
-                            </div>
-                          </ErrorBoundary>
-                        )
-                      }}
-                      renderSession={(sessionId, paneId) => (
-                        // Keyed by pane *and* session, so a pane that changes what
-                        // it shows remounts: composer seeds and review notes belong
-                        // to the session, not to the position it sits in.
-                        <SessionView
-                          key={`${paneId}:${sessionId}`}
-                          sessionId={sessionId}
-                          defaults={defaultsFor(sessionId)}
-                          onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                          // A child session opens in the pane it was opened from,
-                          // rather than yanking the whole shell to it.
-                          onOpenSession={(childId) => splitLayoutActions.assign(paneId, childId)}
-                          activityOf={activityOf}
-                          childSessions={sessions.filter(
-                            (session) => session.parentSessionId === sessionId && !session.archived,
+              <div
+                id="space-panel"
+                role="tabpanel"
+                aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
+                className="relative min-h-0 min-w-0 flex-1"
+              >
+                <AnimatePresence initial={false}>
+                  <motion.div
+                    key={spaceStore.activeSpaceId}
+                    initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+                    transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}
+                    className="absolute inset-0 flex min-h-0 min-w-0 flex-col"
+                  >
+                    {activeSessionId === null &&
+                    paneCount(layout) === 1 &&
+                    (leaves(layout.root)[0] === undefined ||
+                      isBlankLeaf(leaves(layout.root)[0]!)) ? (
+                      // Nothing open at all: the welcome panel is still the view.
+                      <ErrorBoundary label="Welcome">
+                        <WelcomePanel
+                          hasProjects={projects.length > 0}
+                          onCreateSession={beginNewSession}
+                          onConnect={(endpointId, anchor) =>
+                            beginNewSession(anchor, {
+                              driverKind: 'ari-core',
+                              modelId: `ep:${endpointId}`,
+                            })
+                          }
+                        />
+                      </ErrorBoundary>
+                    ) : (
+                      <ErrorBoundary label="Session">
+                        <SplitView
+                          layout={layout}
+                          titleOf={(id) => {
+                            const session = sessions.find((s) => s.id === id)
+                            if (session === undefined) return null
+                            const projectName =
+                              session.projectId === UNFILED_GROUP_ID
+                                ? null
+                                : (projects.find((p) => p.id === session.projectId)?.name ?? null)
+                            return formatPaneTitle(session.title, projectName)
+                          }}
+                          onFocus={splitLayoutActions.focus}
+                          onClose={splitLayoutActions.close}
+                          onSplit={splitLayoutActions.split}
+                          onToggleZoom={splitLayoutActions.toggleZoom}
+                          onResize={splitLayoutActions.resize}
+                          onDropSession={splitLayoutActions.dropSession}
+                          onDropPane={splitLayoutActions.dropPane}
+                          onOpenTerminal={openTerminalInPane}
+                          canOpenTerminal={shellRoot !== null}
+                          terminalTitleOf={(id) =>
+                            terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
+                          }
+                          renderTerminal={(terminalId, paneId) => {
+                            const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
+                            return (
+                              <ErrorBoundary label="Terminal">
+                                <div className="h-full min-h-0 overflow-hidden">
+                                  <TerminalPane
+                                    key={`${paneId}:${terminalId}`}
+                                    terminalId={terminalId}
+                                    cwd={tab?.cwd ?? shellRoot}
+                                    initialCommand={tab?.command}
+                                    active={paneId === activePaneOf(layout)}
+                                  />
+                                </div>
+                              </ErrorBoundary>
+                            )
+                          }}
+                          renderSession={(sessionId, paneId) => (
+                            // Keyed by pane *and* session, so a pane that changes what
+                            // it shows remounts: composer seeds and review notes belong
+                            // to the session, not to the position it sits in.
+                            <SessionView
+                              key={`${paneId}:${sessionId}`}
+                              sessionId={sessionId}
+                              defaults={defaultsFor(sessionId)}
+                              onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                              // A child session opens in the pane it was opened from,
+                              // rather than yanking the whole shell to it.
+                              onOpenSession={(childId) =>
+                                splitLayoutActions.assign(paneId, childId)
+                              }
+                              activityOf={activityOf}
+                              childSessions={sessions.filter(
+                                (session) =>
+                                  session.parentSessionId === sessionId && !session.archived,
+                              )}
+                            />
                           )}
                         />
-                      )}
-                    />
-                  </ErrorBoundary>
-                )}
+                      </ErrorBoundary>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
               </div>
               {inspector ? (
                 <>
