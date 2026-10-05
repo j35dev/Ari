@@ -5,6 +5,12 @@ import type { ReactNode } from 'react'
  * Wraps the app so every motion component respects the OS
  * `prefers-reduced-motion` setting automatically.
  */
-export function MotionProvider({ children }: { children: ReactNode }) {
-  return <MotionConfig reducedMotion="user">{children}</MotionConfig>
+export function MotionProvider({
+  children,
+  reducedMotion = false,
+}: {
+  children: ReactNode
+  reducedMotion?: boolean
+}) {
+  return <MotionConfig reducedMotion={reducedMotion ? 'always' : 'user'}>{children}</MotionConfig>
 }
