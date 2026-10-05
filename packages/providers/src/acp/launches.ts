@@ -3,6 +3,7 @@ import { delimiter, join } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { wellKnownDirs } from '../detector'
+import { needsWindowsShell } from '../spawn-cli'
 import type { AcpLaunch } from './connection'
 import type { DetectEnvironment } from '../types'
 import { realDetectEnvironment } from '../types'
@@ -70,10 +71,7 @@ const NATIVE_ACP_ARGS: Partial<Record<DriverKind, string[]>> = {
 export function findNpxCommand(env: DetectEnvironment): string | null {
   const names =
     env.platform === 'win32' ? (['npx.cmd', 'npx.exe', 'npx'] as const) : (['npx'] as const)
-  const dirs = [
-    ...env.pathEnv.split(delimiter).filter((p) => p.length > 0),
-    ...wellKnownDirs(env),
-  ]
+  const dirs = [...env.pathEnv.split(delimiter).filter((p) => p.length > 0), ...wellKnownDirs(env)]
   for (const dir of dirs) {
     for (const name of names) {
       if (existsSync(join(dir, name))) return join(dir, name)
@@ -150,7 +148,12 @@ export function resolveAcpLaunch(
       viaNpx: true,
       // Otherwise the adapter runs its bundled CLI, which can lag the user's own.
       ...(kind === 'codex' ? { env: { CODEX_PATH: options.cliBinaryPath } } : {}),
-      ...(kind === 'claude' ? { env: { CLAUDE_CODE_EXECUTABLE: options.cliBinaryPath } } : {}),
+      // The Claude adapter spawns this path with no shell, so an npm `.cmd`
+      // shim fails outright (EINVAL) and takes the whole ACP session with it.
+      // Such an install keeps the adapter's bundled CLI instead.
+      ...(kind === 'claude' && !needsWindowsShell(options.cliBinaryPath)
+        ? { env: { CLAUDE_CODE_EXECUTABLE: options.cliBinaryPath } }
+        : {}),
     }
   }
 

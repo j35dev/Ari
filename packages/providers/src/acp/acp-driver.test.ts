@@ -607,6 +607,17 @@ describe('createAcpAdapter', () => {
       description: 'Fast and affordable.',
     })
     expect(describeAdvertisedModel('m1', undefined, undefined)).toEqual({ id: 'm1', label: 'm1' })
+    // A sentence that merely opens with the name is a description, not a label.
+    expect(describeAdvertisedModel('grok', 'Grok', 'Grok is great for coding')).toEqual({
+      id: 'grok',
+      label: 'Grok',
+      description: 'Grok is great for coding',
+    })
+    expect(describeAdvertisedModel('m', 'Opus', 'Opus-class reasoning · at lower cost')).toEqual({
+      id: 'm',
+      label: 'Opus',
+      description: 'Opus-class reasoning · at lower cost',
+    })
   })
 
   it('reports nothing for an agent that advertises no model selector', async () => {

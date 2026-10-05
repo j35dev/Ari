@@ -570,8 +570,9 @@ export function modelsFromConfigOptions(configOptions: AcpConfigOption[]): Catal
 /**
  * Turns one advertised option into a picker row. Claude names its rows by
  * family alone (`Opus`) and puts the version in the description
- * (`Opus 5.5 · Best for everyday, complex tasks`), so a description that opens
- * with the name is split: its head is the fuller label, the rest the tagline.
+ * (`Opus 5.5 · Best for everyday, complex tasks`), so a description built as
+ * `<name> <more> · <tagline>` is split: its head is the fuller label, the rest
+ * the tagline.
  * Anything else keeps the agent's name and carries the description whole.
  */
 export function describeAdvertisedModel(
@@ -582,7 +583,10 @@ export function describeAdvertisedModel(
   const base = typeof name === 'string' && name.trim().length > 0 ? name.trim() : id
   const text = typeof description === 'string' ? description.trim() : ''
   const [head = '', ...rest] = text.split(' · ')
-  const versioned = head.length > base.length && head.toLowerCase().startsWith(base.toLowerCase())
+  // Both the separator and the word break are required: without them any
+  // sentence that happens to open with the name ("Grok is great for coding")
+  // would become the label.
+  const versioned = rest.length > 0 && head.toLowerCase().startsWith(`${base.toLowerCase()} `)
   const label = versioned ? head : base
   const tagline = versioned ? rest.join(' · ') : text
   // `opus[1m]` is the agent's own way of naming a context window.

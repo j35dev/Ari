@@ -192,6 +192,34 @@ describe('collapseCatalog', () => {
     expect(models[1]?.isLegacy).toBe(true)
   })
 
+  it("treats the CLI's own family pointers as current and pinned versions as older", () => {
+    // The shape Claude Code advertises: version-less rows first, then pins.
+    const collapsed = collapseCatalog('claude', [
+      { id: 'default', label: 'Default' },
+      { id: 'opus', label: 'Opus 5.5' },
+      { id: 'opus[1m]', label: 'Opus 5.5 (1M)' },
+      { id: 'sonnet', label: 'Sonnet 5.5' },
+      { id: 'haiku', label: 'Haiku 4.5' },
+      { id: 'claude-opus-5', label: 'Opus 5' },
+      { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+      { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+    ])
+
+    const legacy = collapsed.filter((m) => m.isLegacy === true).map((m) => m.id)
+    expect(legacy).toEqual(['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-8'])
+    // A row the list already offers as `opus` must not also be an alias of the
+    // pinned rows, or selecting it would mark several rows current.
+    expect(collapsed.some((m) => m.aliases?.includes('opus'))).toBe(false)
+  })
+
+  it('still supersedes pinned versions when only a 1M pointer is offered', () => {
+    const collapsed = collapseCatalog('claude', [
+      { id: 'opus[1m]', label: 'Opus (1M)' },
+      { id: 'claude-opus-5', label: 'Opus 5' },
+    ])
+    expect(collapsed.map((m) => m.isLegacy === true)).toEqual([false, true])
+  })
+
   it('leaves kinds with no declared families untouched', () => {
     const models = collapseCatalog('codex', [
       { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
