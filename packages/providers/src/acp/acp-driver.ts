@@ -557,20 +557,42 @@ export async function createAcpAdapter(
  * uses. These are the exact strings {@link applyModel} has to send back, so
  * they are also the only list the picker can offer without risking a refusal.
  */
-function modelsFromConfigOptions(configOptions: AcpConfigOption[]): CatalogModel[] {
+export function modelsFromConfigOptions(configOptions: AcpConfigOption[]): CatalogModel[] {
   const option = findModelOption(configOptions)
   const values = option?.options ?? []
   return values.flatMap((value) =>
     typeof value.value === 'string' && value.value.length > 0
-      ? [
-          {
-            id: value.value,
-            label:
-              typeof value.name === 'string' && value.name.length > 0 ? value.name : value.value,
-          },
-        ]
+      ? [describeAdvertisedModel(value.value, value.name, value.description)]
       : [],
   )
+}
+
+/**
+ * Turns one advertised option into a picker row. Claude names its rows by
+ * family alone (`Opus`) and puts the version in the description
+ * (`Opus 5.5 · Best for everyday, complex tasks`), so a description that opens
+ * with the name is split: its head is the fuller label, the rest the tagline.
+ * Anything else keeps the agent's name and carries the description whole.
+ */
+export function describeAdvertisedModel(
+  id: string,
+  name: string | undefined,
+  description: string | undefined,
+): CatalogModel {
+  const base = typeof name === 'string' && name.trim().length > 0 ? name.trim() : id
+  const text = typeof description === 'string' ? description.trim() : ''
+  const [head = '', ...rest] = text.split(' · ')
+  const versioned = head.length > base.length && head.toLowerCase().startsWith(base.toLowerCase())
+  const label = versioned ? head : base
+  const tagline = versioned ? rest.join(' · ') : text
+  // `opus[1m]` is the agent's own way of naming a context window.
+  const context = /\[(\d+[km])\]$/i.exec(id)?.[1]
+  return {
+    id,
+    label,
+    ...(tagline.length > 0 && tagline !== label ? { description: tagline } : {}),
+    ...(context !== undefined ? { contextHint: context.toLowerCase() } : {}),
+  }
 }
 
 /** True when the agent advertised `session/resume` (no history replay). */

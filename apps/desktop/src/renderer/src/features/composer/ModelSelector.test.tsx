@@ -173,7 +173,7 @@ describe('ModelSelector', () => {
     await user.type(screen.getByLabelText('Search models'), 'gpt')
     results = screen.getByRole('listbox', { name: 'Search results' })
     expect(within(results).getByText('GPT-5.6')).toBeInTheDocument()
-    expect(within(results).getByText('Codex · 1')).toBeInTheDocument()
+    expect(within(results).getByText('Codex')).toBeInTheDocument()
     expect(within(results).queryByText('Opus 4')).not.toBeInTheDocument()
 
     await user.clear(screen.getByLabelText('Search models'))
