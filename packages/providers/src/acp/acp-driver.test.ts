@@ -4,6 +4,7 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import { catalogSource, clearDynamicModels, modelsFor } from '../catalogs'
 import {
   createAcpAdapter,
+  describeAdvertisedModel,
   AcpDriver,
   launchWithEffort,
   pickAgentMode,
@@ -586,6 +587,27 @@ describe('createAcpAdapter', () => {
     ])
     await adapter.dispose()
   }, 15000)
+
+  it('lifts the version out of a description that opens with the model name', () => {
+    expect(
+      describeAdvertisedModel('opus', 'Opus', 'Opus 5.5 · Best for everyday, complex tasks'),
+    ).toEqual({ id: 'opus', label: 'Opus 5.5', description: 'Best for everyday, complex tasks' })
+    expect(
+      describeAdvertisedModel('claude-fable-5-1[1m]', 'Fable', 'Fable 5.1 · Most capable'),
+    ).toEqual({
+      id: 'claude-fable-5-1[1m]',
+      label: 'Fable 5.1',
+      description: 'Most capable',
+      contextHint: '1m',
+    })
+    // An unrelated description stays a tagline; a missing one adds nothing.
+    expect(describeAdvertisedModel('gpt-6-luna', 'GPT-6-Luna', 'Fast and affordable.')).toEqual({
+      id: 'gpt-6-luna',
+      label: 'GPT-6-Luna',
+      description: 'Fast and affordable.',
+    })
+    expect(describeAdvertisedModel('m1', undefined, undefined)).toEqual({ id: 'm1', label: 'm1' })
+  })
 
   it('reports nothing for an agent that advertises no model selector', async () => {
     const child = fakeChild()

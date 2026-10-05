@@ -83,7 +83,7 @@ import {
 import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
-import { AcpDriver } from '@ari/providers/acp'
+import { AcpDriver, modelsFromConfigOptions } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
 import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
@@ -189,15 +189,7 @@ async function probeAcpModels(
   })
   try {
     const created = await connection.newSession(homedir())
-    const modelOption = (created.configOptions ?? []).find(
-      (o) => o.category === 'model' && o.type === 'select',
-    )
-    const models = (modelOption?.options ?? [])
-      .filter((v) => typeof v.value === 'string' && v.value.length > 0)
-      .map((v) => ({
-        id: v.value as string,
-        label: typeof v.name === 'string' && v.name.length > 0 ? v.name : (v.value as string),
-      }))
+    const models = modelsFromConfigOptions(created.configOptions ?? [])
     // Same throwaway session: thought_level / effort, plus Grok's
     // initialize `_meta.modelState` reasoningEfforts when configOptions omit them.
     setDynamicEfforts(
