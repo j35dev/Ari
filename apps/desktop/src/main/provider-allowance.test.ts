@@ -55,4 +55,23 @@ describe('account allowance reader', () => {
       windows: [{ usedPercent: 10 }],
     })
   })
+  it('keeps the last reset bank when the provider does not answer', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        windows: [{ label: '5h', usedPercent: 10, resetsAt: null }],
+        resetCredits: { availableCount: 1, nextExpiresAt: null },
+      })
+      .mockResolvedValueOnce({
+        windows: [{ label: '5h', usedPercent: 40, resetsAt: null }],
+        resetCredits: null,
+        resetCreditsKnown: false,
+      })
+    const reader = new ProviderAllowanceReader(fetch, () => 5)
+    await reader.read('claude', 'cli')
+    expect(await reader.read('claude', 'cli')).toMatchObject({
+      windows: [{ usedPercent: 40 }],
+      resetCredits: { availableCount: 1 },
+    })
+  })
 })

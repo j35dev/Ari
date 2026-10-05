@@ -151,7 +151,7 @@ describe('provider allowance pill', () => {
       screen.getByRole('button', { name: 'Codex usage: 5h 12% used, 2 banked resets' }),
     )
     await settle()
-    expect(screen.getByText('2 banked resets')).toBeInTheDocument()
+    expect(screen.getByText(/^2 resets/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Use reset for Codex' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel Codex reset' }))
     expect(invoke.mock.calls.some(([method]) => method === 'providers.consumeResetCredit')).toBe(
@@ -160,9 +160,39 @@ describe('provider allowance pill', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use reset for Codex' }))
     fireEvent.click(screen.getByRole('button', { name: 'Use one Codex reset' }))
     await settle()
-    expect(screen.getByRole('status')).toHaveTextContent('Reset applied.')
-    expect(screen.getByText('1 banked reset')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Applied')
+    expect(screen.getByText(/^1 reset/)).toBeInTheDocument()
     expect(invoke).toHaveBeenCalledWith('providers.consumeResetCredit', { kind: 'codex' })
+  })
+
+  it('lists each reset when their expiries differ', async () => {
+    const now = Date.now()
+    invoke.mockImplementation(async (method: string) => {
+      if (method === 'providers.detect') return [{ kind: 'claude', installed: true }]
+      return {
+        ...sample('claude'),
+        resetCredits: {
+          availableCount: 3,
+          nextExpiresAt: now + 3 * 86_400_000,
+          credits: [
+            { expiresAt: now + 17 * 86_400_000 },
+            { expiresAt: now + 17 * 86_400_000 },
+            { expiresAt: now + 3 * 86_400_000 },
+          ],
+        },
+      }
+    })
+    render(<ProviderUsagePill sessionId="one" kind="claude" />)
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: /Claude usage:/ }))
+    await settle()
+    expect(screen.getByText('3d · 1 reset')).toBeInTheDocument()
+    expect(screen.getByText('17d · 2 resets')).toBeInTheDocument()
+    expect(screen.queryByText(/^3 resets/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Use reset for Claude' })).toHaveAttribute(
+      'title',
+      'Uses the soonest reset',
+    )
   })
 
   it('ignores late discovery from the previous session', async () => {

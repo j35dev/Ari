@@ -63,7 +63,11 @@ it('reads Codex banked resets from the same account snapshot', async () => {
   })
   await expect(fetchAllowanceReading('codex', 'codex')).resolves.toEqual({
     windows: [{ label: '5h', usedPercent: 10, resetsAt: 1_800_000_000_000 }],
-    resetCredits: { availableCount: 2, nextExpiresAt: 1_800_000_000_000 },
+    resetCredits: {
+      availableCount: 2,
+      nextExpiresAt: 1_800_000_000_000,
+      credits: [{ expiresAt: 1_800_000_000_000 }],
+    },
   })
   expect(fakes.native.request).toHaveBeenNthCalledWith(2, 'account/rateLimits/read', {}, 10_000)
   expect(fakes.native.shutdown).toHaveBeenCalledOnce()

@@ -22,6 +22,8 @@ type Windows = ProviderAllowance['windows']
 export interface AllowanceReading {
   windows: Windows
   resetCredits: ProviderAllowance['resetCredits']
+  /** False when the bank request failed. A missing bank is a real zero. */
+  resetCreditsKnown?: boolean
 }
 
 function asReading(value: Windows | AllowanceReading): AllowanceReading {
@@ -205,7 +207,18 @@ export async function fetchAllowanceReading(
   if (kind === 'codex') return readCodexAllowance(binaryPath)
   const windows = await fetchAllowance(kind, binaryPath, bundledRuntime)
   if (kind !== 'claude') return { windows, resetCredits: null }
-  return { windows, resetCredits: await resetCreditService.readClaude() }
+  try {
+    return {
+      windows,
+      resetCredits: await resetCreditService.readClaude(binaryPath),
+      resetCreditsKnown: true,
+    }
+  } catch (error) {
+    log.debug('Claude reset bank unread', {
+      error: error instanceof Error ? error.name : 'UnknownError',
+    })
+    return { windows, resetCredits: null, resetCreditsKnown: false }
+  }
 }
 
 /** Coalesces concurrent reads and keeps the last successful sample on failures. */
@@ -245,11 +258,16 @@ export class ProviderAllowanceReader {
     try {
       const reading = asReading(binaryPath ? await this.fetch(kind, binaryPath) : [])
       const { windows } = reading
-      const visible = windows.length > 0 || (reading.resetCredits?.availableCount ?? 0) > 0
+      const previous = this.#last.get(key)
+      const resetCredits =
+        reading.resetCreditsKnown === false
+          ? (previous?.resetCredits ?? null)
+          : (reading.resetCredits ?? null)
+      const visible = windows.length > 0 || (resetCredits?.availableCount ?? 0) > 0
       const result: ProviderAllowance = {
         kind,
         windows,
-        resetCredits: reading.resetCredits ?? null,
+        resetCredits,
         status: visible ? 'available' : 'unavailable',
         updatedAt: visible ? this.now() : null,
         checkedAt: this.now(),
