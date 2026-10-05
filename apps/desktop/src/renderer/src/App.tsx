@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { X, FolderPlus } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
+import { setReducedMotion } from '@ari/ui/reduced-motion'
 import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
@@ -969,7 +970,7 @@ function Shell() {
 
         <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border/50">
           {fullPage !== null ? (
-            <div className="min-h-0 flex-1">
+            <div key={fullPage} className="ari-enter-rise min-h-0 flex-1">
               {fullPage === 'usage' ? (
                 <ErrorBoundary label="Usage">
                   <UsagePage />
@@ -1084,7 +1085,7 @@ function Shell() {
                   <aside
                     role="complementary"
                     aria-label={INSPECTOR_TITLES[inspector]}
-                    className="flex shrink-0 flex-col border-l border-border"
+                    className="ari-enter-fade flex shrink-0 flex-col border-l border-border"
                     style={{ width: dock.width, maxWidth: '60vw' }}
                   >
                     {inspector === 'terminal' ? (
@@ -1193,6 +1194,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       <MotionProvider>
         <ToastProvider>
           <UpdateToastWatcher />
+          <ReducedMotionWatcher />
           {children}
         </ToastProvider>
       </MotionProvider>
@@ -1208,6 +1210,22 @@ function UpdateToastWatcher() {
 }
 
 const log = createLogger('app:shell')
+
+/** Headless: applies the persisted "Reduce motion" choice once it is known. */
+function ReducedMotionWatcher() {
+  useEffect(() => {
+    const load = async (): Promise<void> => {
+      try {
+        const settings = await rpc.invoke('settings.get')
+        setReducedMotion(settings.appearance.reducedMotion)
+      } catch (error) {
+        log.warn('reduced-motion setting unreadable; motion stays on', { error })
+      }
+    }
+    void load()
+  }, [])
+  return null
+}
 
 /**
  * Startup: the launch animation is the window's own first frame, so the
