@@ -9,6 +9,15 @@ export function Markdown({ text }: { text: string }): ReactNode {
       className="markdown"
       onClick={(event) => {
         if (!(event.target instanceof Element)) return
+        const copy = event.target.closest('[data-copy-code]')
+        if (copy !== null) {
+          const code = copy.closest('.code-block')?.querySelector('pre')?.textContent ?? ''
+          void navigator.clipboard
+            .writeText(code)
+            .then(() => (copy.textContent = 'Copied'))
+            .catch(() => (copy.textContent = 'Clipboard unavailable'))
+          return
+        }
         const anchor = event.target.closest('a')
         if (anchor !== null) {
           anchor.target = '_blank'

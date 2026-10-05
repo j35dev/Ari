@@ -356,7 +356,11 @@ export function SessionScreen({
                 }}
               />
             ))}
-            <Conversation messages={snapshot.messages} sessionId={sessionId} />
+            <Conversation
+              messages={snapshot.messages}
+              sessionId={sessionId}
+              running={snapshot.session.status === 'running'}
+            />
           </>
         )}
         {view === 'changes' && (

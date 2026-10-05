@@ -39,7 +39,7 @@ describe('conversationParts', () => {
     expect(presentation.parts).toEqual([
       { sourceIndex: 0, part: text('```ts\nconst value = 1\n```') },
     ])
-    expect(renderMarkdown(presentation.copyText)).toBe(
+    expect(renderMarkdown(presentation.copyText)).toContain(
       '<pre><code class="language-ts">const value = 1\n</code></pre>',
     )
   })

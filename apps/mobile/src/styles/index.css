@@ -171,8 +171,20 @@
   .markdown a {
     @apply text-accent underline underline-offset-2;
   }
+  .markdown .code-block {
+    @apply my-3 overflow-hidden rounded-xl bg-surface-1;
+  }
+  .markdown .code-block-head {
+    @apply flex items-center justify-between pl-3 text-[11px] text-fg-subtle;
+  }
+  .markdown .code-block-head button {
+    @apply min-h-9 px-3 text-[11px] text-fg-muted;
+  }
   .markdown pre {
-    @apply my-3 overflow-x-auto rounded-xl border border-border bg-surface-1 p-3 font-mono text-xs leading-relaxed;
+    @apply overflow-x-auto px-3 pb-3 font-mono text-xs leading-relaxed;
+  }
+  .step-detail {
+    @apply overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-1 p-2.5 font-mono text-xs leading-relaxed text-fg-muted;
   }
   .markdown :not(pre) > code {
     @apply rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.85em];
@@ -221,6 +233,25 @@ html[data-keyboard='open'] .mobile-composer {
 @keyframes status-pulse {
   50% {
     opacity: 0.35;
+  }
+}
+/* The step in progress: its verb catches a passing light. */
+.shimmer {
+  background: linear-gradient(
+      90deg,
+      var(--ari-fg-subtle) 30%,
+      var(--ari-fg) 50%,
+      var(--ari-fg-subtle) 70%
+    )
+    0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
   }
 }
 .mobile-working-cell {
