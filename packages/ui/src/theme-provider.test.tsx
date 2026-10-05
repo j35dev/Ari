@@ -240,7 +240,7 @@ describe('ThemeProvider', () => {
 
     afterEach(() => {
       delete (document as { startViewTransition?: unknown }).startViewTransition
-      delete document.documentElement.dataset['ariReduceMotion']
+      delete document.documentElement.dataset['ariReducedMotion']
     })
 
     it('changes theme inside a view transition, opening from the click', async () => {
@@ -275,7 +275,7 @@ describe('ThemeProvider', () => {
 
     it('applies the theme directly under reduced motion', async () => {
       const start = transition()
-      document.documentElement.dataset['ariReduceMotion'] = ''
+      document.documentElement.dataset['ariReducedMotion'] = ''
       const user = userEvent.setup()
       render(
         <ThemeProvider>

@@ -1,6 +1,5 @@
 import { Check, Monitor } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
-import { setReducedMotion } from '@ari/ui/reduced-motion'
 import { Switch } from '@ari/ui/switch'
 import { useTheme } from '@ari/ui/theme-provider'
 import { themeList } from '@ari/ui/themes'
@@ -184,8 +183,6 @@ export function AppearanceSettings() {
   const reducedMotion = settings?.appearance.reducedMotion ?? false
 
   const handleReducedMotionChange = (checked: boolean) => {
-    // Applied before the write lands: the switch should read as instant.
-    setReducedMotion(checked)
     void update({ appearance: { reducedMotion: checked } }).catch((error: unknown) => {
       log.warn('failed to persist reduced motion', { error })
     })

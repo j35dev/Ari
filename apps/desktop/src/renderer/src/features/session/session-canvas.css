@@ -1,0 +1,39 @@
+.ari-session-canvas {
+  container-type: size;
+}
+
+.ari-session-scene {
+  background-image:
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--ari-surface-0) 48%, transparent),
+      color-mix(in oklab, var(--ari-surface-0) 78%, transparent)
+    ),
+    var(--ari-wallpaper-image, none);
+  background-position: center;
+  background-size: cover;
+  opacity: 0;
+  transition: opacity 420ms var(--ari-ease-slide);
+}
+
+.ari-session-scene[data-visible] {
+  opacity: 1;
+}
+
+.ari-composer-dock[data-centered] .ari-composer-shell {
+  border-radius: var(--ari-radius-2xl);
+  background: color-mix(in oklab, var(--ari-surface-1) 96%, transparent);
+}
+
+@container (max-height: 420px) {
+  .ari-session-intro,
+  .ari-session-starters {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ari-session-scene {
+    transition: none;
+  }
+}
