@@ -148,8 +148,9 @@ export function resolveAcpLaunch(
       command: npx,
       args: ['-y', spec],
       viaNpx: true,
-      // Otherwise codex-acp runs its bundled Codex, which can lag the user's CLI.
+      // Otherwise the adapter runs its bundled CLI, which can lag the user's own.
       ...(kind === 'codex' ? { env: { CODEX_PATH: options.cliBinaryPath } } : {}),
+      ...(kind === 'claude' ? { env: { CLAUDE_CODE_EXECUTABLE: options.cliBinaryPath } } : {}),
     }
   }
 

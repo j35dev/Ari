@@ -94,7 +94,8 @@ describe('resolveAcpLaunch', () => {
     expect(launch?.env).toEqual({ CODEX_PATH: cliBinaryPath })
     expect(probeLaunch(launch!).env).toEqual({ CODEX_PATH: cliBinaryPath })
     const claude = resolveAcpLaunch('claude', { cliBinaryPath: '/bin/claude' }, { ...ENV, pathEnv: dirname(npxPath) })
-    expect(claude?.env).toBeUndefined()
+    expect(claude?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: '/bin/claude' })
+    expect(probeLaunch(claude!).env).toEqual({ CLAUDE_CODE_EXECUTABLE: '/bin/claude' })
   })
 
   it('returns null when the CLI itself is not installed', () => {
