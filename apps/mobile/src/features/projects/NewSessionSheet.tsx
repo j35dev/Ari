@@ -6,8 +6,9 @@ import { sessionIdOf } from '../../lib/command-result'
 import { writeDraft } from '../../lib/draft'
 import { readCreation, writeCreation, type NewSessionRequest } from '../../lib/new-session'
 import { RemoteError } from '../../lib/gateway-client'
-import { ChevronDown } from 'lucide-react'
+import type { PermissionMode } from '@ari/contracts/common'
 import { ModelPicker, modelSelectionLabel } from '../../components/ModelPicker'
+import { SessionControls } from '../../components/SessionControls'
 
 /** Create once, retaining the receipt through a lost response, and hand the draft to the thread. */
 export function NewSessionSheet({
@@ -27,6 +28,8 @@ export function NewSessionSheet({
   )
   const [provider, setProvider] = useState(restored?.driverKind ?? '')
   const [model, setModel] = useState(restored?.modelId ?? '')
+  const [effort, setEffort] = useState<string | null>(restored?.effort ?? null)
+  const [mode, setMode] = useState<PermissionMode | null>(restored?.permissionMode ?? null)
   const [draft, setDraft] = useState(restored?.draft ?? '')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(
@@ -43,6 +46,8 @@ export function NewSessionSheet({
       projectId: project,
       driverKind: provider,
       modelId: model,
+      effort,
+      permissionMode: mode,
       draft,
     }
     if (!writeCreation(app.origin, deviceId, command)) {
@@ -61,6 +66,8 @@ export function NewSessionSheet({
           projectId: command.projectId,
           ...(command.driverKind === '' ? {} : { driverKind: command.driverKind }),
           ...(command.modelId === '' ? {} : { modelId: command.modelId }),
+          ...(command.permissionMode === null ? {} : { permissionMode: command.permissionMode }),
+          ...(command.effort === null ? {} : { effort: command.effort }),
         },
         command.key,
       )
@@ -100,6 +107,8 @@ export function NewSessionSheet({
         modelId={model}
         onClose={() => setPickingModel(false)}
         onSelect={(nextProvider, nextModel) => {
+          // Levels belong to a provider and model, so a saved one may not carry over.
+          if (nextProvider !== provider || nextModel !== model) setEffort(null)
           setProvider(nextProvider)
           setModel(nextModel)
         }}
@@ -136,19 +145,20 @@ export function NewSessionSheet({
             </select>
           </label>
           <div>
-            <p className="text-xs text-fg-muted">Agent & model</p>
-            <button
-              type="button"
-              aria-label="Choose agent and model"
-              disabled={pending !== null || busy}
-              onClick={() => setPickingModel(true)}
-              className="mt-2 flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-surface-1 px-3 text-left text-sm"
-            >
-              <span className="min-w-0 truncate">
-                {modelSelectionLabel(app.catalog, provider, model)}
-              </span>
-              <ChevronDown size={16} className="shrink-0 text-fg-muted" />
-            </button>
+            <p className="text-xs text-fg-muted">Agent, effort and permissions</p>
+            <div className="mt-2 flex min-h-11 items-center gap-1.5 overflow-x-auto">
+              <SessionControls
+                driverKind={provider || app.catalog?.defaults?.driverKind || ''}
+                modelId={model}
+                modelLabel={modelSelectionLabel(app.catalog, provider, model)}
+                effort={effort}
+                permissionMode={mode ?? app.catalog?.defaults?.permissionMode ?? 'ask'}
+                disabled={pending !== null || busy}
+                onPickModel={() => setPickingModel(true)}
+                onEffort={setEffort}
+                onMode={setMode}
+              />
+            </div>
           </div>
           <label className="block text-xs text-fg-muted">
             Task draft
@@ -162,7 +172,7 @@ export function NewSessionSheet({
             />
           </label>
           <p className="text-xs leading-relaxed text-fg-subtle">
-            Review and send your draft inside the session. Permissions follow your desktop settings.
+            Review and send your draft inside the session.
           </p>
           {failure !== null && (
             <p role="alert" className="error-banner">

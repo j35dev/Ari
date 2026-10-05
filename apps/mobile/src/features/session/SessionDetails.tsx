@@ -119,7 +119,7 @@ export function SessionDetails({
           ))}
         </dl>
         <p className="text-xs leading-relaxed text-fg-subtle">
-          Permission limits are set on your computer. Model changes apply when the session is idle.
+          Model changes apply when the session is idle.
         </p>
         {failure !== null && (
           <p role="alert" className="error-banner">
