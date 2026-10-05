@@ -205,6 +205,24 @@
 html[data-keyboard='open'] .mobile-composer {
   padding-bottom: 0.5rem;
 }
+/* A pushed screen arrives from the side it will leave by. */
+.screen-push {
+  animation: screen-push var(--ari-dur-base) var(--ari-ease-slide);
+}
+@keyframes screen-push {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+.status-pulse {
+  animation: status-pulse 1.6s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 .mobile-working-cell {
   animation: mobile-working 1.2s linear infinite;
 }
