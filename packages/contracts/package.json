@@ -15,7 +15,8 @@
     "./rpc": "./src/rpc.ts",
     "./settings": "./src/settings.ts",
     "./endpoint": "./src/endpoint.ts",
-    "./project": "./src/project.ts"
+    "./project": "./src/project.ts",
+    "./remote": "./src/remote.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

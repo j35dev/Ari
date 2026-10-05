@@ -8,7 +8,12 @@ import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Command } from '@ari/contracts/commands'
 import { DriverRegistry } from '@ari/providers/registry'
-import type { AdapterSession, Driver, ProviderAdapter } from '@ari/providers/driver'
+import type {
+  AdapterApprovalDecision,
+  AdapterSession,
+  Driver,
+  ProviderAdapter,
+} from '@ari/providers/driver'
 import { SessionStore } from '@ari/engine/session-store'
 import {
   deterministicTitleStrategy,
@@ -1069,9 +1074,9 @@ describe('engine end-to-end with scripted driver', () => {
   }, 10000)
 
   it('routes approval.respond decisions into the live adapter (M16.8)', async () => {
-    const decisions: { approvalId: string; decision: string }[] = []
+    const decisions: { approvalId: string; decision: AdapterApprovalDecision }[] = []
     // An adapter that parks the stream until its approval is answered.
-    let release: ((decision: string) => void) | null = null
+    let release: ((decision: AdapterApprovalDecision) => void) | null = null
     const approvalDriver: Driver = {
       kind: 'claude',
       create: (_session: AdapterSession) =>
@@ -1083,11 +1088,23 @@ describe('engine end-to-end with scripted driver', () => {
                 approvalId: 'ap_1',
                 toolName: 'bash',
                 summaryJson: '{}',
+                // Two grants of one kind: only the id tells them apart, which
+                // is what an answer from the UI actually names.
+                options: [
+                  { optionId: 'accept', name: 'Allow once', kind: 'allow_once' },
+                  {
+                    optionId: 'acceptForSession',
+                    name: 'Allow for this session',
+                    kind: 'allow_always',
+                  },
+                  { optionId: 'decline', name: 'Deny', kind: 'reject_once' },
+                ],
               }
-              const decision = await new Promise<string>((resolve) => {
+              const decision = await new Promise<AdapterApprovalDecision>((resolve) => {
                 release = resolve
               })
-              yield { type: 'text-delta', text: `resolved:${decision}` }
+              const label = typeof decision === 'string' ? decision : decision.optionId
+              yield { type: 'text-delta', text: `resolved:${label}` }
               yield { type: 'done' }
             },
           }),
@@ -1123,7 +1140,7 @@ describe('engine end-to-end with scripted driver', () => {
       type: 'approval.respond',
       sessionId,
       approvalId: 'ap_1',
-      decision: 'always-allow',
+      optionId: 'acceptForSession',
     })
     expect(responded.accepted).toBe(true)
 
@@ -1133,7 +1150,9 @@ describe('engine end-to-end with scripted driver', () => {
       if (i === 149) throw new Error('turn never settled after approval')
       await new Promise((r) => setTimeout(r, 20))
     }
-    expect(decisions).toEqual([{ approvalId: 'ap_1', decision: 'always-allow' }])
+    expect(decisions).toEqual([
+      { approvalId: 'ap_1', decision: { optionId: 'acceptForSession' } },
+    ])
   }, 10000)
 
   it('upgrades the slice title once after the first successful turn (M18.2)', async () => {

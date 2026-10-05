@@ -6,6 +6,27 @@ import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('engine:delegation-approval')
 
+/**
+ * The two choices a delegation request offers. The ids are stable so a
+ * response naming one resolves exactly, the same way a provider approval's
+ * own option ids do — a delegation card is not a special case downstream.
+ */
+const DELEGATION_OPTIONS = [
+  { optionId: 'delegation_allow', name: 'Allow', kind: 'allow_once' },
+  { optionId: 'delegation_deny', name: 'Deny', kind: 'reject_once' },
+] as const
+
+/**
+ * The ids in {@linkcode DELEGATION_OPTIONS} are this request's whole
+ * vocabulary, so an exact answer needs no translation. An id this host never
+ * offered is treated as a denial: a delegation spawns child sessions that run
+ * unattended, which is not something to start by accident.
+ */
+function allows(decision: AdapterApprovalDecision): boolean {
+  if (typeof decision !== 'object') return decision !== 'deny'
+  return decision.optionId === 'delegation_allow'
+}
+
 /** Delegation requests use the existing durable approval card and response command. */
 export class DelegationApprovals {
   readonly #pending = new Map<string, { root: string; answer: (allowed: boolean) => void }>()
@@ -27,6 +48,7 @@ export class DelegationApprovals {
         summaryJson: JSON.stringify({
           description: `Allow ${root.title} to create up to ${maxChildren} concurrent child sessions for this task?`,
         }),
+        options: [...DELEGATION_OPTIONS],
       })
       return await result
     } finally {
@@ -38,7 +60,7 @@ export class DelegationApprovals {
   respond(id: string, decision: AdapterApprovalDecision): boolean {
     const pending = this.#pending.get(id)
     if (!pending) return id.startsWith('ari_delegate_')
-    pending.answer(decision !== 'deny')
+    pending.answer(allows(decision))
     this.#pending.delete(id)
     return true
   }
@@ -56,7 +78,12 @@ export class DelegationApprovals {
     if (!this.#pending.has(id)) return
     this.respond(id, 'deny')
     void this.engine
-      .record(root, { type: 'approval.responded', approvalId: id, decision: 'deny' })
+      .record(root, {
+        type: 'approval.responded',
+        approvalId: id,
+        optionId: 'delegation_deny',
+        decision: 'deny',
+      })
       .catch(() => log.warn('Failed to persist delegation approval cancellation'))
   }
 }

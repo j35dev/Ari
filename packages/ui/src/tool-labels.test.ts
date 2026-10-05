@@ -16,7 +16,7 @@ import {
   todoItems,
   toolSubject,
   toolTarget,
-} from './toolLabels'
+} from './tool-labels'
 
 describe('isImageGenerationCall', () => {
   it('recognises native and MCP image tool names', () => {

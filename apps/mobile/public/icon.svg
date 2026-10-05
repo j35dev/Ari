@@ -1,0 +1,13 @@
+<!--
+  The home-screen icon. Colours are literals because an icon is an asset, not
+  chrome: the OS renders it outside the page, where design tokens do not exist.
+  They match the obsidian palette the app opens in (surface-0 #131320, the
+  app's accent indigo).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Ari">
+  <rect width="512" height="512" rx="112" fill="#131320" />
+  <path
+    d="M256 112 372 400h-64l-22-58h-60l-22 58h-64L256 112Zm0 118-18 62h36l-18-62Z"
+    fill="#8b8bff"
+  />
+</svg>

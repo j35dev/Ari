@@ -46,6 +46,7 @@ bottleneck. Ari wraps the agents you already have in a real desktop environment:
 | Ship | Stage → commit → push → PR in one flow |
 | Models | Cross-provider model picker with live catalogs, per-session lock after first turn |
 | Desktop | Command palette, prompt stash, usage dashboard (ccusage), file explorer with editor, theme engine |
+| Phone | Installable PWA that drives sessions from anywhere: prompts, queues, approvals with the provider's own choices, interruptions, live activity |
 
 ## Supported agents
 
@@ -79,6 +80,33 @@ so it can sit next to an installed Ari. Sessions and settings are not shared.
 First launch detects installed CLIs automatically; anything missing is simply not
 offered. Point Ari at a project folder and start a session.
 
+## Remote control from your phone
+
+A paired phone is a remote control for the desktop: it creates sessions, sends
+prompts and follow-ups, answers approvals with the provider's exact choices,
+interrupts turns, and watches the conversation — while the agents keep running
+on the computer. Closing the phone changes nothing about the work.
+
+Two independent ways to reach the desktop; neither needs the other:
+
+| Mode | Setup | Needs an account |
+| --- | --- | --- |
+| Tailscale | Install Tailscale on both devices, then Settings → Remote → Enable, Enable Serve | No |
+| Ari Connect | An invitation to the hosted service, then Settings → Remote → Managed connection | Yes |
+
+For the self-hosted path, the desktop publishes its gateway on your tailnet and
+serves the phone's app from that same address, so nothing leaves your devices.
+Because both ends are on the tailnet, the phone can be on cellular while the
+computer is on home Wi-Fi.
+
+Every device is approved at the computer, by name and a short confirmation
+code, and each approval carries a project grant — a phone reaches only the
+projects you picked, and revocation is immediate. The phone's key never leaves
+it: pairing stores a non-extractable browser key, not a password.
+
+See [`apps/mobile/README.md`](./apps/mobile/README.md) for the phone side,
+including installation and what to check when a connection fails.
+
 ## Build from source
 
 Installers are produced with [electron-builder](https://www.electron.build); the config
@@ -89,6 +117,7 @@ From the repo root:
 pnpm install
 pnpm approve-builds                          # once, for node-pty
 pnpm --filter @ari/desktop build             # renderer + main bundles
+pnpm --filter @ari/mobile build              # phone PWA, packed into the installer
 cd apps/desktop
 npx electron-builder install-app-deps        # rebuild node-pty for Electron's ABI
 npx electron-builder --win                   # NSIS installer  → dist/Ari-Setup-<version>.exe

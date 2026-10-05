@@ -42,6 +42,9 @@ jobs:
       - name: Build bundles
         run: pnpm --filter @ari/desktop build
 
+      - name: Build mobile PWA
+        run: pnpm --filter @ari/mobile build
+
       - name: Rebuild native deps for Electron
         run: npx electron-builder install-app-deps
         working-directory: apps/desktop

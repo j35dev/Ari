@@ -1,0 +1,22 @@
+{
+  "name": "@ari/remote-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./origin": "./src/origin.ts",
+    "./idempotency": "./src/idempotency.ts",
+    "./pairing": "./src/pairing.ts",
+    "./host": "./src/host.ts",
+    "./gateway": "./src/gateway.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ari/contracts": "workspace:*",
+    "@ari/shared": "workspace:*",
+    "zod": "^4.4.3"
+  }
+}
