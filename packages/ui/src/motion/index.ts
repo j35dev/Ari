@@ -22,6 +22,8 @@ export const transitions = {
   morph: { duration: 0.18, ease: EASE_OUT_EXPO } satisfies Transition,
   /** session-resort FLIP slides: 260ms */
   resort: { duration: 0.26, ease: EASE_SLIDE } satisfies Transition,
+  /** Retargetable, critically damped movement without scaling the editor. */
+  composerDock: { type: 'spring', stiffness: 320, damping: 36, mass: 1 } satisfies Transition,
 } as const
 
 /** Sidebar collapse/expand spring (PLAN §6.4: stiffness 320 / damping 34). */

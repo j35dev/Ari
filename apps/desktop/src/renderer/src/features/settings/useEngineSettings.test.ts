@@ -91,4 +91,30 @@ describe('useEngineSettings', () => {
     ).rejects.toThrow('invalid patch')
     expect(result.current.settings).toEqual(baseSettings)
   })
+
+  it('broadcasts motion preferences and ignores an older in-flight initial load', async () => {
+    const first = renderHook(() => useEngineSettings())
+    await waitFor(() => expect(first.result.current.settings).toEqual(baseSettings))
+    let resolveLoad: ((value: Settings) => void) | undefined
+    invoke.mockImplementationOnce(
+      () =>
+        new Promise<Settings>((resolve) => {
+          resolveLoad = resolve
+        }),
+    )
+    const second = renderHook(() => useEngineSettings())
+    const updated = {
+      ...baseSettings,
+      appearance: { ...baseSettings.appearance, reducedMotion: true },
+    }
+    invoke.mockResolvedValueOnce(updated)
+    await act(async () => {
+      await first.result.current.update({ appearance: { reducedMotion: true } })
+    })
+    expect(second.result.current.settings?.appearance.reducedMotion).toBe(true)
+    await act(async () => {
+      resolveLoad?.(baseSettings)
+    })
+    expect(second.result.current.settings).toEqual(updated)
+  })
 })

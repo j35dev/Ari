@@ -22,7 +22,12 @@ export const themeModeSchema = z.union([z.literal('system'), themeIdSchema])
 export type ThemeMode = z.infer<typeof themeModeSchema>
 
 /** Bundled wallpaper identifiers (the paintable scenes; 'none' handled below). */
-export const wallpaperIdSchema = z.enum(['anime-city', 'moon-landscape', 'moon-landscape-2'])
+export const wallpaperIdSchema = z.enum([
+  'anime-city',
+  'moon-landscape',
+  'moon-landscape-2',
+  'stillwater',
+])
 export type WallpaperIdSetting = z.infer<typeof wallpaperIdSchema>
 
 /** A wallpaper selection: a bundled scene, or 'none' for the plain theme. */
