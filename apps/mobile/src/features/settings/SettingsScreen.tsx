@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Laptop, ShieldCheck, RefreshCw, ChevronRight, Smartphone, LogOut } from 'lucide-react'
-import { useTheme } from '@ari/ui/theme-provider'
 import { BottomSheet, ScreenHeader } from '../../components/ui'
+import { ThemePicker } from '../../components/ThemePicker'
 import { useApp } from '../../lib/app-state'
 import { connectionLabel, relativeTime } from '../../lib/format'
 import { connectRequest, IS_CONNECT_BUILD, type ConnectAccount } from '../../lib/connect'
@@ -10,7 +10,6 @@ import { OwnerAccess } from '../connect/OwnerAccess'
 /** Connection, appearance, and access are presented in everyday language. */
 export function SettingsScreen(): ReactNode {
   const app = useApp()
-  const { mode, resolvedScheme, setMode } = useTheme()
   const [confirming, setConfirming] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -104,33 +103,7 @@ export function SettingsScreen(): ReactNode {
         </button>
       )}
       <h2 className="section-label mt-6">Appearance</h2>
-      <div
-        className="flex gap-1 rounded-xl border border-border bg-surface-1 p-1"
-        role="group"
-        aria-label="Appearance"
-      >
-        {(
-          [
-            { id: 'system', label: 'System' },
-            { id: 'porcelain', label: 'Light' },
-            { id: 'obsidian', label: 'Dark' },
-          ] as const
-        ).map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={
-              mode === item.id ||
-              (mode !== 'system' &&
-                item.id === (resolvedScheme === 'dark' ? 'obsidian' : 'porcelain'))
-            }
-            onClick={() => setMode(item.id)}
-            className={`min-h-11 flex-1 rounded-lg text-xs ${mode === item.id || (mode !== 'system' && item.id === (resolvedScheme === 'dark' ? 'obsidian' : 'porcelain')) ? 'bg-surface-3 font-medium text-fg' : 'text-fg-muted'}`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      <ThemePicker />
       <h2 className="section-label mt-6">This phone's access</h2>
       <section className="rounded-2xl border border-border p-4">
         <div className="flex items-start gap-2.5">
