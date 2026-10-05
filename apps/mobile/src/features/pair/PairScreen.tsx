@@ -2,6 +2,8 @@ import { useState, type ReactNode } from 'react'
 import { ArrowRight, Laptop, Network, ShieldCheck, Smartphone } from 'lucide-react'
 import { useApp } from '../../lib/app-state'
 import { IS_CONNECT_BUILD } from '../../lib/connect'
+import { RemoteError } from '../../lib/gateway-client'
+import { readPairingEntry } from '../../lib/pairing-entry'
 
 /** Pairing is a deliberate desktop approval with the same confirmation code on both screens. */
 export function PairScreen({
@@ -15,6 +17,7 @@ export function PairScreen({
   const installed =
     window.matchMedia?.('(display-mode: standalone)').matches === true ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
+  const iosBrowser = /iPhone|iPad/.test(navigator.userAgent) && !installed
   const revoked = app.connection === 'revoked'
   const missingDevice = app.connection === 'unknown-device'
   const recovering = revoked || missingDevice
@@ -30,7 +33,8 @@ export function PairScreen({
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [address, setAddress] = useState('')
-  const [link, setLink] = useState('')
+  const [entry, setEntry] = useState('')
+  const [resolving, setResolving] = useState(false)
   async function pair(): Promise<void> {
     if (invitationId === null || busy) return
     setBusy(true)
@@ -60,25 +64,36 @@ export function PairScreen({
       )
     }
   }
-  function useLink(): void {
+  async function useEntry(): Promise<void> {
+    if (resolving) return
     setFailure(null)
+    const read = readPairingEntry(entry, location.origin)
+    if (read.kind === 'error') {
+      setFailure(read.message)
+      return
+    }
+    if (read.kind === 'invitation') {
+      setEntry('')
+      onInvitation(read.invitationId)
+      return
+    }
+    if (app.session === null) {
+      setFailure('Choose a computer first.')
+      return
+    }
+    setResolving(true)
     try {
-      const url = new URL(link.trim())
-      if (url.protocol !== 'https:' || url.username || url.password)
-        throw new Error('Use the full HTTPS pairing link from desktop Mobile access settings.')
-      if (url.origin !== location.origin)
-        throw new Error(
-          'This link belongs to another address. Use a pairing link for this Ari app’s computer.',
-        )
-      const invitation = new URLSearchParams(url.hash.slice(1)).get('pair')
-      if (!invitation?.trim())
-        throw new Error(
-          'This address has no pairing code. Copy a fresh pairing link from your computer.',
-        )
-      setLink('')
-      onInvitation(invitation)
+      onInvitation(await app.session.resolvePairingCode(read.code))
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : 'Enter a fresh pairing link.')
+      setFailure(
+        error instanceof RemoteError && error.code === 'not_found'
+          ? 'That code is not right, or it has expired. Check the code under the QR on your computer, or show a new one.'
+          : error instanceof Error
+            ? error.message
+            : 'Could not check that code. Try again.',
+      )
+    } finally {
+      setResolving(false)
     }
   }
   return (
@@ -128,6 +143,12 @@ export function PairScreen({
       </div>
       {invitationId !== null ? (
         <section>
+          {iosBrowser && (
+            <p className="mb-5 rounded-xl border border-border bg-surface-1 p-3 text-xs leading-relaxed text-fg-muted">
+              Pairing here pairs Safari only. For the Home Screen app, choose Share → Add to Home
+              Screen first, open Ari from there, and type the code shown under the QR.
+            </p>
+          )}
           <label className="block text-xs text-fg-muted" htmlFor="device-name">
             Device name
           </label>
@@ -170,29 +191,34 @@ export function PairScreen({
             className="mb-6 space-y-3"
             onSubmit={(event) => {
               event.preventDefault()
-              useLink()
+              void useEntry()
             }}
           >
-            <label htmlFor="pairing-link" className="block text-xs text-fg-muted">
-              Fresh pairing link
+            <label htmlFor="pairing-code" className="block text-xs text-fg-muted">
+              Pairing code
             </label>
             <input
-              id="pairing-link"
-              type="url"
-              value={link}
-              onChange={(event) => setLink(event.target.value)}
-              placeholder="https://computer.tailnet.ts.net/#pair=…"
-              autoCapitalize="none"
+              id="pairing-code"
+              value={entry}
+              onChange={(event) => setEntry(event.target.value)}
+              placeholder="XXXX-XXXX"
+              autoCapitalize="characters"
               autoCorrect="off"
+              autoComplete="off"
               spellCheck={false}
-              className="min-h-12 w-full rounded-xl border border-border bg-surface-1 px-3 text-base"
+              disabled={resolving}
+              className="min-h-14 w-full rounded-xl border border-border bg-surface-1 px-4 text-center font-mono text-xl tracking-[0.14em] placeholder:text-fg-subtle"
             />
-            <button type="submit" className="primary-button w-full" disabled={!link.trim()}>
-              Use pairing link <ArrowRight size={15} />
+            <button
+              type="submit"
+              className="primary-button w-full"
+              disabled={!entry.trim() || resolving}
+            >
+              {resolving ? 'Checking…' : 'Continue'} {!resolving && <ArrowRight size={15} />}
             </button>
             <p className="text-xs leading-relaxed text-fg-muted">
-              Create a fresh link in desktop Settings → Mobile access. Paste it here, then approve
-              the matching code on your computer.
+              The code is under the QR in desktop Settings → Mobile access. A pasted pairing link
+              works here too.
             </p>
           </form>
           <section className="rounded-2xl border border-border bg-surface-1 p-5">
@@ -217,8 +243,8 @@ export function PairScreen({
               <li>
                 <span className="mr-2 text-fg-subtle">3.</span>
                 {installed
-                  ? 'Copy the pairing link and paste it above. Opening the QR in Safari pairs Safari instead of this app.'
-                  : "Scan the pairing QR with your phone's camera."}
+                  ? 'Type the code under the QR above. Scanning the QR would pair Safari instead of this app.'
+                  : "Scan the pairing QR with your phone's camera, or type the code under it above."}
               </li>
             </ol>
           </section>

@@ -112,6 +112,12 @@ export class GatewayClient {
     return this.#post('/pair/request', { invitationId, displayName, publicKey })
   }
 
+  /** The invitation behind a code the user typed because the app cannot scan a QR. */
+  async pairResolve(code: string): Promise<string> {
+    const { invitationId } = await this.#post<{ invitationId: string }>('/pair/resolve', { code })
+    return invitationId
+  }
+
   async pairStatus(invitationId: string): Promise<PairingStatus> {
     const { status } = await this.#post<{ status: PairingStatus }>('/pair/status', { invitationId })
     return status
