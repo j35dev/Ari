@@ -257,11 +257,10 @@ function Shell() {
   // sticks until the user has seen what the agent did.
   const selectSession = useCallback(
     (id: string) => {
-      // A session already on screen is focused where it is; anything else
-      // replaces what the focused pane was showing, which is the tmux reading
-      // of a click in the session list.
-      const paneId = splitLayoutActions.paneOf(id) ?? layout.focusedPaneId
-      splitLayoutActions.assign(paneId, id)
+      // A session already open is shown where it is, in whichever space holds
+      // it; anything else replaces what the focused pane was showing, which is
+      // the tmux reading of a click in the session list.
+      if (!splitLayoutActions.reveal(id)) splitLayoutActions.assign(layout.focusedPaneId, id)
       clearTransientInspector()
       leaveWorkspaceTool()
       // Selecting a chat must land on it, not leave Usage/Changes up.
@@ -561,20 +560,27 @@ function Shell() {
           spaceActions.cycle(e.key === 'PageDown' ? 1 : -1)
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.altKey && /^[1-9]$/.test(e.key)) {
+      // Matched on the physical key as well as the character: on macOS, Option
+      // rewrites `key` (Option+T is "†"), so `key` alone never matches there.
+      const altDigit = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : null)
+      if ((e.ctrlKey || e.metaKey) && e.altKey && altDigit !== null) {
         if (tabsVisible && !paletteOpen && !searchOpen) {
           e.preventDefault()
-          spaceActions.selectAt(Number(e.key) - 1)
+          spaceActions.selectAt(Number(altDigit) - 1)
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.key.toLowerCase() === 't') {
+      const altLetter = (letter: string): boolean =>
+        e.code === `Key${letter.toUpperCase()}` || e.key.toLowerCase() === letter
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && altLetter('t')) {
         if (tabsVisible && !paletteOpen && !searchOpen) {
           e.preventDefault()
           createSpace()
         }
       }
-      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.key.toLowerCase() === 'w') {
-        if (tabsVisible && !paletteOpen && !searchOpen) {
+      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && altLetter('w')) {
+        // The last space cannot be closed anywhere else in the UI; here it
+        // would silently reset the whole pane layout.
+        if (tabsVisible && !paletteOpen && !searchOpen && spaceStore.spaces.length > 1) {
           e.preventDefault()
           spaceActions.close(spaceStore.activeSpaceId)
         }
@@ -830,7 +836,12 @@ function Shell() {
     [activeSession, activeProjectPath, projects],
   )
   const terminalDock = useSyncExternalStore(subscribeTerminalDock, terminalDockState)
-  const paneTerminalIds = useMemo(() => new Set(terminalIdsInPanes(layout)), [layout])
+  // Every space's panes, not only the one on screen: a terminal hosted in
+  // another space must not also appear as a rail tab that can close it.
+  const paneTerminalIds = useMemo(
+    () => new Set(spaceStore.spaces.flatMap((space) => terminalIdsInPanes(space.layout))),
+    [spaceStore.spaces],
+  )
   const openTerminalInPane = useCallback(
     (paneId: string) => {
       if (shellRoot === null) return
