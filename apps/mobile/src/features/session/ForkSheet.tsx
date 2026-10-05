@@ -191,9 +191,9 @@ export function ForkSheet({
             </p>
             <a
               className="mt-2 inline-flex min-h-11 items-center font-medium text-fg"
-              href={routeUrl({ destination: 'now', sessionId: null }, location.href)}
+              href={routeUrl({ destination: 'home', sessionId: null }, location.href)}
             >
-              Open Inbox for approvals
+              See what needs you
             </a>
           </div>
         )}

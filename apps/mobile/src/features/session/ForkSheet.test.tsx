@@ -135,7 +135,7 @@ describe('ForkSheet', () => {
     expect(test.send).not.toHaveBeenCalled()
   })
 
-  it('keeps controls locked during native approval and links to the real Inbox route', async () => {
+  it('keeps controls locked during native approval and links to the list of what needs the user', async () => {
     const test = setup()
     test.send.mockImplementation(() => new Promise(() => {}))
     render(<ForkSheet {...test.props} />)
@@ -143,9 +143,9 @@ describe('ForkSheet', () => {
     expect(test.send).toHaveBeenCalledOnce()
     expect(screen.getByRole<HTMLInputElement>('textbox', { name: 'Fork name' }).disabled).toBe(true)
     expect(screen.getByRole('status').textContent).toContain('five minutes')
-    expect(
-      screen.getByRole('link', { name: 'Open Inbox for approvals' }).getAttribute('href'),
-    ).toBe('/?computer=computer_test&view=now')
+    expect(screen.getByRole('link', { name: 'See what needs you' }).getAttribute('href')).toBe(
+      '/?computer=computer_test',
+    )
   })
 
   it('restores an uncertain request and retries the exact same key after leaving the sheet', async () => {
@@ -165,7 +165,7 @@ describe('ForkSheet', () => {
     expect(test.onForked).toHaveBeenCalledWith('sess_child')
   })
 
-  it('retains the receipt if a successful request completes after leaving for Inbox', async () => {
+  it('retains the receipt if a successful request completes after leaving the sheet', async () => {
     const test = setup()
     let resolve: (value: unknown) => void = () => {}
     test.send.mockImplementation(
