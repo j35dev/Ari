@@ -1,0 +1,105 @@
+/*
+ * Ari motion kit — the CSS half of the motion catalog (packages/ui/src/motion
+ * holds the `motion/react` half). One small vocabulary so every surface that
+ * appears, moves, or responds does it the same way:
+ *
+ *   ari-enter-pop    a menu or popover answering the click that opened it
+ *   ari-enter-rise   a view, page, or panel taking its place
+ *   ari-enter-fade   content swapped in place (a different session, a tab)
+ *   ari-press        a control acknowledging the press
+ *
+ * Entrances only: a conditionally rendered element has no exit frame to
+ * animate, and anything that needs one already uses `AnimatePresence`.
+ * Durations and curves come from tokens.css; colours are not involved.
+ *
+ * Reduced motion is not handled here: the renderer's interaction-motion.css
+ * stills every animation and transition for both the OS preference and the
+ * in-app switch, and the ThemeProvider skips the view transition outright.
+ */
+
+.ari-enter-pop {
+  animation: ari-enter-pop var(--ari-dur-fast) var(--ari-ease-out-expo);
+}
+
+@keyframes ari-enter-pop {
+  from {
+    opacity: 0;
+    transform: translateY(var(--ari-enter-shift, 4px)) scale(0.97);
+  }
+}
+
+/* A menu that opens downward travels the other way. */
+.ari-enter-pop-down {
+  --ari-enter-shift: -4px;
+}
+
+.ari-enter-rise {
+  animation: ari-enter-rise var(--ari-dur-base) var(--ari-ease-out-expo);
+}
+
+@keyframes ari-enter-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.ari-enter-fade {
+  animation: ari-enter-fade var(--ari-dur-base) ease-out;
+}
+
+@keyframes ari-enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The press: quick down, eased back. Scale only, so layout never moves. */
+.ari-press {
+  transition:
+    transform var(--ari-dur-fast) var(--ari-ease-out-expo),
+    color var(--ari-dur-fast) ease-out,
+    background-color var(--ari-dur-fast) ease-out,
+    border-color var(--ari-dur-fast) ease-out,
+    box-shadow var(--ari-dur-fast) ease-out;
+}
+
+.ari-press:active:not(:disabled) {
+  transform: scale(0.98);
+  transition-duration: var(--ari-dur-instant);
+}
+
+/*
+ * Theme change. The ThemeProvider swaps palettes inside a view transition, so
+ * the new theme is revealed outward from the pointer instead of every colour
+ * snapping at once. `--ari-reveal-x/y` are set by the provider; without a
+ * recent pointer position it falls back to the default cross-fade.
+ */
+/* The transition layer covers the window and would swallow every click made
+   while it runs — flicking between theme cards, for one. */
+::view-transition {
+  pointer-events: none;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--ari-dur-slow);
+  animation-timing-function: ease-out;
+}
+
+[data-ari-theme-reveal]::view-transition-old(root) {
+  animation: none;
+}
+
+[data-ari-theme-reveal]::view-transition-new(root) {
+  animation: ari-theme-reveal 520ms var(--ari-ease-out-expo);
+}
+
+@keyframes ari-theme-reveal {
+  from {
+    clip-path: circle(0 at var(--ari-reveal-x, 50%) var(--ari-reveal-y, 50%));
+  }
+  to {
+    clip-path: circle(150vmax at var(--ari-reveal-x, 50%) var(--ari-reveal-y, 50%));
+  }
+}

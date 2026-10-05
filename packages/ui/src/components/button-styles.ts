@@ -5,7 +5,7 @@
  */
 
 export const BUTTON_BASE_CLASSES =
-  'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50'
+  'inline-flex items-center justify-center gap-2 rounded-md font-medium ari-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50'
 
 export const BUTTON_VARIANT_CLASSES = {
   primary: 'bg-accent text-fg-on-accent hover:bg-accent-hover active:bg-accent-active',

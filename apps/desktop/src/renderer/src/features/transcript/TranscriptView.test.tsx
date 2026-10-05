@@ -29,6 +29,46 @@ function message(id: string): Message {
   }
 }
 
+describe('TranscriptView row entrance', () => {
+  const view = (messages: Message[], loading = false) =>
+    createElement(TranscriptView, { sessionId: 'sess_1', messages, loading })
+
+  it('animates rows that arrive after load, not the history it opened with', () => {
+    const { container, rerender } = render(view([message('a')]))
+    expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(0)
+
+    rerender(view([message('a'), message('b')]))
+    const fresh = container.querySelectorAll('.ari-enter-rise')
+    expect(fresh).toHaveLength(1)
+    expect(fresh[0]).toHaveTextContent('hello b')
+
+    // A later re-render must not drop the class mid-entrance.
+    rerender(view([message('a'), message('b')]))
+    expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(1)
+
+    // Once the entrance has played the class comes off, so re-showing a
+    // hidden pane cannot replay it.
+    // jsdom has no AnimationEvent, so React listens for the prefixed name there.
+    const risen = container.querySelector('.ari-enter-rise')!
+    for (const type of ['animationend', 'webkitAnimationEnd']) {
+      fireEvent(risen, new Event(type, { bubbles: true }))
+    }
+    expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(0)
+  })
+
+  it('treats rows delivered by the initial load as history', () => {
+    const { container, rerender } = render(view([], true))
+    rerender(view([message('a'), message('b')]))
+    expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(0)
+  })
+
+  it('animates the first message of an empty session', () => {
+    const { container, rerender } = render(view([]))
+    rerender(view([message('a')]))
+    expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(1)
+  })
+})
+
 describe('TranscriptView loading state', () => {
   it('shows four skeleton rows while the initial session.load resolves', () => {
     const { container } = render(
