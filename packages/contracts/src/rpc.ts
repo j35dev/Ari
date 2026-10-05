@@ -1081,7 +1081,13 @@ export interface RemoteState {
   allowedOrigins: string[]
   devices: RemoteDeviceView[]
   /** The invitation on screen, if the user has one open. */
-  invitation: { invitationId: string; url: string; expiresAt: number } | null
+  invitation: {
+    invitationId: string
+    url: string
+    /** What an installed app's user types; `null` once wrong guesses disabled it. */
+    code?: string | null
+    expiresAt: number
+  } | null
   pending: RemotePairingRequestView | null
   /** Why the gateway is not running, when the user asked it to be. */
   error: string | null

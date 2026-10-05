@@ -341,6 +341,102 @@ describe('pairing', () => {
   })
 })
 
+describe('typed pairing codes', () => {
+  it('mints a short code with each invitation and resolves it back', () => {
+    const service = serviceAt({ now: 1_000 })
+    const invitation = service.begin('http://127.0.0.1:8787')
+
+    expect(invitation.code).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/)
+    expect(service.resolve(invitation.code)).toEqual({
+      ok: true,
+      invitationId: invitation.invitationId,
+    })
+  })
+
+  it('resolves a code typed in lower case with a separator', () => {
+    const service = serviceAt({ now: 1_000 })
+    const invitation = service.begin('http://127.0.0.1:8787')
+    const typed = `${invitation.code.slice(0, 4)}-${invitation.code.slice(4)}`.toLowerCase()
+
+    expect(service.resolve(typed)).toEqual({ ok: true, invitationId: invitation.invitationId })
+  })
+
+  it('gives two invitations two different codes', () => {
+    const service = serviceAt({ now: 1_000 })
+    expect(service.begin('http://127.0.0.1:8787').code).not.toBe(
+      service.begin('http://127.0.0.1:8787').code,
+    )
+  })
+
+  it('answers a wrong code and an expired one identically', () => {
+    const clock = { now: 1_000 }
+    const service = serviceAt(clock)
+    const invitation = service.begin('http://127.0.0.1:8787')
+
+    expect(service.resolve('00000000')).toEqual({ ok: false, code: 'not_found' })
+    clock.now = invitation.expiresAt + 1
+    expect(service.resolve(invitation.code)).toEqual({ ok: false, code: 'not_found' })
+  })
+
+  it('stops resolving a code once its invitation is answered', () => {
+    const service = serviceAt({ now: 1_000 })
+    const key = deviceKey()
+    const invitation = service.begin('http://127.0.0.1:8787')
+    const registered = service.request(invitation.invitationId, {
+      displayName: 'Pixel',
+      publicKey: key.jwk,
+    })
+    if (!registered.ok) throw new Error('expected the registration to be accepted')
+    service.approve(invitation.invitationId, ['proj_1'])
+    service.redeem(invitation.invitationId, {
+      nonce: registered.nonce,
+      signature: key.sign(registered.nonce),
+    })
+
+    expect(service.resolve(invitation.code)).toEqual({ ok: false, code: 'not_found' })
+    expect(service.invitationCode(invitation.invitationId)).toBeNull()
+  })
+
+  it('stops resolving a code the user denied', () => {
+    const service = serviceAt({ now: 1_000 })
+    const invitation = service.begin('http://127.0.0.1:8787')
+    service.request(invitation.invitationId, { displayName: 'Pixel', publicKey: deviceKey().jwk })
+    service.deny(invitation.invitationId)
+
+    expect(service.resolve(invitation.code)).toEqual({ ok: false, code: 'not_found' })
+  })
+
+  it('disables the code after too many wrong guesses and leaves the link working', () => {
+    let changes = 0
+    const service = new PairingService({ now: () => 1_000, onChange: () => changes++ })
+    const invitation = service.begin('http://127.0.0.1:8787')
+
+    for (let attempt = 0; attempt < 8; attempt++) service.resolve('00000000')
+    expect(service.resolve(invitation.code).ok).toBe(true)
+
+    service.resolve('00000000')
+    expect(service.resolve(invitation.code)).toEqual({ ok: false, code: 'not_found' })
+    expect(service.invitationCode(invitation.invitationId)).toBeNull()
+    // The desktop has to hear about it to tell the user to mint a new code.
+    expect(changes).toBe(1)
+    expect(service.status(invitation.invitationId)).toBe('pending')
+    expect(
+      service.request(invitation.invitationId, {
+        displayName: 'Pixel',
+        publicKey: deviceKey().jwk,
+      }).ok,
+    ).toBe(true)
+  })
+
+  it('does not count malformed input as a guess', () => {
+    const service = serviceAt({ now: 1_000 })
+    const invitation = service.begin('http://127.0.0.1:8787')
+
+    for (let attempt = 0; attempt < 20; attempt++) service.resolve('https://ari.tailnet.ts.net/')
+    expect(service.resolve(invitation.code).ok).toBe(true)
+  })
+})
+
 describe('device credentials', () => {
   it('authenticates a device from the token it was issued', () => {
     const { service, invitationId, key, nonce } = approved()
