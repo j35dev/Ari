@@ -445,7 +445,7 @@ describe('Shell split panes', () => {
     expect(screen.getByRole('region', { name: 'Beta' })).toHaveClass('border-accent/40')
   })
 
-  it('prefixes each pane header with the session\'s project title', async () => {
+  it("prefixes each pane header with the session's project title", async () => {
     invokeMock.mockImplementation(async (method) => {
       switch (method) {
         case 'ping':
@@ -762,6 +762,145 @@ describe('Shell split panes', () => {
     fireEvent.keyDown(search, { key: '\\', ctrlKey: true })
 
     expect(screen.queryByRole('region', { name: 'Empty pane' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Shell spaces', () => {
+  const NOW = Date.now()
+
+  const openTwoPanes = (): void => {
+    const first = splitLayoutSnapshot().focusedPaneId
+    splitLayoutActions.assign(first, 'sess-alpha')
+    splitLayoutActions.split(first, 'right')
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sess-beta')
+  }
+
+  beforeEach(() => {
+    splitLayoutActions.reset()
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'app.info':
+          return { homeDir: 'C:\\Users\\tester' }
+        case 'session.list':
+          return [
+            {
+              id: 'sess-alpha',
+              projectId: 'adhoc',
+              title: 'Alpha',
+              updatedAt: NOW - 60_000,
+              messageCount: 1,
+            },
+            {
+              id: 'sess-beta',
+              projectId: 'adhoc',
+              title: 'Beta',
+              updatedAt: NOW - 120_000,
+              messageCount: 1,
+            },
+          ]
+        case 'project.list':
+          return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
+        case 'providers.detect':
+          return []
+        case 'providers.models':
+          return []
+        case 'files.index':
+          return { paths: [] }
+        case 'endpoints.list':
+          return []
+        case 'session.load':
+          return { session: null, activeTurnId: null }
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+  })
+
+  it('keeps a separate pane tree per space and switches between them', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New space' }))
+    // The new tab is a blank surface, not the old space's panes.
+    expect(await screen.findByText('Quick Actions', {}, { timeout: 10_000 })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Beta' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Space 1' }))
+    expect(
+      await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Alpha' })).toBeInTheDocument()
+  })
+
+  it('ignores the close chord on the last space, keeping its panes', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: 'w', ctrlKey: true, altKey: true })
+
+    expect(screen.getByRole('region', { name: 'Alpha' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
+  })
+
+  it('matches the space chords on the physical key, as macOS Option rewrites the character', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: '†', code: 'KeyT', metaKey: true, altKey: true })
+
+    expect(await screen.findByRole('tab', { name: 'Space 2' })).toBeInTheDocument()
+  })
+
+  it('creates, cycles and closes spaces from the keyboard', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: 't', ctrlKey: true, altKey: true })
+    expect(screen.getByRole('tab', { name: 'Space 2' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Space 1' })).toHaveAttribute('aria-selected', 'false')
+
+    fireEvent.keyDown(window, { key: 'PageUp', ctrlKey: true })
+    expect(screen.getByRole('tab', { name: 'Space 1' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.keyDown(window, { key: 'PageDown', ctrlKey: true })
+    expect(screen.getByRole('tab', { name: 'Space 2' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.keyDown(window, { key: 'w', ctrlKey: true, altKey: true })
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('tab', { name: 'Space 2' })).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('tab', { name: 'Space 1' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('renames a space from its tab', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.doubleClick(screen.getByRole('tab', { name: 'Space 1' }))
+    const input = screen.getByRole('textbox', { name: 'Rename space' })
+    fireEvent.change(input, { target: { value: 'Deep work' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(screen.getByRole('tab', { name: 'Deep work' })).toBeInTheDocument()
+  })
+
+  it('switches spaces on a two-finger trackpad swipe', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New space' }))
+    expect(screen.getByRole('tab', { name: 'Space 2' })).toHaveAttribute('aria-selected', 'true')
+
+    // A leftward scroll is the previous tab, the browser reading of the gesture.
+    fireEvent.wheel(window, { deltaX: -200, deltaY: 0 })
+    await vi.waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'Space 1' })).toHaveAttribute('aria-selected', 'true')
+    })
   })
 })
 
