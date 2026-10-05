@@ -13,8 +13,17 @@ export const themeIdSchema = z.enum([
   'graphite',
   'nocturne',
   'verdant',
+  'phosphor',
+  'tungsten',
+  'outrun',
+  'redline',
+  'voltage',
+  'blueprint',
+  'mulberry',
   'porcelain',
   'sandstone',
+  'platinum',
+  'ink',
 ])
 export type ThemeIdSetting = z.infer<typeof themeIdSchema>
 

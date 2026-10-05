@@ -1,0 +1,70 @@
+/*
+ * Theme effects — for the few themes whose character is more than a palette.
+ *
+ * Each effect is one fixed, non-interactive layer over the window
+ * (`body::after`; wallpaper.css owns `body::before`), so no component needs to
+ * know which theme is active and nothing here can intercept a click. Colours
+ * derive from the active theme's own tokens through `color-mix`, which keeps
+ * raw literals in tokens.css where AGENTS.md wants them.
+ *
+ * All of it is static: there is nothing to pause under reduced motion.
+ */
+
+[data-ari-theme='phosphor'] body::after,
+[data-ari-theme='tungsten'] body::after,
+[data-ari-theme='blueprint'] body::after,
+[data-ari-theme='outrun'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  /* Above every popover and menu (the highest is 61), below the launch splash
+     (70), which is brand and looks the same under every theme. */
+  z-index: 65;
+  pointer-events: none;
+}
+
+/* CRT monitors: every third line sits slightly darker, and lit text blooms a
+   little past its edge. Kept faint enough that small type stays crisp. */
+[data-ari-theme='phosphor'] body::after,
+[data-ari-theme='tungsten'] body::after {
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    color-mix(in oklab, var(--ari-bg) 30%, transparent) 2px 3px
+  );
+}
+
+[data-ari-theme='phosphor'] body,
+[data-ari-theme='tungsten'] body {
+  text-shadow: 0 0 6px color-mix(in oklab, var(--ari-fg) 26%, transparent);
+}
+
+/* Form controls do not inherit text-shadow by default; without this the
+   transcript glows and every button label beside it does not. */
+[data-ari-theme='phosphor'] :is(button, input, textarea, select),
+[data-ari-theme='tungsten'] :is(button, input, textarea, select) {
+  text-shadow: inherit;
+}
+
+/* Drafting paper: a fine grid with a heavier line every fifth square. */
+[data-ari-theme='blueprint'] body::after {
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--ari-fg) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--ari-fg) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(color-mix(in oklab, var(--ari-fg) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--ari-fg) 4%, transparent) 1px, transparent 1px);
+  background-size:
+    120px 120px,
+    120px 120px,
+    24px 24px,
+    24px 24px;
+}
+
+/* Neon on the horizon: the accent glows up from the bottom edge. */
+[data-ari-theme='outrun'] body::after {
+  background: radial-gradient(
+    120% 55% at 50% 112%,
+    color-mix(in oklab, var(--ari-accent) 16%, transparent),
+    transparent 70%
+  );
+}

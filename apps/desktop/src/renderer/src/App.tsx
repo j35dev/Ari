@@ -1078,10 +1078,11 @@ function Shell() {
           />
           {fullPage !== null ? (
             <div
+              key={fullPage}
               id="space-panel"
               role="tabpanel"
               aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
-              className="min-h-0 flex-1"
+              className="ari-enter-rise min-h-0 flex-1"
             >
               {fullPage === 'usage' ? (
                 <ErrorBoundary label="Usage">

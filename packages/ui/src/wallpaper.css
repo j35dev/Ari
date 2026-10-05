@@ -17,7 +17,7 @@
  * inside re-tints — structural backgrounds go transparent within the pane.
  *
  * Theme colors are never hardcoded: the tint derives from the surface ramp via
- * `color-mix`, so all six palettes tint their wallpaper automatically. These
+ * `color-mix`, so every palette tints their wallpaper automatically. These
  * declarations load after tokens.css and surface-effects.css and are
  * unlayered, so they win cascade ties.
  */
