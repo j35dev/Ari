@@ -67,7 +67,11 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[15px] font-medium">
-              {app.origin === null ? 'No computer' : new URL(app.origin).hostname}
+              {app.origin === null
+                ? 'No computer'
+                : ['localhost', '127.0.0.1', '[::1]'].includes(new URL(app.origin).hostname)
+                  ? 'This computer'
+                  : new URL(app.origin).hostname}
             </p>
             <p className="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
               <span
@@ -85,7 +89,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
           </span>
           <button
             type="button"
-            className="flex min-h-11 items-center gap-1.5 text-fg-muted"
+            className="flex min-h-11 items-center gap-1.5 text-xs text-fg-muted"
             disabled={app.refreshing || busy}
             onClick={() => {
               void app
