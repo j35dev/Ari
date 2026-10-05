@@ -129,7 +129,7 @@ async function pair(
     publicKey: key.jwk,
   })
   const nonce = (registered.body['result'] as Record<string, unknown>)['nonce'] as string
-  service.approve(invitationId, projectIds)
+  service.approve(invitationId, service.state().pending?.confirmationCode ?? '', projectIds)
   const redeemed = await call(origin, '/pair/redeem', {
     invitationId,
     nonce,
@@ -303,6 +303,47 @@ describe('remote service pairing decisions', () => {
     const pending = service.state().pending
     expect(pending?.displayName).toBe('Pixel 9')
     expect(pending?.confirmationCode).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/)
+  })
+
+  it('does not pair a device that replaced the one the user approved', async () => {
+    const { service } = makeService()
+    await service.start()
+    const invited = service.invite()
+    const invitationId = invited.invitation?.invitationId
+    const origin = invited.origin
+    if (invitationId === undefined || origin === null) throw new Error('expected an invitation')
+
+    await call(origin, '/pair/request', {
+      invitationId,
+      displayName: 'Pixel 9',
+      publicKey: deviceKey().jwk,
+    })
+    const seen = service.state().pending?.confirmationCode
+    if (seen === undefined) throw new Error('expected a device to be asking')
+
+    // Someone who photographed the QR registers their own key as the user
+    // reaches for Approve.
+    const intruder = deviceKey()
+    const swapped = await call(origin, '/pair/request', {
+      invitationId,
+      displayName: 'Pixel 9',
+      publicKey: intruder.jwk,
+    })
+    const nonce = (swapped.body['result'] as Record<string, unknown>)['nonce'] as string
+
+    const state = service.approve(invitationId, seen, ['proj_1'], true)
+
+    // The approval named a code that is no longer the one waiting, so the
+    // prompt stays up showing the device that is asking now.
+    expect(state.pending?.confirmationCode).toBeDefined()
+    expect(state.pending?.confirmationCode).not.toBe(seen)
+    const redeemed = await call(origin, '/pair/redeem', {
+      invitationId,
+      nonce,
+      signature: intruder.sign(nonce),
+    })
+    expect(redeemed.status).toBe(409)
+    expect(service.state().devices).toEqual([])
   })
 
   it('grants only the projects the user picked, and revokes on request', async () => {

@@ -169,6 +169,11 @@ function sessionFor(
 }
 
 /** Walks a phone through pairing against a gateway, as the user would. */
+/** The code the desktop is showing for the device asking now, which an approval must name. */
+function shownCode(gateway: RemoteGateway, invitationId: string): string {
+  return gateway.pairing.pending(invitationId)?.confirmationCode ?? ''
+}
+
 async function pairPhone(gateway: RemoteGateway, keyring: DeviceKeyring): Promise<MobileSession> {
   const session = sessionFor(gateway, keyring)
   const invitation = gateway.pairing.begin(gateway.origin)
@@ -176,7 +181,11 @@ async function pairPhone(gateway: RemoteGateway, keyring: DeviceKeyring): Promis
   // The desktop's approval is what completes a pairing, so the phone waits
   // for it rather than redeeming the moment it has registered a key.
   await vi.waitFor(() => expect(gateway.pairing.pending(invitation.invitationId)).toBeDefined())
-  expect(gateway.pairing.approve(invitation.invitationId, ['proj_1'])).toEqual({ ok: true })
+  expect(
+    gateway.pairing.approve(invitation.invitationId, shownCode(gateway, invitation.invitationId), [
+      'proj_1',
+    ]),
+  ).toEqual({ ok: true })
   await pairing
   return session
 }
@@ -192,7 +201,7 @@ describe('mobile pairing', () => {
 
     const pairing = session.pair(invitationId, 'iPhone app')
     await vi.waitFor(() => expect(gateway.pairing.pending(invitationId)).toBeDefined())
-    gateway.pairing.approve(invitationId, ['proj_1'])
+    gateway.pairing.approve(invitationId, shownCode(gateway, invitationId), ['proj_1'])
     await pairing
     expect(session.state).toBe('connected')
   })
@@ -252,7 +261,13 @@ describe('mobile reconnection', () => {
     await vi.waitFor(() => expect(gateway.pairing.pending(invitation.invitationId)).toBeDefined())
     expect(session.usable).toBe(false)
     expect(gateway.pairing.devices()).toHaveLength(0)
-    expect(gateway.pairing.approve(invitation.invitationId, ['proj_1'])).toEqual({ ok: true })
+    expect(
+      gateway.pairing.approve(
+        invitation.invitationId,
+        shownCode(gateway, invitation.invitationId),
+        ['proj_1'],
+      ),
+    ).toEqual({ ok: true })
     await pairing
 
     expect(session.state).toBe('connected')

@@ -165,6 +165,7 @@ describe('RemoteSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Approve' }))
     expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
       invitationId: 'inv_1',
+      confirmationCode: '7F3K-2Q9D',
       projectIds: ['proj_ari'],
       allowTerminal: true,
     })
@@ -512,6 +513,18 @@ describe('RemoteSettings', () => {
     expect(screen.getByRole('checkbox', { name: 'Ari' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'The codes match' })).not.toBeChecked()
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
+
+    // An approval names the code on screen when it is given, never the one
+    // the prompt first opened with.
+    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
+    await user.click(screen.getByRole('checkbox', { name: 'The codes match' }))
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
+      invitationId: 'inv_1',
+      confirmationCode: 'NEW-CODE',
+      projectIds: ['proj_ari'],
+      allowTerminal: false,
+    })
   })
 
   it('selects all only on request and sends exactly the narrowed project grant', async () => {
@@ -531,6 +544,7 @@ describe('RemoteSettings', () => {
     await user.click(screen.getByRole('button', { name: 'Approve' }))
     expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
       invitationId: 'inv_1',
+      confirmationCode: '7F3K-2Q9D',
       projectIds: ['proj_ari'],
       allowTerminal: false,
     })
@@ -706,6 +720,7 @@ describe('RemoteSettings', () => {
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('remote.approve', {
         invitationId: 'inv_1',
+        confirmationCode: '7F3K-2Q9D',
         projectIds: ['proj_ari'],
         allowTerminal: false,
       }),
