@@ -41,10 +41,14 @@ async function resolveFile(workspace: string, path: string): Promise<string | nu
     if ((await lstat(target)).isSymbolicLink()) return null
   }
   const resolved = await realpath(target)
-  return contained(root, resolved) ? resolved : null
+  if (!contained(root, resolved)) return null
+  // The filesystem can reach a credential file under a name the request never
+  // spelled — a Windows 8.3 short name such as `ENV~1` for `.env` — so the
+  // denylist also judges every name the path actually resolved to.
+  return relative(root, resolved).split(sep).some(excluded) ? null : resolved
 }
 
-/** Bounded, read-only files within the host-selected workspace; symlinks and credential files are excluded. */
+/** Bounded, read-only files within the host-selected workspace; symlinks and credential files are excluded, under any name that resolves to them. */
 export async function queryRemoteFiles(
   workspace: string,
   request: { op: 'files.list' | 'files.read'; path: string; cursor?: string; limit?: number },
