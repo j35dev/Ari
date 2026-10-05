@@ -4,6 +4,8 @@ import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
 
 const log = createLogger('settings:engine')
+const listeners = new Set<(settings: Settings) => void>()
+let revision = 0
 
 export interface EngineSettings {
   /** Current settings; null until the initial `settings.get` resolves. */
@@ -22,9 +24,12 @@ export function useEngineSettings(): EngineSettings {
 
   useEffect(() => {
     let cancelled = false
+    const initialRevision = revision
+    const receive = (next: Settings): void => setSettings(next)
+    listeners.add(receive)
     rpc.invoke('settings.get').then(
       (loaded) => {
-        if (!cancelled) setSettings(loaded)
+        if (!cancelled && initialRevision === revision) setSettings(loaded)
       },
       (error: unknown) => {
         log.warn('settings.get failed; defaults apply', { error })
@@ -32,12 +37,14 @@ export function useEngineSettings(): EngineSettings {
     )
     return () => {
       cancelled = true
+      listeners.delete(receive)
     }
   }, [])
 
   const update = useCallback(async (patch: SettingsUpdate): Promise<Settings> => {
     const next = await rpc.invoke('settings.update', patch)
-    setSettings(next)
+    revision += 1
+    for (const receive of listeners) receive(next)
     return next
   }, [])
 
