@@ -858,7 +858,7 @@ export function SessionView({
     turnError === null
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="ari-enter-fade flex h-full min-h-0">
       <div
         ref={canvasRef}
         className="ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
@@ -1191,14 +1191,14 @@ export function EffortChip({
         <ChevronDown
           size={11}
           aria-hidden
-          className={`text-fg-subtle ${open ? 'rotate-180' : ''}`}
+          className={`text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ${open ? 'rotate-180' : ''}`}
         />
       </button>
       {open ? (
         <div
           role="listbox"
           aria-label="Effort"
-          className="absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+          className="ari-enter-pop absolute bottom-full left-0 z-50 mb-2 w-52 origin-bottom-left overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
         >
           {options.map((option) => (
             <button
@@ -1390,7 +1390,7 @@ export function PermissionModeChip({
           role="listbox"
           aria-label="Permission mode"
           onKeyDown={onMenuKeyDown}
-          className="absolute bottom-full left-0 z-50 mb-2 w-56 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+          className="ari-enter-pop absolute bottom-full left-0 z-50 mb-2 w-56 origin-bottom-left overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
         >
           {entries.map((m) => {
             const selected = m === current
