@@ -26,6 +26,11 @@ function serviceAt(clock: { now: number }): PairingService {
   return new PairingService({ now: () => clock.now, invitationTtlMs: 5 * 60 * 1000 })
 }
 
+/** The code the desktop is showing for the device asking now, which an approval must name. */
+function shownCode(service: PairingService, invitationId: string): string {
+  return service.pending(invitationId)?.confirmationCode ?? ''
+}
+
 function approved(clock = { now: 1_000 }): {
   service: PairingService
   invitationId: string
@@ -42,7 +47,7 @@ function approved(clock = { now: 1_000 }): {
     publicKey: key.jwk,
   })
   if (!registered.ok) throw new Error('expected the registration to be accepted')
-  service.approve(invitation.invitationId, ['proj_1'])
+  service.approve(invitation.invitationId, shownCode(service, invitation.invitationId), ['proj_1'])
   return { service, invitationId: invitation.invitationId, key, nonce: registered.nonce, clock }
 }
 
@@ -144,7 +149,9 @@ describe('pairing', () => {
       publicKey: key.jwk,
     })
     if (!registered.ok) throw new Error('expected the registration to be accepted')
-    service.approve(invitation.invitationId, ['proj_1'])
+    service.approve(invitation.invitationId, shownCode(service, invitation.invitationId), [
+      'proj_1',
+    ])
     expect(service.pending(invitation.invitationId)).toBeDefined()
 
     const redeemed = service.redeem(invitation.invitationId, {
@@ -186,7 +193,7 @@ describe('pairing', () => {
     })
     service.request(invitationB.invitationId, { displayName: 'B', publicKey: second.jwk })
     if (!registeredA.ok) throw new Error('expected the registration to be accepted')
-    service.approve(invitationB.invitationId, [])
+    service.approve(invitationB.invitationId, shownCode(service, invitationB.invitationId), [])
 
     expect(
       service.redeem(invitationB.invitationId, {
@@ -218,7 +225,7 @@ describe('pairing', () => {
       publicKey: key.jwk,
     })
     if (!registered.ok) throw new Error('expected the registration to be accepted')
-    service.approve(second.invitationId, [])
+    service.approve(second.invitationId, shownCode(service, second.invitationId), [])
 
     // The signature is genuine, but the nonce that made it fresh is spent, so
     // a captured proof cannot be replayed into a second device.
@@ -256,6 +263,65 @@ describe('pairing', () => {
         signature: key.sign(registered.nonce),
       }),
     ).toEqual({ ok: false, code: 'conflict' })
+  })
+
+  it('refuses an approval given to a device that has since been replaced', () => {
+    // Whoever photographed the QR can register against it too, and the last
+    // registration is the one that waits. The user read the phone's code, so
+    // their approval must not land on a key that slipped in behind it.
+    const service = serviceAt({ now: 1_000 })
+    const phone = deviceKey()
+    const intruder = deviceKey()
+    const invitation = service.begin('http://127.0.0.1:8787')
+    const invitationId = invitation.invitationId
+    service.request(invitationId, { displayName: 'Pixel', publicKey: phone.jwk })
+    const seen = shownCode(service, invitationId)
+    const swapped = service.request(invitationId, { displayName: 'Pixel', publicKey: intruder.jwk })
+    if (!swapped.ok) throw new Error('expected the registration to be accepted')
+
+    expect(service.approve(invitationId, seen, ['proj_1'], true)).toEqual({
+      ok: false,
+      code: 'conflict',
+    })
+    // Nothing was granted: the intruder cannot redeem, and the request still
+    // waits so the desktop can show the device that is asking now.
+    expect(service.status(invitationId)).toBe('pending')
+    expect(service.pending(invitationId)?.confirmationCode).toBe(swapped.pending.confirmationCode)
+    expect(
+      service.redeem(invitationId, {
+        nonce: swapped.nonce,
+        signature: intruder.sign(swapped.nonce),
+      }),
+    ).toEqual({ ok: false, code: 'conflict' })
+    expect(service.devices()).toEqual([])
+  })
+
+  it('approves the device whose code the user confirmed after it asks again', () => {
+    const service = serviceAt({ now: 1_000 })
+    const phone = deviceKey()
+    const intruder = deviceKey()
+    const { invitationId } = service.begin('http://127.0.0.1:8787')
+    service.request(invitationId, { displayName: 'Mallory', publicKey: intruder.jwk })
+    const registered = service.request(invitationId, { displayName: 'Pixel', publicKey: phone.jwk })
+    if (!registered.ok) throw new Error('expected the registration to be accepted')
+
+    expect(service.approve(invitationId, registered.pending.confirmationCode, ['proj_1'])).toEqual({
+      ok: true,
+    })
+    expect(
+      service.redeem(invitationId, {
+        nonce: registered.nonce,
+        signature: phone.sign(registered.nonce),
+      }).ok,
+    ).toBe(true)
+  })
+
+  it('refuses an approval that names no code at all', () => {
+    const service = serviceAt({ now: 1_000 })
+    const { invitationId } = service.begin('http://127.0.0.1:8787')
+    service.request(invitationId, { displayName: 'Pixel', publicKey: deviceKey().jwk })
+    expect(service.approve(invitationId, '', ['proj_1'])).toEqual({ ok: false, code: 'conflict' })
+    expect(service.status(invitationId)).toBe('pending')
   })
 
   it('refuses a second redemption of the same invitation', () => {
@@ -327,8 +393,8 @@ describe('pairing', () => {
     const invB = service.begin('http://127.0.0.1:8787')
     const registeredA = service.request(invA.invitationId, { displayName: 'A', publicKey: a.jwk })
     const registeredB = service.request(invB.invitationId, { displayName: 'B', publicKey: b.jwk })
-    service.approve(invA.invitationId, [])
-    service.approve(invB.invitationId, [])
+    service.approve(invA.invitationId, shownCode(service, invA.invitationId), [])
+    service.approve(invB.invitationId, shownCode(service, invB.invitationId), [])
     if (!registeredA.ok || !registeredB.ok)
       throw new Error('expected the registrations to be accepted')
 
@@ -387,7 +453,9 @@ describe('typed pairing codes', () => {
       publicKey: key.jwk,
     })
     if (!registered.ok) throw new Error('expected the registration to be accepted')
-    service.approve(invitation.invitationId, ['proj_1'])
+    service.approve(invitation.invitationId, shownCode(service, invitation.invitationId), [
+      'proj_1',
+    ])
     service.redeem(invitation.invitationId, {
       nonce: registered.nonce,
       signature: key.sign(registered.nonce),
@@ -478,7 +546,7 @@ describe('device credentials', () => {
       publicKey: key.jwk,
     })
     if (!registered.ok) throw new Error('expected the registration to be accepted')
-    service.approve(invitation.invitationId, [])
+    service.approve(invitation.invitationId, shownCode(service, invitation.invitationId), [])
     const redeemed = service.redeem(invitation.invitationId, {
       nonce: registered.nonce,
       signature: key.sign(registered.nonce),
@@ -501,8 +569,8 @@ describe('device credentials', () => {
     const regA = service.request(invA.invitationId, { displayName: 'A', publicKey: a.jwk })
     const regB = service.request(invB.invitationId, { displayName: 'B', publicKey: b.jwk })
     if (!regA.ok || !regB.ok) throw new Error('expected the registrations to be accepted')
-    service.approve(invA.invitationId, [])
-    service.approve(invB.invitationId, [])
+    service.approve(invA.invitationId, shownCode(service, invA.invitationId), [])
+    service.approve(invB.invitationId, shownCode(service, invB.invitationId), [])
     const first = service.redeem(invA.invitationId, {
       nonce: regA.nonce,
       signature: a.sign(regA.nonce),
@@ -597,8 +665,8 @@ describe('remembered devices', () => {
     const regOne = service.request(invOne.invitationId, { displayName: 'One', publicKey: one.jwk })
     const regTwo = service.request(invTwo.invitationId, { displayName: 'Two', publicKey: two.jwk })
     if (!regOne.ok || !regTwo.ok) throw new Error('expected the registrations to be accepted')
-    service.approve(invOne.invitationId, [])
-    service.approve(invTwo.invitationId, [])
+    service.approve(invOne.invitationId, shownCode(service, invOne.invitationId), [])
+    service.approve(invTwo.invitationId, shownCode(service, invTwo.invitationId), [])
     const redeemedOne = service.redeem(invOne.invitationId, {
       nonce: regOne.nonce,
       signature: one.sign(regOne.nonce),
@@ -651,7 +719,9 @@ describe('pairing persistence', () => {
       publicKey: key.jwk,
     })
     if (!registered.ok) throw new Error('expected the registration to be accepted')
-    service.approve(invitation.invitationId, ['proj_1'])
+    service.approve(invitation.invitationId, shownCode(service, invitation.invitationId), [
+      'proj_1',
+    ])
     const redeemed = service.redeem(invitation.invitationId, {
       nonce: registered.nonce,
       signature: key.sign(registered.nonce),
@@ -740,8 +810,8 @@ describe('pairing public key material', () => {
       const requested = service.request(invitationId, { displayName: 'Phone', publicKey: key.jwk })
       if (!requested.ok) throw new Error('Registration refused')
       const nonce = requested.nonce
-      if (grant) service.approve(invitationId, ['proj_1'], true)
-      else service.approve(invitationId, ['proj_1'])
+      if (grant) service.approve(invitationId, shownCode(service, invitationId), ['proj_1'], true)
+      else service.approve(invitationId, shownCode(service, invitationId), ['proj_1'])
       const result = service.redeem(invitationId, { nonce, signature: key.sign(nonce) })
       expect(result.ok).toBe(true)
       if (!result.ok) return

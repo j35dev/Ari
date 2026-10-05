@@ -136,7 +136,11 @@ async function paired(
   if (typeof nonce !== 'string') {
     throw new Error(`expected a nonce, got ${JSON.stringify(registered.body)}`)
   }
-  gateway.pairing.approve(invitation.invitationId, [...projectIds])
+  gateway.pairing.approve(
+    invitation.invitationId,
+    gateway.pairing.pending(invitation.invitationId)?.confirmationCode ?? '',
+    [...projectIds],
+  )
   const redeemed = await call(gateway, '/pair/redeem', {
     invitationId: invitation.invitationId,
     nonce,

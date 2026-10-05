@@ -257,6 +257,20 @@ describe('contracts', () => {
     expect(() => rpcParams['browser.go'].parse({ id: 'inspector', action: 'jump' })).toThrow()
   })
 
+  it('requires a pairing approval to name the confirmation code that was shown', () => {
+    const params = {
+      invitationId: 'inv_1',
+      confirmationCode: '7F3K-2Q9D',
+      projectIds: ['proj_1'],
+    }
+    expect(rpcParams['remote.approve'].parse(params)).toEqual({ ...params, allowTerminal: false })
+    // An approval that does not say which device it was for could land on any.
+    expect(() =>
+      rpcParams['remote.approve'].parse({ invitationId: 'inv_1', projectIds: ['proj_1'] }),
+    ).toThrow()
+    expect(() => rpcParams['remote.approve'].parse({ ...params, confirmationCode: '' })).toThrow()
+  })
+
   it('validates fs.writeTextFile scope params and rejects malformed payloads', () => {
     const params = { projectId: 'proj_1', path: 'src/main.ts', content: 'export {}\n' }
     expect(rpcParams['fs.writeTextFile'].parse(params)).toEqual(params)

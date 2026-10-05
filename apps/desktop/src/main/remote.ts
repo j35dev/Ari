@@ -300,10 +300,25 @@ export class RemoteService {
     return this.#changed()
   }
 
-  approve(invitationId: string, projectIds: readonly string[], allowTerminal = false): RemoteState {
+  /**
+   * Approves the device the user was shown. `confirmationCode` is the code the
+   * prompt displayed when they decided; a request that has since been replaced
+   * is refused and the returned state carries the device asking now.
+   */
+  approve(
+    invitationId: string,
+    confirmationCode: string,
+    projectIds: readonly string[],
+    allowTerminal = false,
+  ): RemoteState {
     const gateway = this.#gateway
     if (gateway === null) return this.state()
-    const result = gateway.pairing.approve(invitationId, projectIds, allowTerminal)
+    const result = gateway.pairing.approve(
+      invitationId,
+      confirmationCode,
+      projectIds,
+      allowTerminal,
+    )
     if (!result.ok) log.warn('pairing approval refused', { code: result.code })
     return this.#changed()
   }
