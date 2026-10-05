@@ -8,8 +8,10 @@ import {
   remoteClientMessageSchema,
   remoteCommandEnvelopeSchema,
   remoteErrorCodeSchema,
+  remoteModelCatalogSchema,
   remoteOperationSchema,
   remoteOriginSchema,
+  remoteQuerySchema,
   remoteServerMessageSchema,
   remoteSnapshotSchema,
   requiresAuthentication,
@@ -111,17 +113,61 @@ describe('remote contract', () => {
     ).toBe(false)
   })
 
-  it('refuses to let a remote client raise the permission ceiling', () => {
-    // The desktop's ceiling is authoritative; mobile cannot move it.
+  it('lets a phone choose effort and permission mode when creating or updating a session', () => {
+    const receipt = { clientCommandId: 'c-4', idempotencyKey: 'key-0123456789' }
     expect(
       remoteCommandEnvelopeSchema.safeParse({
         op: 'session.create',
         projectId: 'p1',
         permissionMode: 'full',
-        clientCommandId: 'c-4',
-        idempotencyKey: 'key-0123456789',
+        effort: 'high',
+        ...receipt,
+      }).success,
+    ).toBe(true)
+    expect(
+      remoteCommandEnvelopeSchema.safeParse({
+        op: 'session.update',
+        sessionId: 's1',
+        permissionMode: 'allow-edits',
+        effort: null,
+        ...receipt,
+      }).success,
+    ).toBe(true)
+    expect(
+      remoteCommandEnvelopeSchema.safeParse({
+        op: 'session.update',
+        sessionId: 's1',
+        permissionMode: 'root',
+        ...receipt,
       }).success,
     ).toBe(false)
+  })
+
+  it('carries the effort levels and mode labels of each provider in the catalog', () => {
+    const parsed = remoteModelCatalogSchema.parse({
+      providers: [
+        {
+          driverKind: 'codex',
+          models: [],
+          efforts: [{ id: 'high', label: 'High', current: true }],
+          modes: [{ id: 'plan', label: 'Plan', ariMode: 'ask' }],
+        },
+      ],
+    })
+    expect(parsed.providers[0]?.efforts).toEqual([{ id: 'high', label: 'High', current: true }])
+    expect(parsed.providers[0]?.modes).toEqual([{ id: 'plan', label: 'Plan', ariMode: 'ask' }])
+  })
+
+  it('asks for the effort levels of one model', () => {
+    expect(remoteOperationSchema.safeParse('models.efforts').success).toBe(true)
+    expect(requiresAuthentication('models.efforts')).toBe(true)
+    expect(
+      remoteQuerySchema.safeParse({ op: 'models.efforts', driverKind: 'opencode', modelId: 'm' })
+        .success,
+    ).toBe(true)
+    expect(remoteQuerySchema.safeParse({ op: 'models.efforts', driverKind: 'nope' }).success).toBe(
+      false,
+    )
   })
 
   it('does not accept a wildcard origin anywhere', () => {

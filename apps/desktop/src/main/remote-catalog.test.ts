@@ -33,11 +33,47 @@ function inputs() {
       },
     ],
     source: () => 'live' as const,
+    efforts: () => ({ currentId: null, options: [] }),
+    modes: () => ({ currentId: null, options: [] }),
     endpoints: [endpoint],
   }
 }
 
 describe('authoritative remote provider catalogs', () => {
+  it('lists the effort levels and classifiable modes each provider reports', () => {
+    const providers = remoteCatalogProviders({
+      ...inputs(),
+      efforts: (kind) =>
+        kind === 'codex'
+          ? {
+              currentId: 'high',
+              options: [
+                { id: 'low', label: 'Low' },
+                { id: 'high', label: 'High', description: 'Thinks longer' },
+              ],
+            }
+          : { currentId: null, options: [] },
+      modes: (kind) =>
+        kind === 'codex'
+          ? {
+              currentId: 'plan',
+              options: [
+                { id: 'plan', label: 'Plan', ariMode: 'ask' },
+                { id: 'mystery', label: 'Mystery', ariMode: null },
+              ],
+            }
+          : { currentId: null, options: [] },
+    })
+    const codex = providers.find((provider) => provider.driverKind === 'codex')
+    expect(codex?.efforts).toEqual([
+      { id: 'low', label: 'Low' },
+      { id: 'high', label: 'High', description: 'Thinks longer', current: true },
+    ])
+    expect(codex?.modes).toEqual([{ id: 'plan', label: 'Plan', ariMode: 'ask', current: true }])
+    expect(providers.find((provider) => provider.driverKind === 'claude')?.efforts).toEqual([])
+    expect(remoteModelCatalogSchema.safeParse({ providers }).success).toBe(true)
+  })
+
   it('projects every desktop provider, native model metadata and endpoint defaults without secrets', () => {
     const providers = remoteCatalogProviders(inputs())
     expect(providers.map((provider) => provider.driverKind)).toEqual(driverKindSchema.options)
