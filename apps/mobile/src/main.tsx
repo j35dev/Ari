@@ -5,6 +5,7 @@ import { applyCachedTheme, ThemeProvider } from '@ari/ui/theme-provider'
 import { App } from './App'
 import { AppProvider } from './lib/app-state'
 import { defaultDeviceStore } from './lib/device-key'
+import { ThemeChrome } from './lib/theme-chrome'
 import { trackViewport } from './lib/viewport'
 import './styles/index.css'
 
@@ -26,6 +27,7 @@ const store = await defaultDeviceStore()
 createRoot(container).render(
   <StrictMode>
     <ThemeProvider>
+      <ThemeChrome />
       <AppProvider store={store}>
         <App />
       </AppProvider>
