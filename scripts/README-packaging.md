@@ -23,10 +23,12 @@ How to build distributable installers for Windows, macOS, and Linux. Config live
   `build/after-pack.cjs` asserts after every pack that the target's platform package was
   collected and unpacked; the build fails loudly rather than shipping a terminal that
   opens to a dead cursor.
-- Renderer/main bundles must exist before packaging:
+- Renderer/main bundles and the phone PWA must exist before packaging (`afterPack`
+  fails the build when `apps/mobile/dist` is missing):
 
   ```sh
   pnpm --filter @ari/desktop build
+  pnpm --filter @ari/mobile build
   ```
 
 - Focus music downloads its tiny resolver helper on first use into the user's
