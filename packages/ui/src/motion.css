@@ -12,8 +12,9 @@
  * animate, and anything that needs one already uses `AnimatePresence`.
  * Durations and curves come from tokens.css; colours are not involved.
  *
- * Reduced motion is honoured in one place, at the bottom, for both the OS
- * preference and the in-app switch (`data-ari-reduce-motion` on <html>).
+ * Reduced motion is not handled here: the renderer's interaction-motion.css
+ * stills every animation and transition for both the OS preference and the
+ * in-app switch, and the ThemeProvider skips the view transition outright.
  */
 
 .ari-enter-pop {
@@ -94,40 +95,5 @@
   }
   to {
     clip-path: circle(150vmax at var(--ari-reveal-x, 50%) var(--ari-reveal-y, 50%));
-  }
-}
-
-/*
- * Reduced motion. Near-zero rather than `none`, so `animationend` and
- * `transitionend` still fire for anything waiting on them and fill-forwards
- * end states are still reached.
- */
-[data-ari-reduce-motion] *,
-[data-ari-reduce-motion] *::before,
-[data-ari-reduce-motion] *::after,
-[data-ari-reduce-motion]::view-transition-old(root),
-[data-ari-reduce-motion]::view-transition-new(root) {
-  animation-duration: 0.01ms !important;
-  animation-delay: 0s !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important;
-  transition-delay: 0s !important;
-  scroll-behavior: auto !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ari-enter-pop,
-  .ari-enter-rise,
-  .ari-enter-fade {
-    animation: none;
-  }
-
-  .ari-press:active:not(:disabled) {
-    transform: none;
-  }
-
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none !important;
   }
 }

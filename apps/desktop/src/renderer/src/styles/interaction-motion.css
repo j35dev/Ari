@@ -1,0 +1,38 @@
+/* Shared chrome feedback; editor and streaming content never animate their layout. */
+.ari-sidebar-motion > * {
+  min-width: var(--ari-sidebar-motion-width);
+}
+
+:where(button, [role='tab'], [role='menuitem'], [role='radio']) {
+  transition-property: color, background-color, border-color, box-shadow, opacity;
+  transition-duration: var(--ari-dur-fast);
+  transition-timing-function: var(--ari-ease-out-expo);
+}
+
+.ari-composer-shell {
+  transition:
+    border-color var(--ari-dur-base) var(--ari-ease-out-expo),
+    box-shadow var(--ari-dur-base) var(--ari-ease-out-expo),
+    background-color var(--ari-dur-base) var(--ari-ease-out-expo),
+    border-radius var(--ari-dur-base) var(--ari-ease-out-expo);
+}
+
+html[data-ari-reduced-motion] *,
+html[data-ari-reduced-motion] *::before,
+html[data-ari-reduced-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
