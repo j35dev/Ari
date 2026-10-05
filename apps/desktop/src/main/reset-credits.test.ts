@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
+import { err, ok } from '@ari/shared/result'
 import type { ResetCreditClient } from './reset-credits'
 import { createResetCreditService } from './reset-credits'
 
@@ -41,10 +42,12 @@ describe('reset credits', () => {
         }),
       }),
     )
-    await expect(service.consume({ kind: 'codex', binaryPath: 'codex' })).rejects.toThrow(
-      'Codex could not use the reset.',
+    await expect(service.consume({ kind: 'codex', binaryPath: 'codex' })).resolves.toEqual(
+      err('Codex could not use the reset.'),
     )
-    await expect(service.consume({ kind: 'codex', binaryPath: 'codex' })).resolves.toBe('reset')
+    await expect(service.consume({ kind: 'codex', binaryPath: 'codex' })).resolves.toEqual(
+      ok('reset'),
+    )
     expect(keys).toEqual(['key-1', 'key-1'])
   })
 
@@ -67,8 +70,8 @@ describe('reset credits', () => {
     const second = service.consume({ kind: 'codex', binaryPath: 'codex' })
     release()
     await expect(Promise.all([first, second])).resolves.toEqual([
-      'nothingToReset',
-      'nothingToReset',
+      ok('nothingToReset'),
+      ok('nothingToReset'),
     ])
     expect(calls).toBe(1)
   })
@@ -90,10 +93,12 @@ describe('reset credits', () => {
     )
     await expect(
       service.consume({ kind: 'claude', binaryPath: 'claude', creditId: 'grant_a' }),
-    ).rejects.toThrow('could not confirm')
+    ).resolves.toEqual(
+      err('Claude could not confirm the reset. If you are still limited in a moment, try again.'),
+    )
     await expect(
       service.consume({ kind: 'claude', binaryPath: 'claude', creditId: 'grant_b' }),
-    ).resolves.toBe('reset')
+    ).resolves.toEqual(ok('reset'))
     expect(bodies).toEqual([
       { program: 'cedar_ember', grant_id: 'grant_a', request_id: 'request-1' },
       { program: 'cedar_ember', grant_id: 'grant_a', request_id: 'request-1' },
@@ -119,17 +124,52 @@ describe('reset credits', () => {
     )
     await expect(
       service.consume({ kind: 'claude', binaryPath: 'claude', creditId: 'grant_a' }),
-    ).rejects.toThrow('cooling down')
+    ).resolves.toEqual(err('Claude resets are cooling down. Try again later.'))
     await expect(
       service.consume({ kind: 'claude', binaryPath: 'claude', creditId: 'grant_a' }),
-    ).resolves.toBe('reset')
+    ).resolves.toEqual(ok('reset'))
     expect(keys).toEqual(['request-1', 'request-2'])
+  })
+
+  it('reports an unreadable bank as a refusal and starts the next attempt afresh', async () => {
+    const requestIds: unknown[] = []
+    let n = 0
+    let bankDown = true
+    const service = createResetCreditService(
+      client({
+        newKey: () => `request-${++n}`,
+        fetchJson: vi.fn(async (_url: string, init: { method: string; body?: string }) => {
+          if (init.method === 'POST') {
+            requestIds.push((JSON.parse(init.body ?? '{}') as { request_id?: unknown }).request_id)
+            return { status: 200, json: { result: 'reset' } }
+          }
+          if (bankDown) throw new Error('offline')
+          const grant = { id: 'grant_a', resets_left: 1, usable_now: true }
+          return {
+            status: 200,
+            json: { cedar_ember: { eligible: true, next_grant_id: 'grant_a', grants: [grant] } },
+          }
+        }),
+      }),
+    )
+    await expect(service.consume({ kind: 'claude', binaryPath: 'claude' })).resolves.toEqual(
+      err('Could not use the reset.'),
+    )
+    bankDown = false
+    await expect(service.consume({ kind: 'claude', binaryPath: 'claude' })).resolves.toEqual(
+      ok('reset'),
+    )
+    expect(requestIds).toEqual(['request-2'])
   })
 
   it('returns no credit for providers that do not bank resets', async () => {
     const service = createResetCreditService(client())
-    await expect(service.consume({ kind: 'grok', binaryPath: 'grok' })).resolves.toBe('noCredit')
-    await expect(service.consume({ kind: 'codex', binaryPath: null })).resolves.toBe('noCredit')
+    await expect(service.consume({ kind: 'grok', binaryPath: 'grok' })).resolves.toEqual(
+      ok('noCredit'),
+    )
+    await expect(service.consume({ kind: 'codex', binaryPath: null })).resolves.toEqual(
+      ok('noCredit'),
+    )
   })
 
   it('asks Anthropic as the installed Claude CLI, which is what unlocks the reset bank', async () => {
@@ -166,8 +206,8 @@ describe('reset credits', () => {
 
   it('refuses Claude redemption on macOS, where the login stays in the Keychain', async () => {
     const service = createResetCreditService(client({ platform: 'darwin' }))
-    await expect(service.consume({ kind: 'claude', binaryPath: 'claude' })).rejects.toThrow(
-      'Keychain',
+    await expect(service.consume({ kind: 'claude', binaryPath: 'claude' })).resolves.toEqual(
+      err('Claude resets stay in the Keychain on macOS and cannot be used from here.'),
     )
     await expect(service.readClaude()).resolves.toBeNull()
   })

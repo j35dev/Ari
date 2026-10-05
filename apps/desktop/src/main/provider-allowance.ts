@@ -243,10 +243,28 @@ export class ProviderAllowanceReader {
     return read
   }
 
-  /** Waits out a read that started before a redemption, then fetches again. */
-  async reread(kind: DriverKind, binaryPath: string | null): Promise<ProviderAllowance> {
-    const pending = this.#pending.get(`${kind}:${binaryPath ?? ''}`)
+  /**
+   * Waits out a read that started before a redemption, then fetches again.
+   * `spent` takes one reset off the remembered bank first, so a failed fetch
+   * cannot bring the redeemed one back.
+   */
+  async reread(
+    kind: DriverKind,
+    binaryPath: string | null,
+    spent = false,
+  ): Promise<ProviderAllowance> {
+    const key = `${kind}:${binaryPath ?? ''}`
+    const pending = this.#pending.get(key)
     if (pending) await pending.catch(() => undefined)
+    const last = this.#last.get(key)
+    const banked = last?.resetCredits?.availableCount ?? 0
+    if (spent && last && banked > 0) {
+      // Which reset the provider took is unknown here, so the dates go too.
+      this.#last.set(key, {
+        ...last,
+        resetCredits: { availableCount: banked - 1, nextExpiresAt: null },
+      })
+    }
     return this.read(kind, binaryPath)
   }
 

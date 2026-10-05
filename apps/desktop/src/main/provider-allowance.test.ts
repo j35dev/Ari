@@ -74,4 +74,34 @@ describe('account allowance reader', () => {
       resetCredits: { availableCount: 1 },
     })
   })
+  it('does not bring a spent reset back when the bank cannot be re-read', async () => {
+    const windows = [{ label: '5h', usedPercent: 10, resetsAt: null }]
+    const two = { availableCount: 2, nextExpiresAt: 9, nextCreditId: 'grant_a' }
+    let release: () => void = () => undefined
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ windows, resetCredits: two })
+      .mockImplementationOnce(async () => {
+        await new Promise<void>((resolve) => (release = resolve))
+        return { windows, resetCredits: two }
+      })
+      .mockResolvedValueOnce({ windows, resetCredits: null, resetCreditsKnown: false })
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ windows, resetCredits: { availableCount: 1, nextExpiresAt: 9 } })
+    const reader = new ProviderAllowanceReader(fetch, () => 5)
+    await reader.read('claude', 'cli')
+    const stale = reader.read('claude', 'cli')
+    const reread = reader.reread('claude', 'cli', true)
+    release()
+    expect((await stale).resetCredits).toEqual(two)
+    expect((await reread).resetCredits).toEqual({ availableCount: 1, nextExpiresAt: null })
+    expect((await reader.reread('claude', 'cli')).resetCredits).toEqual({
+      availableCount: 1,
+      nextExpiresAt: null,
+    })
+    expect((await reader.reread('claude', 'cli', true)).resetCredits).toEqual({
+      availableCount: 1,
+      nextExpiresAt: 9,
+    })
+  })
 })
