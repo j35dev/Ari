@@ -9,6 +9,7 @@ function client(overrides: Partial<ResetCreditClient> = {}): ResetCreditClient {
     platform: 'win32',
     configDir: () => 'C:\\claude',
     accountPath: () => 'C:\\home\\.claude.json',
+    cliVersion: async () => '2.1.289',
     readText: vi.fn(async (path: string) => {
       if (path.endsWith('.credentials.json')) {
         return JSON.stringify({ claudeAiOauth: { accessToken: 'token' } })
@@ -129,6 +130,38 @@ describe('reset credits', () => {
     const service = createResetCreditService(client())
     await expect(service.consume({ kind: 'grok', binaryPath: 'grok' })).resolves.toBe('noCredit')
     await expect(service.consume({ kind: 'codex', binaryPath: null })).resolves.toBe('noCredit')
+  })
+
+  it('asks Anthropic as the installed Claude CLI, which is what unlocks the reset bank', async () => {
+    const headers: Record<string, string>[] = []
+    const service = createResetCreditService(
+      client({
+        now: () => Date.parse('2026-09-01T00:00:00Z'),
+        cliVersion: async () => '2.1.289',
+        fetchJson: vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+          headers.push(init.headers)
+          return {
+            status: 200,
+            json: {
+              cedar_ember: {
+                eligible: true,
+                next_grant_id: 'grant_a',
+                grants: [
+                  {
+                    id: 'grant_a',
+                    resets_left: 1,
+                    usable_now: true,
+                    ends_at: '2026-12-01T00:00:00Z',
+                  },
+                ],
+              },
+            },
+          }
+        }),
+      }),
+    )
+    await expect(service.readClaude('claude.exe')).resolves.toMatchObject({ availableCount: 1 })
+    expect(headers[0]?.['user-agent']).toBe('claude-cli/2.1.289 (external, cli)')
   })
 
   it('refuses Claude redemption on macOS, where the login stays in the Keychain', async () => {
