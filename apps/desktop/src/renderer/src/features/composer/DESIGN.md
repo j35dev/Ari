@@ -24,6 +24,10 @@ One elevated surface. Identity is a **mono letter mark** (C Claude, X Codex, O O
 
 Two-pane popover: provider rail left (vendor logo where official art exists — Anthropic, OpenAI — letter chip otherwise, name, model count), active provider's models right — no drill-in step. Search cuts across all providers into grouped flat results. Keyboard: ↑↓ move, ←→ switch provider, Enter picks, Esc closes. `lockedTo` hides the rail and pins the pane.
 
+## Picker (2026-10-05 revision)
+
+Supersedes the two-pane layout above. One compact panel (`21rem`, fixed list height so switching agents never resizes it): search, then agents as a row of tabs — the one in view carries its name, the rest are their marks — then plain one-line model names. A row names the model the way the agent does, version included (`Opus 5.5`, not `Opus`). The agent's own one-line summary appears only on the highlighted row, right-aligned; twelve taglines at once was noise. The current model gets an accent check and nothing else. Older models fold behind a quiet `7 older` row that becomes their divider once open, and opens by itself when the session is already on one. No counts, status header, tags, or key legend. A locked session swaps the tabs for its agent's name and the reason. The panel sits on `surface-1` so the `surface-2` highlight reads.
+
 ## Resting state (2026-09-13 revision)
 
 An empty plate that nobody is in **rests**: the foot row folds onto the field's own row so the plate is one line (~49px instead of ~96px) and the reclaimed height goes back to the transcript. It is the plate's default idle appearance, not an effect of a turn being live — it holds before a turn, during one, and after one finishes. A plate that springs back open the moment an agent finishes is the jumpiness this state exists to remove, and completion is exactly when the user is reading rather than typing. The send control stays in place, becoming the running turn's Stop while one is live; the agent/permission chips and the stash fold away. Any focus or click anywhere on the plate expands it again — the textarea is never unmounted, so tab order and the caret survive both directions.
