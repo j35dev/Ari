@@ -1,14 +1,50 @@
 import { driverKindSchema, type DriverKind, type PermissionMode } from '@ari/contracts/common'
 import type { RemoteModelCatalog } from '@ari/contracts/remote'
 import type { Endpoint } from '@ari/ari-core/endpoints'
-import type { CatalogModel, CatalogSource } from '@ari/providers/catalogs'
+import type {
+  AgentModeCatalog,
+  CatalogModel,
+  CatalogSource,
+  EffortCatalog,
+} from '@ari/providers/catalogs'
 
 interface CatalogInputs {
   detections: readonly { kind: string; installed: boolean; authStatus: string }[]
   registered(kind: DriverKind): boolean
   models(kind: DriverKind): readonly CatalogModel[]
   source(kind: DriverKind): CatalogSource
+  efforts(kind: DriverKind): EffortCatalog
+  modes(kind: DriverKind): AgentModeCatalog
   endpoints: readonly Pick<Endpoint, 'id' | 'name' | 'model' | 'models'>[]
+}
+
+type Provider = RemoteModelCatalog['providers'][number]
+
+/** A provider's reasoning levels as a picker shows them, the agent's own choice flagged. */
+export function catalogEfforts(catalog: EffortCatalog): NonNullable<Provider['efforts']> {
+  return catalog.options.map((option) => ({
+    id: option.id,
+    label: option.label,
+    ...(option.description !== undefined ? { description: option.description } : {}),
+    ...(catalog.currentId === option.id ? { current: true as const } : {}),
+  }))
+}
+
+/** Only modes Ari can classify: a picker falls back to Ari's vocabulary when the list is empty. */
+export function catalogModes(catalog: AgentModeCatalog): NonNullable<Provider['modes']> {
+  return catalog.options.flatMap((option) =>
+    option.ariMode === null
+      ? []
+      : [
+          {
+            id: option.id,
+            label: option.label,
+            ...(option.description !== undefined ? { description: option.description } : {}),
+            ariMode: option.ariMode,
+            ...(catalog.currentId === option.id ? { current: true as const } : {}),
+          },
+        ],
+  )
 }
 
 /** Projects desktop detection, merged catalogs and configured endpoint models without local paths or secrets. */
@@ -46,6 +82,8 @@ export function remoteCatalogProviders(inputs: CatalogInputs): RemoteModelCatalo
       reason,
       source: core ? 'live' : inputs.source(driverKind),
       defaultModelId: core && first !== undefined ? `ep:${first.id}:${first.model}` : null,
+      efforts: catalogEfforts(inputs.efforts(driverKind)),
+      modes: catalogModes(inputs.modes(driverKind)),
       models: core
         ? inputs.endpoints.flatMap((endpoint) => {
             const models =

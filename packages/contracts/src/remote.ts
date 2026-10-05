@@ -63,6 +63,7 @@ export const remoteOperationSchema = z.enum([
   // Models. What the desktop can actually run right now, so the phone offers
   // a choice instead of a text field it cannot validate.
   'models.list',
+  'models.efforts',
   // Agent actions.
   'session.prompt',
   'session.queue',
@@ -220,17 +221,19 @@ const envelope = <T extends z.ZodRawShape>(shape: T) =>
     })
     .strict()
 
+const remoteEffortIdSchema = z.string().min(1).max(64)
+
 export const remoteCommandEnvelopeSchema = z.discriminatedUnion('op', [
-  // Notably absent: `permissionMode`. The desktop's ceiling is authoritative
-  // and mobile cannot raise it (ADR §5), so a session created from a phone
-  // inherits whatever the host allows rather than asking for more — and the
-  // strict envelope makes asking for it an error rather than a silent drop.
+  // A paired phone chooses effort and permission mode as the desktop composer
+  // does; left out, the session takes the desktop's defaults.
   envelope({
     op: z.literal('session.create'),
     projectId: z.string().min(1),
     title: z.string().min(1).max(200).optional(),
     driverKind: driverKindSchema.optional(),
     modelId: z.string().min(1).max(200).optional(),
+    permissionMode: permissionModeSchema.optional(),
+    effort: remoteEffortIdSchema.nullable().optional(),
   }),
   envelope({
     op: z.literal('session.prompt'),
@@ -261,6 +264,9 @@ export const remoteCommandEnvelopeSchema = z.discriminatedUnion('op', [
     title: z.string().trim().min(1).max(200).optional(),
     pinned: z.boolean().optional(),
     modelId: z.string().min(1).max(200).nullable().optional(),
+    permissionMode: permissionModeSchema.optional(),
+    /** `null` returns the session to the agent's own default level. */
+    effort: remoteEffortIdSchema.nullable().optional(),
   }),
   envelope({
     op: z.literal('attachments.stage'),
@@ -363,6 +369,13 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
     .strict(),
   z.object({ op: z.literal('project.list') }),
   z.object({ op: z.literal('models.list') }),
+  z
+    .object({
+      op: z.literal('models.efforts'),
+      driverKind: driverKindSchema,
+      modelId: z.string().min(1).max(256).nullish(),
+    })
+    .strict(),
   z.object({ op: z.literal('changes.files'), sessionId: sessionIdSchema }),
   z.object({ op: z.literal('changes.preview'), sessionId: sessionIdSchema }).strict(),
   z.object({ op: z.literal('changes.diff'), sessionId: sessionIdSchema, path: z.string().min(1) }),
@@ -424,6 +437,23 @@ export type RemoteProject = z.infer<typeof remoteProjectSchema>
  * picker offers — so a choice made on the phone names something the desktop
  * accepts. No keys, paths, or provider logins travel with it.
  */
+export const remoteEffortOptionSchema = z.object({
+  id: remoteEffortIdSchema,
+  label: z.string().min(1),
+  description: z.string().optional(),
+  current: z.boolean().optional(),
+})
+export type RemoteEffortOption = z.infer<typeof remoteEffortOptionSchema>
+
+export const remoteModeOptionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string().optional(),
+  ariMode: permissionModeSchema,
+  current: z.boolean().optional(),
+})
+export type RemoteModeOption = z.infer<typeof remoteModeOptionSchema>
+
 export const remoteModelCatalogSchema = z.object({
   defaults: z
     .object({
@@ -442,6 +472,10 @@ export const remoteModelCatalogSchema = z.object({
       reason: z.string().nullable().optional(),
       source: z.enum(['live', 'cache', 'snapshot', 'static']).optional(),
       defaultModelId: z.string().nullable().optional(),
+      /** Reasoning levels the provider reports; absent from a desktop too old to say. */
+      efforts: z.array(remoteEffortOptionSchema).optional(),
+      /** The provider's own names for Ari's permission modes. */
+      modes: z.array(remoteModeOptionSchema).optional(),
       models: z.array(
         z.object({
           id: z.string().min(1),

@@ -43,7 +43,7 @@ export interface RemoteServiceDeps {
   dir: string
   /** Providers this desktop can drive right now. */
   driverKinds: () => readonly DriverKind[]
-  /** The permission ceiling a session created from a phone inherits. */
+  /** The mode a session created from a phone takes when the phone does not choose. */
   defaultPermissionMode: () => PermissionMode
   defaultDriverKind: () => DriverKind | null
   hasProject: (projectId: string) => Promise<boolean>
@@ -51,6 +51,7 @@ export interface RemoteServiceDeps {
   listProjects: () => Promise<{ id: string; name: string }[]>
   /** Providers this desktop can run, with their catalog models. */
   listModels: () => Promise<RemoteModelCatalog['providers']>
+  effortsForModel?: RemoteHostDeps['effortsForModel']
   mintSessionId: () => string
   /**
    * The address a phone should open, or null when none is configured yet.
@@ -142,6 +143,9 @@ export class RemoteService {
           attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
           integration: this.#integration,
           ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+          ...(this.#deps.effortsForModel === undefined
+            ? {}
+            : { effortsForModel: this.#deps.effortsForModel }),
           ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
         }),
         // Exact origins, plus whatever the gateway is bound to. A phone on
@@ -208,6 +212,9 @@ export class RemoteService {
         attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
         integration: this.#integration,
         ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+        ...(this.#deps.effortsForModel === undefined
+          ? {}
+          : { effortsForModel: this.#deps.effortsForModel }),
         ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
       }),
       allowedOrigins: [options.issuer, `https://${options.hostname}`],

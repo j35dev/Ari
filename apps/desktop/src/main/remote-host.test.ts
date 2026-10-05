@@ -13,7 +13,6 @@ import {
   remoteChangesSchema,
   remoteAttentionSchema,
   remoteQuerySchema,
-  remoteCommandEnvelopeSchema,
   remoteModelCatalogSchema,
   type RemoteCommand,
 } from '@ari/contracts/remote'
@@ -131,6 +130,19 @@ function hostFor(
     ...overrides,
   })
 }
+
+/** A catalog whose default provider reports effort levels, as a live desktop's does. */
+const EFFORT_MODELS: Awaited<ReturnType<RemoteHostDeps['listModels']>> = [
+  {
+    driverKind: 'claude',
+    models: [{ id: 'model-a', label: 'Model A' }],
+    efforts: [
+      { id: 'low', label: 'Low' },
+      { id: 'high', label: 'High', current: true },
+    ],
+  },
+  { driverKind: 'codex', models: [] },
+]
 
 function command(op: RemoteCommand['op'], fields: Record<string, unknown>): RemoteCommand {
   return { op, clientCommandId: 'cmd-1', idempotencyKey: 'idem-0001', ...fields } as RemoteCommand
@@ -399,11 +411,8 @@ describe('creating a session', () => {
       modelId: 'ep:local:model:latest',
     })
   })
-  it('takes the permission mode from the desktop, never from the caller', async () => {
+  it('uses the desktop default permission mode when the phone does not choose one', async () => {
     const engine = fakeEngine()
-    // The ceiling the user set. A remote client has no way to name this — the
-    // strict envelope has no such field — so the host's own setting is the only
-    // correct source.
     const host = hostFor(await tempStore(), engine, { defaultPermissionMode: () => 'allow-edits' })
 
     const result = await host.execute(
@@ -420,6 +429,33 @@ describe('creating a session', () => {
       driverKind: 'claude',
       status: 'idle',
     })
+    expect(engine.created[0]).not.toHaveProperty('effort')
+  })
+
+  it('creates a session with the effort and permission mode the phone chose', async () => {
+    const engine = fakeEngine()
+    const host = hostFor(await tempStore(), engine, { listModels: async () => EFFORT_MODELS })
+
+    const result = await host.execute(
+      CALLER,
+      command('session.create', { projectId: 'proj_1', permissionMode: 'full', effort: 'high' }),
+    )
+
+    expect(result).toMatchObject({ ok: true })
+    expect(engine.created[0]).toMatchObject({ permissionMode: 'full', effort: 'high' })
+  })
+
+  it('refuses to create a session with an effort the provider does not offer', async () => {
+    const engine = fakeEngine()
+    const host = hostFor(await tempStore(), engine, { listModels: async () => EFFORT_MODELS })
+
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.create', { projectId: 'proj_1', effort: 'ludicrous' }),
+      ),
+    ).toMatchObject({ ok: false, code: 'unsupported_capability' })
+    expect(engine.created).toEqual([])
   })
 
   it('refuses a project the device was not granted', async () => {
@@ -983,6 +1019,71 @@ describe('mobile workspace capabilities', () => {
     expect(await host.query(STRANGER, 'files.list', { sessionId: 'sess_a' })).toBeNull()
   })
 
+  it('changes effort and permission mode on a session', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    const engine = fakeEngine()
+    const host = hostFor(store, engine, { listModels: async () => EFFORT_MODELS })
+
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.update', { sessionId: 'sess_a', permissionMode: 'full', effort: 'low' }),
+      ),
+    ).toMatchObject({ ok: true })
+    expect(
+      await host.execute(CALLER, command('session.update', { sessionId: 'sess_a', effort: null })),
+    ).toMatchObject({ ok: true })
+    expect(engine.dispatched).toEqual([
+      { type: 'session.update', sessionId: 'sess_a', permissionMode: 'full', effort: 'low' },
+      { type: 'session.update', sessionId: 'sess_a', effort: null },
+    ])
+  })
+
+  it('refuses an effort the session provider does not offer', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    const engine = fakeEngine()
+    const host = hostFor(store, engine, { listModels: async () => EFFORT_MODELS })
+
+    expect(
+      await host.execute(
+        CALLER,
+        command('session.update', { sessionId: 'sess_a', effort: 'ludicrous' }),
+      ),
+    ).toMatchObject({ ok: false, code: 'unsupported_capability' })
+    expect(engine.dispatched).toEqual([])
+  })
+
+  it('accepts an effort only the selected model offers', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    const engine = fakeEngine()
+    const asked: unknown[] = []
+    const host = hostFor(store, engine, {
+      effortsForModel: async (kind, modelId) => {
+        asked.push([kind, modelId])
+        return [{ id: 'max', label: 'Max' }]
+      },
+    })
+
+    expect(host.capabilities()).toContain('models.efforts')
+    expect(
+      await host.query(CALLER, 'models.efforts', { driverKind: 'claude', modelId: 'model-a' }),
+    ).toEqual({ efforts: [{ id: 'max', label: 'Max' }] })
+    expect(
+      await host.execute(CALLER, command('session.update', { sessionId: 'sess_a', effort: 'max' })),
+    ).toMatchObject({ ok: true })
+    expect(asked).toEqual([
+      ['claude', 'model-a'],
+      ['claude', null],
+    ])
+  })
+
+  it('does not offer the per-model lookup when the desktop cannot perform it', async () => {
+    expect(hostFor(await tempStore(), fakeEngine()).capabilities()).not.toContain('models.efforts')
+  })
+
   it('validates model changes and maps only allowed session updates', async () => {
     const store = await tempStore()
     await store.append('sess_a', sessionCreated('sess_a'))
@@ -1020,11 +1121,6 @@ describe('mobile workspace capabilities', () => {
         command('session.update', { sessionId: 'sess_a', pinned: true }),
       ),
     ).toMatchObject({ ok: false, code: 'not_found' })
-    expect(
-      remoteCommandEnvelopeSchema.safeParse(
-        command('session.update', { sessionId: 'sess_a', permissionMode: 'full' }),
-      ).success,
-    ).toBe(false)
     for (const path of ['../secret', '/etc/passwd', 'C:\\Windows', 'x:stream']) {
       expect(
         remoteQuerySchema.safeParse({ op: 'files.read', sessionId: 'sess_a', path }).success,

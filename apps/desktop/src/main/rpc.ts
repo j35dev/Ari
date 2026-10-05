@@ -14,7 +14,8 @@ import { Engine } from './engine'
 import { RemoteService } from './remote'
 import { RemoteConnectService } from './remote-connect'
 import { forkRemoteSession } from './remote-fork'
-import { remoteCatalogProviders } from './remote-catalog'
+import { catalogEfforts, catalogModes, remoteCatalogProviders } from './remote-catalog'
+import { cachedEffortLookup } from './remote-efforts'
 import { safeStorageBox } from './secret-box'
 import { RemoteOrigins } from './remote-origins'
 import { TailscaleServe, type TailscaleState } from './tailscale'
@@ -1010,8 +1011,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             registered: (kind) => driverRegistry.get(kind) !== null,
             models: modelsFor,
             source: catalogSource,
+            efforts: effortsFor,
+            modes: modesFor,
           })
         },
+        effortsForModel: cachedEffortLookup(probeEffortsForModel),
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         terminalFactory: ptyFactory,
@@ -1481,32 +1485,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Merged model catalogs per kind: dynamic overlay → snapshot → static.
   r.register('providers.models', () => {
     void catalogService.refreshIfStale()
-    return ALL_PROVIDER_KINDS.map((kind) => {
-      const catalog = effortsFor(kind)
-      const modeCatalog = modesFor(kind)
-      return {
-        kind,
-        source: catalogSource(kind),
-        models: modelsFor(kind),
-        efforts: catalog.options.map((option) => ({
-          id: option.id,
-          label: option.label,
-          ...(option.description !== undefined ? { description: option.description } : {}),
-          ...(catalog.currentId === option.id ? { current: true as const } : {}),
-        })),
-        // Only classifiable modes reach the renderer; the picker falls back to
-        // Ari's own vocabulary when the list is empty.
-        modes: modeCatalog.options
-          .filter((option) => option.ariMode !== null)
-          .map((option) => ({
-            id: option.id,
-            label: option.label,
-            ...(option.description !== undefined ? { description: option.description } : {}),
-            ariMode: option.ariMode as 'ask' | 'allow-edits' | 'full',
-            ...(modeCatalog.currentId === option.id ? { current: true as const } : {}),
-          })),
-      }
-    })
+    return ALL_PROVIDER_KINDS.map((kind) => ({
+      kind,
+      source: catalogSource(kind),
+      models: modelsFor(kind),
+      efforts: catalogEfforts(effortsFor(kind)),
+      // Only classifiable modes reach the renderer; the picker falls back to
+      // Ari's own vocabulary when the list is empty.
+      modes: catalogModes(modesFor(kind)),
+    }))
   })
 
   // Model-aware effort lookup for the picker: a throwaway ACP session has
