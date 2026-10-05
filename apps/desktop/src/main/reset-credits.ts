@@ -1,7 +1,9 @@
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { buildCmdSpawnArgs, needsWindowsShell } from '@ari/providers/spawn-cli'
 import type { DriverKind } from '@ari/contracts/common'
 import { resetCreditOutcomeSchema } from '@ari/contracts/rpc'
 import type { ProviderResetCredits, ResetCreditOutcome } from '@ari/contracts/rpc'
@@ -33,6 +35,8 @@ export interface ResetCreditClient {
   configDir(): string
   accountPath(): string
   readText(path: string): Promise<string | null>
+  /** Semver of the installed Claude CLI. An old client is told the bank is empty. */
+  cliVersion(binaryPath: string | null): Promise<string>
   fetchJson(
     url: string,
     init: { method: string; headers: Record<string, string>; body?: string; timeoutMs: number },
@@ -69,13 +73,48 @@ function claudeAccountPath(): string {
     : join(homedir(), '.claude.json')
 }
 
-function claudeHeaders(token: string): Record<string, string> {
+function claudeHeaders(token: string, version: string): Record<string, string> {
   return {
     authorization: `Bearer ${token}`,
     'anthropic-beta': 'oauth-2025-04-20',
-    'user-agent': 'claude-cli/1.0.0 (external, cli)',
+    'user-agent': `claude-cli/${version} (external, cli)`,
     accept: 'application/json',
   }
+}
+
+const claudeVersions = new Map<string, Promise<string>>()
+
+/** Claude hides `cedar_ember` from clients that identify as an old CLI. */
+function probeClaudeVersion(binaryPath: string | null): Promise<string> {
+  const command = binaryPath && binaryPath.length > 0 ? binaryPath : 'claude'
+  const cached = claudeVersions.get(command)
+  if (cached) return cached
+  const pending = new Promise<string>((resolve) => {
+    let stdout = ''
+    const finish = (version: string): void => resolve(version)
+    const wrapped = needsWindowsShell(command) ? buildCmdSpawnArgs(command, ['--version']) : null
+    const child = wrapped
+      ? spawn(wrapped.file, wrapped.args, {
+          windowsVerbatimArguments: true,
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
+          timeout: 8_000,
+        })
+      : spawn(command, ['--version'], {
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
+          timeout: 8_000,
+        })
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+    child.on('error', () => finish('2.1.289'))
+    child.on('close', () => {
+      finish(/(\d+\.\d+\.\d+)/.exec(stdout)?.[1] ?? '2.1.289')
+    })
+  })
+  claudeVersions.set(command, pending)
+  return pending
 }
 
 async function readJson(client: ResetCreditClient, path: string): Promise<unknown> {
@@ -119,6 +158,7 @@ const defaultClient: ResetCreditClient = {
       return null
     }
   },
+  cliVersion: probeClaudeVersion,
   async fetchJson(url, init) {
     const response = await fetch(url, {
       method: init.method,
@@ -153,22 +193,19 @@ const defaultClient: ResetCreditClient = {
 /** Reads Claude's bank. Any failure is "no resets" so the usage bars still render. */
 export async function readClaudeResetCredits(
   client: ResetCreditClient = defaultClient,
+  binaryPath: string | null = null,
 ): Promise<ProviderResetCredits | null> {
   const token = await readAccessToken(client)
   if (!token) return null
-  try {
-    const { status, json } = await client.fetchJson(
-      `${API_BASE}/api/oauth/usage?cedar_ember=1&skip_spend=1`,
-      { method: 'GET', headers: claudeHeaders(token), timeoutMs: 10_000 },
-    )
-    if (status !== 200 || !json || typeof json !== 'object') return null
-    return parseClaudeResetCredits((json as Record<string, unknown>)['cedar_ember'], client.now())
-  } catch (error) {
-    log.debug('Claude reset bank unread', {
-      error: error instanceof Error ? error.name : 'UnknownError',
-    })
-    return null
+  const version = await client.cliVersion(binaryPath)
+  const { status, json } = await client.fetchJson(
+    `${API_BASE}/api/oauth/usage?cedar_ember=1&skip_spend=1`,
+    { method: 'GET', headers: claudeHeaders(token, version), timeoutMs: 10_000 },
+  )
+  if (status !== 200 || !json || typeof json !== 'object') {
+    throw new Error('Claude reset bank unread')
   }
+  return parseClaudeResetCredits((json as Record<string, unknown>)['cedar_ember'], client.now())
 }
 
 function mapClaudeResult(result: string): ResetCreditOutcome | RedeemError {
@@ -216,12 +253,17 @@ export function createResetCreditService(client: ResetCreditClient = defaultClie
     return parsed.data
   }
 
-  async function redeemClaude(accountKey: string, attempt: Attempt): Promise<ResetCreditOutcome> {
+  async function redeemClaude(
+    accountKey: string,
+    attempt: Attempt,
+    binaryPath: string | null,
+  ): Promise<ResetCreditOutcome> {
     const token = await readAccessToken(client)
     if (!token) throw new RedeemError('Sign in to Claude again to use a reset.', false)
+    const version = await client.cliVersion(binaryPath)
     let creditId = attempt.creditId
     if (!creditId) {
-      creditId = (await readClaudeResetCredits(client))?.nextCreditId
+      creditId = (await readClaudeResetCredits(client, binaryPath))?.nextCreditId
       if (!creditId) return 'noCredit'
       pending.set(accountKey, { ...attempt, creditId })
     }
@@ -236,7 +278,7 @@ export function createResetCreditService(client: ResetCreditClient = defaultClie
         `${API_BASE}/api/organizations/${encodeURIComponent(organization)}/reset_rate_limits`,
         {
           method: 'POST',
-          headers: { ...claudeHeaders(token), 'content-type': 'application/json' },
+          headers: { ...claudeHeaders(token, version), 'content-type': 'application/json' },
           body: JSON.stringify({
             program: PROGRAM,
             grant_id: creditId,
@@ -278,7 +320,7 @@ export function createResetCreditService(client: ResetCreditClient = defaultClie
       const outcome =
         input.kind === 'codex'
           ? await redeemCodex(input.binaryPath ?? '', attempt.key)
-          : await redeemClaude(accountKey, attempt)
+          : await redeemClaude(accountKey, attempt, input.binaryPath)
       pending.delete(accountKey)
       return outcome
     } catch (error) {
@@ -301,7 +343,7 @@ export function createResetCreditService(client: ResetCreditClient = defaultClie
   }
 
   return {
-    readClaude: () => readClaudeResetCredits(client),
+    readClaude: (binaryPath?: string | null) => readClaudeResetCredits(client, binaryPath ?? null),
     consume(input: ConsumeResetCreditInput): Promise<ResetCreditOutcome> {
       try {
         const key = accountKey(input)

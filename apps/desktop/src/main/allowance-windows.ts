@@ -182,13 +182,22 @@ export function parseCodexResetCredits(value: unknown): ProviderResetCredits | n
   if (raw == null) return null
   const parsed = codexResetCreditsSchema.safeParse(raw)
   if (!parsed.success) return null
-  const expiries = (parsed.data.credits ?? [])
-    .filter((credit) => credit.status === 'available' && typeof credit.expiresAt === 'number')
-    .map((credit) => credit.expiresAt as number)
-    .filter((expiresAt) => expiresAt > 0)
+  const credits = (parsed.data.credits ?? [])
+    .filter((credit) => credit.status === 'available')
+    .map((credit) =>
+      typeof credit.expiresAt === 'number' && credit.expiresAt > 0
+        ? { expiresAt: credit.expiresAt * 1000 }
+        : { expiresAt: null },
+    )
+    .sort(
+      (left, right) =>
+        (left.expiresAt ?? Number.MAX_SAFE_INTEGER) - (right.expiresAt ?? Number.MAX_SAFE_INTEGER),
+    )
+  const dated = credits.find((credit) => credit.expiresAt !== null)
   return {
     availableCount: parsed.data.availableCount,
-    nextExpiresAt: expiries.length > 0 ? Math.min(...expiries) * 1000 : null,
+    nextExpiresAt: dated?.expiresAt ?? null,
+    credits,
   }
 }
 
@@ -236,11 +245,28 @@ export function parseClaudeResetCredits(
   const nextId = record['next_grant_id']
   const next = typeof nextId === 'string' ? live.find((grant) => grant.id === nextId) : undefined
   const availableCount = next ? live.reduce((sum, grant) => sum + grant.resets_left, 0) : 0
-  const expiresAt =
-    next?.ends_at && isFutureTimestamp(next.ends_at, nowMs) ? Date.parse(next.ends_at) : null
+  const credits = next
+    ? live
+        .flatMap((grant) => {
+          const expiresAt =
+            grant.ends_at && isFutureTimestamp(grant.ends_at, nowMs)
+              ? Date.parse(grant.ends_at)
+              : null
+          return Array.from({ length: grant.resets_left }, () => ({
+            expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+          }))
+        })
+        .sort(
+          (left, right) =>
+            (left.expiresAt ?? Number.MAX_SAFE_INTEGER) -
+            (right.expiresAt ?? Number.MAX_SAFE_INTEGER),
+        )
+    : []
+  const soonest = credits.find((credit) => credit.expiresAt !== null)?.expiresAt ?? null
   return {
     availableCount,
-    nextExpiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+    nextExpiresAt: soonest,
+    credits,
     ...(next ? { nextCreditId: next.id } : {}),
   }
 }

@@ -7,10 +7,10 @@ import type { ProviderAllowance, ResetCreditOutcome } from '@ari/contracts/rpc'
 import { useProviderAllowance } from './use-provider-allowance'
 
 const OUTCOME_TEXT: Record<ResetCreditOutcome, string> = {
-  reset: 'Reset applied.',
-  nothingToReset: 'Nothing to reset. This account is not at its limit.',
-  noCredit: 'No reset credit is available.',
-  alreadyRedeemed: 'That reset was already used.',
+  reset: 'Applied',
+  nothingToReset: 'Not limited',
+  noCredit: 'None left',
+  alreadyRedeemed: 'Already used',
 }
 
 const NAMES: Record<string, string> = {
@@ -40,7 +40,55 @@ function stale(row: ProviderAllowance | undefined, now: number): boolean {
   )
 }
 
-function ResetBank({
+function expiryLabel(expiresAt: number | null, now: number): string {
+  if (expiresAt === null || expiresAt <= now) return ''
+  return duration(expiresAt - now).replace(/ 0[hm]$/, '')
+}
+
+function byExpiry(left: number | null, right: number | null): number {
+  return (left ?? Number.MAX_SAFE_INTEGER) - (right ?? Number.MAX_SAFE_INTEGER)
+}
+
+/**
+ * One row per distinct expiry, soonest first. A count with no per-reset dates
+ * stays on one line. A short list keeps the extra resets undated instead of
+ * borrowing the soonest date.
+ */
+function resetGroups(
+  credits: { expiresAt: number | null }[] | undefined,
+  count: number,
+  fallback: number | null,
+): { count: number; expiresAt: number | null }[] {
+  const known =
+    credits && credits.length > 0
+      ? [...credits]
+          .sort((left, right) => byExpiry(left.expiresAt, right.expiresAt))
+          .slice(0, count)
+      : Array.from({ length: count }, () => ({ expiresAt: fallback }))
+  const undated = Math.max(0, count - known.length)
+  const source = [...known, ...Array.from({ length: undated }, () => ({ expiresAt: null }))]
+  const groups: { count: number; expiresAt: number | null }[] = []
+  for (const credit of source) {
+    const last = groups[groups.length - 1]
+    if (last && last.expiresAt === credit.expiresAt) last.count += 1
+    else groups.push({ count: 1, expiresAt: credit.expiresAt })
+  }
+  return groups
+}
+
+function resetPhrase(
+  count: number,
+  expiresAt: number | null,
+  now: number,
+  leadWithExpiry: boolean,
+): string {
+  const noun = `${count} ${count === 1 ? 'reset' : 'resets'}`
+  const when = expiryLabel(expiresAt, now)
+  if (!when) return noun
+  return leadWithExpiry ? `${when} · ${noun}` : `${noun} · ${when}`
+}
+
+function ResetLine({
   row,
   now,
   confirming,
@@ -62,61 +110,62 @@ function ResetBank({
   const credits = row.resetCredits
   const count = credits?.availableCount ?? 0
   const name = NAMES[row.kind] ?? row.kind
-  const expires = credits?.nextExpiresAt
   if (count <= 0 && !notice) return null
+  const groups = resetGroups(credits?.credits, count, credits?.nextExpiresAt ?? null)
+  const split = groups.length > 1
+  const actions = notice ? (
+    <span role="status" className="text-fg-subtle">
+      {notice}
+    </span>
+  ) : confirming ? (
+    <span className="flex items-center gap-2">
+      <button
+        type="button"
+        aria-label={`Cancel ${name} reset`}
+        onClick={onCancel}
+        className="text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        aria-label={`Use one ${name} reset`}
+        disabled={working}
+        onClick={onConfirm}
+        className="text-fg hover:text-accent focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+      >
+        {working ? 'Using…' : 'Confirm'}
+      </button>
+    </span>
+  ) : count > 0 ? (
+    <button
+      type="button"
+      aria-label={`Use reset for ${name}`}
+      title={split ? 'Uses the soonest reset' : undefined}
+      disabled={working}
+      onClick={onAsk}
+      className="shrink-0 text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+    >
+      Use
+    </button>
+  ) : null
   return (
-    <div className="mt-2 rounded-md border border-border bg-surface-1 px-2 py-1.5">
+    <div className="mt-2 flex items-start justify-between gap-3 text-[11px]">
       {count > 0 ? (
-        <>
-          <div className="flex items-center justify-between gap-2 text-[11px]">
-            <span className="text-fg">
-              {count} banked {count === 1 ? 'reset' : 'resets'}
-            </span>
-            {confirming ? null : (
-              <button
-                type="button"
-                aria-label={`Use reset for ${name}`}
-                disabled={working}
-                onClick={onAsk}
-                className="rounded px-1.5 py-0.5 text-accent hover:bg-accent/15 focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
-              >
-                Use reset
-              </button>
-            )}
-          </div>
-          {expires !== null && expires !== undefined && expires > now ? (
-            <p className="mt-1 text-[10px] text-fg-subtle">
-              Next expires in {duration(expires - now)}
-            </p>
-          ) : null}
-          {confirming ? (
-            <div className="mt-1.5 flex items-center justify-end gap-1.5">
-              <button
-                type="button"
-                aria-label={`Cancel ${name} reset`}
-                onClick={onCancel}
-                className="rounded px-1.5 py-0.5 text-[11px] text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                aria-label={`Use one ${name} reset`}
-                disabled={working}
-                onClick={onConfirm}
-                className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent hover:bg-accent/25 focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
-              >
-                {working ? 'Using…' : 'Use one reset'}
-              </button>
-            </div>
-          ) : null}
-        </>
-      ) : null}
-      {notice ? (
-        <p role="status" className="mt-1 text-[10px] text-fg-muted">
-          {notice}
-        </p>
-      ) : null}
+        <ul className="min-w-0 space-y-0.5">
+          {groups.map((group, index) => (
+            <li
+              key={`${group.expiresAt ?? 'open'}-${group.count}`}
+              className={index === 0 ? 'tabular-nums text-fg-muted' : 'tabular-nums text-fg-subtle'}
+            >
+              {resetPhrase(group.count, group.expiresAt, now, split)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span />
+      )}
+      {actions}
     </div>
   )
 }
@@ -224,21 +273,13 @@ export function ProviderUsagePill({
                 ? '…'
                 : '—'}
           </span>
-          {banked > 0 ? (
-            <span
-              className="font-mono tabular-nums text-fg"
-              title={`${banked} banked ${banked === 1 ? 'reset' : 'resets'}`}
-            >
-              {banked} {banked === 1 ? 'reset' : 'resets'}
-            </span>
-          ) : null}
           {outdated ? <span title="Last known usage; awaiting a fresh reading">·</span> : null}
           <ChevronDown size={11} aria-hidden="true" />
         </Popover.Trigger>
         <Popover.Content
           align="end"
           aria-label="Provider usage"
-          className="w-80 max-w-[calc(100vw-24px)] !p-0"
+          className="w-72 max-w-[calc(100vw-24px)] !p-0"
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <span className="text-xs font-medium text-fg">Provider usage</span>
@@ -314,7 +355,7 @@ export function ProviderUsagePill({
                         : 'Usage unavailable'}
                   </p>
                 )}
-                <ResetBank
+                <ResetLine
                   row={row}
                   now={now}
                   confirming={confirmKind === row.kind}

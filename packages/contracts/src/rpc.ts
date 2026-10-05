@@ -29,11 +29,19 @@ export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
+/** One redeemable reset. Several can be banked with different expiries. */
+export interface ProviderResetCredit {
+  /** Epoch ms, or null when this reset has no reported expiry. */
+  expiresAt: number | null
+}
+
 /** Banked rate-limit resets the signed-in account can redeem. */
 export interface ProviderResetCredits {
   availableCount: number
   /** Epoch ms of the soonest expiry, when the provider reports one. */
   nextExpiresAt: number | null
+  /** One entry per reset, soonest first. Omitted when the provider sent only a count. */
+  credits?: ProviderResetCredit[]
   /** Claude grant id. Codex redeems by idempotency key and omits this. */
   nextCreditId?: string
 }
