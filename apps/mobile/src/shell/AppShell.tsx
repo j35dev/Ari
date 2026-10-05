@@ -8,9 +8,9 @@ const SessionScreen = lazy(async () => {
   const module = await import('../features/session/SessionScreen')
   return { default: module.SessionScreen }
 })
-const NewSessionSheet = lazy(async () => {
-  const module = await import('../features/projects/NewSessionSheet')
-  return { default: module.NewSessionSheet }
+const NewChatScreen = lazy(async () => {
+  const module = await import('../features/new/NewChatScreen')
+  return { default: module.NewChatScreen }
 })
 
 /**
@@ -21,7 +21,6 @@ export function AppShell(): ReactNode {
   const [route, setRoute] = useState(() => readRoute(location.href))
   const [updateReady, setUpdateReady] = useState(false)
   const [updateDismissed, setUpdateDismissed] = useState(false)
-  const [sheetOpen, setSheetOpen] = useState(false)
   const navigate = (next: MobileRoute): void => {
     const url = routeUrl(next, location.href)
     if (new URL(url, location.href).href === location.href) return
@@ -63,6 +62,22 @@ export function AppShell(): ReactNode {
         </div>
       </Suspense>
     )
+  if (route.destination === 'new')
+    return (
+      <Suspense fallback={null}>
+        <div className="screen-push h-full">
+          <NewChatScreen
+            onBack={back}
+            onOpen={(sessionId) => {
+              // The session takes this screen's place, so back from it reaches the list.
+              const next: MobileRoute = { destination: 'home', sessionId }
+              history.replaceState(history.state, '', routeUrl(next, location.href))
+              setRoute(next)
+            }}
+          />
+        </div>
+      </Suspense>
+    )
   if (route.destination === 'settings')
     return (
       <div className="mobile-shell screen-push">
@@ -77,21 +92,10 @@ export function AppShell(): ReactNode {
       <main className="min-h-0 flex-1 overflow-hidden">
         <HomeScreen
           onOpen={onOpen}
-          onNewSession={() => setSheetOpen(true)}
+          onNewSession={() => navigate({ destination: 'new', sessionId: null })}
           onSettings={() => navigate({ destination: 'settings', sessionId: null })}
         />
       </main>
-      {sheetOpen && (
-        <Suspense fallback={null}>
-          <NewSessionSheet
-            onClose={() => setSheetOpen(false)}
-            onOpen={(id) => {
-              setSheetOpen(false)
-              onOpen(id)
-            }}
-          />
-        </Suspense>
-      )}
     </div>
   )
 }

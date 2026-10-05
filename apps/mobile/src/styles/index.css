@@ -217,6 +217,13 @@
 html[data-keyboard='open'] .mobile-composer {
   padding-bottom: 0.5rem;
 }
+/* A row of chips scrolls sideways; a scrollbar under it would read as a divider. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
 /* A pushed screen arrives from the side it will leave by. */
 .screen-push {
   animation: screen-push var(--ari-dur-base) var(--ari-ease-slide);
