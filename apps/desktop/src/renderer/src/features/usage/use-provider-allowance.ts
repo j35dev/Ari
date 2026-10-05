@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { driverKindSchema } from '@ari/contracts/common'
 import type { DriverKind } from '@ari/contracts/common'
-import type { ProviderAllowance } from '@ari/contracts/rpc'
+import type { ProviderAllowance, ResetCreditOutcome } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
+import { err, ok, type Result } from '@ari/shared/result'
 import { rpc } from '../../lib/rpc'
 
 const log = createLogger('ui:allowance')
@@ -13,6 +14,9 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(false)
   const generation = useRef(0)
+  // A read that began before a redemption finished may predate it; the count of
+  // redemptions per provider lets that read be dropped instead of applied.
+  const redeemed = useRef(new Map<string, number>())
 
   const refresh = useCallback(async () => {
     const current = ++generation.current
@@ -42,13 +46,16 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
       )
       await Promise.all(
         kinds.map(async (provider) => {
+          const before = redeemed.current.get(provider)
+          const fresh = () =>
+            current === generation.current && redeemed.current.get(provider) === before
           try {
             const result = await rpc.invoke('providers.allowance', { kind: provider })
-            if (current === generation.current)
+            if (fresh())
               setRows((previous) => previous.map((row) => (row.kind === provider ? result : row)))
           } catch (failure) {
             log.warn('Usage refresh failed', failure)
-            if (current === generation.current)
+            if (fresh())
               setRows((previous) =>
                 previous.map((row) =>
                   row.kind === provider
@@ -86,17 +93,24 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
     }
   }, [refresh, sessionId, kind])
 
-  const consumeReset = useCallback(async (kind: DriverKind, creditId?: string) => {
-    const current = ++generation.current
-    const result = await rpc.invoke('providers.consumeResetCredit', {
-      kind,
-      ...(creditId ? { creditId } : {}),
-    })
-    if (current === generation.current) {
-      setRows((previous) => previous.map((row) => (row.kind === kind ? result.allowance : row)))
-    }
-    return result.outcome
-  }, [])
+  const consumeReset = useCallback(
+    async (kind: DriverKind, creditId?: string): Promise<Result<ResetCreditOutcome, string>> => {
+      try {
+        const result = await rpc.invoke('providers.consumeResetCredit', {
+          kind,
+          ...(creditId ? { creditId } : {}),
+        })
+        if (!result.ok) return err(result.error)
+        redeemed.current.set(kind, (redeemed.current.get(kind) ?? 0) + 1)
+        setRows((previous) => previous.map((row) => (row.kind === kind ? result.allowance : row)))
+        return ok(result.outcome)
+      } catch (failure) {
+        log.warn('Reset redemption failed', failure)
+        return err('Could not use the reset.')
+      }
+    },
+    [],
+  )
 
   return { rows, refreshing, error, refresh, consumeReset }
 }

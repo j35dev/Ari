@@ -762,7 +762,10 @@ export interface RpcResults {
     | { ok: false; error: string }
   'usage.summary': UsageSummary
   'providers.allowance': ProviderAllowance
-  'providers.consumeResetCredit': { outcome: ResetCreditOutcome; allowance: ProviderAllowance }
+  /** `ok` false is a refusal; `error` is already worded for the user. */
+  'providers.consumeResetCredit':
+    | { ok: true; outcome: ResetCreditOutcome; allowance: ProviderAllowance }
+    | { ok: false; error: string }
   /**
    * Output of `npx ccusage` (the community Claude Code usage analyzer) run
    * out-of-process. `ok` false carries the failure reason; `output` holds the
