@@ -1,0 +1,491 @@
+/** The two fields of a tool call these labels read; any transcript block satisfies it. */
+export interface ToolCallRef {
+  name?: string
+  argsJson?: string
+}
+
+/** Coarse bucket a tool falls into; drives both verbs and summary counters. */
+export type ToolKind = 'run' | 'edit' | 'read' | 'search' | 'todo'
+
+const EDIT_TOOLS = new Set([
+  'edit',
+  'multiedit',
+  'write',
+  'write_file',
+  'search_replace',
+  'apply_patch',
+  'notebookedit',
+  'create_file',
+  'str_replace_editor',
+])
+
+const READ_TOOLS = new Set([
+  'read',
+  'read_file',
+  'glob',
+  'ls',
+  'list_dir',
+  'view',
+  'read_many_files',
+])
+const SEARCH_TOOLS = new Set([
+  'grep',
+  'search',
+  'find',
+  'websearch',
+  'webfetch',
+  'web_fetch',
+  'web_search',
+  'codebase_search',
+])
+
+const TODO_TOOLS = new Set(['todo_write', 'todowrite', 'todo', 'todos', 'todo_read'])
+
+/** Substring probes for provider-specific names the exact sets miss. */
+const FUZZY_KIND: ReadonlyArray<readonly [RegExp, ToolKind]> = [
+  [/todo/, 'todo'],
+  [/write|edit|patch|replace|create|insert|delete|move|rename/, 'edit'],
+  [/read|list|glob|view|cat|open/, 'read'],
+  [/search|grep|find|fetch|lookup/, 'search'],
+]
+
+/** Buckets a raw tool name; anything unrecognised counts as a command run. */
+export function classifyTool(name: string | undefined): ToolKind {
+  const key = (name ?? '').toLowerCase()
+  if (TODO_TOOLS.has(key)) return 'todo'
+  if (EDIT_TOOLS.has(key)) return 'edit'
+  if (READ_TOOLS.has(key)) return 'read'
+  if (SEARCH_TOOLS.has(key)) return 'search'
+  if (key.includes('command') || key.includes('terminal') || key.includes('shell')) return 'run'
+  for (const [probe, kind] of FUZZY_KIND) {
+    if (probe.test(key)) return kind
+  }
+  return 'run'
+}
+
+/** User-facing Ari identity per bucket — the transcript brands every step as an Ari tool. */
+const ARI_TOOL_NAME: Record<ToolKind, string> = {
+  run: 'Ari Run',
+  edit: 'Ari Edit',
+  read: 'Ari Read',
+  search: 'Ari Search',
+  todo: 'Ari Todo',
+}
+
+/** Brand name for a bucket ("Ari Run"); pairs with {@link classifyTool}. */
+export function ariToolName(kind: ToolKind): string {
+  return ARI_TOOL_NAME[kind]
+}
+
+/** Past-tense verb for a settled step ("Read src/app.ts"). */
+const PAST_VERB: Record<ToolKind, string> = {
+  run: 'Ran',
+  edit: 'Edited',
+  read: 'Read',
+  search: 'Searched',
+  todo: 'Updated',
+}
+
+/** Past-tense verb for a bucket ("Edited"); pairs with {@link classifyTool}. */
+export function pastVerb(kind: ToolKind): string {
+  return PAST_VERB[kind]
+}
+
+/** Present-participle verb for the in-flight step ("Reading src/app.ts"). */
+const LIVE_VERB: Record<ToolKind, string> = {
+  run: 'Running',
+  edit: 'Editing',
+  read: 'Reading',
+  search: 'Searching',
+  todo: 'Updating',
+}
+
+/**
+ * Argument keys worth showing, most specific first. Providers disagree on
+ * naming (`file_path` vs `target_file` vs `path`), so the first hit wins.
+ */
+const TARGET_KEYS = [
+  'command',
+  'cmd',
+  'script',
+  'file_path',
+  'filePath',
+  'target_file',
+  'targetFile',
+  'file',
+  'filename',
+  'filepath',
+  'notebook_path',
+  'absolute_path',
+  'target_directory',
+  'directory',
+  'dir',
+  'path',
+  'pattern',
+  'query',
+  'url',
+  'prompt',
+] as const
+
+const MAX_TARGET_CHARS = 96
+
+/** Collapses whitespace and caps length so a target always fits one line. */
+function oneLine(value: string): string {
+  const flat = value.replace(/\s+/g, ' ').trim()
+  return flat.length > MAX_TARGET_CHARS ? `${flat.slice(0, MAX_TARGET_CHARS - 1)}…` : flat
+}
+
+/**
+ * Shortens a filesystem path to its last two segments so steps read
+ * `transcript/toolLabels.ts` instead of an absolute Windows path.
+ */
+export function shortenPath(value: string): string {
+  const segments = value.split(/[\\/]+/).filter((s) => s.length > 0)
+  if (segments.length <= 2) return segments.join('/')
+  return segments.slice(-2).join('/')
+}
+
+/** Final path segment (`toolLabels.ts`) — a headline names files, not folders. */
+export function pathTail(value: string): string {
+  const segments = value.split(/[\\/]+/).filter((s) => s.length > 0)
+  return segments[segments.length - 1] ?? value
+}
+
+/** Cap for a headline subject; step rows carry the untruncated target. */
+const MAX_SUBJECT_CHARS = 24
+
+function clip(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+/**
+ * Leading words of a command, so a headline reads `pnpm verify` instead of a
+ * flag soup. Elision always shows as `…` — a headline never implies the
+ * command was shorter than it was.
+ */
+export function commandHead(command: string): string {
+  const flat = command.replace(/\s+/g, ' ').trim()
+  const words = flat.split(' ')
+  let head = words[0] ?? ''
+  const second = words[1]
+  if (second !== undefined && `${head} ${second}`.length <= MAX_SUBJECT_CHARS) {
+    head = `${head} ${second}`
+  }
+  if (head === flat) return clip(head, MAX_SUBJECT_CHARS)
+  return `${clip(head, MAX_SUBJECT_CHARS - 1)}…`
+}
+
+/**
+ * Headline-length form of a step's target: the file's name without its
+ * folders, the leading words of a command, a capped query. Empty stays empty so
+ * callers can fall back to a tally.
+ */
+export function toolSubject(kind: ToolKind, target: string): string {
+  if (target.length === 0) return ''
+  if (kind === 'run') return commandHead(target)
+  if (kind === 'edit' || kind === 'read') return clip(pathTail(target), MAX_SUBJECT_CHARS)
+  return clip(target, MAX_SUBJECT_CHARS)
+}
+
+function isPathKey(key: string): boolean {
+  return /path|file|directory/i.test(key)
+}
+
+/**
+ * Wrapper keys under which providers nest the real arguments. The ACP bridge
+ * ships `{ title, input: { command } }`, so the useful payload is a level down.
+ */
+const NESTED_ARG_KEYS = ['input', 'arguments', 'args', 'parameters', 'params'] as const
+
+/** Keys that describe the call rather than its subject; never shown as target. */
+const NON_TARGET_KEYS = new Set([
+  'title',
+  'name',
+  'tool',
+  'tool_name',
+  'toolName',
+  'description',
+  'explanation',
+  'id',
+  'callid',
+  'kind',
+])
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+/** The argument records to search, outermost first, then nested wrappers. */
+function argRecords(args: Record<string, unknown>): Record<string, unknown>[] {
+  const records = [args]
+  for (const key of NESTED_ARG_KEYS) {
+    const nested = asRecord(args[key])
+    if (nested !== null) records.push(nested)
+  }
+  return records
+}
+
+function parseArgs(argsJson: string | undefined): unknown {
+  if (argsJson === undefined || argsJson.length === 0) return undefined
+  try {
+    return JSON.parse(argsJson) as unknown
+  } catch {
+    return argsJson
+  }
+}
+
+/** A parsed call's arguments: the outer record plus the unwrapped payload. */
+export interface ParsedToolArgs {
+  /** Outermost args record, exactly as the provider sent it. */
+  args: Record<string, unknown>
+  /** Innermost payload record after unwrapping ACP-style envelopes. */
+  payload: Record<string, unknown>
+}
+
+/**
+ * Parses a call's `argsJson` into records for structured views. Returns null
+ * when the payload is missing or not an object; ACP-style `{ title, input }`
+ * envelopes expose their `input` as the payload.
+ */
+export function parseToolArgs(argsJson: string | undefined): ParsedToolArgs | null {
+  const args = asRecord(parseArgs(argsJson))
+  if (args === null) return null
+  for (const key of NESTED_ARG_KEYS) {
+    const nested = asRecord(args[key])
+    if (nested !== null) return { args, payload: nested }
+  }
+  return { args, payload: args }
+}
+
+/** First non-empty string among `keys`, or null when none is present. */
+export function stringArg(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): string | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return null
+}
+
+const TODO_LIST_KEYS = ['items', 'todos', 'tasks', 'checklist'] as const
+const TODO_TEXT_KEYS = ['text', 'content', 'title', 'label', 'name'] as const
+const TODO_STATE_KEYS = ['status', 'state'] as const
+const TODO_DONE_STATES = new Set(['done', 'completed', 'complete'])
+
+export interface TodoListItem {
+  text: string
+  done: boolean
+  active: boolean
+}
+
+function asRecordList(value: unknown): Record<string, unknown>[] | null {
+  if (!Array.isArray(value)) return null
+  const out: Record<string, unknown>[] = []
+  for (const entry of value) {
+    const record = asRecord(entry)
+    if (record !== null) out.push(record)
+  }
+  return out
+}
+
+/**
+ * Reads a plan/checklist payload across provider shapes — Ari Core
+ * `{items:[{text,status}]}` and Claude-style `{todos:[{content,status}]}`.
+ * An entry counts as done on a `done`/`completed` state or a truthy
+ * `completed`/`checked` flag, active while `in_progress`.
+ */
+export function todoItems(payload: Record<string, unknown>): TodoListItem[] | null {
+  for (const key of TODO_LIST_KEYS) {
+    const records = asRecordList(payload[key])
+    if (records === null || records.length === 0) continue
+    return records.map((record) => {
+      const text = stringArg(record, TODO_TEXT_KEYS) ?? 'untitled'
+      const state = stringArg(record, TODO_STATE_KEYS)?.toLowerCase() ?? ''
+      const flagged =
+        record['completed'] === true || record['checked'] === true || record['done'] === true
+      return {
+        text,
+        done: TODO_DONE_STATES.has(state) || flagged,
+        active: state === 'in_progress' || state === 'in-progress' || state === 'active',
+      }
+    })
+  }
+  return null
+}
+
+/** `done/total` progress of a plan payload, or null when no list is present. */
+export function todoProgress(payload: Record<string, unknown>): string | null {
+  const items = todoItems(payload)
+  if (items === null) return null
+  return `${items.filter((i) => i.done).length}/${items.length}`
+}
+
+/** Extracts the most meaningful single-line argument preview from a call. */
+export function toolTarget(argsJson: string | undefined): string {
+  const parsed = parseArgs(argsJson)
+  if (parsed === undefined) return ''
+  if (typeof parsed === 'string') return oneLine(parsed)
+  const args = asRecord(parsed)
+  if (args === null) return ''
+  const records = argRecords(args)
+  for (const record of records) {
+    for (const key of TARGET_KEYS) {
+      const value = record[key]
+      if (typeof value !== 'string' || value.length === 0) continue
+      return oneLine(isPathKey(key) ? shortenPath(value) : value)
+    }
+  }
+  for (const record of records) {
+    const first = Object.entries(record).find(
+      ([key, value]) =>
+        typeof value === 'string' && value.length > 0 && !NON_TARGET_KEYS.has(key.toLowerCase()),
+    )
+    if (first !== undefined) return oneLine(String(first[1]))
+  }
+  return ''
+}
+
+const SEARCH_QUERY_KEYS = ['pattern', 'query', 'q', 'url'] as const
+const SEARCH_SCOPE_KEYS = ['path', 'include', 'glob', 'file_pattern'] as const
+
+/** Argument records outermost-first, so envelope levels never hide a target. */
+function recordList(argsJson: string | undefined): Record<string, unknown>[] {
+  const parsed = parseToolArgs(argsJson)
+  if (parsed === null) return []
+  return parsed.payload === parsed.args ? [parsed.args] : [parsed.args, parsed.payload]
+}
+
+function firstString(
+  records: Record<string, unknown>[],
+  keys: readonly string[],
+): string | null {
+  for (const record of records) {
+    const value = stringArg(record, keys)
+    if (value !== null) return value
+  }
+  return null
+}
+
+/**
+ * Kind-aware target for a search call: `settle in engine` when both a query
+ * and a scope are present, otherwise whichever half exists.
+ */
+function searchTarget(records: Record<string, unknown>[]): string {
+  const query = firstString(records, SEARCH_QUERY_KEYS)
+  const scope = firstString(records, SEARCH_SCOPE_KEYS)
+  if (query !== null && scope !== null && scope !== query) {
+    return `${oneLine(query)} in ${shortenPath(scope)}`
+  }
+  if (query !== null) return oneLine(query)
+  if (scope !== null) return shortenPath(scope)
+  return ''
+}
+
+/** Names carrying no information; the args' own title is a better label. */
+const GENERIC_NAMES = new Set(['tool', 'other', 'unknown', 'function', ''])
+
+/**
+ * Best available tool name. The ACP bridge falls back to the literal `tool`
+ * when a request carries no `rawInput.name` or `kind`, in which case the
+ * request title (`run_terminal_command`) is the only real identifier.
+ */
+export function effectiveToolName(
+  name: string | undefined,
+  argsJson: string | undefined,
+): string {
+  const given = (name ?? '').trim()
+  if (!GENERIC_NAMES.has(given.toLowerCase())) return given
+  const args = asRecord(parseArgs(argsJson))
+  if (args === null) return given
+  for (const key of ['title', 'name', 'tool_name', 'tool'] as const) {
+    const value = args[key]
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+  }
+  return given
+}
+
+/** True for provider image-generation calls across MCP and native naming styles. */
+export function isImageGenerationCall(block: ToolCallRef): boolean {
+  const compact = effectiveToolName(block.name, block.argsJson)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+  return (
+    compact.includes('imagegen') ||
+    compact.includes('generateimage') ||
+    compact.includes('createimage')
+  )
+}
+
+export interface ToolStepLabel {
+  kind: ToolKind
+  /** Leading verb, tensed for the step's state. */
+  verb: string
+  /** Path, command, or query the step acted on; may be empty. */
+  target: string
+}
+
+/** Bucket for a whole call block, resolving generic provider names first. */
+export function classifyToolCall(block: ToolCallRef): ToolKind {
+  return classifyTool(effectiveToolName(block.name, block.argsJson))
+}
+
+/**
+ * Humanizes a raw tool identifier for display (`run_terminal_command` →
+ * `run terminal command`). Used when a call carries no showable target so the
+ * row names the tool instead of pairing a verb with the raw id.
+ */
+export function humanizeToolName(name: string | undefined): string {
+  const clean = (name ?? '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return clean.length > 0 ? clean : 'tool'
+}
+
+/**
+ * One-line description of a tool call. `live` picks the present participle so
+ * the in-flight header reads "Reading tokens.css" while history reads "Read
+ * tokens.css". When no argument is showable the target is empty and callers
+ * fall back to {@link humanizeToolName} — never the raw id as a target, which
+ * read as "Editing Edit".
+ */
+export function describeToolCall(
+  block: ToolCallRef,
+  live = false,
+): ToolStepLabel {
+  const name = effectiveToolName(block.name, block.argsJson)
+  const kind = classifyTool(name)
+  const verb = live ? LIVE_VERB[kind] : PAST_VERB[kind]
+  const records = recordList(block.argsJson)
+  if (records.length > 0) {
+    if (kind === 'search') {
+      return { kind, verb, target: searchTarget(records) }
+    }
+    if (kind === 'todo') {
+      for (const record of records) {
+        const progress = todoProgress(record)
+        if (progress !== null) return { kind, verb, target: progress }
+      }
+      return { kind, verb, target: '' }
+    }
+  }
+  return { kind, verb, target: toolTarget(block.argsJson) }
+}
+
+const MAX_THOUGHT_CHARS = 120
+
+/**
+ * First meaningful line of a reasoning block, capped for a collapsed row.
+ * Markdown emphasis and heading markers are stripped so the preview reads as
+ * prose rather than raw syntax.
+ */
+export function thoughtPreview(text: string): string {
+  const line = text
+    .split('\n')
+    .map((l) => l.replace(/^\s*[#>*\-\s]+/, '').trim())
+    .find((l) => l.length > 0)
+  if (line === undefined) return 'Thinking'
+  const clean = line.replace(/[*_`]/g, '')
+  return clean.length > MAX_THOUGHT_CHARS ? `${clean.slice(0, MAX_THOUGHT_CHARS - 1)}…` : clean
+}
