@@ -32,7 +32,7 @@ export function ErrorNote({ text }: { text: string }) {
         />
       </button>
       {open ? (
-        <pre className="mb-1 ml-5 mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all border-l border-danger-subtle py-1 pl-3 font-mono text-2xs leading-relaxed text-fg-muted">
+        <pre className="ari-enter-rise mb-1 ml-5 mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all border-l border-danger-subtle py-1 pl-3 font-mono text-2xs leading-relaxed text-fg-muted">
           {text}
         </pre>
       ) : null}

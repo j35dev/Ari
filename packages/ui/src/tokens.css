@@ -75,6 +75,7 @@ html {
   /* motion */
   --ari-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ari-ease-slide: cubic-bezier(0.22, 1, 0.36, 1);
+  --ari-dur-instant: 80ms;
   --ari-dur-fast: 140ms;
   --ari-dur-base: 220ms;
   --ari-dur-slow: 260ms;

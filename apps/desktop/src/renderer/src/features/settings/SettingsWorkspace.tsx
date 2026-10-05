@@ -85,7 +85,7 @@ export function SettingsWorkspace({
   }
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="ari-enter-fade flex min-h-0 flex-1">
       <aside className="flex w-[var(--ari-sidebar-width)] shrink-0 flex-col bg-surface-0">
         {/* Back leads the header rather than sitting in a footer. The row is
             below the titlebar, so it clears the macOS hiddenInset traffic
@@ -141,7 +141,7 @@ export function SettingsWorkspace({
           <span className="text-fg-subtle">/</span>
           <span className="font-medium text-fg">{sectionLabel(section)}</span>
         </header>
-        <div className="ari-scroll min-h-0 flex-1 overflow-y-auto">
+        <div key={section} className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto">
           {section === 'appearance' ? <AppearanceSettings /> : null}
           {section === 'providers' ? (
             <div id="settings-providers" className="mx-auto max-w-2xl p-8">
