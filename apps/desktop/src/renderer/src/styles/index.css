@@ -9,6 +9,7 @@
 @import '@ari/ui/surface-effects.css';
 @import '@ari/ui/wallpaper.css';
 @import '@ari/ui/theme-effects.css';
+@import '@ari/ui/motion.css';
 @import '@ari/ui/scroll-area.css';
 
 /* Tailwind v4's automatic source detection only reaches this app's own tree,

@@ -120,6 +120,9 @@ export function TranscriptView({
   const atBottomRef = useRef(true)
 
   const rows = useMemo(() => groupBlocks(splitBlocks(messages), turnDiffs), [messages, turnDiffs])
+  const seenRowsRef = useRef(new Set<string>())
+  const freshRowsRef = useRef(new Set<string>())
+  const historyLoadedRef = useRef(false)
 
   // Message rail (T3 minimap): one entry per user bubble row, with its row
   // index for jump-scrolling. Image-only prompts have no markdown row, so
@@ -259,6 +262,18 @@ export function TranscriptView({
     updateActiveRailKey()
   }
 
+  // Rows that arrive after the transcript has loaded announce themselves; the
+  // history a session opens with does not, or a long transcript would animate
+  // every row at once. Sticky, so a re-render mid-entrance (streaming
+  // re-renders constantly) does not drop the class and cut the motion short.
+  const seenRows = seenRowsRef.current
+  const freshRows = freshRowsRef.current
+  for (const row of rows) {
+    if (historyLoadedRef.current && !seenRows.has(row.key)) freshRows.add(row.key)
+    seenRows.add(row.key)
+  }
+  if (!loading) historyLoadedRef.current = true
+
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <h2 className="sr-only">Messages</h2>
@@ -275,18 +290,21 @@ export function TranscriptView({
       >
         <div ref={innerRef} className="mx-auto max-w-3xl">
           {rows.map((row, index) => (
-            <TranscriptRowView
-              key={row.key}
-              row={row}
-              origin={'messageId' in row && row.messageId ? origins.get(row.messageId) : undefined}
-              index={index}
-              lastAssistantMessageId={lastAssistantMessageId}
-              onEditUserMessage={onEditUserMessage}
-              onRegenerate={onRegenerate}
-              regenerateDisabled={regenerateDisabled}
-              active={running && index === rows.length - 1}
-              onDiffComment={onDiffComment}
-            />
+            <div key={row.key} className={freshRows.has(row.key) ? 'ari-enter-rise' : undefined}>
+              <TranscriptRowView
+                row={row}
+                origin={
+                  'messageId' in row && row.messageId ? origins.get(row.messageId) : undefined
+                }
+                index={index}
+                lastAssistantMessageId={lastAssistantMessageId}
+                onEditUserMessage={onEditUserMessage}
+                onRegenerate={onRegenerate}
+                regenerateDisabled={regenerateDisabled}
+                active={running && index === rows.length - 1}
+                onDiffComment={onDiffComment}
+              />
+            </div>
           ))}
         </div>
 

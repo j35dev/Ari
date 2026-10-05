@@ -65,7 +65,7 @@ export function TurnDiffCard({
       >
         <div className="overflow-hidden">
           {open ? (
-            <div className="pt-2">
+            <div className="ari-enter-rise pt-2">
               <DiffViewer diffText={diffText} onLineComment={onComment} />
             </div>
           ) : null}

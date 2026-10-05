@@ -39,7 +39,7 @@ export function ThinkingBlock({ text, compact = false }: { text: string; compact
       </button>
       {open ? (
         <p
-          className={`mb-1 whitespace-pre-wrap border-l pl-3 text-xs italic leading-relaxed text-fg-muted ${compact ? 'ml-4 mt-1 border-border' : 'ml-4 mt-1.5 border-accent/30'}`}
+          className={`ari-enter-rise mb-1 whitespace-pre-wrap border-l pl-3 text-xs italic leading-relaxed text-fg-muted ${compact ? 'ml-4 mt-1 border-border' : 'ml-4 mt-1.5 border-accent/30'}`}
         >
           {text}
         </p>
