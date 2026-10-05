@@ -384,6 +384,24 @@ describe('remote service addressing', () => {
     expect(state.invitation?.url).toMatch(/^https:\/\/ari\.tailnet\.ts\.net\/#pair=inv_/)
   })
 
+  it('shows a code an installed app can type, until wrong guesses disable it', async () => {
+    const { service } = makeService({ clientOrigin: () => 'https://ari.tailnet.ts.net' })
+    const started = await service.start()
+    const invited = service.invite()
+    expect(invited.invitation?.code).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/)
+
+    for (let attempt = 0; attempt < 9; attempt++) {
+      await fetch(`${started.origin}/pair/resolve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: ALLOWED },
+        body: JSON.stringify({ code: '0000-0000' }),
+      })
+    }
+    // The QR still works, so the invitation stays; only the typed code is gone.
+    expect(service.state().invitation?.code).toBeNull()
+    expect(service.state().invitation?.url).toBe(invited.invitation?.url)
+  })
+
   it('lets the allowed origins grow without restarting the listener', async () => {
     const origins: string[] = [ALLOWED]
     const { service } = makeService({ allowedOrigins: () => [...origins] })

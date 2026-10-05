@@ -252,7 +252,14 @@ export class RemoteService {
       clientUrl: gateway === null ? null : (clientUrl ?? this.#managedClientUrl),
       allowedOrigins: gateway === null ? [] : [...this.#deps.allowedOrigins(), gateway.origin],
       devices: this.#deviceViews(),
-      invitation: this.#invitation,
+      invitation:
+        this.#invitation === null || gateway === null
+          ? this.#invitation
+          : {
+              ...this.#invitation,
+              // Read live: wrong guesses disable the code without ending the invitation.
+              code: gateway.pairing.invitationCode(this.#invitation.invitationId),
+            },
       pending,
       error: this.#error,
     }

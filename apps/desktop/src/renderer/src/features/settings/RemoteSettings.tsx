@@ -394,6 +394,21 @@ export function RemoteSettings() {
                     : 'Keep Tailscale connected.'}{' '}
                   Approve access here after the phone shows a matching code.
                 </p>
+                {invitation.code === null ? (
+                  <p role="status" className="text-xs leading-relaxed text-warning">
+                    Too many wrong codes were entered. The QR still works; cancel and show a new
+                    pairing code to type one again.
+                  </p>
+                ) : invitation.code !== undefined ? (
+                  <div>
+                    <p className="font-mono text-xl font-medium tracking-[0.14em]">
+                      {invitation.code.slice(0, 4)}-{invitation.code.slice(4)}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                      On an installed app, enter this code instead of scanning.
+                    </p>
+                  </div>
+                ) : null}
                 <p className="text-xs text-fg-muted">Expires {formatTime(invitation.expiresAt)}.</p>
                 <details className="text-xs text-fg-muted">
                   <summary className="cursor-pointer py-2">Invitation address</summary>

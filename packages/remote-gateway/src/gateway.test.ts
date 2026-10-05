@@ -1083,6 +1083,49 @@ describe('remote gateway event stream', () => {
   })
 })
 
+describe('remote gateway typed pairing codes', () => {
+  it('names the invitation behind a typed code, which then pairs like a scanned one', async () => {
+    const gateway = await start(fakeHost())
+    const invitation = gateway.pairing.begin(gateway.origin)
+
+    const resolved = await call(gateway, '/pair/resolve', {
+      code: invitation.code.toLowerCase(),
+    })
+    expect(resolved.status).toBe(200)
+    expect(resolved.body).toEqual({ ok: true, result: { invitationId: invitation.invitationId } })
+
+    const registered = await call(gateway, '/pair/request', {
+      invitationId: invitation.invitationId,
+      displayName: 'iPhone app',
+      publicKey: deviceKey().jwk,
+    })
+    expect(registered.status).toBe(200)
+  })
+
+  it('refuses a wrong code without saying why', async () => {
+    const gateway = await start(fakeHost())
+    gateway.pairing.begin(gateway.origin)
+
+    const { status, body } = await call(gateway, '/pair/resolve', { code: '0000-0000' })
+    expect(status).toBe(404)
+    expect(errorCode(body)).toBe('not_found')
+  })
+
+  it('refuses a typed code from an origin that is not allowed', async () => {
+    const gateway = await start(fakeHost())
+    const invitation = gateway.pairing.begin(gateway.origin)
+
+    const { status, body } = await call(
+      gateway,
+      '/pair/resolve',
+      { code: invitation.code },
+      { origin: 'https://elsewhere.example' },
+    )
+    expect(status).toBe(403)
+    expect(errorCode(body)).toBe('origin_not_allowed')
+  })
+})
+
 describe('remote gateway remembered devices', () => {
   /** Registers and redeems a device, returning its id and the nonce it signed. */
   async function pairDevice(

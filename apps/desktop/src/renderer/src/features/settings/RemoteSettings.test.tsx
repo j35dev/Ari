@@ -569,6 +569,37 @@ describe('RemoteSettings', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled())
   })
 
+  it('shows the typed code for an installed app beside the QR', async () => {
+    remoteState = remote({
+      enabled: true,
+      clientUrl: TAILNET,
+      invitation: {
+        invitationId: 'inv_1',
+        url: `${TAILNET}/#pair=inv_1`,
+        code: 'K7QF2M9X',
+        expiresAt: 1_900_000_000_000,
+      },
+    })
+    render(<RemoteSettings />)
+    expect(await screen.findByText('K7QF-2M9X')).toBeInTheDocument()
+    expect(screen.getByText(/installed app/i)).toBeInTheDocument()
+  })
+
+  it('says when wrong guesses have disabled the typed code', async () => {
+    remoteState = remote({
+      enabled: true,
+      clientUrl: TAILNET,
+      invitation: {
+        invitationId: 'inv_1',
+        url: `${TAILNET}/#pair=inv_1`,
+        code: null,
+        expiresAt: 1_900_000_000_000,
+      },
+    })
+    render(<RemoteSettings />)
+    expect(await screen.findByText(/too many wrong codes/i)).toBeInTheDocument()
+  })
+
   it('provides an invitation-address fallback when QR generation fails', async () => {
     const qrSpy = vi.spyOn(QRCode, 'toString').mockRejectedValueOnce(new Error('QR unavailable'))
     remoteState = remote({

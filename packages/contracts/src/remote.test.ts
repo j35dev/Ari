@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   REMOTE_ANONYMOUS_OPERATIONS,
   REMOTE_PROTOCOL_VERSION,
+  normalizePairingCode,
   pairingConfirmationCode,
+  pairingResolveSchema,
   remoteClientMessageSchema,
   remoteCommandEnvelopeSchema,
   remoteErrorCodeSchema,
@@ -200,6 +202,27 @@ describe('remote contract', () => {
 })
 
 describe('pairing authority', () => {
+  it('reads a typed pairing code however it was typed', () => {
+    expect(normalizePairingCode('K7QF-2M9X')).toBe('K7QF2M9X')
+    expect(normalizePairingCode(' k7qf 2m9x ')).toBe('K7QF2M9X')
+    // The letters the alphabet leaves out are the ones people type by mistake.
+    expect(normalizePairingCode('OIL0-1234')).toBe('01101234')
+  })
+
+  it('does not mistake a link or an invitation id for a typed code', () => {
+    expect(normalizePairingCode('inv_3f2c9a10-aaaa-bbbb-cccc-000000000000')).toBeNull()
+    expect(normalizePairingCode('https://ari.tailnet.ts.net/#pair=inv_1')).toBeNull()
+    expect(normalizePairingCode('K7QF-2M9')).toBeNull()
+    expect(normalizePairingCode('K7QF-2M9U')).toBeNull()
+  })
+
+  it('lets a phone with no credential resolve a typed code', () => {
+    expect(remoteOperationSchema.safeParse('pairing.resolve').success).toBe(true)
+    expect(requiresAuthentication('pairing.resolve')).toBe(false)
+    expect(pairingResolveSchema.safeParse({ code: 'K7QF-2M9X' }).success).toBe(true)
+    expect(pairingResolveSchema.safeParse({ code: '' }).success).toBe(false)
+  })
+
   it('declares the step the phone actually performs', () => {
     // A device registers its key before it holds any credential, so this is
     // the one pairing operation that has to exist on the remote surface.
