@@ -836,6 +836,26 @@ describe('Shell spaces', () => {
     expect(screen.getByRole('region', { name: 'Alpha' })).toBeInTheDocument()
   })
 
+  it('ignores the close chord on the last space, keeping its panes', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: 'w', ctrlKey: true, altKey: true })
+
+    expect(screen.getByRole('region', { name: 'Alpha' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Beta' })).toBeInTheDocument()
+  })
+
+  it('matches the space chords on the physical key, as macOS Option rewrites the character', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: '†', code: 'KeyT', metaKey: true, altKey: true })
+
+    expect(await screen.findByRole('tab', { name: 'Space 2' })).toBeInTheDocument()
+  })
+
   it('creates, cycles and closes spaces from the keyboard', async () => {
     render(<App />)
     await screen.findByText('Alpha', {}, { timeout: 10_000 })

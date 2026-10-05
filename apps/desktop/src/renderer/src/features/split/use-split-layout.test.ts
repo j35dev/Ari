@@ -8,6 +8,7 @@ import {
   serializeSpaceStore,
   SPACES_STORAGE_KEY,
 } from '../spaces'
+import { spaceActions, spaceStoreSnapshot } from '../spaces/use-spaces'
 import { splitLayoutActions, splitLayoutSnapshot } from './use-split-layout'
 
 /** Adds a second pane to the right of the focused one and returns its id. */
@@ -49,6 +50,60 @@ describe('splitLayoutActions', () => {
     expect(splitLayoutActions.paneOf('sA')).toBe(second)
     expect(sessionIdsInPanes(splitLayoutSnapshot())).toEqual(['sA'])
     expect(leaves(splitLayoutSnapshot().root)).toHaveLength(2)
+  })
+
+  it('reveals a session open in another space instead of pulling it out', () => {
+    const home = spaceStoreSnapshot().activeSpaceId
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sA')
+    const second = splitRight()
+    splitLayoutActions.assign(second, 'sB')
+    spaceActions.create()
+    expect(spaceStoreSnapshot().activeSpaceId).not.toBe(home)
+
+    expect(splitLayoutActions.reveal('sA')).toBe(true)
+
+    // Back in the space that holds it, focused, with its neighbour untouched.
+    expect(spaceStoreSnapshot().activeSpaceId).toBe(home)
+    expect(splitLayoutSnapshot().focusedPaneId).toBe(splitLayoutActions.paneOf('sA'))
+    expect(sessionIdsInPanes(splitLayoutSnapshot())).toEqual(['sA', 'sB'])
+  })
+
+  it('reports a session that no pane holds, so the caller can place it', () => {
+    expect(splitLayoutActions.reveal('nowhere')).toBe(false)
+  })
+
+  it('leaves a session where it is when a full space refuses the split', () => {
+    const home = spaceStoreSnapshot().activeSpaceId
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 'sA')
+    spaceActions.create()
+    // Fill the new space to the pane ceiling, every pane occupied.
+    splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, 's0')
+    for (let i = 1; i < 6; i++) {
+      splitLayoutActions.split(splitLayoutSnapshot().focusedPaneId, 'right')
+      splitLayoutActions.assign(splitLayoutSnapshot().focusedPaneId, `s${i}`)
+    }
+    expect(leaves(splitLayoutSnapshot().root)).toHaveLength(6)
+
+    splitLayoutActions.openInSplit('sA', 'right')
+    splitLayoutActions.dropSession(splitLayoutSnapshot().focusedPaneId, 'sA', 'right')
+
+    expect(sessionIdsInPanes(splitLayoutSnapshot())).not.toContain('sA')
+    spaceActions.select(home)
+    expect(sessionIdsInPanes(splitLayoutSnapshot())).toEqual(['sA'])
+  })
+
+  it('focuses a session dropped beside a pane in the space it is already in', () => {
+    const first = splitLayoutSnapshot().focusedPaneId
+    splitLayoutActions.assign(first, 'sA')
+    const second = splitRight()
+    splitLayoutActions.assign(second, 'sB')
+
+    splitLayoutActions.dropSession(second, 'sA', 'right')
+
+    // Same two panes, same contents: the drop focused sA rather than moving it.
+    expect(leaves(splitLayoutSnapshot().root)).toHaveLength(2)
+    expect(splitLayoutActions.paneOf('sA')).toBe(first)
+    expect(splitLayoutSnapshot().focusedPaneId).toBe(first)
   })
 
   it('closes a pane down to the last one, which empties instead of vanishing', () => {
