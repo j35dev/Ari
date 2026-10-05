@@ -1,11 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  ArrowLeft,
   ArrowDown,
-  MoreHorizontal,
-  GitBranch,
+  ChevronLeft,
   Folder,
-  MessageSquare,
+  GitBranch,
+  MoreHorizontal,
+  SlidersHorizontal,
   TerminalSquare,
 } from 'lucide-react'
 import type { Message } from '@ari/contracts/message'
@@ -21,11 +21,12 @@ import type { SessionSummary } from '@ari/contracts/rpc'
 import { useApp } from '../../lib/app-state'
 import { BottomSheet } from '../../components/ui'
 import { Conversation } from './Conversation'
+import { AttentionDock } from './AttentionDock'
 import { Composer } from './Composer'
 import { Files } from './Files'
 import { SessionDetails } from './SessionDetails'
 import { ReviewIntegration } from './ReviewIntegration'
-import { ModelPicker, modelSelectionLabel } from '../../components/ModelPicker'
+import { ModelPicker, modelChipLabel } from '../../components/ModelPicker'
 import { SessionControls } from '../../components/SessionControls'
 const Terminal = lazy(async () => {
   const module = await import('./Terminal')
@@ -153,6 +154,16 @@ export function SessionScreen({
     observer.observe(element)
     return () => observer.disconnect()
   }, [view])
+  const waiting =
+    snapshot !== null && snapshot.pendingApprovals.length + snapshot.pendingInputs.length > 0
+  // The turn began with the last message the user sent.
+  const workingSince = snapshot?.messages.findLast((message) => message.role === 'user')?.createdAt
+  const open = (next: View): void => {
+    setView(next)
+    follow.current = next === 'conversation'
+    if (next === 'terminal') setTerminalOpened(true)
+    setToolsOpen(false)
+  }
   const projectName =
     app.projects.find((project) => project.id === snapshot?.summary.projectId)?.name ?? 'Workspace'
   const can = (op: string): boolean =>
@@ -180,70 +191,69 @@ export function SessionScreen({
   }
   return (
     <div className="mobile-shell relative">
-      <header className="shrink-0 border-b border-border px-3 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Back"
-            onClick={() => (view === 'conversation' ? onBack() : setView('conversation'))}
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <button
-            type="button"
-            className="min-w-0 flex-1 py-2 text-left"
-            onClick={() => setDetails(true)}
-            aria-label="Open session details"
-          >
-            <span className="block truncate text-[15px] font-semibold tracking-tight">
-              {view === 'conversation'
-                ? snapshot?.summary.title || 'Session'
-                : view === 'changes'
-                  ? 'Changes'
-                  : view === 'files'
-                    ? 'Files'
-                    : 'Terminal'}
+      <header className="flex shrink-0 items-center gap-1 px-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))]">
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={view === 'conversation' ? 'Back' : 'Back to chat'}
+          onClick={() => (view === 'conversation' ? onBack() : setView('conversation'))}
+        >
+          <ChevronLeft size={24} />
+        </button>
+        <div className="min-w-0 flex-1 py-1.5">
+          <h1 className="truncate text-[16px] font-semibold tracking-tight">
+            {view === 'conversation'
+              ? snapshot?.summary.title || 'Session'
+              : view === 'changes'
+                ? 'Changes'
+                : view === 'files'
+                  ? 'Files'
+                  : 'Terminal'}
+          </h1>
+          <p className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+            <span
+              className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'status-pulse bg-success' : waiting ? 'bg-warning' : 'bg-fg-subtle'}`}
+            />
+            <span className="truncate">
+              {`${projectName}, ${
+                app.connection !== 'connected'
+                  ? 'offline'
+                  : snapshot?.session.status === 'running'
+                    ? 'working'
+                    : waiting
+                      ? 'waiting for you'
+                      : 'ready'
+              }`}
             </span>
-            <span className="mt-1 flex items-center gap-1.5 text-[11px] text-fg-muted">
-              <span
-                className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'bg-success' : 'bg-fg-subtle'}`}
-              />
-              {projectName} ·{' '}
-              {app.connection !== 'connected'
-                ? 'Offline'
-                : snapshot?.session.status === 'running'
-                  ? 'Working'
-                  : snapshot?.session.status === 'waiting-approval'
-                    ? 'Waiting for you'
-                    : 'Ready'}
-            </span>
-          </button>
-          <button
-            type="button"
-            className="icon-button text-fg-muted"
-            aria-label="Workspace tools"
-            onClick={() => setToolsOpen(true)}
-          >
-            <Folder size={20} />
-          </button>
-          <button
-            type="button"
-            className="icon-button text-fg-muted"
-            aria-label="Session options"
-            onClick={() => setDetails(true)}
-          >
-            <MoreHorizontal size={20} />
-          </button>
+          </p>
         </div>
+        {view === 'conversation' && can('changes.files') && (
+          <button
+            type="button"
+            className="icon-button text-fg-muted"
+            aria-label="Changes"
+            onClick={() => open('changes')}
+          >
+            <GitBranch size={20} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="icon-button text-fg-muted"
+          aria-label="More"
+          onClick={() => setToolsOpen(true)}
+        >
+          <MoreHorizontal size={20} />
+        </button>
       </header>
       {toolsOpen && (
-        <BottomSheet title="Workspace" onClose={() => setToolsOpen(false)}>
-          <ul className="divide-y divide-border pb-3">
+        <BottomSheet
+          title={snapshot?.summary.title || 'Session'}
+          onClose={() => setToolsOpen(false)}
+        >
+          <ul className="pb-2">
             {(
               [
-                { id: 'conversation', label: 'Chat', icon: MessageSquare, enabled: true },
-                { id: 'changes', label: 'Changes', icon: GitBranch, enabled: can('changes.files') },
                 { id: 'files', label: 'Files', icon: Folder, enabled: can('files.list') },
                 {
                   id: 'terminal',
@@ -258,20 +268,28 @@ export function SessionScreen({
                 <li key={id}>
                   <button
                     type="button"
-                    aria-pressed={view === id}
-                    className="flex min-h-14 w-full items-center gap-3 text-left text-sm"
-                    onClick={() => {
-                      setView(id)
-                      follow.current = id === 'conversation'
-                      if (id === 'terminal') setTerminalOpened(true)
-                      setToolsOpen(false)
-                    }}
+                    className="flex min-h-14 w-full items-center gap-3 text-left text-[15px]"
+                    onClick={() => open(id)}
                   >
                     <Icon size={18} className="text-fg-muted" />
                     {label}
                   </button>
                 </li>
               ))}
+            <li>
+              <button
+                type="button"
+                className="flex min-h-14 w-full items-center gap-3 text-left text-[15px]"
+                disabled={snapshot === null}
+                onClick={() => {
+                  setToolsOpen(false)
+                  setDetails(true)
+                }}
+              >
+                <SlidersHorizontal size={18} className="text-fg-muted" />
+                Details
+              </button>
+            </li>
           </ul>
         </BottomSheet>
       )}
@@ -286,24 +304,6 @@ export function SessionScreen({
           </button>
         </div>
       )}
-      {view === 'conversation' &&
-        snapshot !== null &&
-        snapshot.pendingApprovals.length + snapshot.pendingInputs.length > 0 && (
-          <button
-            type="button"
-            className="flex min-h-11 shrink-0 items-center justify-between border-b border-border bg-warning-subtle px-5 text-xs"
-            onClick={() => {
-              follow.current = false
-              scroll.current?.scrollTo({ top: 0 })
-            }}
-          >
-            <span>
-              {snapshot.pendingApprovals.length} approvals · {snapshot.pendingInputs.length}{' '}
-              questions
-            </span>
-            <span className="font-medium">Review ↑</span>
-          </button>
-        )}
       <div
         ref={scroll}
         onScroll={() => {
@@ -322,40 +322,6 @@ export function SessionScreen({
         )}
         {view === 'conversation' && snapshot !== null && (
           <>
-            {snapshot.pendingApprovals.map((approval) => (
-              <ApprovalCard
-                key={approval.approvalId}
-                approval={approval}
-                error={setFailure}
-                onAnswer={async (optionId) => {
-                  if (!can('approval.respond')) throw new Error('Reconnect before answering.')
-                  await app.session?.send({
-                    op: 'approval.respond',
-                    sessionId,
-                    approvalId: approval.approvalId,
-                    optionId,
-                  })
-                  await load()
-                }}
-              />
-            ))}
-            {snapshot.pendingInputs.map((input) => (
-              <QuestionCard
-                key={input.inputId}
-                input={input}
-                error={setFailure}
-                onAnswer={async (value) => {
-                  if (!can('input.respond')) throw new Error('Reconnect before answering.')
-                  await app.session?.send({
-                    op: 'input.respond',
-                    sessionId,
-                    inputId: input.inputId,
-                    value,
-                  })
-                  await load()
-                }}
-              />
-            ))}
             <Conversation
               messages={snapshot.messages}
               sessionId={sessionId}
@@ -385,31 +351,49 @@ export function SessionScreen({
         )}
       </div>
       {view === 'conversation' && showJump && (
-        <button
-          type="button"
-          aria-label="Jump to latest messages"
-          className="absolute bottom-48 right-5 flex min-h-11 items-center gap-2 rounded-full border border-border bg-surface-2 px-3 text-xs"
-          onClick={() => {
-            follow.current = true
-            setShowJump(false)
-            scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
-          }}
-        >
-          <ArrowDown size={14} />
-          Latest
-        </button>
+        <div className="relative h-0 shrink-0">
+          <button
+            type="button"
+            aria-label="Jump to latest messages"
+            className="absolute -top-14 left-1/2 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-surface-2 shadow-[var(--ari-shadow-2)]"
+            onClick={() => {
+              follow.current = true
+              setShowJump(false)
+              scroll.current?.scrollTo({ top: scroll.current.scrollHeight })
+            }}
+          >
+            <ArrowDown size={17} />
+          </button>
+        </div>
       )}
-      {view === 'conversation' && (
+      {view === 'conversation' && waiting && snapshot !== null && (
+        <AttentionDock
+          approvals={snapshot.pendingApprovals}
+          inputs={snapshot.pendingInputs}
+          onApprove={async (approvalId, optionId) => {
+            if (!can('approval.respond')) throw new Error('Reconnect before answering.')
+            await app.session?.send({ op: 'approval.respond', sessionId, approvalId, optionId })
+            await load()
+          }}
+          onAnswer={async (inputId, value) => {
+            if (!can('input.respond')) throw new Error('Reconnect before answering.')
+            await app.session?.send({ op: 'input.respond', sessionId, inputId, value })
+            await load()
+          }}
+        />
+      )}
+      {view === 'conversation' && !waiting && (
         <Composer
           sessionId={sessionId}
           status={snapshot?.session.status ?? 'idle'}
           disabled={!can('session.prompt') || snapshot === null}
+          {...(workingSince === undefined ? {} : { workingSince })}
           controls={
             snapshot !== null && (
               <SessionControls
                 driverKind={snapshot.session.driverKind}
                 modelId={snapshot.session.modelId ?? ''}
-                modelLabel={modelSelectionLabel(
+                modelLabel={modelChipLabel(
                   app.catalog,
                   snapshot.session.driverKind,
                   snapshot.session.modelId ?? '',
@@ -470,116 +454,6 @@ export function SessionScreen({
     </div>
   )
 }
-function ApprovalCard({
-  approval,
-  onAnswer,
-  error,
-}: {
-  approval: RemoteApproval
-  onAnswer: (optionId: string) => Promise<void>
-  error: (message: string) => void
-}): ReactNode {
-  const [busy, setBusy] = useState<string | null>(null)
-  return (
-    <section className="mb-3 rounded-2xl border border-warning bg-warning-subtle p-4">
-      <h3 className="text-sm font-medium">Approval needed · {approval.toolName}</h3>
-      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-1 p-2 font-mono text-2xs text-fg-muted">
-        {approvalDetails(approval.summaryJson)}
-      </pre>
-      <div className="mt-3 space-y-2">
-        {approval.options.map((option) => (
-          <button
-            key={option.optionId}
-            type="button"
-            disabled={busy !== null}
-            onClick={() => {
-              setBusy(option.optionId)
-              void onAnswer(option.optionId)
-                .catch((failure: unknown) => error(messageOf(failure)))
-                .finally(() => setBusy(null))
-            }}
-            className="min-h-11 w-full rounded-xl border border-border bg-surface-1 px-3 py-2 text-left text-sm disabled:opacity-50"
-          >
-            {option.name}
-          </button>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-/** A question from the agent. Free text unless the provider offered choices. */
-function QuestionCard({
-  input,
-  onAnswer,
-  error,
-}: {
-  input: RemoteInput
-  onAnswer: (value: string) => Promise<void>
-  error: (message: string) => void
-}): ReactNode {
-  const [value, setValue] = useState('')
-  const [busy, setBusy] = useState(false)
-  const choices: string[] = parseChoices(input.choicesJson)
-  async function answer(text: string): Promise<void> {
-    if (busy || text.trim().length === 0) return
-    setBusy(true)
-    try {
-      await onAnswer(text)
-      setValue('')
-    } catch (failure) {
-      error(messageOf(failure))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <section className="mb-3 rounded-2xl border border-info bg-info-subtle p-4">
-      <h3 className="text-sm font-medium">The agent is asking</h3>
-      <p className="mt-2 whitespace-pre-wrap text-sm">{input.prompt}</p>
-      {choices.length > 0 ? (
-        <div className="mt-3 space-y-2">
-          {choices.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              disabled={busy}
-              onClick={() => void answer(choice)}
-              className="min-h-11 w-full rounded-md border border-border bg-surface-1 px-3 text-left text-sm"
-            >
-              {choice}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void answer(value)
-          }}
-        >
-          <input
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            aria-label="Your answer"
-            disabled={busy}
-            className="h-11 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-3"
-          />
-          <button
-            type="submit"
-            disabled={busy || !value.trim()}
-            className="h-11 rounded-md bg-accent px-3 text-fg-on-accent disabled:opacity-40"
-          >
-            {busy ? 'Sending…' : 'Answer'}
-          </button>
-        </form>
-      )}
-    </section>
-  )
-}
-
 function Changes({ sessionId }: { sessionId: string }): ReactNode {
   const app = useApp()
   const supported = app.session?.supports('changes.files') ?? false
@@ -787,25 +661,6 @@ function FileDiff({ file }: { file: RemoteChangeFile }): ReactNode {
   )
 }
 
-function parseChoices(choicesJson: string | null): string[] {
-  if (choicesJson === null) return []
-  try {
-    const parsed: unknown = JSON.parse(choicesJson)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((entry): entry is string => typeof entry === 'string')
-  } catch {
-    return []
-  }
-}
-
 function messageOf(failure: unknown): string {
   return failure instanceof Error ? failure.message : 'the desktop refused that'
-}
-
-function approvalDetails(value: string): string {
-  try {
-    return JSON.stringify(JSON.parse(value) as unknown, null, 2)
-  } catch {
-    return value
-  }
 }

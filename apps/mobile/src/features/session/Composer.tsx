@@ -17,6 +17,7 @@ export function Composer({
   sessionId,
   status,
   controls,
+  workingSince,
   disabled,
   onSent,
   onError,
@@ -25,6 +26,8 @@ export function Composer({
   status: string
   /** The model, effort and permission chips for this session. */
   controls: ReactNode
+  /** When the running turn began, for the elapsed time beside "Working". */
+  workingSince?: number
   disabled: boolean
   onSent: () => Promise<void>
   onError: (error: string) => void
@@ -181,9 +184,14 @@ export function Composer({
   }
   return (
     <div className="mobile-composer shrink-0 bg-bg px-4 pt-2">
-      {!disabled && (running || busy) && <WorkingIndicator sending={!running} />}
+      {!disabled && (running || busy) && (
+        <WorkingIndicator
+          sending={!running}
+          {...(running && workingSince !== undefined ? { since: workingSince } : {})}
+        />
+      )}
       <form
-        className="rounded-2xl border border-border bg-surface-1 p-2"
+        className="rounded-3xl border border-border bg-surface-1 p-2"
         onSubmit={(event) => {
           event.preventDefault()
           void submit(running ? 'queue' : 'send')
@@ -195,7 +203,7 @@ export function Composer({
           onChange={(event) => setText(event.target.value)}
           rows={1}
           disabled={busy || pending !== null}
-          placeholder="What should we work on?"
+          placeholder="Message"
           aria-label="Message the agent"
           className="max-h-40 min-h-11 w-full resize-none bg-transparent px-2 py-2.5 text-base leading-relaxed outline-none placeholder:text-fg-subtle"
         />
@@ -266,7 +274,7 @@ export function Composer({
           )}
           <button
             type={stopInstead ? 'button' : 'submit'}
-            className="icon-button bg-accent text-fg-on-accent"
+            className="icon-button rounded-full bg-accent text-fg-on-accent"
             disabled={stopInstead ? disabled || busy || uploading : !canSend}
             onClick={stopInstead ? stop : undefined}
             aria-label={

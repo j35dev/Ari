@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RemoteModelCatalog } from '@ari/contracts/remote'
-import { ModelPicker, modelSelectionLabel } from './ModelPicker'
+import { ModelPicker, modelChipLabel, modelSelectionLabel } from './ModelPicker'
 
 const app = vi.hoisted(() => ({
   catalog: null as RemoteModelCatalog | null,
@@ -41,6 +41,19 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
 })
+describe('the model chip in a session', () => {
+  it('names the model, since the provider cannot change mid-session', () => {
+    expect(modelChipLabel(app.catalog, 'codex', 'gpt-6.1')).toBe('GPT 6.1')
+  })
+  it('names the provider when the session uses its default model', () => {
+    expect(modelChipLabel(app.catalog, 'codex', '')).toBe('Codex')
+    expect(modelChipLabel(null, 'claude', '')).toBe('Claude Code')
+  })
+  it('shows a model the catalog does not know by its id', () => {
+    expect(modelChipLabel(app.catalog, 'codex', 'gpt-next')).toBe('gpt-next')
+  })
+})
+
 function picker(fixedProvider = false): {
   select: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>

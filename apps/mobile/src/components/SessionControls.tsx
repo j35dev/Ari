@@ -71,7 +71,7 @@ export function SessionControls({
     <>
       <button
         type="button"
-        className="control-chip min-w-0"
+        className="control-chip max-w-40 shrink-0"
         aria-label={`Model: ${modelLabel ?? 'Connecting…'}`}
         disabled={disabled || modelDisabled}
         onClick={onPickModel}
