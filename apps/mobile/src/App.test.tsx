@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { useApp, type AppValue } from './lib/app-state'
 import { DeviceKeyring, MemoryDeviceStore } from './lib/device-key'
-import { GatewayClient } from './lib/gateway-client'
+import { GatewayClient, RemoteError } from './lib/gateway-client'
 import { MobileSession } from './lib/session'
 import type * as AppStateModule from './lib/app-state'
 
@@ -52,38 +52,82 @@ afterEach(() => {
 })
 
 describe('Home Screen setup', () => {
-  it('accepts a fresh link within the installed app and still waits for explicit pairing', () => {
+  it('pairs the installed app from the short code shown on the computer', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    app.connection = 'unpaired'
+    const resolve = vi
+      .spyOn(MobileSession.prototype, 'resolvePairingCode')
+      .mockResolvedValue('inv_from_code')
+    render(<App />)
+    expect(screen.getByRole('heading', { name: 'Connect this app.' })).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pairing code' }), {
+      target: { value: 'k7qf-2m9x' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('button', { name: 'Pair this phone' })).toBeTruthy()
+    expect(resolve).toHaveBeenCalledWith('K7QF2M9X')
+    expect(app.pair).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Pair this phone' }))
+    expect(app.pair).toHaveBeenCalledWith('inv_from_code', 'My browser')
+  })
+
+  it('says a wrong or expired code is wrong without leaving the screen', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    app.connection = 'unpaired'
+    vi.spyOn(MobileSession.prototype, 'resolvePairingCode').mockRejectedValue(
+      new RemoteError('not_found', 'unknown code'),
+    )
+    render(<App />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pairing code' }), {
+      target: { value: '0000-0000' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect((await screen.findByRole('alert')).textContent).toMatch(/not right, or it has expired/)
+    expect(screen.getByRole('textbox', { name: 'Pairing code' })).toBeTruthy()
+  })
+
+  it('accepts a pasted link within the installed app and still waits for explicit pairing', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true }))
     app.connection = 'unpaired'
     render(<App />)
-    expect(screen.getByRole('heading', { name: 'Connect this app.' })).toBeTruthy()
-    expect(screen.getByText(/own secure storage/)).toBeTruthy()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Fresh pairing link' }), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pairing code' }), {
       target: { value: `${location.origin}/#pair=inv_installed` },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Use pairing link' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(location.hash).toBe('')
     expect(app.pair).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Pair this phone' }))
     expect(app.pair).toHaveBeenCalledWith('inv_installed', 'My browser')
   })
 
-  it.each([
-    ['https://other.test/#pair=inv_other', /another address/],
-    [`https://phone.test/`, /no pairing code/],
-    ['https://user:password@phone.test/#pair=inv_secret', /full HTTPS pairing link/],
-    ['http://phone.test/#pair=inv_http', /full HTTPS pairing link/],
-  ])('rejects an inappropriate installed-app link: %s', (link, message) => {
+  it('explains an address that carries no pairing code', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true }))
     app.connection = 'unpaired'
     render(<App />)
-    fireEvent.change(screen.getByRole('textbox', { name: 'Fresh pairing link' }), {
-      target: { value: link },
+    fireEvent.change(screen.getByRole('textbox', { name: 'Pairing code' }), {
+      target: { value: 'https://phone.test/' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Use pairing link' }))
-    expect(screen.getByRole('alert').textContent).toMatch(message)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByRole('alert').textContent).toMatch(/8-character code/)
     expect(app.pair).not.toHaveBeenCalled()
-    expect(location.hash).toBe('')
+  })
+
+  it('warns an iPhone in Safari that pairing here does not pair the Home Screen app', () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS)')
+    app.connection = 'unpaired'
+    history.replaceState(null, '', '/#pair=inv_safari')
+    render(<App />)
+    expect(screen.getByText(/pairs Safari only/)).toBeTruthy()
+    expect(screen.getByText(/Add to Home Screen/)).toBeTruthy()
+  })
+
+  it('does not show the Safari warning inside the installed app', () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS)')
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    app.connection = 'unpaired'
+    history.replaceState(null, '', '/#pair=inv_app')
+    render(<App />)
+    expect(screen.queryByText(/pairs Safari only/)).toBeNull()
   })
 
   it('opens a saved installed-app connection directly into the workspace', () => {
