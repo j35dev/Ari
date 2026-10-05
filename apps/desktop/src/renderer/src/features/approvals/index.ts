@@ -1,7 +1,7 @@
 export {
   ApprovalCard,
   formatApprovalToolName,
-  type ApprovalDecision,
+  type ApprovalAnswer,
   type ApprovalCardProps,
 } from './ApprovalCard'
 export { QuestionPanel, type QuestionPanelProps } from './QuestionPanel'

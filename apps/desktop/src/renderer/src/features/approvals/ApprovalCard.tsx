@@ -1,8 +1,72 @@
 import type { KeyboardEvent } from 'react'
 import { Button } from '@ari/ui/button'
+import type { ApprovalOption } from '@ari/contracts/common'
+import type { Command } from '@ari/contracts/commands'
 
-/** Decision sent back to the engine for a pending approval. */
-export type ApprovalDecision = 'allow' | 'always_allow' | 'deny'
+type ApprovalRespond = Extract<Command, { type: 'approval.respond' }>
+
+/**
+ * How an approval was answered: the offered option by its exact id, or — for
+ * an approval that recorded no options — the coarse decision. The two are not
+ * interchangeable: the engine rejects any optionId the approval did not offer.
+ */
+export type ApprovalAnswer =
+  { optionId: string } | { decision: NonNullable<ApprovalRespond['decision']> }
+
+interface Choice {
+  key: string
+  name: string
+  kind: string | null
+  answer: ApprovalAnswer
+}
+
+/** The choices shown for an approval that recorded no options. */
+const LEGACY_CHOICES: Choice[] = [
+  { key: 'allow', name: 'Allow', kind: 'allow_once', answer: { decision: 'allow' } },
+  {
+    key: 'always-allow',
+    name: 'Always allow',
+    kind: 'allow_always',
+    answer: { decision: 'always-allow' },
+  },
+  { key: 'deny', name: 'Deny', kind: 'reject_once', answer: { decision: 'deny' } },
+]
+
+function offeredChoices(options: ApprovalOption[]): Choice[] {
+  return options.map((option) => ({
+    key: option.optionId,
+    name: option.name,
+    kind: option.kind,
+    answer: { optionId: option.optionId },
+  }))
+}
+
+/**
+ * Shortcut letters by kind, so `y`/`a`/`n` keep meaning what they always did.
+ * A kind only ever picks which letter to print — never which option an answer
+ * resolves to, which is the id's job.
+ */
+const SHORTCUTS: readonly (readonly [string, string])[] = [
+  ['allow_once', 'Y'],
+  ['allow_always', 'A'],
+  ['reject_once', 'N'],
+  ['reject_always', 'N'],
+]
+
+/**
+ * One shortcut per option, first-come: when a provider offers two grants of a
+ * kind, the second gets no letter rather than a duplicate that would fire the
+ * wrong one.
+ */
+function shortcutKeys(choices: Choice[]): (string | null)[] {
+  const taken = new Set<string>()
+  return choices.map((choice) => {
+    const entry = SHORTCUTS.find(([kind]) => kind === choice.kind)
+    if (entry === undefined || taken.has(entry[1])) return null
+    taken.add(entry[1])
+    return entry[1]
+  })
+}
 
 /** Underscores and hyphens become spaces so `Ari_delegation` reads as a name. */
 export function formatApprovalToolName(name: string): string {
@@ -16,8 +80,14 @@ export interface ApprovalCardProps {
   toolName: string
   /** JSON string describing what the tool intends to do. */
   summaryJson: string
-  /** Called with the user's decision (button click or shortcut key). */
-  onRespond: (decision: ApprovalDecision) => void
+  /**
+   * The choices the provider offered, in its own order. Empty for journals
+   * recorded before options were captured and for providers that advertised
+   * none; both fall back to the decision vocabulary the engine still accepts.
+   */
+  options: ApprovalOption[]
+  /** Called with the user's choice, ready to spread into `approval.respond`. */
+  onRespond: (answer: ApprovalAnswer) => void
   /** 1-based position among pending approvals (T3's "1/N" counter). */
   position?: number
   /** Total pending approvals; renders the counter with `position`. */
@@ -60,23 +130,6 @@ export function approvalHeadline(summaryJson: string): { label: string; detail: 
   return null
 }
 
-function supportsAlwaysAllow(summaryJson: string): boolean {
-  try {
-    const parsed: unknown = JSON.parse(summaryJson)
-    if (parsed === null || typeof parsed !== 'object') return true
-    const options = (parsed as Record<string, unknown>)['options']
-    if (!Array.isArray(options)) return true
-    return options.some(
-      (option: unknown) =>
-        option !== null &&
-        typeof option === 'object' &&
-        (option as Record<string, unknown>)['kind'] === 'allow_always',
-    )
-  } catch {
-    return true
-  }
-}
-
 function ShortcutHint({ children }: { children: string }) {
   return (
     <span aria-hidden="true" className="font-mono text-[10px] font-normal opacity-60">
@@ -86,34 +139,32 @@ function ShortcutHint({ children }: { children: string }) {
 }
 
 /**
- * Inline permission sheet for one pending approval. Focusable; while focused
- * `y` allows, `a` always-allows, `n` denies. The headline surfaces what would
- * actually run; the full JSON collapses under a "Raw" toggle.
+ * Inline permission sheet for one pending approval, offering exactly the
+ * choices the provider advertised. Focusable; the shortcuts `y`/`a`/`n` map
+ * onto the first allow, persistent allow, and refusal when those exist.
+ * The headline surfaces what would actually run; the full JSON collapses
+ * under a "Raw" toggle.
  */
 export function ApprovalCard({
   approvalId,
   toolName,
   summaryJson,
+  options,
   onRespond,
   position,
   total,
 }: ApprovalCardProps) {
-  const canAlwaysAllow = supportsAlwaysAllow(summaryJson)
+  const choices = options.length > 0 ? offeredChoices(options) : LEGACY_CHOICES
+  const keys = shortcutKeys(choices)
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return
-    const decision: ApprovalDecision | null =
-      event.key === 'y'
-        ? 'allow'
-        : event.key === 'a'
-          ? 'always_allow'
-          : event.key === 'n'
-            ? 'deny'
-            : null
-    if (decision) {
-      if (decision === 'always_allow' && !canAlwaysAllow) return
-      event.preventDefault()
-      onRespond(decision)
-    }
+    const key = event.key.toUpperCase()
+    const index = keys.indexOf(key)
+    if (index === -1) return
+    const choice = choices[index]
+    if (choice === undefined) return
+    event.preventDefault()
+    onRespond(choice.answer)
   }
 
   const headline = approvalHeadline(summaryJson)
@@ -160,36 +211,25 @@ export function ApprovalCard({
           </details>
 
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <Button
-              variant="primary"
-              size="sm"
-              title="Allow (Y)"
-              onClick={() => onRespond('allow')}
-            >
-              Allow
-              <ShortcutHint>Y</ShortcutHint>
-            </Button>
-            {canAlwaysAllow ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                title="Always allow (A)"
-                onClick={() => onRespond('always_allow')}
-              >
-                Always allow
-                <ShortcutHint>A</ShortcutHint>
-              </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              title="Deny (N)"
-              className="text-danger hover:bg-danger-subtle"
-              onClick={() => onRespond('deny')}
-            >
-              Deny
-              <ShortcutHint>N</ShortcutHint>
-            </Button>
+            {choices.map((choice, index) => {
+              const shortcut = keys[index] ?? null
+              const refusal = choice.kind === 'reject_once' || choice.kind === 'reject_always'
+              return (
+                <Button
+                  key={choice.key}
+                  variant={
+                    refusal ? 'ghost' : choice.kind === 'allow_always' ? 'secondary' : 'primary'
+                  }
+                  size="sm"
+                  title={shortcut === null ? choice.name : `${choice.name} (${shortcut})`}
+                  className={refusal ? 'text-danger hover:bg-danger-subtle' : undefined}
+                  onClick={() => onRespond(choice.answer)}
+                >
+                  {choice.name}
+                  {shortcut === null ? null : <ShortcutHint>{shortcut}</ShortcutHint>}
+                </Button>
+              )
+            })}
           </div>
         </div>
       </div>

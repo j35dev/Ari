@@ -3,6 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ApprovalCard, formatApprovalToolName } from './ApprovalCard'
 
+const ONCE_ALWAYS_DENY = [
+  { optionId: 'accept', name: 'Allow once', kind: 'allow_once' },
+  { optionId: 'acceptForSession', name: 'Allow for this session', kind: 'allow_always' },
+  { optionId: 'decline', name: 'Deny', kind: 'reject_once' },
+]
+
 describe('ApprovalCard', () => {
   it.each([
     [{ command: 'pnpm test' }, 'Command', 'pnpm test'],
@@ -13,6 +19,7 @@ describe('ApprovalCard', () => {
         approvalId="acp-1"
         toolName="tool"
         summaryJson={JSON.stringify({ kind: 'execute', rawInput, options: [] })}
+        options={ONCE_ALWAYS_DENY}
         onRespond={vi.fn()}
       />,
     )
@@ -20,35 +27,121 @@ describe('ApprovalCard', () => {
     expect(screen.getByText(detail)).toBeInTheDocument()
   })
 
-  it('does not offer or shortcut persistent approval when ACP only allows once', async () => {
+  it('renders one button per offered option and answers with its exact id', async () => {
+    const user = userEvent.setup()
+    const onRespond = vi.fn()
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        options={ONCE_ALWAYS_DENY}
+        onRespond={onRespond}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /Allow for this session/ }))
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'acceptForSession' })
+  })
+
+  it('distinguishes two grants that share one kind', async () => {
+    const user = userEvent.setup()
+    const onRespond = vi.fn()
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        options={[
+          { optionId: 'allow_once', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'allow_session', name: 'Allow for this session', kind: 'allow_always' },
+          { optionId: 'allow_prefix', name: 'Allow every git command', kind: 'allow_always' },
+          { optionId: 'reject_once', name: 'Reject', kind: 'reject_once' },
+        ]}
+        onRespond={onRespond}
+      />,
+    )
+    // Both persistent grants are `allow_always`; the id is what tells them
+    // apart, so each has to be its own button.
+    await user.click(screen.getByRole('button', { name: /Allow every git command/ }))
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'allow_prefix' })
+    expect(screen.getByRole('button', { name: /Allow for this session/ })).toBeInTheDocument()
+  })
+
+  it('offers only what the provider advertised', () => {
+    render(
+      <ApprovalCard
+        approvalId="acp-1"
+        toolName="tool"
+        summaryJson="{}"
+        options={[
+          { optionId: 'once', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+        ]}
+        onRespond={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /session/ })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(2)
+  })
+
+  it('shortcuts y/a/n onto the first allow, persistent allow, and refusal', async () => {
+    const user = userEvent.setup()
+    const onRespond = vi.fn()
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        options={ONCE_ALWAYS_DENY}
+        onRespond={onRespond}
+      />,
+    )
+    screen.getByRole('group', { name: 'Approval requested: bash' }).focus()
+    await user.keyboard('y')
+    expect(onRespond).toHaveBeenLastCalledWith({ optionId: 'accept' })
+    await user.keyboard('a')
+    expect(onRespond).toHaveBeenLastCalledWith({ optionId: 'acceptForSession' })
+    await user.keyboard('n')
+    expect(onRespond).toHaveBeenLastCalledWith({ optionId: 'decline' })
+    expect(onRespond).toHaveBeenCalledTimes(3)
+  })
+
+  it('leaves `a` inert when the provider offers no persistent grant', async () => {
     const user = userEvent.setup()
     const onRespond = vi.fn()
     render(
       <ApprovalCard
         approvalId="acp-1"
         toolName="tool"
-        summaryJson={JSON.stringify({ options: [{ kind: 'allow_once', optionId: 'once' }] })}
+        summaryJson="{}"
+        options={[
+          { optionId: 'once', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+        ]}
         onRespond={onRespond}
       />,
     )
-    expect(screen.queryByRole('button', { name: 'Always allow' })).not.toBeInTheDocument()
     screen.getByRole('group', { name: 'Approval requested: tool' }).focus()
     await user.keyboard('a')
     expect(onRespond).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: 'Allow' }))
-    expect(onRespond).toHaveBeenCalledWith('allow')
+    await user.keyboard('y')
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ optionId: 'once' })
   })
 
-  it('offers persistent approval when ACP advertises it', () => {
+  it('falls back to the decision vocabulary for pre-option journals', async () => {
+    const user = userEvent.setup()
+    const onRespond = vi.fn()
     render(
       <ApprovalCard
-        approvalId="acp-1"
-        toolName="tool"
-        summaryJson={JSON.stringify({ options: [{ kind: 'allow_always', optionId: 'always' }] })}
-        onRespond={vi.fn()}
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        options={[]}
+        onRespond={onRespond}
       />,
     )
-    expect(screen.getByRole('button', { name: 'Always allow' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Always allow/ }))
+    expect(onRespond).toHaveBeenCalledExactlyOnceWith({ decision: 'always-allow' })
   })
 
   it('renders tool name and pretty-printed summary JSON', () => {
@@ -57,6 +150,7 @@ describe('ApprovalCard', () => {
         approvalId="ap-1"
         toolName="bash"
         summaryJson='{"command":"ls -la","cwd":"/tmp"}'
+        options={ONCE_ALWAYS_DENY}
         onRespond={vi.fn()}
       />,
     )
@@ -64,20 +158,17 @@ describe('ApprovalCard', () => {
     expect(screen.getByText(/"command": "ls -la"/)).toBeInTheDocument()
   })
 
-  it('calls onRespond("allow") when Allow is clicked', async () => {
-    const user = userEvent.setup()
-    const onRespond = vi.fn()
+  it('styles refusals with the danger token', () => {
     render(
-      <ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />,
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        options={ONCE_ALWAYS_DENY}
+        onRespond={vi.fn()}
+      />,
     )
-    await user.click(screen.getByRole('button', { name: 'Allow' }))
-    expect(onRespond).toHaveBeenCalledOnce()
-    expect(onRespond).toHaveBeenCalledWith('allow')
-  })
-
-  it('styles Deny with the danger token', () => {
-    render(<ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Deny' }).className).toContain('text-danger')
+    expect(screen.getByRole('button', { name: /Deny/ }).className).toContain('text-danger')
   })
 
   it('humanizes underscored tool names', () => {
@@ -86,6 +177,10 @@ describe('ApprovalCard', () => {
         approvalId="ap-1"
         toolName="Ari_delegation"
         summaryJson="{}"
+        options={[
+          { optionId: 'delegation_allow', name: 'Allow', kind: 'allow_once' },
+          { optionId: 'delegation_deny', name: 'Deny', kind: 'reject_once' },
+        ]}
         onRespond={vi.fn()}
       />,
     )
@@ -93,31 +188,22 @@ describe('ApprovalCard', () => {
     expect(formatApprovalToolName('Ari_delegation')).toBe('Ari delegation')
   })
 
-  it('calls onRespond("always_allow") when Always allow is clicked', async () => {
-    const user = userEvent.setup()
-    const onRespond = vi.fn()
+  it('prints the shortcut letter as the button title for pointer users', () => {
     render(
-      <ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />,
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson="{}"
+        options={[
+          { optionId: 'acceptForSession', name: 'Allow for this session', kind: 'allow_always' },
+        ]}
+        onRespond={vi.fn()}
+      />,
     )
-    await user.click(screen.getByRole('button', { name: 'Always allow' }))
-    expect(onRespond).toHaveBeenCalledWith('always_allow')
-  })
-
-  it('responds to y/a/n keys while the card is focused', async () => {
-    const user = userEvent.setup()
-    const onRespond = vi.fn()
-    render(
-      <ApprovalCard approvalId="ap-1" toolName="bash" summaryJson="{}" onRespond={onRespond} />,
+    expect(screen.getByRole('button', { name: /Allow for this session/ })).toHaveAttribute(
+      'title',
+      'Allow for this session (A)',
     )
-    const card = screen.getByRole('group', { name: 'Approval requested: bash' })
-    card.focus()
-    await user.keyboard('y')
-    expect(onRespond).toHaveBeenLastCalledWith('allow')
-    await user.keyboard('a')
-    expect(onRespond).toHaveBeenLastCalledWith('always_allow')
-    await user.keyboard('n')
-    expect(onRespond).toHaveBeenLastCalledWith('deny')
-    expect(onRespond).toHaveBeenCalledTimes(3)
   })
 
   it('extracts a command headline for shell-like tools', () => {
@@ -126,6 +212,7 @@ describe('ApprovalCard', () => {
         approvalId="ap-1"
         toolName="bash"
         summaryJson='{"command":"rm -rf dist","cwd":"/repo"}'
+        options={ONCE_ALWAYS_DENY}
         onRespond={vi.fn()}
       />,
     )
@@ -139,6 +226,7 @@ describe('ApprovalCard', () => {
         approvalId="ap-1"
         toolName="edit_file"
         summaryJson='{"path":"src/app.ts"}'
+        options={ONCE_ALWAYS_DENY}
         onRespond={vi.fn()}
       />,
     )
@@ -152,6 +240,7 @@ describe('ApprovalCard', () => {
         approvalId="ap-1"
         toolName="bash"
         summaryJson="{}"
+        options={ONCE_ALWAYS_DENY}
         position={1}
         total={3}
         onRespond={vi.fn()}
@@ -164,6 +253,7 @@ describe('ApprovalCard', () => {
         approvalId="ap-1"
         toolName="bash"
         summaryJson="{}"
+        options={ONCE_ALWAYS_DENY}
         position={1}
         total={1}
         onRespond={vi.fn()}

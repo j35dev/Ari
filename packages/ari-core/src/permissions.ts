@@ -3,6 +3,17 @@ import type { PermissionMode } from '@ari/contracts/common'
 /** Decision vocabulary shared with `approval.respond` commands. */
 export type ApprovalDecision = 'allow' | 'deny' | 'always-allow'
 
+/**
+ * The choices a mode-gated tool call offers. Ids match the decision
+ * vocabulary, so answering by name needs no translation. `always-allow`
+ * clears the tool for the rest of the run, not the session.
+ */
+export const ARI_CORE_APPROVAL_OPTIONS = [
+  { optionId: 'allow', name: 'Allow once', kind: 'allow_once' },
+  { optionId: 'always-allow', name: 'Allow for this run', kind: 'allow_always' },
+  { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+] as const
+
 /** Tools whose execution a permission mode can gate (exec / mutating tools). */
 export const MODE_GUARDED_TOOLS = new Set(['bash', 'write', 'edit'])
 

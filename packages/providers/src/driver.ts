@@ -63,8 +63,16 @@ export interface ProviderAdapter {
   respondInput?(inputId: string, value: string): void
 }
 
-/** Decision vocabulary shared with the `approval.respond` command contract. */
-export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow'
+/**
+ * Decision vocabulary shared with the `approval.respond` command contract.
+ *
+ * The string form is the coarse intent vocabulary, kept while adapters
+ * migrate. `{ optionId }` names the exact option the provider offered, which
+ * is the only form that can distinguish two options of one kind — Codex
+ * advertises both a session-scoped and a prefix-scoped persistent grant as
+ * `allow_always`, and picking between them by kind is a guess.
+ */
+export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow' | { optionId: string }
 
 export interface Driver {
   kind: DriverKind

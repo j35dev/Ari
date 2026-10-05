@@ -446,7 +446,7 @@ describe('codex app-server adapter', () => {
     expect(events[events.length - 1]?.type).toBe('done')
   }, 10_000)
 
-  it('answers parked approvals with wire decisions', async () => {
+  it('offers the decisions the server advertised and answers by exact id', async () => {
     const child = fakeChild()
     serve(child, standardServer())
     const adapter = await createCodexAppServerAdapter('/bin/codex', SESSION, () => child)
@@ -459,15 +459,31 @@ describe('codex app-server adapter', () => {
       child.stdout.write(`${line}\n`)
     }
     await sleep(30)
-    adapter.respondApproval('codex-appr-it_cmd_9', 'allow')
+    // The command approval names its own decisions on the wire, including
+    // `cancel`; the file-change approval names none and takes the defaults.
+    adapter.respondApproval('codex-appr-it_cmd_9', { optionId: 'acceptForSession' })
     adapter.respondApproval('codex-appr-it_fc_1', 'deny')
-    adapter.respondApproval('codex-appr-missing', 'allow')
+    adapter.respondApproval('codex-appr-missing', { optionId: 'accept' })
     child.stdout.write(`${lines[lines.length - 1]}\n`)
     const events = await drained
 
-    expect(events.some((e) => e.type === 'approval-requested')).toBe(true)
+    const offered = events
+      .filter((e) => e.type === 'approval-requested')
+      .map((e) => ({ approvalId: e.approvalId, ids: e.options.map((o) => o.optionId) }))
+    expect(offered).toEqual([
+      {
+        approvalId: 'codex-appr-it_cmd_9',
+        ids: ['accept', 'acceptForSession', 'decline', 'cancel'],
+      },
+      {
+        approvalId: 'codex-appr-it_fc_1',
+        ids: ['accept', 'acceptForSession', 'decline'],
+      },
+    ])
     const answers = child.sent.filter((f) => f['result'] !== undefined)
-    expect(answers).toContainEqual({ id: 7, result: { decision: 'accept' } })
+    // The exact id reaches the wire untouched — `acceptForSession` is not the
+    // `accept` a kind-search would have picked.
+    expect(answers).toContainEqual({ id: 7, result: { decision: 'acceptForSession' } })
     expect(answers).toContainEqual({ id: 8, result: { decision: 'decline' } })
     expect(answers.length).toBe(2)
   }, 10_000)

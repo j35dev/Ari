@@ -26,6 +26,11 @@ export function expectedPtyPackages(platform, arch) {
   return archNames.map((it) => `@lydell/node-pty-${platform}-${it}`)
 }
 
+/** The PWA shell inside packaged resources; absent when `@ari/mobile` was not built first. */
+export function mobileShellPath(resourcesDirPath) {
+  return join(resourcesDirPath, 'mobile', 'index.html')
+}
+
 function resourcesDir(context) {
   if (context.electronPlatformName !== 'darwin') return join(context.appOutDir, 'resources')
   const appName = context.packager.appInfo.productFilename
@@ -44,6 +49,10 @@ export default async function afterPack(context) {
   const skill = join(resourcesDir(context), 'agent-cli', 'ari', 'SKILL.md')
   if (!existsSync(cli) || !existsSync(skill))
     throw new Error('Agent CLI or bundled Ari skill is missing from packaged resources.')
+  // Without the PWA the packaged app serves the API alone; mobileWebRoot then
+  // returns undefined rather than guessing, so a missing shell must fail here.
+  if (!existsSync(mobileShellPath(resourcesDir(context))))
+    throw new Error('Mobile PWA is missing from packaged resources (build @ari/mobile first).')
   const unpacked = join(resourcesDir(context), 'app.asar.unpacked', 'node_modules')
   const platform = context.electronPlatformName
   const problems = []

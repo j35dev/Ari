@@ -24,6 +24,14 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
   },
   {
+    // The service worker runs in a worker global scope, which the Node and
+    // browser globals the rest of the repo assumes do not describe.
+    files: ['apps/mobile/public/sw.js'],
+    languageOptions: {
+      globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', Response: 'readonly', URL: 'readonly' },
+    },
+  },
+  {
     files: ['scripts/**'],
     languageOptions: { globals: { Buffer: 'readonly', console: 'readonly', process: 'readonly' } },
   },
