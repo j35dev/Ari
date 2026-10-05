@@ -34,7 +34,8 @@ import { writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { RpcRegistry } from './rpc-registry'
-import { fetchAllowance, ProviderAllowanceReader } from './provider-allowance'
+import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
+import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { listScripts } from './scripts-list'
@@ -92,7 +93,7 @@ import {
 import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
-import { AcpDriver } from '@ari/providers/acp'
+import { AcpDriver, modelsFromConfigOptions } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
 import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
@@ -202,15 +203,7 @@ async function probeAcpModels(
   })
   try {
     const created = await connection.newSession(homedir())
-    const modelOption = (created.configOptions ?? []).find(
-      (o) => o.category === 'model' && o.type === 'select',
-    )
-    const models = (modelOption?.options ?? [])
-      .filter((v) => typeof v.value === 'string' && v.value.length > 0)
-      .map((v) => ({
-        id: v.value as string,
-        label: typeof v.name === 'string' && v.name.length > 0 ? v.name : (v.value as string),
-      }))
+    const models = modelsFromConfigOptions(created.configOptions ?? [])
     // Same throwaway session: thought_level / effort, plus Grok's
     // initialize `_meta.modelState` reasoningEfforts when configOptions omit them.
     setDynamicEfforts(
@@ -1210,7 +1203,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
   const allowanceReader = new ProviderAllowanceReader((kind, binaryPath) =>
-    fetchAllowance(kind, binaryPath, undefined),
+    fetchAllowanceReading(kind, binaryPath, undefined),
   )
   r.register('providers.allowance', async ({ kind }) => {
     const detections = await probeAllDetections()
@@ -1218,6 +1211,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       kind,
       detections.find((row) => row.kind === kind)?.binaryPath ?? null,
     )
+  })
+  r.register('providers.consumeResetCredit', async ({ kind, creditId }) => {
+    const detections = await probeAllDetections()
+    const binaryPath = detections.find((row) => row.kind === kind)?.binaryPath ?? null
+    const redeemed = await resetCreditService.consume({ kind, binaryPath, creditId })
+    if (!redeemed.ok) return { ok: false as const, error: redeemed.error }
+    const allowance = await allowanceReader.reread(kind, binaryPath, redeemed.value === 'reset')
+    return { ok: true as const, outcome: redeemed.value, allowance }
   })
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.

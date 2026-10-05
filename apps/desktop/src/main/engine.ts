@@ -14,7 +14,7 @@ import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
-import { deterministicTitleStrategy, isAutoTitle } from '@ari/engine/title'
+import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
@@ -93,8 +93,9 @@ export interface EngineDeps {
   }) => Promise<AttachmentRef>
   /**
    * Upgrades the auto-slice title after the first settled turn (M18.2).
-   * Defaults to the deterministic strategy; an LLM-backed one can be
-   * injected without touching the turn flow. Failures never surface.
+   * Receives the first prompt plus the reply of the session's first answered
+   * turn; defaults to the deterministic response-first strategy. An LLM-backed
+   * one can be injected without touching the turn flow. Failures never surface.
    */
   titleStrategy?: TitleStrategy
 }
@@ -274,7 +275,7 @@ export class Engine {
 
     if (command.type === 'turn.interrupt') {
       this.#activeTurns.get(command.sessionId)?.interrupt()
-      this.#onFirstSettle(command.sessionId)
+      this.#onFirstSettle(command.sessionId, null)
     }
 
     if (command.type === 'approval.respond') {
@@ -794,7 +795,9 @@ export class Engine {
       stopReason,
       errorMessage,
     })
-    if (stopReason !== 'error') this.#onFirstSettle(sessionId)
+    if (stopReason !== 'error') {
+      this.#onFirstSettle(sessionId, stopReason === 'completed' ? turnId : null)
+    }
 
     // Durable queue continuation: never decide from the pre-settle snapshot
     // above — a message.enqueued may land between that load and this append
@@ -939,25 +942,30 @@ export class Engine {
    * Title generation hook (M18.2): after the session's first settled turn
    * that did not end in error — and only while the title is still the
    * automatic slice of the first prompt — upgrades it through the configured
-   * {@link TitleStrategy}. Fire-and-forget: never blocks or fails the turn.
+   * {@link TitleStrategy}. The reply of `completedTurnId` names the session
+   * when it is the session's first answer and substantive; the prompt remains
+   * the fallback, and the only source for an interrupted turn (`null`), whose
+   * reply was cut short. Fire-and-forget: never blocks or fails the turn.
    */
-  #onFirstSettle(sessionId: string): void {
+  #onFirstSettle(sessionId: string, completedTurnId: string | null): void {
     if (this.#titleSettled.has(sessionId)) return
     this.#titleSettled.add(sessionId)
-    void this.#generateTitle(sessionId).catch((e) => {
+    void this.#generateTitle(sessionId, completedTurnId).catch((e) => {
       log.debug('title generation skipped', { sessionId, error: String(e) })
     })
   }
 
-  async #generateTitle(sessionId: string): Promise<void> {
+  async #generateTitle(sessionId: string, completedTurnId: string | null): Promise<void> {
     const model = await this.#deps.store.load(sessionId)
     const session = model.session
     const firstPrompt = model.messages.find((m) => m.role === 'user')
     if (!session || !firstPrompt) return
     const prompt = firstPrompt.parts.find((p) => p.type === 'text')?.text ?? ''
     if (!isAutoTitle(session.title, prompt)) return
+    const response =
+      completedTurnId === null ? undefined : firstReply(model.messages, completedTurnId)
     const strategy = this.#deps.titleStrategy ?? deterministicTitleStrategy
-    const title = await strategy.generate({ prompt, currentTitle: session.title })
+    const title = await strategy.generate({ prompt, response, currentTitle: session.title })
     if (title === null || title.length === 0 || title === session.title) return
     await this.#append(sessionId, { type: 'session.updated', title })
   }
