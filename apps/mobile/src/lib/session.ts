@@ -228,6 +228,11 @@ export class MobileSession {
     }
   }
 
+  /** Trades the short code on the desktop's screen for the invitation it names. */
+  async resolvePairingCode(code: string): Promise<string> {
+    return this.#client.pairResolve(code)
+  }
+
   /** What the desktop currently thinks of this device's registration. */
   async pairingStatus(invitationId: string): Promise<string> {
     return this.#client.pairStatus(invitationId)

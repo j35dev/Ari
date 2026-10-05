@@ -182,6 +182,31 @@ async function pairPhone(gateway: RemoteGateway, keyring: DeviceKeyring): Promis
 }
 
 describe('mobile pairing', () => {
+  it('pairs from the short code an installed app cannot scan', async () => {
+    const gateway = await startGateway()
+    const session = sessionFor(gateway, new DeviceKeyring(new MemoryDeviceStore()))
+    const invitation = gateway.pairing.begin(gateway.origin)
+
+    const invitationId = await session.resolvePairingCode(invitation.code.toLowerCase())
+    expect(invitationId).toBe(invitation.invitationId)
+
+    const pairing = session.pair(invitationId, 'iPhone app')
+    await vi.waitFor(() => expect(gateway.pairing.pending(invitationId)).toBeDefined())
+    gateway.pairing.approve(invitationId, ['proj_1'])
+    await pairing
+    expect(session.state).toBe('connected')
+  })
+
+  it('reports a wrong short code as not found', async () => {
+    const gateway = await startGateway()
+    const session = sessionFor(gateway, new DeviceKeyring(new MemoryDeviceStore()))
+    gateway.pairing.begin(gateway.origin)
+
+    await expect(session.resolvePairingCode('0000-0000')).rejects.toMatchObject({
+      code: 'not_found',
+    })
+  })
+
   it('pairs with an invitation the desktop approved, and talks from then on', async () => {
     const host = fakeHost()
     const gateway = await startGateway(host)
