@@ -45,6 +45,15 @@ describe('TranscriptView row entrance', () => {
     // A later re-render must not drop the class mid-entrance.
     rerender(view([message('a'), message('b')]))
     expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(1)
+
+    // Once the entrance has played the class comes off, so re-showing a
+    // hidden pane cannot replay it.
+    // jsdom has no AnimationEvent, so React listens for the prefixed name there.
+    const risen = container.querySelector('.ari-enter-rise')!
+    for (const type of ['animationend', 'webkitAnimationEnd']) {
+      fireEvent(risen, new Event(type, { bubbles: true }))
+    }
+    expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(0)
   })
 
   it('treats rows delivered by the initial load as history', () => {

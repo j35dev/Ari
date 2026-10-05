@@ -65,7 +65,7 @@
 }
 
 .ari-press:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
   transition-duration: var(--ari-dur-instant);
 }
 
@@ -75,6 +75,12 @@
  * snapping at once. `--ari-reveal-x/y` are set by the provider; without a
  * recent pointer position it falls back to the default cross-fade.
  */
+/* The transition layer covers the window and would swallow every click made
+   while it runs — flicking between theme cards, for one. */
+::view-transition {
+  pointer-events: none;
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: var(--ari-dur-slow);

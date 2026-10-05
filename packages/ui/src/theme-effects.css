@@ -17,7 +17,9 @@
   content: '';
   position: fixed;
   inset: 0;
-  z-index: 2147483647;
+  /* Above every popover and menu (the highest is 61), below the launch splash
+     (70), which is brand and looks the same under every theme. */
+  z-index: 65;
   pointer-events: none;
 }
 
@@ -35,6 +37,13 @@
 [data-ari-theme='phosphor'] body,
 [data-ari-theme='tungsten'] body {
   text-shadow: 0 0 6px color-mix(in oklab, var(--ari-fg) 26%, transparent);
+}
+
+/* Form controls do not inherit text-shadow by default; without this the
+   transcript glows and every button label beside it does not. */
+[data-ari-theme='phosphor'] :is(button, input, textarea, select),
+[data-ari-theme='tungsten'] :is(button, input, textarea, select) {
+  text-shadow: inherit;
 }
 
 /* Drafting paper: a fine grid with a heavier line every fifth square. */
