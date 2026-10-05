@@ -280,8 +280,15 @@ export class PairingService {
     }
   }
 
+  /**
+   * Records the user's approval of the device whose confirmation code they
+   * were shown. Registration is last-writer-wins, so the code names which
+   * request the decision was about: a device that registered after the prompt
+   * was read must not collect an approval given to another key.
+   */
   approve(
     invitationId: string,
+    confirmationCode: string,
     projectIds: readonly string[],
     allowTerminal = false,
   ): PairingResult<object> {
@@ -291,6 +298,11 @@ export class PairingService {
     if (invitation.pending === undefined) {
       // Nothing to approve yet: approving a request that does not exist would
       // leave an invitation redeemable by whoever asks next.
+      return { ok: false, code: 'conflict' }
+    }
+    if (invitation.pending.confirmationCode !== confirmationCode) {
+      // The request changed under the prompt. It stays pending, so the desktop
+      // shows the device that is asking now and the user decides on that one.
       return { ok: false, code: 'conflict' }
     }
     invitation.projectIds = [...projectIds]

@@ -441,6 +441,7 @@ export function RemoteSettings() {
             mutate('Approve device', () =>
               rpc.invoke('remote.approve', {
                 invitationId: pending.invitationId,
+                confirmationCode: pending.confirmationCode,
                 projectIds,
                 allowTerminal,
               }),

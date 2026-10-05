@@ -1090,7 +1090,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('remote.invite', (params) => remote.invite(params?.method))
   r.register('remote.cancelInvite', () => remote.cancelInvite())
   r.register('remote.approve', (params) =>
-    remote.approve(params.invitationId, params.projectIds, params.allowTerminal),
+    remote.approve(
+      params.invitationId,
+      params.confirmationCode,
+      params.projectIds,
+      params.allowTerminal,
+    ),
   )
   r.register('remote.deny', (params) => remote.deny(params.invitationId))
   r.register('remote.revokeDevice', (params) => remote.revokeDevice(params.deviceId))

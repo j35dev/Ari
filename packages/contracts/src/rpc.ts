@@ -673,9 +673,14 @@ export const rpcParams = {
   /** Mint a single-use invitation to show as a QR code. */
   'remote.invite': z.object({ method: z.enum(['tailscale', 'connect']) }).optional(),
   'remote.cancelInvite': z.undefined(),
-  /** The user's decision on the device that asked, with its project grant. */
+  /**
+   * The user's decision on the device that asked, with its project grant.
+   * `confirmationCode` is the code the prompt showed when they decided, so an
+   * approval cannot land on a device that replaced the request in between.
+   */
   'remote.approve': z.object({
     invitationId: z.string().min(1),
+    confirmationCode: z.string().min(1),
     projectIds: z.array(z.string().min(1)),
     allowTerminal: z.boolean().default(false),
   }),

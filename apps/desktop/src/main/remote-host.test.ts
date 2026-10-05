@@ -626,7 +626,11 @@ describe('devices', () => {
       publicKey: key.jwk,
     })
     if (!registered.ok) throw new Error(`registration refused: ${registered.code}`)
-    pairing.approve(invitation.invitationId, ['proj_1'])
+    pairing.approve(
+      invitation.invitationId,
+      pairing.pending(invitation.invitationId)?.confirmationCode ?? '',
+      ['proj_1'],
+    )
     // A device record exists only once the key has proved possession of itself,
     // so the invite has to be redeemed before there is anything to list — by
     // signing the nonce the server issued, not one the phone chose.
