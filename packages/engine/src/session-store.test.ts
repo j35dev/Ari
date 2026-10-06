@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '@ari/contracts/session'
+import type { UnstampedEvent } from './projection'
 import { SessionStore } from './session-store'
 
 let rootDir: string
@@ -92,6 +93,67 @@ describe('SessionStore', () => {
     const again = await store.listSessions()
     expect(spies.every((s) => s.mock.calls.length === 0)).toBe(true)
     expect(again.map((s) => s.title)).toEqual(['Renamed', 'Test session'])
+  })
+
+  describe('streamed parts', () => {
+    const part = (text: string): UnstampedEvent => ({
+      type: 'assistant.parts.appended',
+      messageId: 'm1',
+      parts: [{ type: 'text', text }],
+    })
+    const sidecar = async (): Promise<{ journalBytes: number }> => {
+      const { readFile } = await import('node:fs/promises')
+      return JSON.parse(await readFile(join(rootDir, session.id, 'index.json'), 'utf8')) as {
+        journalBytes: number
+      }
+    }
+
+    it('leaves the sidecar and the fsync to the next event that is not a part', async () => {
+      await store.append(session.id, { type: 'session.created', session })
+      await store.append(session.id, { type: 'turn.started', turnId: 'turn_1' })
+      const before = await sidecar()
+      const flush = vi.spyOn(await store.openJournal(session.id), 'flush')
+
+      await store.append(session.id, part('hel'))
+      await store.append(session.id, part('lo'))
+      expect(await sidecar()).toEqual(before)
+      expect(flush).not.toHaveBeenCalled()
+      // The streamed text is journaled and folded all the same.
+      expect((await store.load(session.id)).messages[0]?.parts).toHaveLength(2)
+
+      await store.append(session.id, {
+        type: 'turn.settled',
+        turnId: 'turn_1',
+        stopReason: 'completed',
+        errorMessage: null,
+      })
+      expect(flush).toHaveBeenCalledTimes(1)
+      expect((await sidecar()).journalBytes).toBeGreaterThan(before.journalBytes)
+      // Caught up: a cold reader trusts the sidecar without replaying.
+      const cold = new SessionStore({ rootDir })
+      const replay = vi.spyOn(await cold.openJournal(session.id), 'readAll')
+      expect(await cold.listSessions()).toHaveLength(1)
+      expect(replay).not.toHaveBeenCalled()
+    })
+
+    it('lists a streaming session from memory while its sidecar trails', async () => {
+      await store.append(session.id, { type: 'session.created', session })
+      await store.listSessions()
+      const replay = vi.spyOn(await store.openJournal(session.id), 'readAll')
+
+      await store.append(session.id, part('still streaming'))
+      expect(await store.listSessions()).toHaveLength(1)
+      expect(replay).not.toHaveBeenCalled()
+    })
+
+    it('writes the trailing sidecar when the journal closes mid-stream', async () => {
+      await store.append(session.id, { type: 'session.created', session })
+      const before = await sidecar()
+      await store.append(session.id, part('cut short'))
+
+      await store.closeJournal(session.id)
+      expect((await sidecar()).journalBytes).toBeGreaterThan(before.journalBytes)
+    })
   })
 
   it('repairs a corrupt or missing sidecar index via replay', async () => {

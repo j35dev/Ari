@@ -12,6 +12,10 @@ const CACHE_MAX = 200
 
 let pool: Promise<Highlighter> | null = null
 
+/** The warmed highlighter and the languages it holds, once a first highlight resolved. */
+let warm: Highlighter | null = null
+const warmLanguages = new Set<string>()
+
 function getPool(): Promise<Highlighter> {
   pool ??= createHighlighter({ themes: [...Object.values(THEMES)], langs: [] })
   return pool
@@ -58,6 +62,8 @@ export async function highlightCode(code: string, lang: string): Promise<string 
   try {
     const pool = await getPool()
     await pool.loadLanguage(languageInput)
+    warm = pool
+    warmLanguages.add(lang)
     const html = pool.codeToHtml(code, {
       lang,
       themes: THEMES,
@@ -65,6 +71,34 @@ export async function highlightCode(code: string, lang: string): Promise<string 
     })
     cacheSet(key, html)
     return html
+  } catch {
+    return null
+  }
+}
+
+/** The dual-theme options every highlight in the transcript shares. */
+export const HIGHLIGHT_THEME_OPTIONS = { themes: THEMES, defaultColor: defaultColor() }
+
+/** The warmed highlighter when it already holds `lang`; null until it does. */
+export function warmHighlighter(lang: string): Highlighter | null {
+  return warm !== null && warmLanguages.has(lang) ? warm : null
+}
+
+/**
+ * Highlights without yielding, for code that is still being written: waiting a
+ * tick would paint each flush plain before its colors arrive. Answers from the
+ * cache, or — with `compute` — from the warmed highlighter when it already
+ * holds `lang`. Null means the caller has to wait on {@link highlightCode}.
+ *
+ * Computed results are not cached: a streaming block asks once per flush with
+ * text that never repeats.
+ */
+export function highlightCodeSync(code: string, lang: string, compute: boolean): string | null {
+  const cached = cache.get(`${lang}\u0000${code}`)
+  if (cached !== undefined) return cached
+  if (!compute || warm === null || !warmLanguages.has(lang)) return null
+  try {
+    return warm.codeToHtml(code, { lang, themes: THEMES, defaultColor: defaultColor() })
   } catch {
     return null
   }

@@ -87,8 +87,38 @@ export function insertTurnDiffRows(
  * first block so React keeps the live row mounted as results arrive. When `turnDiffs` carries an
  * entry for a settled turn, a collapsed diff card is appended after that turn's
  * final row.
+ *
+ * Pass the `previous` result and every row whose content is unchanged comes
+ * back as the same object, so a memoized row skips its work entirely.
  */
 export function groupBlocks(
+  blocks: TranscriptBlock[],
+  turnDiffs?: Readonly<Record<string, string>>,
+  previous?: TranscriptRow[],
+): TranscriptRow[] {
+  const rows = buildRows(blocks, turnDiffs)
+  if (previous === undefined || previous.length === 0) return rows
+  const prior = new Map(previous.map((row) => [row.key, row]))
+  return rows.map((row) => {
+    const before = prior.get(row.key)
+    return before !== undefined && sameRow(before, row) ? before : row
+  })
+}
+
+/** Plain blocks already share identity; groups and diff cards compare by content. */
+function sameRow(a: TranscriptRow, b: TranscriptRow): boolean {
+  if (a === b) return true
+  if (a.kind === 'tool-group' && b.kind === 'tool-group') {
+    return (
+      a.blocks.length === b.blocks.length &&
+      a.blocks.every((block, index) => block === b.blocks[index])
+    )
+  }
+  if (a.kind === 'turn-diff' && b.kind === 'turn-diff') return a.diffText === b.diffText
+  return false
+}
+
+function buildRows(
   blocks: TranscriptBlock[],
   turnDiffs?: Readonly<Record<string, string>>,
 ): TranscriptRow[] {
