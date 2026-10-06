@@ -15,7 +15,7 @@ vi.mock('shiki', () => ({
   createHighlighter: shiki.createHighlighter,
 }))
 
-import { highlightCode } from './highlight'
+import { highlightCode, highlightCodeSync } from './highlight'
 
 describe('highlightCode', () => {
   beforeEach(() => {
@@ -66,5 +66,36 @@ describe('highlightCode', () => {
       throw new Error('grammar exploded')
     })
     await expect(highlightCode('broken', 'ts')).resolves.toBeNull()
+  })
+})
+
+describe('highlightCodeSync', () => {
+  beforeEach(() => {
+    shiki.codeToHtml.mockClear()
+  })
+
+  it('answers from the cache without computing', async () => {
+    const html = await highlightCode('const cached = 1', 'ts')
+    shiki.codeToHtml.mockClear()
+
+    expect(highlightCodeSync('const cached = 1', 'ts', false)).toBe(html)
+    expect(shiki.codeToHtml).not.toHaveBeenCalled()
+  })
+
+  it('computes for a warmed language only when asked to', async () => {
+    await highlightCode('warm the pool', 'ts')
+    shiki.codeToHtml.mockClear()
+
+    expect(highlightCodeSync('still streaming', 'ts', false)).toBeNull()
+    expect(highlightCodeSync('still streaming', 'ts', true)).toContain('still streaming')
+    expect(highlightCodeSync('still streaming', 'py', true)).toBeNull()
+  })
+
+  it('leaves streaming prefixes out of the cache', async () => {
+    await highlightCode('warm the pool', 'ts')
+    highlightCodeSync('a prefix that never repeats', 'ts', true)
+    shiki.codeToHtml.mockClear()
+
+    expect(highlightCodeSync('a prefix that never repeats', 'ts', false)).toBeNull()
   })
 })

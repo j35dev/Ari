@@ -445,7 +445,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
           </div>
         ) : (
           <div>
-            <MarkdownBlock text={row.text ?? ''} />
+            <MarkdownBlock text={row.text ?? ''} streaming={active} />
             {row.isLastOfMessage && row.messageId ? (
               <MessageFooter
                 message={{
