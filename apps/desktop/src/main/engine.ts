@@ -116,6 +116,12 @@ interface ActiveTurn {
    * queued so it still runs.
    */
   steer: (text: string) => Promise<boolean>
+  /**
+   * Starts a fresh assistant message for whatever the adapter emits next. A
+   * user message journaled mid-turn calls this so later output folds below it
+   * instead of into the message above.
+   */
+  splitMessage: () => void
 }
 
 /**
@@ -383,6 +389,9 @@ export class Engine {
       this.#dropSteered(sessionId, guard)
       throw e
     }
+    // Split and append in the same tick: the store sequences appends in call
+    // order, so no part of the running turn can land between the two.
+    this.#activeTurns.get(sessionId)?.splitMessage()
     await this.#append(sessionId, {
       type: 'user.message.added',
       message: {
@@ -544,6 +553,9 @@ export class Engine {
     }
 
     let interrupted = false
+    let messageId = newTypedId('msg')
+    // A result joins the message holding its call, even across a split.
+    const callMessageIds = new Map<string, string>()
     this.#activeTurns.set(session.id, {
       sessionId: session.id,
       turnId,
@@ -566,12 +578,14 @@ export class Engine {
           return false
         }
       },
+      splitMessage: () => {
+        messageId = newTypedId('msg')
+      },
     })
 
     // Coalesced part buffer: text/thinking flush at ~120ms or on non-text.
     let buffer: { type: 'text' | 'thinking'; text: string }[] = []
     let lastFlush = Date.now()
-    const messageId = newTypedId('msg')
 
     // Post-interrupt guard: the decider already settled an interrupted turn;
     // late adapter events must never overwrite that state.
@@ -656,6 +670,7 @@ export class Engine {
           case 'tool-started': {
             await flush()
             // Tool calls attach to the same streaming assistant message.
+            callMessageIds.set(event.callId, messageId)
             await append({
               type: 'assistant.parts.appended',
               messageId,
@@ -672,9 +687,11 @@ export class Engine {
           }
           case 'tool-completed': {
             await flush()
+            const callMessageId = callMessageIds.get(event.callId) ?? messageId
+            callMessageIds.delete(event.callId)
             await append({
               type: 'assistant.parts.appended',
-              messageId,
+              messageId: callMessageId,
               parts: [
                 {
                   type: 'tool-result',
