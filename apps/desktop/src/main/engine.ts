@@ -23,6 +23,9 @@ import type { AdapterApprovalDecision } from '@ari/providers/driver'
 
 const log = createLogger('desktop:engine')
 
+/** Longest streamed text is held before it is journaled and published. */
+const TEXT_FLUSH_MS = 50
+
 function attributedInput(text: string, origin?: MessageOrigin): string {
   return origin?.kind === 'session'
     ? `[Ari message from session ${origin.sessionId}]\n\n${text}`
@@ -568,9 +571,13 @@ export class Engine {
       },
     })
 
-    // Coalesced part buffer: text/thinking flush at ~120ms or on non-text.
+    // Coalesced part buffer: text/thinking flush every TEXT_FLUSH_MS or on
+    // non-text. Adjacent deltas of one kind merge, so a flush journals one
+    // part per run instead of one per provider token.
     let buffer: { type: 'text' | 'thinking'; text: string }[] = []
     let lastFlush = Date.now()
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+    const timedFlush: { error: Error | null } = { error: null }
     const messageId = newTypedId('msg')
 
     // Post-interrupt guard: the decider already settled an interrupted turn;
@@ -581,6 +588,10 @@ export class Engine {
     }
 
     const flush = async (): Promise<void> => {
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer)
+        flushTimer = null
+      }
       if (buffer.length === 0 || interrupted) {
         buffer = []
         return
@@ -593,6 +604,17 @@ export class Engine {
         messageId,
         parts,
       })
+    }
+
+    // Without a timer the tail of a burst sat in the buffer until the next
+    // delta arrived, so text stalled mid-sentence whenever the provider paused.
+    const flushSoon = (): void => {
+      flushTimer ??= setTimeout(() => {
+        flushTimer = null
+        flush().catch((error: unknown) => {
+          timedFlush.error = error instanceof Error ? error : new Error(String(error))
+        })
+      }, TEXT_FLUSH_MS)
     }
 
     const stageProviderImage = async (
@@ -629,14 +651,17 @@ export class Engine {
     try {
       let firstErrorMessage: string | null = null
       for await (const event of adapter.start()) {
+        // A timed flush that could not journal fails the turn like any other.
+        if (timedFlush.error !== null) throw timedFlush.error
         switch (event.type) {
           case 'text-delta':
           case 'thinking-delta': {
-            buffer.push({
-              type: event.type === 'text-delta' ? 'text' : 'thinking',
-              text: event.text,
-            })
-            if (Date.now() - lastFlush >= 120) await flush()
+            const type = event.type === 'text-delta' ? 'text' : 'thinking'
+            const last = buffer[buffer.length - 1]
+            if (last?.type === type) last.text += event.text
+            else buffer.push({ type, text: event.text })
+            if (Date.now() - lastFlush >= TEXT_FLUSH_MS) await flush()
+            else flushSoon()
             break
           }
           case 'image-output': {
@@ -765,6 +790,7 @@ export class Engine {
       await flush().catch(() => undefined)
       if (!interrupted) await this.#settle(session.id, turnId, 'error', String(e))
     } finally {
+      if (flushTimer !== null) clearTimeout(flushTimer)
       this.#activeTurns.delete(session.id)
       await adapter.dispose()
     }
