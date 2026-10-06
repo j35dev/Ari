@@ -320,12 +320,13 @@ export function SessionView({
         for (const event of buffered) ingest(event, true)
         return
       }
-      const event = frame.event as JournalEvent
       if (frame.replay === true) {
-        // The replay burst is seq-ordered; apply directly.
-        ingest(event, false)
+        // The burst is seq-ordered and arrives whole, so it folds in one pass
+        // and renders once however long the session is.
+        for (const event of (frame.events ?? []) as JournalEvent[]) ingest(event, false)
         return
       }
+      const event = frame.event as JournalEvent
       // Live frame: hold until the replay burst has drained so history and
       // live events interleave in journal order, not arrival order.
       if (!replayDoneRef.current) {
