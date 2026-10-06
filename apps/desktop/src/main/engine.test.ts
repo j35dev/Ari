@@ -658,6 +658,68 @@ describe('engine end-to-end with scripted driver', () => {
     expect(created[1]?.resumeOf).toBe('native-thread-1')
   }, 10000)
 
+  it('journals a burst of deltas as one part, on a timer, while the provider is quiet', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    try {
+      const releaseRef = { current: null as (() => void) | null }
+      const quietDriver: Driver = {
+        kind: 'claude',
+        create: () =>
+          Promise.resolve({
+            start: () => ({
+              async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+                yield { type: 'text-delta', text: 'Still ' }
+                yield { type: 'text-delta', text: 'thinking ' }
+                yield { type: 'text-delta', text: 'about it' }
+                // The provider goes quiet mid-reply: no further event arrives
+                // to push the buffered text out.
+                await new Promise<void>((resolve) => {
+                  releaseRef.current = resolve
+                })
+                yield { type: 'done' }
+              },
+            }),
+            interrupt: () => undefined,
+            dispose: () => Promise.resolve(),
+          }),
+      }
+      const registry = new DriverRegistry()
+      registry.register(quietDriver)
+      const engine = new Engine({
+        store,
+        registry,
+        publish: () => undefined,
+        git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      })
+      const sessionId = 'sess_text_flush'
+      await seedSession(store, sessionId)
+      await engine.dispatch({ type: 'turn.start', sessionId, text: 'go' } as Command)
+
+      // The clock is frozen, so all three deltas land in one buffered run.
+      while (releaseRef.current === null) await new Promise((r) => setImmediate(r))
+      await vi.advanceTimersByTimeAsync(50)
+      vi.useRealTimers()
+
+      const assistantParts = async () =>
+        (await store.load(sessionId)).messages
+          .filter((m) => m.role === 'assistant')
+          .flatMap((m) => m.parts)
+      for (let i = 0; i < 150 && (await assistantParts()).length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      expect(await assistantParts()).toEqual([{ type: 'text', text: 'Still thinking about it' }])
+      expect((await store.load(sessionId)).activeTurnId).not.toBeNull()
+
+      releaseRef.current()
+      for (let i = 0; i < 150; i++) {
+        if ((await store.load(sessionId)).activeTurnId === null) break
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 10000)
+
   it('keeps an enqueue queued even when the provider can steer', async () => {
     const steered: string[] = []
     const releaseTurnRef = { current: null as (() => void) | null }
