@@ -12,7 +12,7 @@ import {
 import { Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
-import { pinnedAfterScroll } from './transcript-pin'
+import { followBehavior, pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
 import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -56,6 +56,14 @@ function railText(row: TranscriptRow): string {
   }
   if (row.kind === 'markdown') return row.text ?? ''
   return ''
+}
+
+/** The OS preference or the in-app switch (see interaction-motion.css). */
+function prefersStillness(): boolean {
+  if (document.documentElement.hasAttribute('data-ari-reduced-motion')) return true
+  return typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false
 }
 
 function scrollToBottom(el: HTMLElement, behavior: ScrollBehavior): void {
@@ -228,12 +236,22 @@ export function TranscriptView({
     return () => observer.disconnect()
   }, [])
 
+  const runningRef = useRef(running)
+  runningRef.current = running
   const followTail = useCallback((): void => {
     const scroller = scrollRef.current
     if (!scroller || !atBottomRef.current) return
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
     if (Math.abs(scroller.scrollTop - max) <= 1) return
-    scrollToBottom(scroller, 'auto')
+    scrollToBottom(
+      scroller,
+      followBehavior({
+        running: runningRef.current,
+        distanceFromBottom: max - scroller.scrollTop,
+        viewportHeight: scroller.clientHeight,
+        reducedMotion: prefersStillness(),
+      }),
+    )
   }, [])
 
   // Follow the tail while pinned. Observe the column so Shiki/code-fence

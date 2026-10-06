@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AT_BOTTOM_PX, REENGAGE_BAND_PX, pinnedAfterScroll } from './transcript-pin'
+import { AT_BOTTOM_PX, REENGAGE_BAND_PX, followBehavior, pinnedAfterScroll } from './transcript-pin'
 
 describe('pinnedAfterScroll', () => {
   it('stays pinned through content growth that is not an upward scroll', () => {
@@ -76,5 +76,31 @@ describe('pinnedAfterScroll', () => {
         scrolledUp: false,
       }),
     ).toBe(false)
+  })
+})
+
+describe('followBehavior', () => {
+  const growth = {
+    running: true,
+    distanceFromBottom: 22,
+    viewportHeight: 600,
+    reducedMotion: false,
+  }
+
+  it('glides to the tail as a running turn adds a line', () => {
+    expect(followBehavior(growth)).toBe('smooth')
+  })
+
+  it('jumps when nothing is being written', () => {
+    expect(followBehavior({ ...growth, running: false })).toBe('auto')
+  })
+
+  it('jumps rather than scrolling a whole session down to its tail', () => {
+    expect(followBehavior({ ...growth, distanceFromBottom: 601 })).toBe('auto')
+    expect(followBehavior({ ...growth, distanceFromBottom: 600 })).toBe('smooth')
+  })
+
+  it('never animates under reduced motion', () => {
+    expect(followBehavior({ ...growth, reducedMotion: true })).toBe('auto')
   })
 })
