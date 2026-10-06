@@ -9,6 +9,9 @@ const highlight = vi.hoisted(() => ({
 vi.mock('./highlight', () => ({
   ...highlight,
   shikiInner: (html: string) => html,
+  // No warm highlighter: fenced code takes the whole-block path under test here.
+  warmHighlighter: () => null,
+  HIGHLIGHT_THEME_OPTIONS: {},
 }))
 
 import { MarkdownBlock } from './MarkdownBlock'

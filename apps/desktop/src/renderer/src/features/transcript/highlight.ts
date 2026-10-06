@@ -76,6 +76,14 @@ export async function highlightCode(code: string, lang: string): Promise<string 
   }
 }
 
+/** The dual-theme options every highlight in the transcript shares. */
+export const HIGHLIGHT_THEME_OPTIONS = { themes: THEMES, defaultColor: defaultColor() }
+
+/** The warmed highlighter when it already holds `lang`; null until it does. */
+export function warmHighlighter(lang: string): Highlighter | null {
+  return warm !== null && warmLanguages.has(lang) ? warm : null
+}
+
 /**
  * Highlights without yielding, for code that is still being written: waiting a
  * tick would paint each flush plain before its colors arrive. Answers from the
