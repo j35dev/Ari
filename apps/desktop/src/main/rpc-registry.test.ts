@@ -37,6 +37,32 @@ describe('RpcRegistry', () => {
     expect(sent.map((f) => f.id).sort()).toEqual(['a', 'b'])
   })
 
+  it('narrows a publish to the subscribers whose params accept it', () => {
+    const { registry, sent } = makeRegistry()
+    registry.subscribe({ id: 'pane-1', name: 'session.events', params: { sessionId: 's1' } })
+    registry.subscribe({ id: 'pane-2', name: 'session.events', params: { sessionId: 's2' } })
+    registry.subscribe({ id: 'shell', name: 'session.events', params: {} })
+
+    registry.publish('session.events', { seq: 1 }, (params) => {
+      const wanted = params['sessionId']
+      return typeof wanted !== 'string' || wanted === 's1'
+    })
+    expect(sent.map((f) => f.id).sort()).toEqual(['pane-1', 'shell'])
+  })
+
+  it('delivers to one subscriber, and to nobody once it has left', () => {
+    const { registry, sent } = makeRegistry()
+    registry.subscribe({ id: 'a', name: 'session.events', params: { sessionId: 's1' } })
+    registry.subscribe({ id: 'b', name: 'session.events', params: { sessionId: 's1' } })
+
+    registry.sendTo('a', { replay: true })
+    expect(sent).toEqual([{ id: 'a', name: 'session.events', payload: { replay: true } }])
+
+    registry.unsubscribe('a')
+    registry.sendTo('a', { replay: true })
+    expect(sent).toHaveLength(1)
+  })
+
   it('keeps publishing after one subscriber throws', () => {
     const sent: StreamFrame[] = []
     let calls = 0

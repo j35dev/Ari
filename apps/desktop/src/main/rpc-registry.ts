@@ -72,15 +72,34 @@ export class RpcRegistry {
     return count
   }
 
-  /** Publishes to every subscriber of that stream. */
-  publish<P>(name: StreamName, payload: P): void {
+  /**
+   * Publishes to every subscriber of that stream — or, with `accepts`, to the
+   * ones whose subscription params say the frame is theirs.
+   */
+  publish<P>(
+    name: StreamName,
+    payload: P,
+    accepts?: (params: Record<string, unknown>) => boolean,
+  ): void {
     for (const sub of this.#subscribers.values()) {
       if (sub.name !== name) continue
+      if (accepts !== undefined && !accepts(sub.params)) continue
       try {
         this.#deps.send({ id: sub.id, name, payload })
       } catch {
         // One dead renderer must not starve the rest or back-pressure journals.
       }
+    }
+  }
+
+  /** Delivers to one subscriber; a no-op once it has unsubscribed. */
+  sendTo<P>(id: string, payload: P): void {
+    const sub = this.#subscribers.get(id)
+    if (sub === undefined) return
+    try {
+      this.#deps.send({ id: sub.id, name: sub.name, payload })
+    } catch {
+      // A dead renderer is not the caller's problem.
     }
   }
 }
