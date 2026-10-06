@@ -697,7 +697,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const runningTurns = new RunningTurnCounter()
   const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
     const payload: SessionEventFrame = { sessionId, event }
-    rpcRegistry.publish('session.events', payload)
+    // A pane subscribes to one session; the shell's feeds name none and get
+    // them all. Without the filter every pane received every running
+    // session's deltas only to drop them.
+    rpcRegistry.publish('session.events', payload, (params) => {
+      const wanted = params['sessionId']
+      return typeof wanted !== 'string' || wanted === sessionId
+    })
     if (options.onRunningCount && runningTurns.push(event)) {
       options.onRunningCount(runningTurns.count)
     }
@@ -2021,14 +2027,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         void engine
           .replaySession(sessionId)
           .then((events) => {
-            for (const event of events) {
-              rpcRegistry.publish('session.events', {
-                sessionId,
-                event,
-                replay: true,
-              } satisfies SessionEventFrame)
-            }
-            rpcRegistry.publish('session.events', {
+            rpcRegistry.sendTo(params.id, {
+              sessionId,
+              events,
+              replay: true,
+            } satisfies SessionEventFrame)
+            rpcRegistry.sendTo(params.id, {
               sessionId,
               replayDone: true,
             } satisfies SessionEventFrame)

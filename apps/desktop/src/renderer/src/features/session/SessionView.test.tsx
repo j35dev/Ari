@@ -1128,16 +1128,18 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     })
 
     // Replay burst arrives afterwards, covering seq 1-2 again, then the sentinel.
-    emitFrame({ event: userMessage(1, 'who are you'), replay: true })
+    emitFrame({ events: [userMessage(1, 'who are you')], replay: true })
     emitFrame({
-      event: {
-        seq: 2,
-        at: 2,
-        sessionId: 'sess_1',
-        type: 'assistant.parts.appended',
-        messageId: 'm2',
-        parts: [{ type: 'text', text: 'I am the agent.' }],
-      },
+      events: [
+        {
+          seq: 2,
+          at: 2,
+          sessionId: 'sess_1',
+          type: 'assistant.parts.appended',
+          messageId: 'm2',
+          parts: [{ type: 'text', text: 'I am the agent.' }],
+        },
+      ],
       replay: true,
     })
     emitFrame({ replayDone: true })
@@ -1154,7 +1156,7 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
 
     // Live seq 2 lands before the replayed seq 1.
     emitFrame({ event: userMessage(2, 'second') })
-    emitFrame({ event: userMessage(1, 'first'), replay: true })
+    emitFrame({ events: [userMessage(1, 'first')], replay: true })
     emitFrame({ replayDone: true })
 
     const first = await screen.findByText('first')
@@ -2069,12 +2071,17 @@ describe('SessionView settle sound', () => {
     vi.clearAllMocks()
   })
 
+  /** A live frame carries one event; a replay frame carries the burst. */
+  function frameOf(replay: boolean, event: Record<string, unknown>): Record<string, unknown> {
+    return replay
+      ? { sessionId: 'sess_1', replay: true, events: [event] }
+      : { sessionId: 'sess_1', event }
+  }
+
   function emitSettle(stopReason: string, replay = false): void {
     act(() => {
-      sessionListener?.({
-        sessionId: 'sess_1',
-        replay,
-        event: {
+      sessionListener?.(
+        frameOf(replay, {
           seq: replay ? 1 : 100,
           at: 1,
           sessionId: 'sess_1',
@@ -2082,17 +2089,15 @@ describe('SessionView settle sound', () => {
           turnId: replay ? 'turn_r' : 'turn_l',
           stopReason,
           errorMessage: stopReason === 'error' ? 'boom' : null,
-        },
-      })
+        }),
+      )
     })
   }
 
   function emitApproval(replay = false): void {
     act(() => {
-      sessionListener?.({
-        sessionId: 'sess_1',
-        replay,
-        event: {
+      sessionListener?.(
+        frameOf(replay, {
           seq: replay ? 2 : 101,
           at: 2,
           sessionId: 'sess_1',
@@ -2101,17 +2106,15 @@ describe('SessionView settle sound', () => {
           toolName: 'bash',
           summaryJson: '{}',
           options: [{ optionId: 'accept', name: 'Allow once', kind: 'allow_once' }],
-        },
-      })
+        }),
+      )
     })
   }
 
   function emitQuestion(replay = false): void {
     act(() => {
-      sessionListener?.({
-        sessionId: 'sess_1',
-        replay,
-        event: {
+      sessionListener?.(
+        frameOf(replay, {
           seq: replay ? 3 : 102,
           at: 3,
           sessionId: 'sess_1',
@@ -2119,8 +2122,8 @@ describe('SessionView settle sound', () => {
           inputId: replay ? 'q_r' : 'q_l',
           prompt: 'Which branch?',
           choicesJson: null,
-        },
-      })
+        }),
+      )
     })
   }
 
