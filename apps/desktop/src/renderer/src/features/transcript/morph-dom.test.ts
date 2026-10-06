@@ -43,7 +43,9 @@ describe('morphNode', () => {
     const lines = Array.from(current.children)
     morphNode(
       current,
-      node('<code><span class="line">a</span>\n<span class="line">b</span>\n<span class="line">c</span></code>'),
+      node(
+        '<code><span class="line">a</span>\n<span class="line">b</span>\n<span class="line">c</span></code>',
+      ),
     )
     expect(Array.from(current.children).slice(0, 2)).toEqual(lines)
     expect(current.children).toHaveLength(3)

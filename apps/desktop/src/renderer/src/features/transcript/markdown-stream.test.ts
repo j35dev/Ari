@@ -47,7 +47,11 @@ const REPLY = [
 describe('createMarkdownStream', () => {
   it('yields one HTML string per top-level block', () => {
     const blocks = createMarkdownStream().render('# Title\n\npara\n\n- a\n- b')
-    expect(blocks.map(flat)).toEqual(['<h1>Title</h1>', '<p>para</p>', '<ul><li>a</li><li>b</li></ul>'])
+    expect(blocks.map(flat)).toEqual([
+      '<h1>Title</h1>',
+      '<p>para</p>',
+      '<ul><li>a</li><li>b</li></ul>',
+    ])
   })
 
   it('matches a single pass over the source at every point of a stream', () => {
