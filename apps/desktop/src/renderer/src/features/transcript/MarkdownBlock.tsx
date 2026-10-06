@@ -1,4 +1,5 @@
 import { memo, useLayoutEffect, useRef } from 'react'
+import { createCodeStream, type CodeStream } from './code-stream'
 import { highlightCode, highlightCodeSync, shikiInner } from './highlight'
 import { createMarkdownStream, type MarkdownStream } from './markdown-stream'
 import { morphNode } from './morph-dom'
@@ -12,6 +13,7 @@ const LIVE_HIGHLIGHT_MAX_CHARS = 20_000
 const SETTLE_HIGHLIGHT_MS = 300
 
 const settleTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>()
+const codeStreams = new WeakMap<Element, CodeStream>()
 
 function codeElements(node: Node): HTMLElement[] {
   if (!(node instanceof Element)) return []
@@ -60,6 +62,39 @@ function highlightLater(block: Node, live: boolean): void {
     if (live && oversized) settleTimers.set(code, setTimeout(run, SETTLE_HIGHLIGHT_MS))
     else run()
   }
+}
+
+/** The `<code>` of a top-level fenced block — the shape long streamed code takes. */
+function fencedCode(block: Node): HTMLElement | null {
+  if (!(block instanceof HTMLPreElement) || block.childNodes.length !== 1) return null
+  const code = block.firstElementChild
+  return code instanceof HTMLElement && code.tagName === 'CODE' ? code : null
+}
+
+/**
+ * Grows a fenced block that is being written by its new lines alone (see
+ * `createCodeStream`), leaving every finished line's elements in place. False
+ * when the block is not that shape or cannot be highlighted yet, and the
+ * caller falls back to morphing it whole.
+ */
+function streamFence(current: Node, fresh: Node): boolean {
+  const live = fencedCode(current)
+  const next = fencedCode(fresh)
+  if (live === null || next === null || live.className !== next.className) return false
+  const lang = languageOf(next)
+  if (lang === null) return false
+  const stream = codeStreams.get(live) ?? createCodeStream(lang)
+  const patch = stream.advance(next.textContent ?? '')
+  if (patch === null) {
+    codeStreams.delete(live)
+    return false
+  }
+  codeStreams.set(live, stream)
+  clearTimeout(settleTimers.get(live))
+  while (live.childNodes.length > patch.keep * 2) live.lastChild?.remove()
+  live.insertAdjacentHTML('beforeend', patch.html)
+  live.dataset['highlighted'] = ''
+  return true
 }
 
 /** The single node a block's HTML describes. */
@@ -112,6 +147,7 @@ export const MarkdownBlock = memo(function MarkdownBlock({
       const current = root.childNodes[index]
       if (current !== undefined && shown[index] === html) return
       const fresh = parseBlock(html)
+      if (live && current !== undefined && streamFence(current, fresh)) return
       highlightNow(fresh, live)
       if (current === undefined) root.appendChild(fresh)
       else if (!morphNode(current, fresh)) root.replaceChild(fresh, current)
