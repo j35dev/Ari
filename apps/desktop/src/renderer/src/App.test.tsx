@@ -1226,6 +1226,65 @@ describe('Shell live sidebar feed', () => {
     )
   })
 
+  describe('with Full access as the default permission mode', () => {
+    beforeEach(() => {
+      const base = invokeMock.getMockImplementation()
+      invokeMock.mockImplementation(async (method, params) => {
+        if (method === 'settings.get')
+          return settingsSchema.parse({ version: 1, sessions: { defaultPermissionMode: 'full' } })
+        if (method === 'command.dispatch') return { accepted: true }
+        return base?.(method, params)
+      })
+    })
+
+    /** Several hooks load settings; every one of them must have landed. */
+    const settingsLoaded = async (): Promise<void> => {
+      await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledWith('settings.get'))
+      await act(async () => {
+        await Promise.allSettled(
+          invokeMock.mock.results.map((result) => result.value as Promise<unknown>),
+        )
+      })
+    }
+
+    const startSessionInAri = async (): Promise<void> => {
+      fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
+      const menu = await screen.findByRole('menu', { name: 'New session in project' })
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
+    }
+
+    it('creates new sessions in that mode', async () => {
+      listCalls = 1 // skip the pristine row so the click has to create
+      render(<App />)
+      await vi.waitFor(() => expect(screen.getByText('Fixed the build')).toBeInTheDocument())
+      await settingsLoaded()
+
+      await startSessionInAri()
+
+      await vi.waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith(
+          'session.create',
+          expect.objectContaining({ projectId: 'proj-ari', permissionMode: 'full' }),
+        ),
+      )
+    })
+
+    it('moves a reused empty session onto that mode before opening it', async () => {
+      render(<App />)
+      await vi.waitFor(() => expect(screen.getAllByText('New session')).not.toHaveLength(0))
+      await settingsLoaded()
+
+      await startSessionInAri()
+
+      await vi.waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+          command: { type: 'session.update', sessionId: 'sess-alpha', permissionMode: 'full' },
+        }),
+      )
+      expect(invokeMock).not.toHaveBeenCalledWith('session.create', expect.anything())
+    })
+  })
+
   it('does not refetch on streaming deltas', async () => {
     render(<App />)
     await vi.waitFor(() => expect(sessionFeedHandlers()).not.toHaveLength(0))
