@@ -260,6 +260,10 @@ export function SessionView({
   const { settings: engineSettings } = useEngineSettings()
   const settleSoundRef = useRef(true)
   settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
+  const defaultsRef = useRef(defaults)
+  defaultsRef.current = defaults
+  const onDefaultsChangeRef = useRef(onDefaultsChange)
+  onDefaultsChangeRef.current = onDefaultsChange
 
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
   // Model catalogs feed the context-window meter's denominator.
@@ -502,6 +506,16 @@ export function SessionView({
         break
       case 'approval.responded':
         setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
+        break
+      case 'session.updated':
+        // An always-allow answer widens the mode from the engine side. Live
+        // only: `session.load` already seeds the chip with the replayed value.
+        if (live && event.permissionMode !== undefined) {
+          onDefaultsChangeRef.current({
+            ...defaultsRef.current,
+            permissionMode: event.permissionMode,
+          })
+        }
         break
       case 'usage.recorded':
         setTelemetry((t) => ({

@@ -928,6 +928,118 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('stops asking for the rest of the turn once the user picks an always-allow option', async () => {
+    const child = fakeChild()
+    const request = (id: number, toolCallId: string, kind: string): void => {
+      child.stdout.write(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          method: 'session/request_permission',
+          params: {
+            sessionId: 'sess_acp_1',
+            toolCall: { toolCallId, title: `Tool ${toolCallId}`, kind },
+            options: [
+              { optionId: 'reject', name: 'Deny', kind: 'reject_once' },
+              { optionId: 'allow', name: 'Allow Once', kind: 'allow_once' },
+              { optionId: 'allow_always', name: 'Always Allow', kind: 'allow_always' },
+            ],
+          },
+        })}\n`,
+      )
+    }
+    const onReply = (id: number, then: () => void): void => {
+      const timer = setInterval(() => {
+        if (!child.sent.some((m) => m['id'] === id && m['method'] === undefined)) return
+        clearInterval(timer)
+        then()
+      }, 5)
+    }
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        request(9010, 't1', 'execute')
+        // The agent only grants the one tool it asked about, so it asks again
+        // for the next: that second request is the one that must not park.
+        onReply(9010, () => request(9011, 't2', 'fetch'))
+        onReply(9011, () => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        })
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    const events: AgentEvent[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      events.push(next.value)
+      if (next.value.type === 'approval-requested') {
+        adapter.respondApproval(next.value.approvalId, { optionId: 'allow_always' })
+      }
+    }
+    expect(events.filter((event) => event.type === 'approval-requested')).toHaveLength(1)
+    // The session itself has to follow, or the next turn's fresh agent process
+    // starts back in the mode that asks.
+    expect(events).toContainEqual({ type: 'permission-mode', mode: 'full' })
+    const second = child.sent.find((m) => m['id'] === 9011 && m['method'] === undefined)
+    expect(second).toMatchObject({
+      result: { outcome: { outcome: 'selected', optionId: 'allow' } },
+    })
+    await adapter.dispose()
+  }, 15000)
+
+  it('does not widen the session when an always-allow option only switches the agent mode', async () => {
+    const child = fakeChild()
+    script(child, (method, _params, id) => {
+      if (method === 'session/prompt') {
+        child.stdout.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9012,
+            method: 'session/request_permission',
+            params: {
+              sessionId: 'sess_acp_1',
+              toolCall: { toolCallId: 't1', title: 'Ready to code?', kind: 'switch_mode' },
+              // Claude's plan exit: the persistent kind names a mode to leave
+              // plan for, not a grant covering every later tool.
+              options: [
+                { optionId: 'acceptEdits', name: 'Yes, and auto-accept edits', kind: 'allow_always' },
+                { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' },
+                { optionId: 'plan', name: 'No, keep planning', kind: 'reject_once' },
+              ],
+            },
+          })}\n`,
+        )
+        setTimeout(() => {
+          child.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } })}\n`,
+          )
+        }, 40)
+        return undefined
+      }
+      return standardAgent()(method, _params, id)
+    })
+
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const iterator = adapter.start()[Symbol.asyncIterator]()
+    const types: string[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      types.push(next.value.type)
+      if (next.value.type === 'approval-requested') {
+        adapter.respondApproval(next.value.approvalId, { optionId: 'acceptEdits' })
+      }
+    }
+    expect(types).not.toContain('permission-mode')
+    await adapter.dispose()
+  }, 15000)
+
   it('auto-approves only file mutations in allow-edits mode', async () => {
     const child = fakeChild()
     const requests = [
