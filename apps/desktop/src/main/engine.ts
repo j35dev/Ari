@@ -727,6 +727,9 @@ export class Engine {
             // it instead of re-prompting cold.
             await append({ type: 'session.ref.observed', ref: event.ref })
             break
+          case 'permission-mode':
+            await append({ type: 'session.updated', permissionMode: event.mode })
+            break
           case 'notice':
             // Shown, but deliberately not recorded as `firstErrorMessage`:
             // the turn is answering, just not with what the user picked.
