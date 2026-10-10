@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { GitBranch } from 'lucide-react'
+import { CornerLeftUp, GitBranch } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
 
@@ -17,7 +17,16 @@ export const BRANCH_POLL_MS = 10_000
  * exists and reserves its own row, so the pill never overlays scrolling
  * checkpoints; outside repos it stays hidden.
  */
-export function SessionBranchChip({ sessionId }: { sessionId: string | null }) {
+export function SessionBranchChip({
+  sessionId,
+  parentSession = null,
+  onOpenSession,
+}: {
+  sessionId: string | null
+  /** The session that delegated to this one; shown as a way back to it. */
+  parentSession?: { id: string; title: string } | null
+  onOpenSession?: (id: string) => void
+}) {
   const [branch, setBranch] = useState<string | null>(null)
   const missesRef = useRef(0)
 
@@ -53,16 +62,30 @@ export function SessionBranchChip({ sessionId }: { sessionId: string | null }) {
     }
   }, [sessionId])
 
-  if (branch === null) return null
+  if (branch === null && parentSession === null) return null
   return (
-    <div className="flex h-7 shrink-0 items-center justify-end gap-2 px-3">
-      <span
-        className="flex h-6 items-center gap-1.5 rounded-full border border-border/80 bg-surface-1/90 px-2.5 font-mono text-2xs text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:text-fg"
-        title="Active branch"
-      >
-        <GitBranch size={11} className="text-accent" aria-hidden="true" />
-        <span className="max-w-40 truncate font-semibold">{branch}</span>
-      </span>
+    <div className="flex h-7 shrink-0 items-center gap-2 px-3">
+      {parentSession !== null ? (
+        <button
+          type="button"
+          onClick={() => onOpenSession?.(parentSession.id)}
+          aria-label={`Open parent session: ${parentSession.title}`}
+          title={parentSession.title}
+          className="flex h-6 min-w-0 items-center gap-1.5 rounded-full px-2 text-2xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <CornerLeftUp size={11} className="shrink-0 text-accent" aria-hidden="true" />
+          <span className="max-w-56 truncate">{parentSession.title}</span>
+        </button>
+      ) : null}
+      {branch !== null ? (
+        <span
+          className="ml-auto flex h-6 items-center gap-1.5 rounded-full border border-border/80 bg-surface-1/90 px-2.5 font-mono text-2xs text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:text-fg"
+          title="Active branch"
+        >
+          <GitBranch size={11} className="text-accent" aria-hidden="true" />
+          <span className="max-w-40 truncate font-semibold">{branch}</span>
+        </span>
+      ) : null}
     </div>
   )
 }

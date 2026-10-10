@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
+import { delegatedChildren, type SpawnRecord } from './delegation-view'
 import type { SessionActivity } from './session-activity'
+import type { ChildTask } from '@ari/contracts/agent-control'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
@@ -205,6 +207,8 @@ export function SessionView({
   onOpenSession,
   childSessions = [],
   activityOf,
+  sessionTitle,
+  parentSession = null,
 }: {
   sessionId: string
   defaults: SessionDefaults
@@ -212,6 +216,10 @@ export function SessionView({
   onOpenSession?: (id: string) => void
   childSessions?: SessionSummary[]
   activityOf?: (id: string) => SessionActivity | undefined
+  /** Current title of any session, for naming the sender of a relayed message. */
+  sessionTitle?: (id: string) => string | undefined
+  /** The session that delegated to this one, when it is a child. */
+  parentSession?: { id: string; title: string } | null
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
@@ -252,6 +260,13 @@ export function SessionView({
   // Mirrors the engine fold's activeTurnId so locally synthesized assistant
   // messages carry their turn id (drives per-turn diff card placement).
   const activeTurnIdRef = useRef<string | null>(null)
+  // Delegated children: where each was spawned in this transcript, and the
+  // latest snapshot of how each is doing. The ref tracks the newest message
+  // part in journal order so a spawn can be anchored without reading state.
+  const [spawns, setSpawns] = useState<SpawnRecord[]>([])
+  const [tasks, setTasks] = useState<ChildTask[]>([])
+  const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
+  const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
   notifySettledRef.current = notifySettledTurn
@@ -293,8 +308,27 @@ export function SessionView({
     setTurnError(null)
     setTelemetry(EMPTY_TELEMETRY)
     setTurnDiffs({})
+    setSpawns([])
+    setTasks([])
+    lastPartRef.current = null
     fetchedTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
+
+    // Task snapshots trail the journal: a burst of child events (replay, or
+    // siblings settling together) coalesces into one fetch.
+    let tasksTimer: ReturnType<typeof setTimeout> | null = null
+    refreshTasksRef.current = () => {
+      if (tasksTimer !== null) return
+      tasksTimer = setTimeout(() => {
+        tasksTimer = null
+        void rpc
+          .invoke('session.tasks', { sessionId })
+          .then((next) => {
+            if (!cancelled) setTasks(next)
+          })
+          .catch(() => undefined)
+      }, 200)
+    }
 
     appliedSeqsRef.current = new Set()
     replayDoneRef.current = false
@@ -380,25 +414,58 @@ export function SessionView({
 
     return () => {
       cancelled = true
+      if (tasksTimer !== null) clearTimeout(tasksTimer)
+      refreshTasksRef.current = () => {}
       unsubscribe()
     }
   }, [sessionId])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
-      case 'child.session.spawned':
-      case 'child.session.settled':
-      case 'child.session.integrated':
-      case 'child.session.stopped':
+      case 'child.session.spawned': {
+        // The card sits where the spawn happened: after whatever part of the
+        // conversation was last on screen when this event was journaled.
+        const anchor = lastPartRef.current
+        const record: SpawnRecord = {
+          sessionId: event.childSessionId,
+          title: event.title,
+          role: event.role ?? null,
+          driverKind: event.driverKind,
+          modelId: event.modelId,
+          anchor: { messageId: anchor?.messageId ?? null, partIndex: (anchor?.parts ?? 1) - 1 },
+          destroyed: false,
+        }
+        setSpawns((prev) =>
+          prev.some((spawn) => spawn.sessionId === record.sessionId) ? prev : [...prev, record],
+        )
+        refreshTasksRef.current()
+        break
+      }
       case 'child.session.destroyed':
-        // Child lifecycle stays out of the transcript: the composer rail and
-        // sidebar already surface child activity, and orchestration summaries
-        // belong to the agent's own reply.
+        setSpawns((prev) =>
+          prev.map((spawn) =>
+            spawn.sessionId === event.childSessionId ? { ...spawn, destroyed: true } : spawn,
+          ),
+        )
+        break
+      case 'child.session.settled':
+      case 'child.session.stopped':
+        refreshTasksRef.current()
+        break
+      case 'child.session.integrated':
+      case 'child.session.acknowledged':
         break
       case 'user.message.added':
+        lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
         setMessages((prev) => [...prev, event.message])
         break
       case 'assistant.parts.appended':
+        lastPartRef.current = {
+          messageId: event.messageId,
+          parts:
+            (lastPartRef.current?.messageId === event.messageId ? lastPartRef.current.parts : 0) +
+            event.parts.length,
+        }
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === event.messageId)
           if (existing) {
@@ -694,6 +761,9 @@ export function SessionView({
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
       if (!m || m.role !== 'user') continue
+      // A turn another session or Ari itself started is not the user's to
+      // resend: it would go back out as if they had typed it.
+      if (m.origin && m.origin.kind !== 'human') return null
       const text = m.parts
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
@@ -835,6 +905,11 @@ export function SessionView({
     [sessionId, onDefaultsChange, defaults],
   )
 
+  const delegations = useMemo(
+    () => delegatedChildren(spawns, tasks, activityOf),
+    [spawns, tasks, activityOf],
+  )
+
   const pendingPlan =
     pendingQuestion === null
       ? null
@@ -872,7 +947,11 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <SessionBranchChip sessionId={sessionId} />
+        <SessionBranchChip
+          sessionId={sessionId}
+          parentSession={parentSession}
+          onOpenSession={onOpenSession}
+        />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <TranscriptView
             sessionId={sessionId}
@@ -886,6 +965,9 @@ export function SessionView({
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
+            delegations={delegations}
+            sessionTitle={sessionTitle}
+            onOpenSession={onOpenSession}
           />
         </div>
         <div
