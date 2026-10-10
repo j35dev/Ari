@@ -1588,6 +1588,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('browser.cancelPick', async (params) => ({
     cancelled: await browsers.cancelPick(params.id),
   }))
+  r.register('browser.capture', async (params) => {
+    const png = await browsers.screenshot(params.id)
+    return { pngBase64: png ? png.toString('base64') : null }
+  })
 
   r.register('project.list', async () => getProjectStore().load())
 
