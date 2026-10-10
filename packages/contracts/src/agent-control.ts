@@ -22,6 +22,11 @@ export const delegationSettingsSchema = z.object({
   autoDeliverResults: z.boolean().default(true),
   /** Stopping a session also stops the children it delegated to. */
   cascadeStop: z.boolean().default(true),
+  /**
+   * Run Ari's own read-only and delegation commands without a permission
+   * prompt each time. Integrating and destroying still ask.
+   */
+  autoApproveCli: z.boolean().default(true),
 })
 export type DelegationSettings = z.infer<typeof delegationSettingsSchema>
 
