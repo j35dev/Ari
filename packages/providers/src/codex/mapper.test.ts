@@ -42,6 +42,19 @@ describe('codex mapper', () => {
     }
   })
 
+  it('carries the cached share of the input a turn read', () => {
+    const [usage] = mapCodexLine(
+      '{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}',
+    )
+    expect(usage).toEqual({
+      type: 'usage',
+      inputTokens: 24763,
+      outputTokens: 122,
+      cachedInputTokens: 24448,
+      costUsd: null,
+    })
+  })
+
   it('maps the recorded quota-failure fixture to error + done, skipping reconnect noise', () => {
     const events = mapCodexStream(fixture('error-quota.jsonl'))
     const errors = events.filter((e) => e.type === 'error')
