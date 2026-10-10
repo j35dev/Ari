@@ -139,3 +139,15 @@ it('offers to copy a reply that has words, and not one that is only steps', () =
   ])
   expect(screen.getAllByRole('button', { name: 'Copy reply' })).toHaveLength(1)
 })
+
+it('labels a message Ari or another session sent so it is not read as typed here', () => {
+  show([
+    { ...message('user', [text('Use SettingsStore.')]), origin: { kind: 'session', sessionId: 'p' } },
+    {
+      ...message('user', [text('Child session "Parser" finished its turn.')]),
+      origin: { kind: 'completion', sessionIds: ['c'] },
+    },
+  ])
+  expect(screen.getByText('From a linked session')).toBeTruthy()
+  expect(screen.getByText('Delegation update from Ari')).toBeTruthy()
+})
