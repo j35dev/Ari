@@ -24,16 +24,11 @@ export function pendingCompletions(parent: SessionReadModel): PendingCompletion[
 }
 
 /**
- * Classifies a child. `liveDescendants` counts sessions below it that are
- * still mid-turn; `running` covers a provider that is still disposing after a
- * durable settle.
+ * Classifies a child from its journal alone. `liveDescendants` counts sessions
+ * below it that are still mid-turn.
  */
-export function childWorkState(
-  model: SessionReadModel,
-  liveDescendants = 0,
-  running = false,
-): ChildWorkState {
-  if (model.activeTurnId !== null || running) {
+export function childWorkState(model: SessionReadModel, liveDescendants = 0): ChildWorkState {
+  if (model.activeTurnId !== null) {
     return model.pendingApprovals.length > 0 || model.pendingInputs.length > 0
       ? 'blocked_on_user'
       : 'working'
@@ -41,7 +36,10 @@ export function childWorkState(
   if (model.lastTurn === undefined) return 'not_started'
   // A queue behind a clean settle is about to run; behind a stop it is held.
   if (model.queuedMessages.length > 0 && model.lastTurn.stopReason === 'completed') return 'working'
-  if (liveDescendants > 0 || pendingCompletions(model).length > 0) return 'waiting_for_children'
+  // A result of its own children that it has yet to be woken with is still
+  // work in progress; one it was stopped out of hearing is not.
+  const owed = pendingCompletions(model).some((entry) => entry.stopReason !== 'interrupted')
+  if (liveDescendants > 0 || owed) return 'waiting_for_children'
   return 'result_available'
 }
 

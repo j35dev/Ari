@@ -51,6 +51,20 @@ it('ignores a stale acknowledgment once a newer turn has settled', () => {
   expect(pendingCompletions(model)).toMatchObject([{ childSessionId: 'a', turnId: 't2' }])
 })
 
+it('keeps an undelivered result when the child is prompted again and then stopped', () => {
+  const model = projectEvents([settled('a', 't1'), settled('a', 't2', 'interrupted')])
+  expect(pendingCompletions(model)).toMatchObject([
+    { childSessionId: 'a', turnId: 't1', stopReason: 'completed' },
+  ])
+  // Once the earlier result has been seen, a later stop is recorded as usual.
+  const seen = projectEvents([
+    settled('a', 't1'),
+    acknowledged('a', 't1'),
+    settled('a', 't2', 'interrupted'),
+  ])
+  expect(pendingCompletions(seen)).toMatchObject([{ turnId: 't2', stopReason: 'interrupted' }])
+})
+
 it('drops a destroyed child and keeps only the latest turn per child', () => {
   const model = projectEvents([
     settled('a', 't1'),
@@ -110,7 +124,6 @@ it('classifies a child by turn, prompts, queue and descendants', () => {
   ).toBe('blocked_on_user')
   expect(childWorkState(idle)).toBe('result_available')
   expect(childWorkState(idle, 1)).toBe('waiting_for_children')
-  expect(childWorkState(idle, 0, true)).toBe('working')
   expect(childWorkState({ ...idle, queuedMessages: [{ text: 'next', attachments: [] }] })).toBe(
     'working',
   )

@@ -293,6 +293,16 @@ function foldCompletion(
   const current = completions[event.childSessionId]
   switch (event.type) {
     case 'child.session.settled':
+      // A stop does not erase a result the parent has not seen yet: a child
+      // prompted again and then interrupted still owes its earlier report.
+      if (
+        event.stopReason === 'interrupted' &&
+        current !== undefined &&
+        !current.acknowledged &&
+        current.turnId !== event.turnId &&
+        (current.stopReason === 'completed' || current.stopReason === 'error')
+      )
+        return completions
       return {
         ...completions,
         [event.childSessionId]: {
