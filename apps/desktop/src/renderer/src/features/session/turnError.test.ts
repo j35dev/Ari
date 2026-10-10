@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyTurnError } from './turnError'
+import { classifyTurnError, THROTTLED_TITLE } from './turnError'
 
 describe('classifyTurnError', () => {
   it('recognises auth failures with a login hint', () => {
@@ -29,6 +29,7 @@ describe('classifyTurnError', () => {
   it('recognises rate limits and quota', () => {
     expect(classifyTurnError('429 too many requests').title).toBe('Provider is throttling')
     expect(classifyTurnError('insufficient credits').title).toBe('Provider is throttling')
+    expect(classifyTurnError('Claude usage limit reached').title).toBe(THROTTLED_TITLE)
   })
 
   it('recognises an over-long conversation ahead of the transport families', () => {

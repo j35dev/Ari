@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
+import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
 import type { ChildTask } from '@ari/contracts/agent-control'
 import { Check, ChevronDown, X } from 'lucide-react'
@@ -910,6 +911,8 @@ export function SessionView({
     [spawns, tasks, activityOf],
   )
 
+  const turnResume = useTurnResume(sessionId, turnError, defaults.driverKind)
+
   // What the composer's ArrowUp recalls: prompts typed here, not messages
   // another session or Ari put into this conversation.
   const sentPrompts = useMemo(
@@ -1026,6 +1029,7 @@ export function SessionView({
             retryDisabled={running}
             onRetry={resendLastPrompt}
             onDismiss={() => setTurnError(null)}
+            resume={turnResume}
           />
         ) : null}
         <ElementChips picks={elementPicks} />

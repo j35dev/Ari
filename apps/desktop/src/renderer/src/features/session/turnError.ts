@@ -13,6 +13,9 @@ export interface TurnErrorView {
   hint: string | null
 }
 
+/** The family a usage or rate limit lands in; the banner offers to resume these at reset. */
+export const THROTTLED_TITLE = 'Provider is throttling'
+
 /** Ordered families — the first match wins. */
 const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
   [
@@ -43,8 +46,8 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, string, string]> = [
     'Run the agent’s login flow once in a terminal, then retry.',
   ],
   [
-    /rate limit|429|quota|billing|credit|too many requests|overloaded|capacity|529/i,
-    'Provider is throttling',
+    /rate limit|429|quota|billing|credit|too many requests|overloaded|capacity|529|usage limit/i,
+    THROTTLED_TITLE,
     'The provider is rate-limiting or out of quota — wait a moment or check your plan’s billing, then retry.',
   ],
   [

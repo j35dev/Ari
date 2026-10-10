@@ -43,6 +43,7 @@ import { writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
+import { ResumeSchedule } from './resume-schedule'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
@@ -805,7 +806,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   )
   void controlReady.catch(() => log.error('Agent control runtime failed to start'))
+  // Sessions the user asked to continue once a usage window reopens.
+  const resumeSchedule = new ResumeSchedule({
+    path: join(app.getPath('userData'), 'resume-schedule.json'),
+    store: getSessionStore(),
+    dispatch: (command) => engine.dispatch(command),
+  })
+  const resumeReady = resumeSchedule.load().then(() => resumeSchedule.start())
   app.once('before-quit', () => {
+    resumeSchedule.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
 
@@ -1205,6 +1214,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.tasks', async ({ sessionId }) =>
     (await controlReady).service.tasks(sessionId),
   )
+
+  r.register('session.resume.schedule', async ({ sessionId, at }) => {
+    await resumeReady
+    return { at: (await resumeSchedule.schedule(sessionId, at)).at }
+  })
+  r.register('session.resume.cancel', async ({ sessionId }) => {
+    await resumeReady
+    return { cancelled: await resumeSchedule.cancel(sessionId) }
+  })
+  r.register('session.resume.get', async ({ sessionId }) => {
+    await resumeReady
+    return { at: resumeSchedule.get(sessionId) }
+  })
 
   r.register('session.destroy', async (params) => {
     const store = getSessionStore()
