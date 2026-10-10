@@ -90,18 +90,38 @@ describe('SessionNotifier', () => {
 
   it('stays quiet while Ari is focused or the setting is off', async () => {
     focused = true
-    notifier.observe('root', settled('completed'))
+    await notifier.observe('root', settled('completed'))
     focused = false
     enabled = false
-    notifier.observe('root', settled('completed'))
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await notifier.observe('root', settled('completed'))
     expect(shown).toEqual([])
+  })
+
+  it('never throws or rejects into the event flow, whatever the window or the OS does', async () => {
+    const gone = new SessionNotifier({
+      store,
+      enabled: () => true,
+      focused: () => {
+        throw new Error('Object has been destroyed')
+      },
+      show: () => undefined,
+    })
+    await expect(gone.observe('root', settled('completed'))).resolves.toBeUndefined()
+
+    const failing = new SessionNotifier({
+      store,
+      enabled: () => true,
+      focused: () => false,
+      show: () => {
+        throw new Error('notifications are unavailable')
+      },
+    })
+    await expect(failing.observe('root', settled('completed'))).resolves.toBeUndefined()
   })
 
   it('holds the finished notice while a child is still working, then sends it', async () => {
     await store.append('child', { type: 'turn.started', turnId: 'c1' })
-    notifier.observe('root', settled('completed'))
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await notifier.observe('root', settled('completed'))
     expect(shown).toEqual([])
 
     await store.append('child', {
@@ -110,8 +130,8 @@ describe('SessionNotifier', () => {
       stopReason: 'completed',
       errorMessage: null,
     })
-    notifier.observe('root', settled('completed'))
-    await expect.poll(() => shown).toEqual([
+    await notifier.observe('root', settled('completed'))
+    expect(shown).toEqual([
       { sessionId: 'root', notice: { title: 'Ship settings finished', body: 'The turn is complete.' } },
     ])
   })

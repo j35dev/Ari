@@ -38,6 +38,15 @@ it('expands live children in the composer cap and navigates on click', async () 
   expect(open).toHaveBeenCalledWith('b')
 })
 
+it('offers to stop all delegated work only when the caller says there is some', async () => {
+  const stop = vi.fn()
+  const { rerender } = render(<ChildSessionActivity sessions={[child('a', 'Audit A')]} />)
+  expect(screen.queryByRole('button', { name: 'Stop all' })).not.toBeInTheDocument()
+  rerender(<ChildSessionActivity sessions={[child('a', 'Audit A')]} onStopAll={stop} />)
+  await userEvent.click(screen.getByRole('button', { name: 'Stop all' }))
+  expect(stop).toHaveBeenCalledOnce()
+})
+
 it('says which child is waiting on the user and opens it in one press', async () => {
   const open = vi.fn()
   render(

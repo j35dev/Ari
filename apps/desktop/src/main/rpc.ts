@@ -713,12 +713,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const notifier = new SessionNotifier({
     store: getSessionStore(),
     enabled: () => getSettingsStore().current.notifications.desktop && Notification.isSupported(),
-    focused: () => BrowserWindow.fromWebContents(contents)?.isFocused() ?? false,
+    // On macOS the app outlives its window; a destroyed webContents throws on
+    // use, and with nothing on screen nobody is looking.
+    focused: () =>
+      !contents.isDestroyed() && (BrowserWindow.fromWebContents(contents)?.isFocused() ?? false),
     show: (sessionId, notice) => {
       liveNotifications.get(sessionId)?.close()
       const notification = new Notification({ ...notice, silent: true })
       notification.on('click', () => {
-        const window = BrowserWindow.fromWebContents(contents)
+        const window = contents.isDestroyed() ? null : BrowserWindow.fromWebContents(contents)
         if (window) {
           if (window.isMinimized()) window.restore()
           window.show()
@@ -739,7 +742,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (options.onRunningCount && runningTurns.push(event)) {
       options.onRunningCount(runningTurns.count)
     }
-    notifier.observe(sessionId, event)
+    void notifier.observe(sessionId, event)
   }
   // Composer image staging: pasted/dropped bytes land here keyed by id; only
   // refs cross IPC and journals, so history replay never replays megabytes.
@@ -1219,6 +1222,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.tasks', async ({ sessionId }) =>
     (await controlReady).service.tasks(sessionId),
   )
+
+  r.register('session.stopChildren', async ({ sessionId }) => ({
+    stopped: await (await controlReady).service.stopDescendants(sessionId),
+  }))
 
   r.register('session.resume.schedule', async ({ sessionId, at }) => {
     await resumeReady
