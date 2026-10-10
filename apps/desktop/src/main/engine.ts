@@ -691,10 +691,20 @@ export class Engine {
               type: 'usage.recorded',
               inputTokens: event.inputTokens,
               outputTokens: event.outputTokens,
+              ...(event.cachedInputTokens === undefined
+                ? {}
+                : { cachedInputTokens: event.cachedInputTokens }),
               costUsd: event.costUsd,
             })
             break
           }
+          case 'context-usage':
+            await append({
+              type: 'context.recorded',
+              usedTokens: event.usedTokens,
+              windowTokens: event.windowTokens,
+            })
+            break
           case 'status':
             await append({
               type: 'session.status.changed',
