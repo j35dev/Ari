@@ -1,6 +1,7 @@
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { SessionReadModel } from './projection'
+import { finalAssistantText } from './delegation-state'
 
 export interface WaitSource {
   load(id: string): Promise<SessionReadModel>
@@ -27,6 +28,8 @@ export type WaitOutcome =
       latestAssistantText: string
     }
   | { status: 'timeout'; sessionId: string }
+  /** Still running when another target ended an `any` wait. */
+  | { status: 'pending'; sessionId: string }
   | { status: 'destroyed'; sessionId: string }
 
 /** Subscribes before reading, then reconciles buffered settles for the captured turn. */
@@ -113,13 +116,5 @@ export async function waitForTurn(
 }
 
 function assistantText(state: SessionReadModel, turnId?: string): string {
-  const message = [...state.messages]
-    .reverse()
-    .find((entry) => entry.role === 'assistant' && (!turnId || entry.turnId === turnId))
-  return (
-    message?.parts
-      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-      .join('\n')
-      .slice(0, 8000) ?? ''
-  )
+  return finalAssistantText(state, turnId).text
 }
