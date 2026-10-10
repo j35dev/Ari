@@ -166,6 +166,28 @@ export function PermissionsSettings() {
               aria-label="Allow children to delegate"
             />
           </SettingsRow>
+          <SettingsRow
+            label="Report results to the parent"
+            hint="When a child finishes, wake its idle parent with the result instead of leaving it to poll."
+          >
+            <Switch
+              checked={delegation.autoDeliverResults}
+              onCheckedChange={(checked) =>
+                persist({ delegation: { autoDeliverResults: checked } })
+              }
+              aria-label="Report child results to the parent"
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Stop children with their parent"
+            hint="Stopping a session also stops the children it delegated to."
+          >
+            <Switch
+              checked={delegation.cascadeStop}
+              onCheckedChange={(checked) => persist({ delegation: { cascadeStop: checked } })}
+              aria-label="Stop children with their parent"
+            />
+          </SettingsRow>
           {(
             [
               [
