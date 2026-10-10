@@ -379,3 +379,161 @@ it('keeps the newest messages when read truncation hits the budget', async () =>
     result: { latestAssistantText: 'BBBBBBBBBB', truncated: true },
   })
 })
+
+async function spawnChild(idempotencyKey = 'one', extra: Record<string, unknown> = {}) {
+  await service.invoke('root', 'session.spawn', { ...spawn, idempotencyKey, ...extra })
+  const rows = (await store.listSessions()).filter((s) => s.parentSessionId === 'root')
+  const child = rows.find((row) => !spawned.has(row.id))!
+  spawned.add(child.id)
+  return child
+}
+const spawned = new Set<string>()
+
+/** Settles the child's active turn the way the desktop engine journals it. */
+async function settleChild(
+  childId: string,
+  stopReason: 'completed' | 'interrupted' | 'error' = 'completed',
+) {
+  const turnId = (await store.load(childId)).activeTurnId!
+  await store.append(childId, { type: 'turn.settled', turnId, stopReason, errorMessage: null })
+  await store.append('root', {
+    type: 'child.session.settled',
+    childSessionId: childId,
+    turnId,
+    stopReason,
+  })
+  return turnId
+}
+
+it('acknowledges a result the parent received through wait, not one it missed', async () => {
+  spawned.clear()
+  const child = await spawnChild()
+  const waiting = service.invoke('root', 'session.wait', { targetSessionIds: [child.id] })
+  await expect.poll(() => service.isWaiting('root', child.id)).toBe(true)
+  const turnId = await settleChild(child.id)
+  expect(await waiting).toMatchObject({ ok: true, result: [{ status: 'settled', turnId }] })
+  expect(service.isWaiting('root', child.id)).toBe(false)
+  expect((await store.load('root')).childCompletions?.[child.id]).toMatchObject({
+    turnId,
+    acknowledged: true,
+  })
+
+  await service.invoke('root', 'session.prompt', {
+    targetSessionId: child.id,
+    text: 'More',
+    idempotencyKey: 'more',
+  })
+  const controller = new AbortController()
+  const gone = service.invoke(
+    'root',
+    'session.wait',
+    { targetSessionIds: [child.id] },
+    controller.signal,
+  )
+  controller.abort()
+  await gone
+  const next = await settleChild(child.id)
+  expect((await store.load('root')).childCompletions?.[child.id]).toMatchObject({
+    turnId: next,
+    acknowledged: false,
+  })
+})
+
+it('returns from an any-mode wait when the first child settles', async () => {
+  spawned.clear()
+  const first = await spawnChild('a')
+  const second = await spawnChild('b')
+  const ended: string[] = []
+  host.waitEnded = (id) => ended.push(id)
+  const waiting = service.invoke('root', 'session.wait', {
+    targetSessionIds: [first.id, second.id],
+    mode: 'any',
+  })
+  await expect.poll(() => service.isWaiting('root', second.id)).toBe(true)
+  await settleChild(second.id)
+  expect(await waiting).toMatchObject({
+    ok: true,
+    result: [
+      { status: 'pending', sessionId: first.id },
+      { status: 'settled', sessionId: second.id },
+    ],
+  })
+  expect(ended).toEqual(['root'])
+})
+
+it('reports each child with its work state and final report', async () => {
+  spawned.clear()
+  const done = await spawnChild('a', { role: 'review' })
+  const busy = await spawnChild('b')
+  await store.append(done.id, {
+    type: 'assistant.parts.appended',
+    messageId: 'reply',
+    parts: [
+      { type: 'text', text: 'Looking. ' },
+      { type: 'tool-call', callId: 'c', name: 'Read', argsJson: '{}' },
+      { type: 'text', text: 'Two ' },
+      { type: 'text', text: 'findings.' },
+    ],
+  })
+  await settleChild(done.id)
+  const status = await service.invoke('root', 'session.status', {})
+  expect(status).toMatchObject({
+    ok: true,
+    result: { sessionId: 'root', summary: { total: 2, working: 1, resultAvailable: 1 } },
+  })
+  const tasks = (status as { result: { tasks: { sessionId: string }[] } }).result.tasks
+  expect(tasks.find((task) => task.sessionId === done.id)).toMatchObject({
+    role: 'review',
+    workState: 'result_available',
+    report: 'Two findings.',
+    delivered: false,
+  })
+  expect(tasks.find((task) => task.sessionId === busy.id)).toMatchObject({
+    workState: 'working',
+    report: null,
+  })
+  expect((await store.load('root')).childCompletions?.[done.id]?.acknowledged).toBe(true)
+  expect(await service.invoke(done.id, 'session.status', { targetSessionId: busy.id })).toMatchObject(
+    { error: { code: 'scope_denied' } },
+  )
+})
+
+it('rejoins streamed deltas when reading a child and acknowledges the report', async () => {
+  spawned.clear()
+  const child = await spawnChild()
+  await store.append(child.id, {
+    type: 'assistant.parts.appended',
+    messageId: 'reply',
+    parts: [
+      { type: 'text', text: 'Half a sen' },
+      { type: 'text', text: 'tence.' },
+    ],
+  })
+  const turnId = await settleChild(child.id)
+  const read = await service.invoke('root', 'session.read', { targetSessionId: child.id })
+  expect(read).toMatchObject({ ok: true, result: { latestAssistantText: 'Half a sentence.' } })
+  expect((read as { result: { renderedText: string } }).result.renderedText).toContain(
+    'assistant: Half a sentence.',
+  )
+  expect((await store.load('root')).childCompletions?.[child.id]).toMatchObject({
+    turnId,
+    acknowledged: true,
+  })
+})
+
+it('does not wake the parent about a child it stopped itself', async () => {
+  spawned.clear()
+  const child = await spawnChild()
+  const turnId = (await store.load(child.id)).activeTurnId!
+  await service.invoke('root', 'session.stop', { targetSessionId: child.id, idempotencyKey: 's' })
+  await store.append('root', {
+    type: 'child.session.settled',
+    childSessionId: child.id,
+    turnId,
+    stopReason: 'interrupted',
+  })
+  expect((await store.load('root')).childCompletions?.[child.id]).toMatchObject({
+    turnId,
+    acknowledged: true,
+  })
+})
