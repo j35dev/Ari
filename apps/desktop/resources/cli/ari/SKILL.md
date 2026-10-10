@@ -49,6 +49,8 @@ own part of the work, then end your turn. Do not sleep, poll, or loop on status
 to pass the time: the update starts your next turn.
 
 Results you have already read through `wait`, `read` or `status` are not sent again.
+A child that was stopped, by you or by the human, does not wake you; it shows as
+`result_available` with `latestTurn.stopReason: "interrupted"` in `session status`.
 
 ```sh
 ari session status --json                                    # every child: state + last report

@@ -237,6 +237,22 @@ it('stops live children and drops pending results when the parent is stopped', a
   expect(await notices('root')).toHaveLength(0)
 })
 
+it('does not wake an idle parent because someone stopped one of its children', async () => {
+  await start('root')
+  await settle('root')
+  await start('a')
+  await start('b')
+  await host.dispatch({ type: 'turn.interrupt', sessionId: 'a' })
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(0)
+  expect((await store.load('root')).childCompletions?.a?.acknowledged).toBe(true)
+
+  // The stop is not held against later news: the other child still reports.
+  await settle('b', 'completed', 'B is done.')
+  await supervisor.evaluate('root')
+  expect((await notices('root'))[0]?.origin).toEqual({ kind: 'completion', sessionIds: ['b'] })
+})
+
 it('leaves children running when cascading stops is switched off', async () => {
   policy = delegationSettingsSchema.parse({ cascadeStop: false })
   supervisor.start()
