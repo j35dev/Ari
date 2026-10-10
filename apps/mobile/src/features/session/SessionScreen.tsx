@@ -21,7 +21,7 @@ import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { ChildTask } from '@ari/contracts/agent-control'
 import { useApp } from '../../lib/app-state'
-import { agentState } from '../../lib/delegation'
+import { agentState, agentsStatus } from '../../lib/delegation'
 import { Agents } from './Agents'
 import { BottomSheet } from '../../components/ui'
 import { Conversation } from './Conversation'
@@ -179,10 +179,7 @@ export function SessionScreen({
   const tasks = snapshot?.tasks ?? []
   const parent = snapshot?.parent ?? null
   /** A session that ended its turn to wait is not "ready": its agents are still at it. */
-  const agentsWorking = tasks.filter((task) => {
-    const state = agentState(task)
-    return state === 'working' || state === 'waiting'
-  }).length
+  const delegated = agentsStatus(tasks)
   const titleOf = (id: string): string | undefined =>
     tasks.find((task) => task.sessionId === id)?.title ??
     (parent?.id === id ? parent.title : app.sessions.find((entry) => entry.id === id)?.title)
@@ -247,7 +244,7 @@ export function SessionScreen({
           </h1>
           <p className="flex items-center gap-1.5 text-[11px] text-fg-muted">
             <span
-              className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'status-pulse bg-success' : waiting ? 'bg-warning' : 'bg-fg-subtle'}`}
+              className={`size-1.5 rounded-full ${app.connection !== 'connected' ? 'bg-warning' : snapshot?.session.status === 'running' ? 'status-pulse bg-success' : waiting || delegated?.endsWith('you') === true ? 'bg-warning' : 'bg-fg-subtle'}`}
             />
             <span className="truncate">
               {`${projectName}, ${
@@ -257,9 +254,7 @@ export function SessionScreen({
                     ? 'working'
                     : waiting
                       ? 'waiting for you'
-                      : agentsWorking > 0
-                        ? `waiting on ${agentsWorking} agent${agentsWorking === 1 ? '' : 's'}`
-                        : 'ready'
+                      : (delegated ?? 'ready')
               }`}
             </span>
           </p>

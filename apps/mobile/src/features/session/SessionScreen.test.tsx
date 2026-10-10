@@ -229,7 +229,7 @@ describe('delegated agents', () => {
       }),
     )
     // Its own turn is over, but the work is not: the header must not say "ready".
-    expect(screen.getByText('Ari, waiting on 1 agent')).toBeTruthy()
+    expect(screen.getByText('Ari, 1 agent needs you')).toBeTruthy()
     expect(screen.getByText('Parser fixed and tested.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Open Tests: Needs you' }))
     expect(onOpen).toHaveBeenCalledWith('child_ask')

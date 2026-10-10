@@ -6,6 +6,7 @@ import {
   AGENT_LABEL,
   agentState,
   agentsSummary,
+  byUrgency,
   isLive,
   type AgentState,
 } from '../../lib/delegation'
@@ -76,8 +77,8 @@ export function Agents({
       {open && (
         <BottomSheet title="Delegated agents" onClose={() => setOpen(false)}>
           <ul className="pb-2">
-            {tasks.map((task, index) => {
-              const state = states[index] ?? 'idle'
+            {byUrgency(tasks).map((task) => {
+              const state = agentState(task)
               return (
                 <li key={task.sessionId}>
                   <button
