@@ -18,6 +18,7 @@ export const IPC_METHODS = [
   'session.create',
   'session.load',
   'session.workspace',
+  'session.tasks',
   'session.destroy',
   'sessions.importable',
   'sessions.import',

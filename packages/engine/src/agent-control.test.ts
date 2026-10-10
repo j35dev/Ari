@@ -476,6 +476,9 @@ it('reports each child with its work state and final report', async () => {
     ],
   })
   await settleChild(done.id)
+  // The desktop UI reads the same rows without marking them seen by the agent.
+  expect(await service.tasks('root')).toHaveLength(2)
+  expect((await store.load('root')).childCompletions?.[done.id]?.acknowledged).toBe(false)
   const status = await service.invoke('root', 'session.status', {})
   expect(status).toMatchObject({
     ok: true,
