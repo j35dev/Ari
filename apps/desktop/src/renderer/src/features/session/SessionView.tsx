@@ -269,6 +269,7 @@ export function SessionView({
   // to guess, and reads as idle for the moment it takes to arrive.
   const [tasks, setTasks] = useState<ChildTask[] | null>(null)
   const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
+  const partCountsRef = useRef(new Map<string, number>())
   const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
@@ -314,6 +315,7 @@ export function SessionView({
     setSpawns([])
     setTasks(null)
     lastPartRef.current = null
+    partCountsRef.current = new Map()
     fetchedTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
 
@@ -465,13 +467,12 @@ export function SessionView({
         lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
         setMessages((prev) => [...prev, event.message])
         break
-      case 'assistant.parts.appended':
-        lastPartRef.current = {
-          messageId: event.messageId,
-          parts:
-            (lastPartRef.current?.messageId === event.messageId ? lastPartRef.current.parts : 0) +
-            event.parts.length,
-        }
+      case 'assistant.parts.appended': {
+        // Counted per message: a steered user message lands in the middle of
+        // a turn, and the assistant message it interrupts keeps growing after.
+        const parts = (partCountsRef.current.get(event.messageId) ?? 0) + event.parts.length
+        partCountsRef.current.set(event.messageId, parts)
+        lastPartRef.current = { messageId: event.messageId, parts }
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === event.messageId)
           if (existing) {
@@ -492,6 +493,7 @@ export function SessionView({
           ]
         })
         break
+      }
       case 'turn.started':
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
@@ -916,6 +918,18 @@ export function SessionView({
     [spawns, tasks, activityOf],
   )
 
+  // A parent that ended its turn to wait has no Stop of its own, yet its
+  // children may run for a long time. The rail offers one for all of them.
+  const delegatedWorkLive = delegations.some(
+    (child) => child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
+  )
+  const stopChildren = useCallback(() => {
+    void rpc
+      .invoke('session.stopChildren', { sessionId })
+      .then(() => refreshTasksRef.current())
+      .catch(() => toast({ tone: 'danger', title: 'Could not stop the child sessions' }))
+  }, [sessionId, toast])
+
   const turnResume = useTurnResume(sessionId, turnError, defaults.driverKind)
 
   // What the composer's ArrowUp recalls: prompts typed here, not messages
@@ -1130,6 +1144,8 @@ export function SessionView({
                       sessions={childSessions}
                       activityOf={activityOf}
                       onOpen={onOpenSession}
+                      // While this session runs, its own Stop reaches the children.
+                      {...(!running && delegatedWorkLive ? { onStopAll: stopChildren } : {})}
                     />
                   ) : null}
                 </>

@@ -19,6 +19,7 @@ export const IPC_METHODS = [
   'session.load',
   'session.workspace',
   'session.tasks',
+  'session.stopChildren',
   'session.resume.schedule',
   'session.resume.cancel',
   'session.resume.get',
