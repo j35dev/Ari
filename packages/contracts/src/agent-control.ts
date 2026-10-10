@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { driverKindSchema, permissionModeSchema } from './common'
+import { delegationRoleSchema } from './session'
 
 export const AGENT_CONTROL_VERSION = 1
 export const CONTROL_MAX_FRAME_BYTES = 1024 * 1024
@@ -17,6 +18,10 @@ export const delegationSettingsSchema = z.object({
   allowSharedWorkspace: z.boolean().default(false),
   recursiveDelegation: z.boolean().default(false),
   approvalMode: z.enum(['first-per-root', 'always', 'never']).default('first-per-root'),
+  /** Wake an idle parent with its children's results instead of leaving it to poll. */
+  autoDeliverResults: z.boolean().default(true),
+  /** Stopping a session also stops the children it delegated to. */
+  cascadeStop: z.boolean().default(true),
 })
 export type DelegationSettings = z.infer<typeof delegationSettingsSchema>
 
@@ -27,9 +32,13 @@ export const controlParams = {
   'session.children': z
     .object({ targetSessionId: target.default('self'), recursive: z.boolean().default(false) })
     .strict(),
+  'session.status': z
+    .object({ targetSessionId: target.default('self'), recursive: z.boolean().default(false) })
+    .strict(),
   'session.spawn': z
     .object({
       title: z.string().trim().min(1).max(120),
+      role: delegationRoleSchema.optional(),
       driverKind: driverKindSchema,
       modelId: z.string().min(1).nullish(),
       effort: z.string().min(1).nullish(),
@@ -51,7 +60,12 @@ export const controlParams = {
     })
     .strict(),
   'session.wait': z
-    .object({ targetSessionIds: z.array(target).min(1).max(100), timeoutMs: timeout })
+    .object({
+      targetSessionIds: z.array(target).min(1).max(100),
+      timeoutMs: timeout,
+      /** `any` returns as soon as one target settles; the rest report `timeout`. */
+      mode: z.enum(['all', 'any']).default('all'),
+    })
     .strict(),
   'session.stop': z.object({ targetSessionId: target, idempotencyKey: key }).strict(),
   'session.destroy': z.object({ targetSessionId: target, idempotencyKey: key }).strict(),

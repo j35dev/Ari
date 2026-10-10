@@ -11,7 +11,7 @@ const driverKindSchemaOptional = driverKindSchema.optional()
 const permissionModeSchemaOptional = permissionModeSchema.optional()
 import { messageSchema, messagePartSchema, messageOriginSchema } from './message'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
-import { sessionSchema } from './session'
+import { delegationRoleSchema, sessionSchema } from './session'
 
 /**
  * Journal events. The engine appends these to per-session JSONL journals and
@@ -32,6 +32,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     modelId: z.string().nullable(),
     workspaceKind: z.enum(['managed-worktree', 'project']),
     branch: z.string().nullable(),
+    role: delegationRoleSchema.optional(),
     idempotencyKey: z.string().min(1).max(128).optional(),
   }),
   eventBase.extend({
@@ -54,6 +55,17 @@ export const journalEventSchema = z.discriminatedUnion('type', [
   eventBase.extend({
     type: z.literal('child.session.destroyed'),
     childSessionId: z.string().min(1),
+  }),
+  /**
+   * The parent has seen a child turn's outcome, or never will: it read the
+   * result itself (`wait`, `read`), Ari delivered it, or a stop discarded it.
+   * May be journaled before the matching `child.session.settled`.
+   */
+  eventBase.extend({
+    type: z.literal('child.session.acknowledged'),
+    childSessionId: z.string().min(1),
+    turnId: z.string().min(1),
+    via: z.enum(['wait', 'read', 'delivered', 'disposed']),
   }),
   eventBase.extend({ type: z.literal('session.created'), session: sessionSchema }),
   eventBase.extend({
