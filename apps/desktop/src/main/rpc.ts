@@ -1068,6 +1068,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         terminalFactory: ptyFactory,
         fork: async (deviceId, command) =>
           forkRemoteSession((await controlReady).service, deviceId, command),
+        tasks: async (sessionId) => (await controlReady).service.tasks(sessionId),
         // No address is reachable from a phone until Serve (or a tunnel) is in
         // front of the loopback listener; until then the panel says so rather
         // than showing a QR code that would resolve to the phone itself.
