@@ -55,6 +55,9 @@ export function Conversation({
             {message.origin?.kind === 'session' && (
               <p className="mb-1 text-[11px] text-fg-subtle">From a linked session</p>
             )}
+            {message.origin?.kind === 'completion' && (
+              <p className="mb-1 text-[11px] text-fg-subtle">Delegation update from Ari</p>
+            )}
             {message.role === 'system' && <p className="mb-1 text-[11px] text-fg-subtle">System</p>}
             <div
               className={
