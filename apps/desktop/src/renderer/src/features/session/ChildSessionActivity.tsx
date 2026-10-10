@@ -22,6 +22,10 @@ export function ChildSessionActivity({
   const [open, setOpen] = useState(false)
   if (sessions.length === 0) return null
   const working = sessions.filter((session) => activityOf?.(session.id)?.phase === 'working').length
+  // A child waiting on an approval or a question is stuck until someone
+  // answers it in that child, and from here nothing else says so.
+  const blocked = sessions.filter((session) => activityOf?.(session.id)?.phase === 'paused')
+  const firstBlocked = blocked[0]
   return (
     <div>
       <AnimatePresence initial={false}>
@@ -56,8 +60,14 @@ export function ChildSessionActivity({
                       )}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-xs text-fg">{session.title}</span>
-                    <span className="shrink-0 font-mono text-2xs text-fg-subtle">
-                      {activity?.phase === 'working' ? 'working' : session.status}
+                    <span
+                      className={`shrink-0 font-mono text-2xs ${activity?.phase === 'paused' ? 'text-warning' : 'text-fg-subtle'}`}
+                    >
+                      {activity?.phase === 'working'
+                        ? 'working'
+                        : activity?.phase === 'paused'
+                          ? 'needs you'
+                          : session.status}
                     </span>
                   </button>
                 </li>
@@ -66,24 +76,44 @@ export function ChildSessionActivity({
           </motion.ul>
         ) : null}
       </AnimatePresence>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label="Child sessions"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-2xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-      >
-        <GitBranch size={11} aria-hidden className="text-accent" />
-        <span className="font-medium text-fg">
-          {sessions.length} child{sessions.length === 1 ? '' : 'ren'}
-        </span>
-        <span>{working > 0 ? `${working} working` : 'idle'}</span>
-        <ChevronUp
-          size={11}
-          aria-hidden
-          className={`ms-auto shrink-0 transition-transform duration-150 ${open ? '' : 'rotate-180'}`}
-        />
-      </button>
+      <div className="flex items-center">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label="Child sessions"
+          onClick={() => setOpen((value) => !value)}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-2xs text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <GitBranch size={11} aria-hidden className="shrink-0 text-accent" />
+          <span className="shrink-0 font-medium text-fg">
+            {sessions.length} child{sessions.length === 1 ? '' : 'ren'}
+          </span>
+          {blocked.length > 0 ? (
+            <span className="truncate text-warning">
+              {blocked.length === 1
+                ? `${firstBlocked?.title ?? 'One'} needs you`
+                : `${blocked.length} need you`}
+            </span>
+          ) : null}
+          <span className="shrink-0">
+            {working > 0 ? `${working} working` : blocked.length > 0 ? null : 'idle'}
+          </span>
+          <ChevronUp
+            size={11}
+            aria-hidden
+            className={`ms-auto shrink-0 transition-transform duration-150 ${open ? '' : 'rotate-180'}`}
+          />
+        </button>
+        {firstBlocked && onOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen(firstBlocked.id)}
+            className="me-2 shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-2xs text-fg transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            Answer
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }
