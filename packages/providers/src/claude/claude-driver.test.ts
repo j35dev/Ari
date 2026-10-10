@@ -49,6 +49,19 @@ describe('buildClaudeArgs', () => {
     expect(args).not.toContain('-p')
   })
 
+  it('appends host instructions to the system prompt on every spawn, resumed or not', () => {
+    const note = 'You are running inside the Ari desktop app.'
+    for (const session of [
+      { ...base, instructions: note },
+      { ...base, instructions: note, resumeOf: 'thread-1' },
+    ]) {
+      const args = buildClaudeArgs(session)
+      expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(note)
+    }
+    expect(buildClaudeArgs(base)).not.toContain('--append-system-prompt')
+    expect(new ClaudeDriver('claude').systemInstructions).toBe(true)
+  })
+
   it('maps permission modes to claude flags', () => {
     expect(buildClaudeArgs({ ...base, permissionMode: 'ask' })).toContain('default')
     expect(buildClaudeArgs({ ...base, permissionMode: 'allow-edits' })).toContain('acceptEdits')

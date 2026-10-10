@@ -91,6 +91,7 @@ export async function createAcpAdapter(
   spawn?: (childLaunch: AcpLaunch, cwd: string) => AcpChildProcess,
   onAuthRequired?: AcpAuthRequiredHandler,
   mcpServers: AcpMcpServer[] = [],
+  sessionMeta: Record<string, unknown> | null = null,
 ): Promise<AcpAdapter> {
   const pendingPermissions = new Map<
     string,
@@ -241,6 +242,7 @@ export async function createAcpAdapter(
       cwd: session.workspacePath,
       ...(spawn !== undefined ? { spawn } : {}),
       ...(mcpServers.length > 0 ? { mcpServers } : {}),
+      ...(sessionMeta !== null ? { sessionMeta } : {}),
     })
   } catch (error) {
     throw setupFailure(error)
@@ -996,8 +998,23 @@ export function publishAdvertisedEfforts(kind: DriverKind, efforts: EffortCatalo
   log.info('effort catalog taken from the session agent', { kind, count: efforts.options.length })
 }
 
+/**
+ * The `_meta` an agent's `session/new`, `load` and `resume` take to add to its
+ * system prompt, for the agents known to honour one. The Claude adapter
+ * forwards `systemPrompt` preset options to the Agent SDK; ACP itself defines
+ * no such field, so other agents get nothing here.
+ */
+export function systemInstructionsMeta(
+  kind: DriverKind,
+  instructions: string | null | undefined,
+): Record<string, unknown> | null {
+  if (kind !== 'claude' || !instructions) return null
+  return { systemPrompt: { append: instructions } }
+}
+
 export class AcpDriver implements Driver {
   readonly kind: DriverKind
+  readonly systemInstructions: boolean
 
   constructor(
     kind: DriverKind,
@@ -1008,6 +1025,9 @@ export class AcpDriver implements Driver {
     private readonly mcpServers: () => AcpMcpServer[] = () => [],
   ) {
     this.kind = kind
+    // Both paths must take them: a turn may start over ACP or fall back to the CLI.
+    this.systemInstructions =
+      systemInstructionsMeta(kind, 'probe') !== null && fallback?.systemInstructions === true
   }
 
   async create(session: AdapterSession): Promise<ProviderAdapter> {
@@ -1019,6 +1039,7 @@ export class AcpDriver implements Driver {
           undefined,
           this.onAuthRequired ?? undefined,
           this.mcpServers(),
+          systemInstructionsMeta(this.kind, session.instructions),
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
         publishAdvertisedEfforts(this.kind, adapter.advertisedEfforts)

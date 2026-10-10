@@ -186,7 +186,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     expect(seen.filter((s) => s.sessionId === child.id)).toHaveLength(1)
     expect(seen[0]?.workspacePath).not.toBe(repo)
     expect(seen[0]?.prompt).toContain('not written by the user')
-    expect(seen[0]?.prompt).toContain('$ARI_CLI --skill')
+    expect(seen[0]?.prompt).toContain('`ari --skill`')
     expect(runtime.environment(child).ARI_CONTROL_TOKEN).not.toBe(env.ARI_CONTROL_TOKEN)
     const transcript = (await cli('session', 'read', child.id)) as {
       result: { messages: { text: string }[] }
