@@ -82,8 +82,10 @@ export const settingsSchema = z.object({
     .object({
       /** Soft chime when a turn settles; failures get their own muted tone. */
       settleSound: z.boolean().default(true),
+      /** OS notification when a session finishes, fails or needs an answer while Ari is in the background. */
+      desktop: z.boolean().default(true),
     })
-    .default({ settleSound: true }),
+    .default({ settleSound: true, desktop: true }),
   permissions: z
     .object({
       /** Tools pre-approved across all sessions, e.g. ['Bash(git status*)']. */
@@ -145,6 +147,7 @@ export const settingsUpdateSchema = z.object({
   notifications: z
     .object({
       settleSound: z.boolean(),
+      desktop: z.boolean(),
     })
     .partial()
     .optional(),
@@ -180,7 +183,7 @@ export const defaultSettings: Settings = {
   version: 1,
   appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
-  notifications: { settleSound: true },
+  notifications: { settleSound: true, desktop: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,

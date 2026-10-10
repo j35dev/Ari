@@ -266,8 +266,14 @@ export const streamNames = [
   'app.updates',
   'browser.updated',
   'remote.updates',
+  'app.navigate',
 ] as const
 export type StreamName = (typeof streamNames)[number]
+
+/** Payload delivered on the app.navigate stream: the main process asking to show a session. */
+export interface NavigateFrame {
+  sessionId: string
+}
 
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
