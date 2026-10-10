@@ -215,6 +215,38 @@ describe('AcpConnection', () => {
     expect(child.killed).toBe(true)
   })
 
+  it('sends the session meta with every way of opening a session, and none by default', async () => {
+    const sessionMeta = { systemPrompt: { append: 'You are running inside Ari.' } }
+    const child = fakeChild()
+    script(child, STANDARD_AGENT)
+    const connection = await AcpConnection.connect({
+      launch: LAUNCH,
+      cwd: '/w',
+      spawn: () => child,
+      sessionMeta,
+    })
+    await connection.newSession('/w')
+    await connection.loadSession('sess_9', '/w').catch(() => undefined)
+    await connection.resumeSession('sess_9', '/w').catch(() => undefined)
+    const opens = child.sent.filter((m) => String(m['method']).startsWith('session/')) as {
+      method: string
+      params?: { _meta?: unknown; sessionId?: string }
+    }[]
+    expect(opens.map((m) => m.method)).toEqual(['session/new', 'session/load', 'session/resume'])
+    for (const open of opens) expect(open.params?._meta).toEqual(sessionMeta)
+    expect(opens[1]?.params?.sessionId).toBe('sess_9')
+    connection.kill()
+
+    const plain = fakeChild()
+    script(plain, STANDARD_AGENT)
+    const bare = await AcpConnection.connect({ launch: LAUNCH, cwd: '/w', spawn: () => plain })
+    await bare.newSession('/w')
+    const created = plain.sent.find((m) => m['method'] === 'session/new') as
+      { params?: Record<string, unknown> } | undefined
+    expect(created?.params && '_meta' in created.params).toBe(false)
+    bare.kill()
+  })
+
   it('hands HTTP MCP servers to session/new unless the agent opted out', async () => {
     const httpServer = {
       type: 'http' as const,

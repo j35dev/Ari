@@ -10,6 +10,7 @@ import {
   pickAgentMode,
   publishAdvertisedModels,
   shouldFallBack,
+  systemInstructionsMeta,
   __resetLearnedAcpSelectors,
 } from './acp-driver'
 import { AcpAuthRequiredError, AcpConnectionError } from './connection'
@@ -1775,6 +1776,22 @@ describe('AcpDriver', () => {
   it('throws when neither transport exists', async () => {
     const driver = new AcpDriver('pi', null, null)
     await expect(driver.create(SESSION)).rejects.toThrow(/no transport available/)
+  })
+
+  it('takes system instructions only for an agent whose two transports both deliver them', () => {
+    const create = async (): Promise<ProviderAdapter> => {
+      throw new Error('unused')
+    }
+    const claudeCli = { kind: 'claude' as const, systemInstructions: true, create }
+    expect(new AcpDriver('claude', null, claudeCli).systemInstructions).toBe(true)
+    expect(new AcpDriver('claude', null, { kind: 'claude', create }).systemInstructions).toBe(false)
+    expect(
+      new AcpDriver('codex', null, { kind: 'codex', systemInstructions: true, create })
+        .systemInstructions,
+    ).toBe(false)
+    expect(systemInstructionsMeta('claude', 'Note.')).toEqual({ systemPrompt: { append: 'Note.' } })
+    expect(systemInstructionsMeta('claude', null)).toBeNull()
+    expect(systemInstructionsMeta('codex', 'Note.')).toBeNull()
   })
 })
 

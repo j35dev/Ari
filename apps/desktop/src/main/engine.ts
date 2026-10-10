@@ -522,18 +522,27 @@ export class Engine {
     try {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) return
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
-      // Only a fresh provider context needs the note: a resumed thread still
-      // holds the copy from its first turn, and repeating it on every prompt
-      // is noise the agent has to read past.
+      // What Ari offers this session goes through the provider's system
+      // channel when the driver has one. A note at the top of the user's
+      // message is the fallback: providers treat instructions arriving there
+      // as suspect, and Claude refuses them outright as an injection. That
+      // fallback is only sent into a fresh provider context — a resumed
+      // thread still holds the copy from its first turn.
+      const viaSystem = runtimeEnv?.ARI_ENV === '1' && driver.systemInstructions === true
       const preamble =
-        runtimeEnv?.ARI_ENV === '1' && resumeOf === null
-          ? controlPreamble(session, await this.#parentTitle(session))
+        runtimeEnv?.ARI_ENV === '1' && (viaSystem || resumeOf === null)
+          ? controlPreamble(
+              session,
+              await this.#parentTitle(session),
+              viaSystem ? 'system' : 'prompt',
+            )
           : null
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt: preamble === null ? prompt : `${preamble}\n\n${prompt}`,
+        prompt: preamble === null || viaSystem ? prompt : `${preamble}\n\n${prompt}`,
+        ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,

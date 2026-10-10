@@ -40,6 +40,8 @@ export function buildClaudeArgs(session: AdapterSession): string[] {
   ]
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--resume', session.resumeOf)
+  // Not stored with the conversation, so it is sent on every spawn, resumed or not.
+  if (session.instructions) args.push('--append-system-prompt', session.instructions)
   args.push('--permission-mode', permissionModeFlag(session.permissionMode))
   return args
 }
@@ -282,6 +284,7 @@ export interface ClaudeDriverOptions {
 
 export class ClaudeDriver implements Driver {
   readonly kind = 'claude' as const
+  readonly systemInstructions = true
 
   constructor(
     private readonly binaryPath: string,
