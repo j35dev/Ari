@@ -29,6 +29,87 @@ function message(id: string): Message {
   }
 }
 
+describe('TranscriptView delegation', () => {
+  const titles: Record<string, string> = { child_a: 'Parser', child_b: 'Docs' }
+  const onOpenSession = vi.fn()
+  const view = (messages: Message[], extra: Record<string, unknown> = {}) =>
+    createElement(TranscriptView, {
+      sessionId: 'sess_1',
+      messages,
+      sessionTitle: (id: string) => titles[id],
+      onOpenSession,
+      ...extra,
+    })
+
+  it('shows a delivery notice as a status row, not something the user typed', async () => {
+    const notice: Message = {
+      ...message('n'),
+      origin: { kind: 'completion', sessionIds: ['child_a', 'child_b'] },
+      parts: [
+        {
+          type: 'text',
+          text: '[Ari delegation update: added automatically by Ari, not written by the user.]\n\nChild session "Parser" (child_a) finished its turn.\nReport:\nFixed it.',
+        },
+      ],
+    }
+    render(view([message('a'), notice, message('b')]))
+    const row = screen.getByRole('button', {
+      name: 'Delegation update: Parser, Docs reported back',
+    })
+    expect(screen.queryByText(/Fixed it\./)).not.toBeInTheDocument()
+    // Only the two typed prompts are places to jump to.
+    expect(screen.getAllByRole('button', { name: /^Jump to/ })).toHaveLength(2)
+
+    await userEvent.click(row)
+    expect(screen.getByText(/Fixed it\./)).toBeInTheDocument()
+    expect(screen.queryByText(/not written by the user/)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Open Docs' }))
+    expect(onOpenSession).toHaveBeenCalledWith('child_b')
+  })
+
+  it('names the session a relayed message came from and offers no edit', async () => {
+    const relayed: Message = { ...message('q'), origin: { kind: 'session', sessionId: 'child_a' } }
+    render(view([relayed], { onEditUserMessage: vi.fn() }))
+    await userEvent.click(screen.getByRole('button', { name: 'From session Parser' }))
+    expect(onOpenSession).toHaveBeenCalledWith('child_a')
+    expect(screen.queryByRole('button', { name: 'Edit message' })).not.toBeInTheDocument()
+  })
+
+  it('renders delegated children as task cards that open the child', async () => {
+    const delegations = [
+      {
+        sessionId: 'child_a',
+        title: 'Parser',
+        role: 'review',
+        driverKind: 'codex',
+        modelId: 'gpt-5',
+        state: 'done' as const,
+        startedAt: null,
+        report: 'Two findings.\nSee notes.',
+        anchor: { messageId: 'a', partIndex: 0 },
+      },
+      {
+        sessionId: 'child_b',
+        title: 'Docs',
+        role: null,
+        driverKind: 'claude',
+        modelId: null,
+        state: 'working' as const,
+        startedAt: Date.now() - 5_000,
+        report: null,
+        anchor: { messageId: 'a', partIndex: 0 },
+      },
+    ]
+    const { container } = render(view([message('a')], { delegations }))
+    expect(screen.getByText('Delegated to 2 sessions')).toBeInTheDocument()
+    expect(screen.getByText('1 working · 1 done')).toBeInTheDocument()
+    expect(screen.getByText('Two findings. See notes.')).toBeInTheDocument()
+    expect(container.querySelector('[data-activity="working"]')).not.toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Open Parser: Done' }))
+    expect(onOpenSession).toHaveBeenCalledWith('child_a')
+  })
+})
+
 describe('TranscriptView row entrance', () => {
   const view = (messages: Message[], loading = false) =>
     createElement(TranscriptView, { sessionId: 'sess_1', messages, loading })
