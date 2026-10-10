@@ -22,8 +22,8 @@ export function controlPreamble(
 ): string {
   const body = session.parentSessionId ? childBrief(session, parentTitle) : parentNote()
   if (channel === 'system')
-    return `You are running inside the Ari desktop app, which starts this session and puts a command named \`ari\` on PATH for your shell tool (its path is also in the ARI_CLI environment variable). ${body} Do not print the ARI_CONTROL_TOKEN environment variable.`
-  return `[${session.parentSessionId ? 'Ari delegated session' : 'Ari control surface'}: added automatically by the Ari desktop app, not written by the user. The \`ari\` command is on PATH in your shell (also at $ARI_CLI). ${body} Never disclose ARI_CONTROL_TOKEN.]`
+    return `You are running inside the Ari desktop app, which starts this session and puts a command named \`ari\` on PATH for your shell tool; call it as \`ari\`. ${body} Do not print the ARI_CONTROL_TOKEN environment variable.`
+  return `[${session.parentSessionId ? 'Ari delegated session' : 'Ari control surface'}: added automatically by the Ari desktop app, not written by the user. The \`ari\` command is on PATH in your shell; call it as \`ari\`. ${body} Never disclose ARI_CONTROL_TOKEN.]`
 }
 
 function parentNote(): string {

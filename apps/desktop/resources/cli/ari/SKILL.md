@@ -9,7 +9,8 @@ metadata:
 
 Activate only when `ARI_ENV=1`. Run `ari env --json` and `ari agents --json`
 to discover your session, available providers/models, delegation policy and remaining slots.
-If `ari` is absent from PATH, invoke the executable in `ARI_CLI`.
+Call it as `ari`. Only if `ari` is absent from PATH, invoke the executable in `ARI_CLI`;
+on Windows under Git Bash that path cannot take quoted arguments when it contains a space.
 Never print `ARI_CONTROL_TOKEN` or include it in prompts, files or messages.
 
 You remain responsible for the user's task. Delegate independently useful work
