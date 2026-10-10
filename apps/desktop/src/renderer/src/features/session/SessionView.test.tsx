@@ -16,6 +16,7 @@ import {
   SessionView,
   contextTokensFromHint,
   formatCompactTokens,
+  formatTurnDuration,
   type SessionDefaults,
 } from './SessionView'
 
@@ -959,29 +960,65 @@ describe('SessionView context meter', () => {
       at: 2,
       sessionId: 'sess_1',
       type: 'usage.recorded',
-      inputTokens: 100,
-      outputTokens: 50,
+      inputTokens: 62_564,
+      outputTokens: 166,
+      cachedInputTokens: 47_040,
     })
   }
 
-  it('renders the used token count when usage is present', async () => {
+  function emitContext(seq: number, usedTokens: number, windowTokens: number | null): void {
+    emitSessionEvent({
+      seq,
+      at: seq,
+      sessionId: 'sess_1',
+      type: 'context.recorded',
+      usedTokens,
+      windowTokens,
+    })
+  }
+
+  it('totals input the model read, cache included, and says how much was cached', async () => {
     renderView()
     await screen.findByLabelText('Message')
 
     emitUsage()
 
-    expect(await screen.findByTitle('Total tokens: 150')).toBeInTheDocument()
-    expect(screen.getByText('150')).toBeInTheDocument()
+    expect(
+      await screen.findByTitle('Input tokens this session: 62,564 (47,040 read from cache)'),
+    ).toHaveTextContent('↑ 62.6K')
+    expect(screen.getByTitle('Output tokens this session: 166')).toHaveTextContent('↓ 166')
   })
 
-  it('omits the denominator when the catalog has no context hint', async () => {
+  it('shows no context meter until the provider reports a reading', async () => {
     renderView()
     await screen.findByLabelText('Message')
 
     emitUsage()
 
-    expect(screen.getByText('150')).toBeInTheDocument()
+    await screen.findByText('↑ 62.6K')
+    expect(screen.queryByLabelText(/Context used/)).not.toBeInTheDocument()
+  })
+
+  it('tracks the latest context reading rather than a running token total', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitUsage()
+    emitContext(3, 29_134, null)
+    emitContext(4, 33_587, null)
+
+    expect(await screen.findByTitle('Context: 33.6K tokens')).toBeInTheDocument()
     expect(screen.queryByText(/\/.+/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the window the provider reported across readings that omit it', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitContext(1, 33_587, 200_000)
+    emitContext(2, 41_000, null)
+
+    expect(await screen.findByText('41K / 200K')).toBeInTheDocument()
   })
 
   it('shows used / window when the session model carries a context hint', async () => {
@@ -1021,15 +1058,7 @@ describe('SessionView context meter', () => {
     )
     await screen.findByLabelText('Message')
 
-    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
-    emitSessionEvent({
-      seq: 2,
-      at: 2,
-      sessionId: 'sess_1',
-      type: 'usage.recorded',
-      inputTokens: 100_000,
-      outputTokens: 5_000,
-    })
+    emitContext(1, 105_000, null)
 
     expect(await screen.findByText('105K / 200K')).toBeInTheDocument()
   })
@@ -1052,9 +1081,15 @@ describe('context meter helpers', () => {
     expect(formatCompactTokens(1_000_000)).toBe('1M')
   })
 
+  it('formats turn latency in seconds, then minutes', () => {
+    expect(formatTurnDuration(52_800)).toBe('52.8s')
+    expect(formatTurnDuration(59_700)).toBe('1m 00s')
+    expect(formatTurnDuration(125_400)).toBe('2m 05s')
+  })
+
   it('renders a numeric-only chip without a window and a full chip with one', () => {
     const { container: bare } = render(<ContextMeter used={42} contextWindow={null} />)
-    expect(bare.textContent).toBe('42')
+    expect(bare.textContent).toBe('context42')
     const { container } = render(<ContextMeter used={50_000} contextWindow={200_000} />)
     expect(container.textContent).toContain('50K / 200K')
     expect(container.querySelector('[aria-hidden]')).not.toBeNull()

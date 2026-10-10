@@ -59,9 +59,22 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('usage'),
+    /** Every prompt token the model read, cache hits and cache writes included. */
     inputTokens: z.number().nonnegative(),
     outputTokens: z.number().nonnegative(),
+    /** The share of `inputTokens` served from the provider's prompt cache. */
+    cachedInputTokens: z.number().nonnegative().optional(),
     costUsd: z.number().nullable(),
+  }),
+  /**
+   * How full the model's context window is after its latest call. A gauge,
+   * not a delta: each reading replaces the one before it, where `usage` adds.
+   */
+  z.object({
+    type: z.literal('context-usage'),
+    usedTokens: z.number().nonnegative(),
+    /** Window size when the provider reports it; null defers to the catalog. */
+    windowTokens: z.number().positive().nullable(),
   }),
   z.object({ type: z.literal('status'), status: sessionStatusSchema }),
   /**

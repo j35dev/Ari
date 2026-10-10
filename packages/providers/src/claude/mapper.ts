@@ -55,23 +55,70 @@ interface NativeLine {
   request_id?: string
   request?: ControlRequestBody
   session_id?: string
+  /** Set on lines a subagent produced; null for the main conversation. */
+  parent_tool_use_id?: string | null
   error?: string
   is_error?: boolean
   message?: { content?: ContentBlock[]; usage?: Record<string, unknown> }
-  event?: { type?: string; delta?: StreamDelta }
+  event?: { type?: string; delta?: StreamDelta; usage?: Record<string, unknown> }
   usage?: Record<string, unknown>
+  modelUsage?: Record<string, Record<string, unknown> | undefined>
   total_cost_usd?: number
   result?: string
 }
 
+function count(raw: Record<string, unknown> | undefined, key: string): number {
+  const value = raw?.[key]
+  return typeof value === 'number' ? value : 0
+}
+
+/**
+ * Claude reports cache traffic beside `input_tokens`, not inside it: a long
+ * session reads almost its whole prompt from cache, so `input_tokens` alone
+ * is a handful of tokens however large the conversation is.
+ */
 function usageFrom(raw: Record<string, unknown> | undefined): {
   inputTokens: number
   outputTokens: number
+  cachedInputTokens: number
 } {
+  const cached = count(raw, 'cache_read_input_tokens')
   return {
-    inputTokens: typeof raw?.['input_tokens'] === 'number' ? raw['input_tokens'] : 0,
-    outputTokens: typeof raw?.['output_tokens'] === 'number' ? raw['output_tokens'] : 0,
+    inputTokens:
+      count(raw, 'input_tokens') + count(raw, 'cache_creation_input_tokens') + cached,
+    outputTokens: count(raw, 'output_tokens'),
+    cachedInputTokens: cached,
   }
+}
+
+/** What one model call left in the window: its whole prompt plus its reply. */
+function contextUsed(call: Record<string, unknown> | undefined): number | null {
+  if (typeof call?.['input_tokens'] !== 'number') return null
+  const usage = usageFrom(call)
+  return usage.inputTokens + usage.outputTokens
+}
+
+/**
+ * `modelUsage` lists every model the turn touched, subagents included. The
+ * one carrying the conversation re-reads it on every call, so it is the one
+ * that read the most.
+ */
+function contextWindowFrom(modelUsage: NativeLine['modelUsage']): number | null {
+  let window: number | null = null
+  let mostRead = -1
+  for (const model of Object.values(modelUsage ?? {})) {
+    const size = model?.['contextWindow']
+    if (typeof size !== 'number' || size <= 0) continue
+    const read =
+      count(model, 'inputTokens') +
+      count(model, 'cacheReadInputTokens') +
+      count(model, 'cacheCreationInputTokens')
+    if (read > mostRead) {
+      mostRead = read
+      window = size
+    }
+  }
+  return window
 }
 
 /** Maps one JSONL line. Returns zero or more normalized events. */
@@ -113,6 +160,14 @@ export function mapClaudeLine(line: string): AgentEvent[] {
         events.push({ type: 'text-delta', text: delta.text })
       } else if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
         events.push({ type: 'thinking-delta', text: delta.thinking })
+      }
+      // message_delta closes one model call with that call's own usage. A
+      // subagent's calls fill its window, not the conversation's.
+      if (parsed.event?.type === 'message_delta' && parsed.parent_tool_use_id == null) {
+        const used = contextUsed(parsed.event.usage)
+        if (used !== null) {
+          events.push({ type: 'context-usage', usedTokens: used, windowTokens: null })
+        }
       }
       break
     }
@@ -171,8 +226,24 @@ export function mapClaudeLine(line: string): AgentEvent[] {
         type: 'usage',
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
+        cachedInputTokens: usage.cachedInputTokens,
         costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
       })
+      // The window size only arrives here; `iterations` ends on the turn's
+      // final call, which restates the reading that size belongs to.
+      const iterations = parsed.usage?.['iterations']
+      const used = contextUsed(
+        Array.isArray(iterations)
+          ? (iterations[iterations.length - 1] as Record<string, unknown> | undefined)
+          : undefined,
+      )
+      if (used !== null) {
+        events.push({
+          type: 'context-usage',
+          usedTokens: used,
+          windowTokens: contextWindowFrom(parsed.modelUsage),
+        })
+      }
       if (parsed.is_error === true) {
         events.push({ type: 'error', message: extractText(parsed), rawJson: null })
       }
