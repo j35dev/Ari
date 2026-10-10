@@ -284,6 +284,41 @@ describe('reading sessions', () => {
     ])
   })
 
+  it('sends the work a session delegated, and the session that delegated to it', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    await store.append('sess_child', {
+      type: 'session.created',
+      session: { ...sessionFixture('sess_child'), title: 'Parser', parentSessionId: 'sess_a' },
+    })
+    const asked: string[] = []
+    const task = { sessionId: 'sess_child', title: 'Parser', workState: 'working' }
+    const host = hostFor(store, fakeEngine(), {
+      tasks: async (sessionId) => {
+        asked.push(sessionId)
+        return sessionId === 'sess_a' ? ([task] as never) : []
+      },
+    })
+
+    const parent = await host.getSession(CALLER, 'sess_a')
+    expect(parent?.tasks).toEqual([task])
+    expect(parent?.parent).toBeNull()
+    const child = await host.getSession(CALLER, 'sess_child')
+    expect(child?.tasks).toEqual([])
+    expect(child?.parent).toEqual({ id: 'sess_a', title: parent?.summary.title })
+    expect(asked).toEqual(['sess_a', 'sess_child'])
+
+    // A desktop without the control runtime, or one that fails, still answers.
+    const bare = await hostFor(store, fakeEngine()).getSession(CALLER, 'sess_a')
+    expect(bare?.tasks).toEqual([])
+    const failing = hostFor(store, fakeEngine(), {
+      tasks: async () => {
+        throw new Error('control runtime is down')
+      },
+    })
+    expect((await failing.getSession(CALLER, 'sess_a'))?.tasks).toEqual([])
+  })
+
   it('answers undefined for a session that does not exist', async () => {
     const host = hostFor(await tempStore(), fakeEngine())
     expect(await host.getSession(CALLER, 'sess_missing')).toBeUndefined()

@@ -29,7 +29,7 @@ import type { AttachmentStore } from './attachments'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import type { RemoteTerminals } from './remote-terminals'
 import type { RemoteIntegration } from './remote-integration'
-import { ControlFailure } from '@ari/contracts/agent-control'
+import { ControlFailure, type ChildTask } from '@ari/contracts/agent-control'
 import type { RemoteForkCommand, RemoteForkResult } from './remote-fork'
 import { remoteCatalogDefaults } from './remote-catalog'
 
@@ -81,6 +81,8 @@ export interface RemoteHostDeps {
   /** Owns the device records `device.list` and `device.revoke` read and write. */
   pairing: PairingService
   mintSessionId: () => string
+  /** The children a session delegated to, as the desktop's own task cards read them. */
+  tasks?: (sessionId: string) => Promise<ChildTask[]>
   attachments?: Pick<AttachmentStore, 'stage' | 'read'>
   terminals?: RemoteTerminals
   integration?: RemoteIntegration
@@ -256,21 +258,39 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
         messages: Message[]
         pendingApprovals: RemoteApproval[]
         pendingInputs: RemoteInput[]
+        tasks: ChildTask[]
+        parent: { id: string; title: string } | null
       }
     | undefined
   > {
     const { session, messages, lastSeq, pendingApprovals, pendingInputs } =
       await store.load(sessionId)
     if (session === null || !granted(caller, session.projectId)) return undefined
-    const summary = (await listSessions(caller)).find((entry) => entry.id === sessionId)
+    const sessions = await listSessions(caller)
+    const summary = sessions.find((entry) => entry.id === sessionId)
     if (summary === undefined) return undefined
+    // Delegated work travels with the session it belongs to, so a phone shows
+    // the same children, in the same states, as the desktop's task cards.
+    // Children live in their parent's project, which the caller was granted.
+    const tasks = (await deps.tasks?.(sessionId).catch(() => [])) ?? []
+    const parentRow = sessions.find((entry) => entry.id === session.parentSessionId)
+    const parent = parentRow ? { id: parentRow.id, title: parentRow.title } : null
     // The state and the journal high-water mark it was taken at travel
     // together, so a subscriber resuming from `seq` sees no gap and no repeat.
     //
     // The projection already carries what is waiting on a human — the desktop
     // replays the journal to render its own approval prompt from the same
     // list, so a phone and the desktop cannot disagree about what is open.
-    return { session, summary, seq: lastSeq, messages, pendingApprovals, pendingInputs }
+    return {
+      session,
+      summary,
+      seq: lastSeq,
+      messages,
+      pendingApprovals,
+      pendingInputs,
+      tasks,
+      parent,
+    }
   }
 
   interface SessionChanges {
