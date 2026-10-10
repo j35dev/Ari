@@ -109,6 +109,7 @@ beforeEach(async () => {
     isWaiting: (parentId, childId) => waiting.has(`${parentId}:${childId}`),
     settleDelayMs: 60_000,
     retryDelayMs: 60_000,
+    batchWindowMs: 0,
   }
   supervisor = new DelegationSupervisor(host)
   await create('root')
@@ -235,6 +236,47 @@ it('stops live children and drops pending results when the parent is stopped', a
   await settle('root')
   await supervisor.evaluate('root')
   expect(await notices('root')).toHaveLength(0)
+})
+
+it('holds a report briefly while a sibling is about to finish, so both arrive together', async () => {
+  let ahead = 0
+  host.batchWindowMs = 20_000
+  host.now = () => Date.now() + ahead
+  await start('root')
+  await settle('root')
+  await start('a')
+  await start('b')
+  await settle('a', 'completed', 'A is done.')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(0)
+
+  await settle('b', 'completed', 'B is done.')
+  await supervisor.evaluate('root')
+  expect((await notices('root'))[0]?.origin).toEqual({ kind: 'completion', sessionIds: ['a', 'b'] })
+  await settle('root')
+
+  // The window is a ceiling, not a requirement: a slow sibling does not hold a result hostage,
+  // and one parked on the user is not waited for at all.
+  await start('a')
+  await start('b')
+  await settle('a', 'completed', 'A again.')
+  ahead = 21_000
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(2)
+  await settle('root')
+  ahead = 0
+
+  await start('a')
+  await store.append('b', {
+    type: 'approval.requested',
+    approvalId: 'ap',
+    toolName: 'Bash',
+    summaryJson: '{}',
+    options: [],
+  })
+  await settle('a', 'completed', 'A once more.')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(3)
 })
 
 it('does not wake an idle parent because someone stopped one of its children', async () => {

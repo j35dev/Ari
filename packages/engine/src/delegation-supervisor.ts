@@ -16,6 +16,13 @@ const log = createLogger('engine:delegation')
 
 /** Long enough for siblings finishing together to share one wake-up. */
 const SETTLE_DELAY_MS = 1_200
+/**
+ * How long a finished child's report is held back while siblings are still
+ * running. Children handed out together tend to finish together; without this
+ * the parent is woken once per child and spends a turn each time saying it is
+ * still waiting for the rest.
+ */
+const BATCH_WINDOW_MS = 20_000
 const RETRY_DELAY_MS = 5_000
 const MAX_RETRIES = 12
 const REPORT_CHARS = 4_000
@@ -34,6 +41,8 @@ export interface SupervisorHost {
   isWaiting?(parentId: string, childId: string): boolean
   settleDelayMs?: number
   retryDelayMs?: number
+  batchWindowMs?: number
+  now?(): number
 }
 
 /**
@@ -146,6 +155,7 @@ export class DelegationSupervisor {
 
     const reports: CompletionReport[] = []
     const delivered: { childSessionId: string; turnId: string }[] = []
+    let oldest = Number.POSITIVE_INFINITY
     for (const entry of pending) {
       if (this.host.isWaiting?.(parentId, entry.childSessionId)) continue
       // A stop never starts work. Whoever stopped this child, waking its
@@ -171,14 +181,27 @@ export class DelegationSupervisor {
         report: finalAssistantText(child, entry.turnId, REPORT_CHARS),
       })
       delivered.push({ childSessionId: entry.childSessionId, turnId: entry.turnId })
+      oldest = Math.min(oldest, entry.settledAt)
     }
     if (reports.length === 0) return
 
     const working: { sessionId: string; title: string }[] = []
+    let aboutToFinish = false
     for (const row of await this.host.store.listSessions()) {
       if (row.parentSessionId !== parentId || row.archived) continue
-      if ((await this.host.store.load(row.id)).activeTurnId !== null || this.host.isRunning?.(row.id))
-        working.push({ sessionId: row.id, title: row.title })
+      const sibling = await this.host.store.load(row.id)
+      if (sibling.activeTurnId === null && !this.host.isRunning?.(row.id)) continue
+      working.push({ sessionId: row.id, title: row.title })
+      // One parked on an approval or a question is waiting on a person, not about to report.
+      if (sibling.pendingApprovals.length === 0 && sibling.pendingInputs.length === 0)
+        aboutToFinish = true
+    }
+    const held = (this.host.now?.() ?? Date.now()) - oldest
+    const window = this.host.batchWindowMs ?? BATCH_WINDOW_MS
+    if (aboutToFinish && held < window) {
+      // Each sibling that settles re-enters here; this timer is the ceiling.
+      this.schedule(parentId, window - held)
+      return
     }
     const outcome = await this.host.dispatch(
       {
