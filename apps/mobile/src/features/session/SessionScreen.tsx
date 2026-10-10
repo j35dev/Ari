@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNod
 import {
   ArrowDown,
   ChevronLeft,
+  CornerLeftUp,
   Folder,
   GitBranch,
   MoreHorizontal,
@@ -18,7 +19,10 @@ import type {
 import type { PermissionMode } from '@ari/contracts/common'
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
+import type { ChildTask } from '@ari/contracts/agent-control'
 import { useApp } from '../../lib/app-state'
+import { agentState } from '../../lib/delegation'
+import { Agents } from './Agents'
 import { BottomSheet } from '../../components/ui'
 import { Conversation } from './Conversation'
 import { AttentionDock } from './AttentionDock'
@@ -40,6 +44,9 @@ interface Snapshot {
   messages: Message[]
   pendingApprovals: RemoteApproval[]
   pendingInputs: RemoteInput[]
+  /** Absent from a desktop that predates delegation views. */
+  tasks?: ChildTask[]
+  parent?: { id: string; title: string } | null
 }
 type View = 'conversation' | 'changes' | 'files' | 'terminal'
 
@@ -48,10 +55,13 @@ export function SessionScreen({
   sessionId,
   onBack,
   onForked,
+  onOpenSession = onForked,
 }: {
   sessionId: string
   onBack: () => void
   onForked: (sessionId: string) => void
+  /** Moves to another session: a delegated agent, or the session that delegated to this one. */
+  onOpenSession?: (sessionId: string) => void
 }): ReactNode {
   const app = useApp()
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
@@ -166,6 +176,31 @@ export function SessionScreen({
   }
   const projectName =
     app.projects.find((project) => project.id === snapshot?.summary.projectId)?.name ?? 'Workspace'
+  const tasks = snapshot?.tasks ?? []
+  const parent = snapshot?.parent ?? null
+  /** A session that ended its turn to wait is not "ready": its agents are still at it. */
+  const agentsWorking = tasks.filter((task) => {
+    const state = agentState(task)
+    return state === 'working' || state === 'waiting'
+  }).length
+  const titleOf = (id: string): string | undefined =>
+    tasks.find((task) => task.sessionId === id)?.title ??
+    (parent?.id === id ? parent.title : app.sessions.find((entry) => entry.id === id)?.title)
+  /** Each running agent is stopped in turn; the desktop carries a stop down to whatever it delegated. */
+  async function stopAgents(): Promise<void> {
+    const session = app.session
+    if (session === null) return
+    const running = tasks.filter((task) => {
+      const state = agentState(task)
+      return state === 'working' || state === 'needs-you'
+    })
+    const results = await Promise.allSettled(
+      running.map((task) => session.send({ op: 'session.interrupt', sessionId: task.sessionId })),
+    )
+    if (results.some((result) => result.status === 'rejected'))
+      setFailure('Some agents could not be stopped.')
+    await load()
+  }
   const can = (op: string): boolean =>
     app.session?.supports(op) === true && app.connection === 'connected'
   /** Model, effort and mode changes are confirmed by re-reading the session, never assumed. */
@@ -222,7 +257,9 @@ export function SessionScreen({
                     ? 'working'
                     : waiting
                       ? 'waiting for you'
-                      : 'ready'
+                      : agentsWorking > 0
+                        ? `waiting on ${agentsWorking} agent${agentsWorking === 1 ? '' : 's'}`
+                        : 'ready'
               }`}
             </span>
           </p>
@@ -293,6 +330,17 @@ export function SessionScreen({
           </ul>
         </BottomSheet>
       )}
+      {view === 'conversation' && parent !== null && (
+        <button
+          type="button"
+          aria-label={`Open parent session: ${parent.title}`}
+          className="mx-4 mb-1 flex min-h-9 shrink-0 items-center gap-1.5 self-start rounded-full bg-surface-1 px-3 text-xs text-fg-muted"
+          onClick={() => onOpenSession(parent.id)}
+        >
+          <CornerLeftUp size={13} aria-hidden className="shrink-0 text-accent" />
+          <span className="max-w-[70vw] truncate">{parent.title || 'Parent session'}</span>
+        </button>
+      )}
       {failure !== null && (
         <div
           role="alert"
@@ -326,6 +374,8 @@ export function SessionScreen({
               messages={snapshot.messages}
               sessionId={sessionId}
               running={snapshot.session.status === 'running'}
+              titleOf={titleOf}
+              onOpenSession={onOpenSession}
             />
           </>
         )}
@@ -365,6 +415,13 @@ export function SessionScreen({
             <ArrowDown size={17} />
           </button>
         </div>
+      )}
+      {view === 'conversation' && (
+        <Agents
+          tasks={tasks}
+          onOpen={onOpenSession}
+          {...(can('session.interrupt') ? { onStopAll: stopAgents } : {})}
+        />
       )}
       {view === 'conversation' && waiting && snapshot !== null && (
         <AttentionDock
