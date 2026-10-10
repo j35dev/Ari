@@ -77,7 +77,9 @@ function isSafeInvocation(segment: string): boolean {
  * not safe, so the user is asked as usual.
  */
 export function isSafeControlCommand(command: string): boolean {
-  if (command.length === 0 || command.length > 70_000 || /[\r\n]/.test(command)) return false
+  // A line break inside quotes is part of a prompt; outside them it starts
+  // another command, which the word splitter refuses like any other separator.
+  if (command.length === 0 || command.length > 70_000) return false
   return command.split(/ (?:&&|\|\|) /).every(isSafeInvocation)
 }
 

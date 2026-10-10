@@ -14,6 +14,8 @@ describe('isSafeControlCommand', () => {
     'ari session spawn --title A --agent codex --key a --json || ari session spawn --help',
     'ari parent message "Which API should I target?" --key q-1 --json',
     'ari session diff sess_1 --stat --json | tail -n 20',
+    // Real assignments run to several lines; inside quotes that is only text.
+    'ari session spawn --title "Parser" --agent codex --key p-1 --json --prompt "Fix the parser.\n\nScope: src/parse.\n- add tests\n- report changed files"',
   ])('allows %s', (command) => {
     expect(isSafeControlCommand(command)).toBe(true)
   })
@@ -32,6 +34,7 @@ describe('isSafeControlCommand', () => {
     'ari env | sh',
     'ari env & calc',
     'ari env\nrm -rf .',
+    'ari session prompt sess_1 "first line\nsecond" --key k\nrm -rf .',
     'ari env > ~/.bashrc',
     'ari session read sess_1 --json < /etc/passwd',
     // Expansion and substitution, including inside double quotes.
