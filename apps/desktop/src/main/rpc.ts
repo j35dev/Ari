@@ -1,11 +1,20 @@
 import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, shell, safeStorage, type WebContents } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Notification,
+  shell,
+  safeStorage,
+  type WebContents,
+} from 'electron'
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
-import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
+import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
@@ -33,6 +42,7 @@ import {
 import { writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
+import { SessionNotifier } from './session-notifier'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
@@ -695,12 +705,39 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // renderer subscribes to; no extra engine coupling. Imports use the same
   // publisher after their journals are complete, so session lists refresh.
   const runningTurns = new RunningTurnCounter()
+  // One live OS notification per session: a newer one replaces it rather than
+  // stacking, and holding the reference keeps its click handler alive.
+  const liveNotifications = new Map<string, Notification>()
+  const notifier = new SessionNotifier({
+    store: getSessionStore(),
+    enabled: () => getSettingsStore().current.notifications.desktop && Notification.isSupported(),
+    focused: () => BrowserWindow.fromWebContents(contents)?.isFocused() ?? false,
+    show: (sessionId, notice) => {
+      liveNotifications.get(sessionId)?.close()
+      const notification = new Notification({ ...notice, silent: true })
+      notification.on('click', () => {
+        const window = BrowserWindow.fromWebContents(contents)
+        if (window) {
+          if (window.isMinimized()) window.restore()
+          window.show()
+          window.focus()
+        }
+        rpcRegistry.publish('app.navigate', { sessionId } satisfies NavigateFrame)
+      })
+      notification.on('close', () => {
+        if (liveNotifications.get(sessionId) === notification) liveNotifications.delete(sessionId)
+      })
+      liveNotifications.set(sessionId, notification)
+      notification.show()
+    },
+  })
   const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
     const payload: SessionEventFrame = { sessionId, event }
     rpcRegistry.publish('session.events', payload)
     if (options.onRunningCount && runningTurns.push(event)) {
       options.onRunningCount(runningTurns.count)
     }
+    notifier.observe(sessionId, event)
   }
   // Composer image staging: pasted/dropped bytes land here keyed by id; only
   // refs cross IPC and journals, so history replay never replays megabytes.

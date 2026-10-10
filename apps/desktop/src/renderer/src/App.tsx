@@ -11,6 +11,7 @@ import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { useAppUpdateToast } from './features/updates'
 import type {
   BrowserTabState,
+  NavigateFrame,
   RpcResults,
   SessionEventFrame,
   SessionSummary,
@@ -271,6 +272,18 @@ function Shell() {
       setFullPage(null)
     },
     [layout, clearTransientInspector, leaveWorkspaceTool],
+  )
+
+  // Clicking an OS notification asks to see the session it was about.
+  const selectSessionRef = useRef(selectSession)
+  selectSessionRef.current = selectSession
+  useEffect(
+    () =>
+      rpc.subscribe('app.navigate', {}, (payload) => {
+        const sessionId = (payload as Partial<NavigateFrame> | null)?.sessionId
+        if (typeof sessionId === 'string') selectSessionRef.current(sessionId)
+      }),
+    [],
   )
 
   const { toast } = useToast()
