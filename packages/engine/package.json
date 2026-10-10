@@ -6,6 +6,7 @@
   "exports": {
     "./agent-control": "./src/agent-control.ts",
     "./control-server": "./src/control-server.ts",
+    "./control-preamble": "./src/control-preamble.ts",
     "./delegation-state": "./src/delegation-state.ts",
     "./delegation-supervisor": "./src/delegation-supervisor.ts",
     "./workspace": "./src/workspace.ts",
