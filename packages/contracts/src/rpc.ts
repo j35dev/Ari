@@ -10,6 +10,7 @@ import type { Project } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
+import type { ChildTask } from './agent-control'
 
 /**
  * The RPC surface between renderer and engine. Method names are an allowlist;
@@ -476,6 +477,8 @@ export const rpcParams = {
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
+  /** The children this session delegated to, with their state and last report. */
+  'session.tasks': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
   /** Sessions another agent already has on disk; `projectId` scopes to one registered project. */
   'sessions.importable': z.object({ projectId: z.string().min(1).optional() }),
@@ -778,6 +781,7 @@ export interface RpcResults {
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.workspace': { path: string | null }
+  'session.tasks': ChildTask[]
   'session.destroy': { destroyed: boolean }
   /**
    * Sessions another agent has on disk and Ari could replay. `imported` is
