@@ -67,6 +67,16 @@ describe('TranscriptView delegation', () => {
     expect(onOpenSession).toHaveBeenCalledWith('child_b')
   })
 
+  it('says a delivery notice failed when every child in it did', () => {
+    const notice: Message = {
+      ...message('n'),
+      origin: { kind: 'completion', sessionIds: ['child_b'] },
+      parts: [{ type: 'text', text: 'Child session "Docs" (child_b) failed.\nError: rate limit' }],
+    }
+    render(view([notice]))
+    expect(screen.getByRole('button', { name: 'Delegation update: Docs failed' })).toBeInTheDocument()
+  })
+
   it('names the session a relayed message came from and offers no edit', async () => {
     const relayed: Message = { ...message('q'), origin: { kind: 'session', sessionId: 'child_a' } }
     render(view([relayed], { onEditUserMessage: vi.fn() }))

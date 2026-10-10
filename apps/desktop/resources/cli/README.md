@@ -27,11 +27,30 @@ happens to an idle parent whose last turn ended cleanly and whose queue is empty
 otherwise the outcome stays pending and is re-checked at the parent's next clean
 settle. Nothing is delivered at application start.
 
-Stopping a session interrupts the live turns of the children it delegated to and
-discards outcomes that were waiting to wake it. A stop never starts work: a child
-that was stopped, by anyone, does not wake its parent; the parent sees it in
-`session status`. Both behaviours have a switch in
-Permissions settings (`autoDeliverResults`, `cascadeStop`).
+A report is held for up to 20 seconds while a sibling is still running, so
+children that finish together arrive together. A child that ended its turn while
+work it delegated is still running is not reported as finished; its outcome is
+delivered once everything below it is quiet. Whether a session is working is
+read from its journal, not from whether its provider process is still alive. A
+child turn left open by a restart is settled as interrupted at start-up.
+
+Stopping a session interrupts every live turn below it, at any depth, and
+discards outcomes that were waiting to wake it or anything under it. A stop
+never starts work: a child that was stopped, by anyone, does not wake its
+parent; the parent sees it in `session status`. A parent that has no turn of its
+own to stop offers "Stop all" on its child rail. Both behaviours have a switch
+in Permissions settings (`autoDeliverResults`, `cascadeStop`).
+
+## Permission prompts
+
+With `autoApproveCli` on (the default), a permission request is answered by Ari
+itself when it is a `Bash` call consisting only of `ari` invocations that read
+or delegate: `env`, `agents`, `--skill`, `session get|children|status|spawn|
+prompt|message|read|wait|stop|diff` and `parent message`. The command line is
+parsed strictly. A second command, a pipe to anything but `head` or `tail`, a
+redirection, or an expansion outside single quotes leaves the request to the
+user, as do `session integrate`, `session destroy`, `skill install` and every
+other shell tool. Delegation itself still asks once per root by default.
 
 ## Snapshots and integration
 

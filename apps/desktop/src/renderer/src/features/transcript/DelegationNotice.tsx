@@ -23,7 +23,10 @@ export function DelegationNotice({
 }) {
   const [open, setOpen] = useState(false)
   const names = sessionIds.map((id) => sessionTitle?.(id) ?? 'a removed session')
-  const summary = `${names.join(', ')} reported back`
+  // The notice says how each child ended; an update made only of failures
+  // should not read as good news.
+  const allFailed = sessionIds.every((id) => text.includes(`(${id}) failed.`))
+  const summary = `${names.join(', ')} ${allFailed ? 'failed' : 'reported back'}`
   return (
     <div className="ari-burst my-1 pl-3" data-activity="settled">
       <button
