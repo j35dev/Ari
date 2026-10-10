@@ -4,6 +4,7 @@ import {
   AGENT_CONTROL_VERSION,
   ControlFailure,
   controlParams,
+  type ChildTask,
   type ControlMethod,
   type ControlParams,
   type ControlResult,
@@ -17,7 +18,7 @@ import type { SessionStore } from './session-store'
 import type { UnstampedEvent } from './projection'
 import { checkDelegation, sessionLineage } from './control-policy'
 import { waitForTurn, type WaitOutcome } from './control-wait'
-import { childWorkState, finalAssistantText, type ChildTask } from './delegation-state'
+import { childWorkState, finalAssistantText } from './delegation-state'
 
 const log = createLogger('engine:control')
 
@@ -730,17 +731,49 @@ export class AgentControlService {
     }
   }
 
-  /** One row per delegated child: where it stands and what it last reported. */
+  /** One row per delegated child, for the agent that owns them. Acknowledges what it shows. */
   async #status(caller: Session, p: ControlParams<'session.status'>): Promise<unknown> {
     const parent = await this.#target(caller, p.targetSessionId)
+    const tasks = await this.tasks(parent.id, p.recursive)
+    if (parent.id === caller.id)
+      for (const task of tasks)
+        if (
+          task.parentSessionId === caller.id &&
+          task.workState === 'result_available' &&
+          task.latestTurn &&
+          !task.reportTruncated
+        )
+          await this.#acknowledge(caller.id, task.sessionId, task.latestTurn.turnId, 'read')
+    const count = (state: string): number =>
+      tasks.filter((task) => task.workState === state).length
+    return {
+      sessionId: parent.id,
+      tasks,
+      summary: {
+        total: tasks.length,
+        working: count('working'),
+        blockedOnUser: count('blocked_on_user'),
+        waitingForChildren: count('waiting_for_children'),
+        resultAvailable: count('result_available'),
+        notStarted: count('not_started'),
+      },
+    }
+  }
+
+  /**
+   * Where each delegated child of `parentId` stands and what it last reported.
+   * A plain read: the desktop UI shows these without marking anything as seen
+   * by the parent agent.
+   */
+  async tasks(parentId: string, recursive = false): Promise<ChildTask[]> {
     const rows = await this.host.store.listSessions()
-    const ids = p.recursive
-      ? descendantIds(rows, parent.id).reverse()
-      : rows.filter((row) => row.parentSessionId === parent.id).map((row) => row.id)
+    const ids = recursive
+      ? descendantIds(rows, parentId).reverse()
+      : rows.filter((row) => row.parentSessionId === parentId).map((row) => row.id)
     const live = new Set<string>()
-    for (const id of descendantIds(rows, parent.id))
+    for (const id of descendantIds(rows, parentId))
       if ((await this.host.store.load(id)).activeTurnId || this.host.isRunning?.(id)) live.add(id)
-    const completions = (await this.host.store.load(parent.id)).childCompletions ?? {}
+    const completions = (await this.host.store.load(parentId)).childCompletions ?? {}
     const tasks: ChildTask[] = []
     for (const id of ids) {
       const model = await this.host.store.load(id)
@@ -754,16 +787,7 @@ export class AgentControlService {
       const settled = workState === 'result_available' || workState === 'waiting_for_children'
       const report =
         settled && model.lastTurn ? finalAssistantText(model, model.lastTurn.turnId, 2_000) : null
-      const direct = session.parentSessionId === parent.id
-      if (
-        direct &&
-        parent.id === caller.id &&
-        workState === 'result_available' &&
-        model.lastTurn &&
-        report &&
-        !report.truncated
-      )
-        await this.#acknowledge(caller.id, id, model.lastTurn.turnId, 'read')
+      const direct = session.parentSessionId === parentId
       tasks.push({
         sessionId: id,
         parentSessionId: session.parentSessionId ?? null,
@@ -787,20 +811,7 @@ export class AgentControlService {
         branch: session.workspace?.kind === 'managed-worktree' ? session.workspace.branch : null,
       })
     }
-    const count = (state: string): number =>
-      tasks.filter((task) => task.workState === state).length
-    return {
-      sessionId: parent.id,
-      tasks,
-      summary: {
-        total: tasks.length,
-        working: count('working'),
-        blockedOnUser: count('blocked_on_user'),
-        waitingForChildren: count('waiting_for_children'),
-        resultAvailable: count('result_available'),
-        notStarted: count('not_started'),
-      },
-    }
+    return tasks
   }
 }
 

@@ -1,13 +1,5 @@
-import type { DelegationRole } from '@ari/contracts/session'
+import type { ChildWorkState } from '@ari/contracts/agent-control'
 import type { SessionReadModel } from './projection'
-
-/** Where a delegated child stands, from its parent's point of view. */
-export type ChildWorkState =
-  | 'not_started'
-  | 'working'
-  | 'blocked_on_user'
-  | 'waiting_for_children'
-  | 'result_available'
 
 export interface PendingCompletion {
   childSessionId: string
@@ -51,27 +43,6 @@ export function childWorkState(
   if (model.queuedMessages.length > 0 && model.lastTurn.stopReason === 'completed') return 'working'
   if (liveDescendants > 0 || pendingCompletions(model).length > 0) return 'waiting_for_children'
   return 'result_available'
-}
-
-/** One delegated child as `session status` reports it. */
-export interface ChildTask {
-  sessionId: string
-  parentSessionId: string | null
-  title: string
-  role: DelegationRole | null
-  driverKind: string
-  modelId: string | null
-  workState: ChildWorkState
-  blockedOn: 'approval' | 'input' | null
-  queuedMessages: number
-  latestTurn: NonNullable<SessionReadModel['lastTurn']> | null
-  /** The child's final message, once it has one to read. */
-  report: string | null
-  reportTruncated: boolean
-  /** Whether the parent has seen the latest outcome; null below direct children. */
-  delivered: boolean | null
-  workspaceKind: 'project' | 'managed-worktree'
-  branch: string | null
 }
 
 export interface TurnReport {

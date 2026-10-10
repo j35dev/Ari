@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { driverKindSchema, permissionModeSchema } from './common'
-import { delegationRoleSchema } from './session'
+import { delegationRoleSchema, type DelegationRole } from './session'
 
 export const AGENT_CONTROL_VERSION = 1
 export const CONTROL_MAX_FRAME_BYTES = 1024 * 1024
@@ -24,6 +24,40 @@ export const delegationSettingsSchema = z.object({
   cascadeStop: z.boolean().default(true),
 })
 export type DelegationSettings = z.infer<typeof delegationSettingsSchema>
+
+/** Where a delegated child stands, from its parent's point of view. */
+export type ChildWorkState =
+  | 'not_started'
+  | 'working'
+  | 'blocked_on_user'
+  | 'waiting_for_children'
+  | 'result_available'
+
+/** One delegated child as `session status` and the transcript's task cards report it. */
+export interface ChildTask {
+  sessionId: string
+  parentSessionId: string | null
+  title: string
+  role: DelegationRole | null
+  driverKind: string
+  modelId: string | null
+  workState: ChildWorkState
+  blockedOn: 'approval' | 'input' | null
+  queuedMessages: number
+  latestTurn: {
+    turnId: string
+    stopReason: 'completed' | 'interrupted' | 'error'
+    settledAt: number
+    errorMessage?: string | null
+  } | null
+  /** The child's final message, once it has one to read. */
+  report: string | null
+  reportTruncated: boolean
+  /** Whether the parent has seen the latest outcome; null below direct children. */
+  delivered: boolean | null
+  workspaceKind: 'project' | 'managed-worktree'
+  branch: string | null
+}
 
 export const controlParams = {
   'runtime.info': z.object({}).strict(),

@@ -1165,6 +1165,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { path: session ? await engine.workspace(session) : null }
   })
 
+  r.register('session.tasks', async ({ sessionId }) =>
+    (await controlReady).service.tasks(sessionId),
+  )
+
   r.register('session.destroy', async (params) => {
     const store = getSessionStore()
     const ids = [...descendantIds(await store.listSessions(), params.sessionId), params.sessionId]
