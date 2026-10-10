@@ -28,7 +28,9 @@ otherwise the outcome stays pending and is re-checked at the parent's next clean
 settle. Nothing is delivered at application start.
 
 Stopping a session interrupts the live turns of the children it delegated to and
-discards outcomes that were waiting to wake it. Both behaviours have a switch in
+discards outcomes that were waiting to wake it. A stop never starts work: a child
+that was stopped, by anyone, does not wake its parent; the parent sees it in
+`session status`. Both behaviours have a switch in
 Permissions settings (`autoDeliverResults`, `cascadeStop`).
 
 ## Snapshots and integration
