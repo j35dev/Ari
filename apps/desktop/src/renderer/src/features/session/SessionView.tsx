@@ -265,7 +265,9 @@ export function SessionView({
   // latest snapshot of how each is doing. The ref tracks the newest message
   // part in journal order so a spawn can be anchored without reading state.
   const [spawns, setSpawns] = useState<SpawnRecord[]>([])
-  const [tasks, setTasks] = useState<ChildTask[]>([])
+  // Null until the first snapshot lands: a card drawn before it would have
+  // to guess, and reads as idle for the moment it takes to arrive.
+  const [tasks, setTasks] = useState<ChildTask[] | null>(null)
   const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
   const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
@@ -310,7 +312,7 @@ export function SessionView({
     setTelemetry(EMPTY_TELEMETRY)
     setTurnDiffs({})
     setSpawns([])
-    setTasks([])
+    setTasks(null)
     lastPartRef.current = null
     fetchedTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
@@ -327,7 +329,10 @@ export function SessionView({
           .then((next) => {
             if (!cancelled) setTasks(next)
           })
-          .catch(() => undefined)
+          // Without a snapshot the cards still show, from live activity alone.
+          .catch(() => {
+            if (!cancelled) setTasks((prev) => prev ?? [])
+          })
       }, 200)
     }
 
@@ -907,7 +912,7 @@ export function SessionView({
   )
 
   const delegations = useMemo(
-    () => delegatedChildren(spawns, tasks, activityOf),
+    () => (tasks === null ? [] : delegatedChildren(spawns, tasks, activityOf)),
     [spawns, tasks, activityOf],
   )
 
