@@ -54,8 +54,26 @@ export interface SessionReadModel {
     turnId: string
     stopReason: 'completed' | 'interrupted' | 'error'
     settledAt: number
+    /** Provider failure text for an `error` settle; absent on older folds. */
+    errorMessage?: string | null
   }
   childEvents?: Extract<JournalEvent, { type: `child.session.${string}` }>[]
+  /**
+   * Latest turn outcome per live child and whether this session has seen it.
+   * Kept apart from the capped `childEvents` so an old completion can never
+   * resurface as undelivered once its acknowledgment scrolls out of the cap.
+   */
+  childCompletions?: Record<string, ChildCompletion>
+}
+
+export interface ChildCompletion {
+  turnId: string
+  acknowledged: boolean
+  /** Absent while only the acknowledgment has been journaled. */
+  stopReason?: 'completed' | 'interrupted' | 'error'
+  settledAt?: number
+  /** A turn acknowledged before its settle was journaled here. */
+  earlyAck?: string
 }
 
 export function initialReadModel(): SessionReadModel {
@@ -91,7 +109,9 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     case 'child.session.integrated':
     case 'child.session.stopped':
     case 'child.session.destroyed':
+    case 'child.session.acknowledged':
       next.childEvents = [...(state.childEvents ?? []), event].slice(-200)
+      next.childCompletions = foldCompletion(state.childCompletions ?? {}, event)
       break
     case 'session.created':
       // Normalize the optional sidebar flags so every read model carries
@@ -141,7 +161,12 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
       break
 
     case 'turn.settled':
-      next.lastTurn = { turnId: event.turnId, stopReason: event.stopReason, settledAt: event.at }
+      next.lastTurn = {
+        turnId: event.turnId,
+        stopReason: event.stopReason,
+        settledAt: event.at,
+        errorMessage: event.errorMessage ?? null,
+      }
       next.activeTurnId = null
       next.streamingMessageId = null
       // A settled turn owns no live prompts: stopping (or failing) while a
@@ -254,6 +279,51 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
   }
 
   return next
+}
+
+/**
+ * An acknowledgment and its settle race: a parent blocked in `session wait`
+ * can learn the outcome before the engine journals the settle onto it. The
+ * fold is therefore order-independent per `(child, turn)`.
+ */
+function foldCompletion(
+  completions: Record<string, ChildCompletion>,
+  event: Extract<JournalEvent, { type: `child.session.${string}` }>,
+): Record<string, ChildCompletion> {
+  const current = completions[event.childSessionId]
+  switch (event.type) {
+    case 'child.session.settled':
+      return {
+        ...completions,
+        [event.childSessionId]: {
+          turnId: event.turnId,
+          acknowledged:
+            current?.earlyAck === event.turnId ||
+            (current?.turnId === event.turnId && current.acknowledged),
+          stopReason: event.stopReason,
+          settledAt: event.at,
+        },
+      }
+    case 'child.session.acknowledged':
+      if (current?.turnId === event.turnId)
+        return { ...completions, [event.childSessionId]: { ...current, acknowledged: true } }
+      // Not the recorded turn: either its settle is still on the way, or the
+      // acknowledgment is stale. Remembering the id serves the first and is
+      // inert for the second, since a settled turn never settles again.
+      return {
+        ...completions,
+        [event.childSessionId]: {
+          ...(current ?? { turnId: event.turnId, acknowledged: true }),
+          earlyAck: event.turnId,
+        },
+      }
+    case 'child.session.destroyed': {
+      const { [event.childSessionId]: _gone, ...rest } = completions
+      return rest
+    }
+    default:
+      return completions
+  }
 }
 
 /** Folds a full event list into a read model (boot replay path). */
