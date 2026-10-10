@@ -10,12 +10,14 @@ import {
   type DelegationSettings,
 } from '@ari/contracts/agent-control'
 import type { Session, SessionWorkspace } from '@ari/contracts/session'
+import type { Message } from '@ari/contracts/message'
 import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { SessionStore } from './session-store'
 import type { UnstampedEvent } from './projection'
 import { checkDelegation, sessionLineage } from './control-policy'
-import { waitForTurn } from './control-wait'
+import { waitForTurn, type WaitOutcome } from './control-wait'
+import { childWorkState, finalAssistantText, type ChildTask } from './delegation-state'
 
 const log = createLogger('engine:control')
 
@@ -86,6 +88,8 @@ export interface ControlHost {
   quiesce?(id: string): Promise<void>
   revoke?(id: string): void
   release(child: Session): Promise<void>
+  /** A `session wait` by this caller ended; undelivered results may now be due. */
+  waitEnded?(callerId: string): void
 }
 
 /** Scoped control primitives shared by the desktop host, local CLI and deterministic tests. */
@@ -96,7 +100,43 @@ export class AgentControlService {
   readonly #approving = new Map<string, Promise<boolean>>()
   readonly #rates = new Map<string, { at: number; count: number }>()
   readonly #gone = new Map<string, Set<() => void>>()
+  readonly #waiting = new Map<string, Map<string, number>>()
   constructor(readonly host: ControlHost) {}
+
+  /** True while `parentId` is blocked in `session wait` on `childId`. */
+  isWaiting(parentId: string, childId: string): boolean {
+    return (this.#waiting.get(parentId)?.get(childId) ?? 0) > 0
+  }
+
+  #trackWait(parentId: string, childId: string, delta: 1 | -1): void {
+    const children = this.#waiting.get(parentId) ?? new Map<string, number>()
+    const count = (children.get(childId) ?? 0) + delta
+    if (count > 0) children.set(childId, count)
+    else children.delete(childId)
+    if (children.size > 0) this.#waiting.set(parentId, children)
+    else this.#waiting.delete(parentId)
+  }
+
+  /**
+   * Marks a child turn's outcome as seen by its parent so it is not delivered
+   * again. The settle may not be journaled on the parent yet; the projection
+   * accepts the acknowledgment first.
+   */
+  async #acknowledge(
+    parentId: string,
+    childSessionId: string,
+    turnId: string,
+    via: 'wait' | 'read' | 'disposed',
+  ): Promise<void> {
+    const seen = (await this.host.store.load(parentId)).childCompletions?.[childSessionId]
+    if ((seen?.turnId === turnId && seen.acknowledged) || seen?.earlyAck === turnId) return
+    await this.host.record(parentId, {
+      type: 'child.session.acknowledged',
+      childSessionId,
+      turnId,
+      via,
+    })
+  }
 
   async #get(id: string): Promise<Session> {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id))
@@ -296,51 +336,23 @@ export class AgentControlService {
       }
       case 'session.read':
         return this.#read(
+          caller,
           await this.#target(caller, (raw as ControlParams<'session.read'>).targetSessionId),
           raw as ControlParams<'session.read'>,
         )
-      case 'session.wait': {
-        const p = raw as ControlParams<'session.wait'>
-        const targets = await Promise.all(p.targetSessionIds.map((id) => this.#target(caller, id)))
-        const controller = new AbortController()
-        const abort = () => controller.abort()
-        signal?.addEventListener('abort', abort, { once: true })
-        if (signal?.aborted) controller.abort()
-        try {
-          return await Promise.all(
-            targets.map(async (s) => {
-              try {
-                return await waitForTurn(
-                  {
-                    load: (id) => this.host.store.load(id),
-                    subscribe: (listener) => this.host.subscribe(listener),
-                    onGone: (id, listener) => this.#watchGone(id, listener),
-                  },
-                  s.id,
-                  p.timeoutMs,
-                  controller.signal,
-                )
-              } catch (error) {
-                if (error instanceof ControlFailure && error.code === 'wait_timeout')
-                  return { status: 'timeout' as const, sessionId: s.id }
-                if (error instanceof ControlFailure && error.code === 'wait_cancelled')
-                  throw error
-                if (error instanceof ControlFailure && error.code === 'session_not_found')
-                  return { status: 'destroyed' as const, sessionId: s.id }
-                throw error
-              }
-            }),
-          )
-        } finally {
-          signal?.removeEventListener('abort', abort)
-        }
-      }
+      case 'session.wait':
+        return this.#wait(caller, raw as ControlParams<'session.wait'>, signal)
+      case 'session.status':
+        return this.#status(caller, raw as ControlParams<'session.status'>)
       case 'session.stop': {
         const target = await this.#target(
           caller,
           (raw as ControlParams<'session.stop'>).targetSessionId,
         )
         const state = await this.host.store.load(target.id)
+        // The caller knows it stopped this turn; it needs no wake-up about it.
+        if (state.activeTurnId && target.parentSessionId === caller.id)
+          await this.#acknowledge(caller.id, target.id, state.activeTurnId, 'disposed')
         if (state.activeTurnId)
           await this.host.dispatch({ type: 'turn.interrupt', sessionId: target.id })
         if (target.id !== caller.id && state.activeTurnId)
@@ -522,12 +534,17 @@ export class AgentControlService {
       const workspace =
         mode === 'isolated' ? await this.host.isolate(caller, id) : { kind: 'project' as const }
       isolated = mode === 'isolated'
+      // Preparing a worktree can outlast the caller. Whoever asked is no
+      // longer there to receive the id, so no child is minted for it.
+      if (signal?.aborted)
+        throw new ControlFailure('request_cancelled', 'The caller disconnected before the spawn.')
       child = {
         id,
         projectId: caller.projectId,
         parentSessionId: caller.id,
         rootSessionId: root.id,
         createdBy: { kind: 'session', sessionId: caller.id },
+        ...(p.role ? { role: p.role } : {}),
         workspace,
         title: p.title,
         driverKind: p.driverKind,
@@ -547,6 +564,7 @@ export class AgentControlService {
         modelId: child.modelId,
         workspaceKind: workspace.kind,
         branch: workspace.kind === 'managed-worktree' ? workspace.branch : null,
+        ...(p.role ? { role: p.role } : {}),
         idempotencyKey: p.idempotencyKey,
       })
       const initialTurn = p.prompt ? await this.#prompt(caller, child, p.prompt) : null
@@ -603,7 +621,11 @@ export class AgentControlService {
     }
   }
 
-  async #read(target: Session, p: ControlParams<'session.read'>): Promise<unknown> {
+  async #read(
+    caller: Session,
+    target: Session,
+    p: ControlParams<'session.read'>,
+  ): Promise<unknown> {
     const state = await this.host.store.load(target.id)
     const turns = p.tailTurns
       ? new Set(
@@ -617,17 +639,7 @@ export class AgentControlService {
     const messages = [...selected]
       .reverse()
       .map((message) => {
-        const text = message.parts
-          .flatMap((part) =>
-            part.type === 'text'
-              ? [part.text]
-              : p.includeToolSummaries && part.type === 'tool-call'
-                ? [`[Tool: ${part.name}]`]
-                : p.includeToolSummaries && part.type === 'tool-result'
-                  ? [`[Result: ${part.resultJson.slice(0, 500)}]`]
-                  : [],
-          )
-          .join('\n')
+        const text = messageText(message, p.includeToolSummaries)
         const clipped = text.slice(0, remaining)
         remaining -= clipped.length
         return {
@@ -639,6 +651,15 @@ export class AgentControlService {
         }
       })
       .reverse()
+    const report = finalAssistantText(state, state.lastTurn?.turnId)
+    // Reading a settled child's whole report is as good as being told about it.
+    if (
+      target.parentSessionId === caller.id &&
+      state.activeTurnId === null &&
+      state.lastTurn &&
+      !report.truncated
+    )
+      await this.#acknowledge(caller.id, target.id, state.lastTurn.turnId, 'read')
     return {
       session: target,
       activeTurnId: state.activeTurnId,
@@ -648,11 +669,161 @@ export class AgentControlService {
         .map((message) => `${message.role}: ${message.text}`)
         .join('\n\n')
         .slice(0, p.maxChars),
-      latestAssistantText:
-        [...messages].reverse().find((message) => message.role === 'assistant')?.text ?? '',
+      latestAssistantText: report.text,
       truncated: remaining === 0 || selected.length < state.messages.length,
     }
   }
+
+  async #wait(
+    caller: Session,
+    p: ControlParams<'session.wait'>,
+    signal?: AbortSignal,
+  ): Promise<WaitOutcome[]> {
+    const targets = await Promise.all(p.targetSessionIds.map((id) => this.#target(caller, id)))
+    const controller = new AbortController()
+    // Aborted only in `any` mode, once one target has an outcome.
+    const race = new AbortController()
+    const abort = (): void => controller.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    if (signal?.aborted) controller.abort()
+    const own = targets.filter((target) => target.parentSessionId === caller.id)
+    for (const target of own) this.#trackWait(caller.id, target.id, 1)
+    try {
+      const outcomes = await Promise.all(
+        targets.map(async (target): Promise<WaitOutcome> => {
+          try {
+            const outcome = await waitForTurn(
+              {
+                load: (id) => this.host.store.load(id),
+                subscribe: (listener) => this.host.subscribe(listener),
+                onGone: (id, listener) => this.#watchGone(id, listener),
+              },
+              target.id,
+              p.timeoutMs,
+              AbortSignal.any([controller.signal, race.signal]),
+            )
+            if (p.mode === 'any') race.abort()
+            return outcome
+          } catch (error) {
+            if (!(error instanceof ControlFailure)) throw error
+            if (error.code === 'wait_timeout') return { status: 'timeout', sessionId: target.id }
+            if (error.code === 'session_not_found')
+              return { status: 'destroyed', sessionId: target.id }
+            if (error.code === 'wait_cancelled' && !controller.signal.aborted)
+              return { status: 'pending', sessionId: target.id }
+            throw error
+          }
+        }),
+      )
+      // A caller that went away never received these, so they stay pending.
+      if (!controller.signal.aborted)
+        for (const outcome of outcomes) {
+          const seen = outcome.status === 'settled' || outcome.status === 'idle'
+          if (seen && outcome.turnId && own.some((target) => target.id === outcome.sessionId))
+            await this.#acknowledge(caller.id, outcome.sessionId, outcome.turnId, 'wait')
+        }
+      return outcomes
+    } finally {
+      signal?.removeEventListener('abort', abort)
+      for (const target of own) this.#trackWait(caller.id, target.id, -1)
+      this.host.waitEnded?.(caller.id)
+    }
+  }
+
+  /** One row per delegated child: where it stands and what it last reported. */
+  async #status(caller: Session, p: ControlParams<'session.status'>): Promise<unknown> {
+    const parent = await this.#target(caller, p.targetSessionId)
+    const rows = await this.host.store.listSessions()
+    const ids = p.recursive
+      ? descendantIds(rows, parent.id).reverse()
+      : rows.filter((row) => row.parentSessionId === parent.id).map((row) => row.id)
+    const live = new Set<string>()
+    for (const id of descendantIds(rows, parent.id))
+      if ((await this.host.store.load(id)).activeTurnId || this.host.isRunning?.(id)) live.add(id)
+    const completions = (await this.host.store.load(parent.id)).childCompletions ?? {}
+    const tasks: ChildTask[] = []
+    for (const id of ids) {
+      const model = await this.host.store.load(id)
+      const session = model.session
+      if (!session) continue
+      const workState = childWorkState(
+        model,
+        descendantIds(rows, id).filter((nested) => live.has(nested)).length,
+        this.host.isRunning?.(id),
+      )
+      const settled = workState === 'result_available' || workState === 'waiting_for_children'
+      const report =
+        settled && model.lastTurn ? finalAssistantText(model, model.lastTurn.turnId, 2_000) : null
+      const direct = session.parentSessionId === parent.id
+      if (
+        direct &&
+        parent.id === caller.id &&
+        workState === 'result_available' &&
+        model.lastTurn &&
+        report &&
+        !report.truncated
+      )
+        await this.#acknowledge(caller.id, id, model.lastTurn.turnId, 'read')
+      tasks.push({
+        sessionId: id,
+        parentSessionId: session.parentSessionId ?? null,
+        title: session.title,
+        role: session.role ?? null,
+        driverKind: session.driverKind,
+        modelId: session.modelId,
+        workState,
+        blockedOn:
+          workState !== 'blocked_on_user'
+            ? null
+            : model.pendingApprovals.length > 0
+              ? 'approval'
+              : 'input',
+        queuedMessages: model.queuedMessages.length,
+        latestTurn: model.lastTurn ?? null,
+        report: report?.text ?? null,
+        reportTruncated: report?.truncated ?? false,
+        delivered: direct ? (completions[id]?.acknowledged ?? false) : null,
+        workspaceKind: session.workspace?.kind ?? 'project',
+        branch: session.workspace?.kind === 'managed-worktree' ? session.workspace.branch : null,
+      })
+    }
+    const count = (state: string): number =>
+      tasks.filter((task) => task.workState === state).length
+    return {
+      sessionId: parent.id,
+      tasks,
+      summary: {
+        total: tasks.length,
+        working: count('working'),
+        blockedOnUser: count('blocked_on_user'),
+        waitingForChildren: count('waiting_for_children'),
+        resultAvailable: count('result_available'),
+        notStarted: count('not_started'),
+      },
+    }
+  }
+}
+
+/** Streamed text deltas are separate parts; rejoin each run before separating runs. */
+function messageText(message: Message, includeToolSummaries: boolean): string {
+  const chunks: string[] = []
+  let run = ''
+  const flush = (): void => {
+    if (run.length > 0) chunks.push(run)
+    run = ''
+  }
+  for (const part of message.parts) {
+    if (part.type === 'text') {
+      run += part.text
+      continue
+    }
+    flush()
+    if (!includeToolSummaries) continue
+    if (part.type === 'tool-call') chunks.push(`[Tool: ${part.name}]`)
+    else if (part.type === 'tool-result') chunks.push(`[Result: ${part.resultJson.slice(0, 500)}]`)
+  }
+  flush()
+  return chunks.join('\n')
 }
 
 function descendantIds(
