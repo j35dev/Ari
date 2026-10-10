@@ -82,6 +82,16 @@ describe('home', () => {
     expect(handlers.onSettings).toHaveBeenCalledOnce()
   })
 
+  it('opens provider usage from the header, when the computer offers it', () => {
+    const { unmount } = render(<HomeScreen {...handlers} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Usage' }))
+    expect(screen.getByRole('dialog', { name: 'Usage' })).toBeTruthy()
+    unmount()
+    app.session.supports.mockImplementation((op) => op !== 'usage.allowance')
+    render(<HomeScreen {...handlers} />)
+    expect(screen.queryByRole('button', { name: 'Usage' })).toBeNull()
+  })
+
   it('narrows to a project, and to a search', async () => {
     render(<HomeScreen {...handlers} />)
     fireEvent.click(screen.getByRole('button', { name: 'Website' }))
