@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { ChildTask } from '@ari/contracts/agent-control'
-import { agentState, agentsSummary, delegationUpdate, isLive } from './delegation'
+import {
+  agentState,
+  agentsStatus,
+  agentsSummary,
+  byUrgency,
+  delegationUpdate,
+  isLive,
+} from './delegation'
 
 const task = (overrides: Partial<ChildTask> = {}): ChildTask => ({
   sessionId: 'c',
@@ -50,6 +57,21 @@ it('summarizes a group most urgent first', () => {
     ]),
   ).toBe('4 agents · 1 needs you · 2 working · 1 done')
   expect(agentsSummary([settled('error')])).toBe('1 agent · 1 failed')
+})
+
+it('puts the agent that needs the user first and says what the session is waiting on', () => {
+  const tasks = [
+    { ...settled('completed'), sessionId: 'done' },
+    task({ sessionId: 'busy', workState: 'working' }),
+    task({ sessionId: 'ask', workState: 'blocked_on_user' }),
+  ]
+  expect(byUrgency(tasks).map((entry) => entry.sessionId)).toEqual(['ask', 'busy', 'done'])
+  expect(agentsStatus(tasks)).toBe('1 agent needs you')
+  expect(agentsStatus(tasks.slice(0, 2))).toBe('waiting on 1 agent')
+  expect(
+    agentsStatus([task({ workState: 'working' }), task({ workState: 'waiting_for_children' })]),
+  ).toBe('waiting on 2 agents')
+  expect(agentsStatus([settled('completed'), settled('interrupted')])).toBeNull()
 })
 
 describe('delegationUpdate', () => {
