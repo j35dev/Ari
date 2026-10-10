@@ -11,6 +11,7 @@ import { useImageAttachments } from './useImageAttachments'
 import { FILE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './drag-file'
 import { mentionRanges } from './mention-ranges'
 import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
+import { promptHistory, stepPromptHistory } from './prompt-history'
 import { useDrafts } from './use-drafts'
 
 /**
@@ -78,6 +79,8 @@ export interface ComposerProps {
   attentionRequired?: boolean
   /** Keeps the welcome composer open without replacing its editor. */
   centered?: boolean
+  /** Prompts already sent in this session, oldest first; ArrowUp in an empty field recalls them. */
+  history?: readonly string[]
 }
 
 const MIN_HEIGHT = 52
@@ -124,6 +127,7 @@ export function Composer({
   above,
   attentionRequired = false,
   centered = false,
+  history,
 }: ComposerProps) {
   const { draft: text, setDraft: setText } = useDrafts(sessionId ?? '')
   const [caret, setCaret] = useState(0)
@@ -367,6 +371,28 @@ export function Composer({
     if (types.includes('Files') || types.includes(FILE_MIME)) e.preventDefault()
   }, [])
 
+  /**
+   * Prompt recall. The arrows only leave their ordinary job when the field is
+   * empty or still showing a recalled prompt untouched, so they never eat a
+   * caret move inside a draft the user is writing.
+   */
+  const recalledRef = useRef<{ index: number; text: string } | null>(null)
+  const recallPrompt = useCallback(
+    (direction: 'older' | 'newer'): boolean => {
+      if (history === undefined) return false
+      const recalled = recalledRef.current?.text === text ? recalledRef.current : null
+      if (recalled === null && text.length > 0) return false
+      const step = stepPromptHistory(promptHistory(history), recalled?.index ?? null, direction)
+      if (step === null) return false
+      recalledRef.current = step.index === null ? null : { index: step.index, text: step.text }
+      setText(step.text)
+      setCaret(step.text.length)
+      refocus(step.text.length)
+      return true
+    },
+    [history, text, setText, refocus],
+  )
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -377,8 +403,12 @@ export function Composer({
         e.preventDefault()
         stashDraft()
       }
+      const plain = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+      if (plain && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.nativeEvent.isComposing) {
+        if (recallPrompt(e.key === 'ArrowUp' ? 'older' : 'newer')) e.preventDefault()
+      }
     },
-    [send, stashDraft],
+    [send, stashDraft, recallPrompt],
   )
 
   const closePopup = useCallback(() => setDismissed(true), [])
