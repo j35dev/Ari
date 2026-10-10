@@ -295,6 +295,96 @@ it('does not wake an idle parent because someone stopped one of its children', a
   expect((await notices('root'))[0]?.origin).toEqual({ kind: 'completion', sessionIds: ['b'] })
 })
 
+it('reaches a grandchild whose own parent already ended its turn, and wakes nobody afterwards', async () => {
+  supervisor.start()
+  await create('grand', 'a')
+  await start('root')
+  await start('a')
+  await start('grand')
+  // `a` handed its work out and ended its turn to wait, as it is told to.
+  await settle('a', 'completed', 'Handed to grand.')
+  await host.dispatch({ type: 'turn.interrupt', sessionId: 'root' })
+  await expect
+    .poll(async () => (await store.load('grand')).lastTurn?.stopReason)
+    .toBe('interrupted')
+  await expect
+    .poll(async () => (await store.load('a')).childCompletions?.grand?.acknowledged)
+    .toBe(true)
+  await supervisor.evaluate('a')
+  await supervisor.evaluate('root')
+  expect(await notices('a')).toHaveLength(0)
+  expect(await notices('root')).toHaveLength(0)
+})
+
+it('does not report a child as finished while work it delegated is still running', async () => {
+  await create('grand', 'a')
+  await start('root')
+  await settle('root')
+  await start('a')
+  await start('grand')
+  await settle('a', 'completed', 'Handed to grand.')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(0)
+
+  // The grandchild reports to `a`, which then really finishes.
+  await settle('grand', 'completed', 'Grand is done.')
+  await supervisor.evaluate('a')
+  expect(await notices('a')).toHaveLength(1)
+  await settle('a', 'completed', 'All of it is done.')
+  await supervisor.evaluate('root')
+  const [notice] = await notices('root')
+  expect(notice?.parts[0]?.type === 'text' && notice.parts[0].text).toContain('All of it is done.')
+})
+
+it('releases a held child once the work below it went quiet without waking it', async () => {
+  await create('grand', 'a')
+  await start('root')
+  await settle('root')
+  await start('a')
+  await start('grand')
+  await settle('a', 'completed', 'Handed to grand.')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(0)
+
+  // Someone stops the grandchild: `a` is not woken, so its own report stands.
+  await host.dispatch({ type: 'turn.interrupt', sessionId: 'grand' })
+  await supervisor.evaluate('a')
+  expect(await notices('a')).toHaveLength(0)
+  await supervisor.evaluate('root')
+  const [notice] = await notices('root')
+  expect(notice?.parts[0]?.type === 'text' && notice.parts[0].text).toContain('Handed to grand.')
+})
+
+it('settles a child turn that a restart left open, and leaves a root alone', async () => {
+  await start('root')
+  await start('a')
+  host.isRunning = () => false
+  supervisor.start()
+  await expect.poll(async () => (await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
+  expect((await store.load('root')).activeTurnId).not.toBeNull()
+  expect((await store.load('b')).lastTurn).toBeUndefined()
+})
+
+it('tries a refused wake-up again when any turn settles', async () => {
+  host.settleDelayMs = 5
+  supervisor.start()
+  await start('root')
+  await settle('root')
+  await start('a')
+  refuse.add('root')
+  await settle('a', 'completed', 'A is done.')
+  await expect
+    .poll(async () => (await store.load('root')).childCompletions?.a?.stopReason)
+    .toBe('completed')
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  expect(await notices('root')).toHaveLength(0)
+
+  refuse.clear()
+  await start('b')
+  await host.dispatch({ type: 'turn.interrupt', sessionId: 'b' })
+  await expect.poll(async () => (await notices('root')).length).toBe(1)
+})
+
 it('leaves children running when cascading stops is switched off', async () => {
   policy = delegationSettingsSchema.parse({ cascadeStop: false })
   supervisor.start()
