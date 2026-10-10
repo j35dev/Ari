@@ -18,6 +18,19 @@ Deleting a parent (UI or `ari session destroy`) stops live turns and removes the
 whole subtree. `session stop` keeps the child for follow-up; destroy removes it.
 Nothing is automatically merged, committed, pushed or removed from Git.
 
+## Result delivery
+
+A child's settled turn is recorded on its parent. Unless the parent already read
+that outcome (`session wait`, `read` or `status` acknowledge it), Ari starts a
+turn on the parent with one notice covering every finished child. Delivery only
+happens to an idle parent whose last turn ended cleanly and whose queue is empty;
+otherwise the outcome stays pending and is re-checked at the parent's next clean
+settle. Nothing is delivered at application start.
+
+Stopping a session interrupts the live turns of the children it delegated to and
+discards outcomes that were waiting to wake it. Both behaviours have a switch in
+Permissions settings (`autoDeliverResults`, `cascadeStop`).
+
 ## Snapshots and integration
 
 Isolated children start from a temporary-index snapshot of the parent's effective
