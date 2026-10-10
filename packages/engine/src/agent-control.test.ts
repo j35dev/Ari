@@ -524,6 +524,22 @@ it('rejoins streamed deltas when reading a child and acknowledges the report', a
   })
 })
 
+it('stops every running session below a parent and leaves the parent alone', async () => {
+  spawned.clear()
+  const busy = await spawnChild('a')
+  const idle = await spawnChild('b')
+  await settleChild(idle.id)
+  await host.create({ ...root, id: 'grand', parentSessionId: idle.id, rootSessionId: 'root' })
+  await host.dispatch({ type: 'turn.start', sessionId: 'grand', text: 'go', attachments: [] })
+  await host.dispatch({ type: 'turn.start', sessionId: 'root', text: 'go', attachments: [] })
+
+  expect(await service.stopDescendants('root')).toBe(2)
+  expect((await store.load(busy.id)).lastTurn?.stopReason).toBe('interrupted')
+  expect((await store.load('grand')).lastTurn?.stopReason).toBe('interrupted')
+  expect((await store.load('root')).activeTurnId).not.toBeNull()
+  expect(await service.stopDescendants('root')).toBe(0)
+})
+
 it('does not wake the parent about a child it stopped itself', async () => {
   spawned.clear()
   const child = await spawnChild()
