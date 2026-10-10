@@ -14,6 +14,7 @@ import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
+import { controlPreamble } from '@ari/engine/control-preamble'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -442,6 +443,11 @@ export class Engine {
     return resolved
   }
 
+  async #parentTitle(session: Session): Promise<string | null> {
+    if (!session.parentSessionId) return null
+    return (await this.#deps.store.load(session.parentSessionId)).session?.title ?? null
+  }
+
   /** Authoritative cwd for providers, checkpoints, control operations and the UI. */
   workspace(session: Session): Promise<string | null> {
     return resolveSessionWorkspace(
@@ -516,14 +522,18 @@ export class Engine {
     try {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) return
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
+      // Only a fresh provider context needs the note: a resumed thread still
+      // holds the copy from its first turn, and repeating it on every prompt
+      // is noise the agent has to read past.
+      const preamble =
+        runtimeEnv?.ARI_ENV === '1' && resumeOf === null
+          ? controlPreamble(session, await this.#parentTitle(session))
+          : null
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt:
-          runtimeEnv?.ARI_ENV === '1'
-            ? `[Ari control surface: added automatically by the Ari desktop app, not written by the user. This session can operate Ari through the CLI at $ARI_CLI. Commands: env, agents, session spawn|prompt|wait|read|diff|integrate|stop|destroy. Full protocol: $ARI_CLI --skill. Never disclose ARI_CONTROL_TOKEN.]\n\n${prompt}`
-            : prompt,
+        prompt: preamble === null ? prompt : `${preamble}\n\n${prompt}`,
         modelId: session.modelId,
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,

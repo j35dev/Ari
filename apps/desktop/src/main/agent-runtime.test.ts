@@ -194,6 +194,17 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     expect(transcript.result.messages.map((message) => message.text)).toContain(
       'Finished worker task',
     )
+    expect(await cli('session', 'status')).toMatchObject({
+      ok: true,
+      result: {
+        summary: { total: 1, resultAvailable: 1 },
+        tasks: [{ sessionId: child.id, report: 'Finished worker task' }],
+      },
+    })
+    if (process.platform === 'win32')
+      expect(await readFile(join(dir, 'agent-control', 'bin', 'ari'), 'utf8')).toContain(
+        'ELECTRON_RUN_AS_NODE=1 exec',
+      )
     await expect(readFile(join(repo, 'worker.txt'))).rejects.toThrow()
     const diff = (await cli('session', 'diff', child.id, '--patch')) as {
       result: { currentSnapshotCommit: string; patch: string }
@@ -237,6 +248,117 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     expect((await store.listSessions()).map((session) => session.id)).toEqual(['root'])
     const replay = new SessionStore({ rootDir: join(dir, 'sessions') })
     expect((await replay.load(child.id)).session).toBeNull()
+  } finally {
+    await runtime.close()
+    for (const session of await store.listSessions()) {
+      await engine.quiesce(session.id)
+      await store.closeJournal(session.id)
+    }
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+}, 60_000)
+
+it('wakes an idle parent with its child report and stops children with their parent', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-deliver-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const registry = new DriverRegistry()
+  const seen: AdapterSession[] = []
+  const held = new Map<string, () => void>()
+  registry.register({
+    kind: 'claude',
+    create: async (session) => {
+      seen.push(session)
+      return {
+        start: () => ({
+          async *[Symbol.asyncIterator]() {
+            if (session.sessionId !== 'root' || session.prompt.includes('hold'))
+              await new Promise<void>((resolve) => held.set(session.sessionId, resolve))
+            yield {
+              type: 'text-delta' as const,
+              text: session.sessionId === 'root' ? 'ok' : 'Parser fixed and tested.',
+            }
+            yield { type: 'done' as const }
+          },
+        }),
+        interrupt: () => held.get(session.sessionId)?.(),
+        dispose: async () => undefined,
+      }
+    },
+  })
+  const engine = new Engine({
+    store,
+    registry,
+    publish: () => undefined,
+    resolveWorkspace: async () => dir,
+    runtimeEnvironment: async (session) => runtime.environment(session),
+    git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+  })
+  const runtime = await startAgentRuntime({
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    deliveryDelayMs: 10,
+    policy: () =>
+      delegationSettingsSchema.parse({
+        approvalMode: 'never',
+        allowSharedWorkspace: true,
+        defaultWorkspaceMode: 'shared',
+      }),
+    providers: async () => [{ driverKind: 'claude', available: true, models: [] }],
+  })
+  const rootTurns = () => seen.filter((session) => session.sessionId === 'root')
+  try {
+    await engine.createSession({
+      id: 'root',
+      projectId: 'project',
+      title: 'Root',
+      driverKind: 'claude',
+      modelId: null,
+      permissionMode: 'ask',
+      status: 'idle',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await engine.dispatch({ type: 'turn.start', sessionId: 'root', text: 'Plan', attachments: [] })
+    await expect.poll(async () => (await store.load('root')).lastTurn?.stopReason).toBe('completed')
+    const spawned = await runtime.service.invoke('root', 'session.spawn', {
+      title: 'Worker',
+      role: 'implementation',
+      driverKind: 'claude',
+      prompt: 'Fix the parser',
+      idempotencyKey: 'worker',
+    })
+    const child = (spawned as { result: { child: Session } }).result.child
+    await expect.poll(() => held.has(child.id)).toBe(true)
+    expect(seen.find((session) => session.sessionId === child.id)?.prompt).toContain(
+      'working for the session "Root" as its implementation agent',
+    )
+    held.get(child.id)?.()
+    await expect.poll(() => rootTurns().length, { timeout: 10_000 }).toBe(2)
+    expect(rootTurns()[1]?.prompt).toContain('[Ari delegation update')
+    expect(rootTurns()[1]?.prompt).toContain('Report:\nParser fixed and tested.')
+    await expect
+      .poll(async () => (await store.load('root')).childCompletions?.[child.id]?.acknowledged)
+      .toBe(true)
+    await expect.poll(async () => (await store.load('root')).activeTurnId).toBeNull()
+
+    held.clear()
+    await runtime.service.invoke('root', 'session.prompt', {
+      targetSessionId: child.id,
+      text: 'One more pass',
+      idempotencyKey: 'again',
+    })
+    await engine.dispatch({ type: 'turn.start', sessionId: 'root', text: 'hold', attachments: [] })
+    await expect.poll(() => held.has('root') && held.has(child.id)).toBe(true)
+    await engine.dispatch({ type: 'turn.interrupt', sessionId: 'root' })
+    await expect
+      .poll(async () => (await store.load(child.id)).lastTurn?.stopReason, { timeout: 10_000 })
+      .toBe('interrupted')
+    await runtime.supervisor.evaluate('root')
+    expect(rootTurns()).toHaveLength(3)
   } finally {
     await runtime.close()
     for (const session of await store.listSessions()) {

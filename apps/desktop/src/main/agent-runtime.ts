@@ -5,6 +5,7 @@ import { ControlFailure, type DelegationSettings } from '@ari/contracts/agent-co
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from '@ari/engine/agent-control'
 import { AgentControlServer } from '@ari/engine/control-server'
+import { DelegationSupervisor } from '@ari/engine/delegation-supervisor'
 import { ManagedWorkspaces } from '@ari/engine/git'
 import type { SessionStore } from '@ari/engine/session-store'
 import type { Engine } from './engine'
@@ -30,6 +31,8 @@ export interface AgentRuntimeOptions {
   policy(): DelegationSettings
   providers: ControlHost['providers']
   baseEnv?: NodeJS.ProcessEnv
+  /** How long finished children are batched before their parent is woken. */
+  deliveryDelayMs?: number
 }
 
 /**
@@ -95,6 +98,14 @@ async function startControlTransport(
       : `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${quote(options.executable)} ${quote(options.cliPath)} "$@"\n`
   await writeFile(launcher, script, 'utf8')
   if (process.platform !== 'win32') await chmod(launcher, 0o700)
+  // Agents on Windows mostly run commands through Git Bash, which does not
+  // resolve `ari` to `ari.cmd`. An extensionless shell launcher beside it does.
+  if (process.platform === 'win32')
+    await writeFile(
+      join(bin, 'ari'),
+      `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${quote(options.executable)} ${quote(options.cliPath)} "$@"\n`,
+      'utf8',
+    )
   const workspaces = new ManagedWorkspaces(join(options.userData, 'worktrees'))
   const approvals = new DelegationApprovals(engine)
   const workspace = async (session: Session): Promise<string> => {
@@ -106,6 +117,16 @@ async function startControlTransport(
   let dropSession = (id: string): void => {
     approvals.cancel(id)
   }
+  const supervisor = new DelegationSupervisor({
+    store,
+    policy: () => options.policy(),
+    dispatch: (command, origin) => engine.dispatch(command, origin),
+    record: (id, event) => engine.record(id, event),
+    subscribe: (listener) => store.subscribe(listener),
+    isRunning: (id) => engine.hasLiveTurn(id),
+    isWaiting: (parentId, childId) => service.isWaiting(parentId, childId),
+    ...(options.deliveryDelayMs === undefined ? {} : { settleDelayMs: options.deliveryDelayMs }),
+  })
   const service = new AgentControlService({
     store,
     version: options.version,
@@ -182,6 +203,7 @@ async function startControlTransport(
       await workspaces.release(child.id)
       dropSession(child.id)
     },
+    waitEnded: (callerId) => supervisor.schedule(callerId),
   })
   const server = new AgentControlServer({
     endpoint,
@@ -203,9 +225,11 @@ async function startControlTransport(
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
   })
+  supervisor.start()
   return {
     service,
     approvals,
+    supervisor,
     authorizeTurn: async (session: Session): Promise<string | null> => {
       if (!session.parentSessionId) return null
       if (session.archived) return 'Restore the child session before starting a turn.'
@@ -231,6 +255,7 @@ async function startControlTransport(
     },
     close: async () => {
       unsubscribe()
+      supervisor.close()
       approvals.close()
       await server.close()
       if (socketDir) await rm(socketDir, { recursive: true, force: true })
