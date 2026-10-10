@@ -910,6 +910,21 @@ export function SessionView({
     [spawns, tasks, activityOf],
   )
 
+  // What the composer's ArrowUp recalls: prompts typed here, not messages
+  // another session or Ari put into this conversation.
+  const sentPrompts = useMemo(
+    () =>
+      messages
+        .filter((m) => m.role === 'user' && (m.origin === undefined || m.origin.kind === 'human'))
+        .map((m) =>
+          m.parts
+            .filter((part) => part.type === 'text')
+            .map((part) => part.text)
+            .join('\n'),
+        ),
+    [messages],
+  )
+
   const pendingPlan =
     pendingQuestion === null
       ? null
@@ -1062,6 +1077,7 @@ export function SessionView({
             seed={composerSeed ?? undefined}
             suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
             attentionRequired={composerAttentionRequired}
+            history={sentPrompts}
             above={
               // A plan approval is answered in the side panel, so it mounts no
               // QuestionPanel and must not raise the strip on its own — an
