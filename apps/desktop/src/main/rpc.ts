@@ -972,6 +972,18 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return state
   }
 
+  // One reader for the usage pill and paired phones, so the two share a probe.
+  const allowanceReader = new ProviderAllowanceReader((kind, binaryPath) =>
+    fetchAllowanceReading(kind, binaryPath, undefined),
+  )
+  const readAllowance = async (kind: DriverKind): Promise<RpcResults['providers.allowance']> => {
+    const detections = await probeAllDetections()
+    return allowanceReader.read(
+      kind,
+      detections.find((row) => row.kind === kind)?.binaryPath ?? null,
+    )
+  }
+
   const remote =
     remoteRef ??
     new RemoteService(
@@ -1009,6 +1021,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           })
         },
         effortsForModel: cachedEffortLookup(probeEffortsForModel),
+        allowance: readAllowance,
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         terminalFactory: ptyFactory,
@@ -1202,16 +1215,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
-  const allowanceReader = new ProviderAllowanceReader((kind, binaryPath) =>
-    fetchAllowanceReading(kind, binaryPath, undefined),
-  )
-  r.register('providers.allowance', async ({ kind }) => {
-    const detections = await probeAllDetections()
-    return allowanceReader.read(
-      kind,
-      detections.find((row) => row.kind === kind)?.binaryPath ?? null,
-    )
-  })
+  r.register('providers.allowance', async ({ kind }) => readAllowance(kind))
   r.register('providers.consumeResetCredit', async ({ kind, creditId }) => {
     const detections = await probeAllDetections()
     const binaryPath = detections.find((row) => row.kind === kind)?.binaryPath ?? null
