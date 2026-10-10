@@ -44,6 +44,7 @@ import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
 import { ResumeSchedule } from './resume-schedule'
+import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
@@ -766,6 +767,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     runtimeEnvironment: async (session) => (await controlReady).environment(session),
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    autoApprove: (request) => {
+      const { enabled, autoApproveCli } = getSettingsStore().current.delegation
+      return enabled && autoApproveCli ? controlCliApproval(request) : null
+    },
   })
   const controlReady = Promise.all([resolveDetectionEnvironment(), getSettingsStore().load()]).then(
     async ([environment]) => {
