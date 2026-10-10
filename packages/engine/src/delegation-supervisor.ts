@@ -148,6 +148,13 @@ export class DelegationSupervisor {
     const delivered: { childSessionId: string; turnId: string }[] = []
     for (const entry of pending) {
       if (this.host.isWaiting?.(parentId, entry.childSessionId)) continue
+      // A stop never starts work. Whoever stopped this child, waking its
+      // parent to react would answer "enough" with a new turn; the parent
+      // sees the stop the next time it asks for status.
+      if (entry.stopReason === 'interrupted') {
+        await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
+        continue
+      }
       const child = await this.host.store.load(entry.childSessionId)
       if (!child.session) {
         await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
