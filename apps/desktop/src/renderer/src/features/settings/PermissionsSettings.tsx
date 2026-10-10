@@ -188,6 +188,16 @@ export function PermissionsSettings() {
               aria-label="Stop children with their parent"
             />
           </SettingsRow>
+          <SettingsRow
+            label="Run Ari's own commands without asking"
+            hint="Skip the permission prompt for `ari` commands that only read or delegate. Integrating a child's changes and deleting sessions still ask."
+          >
+            <Switch
+              checked={delegation.autoApproveCli}
+              onCheckedChange={(checked) => persist({ delegation: { autoApproveCli: checked } })}
+              aria-label="Run Ari's own commands without asking"
+            />
+          </SettingsRow>
           {(
             [
               [

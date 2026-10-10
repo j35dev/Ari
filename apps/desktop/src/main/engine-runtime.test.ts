@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { SessionStore } from '@ari/engine/session-store'
+import { controlCliApproval } from '@ari/engine/control-cli'
 import { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
@@ -44,6 +45,84 @@ it('runs concurrent sessions with distinct cwd and credentials without journalin
   } finally {
     await store.closeJournal('root')
     await store.closeJournal('child')
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+})
+
+it('answers a permission request for a safe ari command itself and asks the user about the rest', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-grant-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const registry = new DriverRegistry()
+  const answered: { approvalId: string; decision: unknown }[] = []
+  const options = [
+    { optionId: 'once', name: 'Allow once', kind: 'allow_once' },
+    { optionId: 'no', name: 'Deny', kind: 'reject_once' },
+  ]
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  registry.register({
+    kind: 'claude',
+    create: async () => ({
+      start: () => ({
+        async *[Symbol.asyncIterator]() {
+          for (const [approvalId, command] of [
+            ['ari-1', 'ari session status --json'],
+            ['rm-1', 'rm -rf build'],
+          ] as const)
+            yield {
+              type: 'approval-requested' as const,
+              approvalId,
+              toolName: 'Bash',
+              summaryJson: JSON.stringify({ command }),
+              options,
+            }
+          await held
+          yield { type: 'done' as const }
+        },
+      }),
+      interrupt: () => undefined,
+      dispose: async () => undefined,
+      respondApproval: (approvalId, decision) => {
+        answered.push({ approvalId, decision })
+      },
+    }),
+  })
+  const engine = new Engine({
+    store,
+    registry,
+    publish: () => undefined,
+    resolveWorkspace: async () => dir,
+    runtimeEnvironment: async () => ({ ARI_ENV: '1' }),
+    autoApprove: controlCliApproval,
+    git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+  })
+  try {
+    await store.append('s', {
+      type: 'session.created',
+      session: {
+        id: 's',
+        projectId: 'p',
+        title: 's',
+        driverKind: 'claude',
+        modelId: null,
+        permissionMode: 'ask',
+        status: 'idle',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    })
+    await engine.dispatch({ type: 'turn.start', sessionId: 's', text: 'Go', attachments: [] })
+    await expect
+      .poll(async () => (await store.load('s')).pendingApprovals.map((a) => a.approvalId))
+      .toEqual(['rm-1'])
+    expect(answered).toEqual([{ approvalId: 'ari-1', decision: { optionId: 'once' } }])
+    release()
+    await engine.quiesce('s')
+  } finally {
+    release()
+    await store.closeJournal('s')
     await rm(dir, { recursive: true, force: true, maxRetries: 3 })
   }
 })
