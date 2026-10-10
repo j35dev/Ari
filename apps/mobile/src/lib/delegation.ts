@@ -45,6 +45,25 @@ const PHRASE: Record<AgentState, string> = {
   idle: 'not started',
 }
 
+/** Agents in the order a person should look at them: the one that needs them first. */
+export function byUrgency(tasks: readonly ChildTask[]): ChildTask[] {
+  return [...tasks].sort(
+    (a, b) => ORDER.indexOf(agentState(a)) - ORDER.indexOf(agentState(b)),
+  )
+}
+
+/**
+ * What a session that has ended its own turn is waiting on, for the line
+ * under its title. Null when its agents are all finished.
+ */
+export function agentsStatus(tasks: readonly ChildTask[]): string | null {
+  const states = tasks.map(agentState)
+  const asking = states.filter((state) => state === 'needs-you').length
+  if (asking > 0) return `${asking} agent${asking === 1 ? ' needs' : 's need'} you`
+  const running = states.filter((state) => state === 'working' || state === 'waiting').length
+  return running > 0 ? `waiting on ${running} agent${running === 1 ? '' : 's'}` : null
+}
+
 /** `3 agents · 1 needs you · 2 working`, most urgent first. */
 export function agentsSummary(tasks: readonly ChildTask[]): string {
   const states = tasks.map(agentState)
