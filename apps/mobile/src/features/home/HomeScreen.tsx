@@ -231,15 +231,27 @@ function Row({
   onOpen: () => void
   onHold: () => void
 }): ReactNode {
-  const { session, ask } = row
+  const { session, ask, agents, parentTitle } = row
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const held = useRef(false)
   const cancel = (): void => {
     if (timer.current !== null) clearTimeout(timer.current)
     timer.current = null
   }
-  const running = session.status === 'running'
-  const detail = [project, running ? 'Working' : relativeTime(session.updatedAt)]
+  const delegating = agents !== undefined && agents.working > 0
+  const running = session.status === 'running' || delegating
+  const detail = [
+    project,
+    parentTitle === undefined ? null : `Agent of ${parentTitle || 'a session'}`,
+    session.status === 'running'
+      ? 'Working'
+      : delegating
+        ? `${agents.working} of ${agents.total} agent${agents.total === 1 ? '' : 's'} working`
+        : relativeTime(session.updatedAt),
+    agents !== undefined && !delegating
+      ? `${agents.total} agent${agents.total === 1 ? '' : 's'}`
+      : null,
+  ]
     .filter((part) => part !== null)
     .join(' · ')
   return (
@@ -276,7 +288,7 @@ function Row({
           </span>
           {ask !== null ? (
             <span className="mt-0.5 line-clamp-2 block text-[13px] leading-snug text-fg-muted">
-              {ask}
+              {parentTitle === undefined ? ask : `Agent of ${parentTitle || 'a session'} · ${ask}`}
             </span>
           ) : (
             <span className="mt-0.5 block truncate text-xs text-fg-subtle">{detail}</span>
