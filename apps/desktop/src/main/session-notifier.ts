@@ -65,16 +65,26 @@ export interface SessionNotifierOptions {
 export class SessionNotifier {
   constructor(readonly options: SessionNotifierOptions) {}
 
-  /** Fire-and-forget: a notification must never hold up or fail the event flow. */
-  observe(sessionId: string, event: JournalEvent): void {
+  /**
+   * Called from inside the engine's event publication, so it never throws and
+   * the promise it returns never rejects: whatever the window or the OS does,
+   * a notification must not take a journal append down with it. Callers do not
+   * wait on it.
+   */
+  observe(sessionId: string, event: JournalEvent): Promise<void> {
     if (
       event.type !== 'turn.settled' &&
       event.type !== 'approval.requested' &&
       event.type !== 'input.requested'
     )
-      return
-    if (!this.options.enabled() || this.options.focused()) return
-    void this.#notify(sessionId, event).catch((error: unknown) => {
+      return Promise.resolve()
+    try {
+      if (!this.options.enabled() || this.options.focused()) return Promise.resolve()
+    } catch (error) {
+      log.warn('session notification skipped', { error: String(error) })
+      return Promise.resolve()
+    }
+    return this.#notify(sessionId, event).catch((error: unknown) => {
       log.warn('session notification failed', { error: String(error) })
     })
   }

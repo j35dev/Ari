@@ -485,6 +485,8 @@ export const rpcParams = {
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
   /** The children this session delegated to, with their state and last report. */
   'session.tasks': z.object({ sessionId: z.string().min(1) }),
+  /** Stop every running session below this one; the session itself is left alone. */
+  'session.stopChildren': z.object({ sessionId: z.string().min(1) }),
   /** Continue a session whose last turn failed, once `at` (epoch ms) arrives. */
   'session.resume.schedule': z.object({
     sessionId: z.string().min(1),
@@ -795,6 +797,7 @@ export interface RpcResults {
   'session.load': unknown
   'session.workspace': { path: string | null }
   'session.tasks': ChildTask[]
+  'session.stopChildren': { stopped: number }
   'session.resume.schedule': { at: number }
   'session.resume.cancel': { cancelled: boolean }
   /** `at` is null when nothing is scheduled for the session. */
