@@ -2208,3 +2208,153 @@ describe('SessionView settle sound', () => {
     expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
   })
 })
+
+describe('SessionView delegated work', () => {
+  const TASK = {
+    sessionId: 'child_1',
+    parentSessionId: 'sess_1',
+    title: 'Parser worker',
+    role: 'implementation',
+    driverKind: 'codex',
+    modelId: 'gpt-5',
+    workState: 'result_available',
+    blockedOn: null,
+    queuedMessages: 0,
+    latestTurn: { turnId: 'turn_c', stopReason: 'completed', settledAt: 9 },
+    report: 'Parser fixed and tested.',
+    reportTruncated: false,
+    delivered: true,
+    workspaceKind: 'managed-worktree',
+    branch: 'ari/child_1',
+  }
+
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'session.tasks') return [TASK]
+      if (method === 'git.turnDiff') return { diffText: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (_name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        sessionListener = onEvent
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  const replay = (seq: number, event: Record<string, unknown>): void => {
+    act(() => {
+      sessionListener?.({
+        sessionId: 'sess_1',
+        replay: true,
+        event: { seq, at: seq, sessionId: 'sess_1', ...event },
+      })
+    })
+  }
+
+  function replayDelegatingTurn(): void {
+    replay(1, {
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'Split the work' }],
+        createdAt: 1,
+      },
+    })
+    replay(2, { type: 'turn.started', turnId: 'turn_1' })
+    replay(3, {
+      type: 'assistant.parts.appended',
+      messageId: 'm2',
+      parts: [{ type: 'tool-call', callId: 'c1', name: 'Bash', argsJson: '{}' }],
+    })
+    replay(4, {
+      type: 'child.session.spawned',
+      childSessionId: 'child_1',
+      title: 'Worker',
+      driverKind: 'codex',
+      modelId: 'gpt-5',
+      workspaceKind: 'managed-worktree',
+      branch: 'ari/child_1',
+      role: 'implementation',
+    })
+    replay(5, {
+      type: 'assistant.parts.appended',
+      messageId: 'm2',
+      parts: [{ type: 'text', text: 'Delegated the parser.' }],
+    })
+    replay(6, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed' })
+  }
+
+  it('shows a task card where the child was spawned, with its report', async () => {
+    const open = vi.fn()
+    render(
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+          onOpenSession={open}
+        />
+      </ToastProvider>,
+    )
+    await screen.findByLabelText('Message')
+    replayDelegatingTurn()
+    emitReplayDone()
+
+    const card = await screen.findByRole('button', { name: 'Open Parser worker: Done' })
+    expect(card).toHaveTextContent('Parser fixed and tested.')
+    const reply = screen.getByText('Delegated the parser.')
+    expect(card.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(invokeMock.mock.calls.filter(([method]) => method === 'session.tasks')).toHaveLength(1)
+    await userEvent.click(card)
+    expect(open).toHaveBeenCalledWith('child_1')
+  })
+
+  it('does not offer to resend a turn that Ari started with a delegation update', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    replayDelegatingTurn()
+    replay(7, {
+      type: 'user.message.added',
+      message: {
+        id: 'm3',
+        sessionId: 'sess_1',
+        turnId: 'turn_2',
+        role: 'user',
+        origin: { kind: 'completion', sessionIds: ['child_1'] },
+        parts: [{ type: 'text', text: '[Ari delegation update: automatic.]\n\nDone.' }],
+        createdAt: 7,
+      },
+    })
+    replay(8, { type: 'turn.started', turnId: 'turn_2' })
+    replay(9, {
+      type: 'assistant.parts.appended',
+      messageId: 'm4',
+      parts: [{ type: 'text', text: 'Integrated the parser.' }],
+    })
+    replay(10, { type: 'turn.settled', turnId: 'turn_2', stopReason: 'completed' })
+    emitReplayDone()
+
+    expect(await screen.findByText('Integrated the parser.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Delegation update:/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument()
+  })
+})

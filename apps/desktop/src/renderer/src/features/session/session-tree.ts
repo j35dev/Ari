@@ -99,6 +99,16 @@ export function descendantIds(
   return ids
 }
 
+/** The session that delegated to `id`, while that parent is still listed. */
+export function parentOf(
+  sessions: readonly SessionSummary[],
+  id: string,
+): { id: string; title: string } | null {
+  const parentId = sessions.find((session) => session.id === id)?.parentSessionId
+  const parent = parentId ? sessions.find((session) => session.id === parentId) : undefined
+  return parent ? { id: parent.id, title: parent.title } : null
+}
+
 /** Search keeps ancestor context, even when the match is archived or its parent is collapsed. */
 export function searchSessionTree(sessions: SessionSummary[], query: string): SessionSummary[] {
   const byId = new Map(sessions.map((session) => [session.id, session]))
