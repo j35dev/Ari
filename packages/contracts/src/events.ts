@@ -82,7 +82,14 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     type: z.literal('usage.recorded'),
     inputTokens: z.number().nonnegative(),
     outputTokens: z.number().nonnegative(),
+    /** Absent on events journalled before cache traffic was counted. */
+    cachedInputTokens: z.number().nonnegative().optional(),
     costUsd: z.number().nullable(),
+  }),
+  eventBase.extend({
+    type: z.literal('context.recorded'),
+    usedTokens: z.number().nonnegative(),
+    windowTokens: z.number().positive().nullable(),
   }),
   eventBase.extend({
     type: z.literal('approval.requested'),
