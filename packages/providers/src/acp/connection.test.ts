@@ -773,6 +773,26 @@ describe('AcpConnection', () => {
       expect(spawns).toBe(1)
     })
 
+    it('is left alone while another npx still holds the install lock', async () => {
+      // A second launch that arrives mid-install fails the same way; clearing
+      // the dir then would pull it out from under the first.
+      await mkdir(join(entry, 'concurrency.lock'))
+      const waiting = fakeChild()
+      let spawns = 0
+      const connectionPromise = AcpConnection.connect({
+        launch: { ...LAUNCH, viaNpx: true, args: ['-y', 'some-adapter@1.0.0'] },
+        cwd: '/w',
+        spawn: () => {
+          spawns++
+          return waiting
+        },
+      })
+      dieLikeNpm(waiting)
+      await expect(connectionPromise).rejects.toThrow(/Could not read package\.json/)
+      expect(existsSync(join(entry, 'node_modules'))).toBe(true)
+      expect(spawns).toBe(1)
+    })
+
     it('is not cleared when npm fails for any other reason', async () => {
       const failing = fakeChild()
       await writeFile(join(entry, 'package.json'), '{}')
