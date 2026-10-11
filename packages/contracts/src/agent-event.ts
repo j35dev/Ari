@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { approvalOptionSchema, sessionStatusSchema, timestampSchema } from './common'
+import {
+  approvalOptionSchema,
+  permissionModeSchema,
+  sessionStatusSchema,
+  timestampSchema,
+} from './common'
 
 /**
  * Normalized stream events emitted by every provider adapter. Native CLI
@@ -57,6 +62,12 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     /** Provider-native session/thread id to resume on later turns. */
     ref: z.string().min(1),
   }),
+  /**
+   * The user's answer changed how much the session may do unasked — a
+   * persistent grant on an approval. The engine stores it on the session so
+   * later turns, each a fresh agent process, start in the mode the user chose.
+   */
+  z.object({ type: z.literal('permission-mode'), mode: permissionModeSchema }),
   z.object({
     type: z.literal('usage'),
     inputTokens: z.number().nonnegative(),
