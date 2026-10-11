@@ -33,6 +33,12 @@ export interface AgentRuntimeOptions {
   baseEnv?: NodeJS.ProcessEnv
   /** How long finished children are batched before their parent is woken. */
   deliveryDelayMs?: number
+  /**
+   * Settle what a previous run left open. True only for the first runtime of
+   * a process: a later one (macOS, window reopened) shares the journals with
+   * an engine whose turns are still running, and must not call them dead.
+   */
+  recover?: boolean
 }
 
 /**
@@ -123,7 +129,7 @@ async function startControlTransport(
     dispatch: (command, origin) => engine.dispatch(command, origin),
     record: (id, event) => engine.record(id, event),
     subscribe: (listener) => store.subscribe(listener),
-    isRunning: (id) => engine.hasLiveTurn(id),
+    ...(options.recover === false ? {} : { isRunning: (id: string) => engine.hasLiveTurn(id) }),
     isWaiting: (parentId, childId) => service.isWaiting(parentId, childId),
     ...(options.deliveryDelayMs === undefined ? {} : { settleDelayMs: options.deliveryDelayMs }),
   })

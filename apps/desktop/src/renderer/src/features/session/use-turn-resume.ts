@@ -48,7 +48,8 @@ export function useTurnResume(
   const onSchedule = useCallback(() => {
     if (resetAt === null) return
     void rpc
-      .invoke('session.resume.schedule', { sessionId, at: resetAt })
+      // The schedule takes whole milliseconds; a provider's reset time need not be.
+      .invoke('session.resume.schedule', { sessionId, at: Math.round(resetAt) })
       .then((result) => setScheduledAt(result.at))
       .catch((error: unknown) => log.warn('resume was not scheduled', { error: String(error) }))
   }, [sessionId, resetAt])

@@ -77,9 +77,19 @@ export class ResumeSchedule {
     await rename(temporary, this.#options.path)
   }
 
-  /** When this session is due to resume, or null. */
-  get(sessionId: string): number | null {
-    return this.#entries.find((entry) => entry.sessionId === sessionId)?.at ?? null
+  /**
+   * When this session is due to resume, or null. An entry whose failed turn is
+   * no longer where the session stands will never fire, so it is dropped here
+   * rather than reported: the banner must not promise a resume that the sweep
+   * is going to skip.
+   */
+  async get(sessionId: string): Promise<number | null> {
+    const entry = this.#entries.find((other) => other.sessionId === sessionId)
+    if (entry === undefined) return null
+    const model = await this.#options.store.load(sessionId)
+    if (model.activeTurnId === null && model.lastTurn?.turnId === entry.turnId) return entry.at
+    await this.cancel(sessionId)
+    return null
   }
 
   /** Schedules the session's current failure to be resumed at `at`; replaces any earlier entry. */
@@ -116,9 +126,11 @@ export class ResumeSchedule {
 
   /** Resumes every entry that is due. Serialized, and never rejects. */
   sweep(): Promise<void> {
-    this.#sweeping = this.#sweeping.then(() => this.#sweep()).catch((error: unknown) => {
-      log.warn('resume sweep failed', { error: String(error) })
-    })
+    this.#sweeping = this.#sweeping
+      .then(() => this.#sweep())
+      .catch((error: unknown) => {
+        log.warn('resume sweep failed', { error: String(error) })
+      })
     return this.#sweeping
   }
 
@@ -130,25 +142,31 @@ export class ResumeSchedule {
     this.#entries = this.#entries.filter((entry) => entry.at > now)
     await this.#save()
     for (const entry of due) {
-      const model = await this.#options.store.load(entry.sessionId)
-      if (
-        !model.session ||
-        model.session.archived ||
-        model.activeTurnId !== null ||
-        model.lastTurn?.turnId !== entry.turnId
-      )
-        continue
-      const outcome = await this.#options.dispatch({
-        type: 'turn.start',
-        sessionId: entry.sessionId,
-        text: RESUME_PROMPT,
-        attachments: [],
-      })
-      if (!outcome.accepted)
-        log.warn('scheduled resume was refused', {
+      // Each on its own: one session that cannot be read must not cost the
+      // others their resume, since every due entry is already off the list.
+      try {
+        const model = await this.#options.store.load(entry.sessionId)
+        if (
+          !model.session ||
+          model.session.archived ||
+          model.activeTurnId !== null ||
+          model.lastTurn?.turnId !== entry.turnId
+        )
+          continue
+        const outcome = await this.#options.dispatch({
+          type: 'turn.start',
           sessionId: entry.sessionId,
-          reason: outcome.reason,
+          text: RESUME_PROMPT,
+          attachments: [],
         })
+        if (!outcome.accepted)
+          log.warn('scheduled resume was refused', {
+            sessionId: entry.sessionId,
+            reason: outcome.reason,
+          })
+      } catch (error) {
+        log.warn('scheduled resume failed', { sessionId: entry.sessionId, error: String(error) })
+      }
     }
   }
 }
