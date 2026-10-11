@@ -385,11 +385,17 @@ export class AcpUpdateFolder {
       }
       case 'usage_update':
         // ACP's usage_update is a context-window gauge (`used` of `size`), not
-        // a per-turn token delta — and Ari's `usage` event is additive, so the
-        // transcript summed a gauge that grows with every update and labelled
-        // the total "input tokens". Reporting nothing beats reporting that.
-        // TODO(m31): a dedicated context-usage event with its own readout.
-        return []
+        // a per-turn token delta. Ari's `usage` event is additive, so it goes
+        // out as a reading instead: summed, a gauge that grows with every
+        // update was once labelled the total "input tokens".
+        if (typeof update.used !== 'number' || update.used < 0) return []
+        return [
+          {
+            type: 'context-usage',
+            usedTokens: update.used,
+            windowTokens: typeof update.size === 'number' && update.size > 0 ? update.size : null,
+          },
+        ]
       default:
         // user_message_chunk / plan / mode / config / commands updates have
         // no transcript surface yet (plan needs a dedicated event + UI).

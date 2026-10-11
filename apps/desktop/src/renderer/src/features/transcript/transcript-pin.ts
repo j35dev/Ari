@@ -30,3 +30,22 @@ export function pinnedAfterScroll(input: {
   }
   return input.scrolledDown && input.distanceFromBottom <= REENGAGE_BAND_PX
 }
+
+/**
+ * How a pinned transcript moves to its tail when the content under it grows.
+ *
+ * While a turn is writing, text lands a line or a block at a time; gliding to
+ * the new tail reads as the reply flowing, where jumping reads as the page
+ * twitching. Everything else jumps: a settled transcript only grows on layout
+ * changes, and a tail more than a viewport away is a session being opened or
+ * re-read, which must land at once rather than scroll the whole way down.
+ */
+export function followBehavior(input: {
+  running: boolean
+  distanceFromBottom: number
+  viewportHeight: number
+  reducedMotion: boolean
+}): ScrollBehavior {
+  if (!input.running || input.reducedMotion) return 'auto'
+  return input.distanceFromBottom <= input.viewportHeight ? 'smooth' : 'auto'
+}

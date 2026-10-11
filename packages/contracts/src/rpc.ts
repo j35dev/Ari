@@ -278,9 +278,15 @@ export interface NavigateFrame {
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
   sessionId: string
-  /** Absent only on the `replayDone` sentinel frame. */
+  /** One live journal event. Absent on replay and sentinel frames. */
   event?: unknown
-  /** True while this frame is part of the journal replay on (re)subscribe. */
+  /**
+   * The journal replay a (re)subscribe asked for, in seq order. It goes to
+   * that subscriber alone, as one frame: a long session is thousands of
+   * events, and a frame apiece to every open pane swamped the renderer.
+   */
+  events?: unknown[]
+  /** True on the frame carrying `events`. */
   replay?: boolean
   /** Sentinel: the replay burst for this session is complete. */
   replayDone?: boolean
@@ -627,6 +633,7 @@ export const rpcParams = {
   }),
   'browser.pick': z.object({ id: z.string().min(1) }),
   'browser.cancelPick': z.object({ id: z.string().min(1) }),
+  'browser.capture': z.object({ id: z.string().min(1) }),
   'project.list': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
@@ -1012,6 +1019,7 @@ export interface RpcResults {
   'browser.pick':
     { ok: true; element: PickedElement; pngBase64: string | null } | { ok: false; error: string }
   'browser.cancelPick': { cancelled: boolean }
+  'browser.capture': { pngBase64: string | null }
   'project.list': Project[]
   'project.add': Project
   'project.open': Project

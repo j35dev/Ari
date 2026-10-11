@@ -3,6 +3,7 @@ import { ChildSessionActivity } from './ChildSessionActivity'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
 import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
+import type { DelegatedChild } from '../transcript/types'
 import type { ChildTask } from '@ari/contracts/agent-control'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -23,7 +24,7 @@ import { QuestionPanel } from '../approvals/QuestionPanel'
 import { PlanReviewRail } from '../approvals/PlanReviewRail'
 import { parseQuestionPayload } from '../approvals/questionnaire'
 import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../moment'
-import { WorkingGlyph } from '../moment'
+import { formatElapsed, WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
@@ -86,27 +87,31 @@ function respondedInputId(event: JournalEvent): string | null {
 interface Telemetry {
   turnCount: number
   lastDurationMs: number | null
+  /** Session totals. Input counts every token read, cached or not. */
   inputTokens: number
+  cachedInputTokens: number
   outputTokens: number
   startedAt: number | null
-  /** Running total for the ACTIVE turn only (drives the context meter). */
-  turnInputTokens: number
-  turnOutputTokens: number
+  /** The provider's latest context-window reading; null until it sends one. */
+  context: { usedTokens: number; windowTokens: number | null } | null
 }
+
+const NO_DELEGATIONS: readonly DelegatedChild[] = []
 
 const EMPTY_TELEMETRY: Telemetry = {
   turnCount: 0,
   lastDurationMs: null,
   inputTokens: 0,
+  cachedInputTokens: 0,
   outputTokens: 0,
   startedAt: null,
-  turnInputTokens: 0,
-  turnOutputTokens: 0,
+  context: null,
 }
 
-function formatTokens(n: number): string {
-  if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`
-  return String(n)
+/** Turn latency for the strip: 52.8s, then 2m 05s once it passes a minute. */
+export function formatTurnDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  return seconds < 60 ? `${(ms / 1000).toFixed(1)}s` : formatElapsed(seconds)
 }
 
 /**
@@ -128,15 +133,10 @@ export function contextTokensFromHint(hint: string | undefined): number | null {
 
 /** Compact token formatting for the meter chip: 200K, 1M, 12.5K, 999. */
 export function formatCompactTokens(n: number): string {
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000
-    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`
-  }
-  if (n >= 1000) {
-    const k = n / 1000
-    return `${Number.isInteger(k) ? k : k.toFixed(1)}K`
-  }
-  return String(n)
+  if (n < 1000) return String(n)
+  // Rounded first, so 3,982 reads 4K and 999,960 reads 1M, never 4.0K or 1000K.
+  const k = Number((n / 1000).toFixed(1))
+  return k < 1000 ? `${k}K` : `${Number((n / 1_000_000).toFixed(1))}M`
 }
 
 const METER_WARN_PCT = 75
@@ -145,6 +145,7 @@ const METER_DANGER_PCT = 90
 /**
  * Context-window meter for the telemetry strip: a slim fill bar plus
  * `used / window` tokens. Without a known window only the used count shows.
+ * `used` is what the conversation occupies now, not tokens spent so far.
  */
 export function ContextMeter({
   used,
@@ -169,16 +170,17 @@ export function ContextMeter({
       title={
         contextWindow !== null
           ? `Context: ${formatCompactTokens(used)} of ${formatCompactTokens(contextWindow)} tokens (${pct}%)`
-          : `Total tokens: ${formatCompactTokens(used)}`
+          : `Context: ${formatCompactTokens(used)} tokens`
       }
     >
+      <span aria-hidden="true">context</span>
       {contextWindow !== null ? (
         <span aria-hidden="true" className="h-1 w-9 overflow-hidden rounded-full bg-surface-2">
           <span className={`block h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
         </span>
       ) : null}
       <span
-        aria-label={`Token usage: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}
+        aria-label={`Context used: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}
       >
         {formatCompactTokens(used)}
         {contextWindow !== null ? ` / ${formatCompactTokens(contextWindow)}` : ''}
@@ -279,6 +281,10 @@ export function SessionView({
   const { settings: engineSettings } = useEngineSettings()
   const settleSoundRef = useRef(true)
   settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
+  const defaultsRef = useRef(defaults)
+  defaultsRef.current = defaults
+  const onDefaultsChangeRef = useRef(onDefaultsChange)
+  onDefaultsChangeRef.current = onDefaultsChange
 
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
   // Model catalogs feed the context-window meter's denominator.
@@ -293,13 +299,14 @@ export function SessionView({
       .catch(() => undefined)
   }, [sessionId])
 
-  // Window size for the meter: the session model's contextHint from the live
-  // catalog, when the catalog carries one. Absent → used-count-only chip.
-  const contextWindow = useMemo(() => {
+  // Window size for the meter: what the provider measured, else the session
+  // model's contextHint from the live catalog. Neither → used-count-only chip.
+  const catalogWindow = useMemo(() => {
     const row = catalogModels.find((r) => r.kind === defaults.driverKind)
     const model = row?.models.find((m) => m.id === defaults.modelId)
     return contextTokensFromHint(model?.contextHint)
   }, [catalogModels, defaults.driverKind, defaults.modelId])
+  const contextWindow = telemetry.context?.windowTokens ?? catalogWindow
 
   useEffect(() => {
     let cancelled = false
@@ -362,12 +369,13 @@ export function SessionView({
         for (const event of buffered) ingest(event, true)
         return
       }
-      const event = frame.event as JournalEvent
       if (frame.replay === true) {
-        // The replay burst is seq-ordered; apply directly.
-        ingest(event, false)
+        // The burst is seq-ordered and arrives whole, so it folds in one pass
+        // and renders once however long the session is.
+        for (const event of (frame.events ?? []) as JournalEvent[]) ingest(event, false)
         return
       }
+      const event = frame.event as JournalEvent
       // Live frame: hold until the replay burst has drained so history and
       // live events interleave in journal order, not arrival order.
       if (!replayDoneRef.current) {
@@ -578,13 +586,32 @@ export function SessionView({
       case 'approval.responded':
         setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
         break
+      case 'session.updated':
+        // An always-allow answer widens the mode from the engine side. Live
+        // only: `session.load` already seeds the chip with the replayed value.
+        if (live && event.permissionMode !== undefined) {
+          onDefaultsChangeRef.current({
+            ...defaultsRef.current,
+            permissionMode: event.permissionMode,
+          })
+        }
+        break
       case 'usage.recorded':
         setTelemetry((t) => ({
           ...t,
           inputTokens: t.inputTokens + (event.inputTokens ?? 0),
+          cachedInputTokens: t.cachedInputTokens + (event.cachedInputTokens ?? 0),
           outputTokens: t.outputTokens + (event.outputTokens ?? 0),
-          turnInputTokens: t.turnInputTokens + (event.inputTokens ?? 0),
-          turnOutputTokens: t.turnOutputTokens + (event.outputTokens ?? 0),
+        }))
+        break
+      case 'context.recorded':
+        setTelemetry((t) => ({
+          ...t,
+          context: {
+            usedTokens: event.usedTokens,
+            // Mid-turn readings may omit the size; the last one given holds.
+            windowTokens: event.windowTokens ?? t.context?.windowTokens ?? null,
+          },
         }))
         break
       default: {
@@ -914,7 +941,12 @@ export function SessionView({
   )
 
   const delegations = useMemo(
-    () => (tasks === null ? [] : delegatedChildren(spawns, tasks, activityOf)),
+    // One shared empty list for the common case: the activity lookup is new on
+    // every render, and a fresh array each time would re-derive the transcript.
+    () =>
+      tasks === null || spawns.length === 0
+        ? NO_DELEGATIONS
+        : delegatedChildren(spawns, tasks, activityOf),
     [spawns, tasks, activityOf],
   )
 
@@ -1019,26 +1051,40 @@ export function SessionView({
               <span>
                 last{' '}
                 {telemetry.lastDurationMs !== null
-                  ? `${(telemetry.lastDurationMs / 1000).toFixed(1)}s`
+                  ? formatTurnDuration(telemetry.lastDurationMs)
                   : '—'}
               </span>
-              <span aria-hidden>·</span>
-              <span title="Input tokens">↑ {formatTokens(telemetry.inputTokens)}</span>
-              <span aria-hidden>·</span>
-              <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
+              {/* Some agents report a context reading but no token totals. */}
+              {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span
+                    title={`Input tokens this session: ${telemetry.inputTokens.toLocaleString('en-US')}${
+                      telemetry.cachedInputTokens > 0
+                        ? ` (${telemetry.cachedInputTokens.toLocaleString('en-US')} read from cache)`
+                        : ''
+                    }`}
+                  >
+                    ↑ {formatCompactTokens(telemetry.inputTokens)}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <span
+                    title={`Output tokens this session: ${telemetry.outputTokens.toLocaleString('en-US')}`}
+                  >
+                    ↓ {formatCompactTokens(telemetry.outputTokens)}
+                  </span>
+                </>
+              ) : null}
             </>
           ) : (
             <span>{running ? null : 'no turns yet'}</span>
           )}
           <div className="flex-1" />
-          {/* Context meter shows the ACTIVE/last turn's footprint, not the
-            lifetime total — the window is per-turn, so lifetime totals would
-            lie about headroom (DSH token-meter semantics). */}
-          {telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
-            <ContextMeter
-              used={telemetry.turnInputTokens + telemetry.turnOutputTokens}
-              contextWindow={contextWindow}
-            />
+          {/* Headroom comes from the provider's own reading of the window.
+            Summing the turns' tokens instead would count each re-read of the
+            conversation again and miss everything served from cache. */}
+          {telemetry.context !== null ? (
+            <ContextMeter used={telemetry.context.usedTokens} contextWindow={contextWindow} />
           ) : null}
         </div>
         {turnError ? (

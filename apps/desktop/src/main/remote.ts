@@ -52,6 +52,7 @@ export interface RemoteServiceDeps {
   /** Providers this desktop can run, with their catalog models. */
   listModels: () => Promise<RemoteModelCatalog['providers']>
   effortsForModel?: RemoteHostDeps['effortsForModel']
+  allowance?: RemoteHostDeps['allowance']
   mintSessionId: () => string
   /**
    * The address a phone should open, or null when none is configured yet.
@@ -148,6 +149,7 @@ export class RemoteService {
           ...(this.#deps.effortsForModel === undefined
             ? {}
             : { effortsForModel: this.#deps.effortsForModel }),
+          ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
           ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
         }),
         // Exact origins, plus whatever the gateway is bound to. A phone on
@@ -218,6 +220,7 @@ export class RemoteService {
         ...(this.#deps.effortsForModel === undefined
           ? {}
           : { effortsForModel: this.#deps.effortsForModel }),
+        ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
         ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
       }),
       allowedOrigins: [options.issuer, `https://${options.hostname}`],

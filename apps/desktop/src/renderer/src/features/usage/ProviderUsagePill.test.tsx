@@ -177,6 +177,69 @@ describe('provider allowance pill', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a manual refresh running and says when it has finished', async () => {
+    invoke.mockImplementation(async (method: string) =>
+      method === 'providers.detect' ? [{ kind: 'codex', installed: true }] : sample('codex'),
+    )
+    await openPill()
+    const refresh = screen.getByRole('button', { name: 'Refresh usage' })
+    expect(refresh).toBeEnabled()
+    expect(screen.getByText('Checked just now · refreshes every minute')).toBeInTheDocument()
+
+    const reads = holdReads()
+    fireEvent.click(refresh)
+    await settle()
+    expect(refresh).toHaveAttribute('aria-busy', 'true')
+    expect(refresh.querySelector('.animate-spin')).not.toBeNull()
+    expect(screen.getByText('Refreshing…')).toBeInTheDocument()
+
+    reads[0]?.({ ...sample('codex'), windows: [{ label: '5h', usedPercent: 40, resetsAt: null }] })
+    await settle()
+    expect(refresh).not.toHaveAttribute('aria-busy')
+    expect(refresh.querySelector('.animate-spin')).toBeNull()
+    expect(screen.getByText('Checked just now · refreshes every minute')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Codex 5h used' })).toHaveAttribute(
+      'aria-valuenow',
+      '40',
+    )
+  })
+
+  it('marks only the providers still being read, since they answer seconds apart', async () => {
+    invoke.mockImplementation(async (method: string, params?: { kind: string }) =>
+      method === 'providers.detect'
+        ? ['codex', 'grok'].map((kind) => ({ kind, installed: true }))
+        : sample(params?.kind ?? 'codex'),
+    )
+    await openPill()
+    expect(screen.queryByText('Checking…')).not.toBeInTheDocument()
+
+    const reads = holdReads()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh usage' }))
+    await settle()
+    expect(screen.getAllByText('Checking…')).toHaveLength(2)
+
+    reads[0]?.(sample('codex'))
+    await settle()
+    expect(screen.getAllByText('Checking…')).toHaveLength(1)
+    expect(screen.getByText('Refreshing…')).toBeInTheDocument()
+
+    reads[1]?.(sample('grok'))
+    await settle()
+    expect(screen.queryByText('Checking…')).not.toBeInTheDocument()
+    expect(screen.getByText('Checked just now · refreshes every minute')).toBeInTheDocument()
+  })
+
+  it('names the providers a refresh could not read', async () => {
+    invoke.mockImplementation(async (method: string, params?: { kind: string }) => {
+      if (method === 'providers.detect')
+        return ['codex', 'claude'].map((kind) => ({ kind, installed: true }))
+      if (params?.kind === 'claude') throw new Error('adapter exited')
+      return sample('codex')
+    })
+    await openPill()
+    expect(screen.getByText('Checked just now · could not read Claude')).toBeInTheDocument()
+  })
+
   it('shows a banked reset and redeems it after confirmation', async () => {
     bankTwo(() => applied)
     await openPill()
@@ -259,6 +322,36 @@ describe('provider allowance pill', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     await confirmReset()
     expect(redemptions()).toBe(2)
+  })
+
+  it('lets a pass slower than the minute timer finish instead of restarting it', async () => {
+    bankTwo(() => applied)
+    const reads = holdReads()
+    const hook = renderHook(() => useProviderAllowance('one', 'codex'))
+    await settle()
+    const probes = () => invoke.mock.calls.filter(([method]) => method === 'providers.allowance')
+    expect(probes()).toHaveLength(1)
+
+    await wait(60_000)
+    void hook.result.current.refresh()
+    await settle()
+    expect(probes()).toHaveLength(1)
+    expect(hook.result.current.refreshing).toBe(true)
+
+    await act(async () => {
+      reads[0]?.(banked(2))
+    })
+    expect(hook.result.current.rows[0]?.resetCredits?.availableCount).toBe(2)
+
+    // The tick the slow pass swallowed is made up at once, not a minute later,
+    // or rows that answered early would sit stale in between.
+    await settle()
+    expect(probes()).toHaveLength(2)
+    await act(async () => {
+      reads[1]?.(banked(2))
+    })
+    expect(hook.result.current.refreshing).toBe(false)
+    expect(probes()).toHaveLength(2)
   })
 
   it('keeps the redeemed allowance when an older refresh answers after it', async () => {

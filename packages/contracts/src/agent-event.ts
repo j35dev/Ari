@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { approvalOptionSchema, sessionStatusSchema, timestampSchema } from './common'
+import {
+  approvalOptionSchema,
+  permissionModeSchema,
+  sessionStatusSchema,
+  timestampSchema,
+} from './common'
 
 /**
  * Normalized stream events emitted by every provider adapter. Native CLI
@@ -57,11 +62,30 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     /** Provider-native session/thread id to resume on later turns. */
     ref: z.string().min(1),
   }),
+  /**
+   * The user's answer changed how much the session may do unasked — a
+   * persistent grant on an approval. The engine stores it on the session so
+   * later turns, each a fresh agent process, start in the mode the user chose.
+   */
+  z.object({ type: z.literal('permission-mode'), mode: permissionModeSchema }),
   z.object({
     type: z.literal('usage'),
+    /** Every prompt token the model read, cache hits and cache writes included. */
     inputTokens: z.number().nonnegative(),
     outputTokens: z.number().nonnegative(),
+    /** The share of `inputTokens` served from the provider's prompt cache. */
+    cachedInputTokens: z.number().nonnegative().optional(),
     costUsd: z.number().nullable(),
+  }),
+  /**
+   * How full the model's context window is after its latest call. A gauge,
+   * not a delta: each reading replaces the one before it, where `usage` adds.
+   */
+  z.object({
+    type: z.literal('context-usage'),
+    usedTokens: z.number().nonnegative(),
+    /** Window size when the provider reports it; null defers to the catalog. */
+    windowTokens: z.number().positive().nullable(),
   }),
   z.object({ type: z.literal('status'), status: sessionStatusSchema }),
   /**
