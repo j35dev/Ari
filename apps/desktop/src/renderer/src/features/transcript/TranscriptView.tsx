@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,7 +12,7 @@ import {
 import { Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
-import { pinnedAfterScroll } from './transcript-pin'
+import { followBehavior, pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
 import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -22,7 +23,7 @@ import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { attachmentDataUrl } from './attachment-urls'
-import type { TranscriptImage, TranscriptRow } from './types'
+import type { TranscriptBlock, TranscriptImage, TranscriptRow } from './types'
 import type { Message } from '@ari/contracts/message'
 
 /** Rough characters per rendered line at the transcript's 48rem measure. */
@@ -55,6 +56,14 @@ function railText(row: TranscriptRow): string {
   }
   if (row.kind === 'markdown') return row.text ?? ''
   return ''
+}
+
+/** The OS preference or the in-app switch (see interaction-motion.css). */
+function prefersStillness(): boolean {
+  if (document.documentElement.hasAttribute('data-ari-reduced-motion')) return true
+  return typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    : false
 }
 
 function scrollToBottom(el: HTMLElement, behavior: ScrollBehavior): void {
@@ -120,7 +129,15 @@ export function TranscriptView({
   const [atBottom, setAtBottom] = useState(true)
   const atBottomRef = useRef(true)
 
-  const rows = useMemo(() => groupBlocks(splitBlocks(messages), turnDiffs), [messages, turnDiffs])
+  // Each pass is handed the last one's output, so rows a flush left alone keep
+  // their identity and the memoized row view skips them.
+  const blocksRef = useRef<TranscriptBlock[]>([])
+  const rowsRef = useRef<TranscriptRow[]>([])
+  const rows = useMemo(() => {
+    blocksRef.current = splitBlocks(messages, blocksRef.current)
+    rowsRef.current = groupBlocks(blocksRef.current, turnDiffs, rowsRef.current)
+    return rowsRef.current
+  }, [messages, turnDiffs])
   const seenRowsRef = useRef(new Set<string>())
   const freshRowsRef = useRef(new Set<string>())
   const historyLoadedRef = useRef(false)
@@ -130,16 +147,21 @@ export function TranscriptView({
   // index for jump-scrolling. Image-only prompts have no markdown row, so
   // their thumbnail row carries the entry instead. Hidden until two prompts
   // exist to navigate.
-  const railEntries = useMemo<MessageRailEntry[]>(
-    () =>
-      rows
-        .map((row, index) => ({ row, index }))
-        .filter(
-          ({ row }) => (row.kind === 'markdown' || row.kind === 'image') && row.role === 'user',
-        )
-        .map(({ row, index }) => ({ key: String(index), text: railText(row) })),
-    [rows],
-  )
+  const railRef = useRef<MessageRailEntry[]>([])
+  const railEntries = useMemo<MessageRailEntry[]>(() => {
+    const next = rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => (row.kind === 'markdown' || row.kind === 'image') && row.role === 'user')
+      .map(({ row, index }) => ({ key: String(index), text: railText(row) }))
+    // The rail only changes when a prompt is added; keep the array stable
+    // through the streaming flushes in between.
+    const before = railRef.current
+    const same =
+      before.length === next.length &&
+      next.every((entry, i) => entry.key === before[i]?.key && entry.text === before[i]?.text)
+    if (!same) railRef.current = next
+    return railRef.current
+  }, [rows])
   const [activeRailKey, setActiveRailKey] = useState<string | null>(null)
 
   // Regenerate (M19.4) attaches to the newest assistant message only, so the
@@ -214,24 +236,39 @@ export function TranscriptView({
     return () => observer.disconnect()
   }, [])
 
-  // Follow the tail while pinned. Observe the column so Shiki/code-fence
-  // growth still sticks without a virtualizer measurement loop.
-  useLayoutEffect(() => {
+  const runningRef = useRef(running)
+  runningRef.current = running
+  const followTail = useCallback((): void => {
     const scroller = scrollRef.current
+    if (!scroller || !atBottomRef.current) return
+    const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+    if (Math.abs(scroller.scrollTop - max) <= 1) return
+    scrollToBottom(
+      scroller,
+      followBehavior({
+        running: runningRef.current,
+        distanceFromBottom: max - scroller.scrollTop,
+        viewportHeight: scroller.clientHeight,
+        reducedMotion: prefersStillness(),
+      }),
+    )
+  }, [])
+
+  // Follow the tail while pinned. Observe the column so Shiki/code-fence
+  // growth still sticks without a virtualizer measurement loop. The observer
+  // lives for the life of the view: rebuilding it on every streaming flush
+  // re-observed the whole column several times a second.
+  useLayoutEffect(() => {
     const inner = innerRef.current
-    if (!scroller || !inner) return
-    const follow = (): void => {
-      if (!atBottomRef.current) return
-      const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
-      if (Math.abs(scroller.scrollTop - max) <= 1) return
-      scrollToBottom(scroller, 'auto')
-    }
-    follow()
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(follow)
+    if (!inner || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(followTail)
     observer.observe(inner)
     return () => observer.disconnect()
-  }, [rows, atBottom, hasWorking])
+  }, [followTail])
+
+  // The working indicator sits outside the observed column, and re-pinning
+  // has to land on the tail at once rather than at the next resize.
+  useLayoutEffect(followTail, [followTail, rows, atBottom, hasWorking])
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
     if (event.deltaY >= 0 || !atBottomRef.current) return
@@ -309,9 +346,17 @@ export function TranscriptView({
                   'messageId' in row && row.messageId ? origins.get(row.messageId) : undefined
                 }
                 index={index}
-                lastAssistantMessageId={lastAssistantMessageId}
                 onEditUserMessage={onEditUserMessage}
-                onRegenerate={onRegenerate}
+                // Only the newest answer's footer row regenerates; handing the
+                // callback to every row would re-render all of them whenever
+                // it changes, which is every flush.
+                onRegenerate={
+                  row.kind === 'markdown' &&
+                  row.isLastOfMessage === true &&
+                  row.messageId === lastAssistantMessageId
+                    ? onRegenerate
+                    : undefined
+                }
                 regenerateDisabled={regenerateDisabled}
                 active={running && index === rows.length - 1}
                 onDiffComment={onDiffComment}
@@ -364,11 +409,14 @@ export function TranscriptView({
   )
 }
 
-function TranscriptRowView({
+/**
+ * Memoized: rows keep their identity across flushes (see `splitBlocks`), so a
+ * streaming turn re-renders the row it is on and nothing above it.
+ */
+const TranscriptRowView = memo(function TranscriptRowView({
   row,
   origin,
   index,
-  lastAssistantMessageId,
   onEditUserMessage,
   onRegenerate,
   regenerateDisabled,
@@ -378,8 +426,8 @@ function TranscriptRowView({
   row: TranscriptRow
   origin?: Message['origin']
   index: number
-  lastAssistantMessageId: string | null
   onEditUserMessage?: (text: string) => void
+  /** Present only on the newest answer's footer row. */
   onRegenerate?: () => void
   regenerateDisabled: boolean
   /** True when a running turn is on this row; only ever the last one. */
@@ -415,7 +463,7 @@ function TranscriptRowView({
           </div>
         ) : (
           <div>
-            <MarkdownBlock text={row.text ?? ''} />
+            <MarkdownBlock text={row.text ?? ''} streaming={active} />
             {row.isLastOfMessage && row.messageId ? (
               <MessageFooter
                 message={{
@@ -426,11 +474,7 @@ function TranscriptRowView({
                   parts: [{ type: 'text', text: row.text ?? '' }],
                   createdAt: row.messageCreatedAt ?? Date.now(),
                 }}
-                onRegenerate={
-                  onRegenerate && row.messageId === lastAssistantMessageId
-                    ? onRegenerate
-                    : undefined
-                }
+                onRegenerate={onRegenerate}
                 actionDisabled={regenerateDisabled}
               />
             ) : null}
@@ -443,7 +487,7 @@ function TranscriptRowView({
       ) : null}
     </div>
   )
-}
+})
 
 /**
  * Staged-image thumbnails for a message's image row, stacked above its text

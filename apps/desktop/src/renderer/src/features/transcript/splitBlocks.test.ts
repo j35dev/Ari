@@ -35,6 +35,54 @@ describe('splitBlocks', () => {
     expect(after).toHaveLength(2)
   })
 
+  it('returns the same block objects for everything a streaming flush left alone', () => {
+    const user = msg('u1', [{ type: 'text', text: 'question' }], 'user')
+    const call: MessagePart = { type: 'tool-call', callId: 'c1', name: 'bash', argsJson: '"ls"' }
+    const before = splitBlocks([user, msg('a1', [{ type: 'text', text: 'intro' }, call])])
+    // The flush replaces the streaming message with a longer copy.
+    const after = splitBlocks(
+      [user, msg('a1', [{ type: 'text', text: 'intro' }, call, { type: 'text', text: 'more' }])],
+      before,
+    )
+
+    expect(after).toHaveLength(4)
+    expect(after.slice(0, 3)).toEqual(before)
+    after.slice(0, 3).forEach((block, index) => expect(block).toBe(before[index]))
+  })
+
+  it('rebuilds a block that hands the message footer to a later one', () => {
+    const before = splitBlocks([msg('a1', [{ type: 'text', text: 'intro' }])])
+    const after = splitBlocks(
+      [
+        msg('a1', [
+          { type: 'text', text: 'intro' },
+          { type: 'thinking', text: 'hmm' },
+          { type: 'text', text: 'outro' },
+        ]),
+      ],
+      before,
+    )
+
+    expect(before[0]?.isLastOfMessage).toBe(true)
+    expect(after[0]).not.toBe(before[0])
+    expect(after[0]?.isLastOfMessage).toBe(false)
+    expect(after[2]?.isLastOfMessage).toBe(true)
+  })
+
+  it('rebuilds only the block whose text grew', () => {
+    const thought: MessagePart = { type: 'thinking', text: 'hmm' }
+    const before = splitBlocks([msg('a1', [thought, { type: 'text', text: 'par' }])])
+    const after = splitBlocks(
+      [msg('a1', [thought, { type: 'text', text: 'par' }, { type: 'text', text: 'agraph' }])],
+      before,
+    )
+
+    expect(after[0]).toBe(before[0])
+    expect(after[1]).not.toBe(before[1])
+    expect(after[1]?.text).toBe('paragraph')
+    expect(before[1]?.text).toBe('par')
+  })
+
   it('flattens multiple messages in order and carries user messages through', () => {
     const blocks = splitBlocks([
       msg('u1', [{ type: 'text', text: 'question' }], 'user'),
