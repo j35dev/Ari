@@ -76,16 +76,59 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
 }
 
 /**
+ * Blocks last built for a message object. Messages are replaced, never
+ * mutated, so a hit is exact — a settled message is split once for as long as
+ * it lives, however many times the transcript re-renders around it.
+ */
+const blocksByMessage = new WeakMap<Message, TranscriptBlock[]>()
+
+function sameImages(a: TranscriptImage[] | undefined, b: TranscriptImage[] | undefined): boolean {
+  if (a === b) return true
+  if (a === undefined || b === undefined || a.length !== b.length) return false
+  return a.every((image, index) => image.attachmentId === b[index]?.attachmentId)
+}
+
+function sameBlock(a: TranscriptBlock, b: TranscriptBlock): boolean {
+  return (
+    a.kind === b.kind &&
+    a.role === b.role &&
+    a.text === b.text &&
+    a.callId === b.callId &&
+    a.name === b.name &&
+    a.argsJson === b.argsJson &&
+    a.resultJson === b.resultJson &&
+    a.isError === b.isError &&
+    a.messageId === b.messageId &&
+    a.messageCreatedAt === b.messageCreatedAt &&
+    a.isLastOfMessage === b.isLastOfMessage &&
+    a.turnId === b.turnId &&
+    sameImages(a.images, b.images)
+  )
+}
+
+/**
  * Purely flattens an ordered message list into the flat block list the
- * virtualizer renders. Contiguous text parts — the engine flushes streamed
+ * transcript renders. Contiguous text parts — the engine flushes streamed
  * deltas every ~120ms as separate parts — coalesce into ONE block per run so
  * paragraphs flow instead of rendering one fragment per line; the merged
  * block's key (`msgId#firstPartIndex`) stays stable while it grows.
  * Thinking parts merge the same way; any tool block breaks the run.
+ *
+ * Returned blocks are immutable. Pass the `previous` result and every block
+ * the new messages leave unchanged comes back as the *same object*, so a
+ * streaming flush hands React one changed row instead of a transcript of
+ * fresh ones.
  */
-export function splitBlocks(messages: Message[]): TranscriptBlock[] {
-  const blocks: TranscriptBlock[] = []
+export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): TranscriptBlock[] {
+  let prior: Map<string, TranscriptBlock> | null = null
+  const out: TranscriptBlock[] = []
   for (const message of messages) {
+    const cached = blocksByMessage.get(message)
+    if (cached !== undefined) {
+      for (const block of cached) out.push(block)
+      continue
+    }
+    const blocks: TranscriptBlock[] = []
     let mergeIndex: number | null = null
     let mergeKind: 'markdown' | 'thinking' | null = null
     // A message's images render as one thumbnail strip, not one row per
@@ -158,8 +201,20 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
     ) {
       last.isLastOfMessage = true
     }
+
+    let shared = blocks
+    if (previous !== undefined && previous.length > 0) {
+      prior ??= new Map(previous.map((block) => [block.key, block]))
+      const known = prior
+      shared = blocks.map((block) => {
+        const before = known.get(block.key)
+        return before !== undefined && sameBlock(before, block) ? before : block
+      })
+    }
+    blocksByMessage.set(message, shared)
+    for (const block of shared) out.push(block)
   }
-  return blocks
+  return out
 }
 
 /**

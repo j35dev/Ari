@@ -202,6 +202,8 @@ export class SessionStore {
    * drops the cache; the upgrade path is a cheap byte-size staleness check.
    */
   readonly #models = new Map<string, SessionReadModel>()
+  /** Sessions whose sidecar on disk trails the cached index; see `#append`. */
+  readonly #indexBehind = new Set<string>()
 
   constructor(options: SessionStoreOptions) {
     this.#rootDir = options.rootDir
@@ -215,7 +217,12 @@ export class SessionStore {
   async openJournal(sessionId: string): Promise<Journal<JournalEvent>> {
     const existing = this.#journals.get(sessionId)
     if (existing) return existing
-    const journal = new Journal<JournalEvent>({ dir: this.#dirFor(sessionId), name: 'journal' })
+    // Batched fsync: `#append` places the durability barrier itself.
+    const journal = new Journal<JournalEvent>({
+      dir: this.#dirFor(sessionId),
+      name: 'journal',
+      fsync: 'batch',
+    })
     await journal.open()
     try {
       if ((await journal.ensureTrailingNewline()) > 0) this.#indexCache.delete(sessionId)
@@ -234,6 +241,8 @@ export class SessionStore {
   async #closeJournal(sessionId: string): Promise<void> {
     const journal = this.#journals.get(sessionId)
     if (!journal) return
+    const entry = this.#indexCache.get(sessionId)
+    if (this.#indexBehind.delete(sessionId) && entry) await this.#writeIndex(sessionId, entry)
     await journal.close()
     this.#journals.delete(sessionId)
     // The journal may be reopened after outside writes; never trust a model
@@ -284,8 +293,20 @@ export class SessionStore {
     const post = applyEvent(model, stamped)
     const lineBytes = Buffer.byteLength(JSON.stringify(stamped), 'utf8') + 1
     const entry = entryFrom(post, prevBytes + lineBytes)
-    await this.#writeIndex(sessionId, entry)
+    // A streaming turn appends parts many times a second. Paying a sidecar
+    // rewrite and an fsync for each one made the stream wait on the disk, so
+    // those ride on the next event that is not a part — every turn ends in
+    // one. A crash in between leaves a stale sidecar (the listing replays) and
+    // at worst an unsynced tail of the reply that was still being written.
+    const streamed = stamped.type === 'assistant.parts.appended'
+    if (streamed) {
+      this.#indexBehind.add(sessionId)
+    } else {
+      await this.#writeIndex(sessionId, entry)
+      this.#indexBehind.delete(sessionId)
+    }
     await journal.append(stamped)
+    if (!streamed) await journal.flush()
     this.#indexCache.set(sessionId, entry)
     this.#models.set(sessionId, post)
     for (const listener of this.#listeners) {
@@ -539,6 +560,7 @@ export class SessionStore {
 
   async #destroy(sessionId: string): Promise<void> {
     await this.#closeJournal(sessionId)
+    this.#indexBehind.delete(sessionId)
     this.#indexCache.delete(sessionId)
     this.#diagnostics.delete(sessionId)
     this.#quarantined.delete(sessionId)
