@@ -9,34 +9,51 @@ const key = z.string().min(1).max(128)
 const text = z.string().trim().min(1).max(64_000)
 const timeout = z.number().int().min(1).max(3_600_000).default(60_000)
 
-export const delegationSettingsSchema = z.object({
-  enabled: z.boolean().default(true),
-  maxConcurrentChildren: z.number().int().min(1).max(32).default(4),
-  maxChildrenPerSession: z.number().int().min(1).max(100).default(8),
-  maxDepth: z.number().int().min(1).max(8).default(1),
-  defaultWorkspaceMode: z.enum(['isolated', 'shared']).default('isolated'),
-  allowSharedWorkspace: z.boolean().default(false),
-  recursiveDelegation: z.boolean().default(false),
-  approvalMode: z.enum(['first-per-root', 'always', 'never']).default('first-per-root'),
+const delegationFields = {
+  enabled: z.boolean(),
+  maxConcurrentChildren: z.number().int().min(1).max(32),
+  maxChildrenPerSession: z.number().int().min(1).max(100),
+  maxDepth: z.number().int().min(1).max(8),
+  defaultWorkspaceMode: z.enum(['isolated', 'shared']),
+  allowSharedWorkspace: z.boolean(),
+  recursiveDelegation: z.boolean(),
+  approvalMode: z.enum(['first-per-root', 'always', 'never']),
   /** Wake an idle parent with its children's results instead of leaving it to poll. */
-  autoDeliverResults: z.boolean().default(true),
+  autoDeliverResults: z.boolean(),
   /** Stopping a session also stops the children it delegated to. */
-  cascadeStop: z.boolean().default(true),
+  cascadeStop: z.boolean(),
   /**
    * Run Ari's own read-only and delegation commands without a permission
    * prompt each time. Integrating and destroying still ask.
    */
-  autoApproveCli: z.boolean().default(true),
+  autoApproveCli: z.boolean(),
+}
+
+export const delegationSettingsSchema = z.object({
+  enabled: delegationFields.enabled.default(true),
+  maxConcurrentChildren: delegationFields.maxConcurrentChildren.default(4),
+  maxChildrenPerSession: delegationFields.maxChildrenPerSession.default(8),
+  maxDepth: delegationFields.maxDepth.default(1),
+  defaultWorkspaceMode: delegationFields.defaultWorkspaceMode.default('isolated'),
+  allowSharedWorkspace: delegationFields.allowSharedWorkspace.default(false),
+  recursiveDelegation: delegationFields.recursiveDelegation.default(false),
+  approvalMode: delegationFields.approvalMode.default('first-per-root'),
+  autoDeliverResults: delegationFields.autoDeliverResults.default(true),
+  cascadeStop: delegationFields.cascadeStop.default(true),
+  autoApproveCli: delegationFields.autoApproveCli.default(true),
 })
 export type DelegationSettings = z.infer<typeof delegationSettingsSchema>
 
+/**
+ * A change to some delegation settings. Built from the fields without their
+ * defaults: `delegationSettingsSchema.partial()` still fills every absent key
+ * in, so a patch that flipped one switch reset all the others.
+ */
+export const delegationSettingsPatchSchema = z.object(delegationFields).partial()
+
 /** Where a delegated child stands, from its parent's point of view. */
 export type ChildWorkState =
-  | 'not_started'
-  | 'working'
-  | 'blocked_on_user'
-  | 'waiting_for_children'
-  | 'result_available'
+  'not_started' | 'working' | 'blocked_on_user' | 'waiting_for_children' | 'result_available'
 
 /** One delegated child as `session status` and the transcript's task cards report it. */
 export interface ChildTask {
