@@ -5,6 +5,7 @@ import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 import { AUTH_REQUIRED_ERROR, describeAcpFailure, terminalLoginsFrom } from './protocol'
 import { isInteractiveClientMethod } from './client-requests'
+import { removeBrokenNpxInstall } from './npx-cache'
 import type {
   AcpInitializeResult,
   AcpNewSessionResult,
@@ -22,6 +23,11 @@ export const ACP_PROTOCOL_VERSION = 1
 const TRANSPORT_EOF_GRACE_MS = 400
 /** How long SIGTERM gets before the process tree is killed outright. */
 const TRANSPORT_TERM_GRACE_MS = 600
+/**
+ * Handshake ceiling for a launch known to be installing its adapter first.
+ * The Claude adapter alone took 44s to install from a warm npm cache.
+ */
+const NPX_INSTALL_HANDSHAKE_MS = 180_000
 
 /** Launch description for an ACP agent subprocess. */
 export interface AcpLaunch {
@@ -225,7 +231,7 @@ export class AcpConnection {
    * AcpConnectionError on spawn failure, timeout, or a JSON-RPC error so the
    * caller can fall back to another transport.
    */
-  static async connect(options: AcpConnectOptions): Promise<AcpConnection> {
+  static async connect(options: AcpConnectOptions, retried = false): Promise<AcpConnection> {
     const { launch } = options
     let child: AcpChildProcess
     try {
@@ -331,6 +337,23 @@ export class AcpConnection {
       return connection
     } catch (error) {
       connection.kill()
+      // A half-installed npx entry fails every launch the same way; clearing
+      // it lets one retry install the adapter afresh. Probes stay read-only:
+      // without `-y` a retry has nothing it is allowed to install.
+      if (
+        !retried &&
+        launch.viaNpx === true &&
+        launch.args.includes('-y') &&
+        (await removeBrokenNpxInstall(connection.#stderrTail.join('')))
+      ) {
+        // That retry is an install, and cutting one short is what leaves the
+        // entry half-installed in the first place.
+        const initializeTimeoutMs = Math.max(
+          options.initializeTimeoutMs ?? 0,
+          NPX_INSTALL_HANDSHAKE_MS,
+        )
+        return AcpConnection.connect({ ...options, initializeTimeoutMs }, true)
+      }
       const message = error instanceof Error ? error.message : String(error)
       const detail =
         `${launch.label} initialization failed: ${message}` +
