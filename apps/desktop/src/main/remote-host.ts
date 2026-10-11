@@ -7,6 +7,7 @@ import { driverKindSchema, type DriverKind, type PermissionMode } from '@ari/con
 import type { Command } from '@ari/contracts/commands'
 import type { Message } from '@ari/contracts/message'
 import type {
+  RemoteAccounts,
   RemoteAllowance,
   RemoteApproval,
   RemoteAttention,
@@ -17,9 +18,15 @@ import type {
   RemoteModelCatalog,
   RemoteOperation,
   RemoteProject,
+  RemoteRedeem,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
-import type { ProviderAllowance, SessionSummary } from '@ari/contracts/rpc'
+import type {
+  ProviderAccountsResult,
+  ProviderAllowance,
+  RpcResults,
+  SessionSummary,
+} from '@ari/contracts/rpc'
 import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
 import type { PairingService } from '@ari/remote-gateway/pairing'
 import type { Engine } from './engine'
@@ -55,6 +62,39 @@ import { remoteCatalogDefaults } from './remote-catalog'
  * session the phone created without choosing.
  */
 
+/** Rebuilt field by field, so the ids that redeem a banked reset stay on the desktop. */
+function remoteAllowance(kind: DriverKind, allowance: ProviderAllowance): RemoteAllowance {
+  return {
+    driverKind: kind,
+    status: allowance.status,
+    windows: allowance.windows.map((window) => ({
+      label: window.label,
+      usedPercent: Math.min(100, Math.max(0, window.usedPercent)),
+      resetsAt: window.resetsAt,
+      ...(window.resetText === undefined ? {} : { resetText: window.resetText }),
+    })),
+    bankedResets: Math.max(0, allowance.resetCredits?.availableCount ?? 0),
+    updatedAt: allowance.updatedAt,
+  }
+}
+
+/** A label, a state and a plan per account; the address it is signed in with stays here. */
+function remoteAccounts(
+  kind: DriverKind,
+  listed: ProviderAccountsResult | undefined,
+): RemoteAccounts {
+  return {
+    driverKind: kind,
+    accounts: (listed?.supported === true ? listed.accounts : []).map((account) => ({
+      id: account.id,
+      label: account.label,
+      active: account.active,
+      signedIn: account.identity?.signedIn ?? null,
+      plan: account.identity?.plan ?? null,
+    })),
+  }
+}
+
 export interface RemoteHostDeps {
   engine: Engine
   store: SessionStore
@@ -81,6 +121,15 @@ export interface RemoteHostDeps {
   effortsForModel?: (kind: DriverKind, modelId: string | null) => Promise<RemoteEffortOption[]>
   /** The account allowance the desktop's own usage pill reads; never throws. */
   allowance?: (kind: DriverKind) => Promise<ProviderAllowance>
+  /** Spends one banked reset of the account a provider runs as, as the usage pill's button does. */
+  redeemReset?: (
+    kind: DriverKind,
+  ) => Promise<RpcResults['providers.consumeResetCredit']>
+  /** A provider's accounts and the switch between them. Signing one in is not offered remotely. */
+  accounts?: {
+    list: (kind: DriverKind) => Promise<ProviderAccountsResult>
+    activate: (kind: DriverKind, accountId: string) => Promise<ProviderAccountsResult>
+  }
   /** Owns the device records `device.list` and `device.revoke` read and write. */
   pairing: PairingService
   mintSessionId: () => string
@@ -396,6 +445,8 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
         : (['changes.preview', 'changes.integrate'] as const)),
       ...(deps.effortsForModel === undefined ? [] : (['models.efforts'] as const)),
       ...(deps.allowance === undefined ? [] : (['usage.allowance'] as const)),
+      ...(deps.redeemReset === undefined ? [] : (['usage.redeem'] as const)),
+      ...(deps.accounts === undefined ? [] : (['accounts.list', 'accounts.activate'] as const)),
     ],
     listSessions,
     listProjects,
@@ -521,23 +572,15 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           return { efforts: await effortOptions(kind, modelId) }
         }
         case 'usage.allowance': {
-          // Like the catalog, the account's and not a project's. Rebuilt field
-          // by field so the ids that redeem a banked reset stay here.
+          // Like the catalog, the account's and not a project's.
           const kind = driverKindSchema.parse(params['driverKind'])
           const allowance = await deps.allowance?.(kind)
-          if (allowance === undefined) return null
-          return {
-            driverKind: kind,
-            status: allowance.status,
-            windows: allowance.windows.map((window) => ({
-              label: window.label,
-              usedPercent: Math.min(100, Math.max(0, window.usedPercent)),
-              resetsAt: window.resetsAt,
-              ...(window.resetText === undefined ? {} : { resetText: window.resetText }),
-            })),
-            bankedResets: Math.max(0, allowance.resetCredits?.availableCount ?? 0),
-            updatedAt: allowance.updatedAt,
-          } satisfies RemoteAllowance
+          return allowance === undefined ? null : remoteAllowance(kind, allowance)
+        }
+        case 'accounts.list': {
+          const kind = driverKindSchema.parse(params['driverKind'])
+          const listed = await deps.accounts?.list(kind)
+          return remoteAccounts(kind, listed)
         }
         case 'device.list':
           // A paired device already acts as the user, so seeing and revoking
@@ -592,6 +635,43 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
               ? error.message
               : 'Integration failed. Inspect the parent workspace before retrying.',
         }
+      }
+    }
+
+    // The two below act on the user's account with a provider, on this whole
+    // computer. A paired device already acts as the user, so neither is tied
+    // to a session or to the projects the device was given.
+    if (command.op === 'accounts.activate') {
+      if (deps.accounts === undefined)
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'Switching accounts is not available on this desktop.',
+        }
+      const switched = await deps.accounts.activate(command.driverKind, command.accountId)
+      if (!switched.supported || switched.error !== undefined)
+        return {
+          ok: false,
+          code: 'conflict',
+          message: switched.error ?? 'This provider has no accounts to switch between.',
+        }
+      return { ok: true, result: remoteAccounts(command.driverKind, switched) }
+    }
+    if (command.op === 'usage.redeem') {
+      if (deps.redeemReset === undefined)
+        return {
+          ok: false,
+          code: 'unsupported_capability',
+          message: 'Using a reset is not available on this desktop.',
+        }
+      const redeemed = await deps.redeemReset(command.driverKind)
+      if (!redeemed.ok) return { ok: false, code: 'conflict', message: redeemed.error }
+      return {
+        ok: true,
+        result: {
+          outcome: redeemed.outcome,
+          allowance: remoteAllowance(command.driverKind, redeemed.allowance),
+        } satisfies RemoteRedeem,
       }
     }
 
@@ -819,6 +899,8 @@ function commandToEngine(
         | 'session.create'
         | 'session.fork'
         | 'changes.integrate'
+        | 'usage.redeem'
+        | 'accounts.activate'
         | 'attachments.stage'
         | `terminal.${string}`
     }
