@@ -2,7 +2,7 @@ import type { Message } from '@ari/contracts/message'
 
 /** The visual row kinds the transcript renders. */
 export type TranscriptBlockKind =
-  'markdown' | 'thinking' | 'tool-call' | 'tool-result' | 'error-note' | 'image'
+  'markdown' | 'thinking' | 'tool-call' | 'tool-result' | 'error-note' | 'notice' | 'image'
 
 /** One staged image inside an `image` row (all of a message's images share it). */
 export interface TranscriptImage {
