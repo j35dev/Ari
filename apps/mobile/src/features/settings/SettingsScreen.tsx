@@ -50,6 +50,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }): ReactNode {
     { op: 'changes.diff', label: 'Review code changes' },
     { op: 'files.read', label: 'Browse workspace files' },
     { op: 'terminal.create', label: 'Use an approved terminal' },
+    { op: 'usage.allowance', label: 'See provider usage' },
   ].filter((item) => app.session?.supports(item.op))
   return (
     <div className="h-full overflow-y-auto px-5 pb-8 pt-[max(0.5rem,env(safe-area-inset-top))]">
