@@ -19,6 +19,7 @@ import { MarkdownBlock } from './MarkdownBlock'
 import { MessageFooter } from './MessageFooter'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ErrorNote } from './ErrorNote'
+import { NoticeNote } from './NoticeNote'
 import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
@@ -522,6 +523,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
         )
       ) : row.kind === 'error-note' ? (
         <ErrorNote text={row.text ?? ''} />
+      ) : row.kind === 'notice' ? (
+        <NoticeNote text={row.text ?? ''} />
       ) : row.kind === 'thinking' ? (
         <ThinkingBlock text={row.text ?? ''} />
       ) : null}
