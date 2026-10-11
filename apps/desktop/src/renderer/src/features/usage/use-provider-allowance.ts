@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { driverKindSchema } from '@ari/contracts/common'
 import type { DriverKind } from '@ari/contracts/common'
-import type { ProviderAllowance, ResetCreditOutcome } from '@ari/contracts/rpc'
+import type {
+  ProviderAllowance,
+  ProvidersUpdateFrame,
+  ResetCreditOutcome,
+} from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { err, ok, type Result } from '@ari/shared/result'
 import { rpc } from '../../lib/rpc'
@@ -128,6 +132,29 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
       tickOwed.current = false
     }
   }, [refresh, sessionId, kind])
+
+  // After an account switch the bars on screen are another account's, not a
+  // stale reading of this one: they go at once, and a read already in flight
+  // for that provider is dropped the same way one that predates a redemption is.
+  useEffect(
+    () =>
+      rpc.subscribe('providers.updates', {}, (payload) => {
+        const frame = payload as ProvidersUpdateFrame
+        if (frame.type !== 'accounts' || !frame.active) return
+        const changed = frame.kind
+        redeemed.current.set(changed, (redeemed.current.get(changed) ?? 0) + 1)
+        setRows((previous) =>
+          previous.map((row) =>
+            row.kind === changed
+              ? { kind: changed, status: 'unavailable', windows: [], updatedAt: null, checkedAt: 0, detail: '' }
+              : row,
+          ),
+        )
+        if (running.current === generation.current) tickOwed.current = true
+        else void refresh()
+      }),
+    [refresh],
+  )
 
   const consumeReset = useCallback(
     async (kind: DriverKind, creditId?: string): Promise<Result<ResetCreditOutcome, string>> => {

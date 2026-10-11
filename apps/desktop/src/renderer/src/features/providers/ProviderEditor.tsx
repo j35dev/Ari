@@ -7,6 +7,7 @@ import { Switch } from '@ari/ui/switch'
 import { driverLabel } from '../composer/agent-mark'
 import { ProviderLogo } from '../composer/provider-logo'
 import { BinaryPathField } from './BinaryPathField'
+import { ProviderAccounts } from './ProviderAccounts'
 import { ProviderSignIn } from './ProviderSignIn'
 import { StatusDot } from './StatusDot'
 import { shortVersion } from './provider-status'
@@ -159,6 +160,9 @@ export function ProviderEditor({
             </Section>
           ) : (
             <>
+              {installed && (
+                <ProviderAccounts kind={kind} name={name} onOpenTerminal={onOpenTerminal} />
+              )}
               <Section title="Version">
                 <Fact label="Installed">
                   {running ? (
@@ -214,7 +218,7 @@ export function ProviderEditor({
               </Section>
 
               {installed && (
-                <Section title="Account">
+                <Section title="Sign-in check">
                   {auth != null ? (
                     <ProviderSignIn
                       kind={kind}
