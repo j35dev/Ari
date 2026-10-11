@@ -119,9 +119,10 @@ interface ActiveTurn {
   /**
    * Starts a fresh assistant message for whatever the adapter emits next. A
    * user message journaled mid-turn calls this so later output folds below it
-   * instead of into the message above.
+   * instead of into the message above. Resolves once the text written before
+   * the split has been journaled.
    */
-  splitMessage: () => void
+  splitMessage: () => Promise<void>
 }
 
 /**
@@ -390,20 +391,24 @@ export class Engine {
       throw e
     }
     // Split and append in the same tick: the store sequences appends in call
-    // order, so no part of the running turn can land between the two.
-    this.#activeTurns.get(sessionId)?.splitMessage()
-    await this.#append(sessionId, {
-      type: 'user.message.added',
-      message: {
-        id: newTypedId('msg'),
-        sessionId,
-        turnId,
-        role: 'user',
-        ...(message.origin ? { origin: message.origin } : {}),
-        parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
-        createdAt: Date.now(),
-      },
-    })
+    // order, so the turn's buffered text lands above the user message and
+    // nothing of the running turn can land between the two.
+    const flushed = this.#activeTurns.get(sessionId)?.splitMessage()
+    await Promise.all([
+      flushed,
+      this.#append(sessionId, {
+        type: 'user.message.added',
+        message: {
+          id: newTypedId('msg'),
+          sessionId,
+          turnId,
+          role: 'user',
+          ...(message.origin ? { origin: message.origin } : {}),
+          parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
+          createdAt: Date.now(),
+        },
+      }),
+    ])
   }
 
   /** Retires guards a snapshot already reflects, returning those still pending. */
@@ -579,7 +584,11 @@ export class Engine {
         }
       },
       splitMessage: () => {
+        // Text still in the buffer was written before the split, so it is
+        // journaled under the message it belongs to before the id rotates.
+        const flushed = flush()
         messageId = newTypedId('msg')
+        return flushed
       },
     })
 
