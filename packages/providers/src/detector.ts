@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { delimiter, join, posix, win32 } from 'node:path'
 import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { err, ok } from '@ari/shared/result'
@@ -160,23 +161,32 @@ function probeVersion(binaryPath: string, timeoutMs = 15000): Promise<string | n
         resolve(value)
       }
     }
-    const child = needsWindowsShell(binaryPath)
-      ? (() => {
-          const wrapped = buildCmdSpawnArgs(binaryPath, ['--version'])
-          const c = spawn(wrapped.file, wrapped.args, {
-            windowsVerbatimArguments: true,
+    let child: ChildProcess
+    try {
+      child = needsWindowsShell(binaryPath)
+        ? (() => {
+            const wrapped = buildCmdSpawnArgs(binaryPath, ['--version'])
+            const c = spawn(wrapped.file, wrapped.args, {
+              windowsVerbatimArguments: true,
+              stdio: ['ignore', 'pipe', 'ignore'],
+              windowsHide: true,
+              timeout: timeoutMs,
+            })
+            c.on('error', () => done(null))
+            return c
+          })()
+        : spawn(binaryPath, ['--version'], {
             stdio: ['ignore', 'pipe', 'ignore'],
             windowsHide: true,
             timeout: timeoutMs,
-          })
-          c.on('error', () => done(null))
-          return c
-        })()
-      : spawn(binaryPath, ['--version'], {
-          stdio: ['ignore', 'pipe', 'ignore'],
-          windowsHide: true,
-          timeout: timeoutMs,
-        }).on('error', () => done(null))
+          }).on('error', () => done(null))
+    } catch (error) {
+      // macOS refuses a file that is not a real executable (ENOEXEC) by
+      // throwing here, where Linux and Windows report it as an `error` event.
+      log.debug('version probe could not start', { binaryPath, error: String(error) })
+      done(null)
+      return
+    }
     child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8')
     })
