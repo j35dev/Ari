@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
+import { delegatedChildren, type SpawnRecord } from './delegation-view'
+import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
+import type { ChildTask } from '@ari/contracts/agent-control'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
@@ -205,6 +208,8 @@ export function SessionView({
   onOpenSession,
   childSessions = [],
   activityOf,
+  sessionTitle,
+  parentSession = null,
 }: {
   sessionId: string
   defaults: SessionDefaults
@@ -212,6 +217,10 @@ export function SessionView({
   onOpenSession?: (id: string) => void
   childSessions?: SessionSummary[]
   activityOf?: (id: string) => SessionActivity | undefined
+  /** Current title of any session, for naming the sender of a relayed message. */
+  sessionTitle?: (id: string) => string | undefined
+  /** The session that delegated to this one, when it is a child. */
+  parentSession?: { id: string; title: string } | null
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
@@ -252,6 +261,16 @@ export function SessionView({
   // Mirrors the engine fold's activeTurnId so locally synthesized assistant
   // messages carry their turn id (drives per-turn diff card placement).
   const activeTurnIdRef = useRef<string | null>(null)
+  // Delegated children: where each was spawned in this transcript, and the
+  // latest snapshot of how each is doing. The ref tracks the newest message
+  // part in journal order so a spawn can be anchored without reading state.
+  const [spawns, setSpawns] = useState<SpawnRecord[]>([])
+  // Null until the first snapshot lands: a card drawn before it would have
+  // to guess, and reads as idle for the moment it takes to arrive.
+  const [tasks, setTasks] = useState<ChildTask[] | null>(null)
+  const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
+  const partCountsRef = useRef(new Map<string, number>())
+  const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
   notifySettledRef.current = notifySettledTurn
@@ -293,8 +312,31 @@ export function SessionView({
     setTurnError(null)
     setTelemetry(EMPTY_TELEMETRY)
     setTurnDiffs({})
+    setSpawns([])
+    setTasks(null)
+    lastPartRef.current = null
+    partCountsRef.current = new Map()
     fetchedTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
+
+    // Task snapshots trail the journal: a burst of child events (replay, or
+    // siblings settling together) coalesces into one fetch.
+    let tasksTimer: ReturnType<typeof setTimeout> | null = null
+    refreshTasksRef.current = () => {
+      if (tasksTimer !== null) return
+      tasksTimer = setTimeout(() => {
+        tasksTimer = null
+        void rpc
+          .invoke('session.tasks', { sessionId })
+          .then((next) => {
+            if (!cancelled) setTasks(next)
+          })
+          // Without a snapshot the cards still show, from live activity alone.
+          .catch(() => {
+            if (!cancelled) setTasks((prev) => prev ?? [])
+          })
+      }, 200)
+    }
 
     appliedSeqsRef.current = new Set()
     replayDoneRef.current = false
@@ -380,25 +422,57 @@ export function SessionView({
 
     return () => {
       cancelled = true
+      if (tasksTimer !== null) clearTimeout(tasksTimer)
+      refreshTasksRef.current = () => {}
       unsubscribe()
     }
   }, [sessionId])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
-      case 'child.session.spawned':
-      case 'child.session.settled':
-      case 'child.session.integrated':
-      case 'child.session.stopped':
+      case 'child.session.spawned': {
+        // The card sits where the spawn happened: after whatever part of the
+        // conversation was last on screen when this event was journaled.
+        const anchor = lastPartRef.current
+        const record: SpawnRecord = {
+          sessionId: event.childSessionId,
+          title: event.title,
+          role: event.role ?? null,
+          driverKind: event.driverKind,
+          modelId: event.modelId,
+          anchor: { messageId: anchor?.messageId ?? null, partIndex: (anchor?.parts ?? 1) - 1 },
+          destroyed: false,
+        }
+        setSpawns((prev) =>
+          prev.some((spawn) => spawn.sessionId === record.sessionId) ? prev : [...prev, record],
+        )
+        refreshTasksRef.current()
+        break
+      }
       case 'child.session.destroyed':
-        // Child lifecycle stays out of the transcript: the composer rail and
-        // sidebar already surface child activity, and orchestration summaries
-        // belong to the agent's own reply.
+        setSpawns((prev) =>
+          prev.map((spawn) =>
+            spawn.sessionId === event.childSessionId ? { ...spawn, destroyed: true } : spawn,
+          ),
+        )
+        break
+      case 'child.session.settled':
+      case 'child.session.stopped':
+        refreshTasksRef.current()
+        break
+      case 'child.session.integrated':
+      case 'child.session.acknowledged':
         break
       case 'user.message.added':
+        lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
         setMessages((prev) => [...prev, event.message])
         break
-      case 'assistant.parts.appended':
+      case 'assistant.parts.appended': {
+        // Counted per message: a steered user message lands in the middle of
+        // a turn, and the assistant message it interrupts keeps growing after.
+        const parts = (partCountsRef.current.get(event.messageId) ?? 0) + event.parts.length
+        partCountsRef.current.set(event.messageId, parts)
+        lastPartRef.current = { messageId: event.messageId, parts }
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === event.messageId)
           if (existing) {
@@ -419,6 +493,7 @@ export function SessionView({
           ]
         })
         break
+      }
       case 'turn.started':
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
@@ -694,6 +769,9 @@ export function SessionView({
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
       if (!m || m.role !== 'user') continue
+      // A turn another session or Ari itself started is not the user's to
+      // resend: it would go back out as if they had typed it.
+      if (m.origin && m.origin.kind !== 'human') return null
       const text = m.parts
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
@@ -835,6 +913,40 @@ export function SessionView({
     [sessionId, onDefaultsChange, defaults],
   )
 
+  const delegations = useMemo(
+    () => (tasks === null ? [] : delegatedChildren(spawns, tasks, activityOf)),
+    [spawns, tasks, activityOf],
+  )
+
+  // A parent that ended its turn to wait has no Stop of its own, yet its
+  // children may run for a long time. The rail offers one for all of them.
+  const delegatedWorkLive = delegations.some(
+    (child) => child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
+  )
+  const stopChildren = useCallback(() => {
+    void rpc
+      .invoke('session.stopChildren', { sessionId })
+      .then(() => refreshTasksRef.current())
+      .catch(() => toast({ tone: 'danger', title: 'Could not stop the child sessions' }))
+  }, [sessionId, toast])
+
+  const turnResume = useTurnResume(sessionId, turnError, defaults.driverKind)
+
+  // What the composer's ArrowUp recalls: prompts typed here, not messages
+  // another session or Ari put into this conversation.
+  const sentPrompts = useMemo(
+    () =>
+      messages
+        .filter((m) => m.role === 'user' && (m.origin === undefined || m.origin.kind === 'human'))
+        .map((m) =>
+          m.parts
+            .filter((part) => part.type === 'text')
+            .map((part) => part.text)
+            .join('\n'),
+        ),
+    [messages],
+  )
+
   const pendingPlan =
     pendingQuestion === null
       ? null
@@ -872,7 +984,11 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <SessionBranchChip sessionId={sessionId} />
+        <SessionBranchChip
+          sessionId={sessionId}
+          parentSession={parentSession}
+          onOpenSession={onOpenSession}
+        />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <TranscriptView
             sessionId={sessionId}
@@ -886,6 +1002,9 @@ export function SessionView({
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
+            delegations={delegations}
+            sessionTitle={sessionTitle}
+            onOpenSession={onOpenSession}
           />
         </div>
         <div
@@ -929,6 +1048,7 @@ export function SessionView({
             retryDisabled={running}
             onRetry={resendLastPrompt}
             onDismiss={() => setTurnError(null)}
+            resume={turnResume}
           />
         ) : null}
         <ElementChips picks={elementPicks} />
@@ -980,6 +1100,7 @@ export function SessionView({
             seed={composerSeed ?? undefined}
             suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
             attentionRequired={composerAttentionRequired}
+            history={sentPrompts}
             above={
               // A plan approval is answered in the side panel, so it mounts no
               // QuestionPanel and must not raise the strip on its own — an
@@ -1023,6 +1144,8 @@ export function SessionView({
                       sessions={childSessions}
                       activityOf={activityOf}
                       onOpen={onOpenSession}
+                      // While this session runs, its own Stop reaches the children.
+                      {...(!running && delegatedWorkLive ? { onStopAll: stopChildren } : {})}
                     />
                   ) : null}
                 </>

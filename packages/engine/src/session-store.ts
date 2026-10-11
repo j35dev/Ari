@@ -87,6 +87,7 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
         ? { driverKind: model.session.driverKind, status: model.session.status }
         : {}),
       modelId: model.session?.modelId ?? null,
+      ...(model.session?.role ? { role: model.session.role } : {}),
       workspaceKind: model.session?.workspace?.kind ?? 'project',
       branch:
         model.session?.workspace?.kind === 'managed-worktree'

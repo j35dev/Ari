@@ -12,8 +12,45 @@ export interface TranscriptImage {
   size: number
 }
 
-/** Rows the virtualizer renders: plain blocks, collapsed tool runs, turn diffs. */
-export type TranscriptRow = TranscriptBlock | ToolGroupRow | TurnDiffRow
+/** Rows the virtualizer renders: plain blocks, collapsed tool runs, turn diffs, delegated work. */
+export type TranscriptRow = GroupedRow | DelegationRow
+
+/** What grouping a message list yields, before delegated work is placed among it. */
+export type GroupedRow = TranscriptBlock | ToolGroupRow | TurnDiffRow
+
+export type DelegatedChildState =
+  | 'working'
+  | 'needs-you'
+  | 'waiting'
+  | 'done'
+  | 'failed'
+  | 'stopped'
+  | 'idle'
+  | 'removed'
+
+/** One child session a turn delegated to, as its task card shows it. */
+export interface DelegatedChild {
+  sessionId: string
+  title: string
+  role: string | null
+  driverKind: string
+  modelId: string | null
+  state: DelegatedChildState
+  /** Epoch ms the running turn started; null unless working. */
+  startedAt: number | null
+  /** The child's final message, once it has one. */
+  report: string | null
+  /** Where in the transcript the spawn happened. */
+  anchor: { messageId: string | null; partIndex: number }
+}
+
+/** The children spawned at one point in a turn, shown as one group of task cards. */
+export interface DelegationRow {
+  kind: 'delegation'
+  /** Stable key derived from the group's first child. */
+  key: string
+  children: DelegatedChild[]
+}
 
 /**
  * One virtualizable transcript row, derived 1:1 from a `MessagePart`. The key
@@ -42,6 +79,8 @@ export interface TranscriptBlock {
   isLastOfMessage?: boolean
   /** Owning turn id — lets diff cards attach after a turn's final row. */
   turnId?: string | null
+  /** Who sent a user message when it was not typed here: another session, or Ari. */
+  origin?: Message['origin']
 }
 
 /**

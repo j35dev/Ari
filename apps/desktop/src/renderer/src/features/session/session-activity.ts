@@ -102,6 +102,23 @@ export function reduceSessionActivity(
   }
 }
 
+/**
+ * What a parent's row shows once its delegated work is taken into account. A
+ * child waiting on the user holds the whole tree up, so that wins. Otherwise
+ * the parent's own live turn shows, and a parent that ended its turn while
+ * children still run reads as working, not done: it will be woken with their
+ * results.
+ */
+export function treeActivity(
+  own: SessionActivity | undefined,
+  descendants: Array<SessionActivity | undefined>,
+): SessionActivity | undefined {
+  const blocked = descendants.find((activity) => activity?.phase === 'paused')
+  if (blocked) return blocked
+  if (own?.phase === 'working' || own?.phase === 'paused') return own
+  return descendants.find((activity) => activity?.phase === 'working') ?? own
+}
+
 /** Highest-priority phase among a project's sessions (working > paused > error > done). */
 export function peakActivity(
   activities: Array<SessionActivity | undefined>,

@@ -8,6 +8,39 @@ afterEach(cleanup)
 const AUTH_ERROR =
   'AuthError: claude is not authenticated yet — run its login flow once in a terminal, then retry'
 
+describe('TurnErrorBanner resume', () => {
+  const banner = (resume: Parameters<typeof TurnErrorBanner>[0]['resume']) => (
+    <TurnErrorBanner
+      message="usage limit reached"
+      canRetry
+      retryDisabled={false}
+      onRetry={() => {}}
+      onDismiss={() => {}}
+      resume={resume}
+    />
+  )
+  const controls = { format: () => '3:42 PM', onSchedule: vi.fn(), onCancel: vi.fn() }
+
+  it('offers to resume at the reset time, then shows the schedule with a way out', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(banner({ ...controls, resetAt: 5, scheduledAt: null }))
+    await user.click(screen.getByRole('button', { name: 'Resume at 3:42 PM' }))
+    expect(controls.onSchedule).toHaveBeenCalledOnce()
+
+    rerender(banner({ ...controls, resetAt: 5, scheduledAt: 5 }))
+    expect(screen.getByText('Ari will continue this session at 3:42 PM.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Resume at/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(controls.onCancel).toHaveBeenCalledOnce()
+  })
+
+  it('offers nothing when the provider does not say when the limit resets', () => {
+    render(banner({ ...controls, resetAt: null, scheduledAt: null }))
+    expect(screen.queryByRole('button', { name: /Resume at/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry last message' })).toBeInTheDocument()
+  })
+})
+
 describe('TurnErrorBanner', () => {
   it('shows the classified headline, friendly message, and hint', () => {
     render(

@@ -1,11 +1,20 @@
 import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, shell, safeStorage, type WebContents } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Notification,
+  shell,
+  safeStorage,
+  type WebContents,
+} from 'electron'
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
-import type { RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
+import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdateFrame } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
@@ -33,6 +42,9 @@ import {
 import { writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
+import { SessionNotifier } from './session-notifier'
+import { ResumeSchedule } from './resume-schedule'
+import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
 import { resetCreditService } from './reset-credits'
@@ -695,12 +707,42 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // renderer subscribes to; no extra engine coupling. Imports use the same
   // publisher after their journals are complete, so session lists refresh.
   const runningTurns = new RunningTurnCounter()
+  // One live OS notification per session: a newer one replaces it rather than
+  // stacking, and holding the reference keeps its click handler alive.
+  const liveNotifications = new Map<string, Notification>()
+  const notifier = new SessionNotifier({
+    store: getSessionStore(),
+    enabled: () => getSettingsStore().current.notifications.desktop && Notification.isSupported(),
+    // On macOS the app outlives its window; a destroyed webContents throws on
+    // use, and with nothing on screen nobody is looking.
+    focused: () =>
+      !contents.isDestroyed() && (BrowserWindow.fromWebContents(contents)?.isFocused() ?? false),
+    show: (sessionId, notice) => {
+      liveNotifications.get(sessionId)?.close()
+      const notification = new Notification({ ...notice, silent: true })
+      notification.on('click', () => {
+        const window = contents.isDestroyed() ? null : BrowserWindow.fromWebContents(contents)
+        if (window) {
+          if (window.isMinimized()) window.restore()
+          window.show()
+          window.focus()
+        }
+        rpcRegistry.publish('app.navigate', { sessionId } satisfies NavigateFrame)
+      })
+      notification.on('close', () => {
+        if (liveNotifications.get(sessionId) === notification) liveNotifications.delete(sessionId)
+      })
+      liveNotifications.set(sessionId, notification)
+      notification.show()
+    },
+  })
   const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
     const payload: SessionEventFrame = { sessionId, event }
     rpcRegistry.publish('session.events', payload)
     if (options.onRunningCount && runningTurns.push(event)) {
       options.onRunningCount(runningTurns.count)
     }
+    void notifier.observe(sessionId, event)
   }
   // Composer image staging: pasted/dropped bytes land here keyed by id; only
   // refs cross IPC and journals, so history replay never replays megabytes.
@@ -728,6 +770,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     runtimeEnvironment: async (session) => (await controlReady).environment(session),
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    autoApprove: (request) => {
+      const { enabled, autoApproveCli } = getSettingsStore().current.delegation
+      return enabled && autoApproveCli ? controlCliApproval(request) : null
+    },
   })
   const controlReady = Promise.all([resolveDetectionEnvironment(), getSettingsStore().load()]).then(
     async ([environment]) => {
@@ -768,7 +814,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   )
   void controlReady.catch(() => log.error('Agent control runtime failed to start'))
+  // Sessions the user asked to continue once a usage window reopens.
+  const resumeSchedule = new ResumeSchedule({
+    path: join(app.getPath('userData'), 'resume-schedule.json'),
+    store: getSessionStore(),
+    dispatch: (command) => engine.dispatch(command),
+  })
+  const resumeReady = resumeSchedule.load().then(() => resumeSchedule.start())
   app.once('before-quit', () => {
+    resumeSchedule.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
 
@@ -1014,6 +1068,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         terminalFactory: ptyFactory,
         fork: async (deviceId, command) =>
           forkRemoteSession((await controlReady).service, deviceId, command),
+        tasks: async (sessionId) => (await controlReady).service.tasks(sessionId),
         // No address is reachable from a phone until Serve (or a tunnel) is in
         // front of the loopback listener; until then the panel says so rather
         // than showing a QR code that would resolve to the phone itself.
@@ -1163,6 +1218,27 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.workspace', async ({ sessionId }) => {
     const { session } = await getSessionStore().load(sessionId)
     return { path: session ? await engine.workspace(session) : null }
+  })
+
+  r.register('session.tasks', async ({ sessionId }) =>
+    (await controlReady).service.tasks(sessionId),
+  )
+
+  r.register('session.stopChildren', async ({ sessionId }) => ({
+    stopped: await (await controlReady).service.stopDescendants(sessionId),
+  }))
+
+  r.register('session.resume.schedule', async ({ sessionId, at }) => {
+    await resumeReady
+    return { at: (await resumeSchedule.schedule(sessionId, at)).at }
+  })
+  r.register('session.resume.cancel', async ({ sessionId }) => {
+    await resumeReady
+    return { cancelled: await resumeSchedule.cancel(sessionId) }
+  })
+  r.register('session.resume.get', async ({ sessionId }) => {
+    await resumeReady
+    return { at: resumeSchedule.get(sessionId) }
   })
 
   r.register('session.destroy', async (params) => {

@@ -28,6 +28,14 @@ export interface AdapterSession {
   /** Provider-native session id to resume, when continuing a thread. */
   resumeOf: string | null
   /**
+   * What the host application wants the agent to know about its environment.
+   * Only passed to drivers that declare {@link Driver.systemInstructions}:
+   * they deliver it through the provider's system channel, where it reads as
+   * configuration rather than as text of unknown origin inside the user's
+   * message. One line, no line breaks.
+   */
+  instructions?: string | null
+  /**
    * Staged images for this turn. Transports with an image channel send the
    * bytes; one-shot CLIs reference the staged files in text instead. Absent
    * (or empty) when the turn carries none.
@@ -76,6 +84,8 @@ export type AdapterApprovalDecision = 'allow' | 'deny' | 'always-allow' | { opti
 
 export interface Driver {
   kind: DriverKind
+  /** True when {@link AdapterSession.instructions} reaches the provider's system prompt. */
+  systemInstructions?: boolean
   create(session: AdapterSession): Promise<ProviderAdapter>
 }
 

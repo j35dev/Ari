@@ -14,7 +14,16 @@ const failure = (code, message) => ({ ok: false, error: { code, message } })
 function parse(argv) {
   const positional = []
   const flags = {}
-  const boolean = new Set(['json', 'wait', 'patch', 'stat', 'recursive', 'allow-stale'])
+  const boolean = new Set([
+    'json',
+    'wait',
+    'patch',
+    'stat',
+    'recursive',
+    'allow-stale',
+    'any',
+    'tools',
+  ])
   for (let i = 0; i < argv.length; i++) {
     const item = argv[i]
     if (!item.startsWith('--')) {
@@ -33,6 +42,7 @@ function parse(argv) {
   const allowed = new Set([
     ...boolean,
     'title',
+    'role',
     'agent',
     'model',
     'effort',
@@ -76,6 +86,7 @@ function parse(argv) {
         params = { targetSessionId: target || 'self' }
         break
       case 'children':
+      case 'status':
         params = { targetSessionId: target || 'self', recursive: Boolean(flags.recursive) }
         break
       case 'spawn':
@@ -83,6 +94,7 @@ function parse(argv) {
           title: flags.title,
           driverKind: flags.agent,
           idempotencyKey: key,
+          ...(flags.role ? { role: flags.role } : {}),
           ...(flags.model ? { modelId: flags.model } : {}),
           ...(flags.effort ? { effort: flags.effort } : {}),
           ...(flags.permission ? { permissionMode: flags.permission } : {}),
@@ -100,12 +112,14 @@ function parse(argv) {
           ...(flags.tail ? { tailMessages: Number(flags.tail) } : {}),
           ...(flags.turns ? { tailTurns: Number(flags.turns) } : {}),
           ...(flags['max-chars'] ? { maxChars: Number(flags['max-chars']) } : {}),
+          ...(flags.tools ? { includeToolSummaries: true } : {}),
         }
         break
       case 'wait':
         params = {
           targetSessionIds: flags.children ? flags.children.split(',') : [target],
           timeoutMs,
+          ...(flags.any ? { mode: 'any' } : {}),
         }
         break
       case 'stop':

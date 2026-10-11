@@ -11,6 +11,7 @@ import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { useAppUpdateToast } from './features/updates'
 import type {
   BrowserTabState,
+  NavigateFrame,
   RpcResults,
   SessionEventFrame,
   SessionSummary,
@@ -29,7 +30,7 @@ import {
   shellRootFor,
   sidebarOrder,
 } from './features/session/session-nav'
-import { descendantIds } from './features/session/session-tree'
+import { descendantIds, parentOf } from './features/session/session-tree'
 import { BrowserPanel } from './features/browser/BrowserPanel'
 import { TerminalDock, TerminalPane } from './features/terminal'
 import {
@@ -141,6 +142,10 @@ function Shell() {
   const activeSessionId = activeSessionOf(layout)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
+  const sessionTitle = useCallback(
+    (id: string) => sessions.find((session) => session.id === id)?.title,
+    [sessions],
+  )
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -267,6 +272,18 @@ function Shell() {
       setFullPage(null)
     },
     [layout, clearTransientInspector, leaveWorkspaceTool],
+  )
+
+  // Clicking an OS notification asks to see the session it was about.
+  const selectSessionRef = useRef(selectSession)
+  selectSessionRef.current = selectSession
+  useEffect(
+    () =>
+      rpc.subscribe('app.navigate', {}, (payload) => {
+        const sessionId = (payload as Partial<NavigateFrame> | null)?.sessionId
+        if (typeof sessionId === 'string') selectSessionRef.current(sessionId)
+      }),
+    [],
   )
 
   const { toast } = useToast()
@@ -1191,6 +1208,8 @@ function Shell() {
                                 (session) =>
                                   session.parentSessionId === sessionId && !session.archived,
                               )}
+                              sessionTitle={sessionTitle}
+                              parentSession={parentOf(sessions, sessionId)}
                             />
                           )}
                         />

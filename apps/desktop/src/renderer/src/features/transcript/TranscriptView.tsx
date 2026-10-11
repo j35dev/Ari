@@ -21,8 +21,11 @@ import { ErrorNote } from './ErrorNote'
 import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
+import { DelegationCard } from './DelegationCard'
+import { DelegationNotice } from './DelegationNotice'
+import { insertDelegationRows } from './delegation-rows'
 import { attachmentDataUrl } from './attachment-urls'
-import type { TranscriptImage, TranscriptRow } from './types'
+import type { DelegatedChild, TranscriptImage, TranscriptRow } from './types'
 import type { Message } from '@ari/contracts/message'
 
 /** Rough characters per rendered line at the transcript's 48rem measure. */
@@ -37,6 +40,7 @@ const LINE_HEIGHT_PX = 22
 function estimateRowSize(row: TranscriptRow): number {
   if (row.kind === 'tool-group') return 30
   if (row.kind === 'turn-diff') return 40
+  if (row.kind === 'delegation') return 30 * row.children.length
   if (row.kind === 'tool-call' || row.kind === 'tool-result') return 48
   if (row.kind === 'image') return 96
   const text = row.text ?? ''
@@ -84,10 +88,18 @@ export function TranscriptView({
   onDiffComment,
   working,
   activity,
+  delegations,
+  sessionTitle,
+  onOpenSession,
 }: {
   sessionId: string
   messages: Message[]
   activity?: React.ReactNode
+  /** Children this session delegated to; each renders as a task card where it was spawned. */
+  delegations?: readonly DelegatedChild[]
+  /** Current title of another session, for attributing messages it sent. */
+  sessionTitle?: (id: string) => string | undefined
+  onOpenSession?: (id: string) => void
   loading?: boolean
   /** Settled turns' unified diffs (turnId → diffText); cards render inline. */
   turnDiffs?: Readonly<Record<string, string>>
@@ -112,15 +124,14 @@ export function TranscriptView({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
-  const origins = useMemo(
-    () => new Map(messages.map((message) => [message.id, message.origin])),
-    [messages],
-  )
   const lastScrollTopRef = useRef<number | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const atBottomRef = useRef(true)
 
-  const rows = useMemo(() => groupBlocks(splitBlocks(messages), turnDiffs), [messages, turnDiffs])
+  const rows = useMemo(
+    () => insertDelegationRows(groupBlocks(splitBlocks(messages), turnDiffs), delegations ?? []),
+    [messages, turnDiffs, delegations],
+  )
   const seenRowsRef = useRef(new Set<string>())
   const freshRowsRef = useRef(new Set<string>())
   const historyLoadedRef = useRef(false)
@@ -135,7 +146,11 @@ export function TranscriptView({
       rows
         .map((row, index) => ({ row, index }))
         .filter(
-          ({ row }) => (row.kind === 'markdown' || row.kind === 'image') && row.role === 'user',
+          ({ row }) =>
+            (row.kind === 'markdown' || row.kind === 'image') &&
+            row.role === 'user' &&
+            // A delegation update is Ari reporting back, not a prompt to jump to.
+            row.origin?.kind !== 'completion',
         )
         .map(({ row, index }) => ({ key: String(index), text: railText(row) })),
     [rows],
@@ -305,10 +320,9 @@ export function TranscriptView({
             >
               <TranscriptRowView
                 row={row}
-                origin={
-                  'messageId' in row && row.messageId ? origins.get(row.messageId) : undefined
-                }
                 index={index}
+                sessionTitle={sessionTitle}
+                onOpenSession={onOpenSession}
                 lastAssistantMessageId={lastAssistantMessageId}
                 onEditUserMessage={onEditUserMessage}
                 onRegenerate={onRegenerate}
@@ -366,7 +380,6 @@ export function TranscriptView({
 
 function TranscriptRowView({
   row,
-  origin,
   index,
   lastAssistantMessageId,
   onEditUserMessage,
@@ -374,9 +387,12 @@ function TranscriptRowView({
   regenerateDisabled,
   active,
   onDiffComment,
+  sessionTitle,
+  onOpenSession,
 }: {
   row: TranscriptRow
-  origin?: Message['origin']
+  sessionTitle?: (id: string) => string | undefined
+  onOpenSession?: (id: string) => void
   index: number
   lastAssistantMessageId: string | null
   onEditUserMessage?: (text: string) => void
@@ -398,19 +414,30 @@ function TranscriptRowView({
         <ActivityBurst row={row} active={active} />
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
+      ) : row.kind === 'delegation' ? (
+        <DelegationCard row={row} onOpenSession={onOpenSession} />
       ) : row.kind === 'image' ? (
         <ImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (
-        row.role === 'user' ? (
+        row.role === 'user' && row.origin?.kind === 'completion' ? (
+          <DelegationNotice
+            text={row.text ?? ''}
+            sessionIds={row.origin.sessionIds}
+            sessionTitle={sessionTitle}
+            onOpenSession={onOpenSession}
+          />
+        ) : row.role === 'user' ? (
           <div>
-            {origin?.kind === 'session' ? (
-              <p className="text-right font-mono text-2xs text-fg-subtle">
-                From session {origin.sessionId}
-              </p>
+            {row.origin?.kind === 'session' ? (
+              <SenderLabel
+                sessionId={row.origin.sessionId}
+                title={sessionTitle?.(row.origin.sessionId)}
+                onOpenSession={onOpenSession}
+              />
             ) : null}
             <UserBubble
               text={row.text ?? ''}
-              onEdit={origin?.kind === 'session' ? undefined : onEditUserMessage}
+              onEdit={row.origin?.kind === 'session' ? undefined : onEditUserMessage}
             />
           </div>
         ) : (
@@ -562,6 +589,34 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
         </Dialog.Content>
       </Dialog>
     </>
+  )
+}
+
+/** Names the session a message came from, so it is not read as something typed here. */
+function SenderLabel({
+  sessionId,
+  title,
+  onOpenSession,
+}: {
+  sessionId: string
+  title: string | undefined
+  onOpenSession?: (id: string) => void
+}) {
+  const className = 'font-mono text-2xs text-fg-subtle'
+  return (
+    <p className="mt-2 text-right">
+      {title !== undefined && onOpenSession ? (
+        <button
+          type="button"
+          onClick={() => onOpenSession(sessionId)}
+          className={`${className} rounded-sm transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring`}
+        >
+          From session {title}
+        </button>
+      ) : (
+        <span className={className}>From {title ? `session ${title}` : 'another session'}</span>
+      )}
+    </p>
   )
 }
 

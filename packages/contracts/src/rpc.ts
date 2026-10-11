@@ -10,6 +10,7 @@ import type { Project } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
+import type { ChildTask } from './agent-control'
 
 /**
  * The RPC surface between renderer and engine. Method names are an allowlist;
@@ -265,8 +266,14 @@ export const streamNames = [
   'app.updates',
   'browser.updated',
   'remote.updates',
+  'app.navigate',
 ] as const
 export type StreamName = (typeof streamNames)[number]
+
+/** Payload delivered on the app.navigate stream: the main process asking to show a session. */
+export interface NavigateFrame {
+  sessionId: string
+}
 
 /** Payload delivered on the session.events stream. */
 export interface SessionEventFrame {
@@ -476,6 +483,17 @@ export const rpcParams = {
   'session.create': sessionCreateParamsSchema,
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
+  /** The children this session delegated to, with their state and last report. */
+  'session.tasks': z.object({ sessionId: z.string().min(1) }),
+  /** Stop every running session below this one; the session itself is left alone. */
+  'session.stopChildren': z.object({ sessionId: z.string().min(1) }),
+  /** Continue a session whose last turn failed, once `at` (epoch ms) arrives. */
+  'session.resume.schedule': z.object({
+    sessionId: z.string().min(1),
+    at: z.number().int().positive(),
+  }),
+  'session.resume.cancel': z.object({ sessionId: z.string().min(1) }),
+  'session.resume.get': z.object({ sessionId: z.string().min(1) }),
   'session.destroy': z.object({ sessionId: z.string().min(1) }),
   /** Sessions another agent already has on disk; `projectId` scopes to one registered project. */
   'sessions.importable': z.object({ projectId: z.string().min(1).optional() }),
@@ -778,6 +796,12 @@ export interface RpcResults {
   'session.create': { sessionId: string }
   'session.load': unknown
   'session.workspace': { path: string | null }
+  'session.tasks': ChildTask[]
+  'session.stopChildren': { stopped: number }
+  'session.resume.schedule': { at: number }
+  'session.resume.cancel': { cancelled: boolean }
+  /** `at` is null when nothing is scheduled for the session. */
+  'session.resume.get': { at: number | null }
   'session.destroy': { destroyed: boolean }
   /**
    * Sessions another agent has on disk and Ari could replay. `imported` is

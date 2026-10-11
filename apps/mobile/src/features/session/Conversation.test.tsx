@@ -139,3 +139,54 @@ it('offers to copy a reply that has words, and not one that is only steps', () =
   ])
   expect(screen.getAllByRole('button', { name: 'Copy reply' })).toHaveLength(1)
 })
+
+it('names the session a relayed message came from, and opens it', () => {
+  const onOpenSession = vi.fn()
+  const relayed: Message = {
+    ...message('user', [text('Use SettingsStore.')]),
+    origin: { kind: 'session', sessionId: 'p' },
+  }
+  const { unmount } = render(
+    <Conversation
+      messages={[relayed]}
+      sessionId="session-1"
+      titleOf={(id) => (id === 'p' ? 'Ship settings' : undefined)}
+      onOpenSession={onOpenSession}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'From Ship settings' }))
+  expect(onOpenSession).toHaveBeenCalledWith('p')
+  unmount()
+
+  // Without a title to give, it still says the message was not typed here.
+  show([relayed])
+  expect(screen.getByText('From a linked session')).toBeTruthy()
+})
+
+it('shows a delegation update as one line that opens to the delivered text', () => {
+  const onOpenSession = vi.fn()
+  const update: Message = {
+    ...message('user', [
+      text(
+        '[Ari delegation update: added automatically by Ari, not written by the user.]\n\nChild session "Parser" (c) finished its turn.\nReport:\nFixed the parser.',
+      ),
+    ]),
+    origin: { kind: 'completion', sessionIds: ['c'] },
+  }
+  const { container } = render(
+    <Conversation
+      messages={[update]}
+      sessionId="session-1"
+      titleOf={(id) => (id === 'c' ? 'Parser' : undefined)}
+      onOpenSession={onOpenSession}
+    />,
+  )
+  // Not a bubble, and nothing of the long text until it is asked for.
+  expect(container.querySelector('.message-bubble')).toBeNull()
+  expect(screen.queryByText(/Fixed the parser/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Delegation update: Parser reported back' }))
+  expect(screen.getByText(/Fixed the parser/)).toBeTruthy()
+  expect(screen.queryByText(/not written by the user/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Open Parser' }))
+  expect(onOpenSession).toHaveBeenCalledWith('c')
+})

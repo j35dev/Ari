@@ -30,7 +30,11 @@ import { transitions } from '@ari/ui/motion'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { SessionActivityMark } from '../features/moment'
-import { peakActivity, type SessionActivity } from '../features/session/session-activity'
+import {
+  peakActivity,
+  treeActivity,
+  type SessionActivity,
+} from '../features/session/session-activity'
 import { setDragSession } from '../features/split/drag-split'
 import type { PaneEdge } from '../features/split/split-layout'
 import { ContextMark } from './ContextMark'
@@ -552,7 +556,14 @@ function SessionList({
                     nested={lastAtDepth.length > 0}
                     projectName={projectNameOf?.(s.projectId) ?? null}
                     isActive={s.id === handlers.activeSessionId}
-                    activity={handlers.activityOf?.(s.id)}
+                    activity={
+                      childCount > 0
+                        ? treeActivity(
+                            handlers.activityOf?.(s.id),
+                            descendantIds(sessions, s.id).map((id) => handlers.activityOf?.(id)),
+                          )
+                        : handlers.activityOf?.(s.id)
+                    }
                     onSelect={handlers.onSelect}
                     onRename={handlers.onRename}
                     onDelete={handlers.onDelete}
