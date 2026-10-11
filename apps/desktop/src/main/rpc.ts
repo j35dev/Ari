@@ -107,7 +107,9 @@ import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver, modelsFromConfigOptions } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
+import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
+import { providerEnvironment, setProviderEnvironment } from './provider-env'
 import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
@@ -169,7 +171,7 @@ async function probeAcpModels(
   // Detection searches the enriched PATH, so the probe processes must run with
   // it too: a shim found there is only runnable if the child can also resolve
   // the runtime it shells out to (GUI launches inherit a thin process PATH).
-  const probeEnv = processEnvWithPath(environment.pathEnv)
+  const probeEnv = { ...processEnvWithPath(environment.pathEnv), ...providerEnvironment(kind) }
 
   if (kind === 'codex') {
     try {
@@ -252,7 +254,7 @@ async function probeEffortsForModel(
   const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath }, environment)
   if (launch === null) return []
   const { AcpConnection } = await import('@ari/providers/acp/connection')
-  const probeEnv = processEnvWithPath(environment.pathEnv)
+  const probeEnv = { ...processEnvWithPath(environment.pathEnv), ...providerEnvironment(kind) }
   const probe = probeLaunch(launch)
   const connection = await AcpConnection.connect({
     launch: probe,
@@ -319,7 +321,15 @@ function settingsReady(): Promise<unknown> {
 /** One provider's detection with the user's connection settings applied. */
 async function detectConfigured(kind: DriverKind, env: DetectEnvironment): Promise<Detection> {
   await settingsReady()
-  return detectConnection(kind, env, getSettingsStore().current.providers)
+  // The account's variables go in with the rest, so the sign-in looked for is
+  // the one of the account in use.
+  const account = providerEnvironment(kind)
+  const separateAccount = Object.keys(account).length > 0
+  return detectConnection(
+    kind,
+    { ...env, vars: { ...env.vars, ...account }, separateAccount },
+    getSettingsStore().current.providers,
+  )
 }
 
 /** Short cache so mount-time detect calls from several views share one probe round. */
@@ -345,6 +355,7 @@ const authProbeDeps: AuthProbeDeps = {
       launch: probeLaunch(launch),
       cwd: homedir(),
       initializeTimeoutMs: 20_000,
+      runtimeEnv: providerEnvironment(kind),
     })
   },
   cwd: () => homedir(),
@@ -533,6 +544,52 @@ async function detectionsForClient(): Promise<RpcResults['providers.detect']> {
  */
 let rpcRegistryRef: RpcRegistry | null = null
 let driverRegistryRef: DriverRegistry | null = null
+/** Process-wide like the detection cache: its samples are per provider, not per window. */
+let allowanceReaderRef: ProviderAllowanceReader | null = null
+let accountsRef: ProviderAccounts | null = null
+let engineRef: Engine | null = null
+let catalogServiceRef: CatalogService | null = null
+
+/**
+ * The accounts each provider can run as, built once per process. Switching the
+ * one in use changes who every later process for that provider runs as, so
+ * what was remembered about the previous account (its usage, a refused
+ * sign-in, whether it is signed in at all) is dropped and looked up again.
+ */
+function providerAccounts(userData: string): ProviderAccounts {
+  accountsRef ??= new ProviderAccounts({
+    root: join(userData, 'provider-accounts'),
+    settings: () => getSettingsStore().current,
+    update: (patch) => getSettingsStore().update(patch),
+    detectEnvironment: () => resolveDetectionEnvironment(),
+    binaryPath: async (kind) =>
+      (await rawDetections()).find((row) => row.kind === kind)?.binaryPath ?? null,
+    busy: async (kind) => {
+      const engine = engineRef
+      if (engine === null) return false
+      const sessions = await getSessionStore().listSessions()
+      return sessions.some((session) => session.driverKind === kind && engine.hasLiveTurn(session.id))
+    },
+    changed: (kind, what) => {
+      if (what === 'active') {
+        providerAuth.clear(kind)
+        allowanceReaderRef?.forget(kind)
+        // Another account can be on another plan, with other models.
+        void redetect([kind])
+          .then(() => catalogServiceRef?.refresh())
+          .catch((error: unknown) =>
+            log.warn('redetect after an account switch failed', { error: String(error) }),
+          )
+      }
+      rpcRegistryRef?.publish('providers.updates', {
+        type: 'accounts',
+        kind,
+        active: what === 'active',
+      } satisfies ProvidersUpdateFrame)
+    },
+  })
+  return accountsRef
+}
 /**
  * Built once per process: a second window must not arm a second check timer,
  * so the controller rebinds to whichever registry is current when it speaks.
@@ -611,7 +668,7 @@ function publishAuthWall(
     type: 'auth.required',
     kind,
     label: wall.label,
-    logins: toLoginMethods(wall.logins),
+    logins: toLoginMethods(wall.logins, kind),
   } satisfies ProvidersUpdateFrame)
 }
 
@@ -751,6 +808,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // The registry exists immediately with Ari Core attached; CLI drivers are
   // added as background detection completes. Nothing waits on that to answer.
+  const accounts = providerAccounts(app.getPath('userData'))
+  setProviderEnvironment((kind) => accounts.env(kind))
   const driverRegistry = new DriverRegistry()
   const coreDir = join(app.getPath('userData'), 'ari-core')
   const mcpStore = new McpServerStore({ dir: coreDir })
@@ -797,6 +856,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         at,
       } satisfies ProvidersUpdateFrame),
   })
+  catalogServiceRef = catalogService
   catalogService.start()
 
   // The running-turn counter feeds the tray from the same event flow the
@@ -871,7 +931,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       if (attachment === undefined) throw new Error('provider image was not staged')
       return attachment
     },
-    runtimeEnvironment: async (session) => (await controlReady).environment(session),
+    runtimeEnvironment: async (session) => ({
+      ...(await controlReady).environment(session),
+      ...providerEnvironment(session.driverKind),
+    }),
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     deliversResults: () => {
@@ -891,6 +954,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return unavailableReason(kind, rows.find((row) => row.kind === kind) as Detection | undefined)
     },
   })
+  engineRef = engine
   const controlReady = Promise.all([resolveDetectionEnvironment(), getSettingsStore().load()]).then(
     async ([environment]) => {
       runtime = await startAgentRuntime({
@@ -1113,7 +1177,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Settings are the single writer's file; load once at boot so window
   // bounds and renderer reads share the same in-memory state.
-  void settingsReady()
+  void settingsReady().then(() => accounts.startUp())
 
   r.register('settings.get', async () => {
     const store = getSettingsStore()
@@ -1159,9 +1223,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   }
 
   // One reader for the usage pill and paired phones, so the two share a probe.
-  const allowanceReader = new ProviderAllowanceReader((kind, binaryPath) =>
+  const allowanceReader = (allowanceReaderRef ??= new ProviderAllowanceReader((kind, binaryPath) =>
     fetchAllowanceReading(kind, binaryPath, undefined),
-  )
+  ))
   const readAllowance = async (kind: DriverKind): Promise<RpcResults['providers.allowance']> => {
     const detections = await probeAllDetections()
     return allowanceReader.read(
@@ -1536,6 +1600,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('providers.detect', () => detectionsForClient())
   r.register('providers.rescan', () => redetect())
+
+  r.register('providers.accounts', ({ kind, fresh, brief }) =>
+    accounts.list(kind, fresh === true, brief === true),
+  )
+  r.register('providers.accounts.add', ({ kind, label }) => accounts.add(kind, label))
+  r.register('providers.accounts.activate', ({ kind, id }) => accounts.activate(kind, id))
+  r.register('providers.accounts.signIn', ({ kind, id }) => accounts.signIn(kind, id))
+  r.register('providers.accounts.signOut', ({ kind, id }) => accounts.signOut(kind, id))
+  r.register('providers.accounts.remove', ({ kind, id }) => accounts.remove(kind, id))
 
   r.register('providers.plan', async (params) => {
     const detections = await probeAllDetections()
