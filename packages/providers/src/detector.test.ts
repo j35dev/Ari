@@ -154,6 +154,60 @@ describe('findBinary', () => {
   })
 })
 
+describe('readAuthStatus for an account in a home of its own', () => {
+  it('judges Claude by that home’s sign-in, not the default one’s', async () => {
+    const home = join(dir, 'user')
+    const account = join(dir, 'accounts', 'work')
+    await mkdir(join(home, '.claude'), { recursive: true })
+    await mkdir(account, { recursive: true })
+    await writeFileSafe(join(home, '.claude', '.credentials.json'), '{}')
+    // Claude writes this on first run, signed in or not.
+    await writeFileSafe(join(account, '.claude.json'), '{}')
+    const env = (extra: Record<string, string> = {}, platform: NodeJS.Platform = 'linux') => ({
+      ...makeEnv(),
+      platform,
+      homeDir: home,
+      separateAccount: true,
+      vars: { CLAUDE_CONFIG_DIR: account, ...extra },
+    })
+
+    expect(readAuthStatus('claude', env())).toEqual({
+      status: 'unauthenticated',
+      reason: 'This account is not signed in.',
+    })
+    // The Keychain and a key in the environment are sign-ins no file shows.
+    expect(readAuthStatus('claude', env({}, 'darwin')).status).toBe('unknown')
+    expect(readAuthStatus('claude', env({ ANTHROPIC_API_KEY: 'k' })).status).toBe('unknown')
+
+    // A home the user moved themselves may be authorised in ways no file shows.
+    expect(readAuthStatus('claude', { ...env(), separateAccount: false }).status).toBe('unknown')
+
+    await writeFileSafe(join(account, '.credentials.json'), '{}')
+    expect(readAuthStatus('claude', env()).status).toBe('authenticated')
+  })
+
+  it('judges Codex by that home’s auth.json even though it shares config.toml', async () => {
+    const home = join(dir, 'user')
+    const account = join(dir, 'accounts', 'codex-work')
+    await mkdir(join(home, '.codex'), { recursive: true })
+    await mkdir(account, { recursive: true })
+    await writeFileSafe(join(home, '.codex', 'auth.json'), '{}')
+    await writeFileSafe(join(account, 'config.toml'), '')
+    const env = {
+      ...makeEnv(),
+      homeDir: home,
+      separateAccount: true,
+      vars: { CODEX_HOME: account },
+    }
+
+    expect(readAuthStatus('codex', env).status).toBe('unauthenticated')
+    // In a home the user moved themselves, config.toml can be the whole sign-in.
+    expect(readAuthStatus('codex', { ...env, separateAccount: false }).status).toBe('authenticated')
+    await writeFileSafe(join(account, 'auth.json'), '{}')
+    expect(readAuthStatus('codex', env).status).toBe('authenticated')
+  })
+})
+
 describe('readAuthStatus', () => {
   it('detects codex auth.json presence', async () => {
     const home = join(dir, 'home2')
