@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { defaultSettings, settingsSchema } from '@ari/contracts/settings'
-import type { CliKind, Settings, SettingsUpdate } from '@ari/contracts/settings'
+import { activeAccountId, defaultSettings, settingsSchema } from '@ari/contracts/settings'
+import type { CliKind, ProviderConnection, Settings } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('engine:settings')
@@ -9,25 +9,28 @@ const log = createLogger('engine:settings')
 /** One level deeper than the other sections: a patch names a provider, then its fields. */
 function mergeConnections(
   current: Settings['providers'],
-  patch: SettingsUpdate['providers'],
+  patch: SettingsPatch['providers'],
 ): Settings['providers'] {
   const next = { ...current }
   for (const kind of Object.keys(patch ?? {}) as CliKind[]) {
     const fields = patch?.[kind]
     if (fields === undefined) continue
-    next[kind] = {
-      enabled: fields.enabled ?? current[kind].enabled,
-      binaryPath: fields.binaryPath ?? current[kind].binaryPath,
-    }
+    const merged = { ...current[kind], ...fields }
+    // An account that was removed cannot stay the one in use.
+    next[kind] = { ...merged, activeAccount: activeAccountId(merged) }
   }
   return next
 }
 
-interface SettingsPatch {
+/**
+ * What `update` accepts. Wider than the `settings.update` RPC for providers:
+ * the main process may change a provider's accounts, which a renderer may not.
+ */
+export interface SettingsPatch {
   delegation?: Partial<Settings['delegation']>
   appearance?: Partial<Settings['appearance']>
   sessions?: Partial<Settings['sessions']>
-  providers?: SettingsUpdate['providers']
+  providers?: Partial<Record<CliKind, Partial<ProviderConnection>>>
   notifications?: Partial<Settings['notifications']>
   permissions?: Partial<Settings['permissions']>
   remote?: Partial<Settings['remote']>
