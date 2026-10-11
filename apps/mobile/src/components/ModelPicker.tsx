@@ -14,6 +14,11 @@ const names: Record<string, string> = {
   'ari-core': 'Ari Core',
 }
 
+/** A provider as the user knows it; an id this build has no name for stays visible. */
+export function providerName(driverKind: string): string {
+  return names[driverKind] ?? driverKind
+}
+
 /** Human labels come from the desktop catalog; unknown IDs remain visible. */
 export function modelSelectionLabel(
   catalog: RemoteModelCatalog | null,
