@@ -989,6 +989,18 @@ describe('SessionView context meter', () => {
     expect(screen.getByTitle('Output tokens this session: 166')).toHaveTextContent('↓ 166')
   })
 
+  it('leaves token totals out when the agent reports only a context reading', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitContext(2, 33_587, 200_000)
+
+    expect(await screen.findByText('33.6K / 200K')).toBeInTheDocument()
+    expect(screen.getByText('1 turn')).toBeInTheDocument()
+    expect(screen.queryByText(/↑|↓/)).not.toBeInTheDocument()
+  })
+
   it('shows no context meter until the provider reports a reading', async () => {
     renderView()
     await screen.findByLabelText('Message')
@@ -1079,6 +1091,9 @@ describe('context meter helpers', () => {
     expect(formatCompactTokens(12_500)).toBe('12.5K')
     expect(formatCompactTokens(200_000)).toBe('200K')
     expect(formatCompactTokens(1_000_000)).toBe('1M')
+    expect(formatCompactTokens(3_982)).toBe('4K')
+    expect(formatCompactTokens(999_960)).toBe('1M')
+    expect(formatCompactTokens(3_412_900)).toBe('3.4M')
   })
 
   it('formats turn latency in seconds, then minutes', () => {
