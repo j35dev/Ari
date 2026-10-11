@@ -35,9 +35,46 @@ describe('SettingsStore', () => {
     await store.update({ providers: { claude: { binaryPath: '  /opt/tools/claude ' } } })
     await store.update({ providers: { claude: { enabled: false }, codex: { enabled: false } } })
     const reloaded = await new SettingsStore({ dir }).load()
-    expect(reloaded.providers.claude).toEqual({ enabled: false, binaryPath: '/opt/tools/claude' })
-    expect(reloaded.providers.codex).toEqual({ enabled: false, binaryPath: '' })
-    expect(reloaded.providers.grok).toEqual({ enabled: true, binaryPath: '' })
+    expect(reloaded.providers.claude).toMatchObject({
+      enabled: false,
+      binaryPath: '/opt/tools/claude',
+    })
+    expect(reloaded.providers.codex).toMatchObject({ enabled: false, binaryPath: '' })
+    expect(reloaded.providers.grok).toMatchObject({ enabled: true, binaryPath: '' })
+  })
+
+  it('stores a provider’s accounts and never leaves a removed one in use', async () => {
+    const store = new SettingsStore({ dir })
+    await store.load()
+    await store.update({
+      providers: {
+        claude: { accounts: [{ id: 'work', label: 'Work' }], activeAccount: 'work' },
+      },
+    })
+    await store.update({ providers: { claude: { binaryPath: '/opt/claude' } } })
+    let reloaded = await new SettingsStore({ dir }).load()
+    expect(reloaded.providers.claude).toEqual({
+      enabled: true,
+      binaryPath: '/opt/claude',
+      accounts: [{ id: 'work', label: 'Work' }],
+      activeAccount: 'work',
+    })
+    expect(reloaded.providers.codex.activeAccount).toBe('default')
+
+    await store.update({ providers: { claude: { accounts: [] } } })
+    reloaded = await new SettingsStore({ dir }).load()
+    expect(reloaded.providers.claude.activeAccount).toBe('default')
+  })
+
+  it('refuses an account whose id could not name a folder', async () => {
+    const store = new SettingsStore({ dir })
+    await store.load()
+    for (const id of ['../escape', 'Work', 'default', '']) {
+      await expect(
+        store.update({ providers: { claude: { accounts: [{ id, label: 'x' }] } } }),
+      ).rejects.toThrow()
+    }
+    expect(store.current.providers.claude.accounts).toEqual([])
   })
 
   it('keeps every one of several updates made at the same moment', async () => {

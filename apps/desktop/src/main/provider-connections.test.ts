@@ -18,15 +18,22 @@ describe('detectConnection', () => {
     const detect = vi.fn(async () => found(null))
     const connections = {
       ...defaultSettings.providers,
-      claude: { enabled: false, binaryPath: '/opt/claude' },
+      claude: { ...defaultSettings.providers.claude, enabled: false, binaryPath: '/opt/claude' },
     }
     await detectConnection('claude', ENV, connections, detect)
     await detectConnection('codex', ENV, connections, detect)
-    expect(detect).toHaveBeenNthCalledWith(1, 'claude', ENV, {
-      enabled: false,
-      binaryPath: '/opt/claude',
-    })
-    expect(detect).toHaveBeenNthCalledWith(2, 'codex', ENV, { enabled: true, binaryPath: '' })
+    expect(detect).toHaveBeenNthCalledWith(
+      1,
+      'claude',
+      ENV,
+      expect.objectContaining({ enabled: false, binaryPath: '/opt/claude' }),
+    )
+    expect(detect).toHaveBeenNthCalledWith(
+      2,
+      'codex',
+      ENV,
+      expect.objectContaining({ enabled: true, binaryPath: '' }),
+    )
   })
 
   it('describes the transport only for a CLI that was found', async () => {
