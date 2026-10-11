@@ -64,6 +64,19 @@ describe('createCodeStream', () => {
     expect(patch?.html).not.toContain('>a<')
   })
 
+  it('adds no blank line when a closing fence arrives in pieces', async () => {
+    const stream = createCodeStream('ts')
+    const code = document.createElement('code')
+    // Half a fence is code for one flush; the next flush takes it back.
+    for (const source of ['const a = 1\n``\n', 'const a = 1\n']) {
+      const patch = stream.advance(source)
+      if (patch === null) throw new Error('stream refused a warm language')
+      apply(code, patch)
+      expect(code.textContent).toBe(source)
+      expect(code.innerHTML).toBe(await whole(source))
+    }
+  })
+
   it('starts over when the code is replaced rather than appended to', () => {
     const stream = createCodeStream('ts')
     stream.advance('const a = 1\nconst b = 2\n')
