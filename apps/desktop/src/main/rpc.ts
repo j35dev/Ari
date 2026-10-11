@@ -1233,6 +1233,28 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       detections.find((row) => row.kind === kind)?.binaryPath ?? null,
     )
   }
+  /**
+   * Spends one banked reset of the account a provider runs as. One function
+   * for the usage pill and for a paired phone, so a reset costs and answers
+   * the same wherever it was asked for. Without `creditId` the grant to spend
+   * is looked up here.
+   */
+  const redeemReset = async (
+    kind: DriverKind,
+    creditId?: string,
+  ): Promise<RpcResults['providers.consumeResetCredit']> => {
+    const detections = await probeAllDetections()
+    const row = detections.find((entry) => entry.kind === kind) as Detection | undefined
+    const binaryPath = row?.binaryPath ?? null
+    // Redeeming falls back to whatever `claude` is on PATH when handed no
+    // binary, which is exactly what a provider turned off must not run.
+    const unavailable = unavailableReason(kind, row)
+    if (unavailable !== null) return { ok: false, error: unavailable }
+    const redeemed = await resetCreditService.consume({ kind, binaryPath, creditId })
+    if (!redeemed.ok) return { ok: false, error: redeemed.error }
+    const allowance = await allowanceReader.reread(kind, binaryPath, redeemed.value === 'reset')
+    return { ok: true, outcome: redeemed.value, allowance }
+  }
 
   const remote =
     remoteRef ??
@@ -1272,6 +1294,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         effortsForModel: cachedEffortLookup(probeEffortsForModel),
         allowance: readAllowance,
+        // No grant id from a phone: the one to spend is looked up here.
+        redeemReset: (kind) => redeemReset(kind),
+        accounts: {
+          list: (kind) => accounts.list(kind),
+          activate: (kind, accountId) => accounts.activate(kind, accountId),
+        },
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         terminalFactory: ptyFactory,
@@ -1497,19 +1525,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
   r.register('providers.allowance', async ({ kind }) => readAllowance(kind))
-  r.register('providers.consumeResetCredit', async ({ kind, creditId }) => {
-    const detections = await probeAllDetections()
-    const row = detections.find((entry) => entry.kind === kind) as Detection | undefined
-    const binaryPath = row?.binaryPath ?? null
-    // Redeeming falls back to whatever `claude` is on PATH when handed no
-    // binary, which is exactly what a provider turned off must not run.
-    const unavailable = unavailableReason(kind, row)
-    if (unavailable !== null) return { ok: false as const, error: unavailable }
-    const redeemed = await resetCreditService.consume({ kind, binaryPath, creditId })
-    if (!redeemed.ok) return { ok: false as const, error: redeemed.error }
-    const allowance = await allowanceReader.reread(kind, binaryPath, redeemed.value === 'reset')
-    return { ok: true as const, outcome: redeemed.value, allowance }
-  })
+  r.register('providers.consumeResetCredit', ({ kind, creditId }) => redeemReset(kind, creditId))
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.
   // argv only; npx resolves/downloads the package so nothing is preinstalled.
