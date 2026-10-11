@@ -844,7 +844,7 @@ export class Engine {
             await append({
               type: 'assistant.parts.appended',
               messageId,
-              parts: [{ type: 'text', text: `\n\n⚠ ${event.message}` }],
+              parts: [{ type: 'text', text: `\n\nℹ ${event.message}` }],
             })
             break
           case 'error':

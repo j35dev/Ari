@@ -7,6 +7,11 @@ import type { TranscriptBlock, TranscriptImage } from './types'
  * text opens with it render as styled error notes instead of markdown.
  */
 const ERROR_MARKER = /^\s*⚠\s?/
+/**
+ * Marker before something the engine tells the user that did not fail the
+ * turn: the model that actually answered, what an approval now covers.
+ */
+const NOTICE_MARKER = /^\s*ℹ\s?/
 
 function partToBlock(message: Message, part: MessagePart, partIndex: number): TranscriptBlock {
   const key = `${message.id}#${partIndex}`
@@ -33,6 +38,15 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
           kind: 'error-note',
           role: message.role,
           text: part.text.replace(ERROR_MARKER, ''),
+          ...meta,
+        }
+      }
+      if (message.role === 'assistant' && NOTICE_MARKER.test(part.text)) {
+        return {
+          key,
+          kind: 'notice',
+          role: message.role,
+          text: part.text.replace(NOTICE_MARKER, ''),
           ...meta,
         }
       }
@@ -168,13 +182,14 @@ export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): 
         return
       }
       flushImages()
-      // An error note is its own block: the marker check lives in partToBlock,
-      // but the merge must not swallow the part before it gets there.
+      // An error note or a notice is its own block: the marker check lives in
+      // partToBlock, but the merge must not swallow the part before it gets there.
       if (
         part.type === 'text' &&
         mergeKind === 'markdown' &&
         mergeIndex !== null &&
-        !ERROR_MARKER.test(part.text)
+        !ERROR_MARKER.test(part.text) &&
+        !NOTICE_MARKER.test(part.text)
       ) {
         const target = blocks[mergeIndex]
         if (target !== undefined && target.kind === 'markdown') {

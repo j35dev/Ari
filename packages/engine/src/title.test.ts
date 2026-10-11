@@ -157,6 +157,7 @@ describe('replyText', () => {
     expect(
       replyText([
         { type: 'text', text: '\n\n⚠ "gpt-9" is not offered by this agent.' },
+        { type: 'text', text: '\n\nℹ Always allow now covers every tool in this session.' },
         { type: 'text', text: 'Fixed the login redirect loop.' },
         { type: 'text', text: '\n\n⚠ Could not display chart.png.' },
       ]),
