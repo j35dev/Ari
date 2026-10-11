@@ -73,6 +73,7 @@ export interface RemoteServiceDeps {
   now?: () => number
   terminalFactory?: PtyFactory
   fork?: RemoteHostDeps['fork']
+  tasks?: RemoteHostDeps['tasks']
 }
 
 export class RemoteService {
@@ -144,6 +145,7 @@ export class RemoteService {
           attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
           integration: this.#integration,
           ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+          ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
           ...(this.#deps.effortsForModel === undefined
             ? {}
             : { effortsForModel: this.#deps.effortsForModel }),
@@ -214,6 +216,7 @@ export class RemoteService {
         attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
         integration: this.#integration,
         ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+        ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
         ...(this.#deps.effortsForModel === undefined
           ? {}
           : { effortsForModel: this.#deps.effortsForModel }),

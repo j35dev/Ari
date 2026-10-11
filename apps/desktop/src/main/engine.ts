@@ -9,11 +9,13 @@ import type { Command } from '@ari/contracts/commands'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
 import type { MessageOrigin } from '@ari/contracts/message'
+import type { ApprovalOption } from '@ari/contracts/common'
 import { decideCommand, findQueued } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
+import { controlPreamble } from '@ari/engine/control-preamble'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -83,6 +85,17 @@ export interface EngineDeps {
   runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /** Whether finished children are reported to their parent; told to the agent. */
+  deliversResults?: () => boolean
+  /**
+   * Names the option to answer a provider's permission request with when it
+   * needs no human — Ari's own control commands — or null to ask as usual.
+   */
+  autoApprove?: (request: {
+    toolName: string
+    summaryJson: string
+    options: readonly ApprovalOption[]
+  }) => string | null
   /**
    * Resolves a staged attachment id to its disk path for adapters. Absent
    * for tests: attachments resolve as unavailable and are named in text.
@@ -459,6 +472,11 @@ export class Engine {
     return resolved
   }
 
+  async #parentTitle(session: Session): Promise<string | null> {
+    if (!session.parentSessionId) return null
+    return (await this.#deps.store.load(session.parentSessionId)).session?.title ?? null
+  }
+
   /** Authoritative cwd for providers, checkpoints, control operations and the UI. */
   workspace(session: Session): Promise<string | null> {
     return resolveSessionWorkspace(
@@ -530,17 +548,34 @@ export class Engine {
     }
 
     let adapter
+    /** Whether this turn's process was given the `ari` control CLI. */
+    let hasControl: boolean
     try {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) return
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
+      hasControl = runtimeEnv?.ARI_ENV === '1'
+      // What Ari offers this session goes through the provider's system
+      // channel when the driver has one. A note at the top of the user's
+      // message is the fallback: providers treat instructions arriving there
+      // as suspect, and Claude refuses them outright as an injection. That
+      // fallback is only sent into a fresh provider context — a resumed
+      // thread still holds the copy from its first turn.
+      const viaSystem = runtimeEnv?.ARI_ENV === '1' && driver.systemInstructions === true
+      const preamble =
+        runtimeEnv?.ARI_ENV === '1' && (viaSystem || resumeOf === null)
+          ? controlPreamble(
+              session,
+              await this.#parentTitle(session),
+              viaSystem ? 'system' : 'prompt',
+              this.#deps.deliversResults?.() ?? true,
+            )
+          : null
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt:
-          runtimeEnv?.ARI_ENV === '1'
-            ? `[Ari control surface: added automatically by the Ari desktop app, not written by the user. This session can operate Ari through the CLI at $ARI_CLI. Commands: env, agents, session spawn|prompt|wait|read|diff|integrate|stop|destroy. Full protocol: $ARI_CLI --skill. Never disclose ARI_CONTROL_TOKEN.]\n\n${prompt}`
-            : prompt,
+        prompt: preamble === null || viaSystem ? prompt : `${preamble}\n\n${prompt}`,
+        ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,
@@ -767,7 +802,14 @@ export class Engine {
               reason: null,
             })
             break
-          case 'approval-requested':
+          case 'approval-requested': {
+            // Ari's own control commands are governed by its delegation
+            // policy, not by a click on every one of them.
+            const grant = hasControl ? (this.#deps.autoApprove?.(event) ?? null) : null
+            if (grant !== null && adapter.respondApproval !== undefined) {
+              adapter.respondApproval(event.approvalId, { optionId: grant })
+              break
+            }
             await append({
               type: 'approval.requested',
               approvalId: event.approvalId,
@@ -776,6 +818,7 @@ export class Engine {
               options: event.options,
             })
             break
+          }
           case 'input-requested':
             // Journal the question so the QuestionPanel can answer it via
             // `input.respond` and answers survive replay.

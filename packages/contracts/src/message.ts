@@ -7,6 +7,14 @@ export type MessageRole = z.infer<typeof messageRoleSchema>
 export const messageOriginSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('human') }),
   z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
+  /**
+   * Written by Ari itself when delegated children finish: the text is a
+   * delivery notice, and `sessionIds` names the children it reports on.
+   */
+  z.object({
+    kind: z.literal('completion'),
+    sessionIds: z.array(z.string().min(1)).min(1).max(32),
+  }),
 ])
 export type MessageOrigin = z.infer<typeof messageOriginSchema>
 

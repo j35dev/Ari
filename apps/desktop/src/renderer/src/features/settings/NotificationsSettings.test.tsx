@@ -24,7 +24,7 @@ const engineSettings: Settings = {
     wallpaper: 'none',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
-  notifications: { settleSound: true },
+  notifications: { settleSound: true, desktop: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
@@ -49,7 +49,7 @@ describe('NotificationsSettings', () => {
   it('reflects the engine-backed value and toggles via update', async () => {
     mocks.holder.settings = {
       ...engineSettings,
-      notifications: { settleSound: false },
+      notifications: { settleSound: false, desktop: true },
     }
     render(<NotificationsSettings />)
     const toggle = screen.getByRole('switch', { name: 'Completion sound' })
@@ -59,6 +59,16 @@ describe('NotificationsSettings', () => {
     await user.click(toggle)
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({ notifications: { settleSound: true } }),
+    )
+  })
+
+  it('turns desktop notifications off without touching the sound preference', async () => {
+    render(<NotificationsSettings />)
+    const toggle = screen.getByRole('switch', { name: 'Desktop notifications' })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await userEvent.setup().click(toggle)
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({ notifications: { desktop: false } }),
     )
   })
 })
