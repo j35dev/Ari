@@ -478,6 +478,10 @@ describe('permission modes', () => {
     // The empty attempt's usage must not be counted.
     const usages = events.filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage')
     expect(usages.map((u) => u.inputTokens)).toEqual([1])
+    // Nor may it stand as the context reading: only the round that answered.
+    expect(events.filter((e) => e.type === 'context-usage')).toEqual([
+      { type: 'context-usage', usedTokens: 3, windowTokens: null },
+    ])
   })
 
   it('fails visibly after exhausting empty-response retries', async () => {

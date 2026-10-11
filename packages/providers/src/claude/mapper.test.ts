@@ -89,6 +89,60 @@ describe('claude mapper', () => {
     }
   })
 
+  it('counts cache traffic as input the model read', () => {
+    const events = mapClaudeStream(fixture('cached-session.jsonl'))
+    expect(events.find((e) => e.type === 'usage')).toEqual({
+      type: 'usage',
+      inputTokens: 17 + 15507 + 47040,
+      outputTokens: 166,
+      cachedInputTokens: 47040,
+      costUsd: 0.036565,
+    })
+  })
+
+  it('reads the context window from the main conversation, ignoring subagents', () => {
+    const events = mapClaudeStream(fixture('cached-session.jsonl'))
+    expect(events.filter((e) => e.type === 'context-usage')).toEqual([
+      { type: 'context-usage', usedTokens: 9 + 10970 + 18035 + 129, windowTokens: null },
+      { type: 'context-usage', usedTokens: 8 + 4537 + 29005 + 37, windowTokens: null },
+      { type: 'context-usage', usedTokens: 8 + 4537 + 29005 + 37, windowTokens: 1_000_000 },
+    ])
+  })
+
+  it('takes the window of the model the turn ran on, even when a subagent read more', () => {
+    const usage = {
+      input_tokens: 12,
+      output_tokens: 300,
+      cache_read_input_tokens: 240_000,
+      cache_creation_input_tokens: 0,
+    }
+    const events = mapClaudeLine(
+      JSON.stringify({
+        type: 'result',
+        usage: { ...usage, iterations: [usage] },
+        modelUsage: {
+          'claude-haiku-4-5': {
+            inputTokens: 50,
+            outputTokens: 4_000,
+            cacheReadInputTokens: 900_000,
+            contextWindow: 200_000,
+          },
+          'claude-opus-5-5[1m]': {
+            inputTokens: 12,
+            outputTokens: 300,
+            cacheReadInputTokens: 240_000,
+            contextWindow: 1_000_000,
+          },
+        },
+      }),
+    )
+    expect(events.find((e) => e.type === 'context-usage')).toEqual({
+      type: 'context-usage',
+      usedTokens: 240_312,
+      windowTokens: 1_000_000,
+    })
+  })
+
   it('maps tool errors with isError=true', () => {
     const line = JSON.stringify({
       type: 'user',

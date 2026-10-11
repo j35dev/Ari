@@ -54,6 +54,28 @@ describe('anthropic messages streaming client', () => {
     }
   })
 
+  it('counts cached prompt tokens as input the model read', async () => {
+    const events = []
+    for await (const e of streamChatAnthropic(
+      base,
+      sseFrom([
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":9,"cache_creation_input_tokens":400,"cache_read_input_tokens":6000}}}',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}',
+        'data: {"type":"message_delta","usage":{"output_tokens":3}}',
+        'data: {"type":"message_stop"}',
+      ]),
+    )) {
+      events.push(e)
+    }
+    expect(events.find((e) => e.type === 'usage')).toEqual({
+      type: 'usage',
+      inputTokens: 6409,
+      outputTokens: 3,
+      cachedInputTokens: 6000,
+      costUsd: null,
+    })
+  })
+
   it('surfaces in-stream error events as error + done', async () => {
     const events = []
     for await (const e of streamChatAnthropic(
