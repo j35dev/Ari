@@ -874,6 +874,150 @@ describe('engine end-to-end with scripted driver', () => {
     }
   }, 10000)
 
+  it('journals output after a steer below the steered message', async () => {
+    const releaseTurnRef = { current: null as (() => void) | null }
+    const steerableDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'tool-started', callId: 'c1', name: 'Bash', argsJson: '{}' }
+              await new Promise<void>((resolve) => {
+                releaseTurnRef.current = resolve
+              })
+              yield { type: 'tool-completed', callId: 'c1', resultJson: '"one"', isError: false }
+              yield { type: 'tool-started', callId: 'c2', name: 'Bash', argsJson: '{}' }
+              yield { type: 'tool-completed', callId: 'c2', resultJson: '"two"', isError: false }
+              yield { type: 'text-delta', text: 'done' }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          steer: () => true,
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(steerableDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_steer_order'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    for (let i = 0; i < 150; i++) {
+      if (releaseTurnRef.current !== null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    await store.append(sessionId, {
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    const result = await engine.dispatch({
+      type: 'message.steer',
+      sessionId,
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    expect(result.accepted).toBe(true)
+
+    releaseTurnRef.current?.()
+    for (let i = 0; i < 150; i++) {
+      if ((await store.load(sessionId)).activeTurnId === null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const rows = (await store.load(sessionId)).messages.map((m) => [
+      m.role,
+      m.parts.map((p) =>
+        p.type === 'text'
+          ? p.text
+          : p.type === 'tool-call' || p.type === 'tool-result'
+            ? `${p.type}:${p.callId}`
+            : p.type,
+      ),
+    ])
+    // The in-flight call's result stays with its call; everything the agent
+    // does after the steer lands in a new message below it.
+    expect(rows).toEqual([
+      ['user', ['long task']],
+      ['assistant', ['tool-call:c1', 'tool-result:c1']],
+      ['user', ['focus on the parser']],
+      ['assistant', ['tool-call:c2', 'tool-result:c2', 'done']],
+    ])
+  }, 10000)
+
+  it('keeps text written before a steer above the steered message', async () => {
+    const releaseTurnRef = { current: null as (() => void) | null }
+    const steerableDriver: Driver = {
+      kind: 'claude',
+      create: (_session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              // Still in the coalescing buffer when the steer lands.
+              yield { type: 'text-delta', text: 'Let me run the tests.' }
+              await new Promise<void>((resolve) => {
+                releaseTurnRef.current = resolve
+              })
+              yield { type: 'text-delta', text: 'On the parser now.' }
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+          steer: () => true,
+        }),
+    }
+    const registry = new DriverRegistry()
+    registry.register(steerableDriver)
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const sessionId = 'sess_steer_buffered'
+    await seedSession(store, sessionId)
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'long task' } as Command)
+    for (let i = 0; i < 150; i++) {
+      if (releaseTurnRef.current !== null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    await store.append(sessionId, {
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    await engine.dispatch({
+      type: 'message.steer',
+      sessionId,
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    releaseTurnRef.current?.()
+    for (let i = 0; i < 150; i++) {
+      if ((await store.load(sessionId)).activeTurnId === null) break
+      await new Promise((r) => setTimeout(r, 20))
+    }
+
+    const rows = (await store.load(sessionId)).messages.map((m) => [
+      m.role,
+      m.parts.map((p) => (p.type === 'text' ? p.text : p.type)).join(''),
+    ])
+    expect(rows).toEqual([
+      ['user', 'long task'],
+      ['assistant', 'Let me run the tests.'],
+      ['user', 'focus on the parser'],
+      ['assistant', 'On the parser now.'],
+    ])
+  }, 10000)
+
   it('removes a queued message without running it', async () => {
     const releaseTurnRef = { current: null as (() => void) | null }
     const registry = new DriverRegistry()
