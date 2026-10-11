@@ -19,6 +19,7 @@ describe('pi mapper', () => {
       'tool-completed',
       'text-delta',
       'usage',
+      'context-usage',
       'done',
     ])
     if (events[0]?.type === 'session-ref') {
@@ -37,11 +38,40 @@ describe('pi mapper', () => {
     }
     if (events[4]?.type === 'text-delta') expect(events[4].text).toBe('hello')
     if (events[5]?.type === 'usage') {
-      // Usage comes from the last assistant message of agent_end.
-      expect(events[5].inputTokens).toBe(60)
-      expect(events[5].outputTokens).toBe(25)
-      expect(events[5].costUsd).toBeCloseTo(0.000305, 8)
+      // Both model calls of agent_end count: 42 + 60 in, 20 + 25 out.
+      expect(events[5].inputTokens).toBe(102)
+      expect(events[5].outputTokens).toBe(45)
+      expect(events[5].costUsd).toBeCloseTo(0.000505, 8)
+    } else {
+      throw new Error('expected usage')
     }
+    // The window holds what the last call saw: 60 in + 25 out.
+    expect(events[6]).toEqual({ type: 'context-usage', usedTokens: 85, windowTokens: null })
+  })
+
+  it('counts cache reads as input and reports the last call as the context', () => {
+    // Per-call counts recorded from a real pi session log.
+    const call = (input: number, output: number, cacheRead: number) => ({
+      role: 'assistant',
+      usage: { input, output, cacheRead, cacheWrite: 0, cost: { total: 0.01 } },
+    })
+    const events = mapPiLine(
+      JSON.stringify({
+        type: 'agent_end',
+        messages: [{ role: 'user' }, call(5000, 221, 113), call(2552, 191, 5105)],
+      }),
+    )
+    expect(events).toEqual([
+      {
+        type: 'usage',
+        inputTokens: 5113 + 7657,
+        outputTokens: 412,
+        cachedInputTokens: 5218,
+        costUsd: 0.02,
+      },
+      { type: 'context-usage', usedTokens: 7848, windowTokens: null },
+      { type: 'done' },
+    ])
   })
 
   it('ignores message_update streaming deltas to avoid double emission', () => {

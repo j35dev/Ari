@@ -30,6 +30,7 @@ describe('codex app-server mapper', () => {
       'text-delta',
       'text-delta',
       'usage',
+      'context-usage',
       'done',
     ])
     const ref = events[0]
@@ -37,6 +38,51 @@ describe('codex app-server mapper', () => {
     const usage = events.find((e) => e.type === 'usage')
     expect(usage?.type === 'usage' && usage.inputTokens).toBe(812)
     expect(usage?.type === 'usage' && usage.outputTokens).toBe(57)
+    expect(events.find((e) => e.type === 'context-usage')).toEqual({
+      type: 'context-usage',
+      usedTokens: 893,
+      windowTokens: 272000,
+    })
+  })
+
+  it('counts only the growth of the cumulative thread total', () => {
+    const mapper = createAppServerMapper()
+    // Counts recorded from a real rollout: `total` restates the whole thread.
+    const update = (
+      total: [number, number, number],
+      last: [number, number, number],
+    ): AgentEvent[] => {
+      const counts = ([inputTokens, cachedInputTokens, outputTokens]: number[]) => ({
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+        totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+      })
+      return mapper.mapLine(
+        JSON.stringify({
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: 'thr_1',
+            tokenUsage: { total: counts(total), last: counts(last), modelContextWindow: 258400 },
+          },
+        }),
+      ).events
+    }
+    const events = [
+      ...update([20609, 6912, 14], [20609, 6912, 14]),
+      ...update([46228, 9728, 150], [25619, 2816, 136]),
+      // Restated without a new call in between: nothing was spent.
+      ...update([46228, 9728, 150], [25619, 2816, 136]),
+    ]
+    expect(events.filter((e) => e.type === 'usage')).toEqual([
+      { type: 'usage', inputTokens: 20609, cachedInputTokens: 6912, outputTokens: 14, costUsd: null },
+      { type: 'usage', inputTokens: 25619, cachedInputTokens: 2816, outputTokens: 136, costUsd: null },
+    ])
+    expect(events.at(-1)).toEqual({
+      type: 'context-usage',
+      usedTokens: 25755,
+      windowTokens: 258400,
+    })
   })
 
   it('does not duplicate message text when both deltas and completion arrive', () => {

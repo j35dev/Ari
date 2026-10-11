@@ -89,6 +89,26 @@ describe('claude mapper', () => {
     }
   })
 
+  it('counts cache traffic as input the model read', () => {
+    const events = mapClaudeStream(fixture('cached-session.jsonl'))
+    expect(events.find((e) => e.type === 'usage')).toEqual({
+      type: 'usage',
+      inputTokens: 17 + 15507 + 47040,
+      outputTokens: 166,
+      cachedInputTokens: 47040,
+      costUsd: 0.036565,
+    })
+  })
+
+  it('reads the context window from the main conversation, ignoring subagents', () => {
+    const events = mapClaudeStream(fixture('cached-session.jsonl'))
+    expect(events.filter((e) => e.type === 'context-usage')).toEqual([
+      { type: 'context-usage', usedTokens: 9 + 10970 + 18035 + 129, windowTokens: null },
+      { type: 'context-usage', usedTokens: 8 + 4537 + 29005 + 37, windowTokens: null },
+      { type: 'context-usage', usedTokens: 8 + 4537 + 29005 + 37, windowTokens: 1_000_000 },
+    ])
+  })
+
   it('maps tool errors with isError=true', () => {
     const line = JSON.stringify({
       type: 'user',

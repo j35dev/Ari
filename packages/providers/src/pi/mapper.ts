@@ -25,6 +25,8 @@ interface ContentBlock {
 interface Usage {
   input?: unknown
   output?: unknown
+  cacheRead?: unknown
+  cacheWrite?: unknown
   cost?: { total?: unknown }
 }
 
@@ -65,15 +67,39 @@ function mapAssistantMessage(message: Message): AgentEvent[] {
   return events
 }
 
+/**
+ * Each assistant message carries the usage of the one model call that wrote
+ * it, with cache traffic kept out of `input`. The turn spent their sum; the
+ * window holds what the last call saw.
+ */
 function usageFrom(messages: Message[] | undefined): AgentEvent[] {
-  let usage: Usage | undefined
+  const count = (value: unknown): number => (typeof value === 'number' ? value : 0)
+  let input = 0
+  let output = 0
+  let cached = 0
+  let cost: number | null = null
+  let context = 0
   for (const message of messages ?? []) {
-    if (message.role === 'assistant' && message.usage) usage = message.usage
+    const usage = message.role === 'assistant' ? message.usage : undefined
+    if (!usage) continue
+    const read = count(usage.input) + count(usage.cacheWrite) + count(usage.cacheRead)
+    input += read
+    output += count(usage.output)
+    cached += count(usage.cacheRead)
+    if (typeof usage.cost?.total === 'number') cost = (cost ?? 0) + usage.cost.total
+    context = read + count(usage.output)
   }
-  const input = typeof usage?.input === 'number' ? usage.input : 0
-  const output = typeof usage?.output === 'number' ? usage.output : 0
-  const cost = typeof usage?.cost?.total === 'number' ? usage.cost.total : null
-  return [{ type: 'usage', inputTokens: input, outputTokens: output, costUsd: cost }]
+  const events: AgentEvent[] = [
+    {
+      type: 'usage',
+      inputTokens: input,
+      outputTokens: output,
+      cachedInputTokens: cached,
+      costUsd: cost,
+    },
+  ]
+  if (context > 0) events.push({ type: 'context-usage', usedTokens: context, windowTokens: null })
+  return events
 }
 
 /** Maps one JSONL line. Returns zero or more normalized events. */
