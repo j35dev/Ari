@@ -127,15 +127,10 @@ export function contextTokensFromHint(hint: string | undefined): number | null {
 
 /** Compact token formatting for the meter chip: 200K, 1M, 12.5K, 999. */
 export function formatCompactTokens(n: number): string {
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000
-    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`
-  }
-  if (n >= 1000) {
-    const k = n / 1000
-    return `${Number.isInteger(k) ? k : k.toFixed(1)}K`
-  }
-  return String(n)
+  if (n < 1000) return String(n)
+  // Rounded first, so 3,982 reads 4K and 999,960 reads 1M, never 4.0K or 1000K.
+  const k = Number((n / 1000).toFixed(1))
+  return k < 1000 ? `${k}K` : `${Number((n / 1_000_000).toFixed(1))}M`
 }
 
 const METER_WARN_PCT = 75
@@ -917,22 +912,27 @@ export function SessionView({
                   ? formatTurnDuration(telemetry.lastDurationMs)
                   : '—'}
               </span>
-              <span aria-hidden>·</span>
-              <span
-                title={`Input tokens this session: ${telemetry.inputTokens.toLocaleString('en-US')}${
-                  telemetry.cachedInputTokens > 0
-                    ? ` (${telemetry.cachedInputTokens.toLocaleString('en-US')} read from cache)`
-                    : ''
-                }`}
-              >
-                ↑ {formatCompactTokens(telemetry.inputTokens)}
-              </span>
-              <span aria-hidden>·</span>
-              <span
-                title={`Output tokens this session: ${telemetry.outputTokens.toLocaleString('en-US')}`}
-              >
-                ↓ {formatCompactTokens(telemetry.outputTokens)}
-              </span>
+              {/* Some agents report a context reading but no token totals. */}
+              {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span
+                    title={`Input tokens this session: ${telemetry.inputTokens.toLocaleString('en-US')}${
+                      telemetry.cachedInputTokens > 0
+                        ? ` (${telemetry.cachedInputTokens.toLocaleString('en-US')} read from cache)`
+                        : ''
+                    }`}
+                  >
+                    ↑ {formatCompactTokens(telemetry.inputTokens)}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <span
+                    title={`Output tokens this session: ${telemetry.outputTokens.toLocaleString('en-US')}`}
+                  >
+                    ↓ {formatCompactTokens(telemetry.outputTokens)}
+                  </span>
+                </>
+              ) : null}
             </>
           ) : (
             <span>{running ? null : 'no turns yet'}</span>
