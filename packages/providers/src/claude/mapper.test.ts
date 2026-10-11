@@ -109,6 +109,40 @@ describe('claude mapper', () => {
     ])
   })
 
+  it('takes the window of the model the turn ran on, even when a subagent read more', () => {
+    const usage = {
+      input_tokens: 12,
+      output_tokens: 300,
+      cache_read_input_tokens: 240_000,
+      cache_creation_input_tokens: 0,
+    }
+    const events = mapClaudeLine(
+      JSON.stringify({
+        type: 'result',
+        usage: { ...usage, iterations: [usage] },
+        modelUsage: {
+          'claude-haiku-4-5': {
+            inputTokens: 50,
+            outputTokens: 4_000,
+            cacheReadInputTokens: 900_000,
+            contextWindow: 200_000,
+          },
+          'claude-opus-5-5[1m]': {
+            inputTokens: 12,
+            outputTokens: 300,
+            cacheReadInputTokens: 240_000,
+            contextWindow: 1_000_000,
+          },
+        },
+      }),
+    )
+    expect(events.find((e) => e.type === 'context-usage')).toEqual({
+      type: 'context-usage',
+      usedTokens: 240_312,
+      windowTokens: 1_000_000,
+    })
+  })
+
   it('maps tool errors with isError=true', () => {
     const line = JSON.stringify({
       type: 'user',

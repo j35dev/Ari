@@ -100,15 +100,27 @@ function contextUsed(call: Record<string, unknown> | undefined): number | null {
 
 /**
  * `modelUsage` lists every model the turn touched, subagents included. The
- * one carrying the conversation re-reads it on every call, so it is the one
- * that read the most.
+ * entry whose counts are the turn's own totals is the conversation's model.
+ * Failing that, the one carrying the conversation re-reads it on every call,
+ * so it is usually the one that read the most.
  */
-function contextWindowFrom(modelUsage: NativeLine['modelUsage']): number | null {
+function contextWindowFrom(
+  modelUsage: NativeLine['modelUsage'],
+  turn: Record<string, unknown> | undefined,
+): number | null {
   let window: number | null = null
   let mostRead = -1
   for (const model of Object.values(modelUsage ?? {})) {
     const size = model?.['contextWindow']
     if (typeof size !== 'number' || size <= 0) continue
+    if (
+      typeof turn?.['input_tokens'] === 'number' &&
+      count(model, 'inputTokens') === count(turn, 'input_tokens') &&
+      count(model, 'outputTokens') === count(turn, 'output_tokens') &&
+      count(model, 'cacheReadInputTokens') === count(turn, 'cache_read_input_tokens')
+    ) {
+      return size
+    }
     const read =
       count(model, 'inputTokens') +
       count(model, 'cacheReadInputTokens') +
@@ -241,7 +253,7 @@ export function mapClaudeLine(line: string): AgentEvent[] {
         events.push({
           type: 'context-usage',
           usedTokens: used,
-          windowTokens: contextWindowFrom(parsed.modelUsage),
+          windowTokens: contextWindowFrom(parsed.modelUsage, parsed.usage),
         })
       }
       if (parsed.is_error === true) {

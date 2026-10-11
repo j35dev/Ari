@@ -103,7 +103,13 @@ interface StreamEvent {
     name?: string
   }
   delta?: { type?: string; text?: string; thinking?: string; partial_json?: string }
-  message?: { usage?: { input_tokens?: number } }
+  message?: {
+    usage?: {
+      input_tokens?: number
+      cache_creation_input_tokens?: number
+      cache_read_input_tokens?: number
+    }
+  }
   usage?: { output_tokens?: number }
   error?: { type?: string; message?: string }
 }
@@ -176,6 +182,7 @@ export async function* streamChatAnthropic(
   }
 
   let inputTokens = 0
+  let cachedInputTokens = 0
   let outputTokens = 0
   let streamFault: unknown = null
   // Tool_use blocks accumulate by content-block index; emitted on block stop.
@@ -228,7 +235,14 @@ export async function* streamChatAnthropic(
         }
       }
     } else if (event.type === 'message_start') {
-      inputTokens = event.message?.usage?.input_tokens ?? inputTokens
+      const usage = event.message?.usage
+      if (usage?.input_tokens !== undefined) {
+        // Cache traffic is reported beside `input_tokens`, not inside it, and
+        // the harness caches its system prompt and tools on every request.
+        cachedInputTokens = usage.cache_read_input_tokens ?? 0
+        inputTokens =
+          usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + cachedInputTokens
+      }
     } else if (event.type === 'message_delta') {
       outputTokens = event.usage?.output_tokens ?? outputTokens
     } else if (event.type === 'message_stop') {
@@ -270,6 +284,12 @@ export async function* streamChatAnthropic(
     }
   }
 
-  yield { type: 'usage', inputTokens, outputTokens, costUsd: null }
+  yield {
+    type: 'usage',
+    inputTokens,
+    outputTokens,
+    ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
+    costUsd: null,
+  }
   yield { type: 'done' }
 }
