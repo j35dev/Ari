@@ -64,6 +64,9 @@ export const remoteOperationSchema = z.enum([
   // a choice instead of a text field it cannot validate.
   'models.list',
   'models.efforts',
+  // Account allowance, as the desktop's usage pill reads it. Redeeming a
+  // banked reset spends something scarce and stays at the desktop.
+  'usage.allowance',
   // Agent actions.
   'session.prompt',
   'session.queue',
@@ -376,6 +379,7 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
       modelId: z.string().min(1).max(256).nullish(),
     })
     .strict(),
+  z.object({ op: z.literal('usage.allowance'), driverKind: driverKindSchema }).strict(),
   z.object({ op: z.literal('changes.files'), sessionId: sessionIdSchema }),
   z.object({ op: z.literal('changes.preview'), sessionId: sessionIdSchema }).strict(),
   z.object({ op: z.literal('changes.diff'), sessionId: sessionIdSchema, path: z.string().min(1) }),
@@ -489,6 +493,29 @@ export const remoteModelCatalogSchema = z.object({
   ),
 })
 export type RemoteModelCatalog = z.infer<typeof remoteModelCatalogSchema>
+
+/**
+ * One provider's subscription allowance as the desktop last read it. The count
+ * of banked resets travels; the ids that redeem them do not.
+ */
+export const remoteAllowanceSchema = z.object({
+  driverKind: driverKindSchema,
+  /** `error` keeps the last good windows, so a failed refresh shows stale numbers. */
+  status: z.enum(['available', 'unavailable', 'error']),
+  windows: z.array(
+    z.object({
+      label: z.string().min(1),
+      usedPercent: z.number().min(0).max(100),
+      resetsAt: z.number().finite().nullable(),
+      /** The provider's own wording, when it gave no timestamp. */
+      resetText: z.string().optional(),
+    }),
+  ),
+  bankedResets: z.number().int().nonnegative(),
+  /** When the windows were last read successfully. */
+  updatedAt: timestampSchema.nullable(),
+})
+export type RemoteAllowance = z.infer<typeof remoteAllowanceSchema>
 
 /**
  * Content-free: a version to compare and the operation names this gateway

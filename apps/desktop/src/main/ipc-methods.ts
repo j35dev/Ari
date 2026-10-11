@@ -76,6 +76,7 @@ export const IPC_METHODS = [
   'browser.layout',
   'browser.pick',
   'browser.cancelPick',
+  'browser.capture',
   'project.list',
   'project.add',
   'project.open',
