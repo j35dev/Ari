@@ -58,7 +58,8 @@ function scriptedDriver(script: Script): Driver {
         yield { type: 'tool-started', callId: 'c1', name: script.toolName, argsJson: '{}' }
         yield { type: 'tool-completed', callId: 'c1', resultJson: '"ok"', isError: false }
       }
-      yield { type: 'usage', inputTokens: 3, outputTokens: 2, costUsd: null }
+      yield { type: 'usage', inputTokens: 3, outputTokens: 2, cachedInputTokens: 1, costUsd: null }
+      yield { type: 'context-usage', usedTokens: 5, windowTokens: 200 }
       yield { type: 'done' }
     }
     const iterator = start()[Symbol.asyncIterator]()
@@ -183,6 +184,12 @@ describe('engine end-to-end with scripted driver', () => {
     ).toBe(true)
     expect(published.length).toBeGreaterThanOrEqual(5)
     expect(published[0]?.event.type).toBe('turn.started')
+    expect(published.map((p) => p.event)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'usage.recorded', inputTokens: 3, cachedInputTokens: 1 }),
+        expect.objectContaining({ type: 'context.recorded', usedTokens: 5, windowTokens: 200 }),
+      ]),
+    )
   }, 10000)
 
   it('does not start the provider when turn-start persistence fails', async () => {

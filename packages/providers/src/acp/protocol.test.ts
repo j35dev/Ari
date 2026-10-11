@@ -40,6 +40,9 @@ describe('AcpUpdateFolder', () => {
     // A context-window gauge is not a token count, so it must never reach the
     // transcript's additive usage readout.
     expect(events.some((e) => e.type === 'usage')).toBe(false)
+    expect(events.filter((e) => e.type === 'context-usage')).toEqual([
+      { type: 'context-usage', usedTokens: 4210, windowTokens: 200000 },
+    ])
 
     // plan updates have no transcript surface.
     expect(events.some((e) => e.type === 'error')).toBe(false)
@@ -66,7 +69,7 @@ describe('AcpUpdateFolder', () => {
     expect(JSON.parse((events[1] as { resultJson: string }).resultJson)).toEqual({ ok: true })
   })
 
-  it('drops the context gauge and other malformed payloads', () => {
+  it('reports the context gauge as a reading and drops malformed payloads', () => {
     const folder = new AcpUpdateFolder()
     expect(
       folder.fold({
@@ -77,7 +80,11 @@ describe('AcpUpdateFolder', () => {
           cost: { amount: 5, currency: 'EUR' },
         },
       }),
-    ).toEqual([])
+    ).toEqual([{ type: 'context-usage', usedTokens: 12, windowTokens: 100 }])
+    expect(folder.fold({ update: { sessionUpdate: 'usage_update', used: 12 } })).toEqual([
+      { type: 'context-usage', usedTokens: 12, windowTokens: null },
+    ])
+    expect(folder.fold({ update: { sessionUpdate: 'usage_update', size: 100 } })).toEqual([])
     expect(folder.fold({})).toEqual([])
     expect(folder.fold({ update: { sessionUpdate: 'from_the_future' } })).toEqual([])
   })
