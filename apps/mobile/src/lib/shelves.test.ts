@@ -114,6 +114,46 @@ describe('the home list', () => {
     expect(ids({ query: 'website' })).toEqual(['Landing page', 'Pricing'])
   })
 
+  it('lets a session stand in for the agents it delegated to', () => {
+    const sessions = [
+      session('lead'),
+      session('parser', { parentSessionId: 'lead', status: 'running', updatedAt: 300 }),
+      session('docs', { parentSessionId: 'lead' }),
+      session('nested', { parentSessionId: 'parser', status: 'running' }),
+      session('solo'),
+    ]
+    const shelves = shelve(sessions, [], everything)
+    expect(shelves.map((shelf) => [shelf.title, shelf.rows.map((row) => row.session.id)])).toEqual([
+      // Idle itself, but its agents are still at it.
+      ['Working', ['lead']],
+      ['Recent', ['solo']],
+    ])
+    expect(shelves[0]?.rows[0]?.agents).toEqual({ total: 3, working: 2 })
+  })
+
+  it('shows an agent by itself when it is the one that needs the user, or is searched for', () => {
+    const sessions = [
+      session('lead'),
+      session('parser', { parentSessionId: 'lead', status: 'waiting-approval' }),
+      session('docs', { parentSessionId: 'lead' }),
+    ]
+    const [needsYou, recent] = shelve(
+      sessions,
+      [attention('parser', { pendingApprovals: [approval] })],
+      everything,
+    )
+    expect(needsYou?.rows.map((row) => [row.session.id, row.parentTitle])).toEqual([
+      ['parser', 'lead'],
+    ])
+    expect(recent?.rows.map((row) => row.session.id)).toEqual(['lead'])
+
+    const found = shelve(sessions, [], { ...everything, query: 'docs' })
+    expect(found.flatMap((shelf) => shelf.rows.map((row) => row.session.id))).toEqual(['docs'])
+    // An agent whose parent is not in the list is an ordinary row.
+    const orphan = shelve([session('lost', { parentSessionId: 'gone' })], [], everything)
+    expect(orphan[0]?.rows[0]?.parentTitle).toBeUndefined()
+  })
+
   it('keeps archived sessions out of sight until asked for', () => {
     const sessions = [session('live'), session('gone', { archived: true, status: 'running' })]
     expect(shelve(sessions, [], everything).map((shelf) => shelf.title)).toEqual(['Recent'])

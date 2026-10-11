@@ -183,6 +183,15 @@ describe('contracts', () => {
     ).toThrow()
   })
 
+  it('keeps a delegation patch to the keys it was sent', () => {
+    // Defaults filled in here would be merged over the stored values, so
+    // flipping one switch would reset every other delegation setting.
+    expect(settingsUpdateSchema.parse({ delegation: { cascadeStop: false } })).toEqual({
+      delegation: { cascadeStop: false },
+    })
+    expect(settingsUpdateSchema.safeParse({ delegation: { maxDepth: 0 } }).success).toBe(false)
+  })
+
   it('accepts empty and partial settings update patches, rejects bad fields', () => {
     expect(settingsUpdateSchema.parse({})).toEqual({})
     expect(settingsUpdateSchema.parse({ appearance: { themeId: 'nocturne' } })).toEqual({

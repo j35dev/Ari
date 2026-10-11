@@ -9,7 +9,7 @@ import {
   type ToolKind,
 } from './toolLabels'
 import { editDiffStat, editFilePath, type EditDiffStat } from './edit-diff'
-import type { ToolGroupRow, TranscriptBlock, TranscriptRow, TurnDiffRow } from './types'
+import type { GroupedRow, ToolGroupRow, TranscriptBlock, TurnDiffRow } from './types'
 
 export type { TranscriptRow } from './types'
 
@@ -28,7 +28,7 @@ function hasToolTraffic(run: TranscriptBlock[]): boolean {
 }
 
 /** The turn a row belongs to, or null for rows outside any turn. */
-function rowTurnId(row: TranscriptRow): string | null {
+function rowTurnId(row: GroupedRow): string | null {
   if (row.kind === 'tool-group') return row.blocks[0]?.turnId ?? null
   if (row.kind === 'turn-diff') return row.turnId
   return row.turnId ?? null
@@ -40,10 +40,10 @@ function rowTurnId(row: TranscriptRow): string | null {
  * turn's assistant/tool blocks; turns without an entry render untouched.
  */
 export function insertTurnDiffRows(
-  rows: TranscriptRow[],
+  rows: GroupedRow[],
   turnDiffs: Readonly<Record<string, string>>,
-): TranscriptRow[] {
-  const out: TranscriptRow[] = []
+): GroupedRow[] {
+  const out: GroupedRow[] = []
   const emitted = new Set<string>()
   let openTurnId: string | null = null
   const flushCard = (): void => {
@@ -94,8 +94,8 @@ export function insertTurnDiffRows(
 export function groupBlocks(
   blocks: TranscriptBlock[],
   turnDiffs?: Readonly<Record<string, string>>,
-  previous?: TranscriptRow[],
-): TranscriptRow[] {
+  previous?: GroupedRow[],
+): GroupedRow[] {
   const rows = buildRows(blocks, turnDiffs)
   if (previous === undefined || previous.length === 0) return rows
   const prior = new Map(previous.map((row) => [row.key, row]))
@@ -106,7 +106,7 @@ export function groupBlocks(
 }
 
 /** Plain blocks already share identity; groups and diff cards compare by content. */
-function sameRow(a: TranscriptRow, b: TranscriptRow): boolean {
+function sameRow(a: GroupedRow, b: GroupedRow): boolean {
   if (a === b) return true
   if (a.kind === 'tool-group' && b.kind === 'tool-group') {
     return (
@@ -121,8 +121,8 @@ function sameRow(a: TranscriptRow, b: TranscriptRow): boolean {
 function buildRows(
   blocks: TranscriptBlock[],
   turnDiffs?: Readonly<Record<string, string>>,
-): TranscriptRow[] {
-  const rows: TranscriptRow[] = []
+): GroupedRow[] {
+  const rows: GroupedRow[] = []
   let run: TranscriptBlock[] = []
 
   const flush = (): void => {
