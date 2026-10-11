@@ -409,6 +409,18 @@ function Shell() {
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
 
+  // New sessions start in the mode Settings → Permissions names; without this
+  // the seed above never left `ask`, whatever the setting said.
+  const defaultPermissionMode = useEngineSettings().settings?.sessions.defaultPermissionMode
+  useEffect(() => {
+    if (defaultPermissionMode === undefined) return
+    setDefaults((prev) =>
+      prev.permissionMode === defaultPermissionMode
+        ? prev
+        : { ...prev, permissionMode: defaultPermissionMode },
+    )
+  }, [defaultPermissionMode])
+
   // First available CLI becomes the default driver at boot; when none is
   // installed, sessions fall back to Ari Core (endpoint-powered).
   useEffect(() => {
@@ -680,8 +692,28 @@ function Shell() {
       )
       if (reusable) {
         if (overrides) setDefaults(effective)
-        splitLayoutActions.assign(layout.focusedPaneId, reusable.id)
-        clearTransientInspector()
+        const open = (): void => {
+          splitLayoutActions.assign(layout.focusedPaneId, reusable.id)
+          clearTransientInspector()
+        }
+        // Already on screen: its chips are the user's to set, nothing starts.
+        if (reusable.id === activeSessionId) {
+          open()
+          return
+        }
+        // It was created under the default of its day; an empty session picked
+        // up as "new" has to start the way a new one would. Opened only after
+        // the update lands, so the pane never loads the stale mode.
+        void rpc
+          .invoke('command.dispatch', {
+            command: {
+              type: 'session.update',
+              sessionId: reusable.id,
+              permissionMode: effective.permissionMode,
+            },
+          })
+          .catch((error: unknown) => log.warn('rpc call failed', error))
+          .then(open)
         return
       }
       void rpc
@@ -701,7 +733,7 @@ function Shell() {
         })
         .catch((error: unknown) => log.warn('rpc call failed', error))
     },
-    [defaults, sessions, layout, refreshSessions, clearTransientInspector],
+    [defaults, sessions, layout, activeSessionId, refreshSessions, clearTransientInspector],
   )
 
   /**
