@@ -109,7 +109,9 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
     }
   }, [covered])
 
-  const guestVisible = showGuest && !parked
+  // `parked` only counts while something covers the page: the still's load can
+  // land after the cover has gone, and that must not leave the guest hidden.
+  const guestVisible = showGuest && !(covered && parked)
 
   useEffect(() => {
     const host = hostRef.current
