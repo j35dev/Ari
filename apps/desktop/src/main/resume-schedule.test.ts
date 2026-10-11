@@ -68,7 +68,7 @@ afterEach(async () => {
 it('continues the session once its time comes, and only once', async () => {
   await runTurn('error')
   await schedule.schedule('s', 5_000)
-  expect(schedule.get('s')).toBe(5_000)
+  expect(await schedule.get('s')).toBe(5_000)
   await schedule.sweep()
   expect(sent).toEqual([])
 
@@ -78,7 +78,7 @@ it('continues the session once its time comes, and only once', async () => {
   expect(sent).toEqual([
     { type: 'turn.start', sessionId: 's', text: RESUME_PROMPT, attachments: [] },
   ])
-  expect(schedule.get('s')).toBeNull()
+  expect(await schedule.get('s')).toBeNull()
 })
 
 it('refuses a session that has nothing failed to resume, and a time too far out', async () => {
@@ -108,14 +108,25 @@ it('drops the resume when the conversation moved on or it was cancelled', async 
   expect(sent).toEqual([])
 })
 
+it('stops reporting a resume once the session is no longer on that failed turn', async () => {
+  await runTurn('error')
+  await schedule.schedule('s', 5_000)
+  // Retried, and the same limit stopped it again: a new failed turn.
+  await runTurn('error')
+  expect(await schedule.get('s')).toBeNull()
+  now = 5_000
+  await schedule.sweep()
+  expect(sent).toEqual([])
+})
+
 it('keeps a pending resume across a restart and survives a damaged file', async () => {
   await runTurn('error')
   await schedule.schedule('s', 5_000)
   const restarted = make()
   await restarted.load()
-  expect(restarted.get('s')).toBe(5_000)
+  expect(await restarted.get('s')).toBe(5_000)
 
   await writeFile(join(dir, 'resume.json'), '{not json', 'utf8')
   await restarted.load()
-  expect(restarted.get('s')).toBeNull()
+  expect(await restarted.get('s')).toBeNull()
 })

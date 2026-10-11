@@ -55,7 +55,7 @@ export interface SupervisorHost {
 function subtree(rows: readonly SessionListEntry[], rootId: string): SessionListEntry[] {
   const out: SessionListEntry[] = []
   const seen = new Set<string>([rootId])
-  for (let frontier = [rootId]; frontier.length > 0; ) {
+  for (let frontier = [rootId]; frontier.length > 0;) {
     const next: string[] = []
     for (const row of rows) {
       if (!row.parentSessionId || seen.has(row.id) || !frontier.includes(row.parentSessionId))
@@ -134,7 +134,9 @@ export class DelegationSupervisor {
       for (const parentId of this.#refused) this.schedule(parentId)
       if (event.stopReason === 'completed') this.schedule(event.sessionId)
       else if (event.stopReason === 'interrupted')
-        void this.#serial(event.sessionId, () => this.#stopped(event.sessionId))
+        void this.#serial(event.sessionId, async () => {
+          await this.#stopped(event.sessionId)
+        })
     }
   }
 
@@ -171,7 +173,19 @@ export class DelegationSupervisor {
   async #recover(): Promise<void> {
     const isRunning = this.host.isRunning?.bind(this.host)
     if (isRunning === undefined) return
-    for (const row of await this.host.store.listSessions()) {
+    const rows = await this.host.store.listSessions()
+    // A result that settled before this launch is not delivered by it. Nobody
+    // may be watching when the app starts, and journals written before
+    // delivery existed hold every old child's outcome with no acknowledgment:
+    // waking those parents would start turns on reports that are days stale.
+    // The parent still finds them through `session status`.
+    for (const parentId of new Set(rows.flatMap((row) => row.parentSessionId ?? []))) {
+      const parent = await this.host.store.load(parentId)
+      if (!parent.session) continue
+      for (const pending of pendingCompletions(parent))
+        await this.#acknowledge(parentId, pending.childSessionId, pending.turnId, 'disposed')
+    }
+    for (const row of rows) {
       if (!row.parentSessionId || isRunning(row.id)) continue
       if ((await this.host.store.load(row.id)).activeTurnId === null) continue
       await this.host.dispatch({ type: 'turn.interrupt', sessionId: row.id })
@@ -185,12 +199,13 @@ export class DelegationSupervisor {
    * work it delegated does, and results waiting to wake any of them are
    * dropped so that nothing restarts afterwards.
    */
-  async #stopped(sessionId: string): Promise<void> {
+  async #stopped(sessionId: string, cascade = this.host.policy().cascadeStop): Promise<number> {
     const model = await this.host.store.load(sessionId)
-    if (!model.session) return
+    if (!model.session) return 0
     for (const pending of pendingCompletions(model))
       await this.#acknowledge(sessionId, pending.childSessionId, pending.turnId, 'disposed')
-    if (!this.host.policy().cascadeStop) return
+    if (!cascade) return 0
+    let interrupted = 0
     for (const row of subtree(await this.host.store.listSessions(), sessionId)) {
       const descendant = await this.host.store.load(row.id)
       if (descendant.activeTurnId === null) {
@@ -202,8 +217,23 @@ export class DelegationSupervisor {
       // the session above it.
       if (row.parentSessionId)
         await this.#acknowledge(row.parentSessionId, row.id, descendant.activeTurnId, 'disposed')
-      await this.host.dispatch({ type: 'turn.interrupt', sessionId: row.id })
+      if ((await this.host.dispatch({ type: 'turn.interrupt', sessionId: row.id })).accepted)
+        interrupted++
     }
+    return interrupted
+  }
+
+  /**
+   * Stops everything below a session that has no turn of its own to stop, and
+   * resolves with how many turns that interrupted. Results already waiting to
+   * wake it are dropped first: stopping the children it has left must not be
+   * answered by a turn about the ones that finished.
+   */
+  stopBelow(rootId: string): Promise<number> {
+    let interrupted = 0
+    return this.#serial(rootId, async () => {
+      interrupted = await this.#stopped(rootId, true)
+    }).then(() => interrupted)
   }
 
   /**
@@ -268,6 +298,16 @@ export class DelegationSupervisor {
       }
       const child = await load(entry.childSessionId)
       if (!child.session) {
+        await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
+        continue
+      }
+      // A turn a person started in the child is their conversation. Its answer
+      // went to them; reporting it to the parent would start a turn nobody
+      // asked for, and could have the parent prompt the child back.
+      const asked = child.messages.find(
+        (message) => message.role === 'user' && message.turnId === entry.turnId,
+      )
+      if (asked !== undefined && (asked.origin === undefined || asked.origin.kind === 'human')) {
         await this.#acknowledge(parentId, entry.childSessionId, entry.turnId, 'disposed')
         continue
       }
