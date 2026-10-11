@@ -12,6 +12,7 @@ import type { Command } from '@ari/contracts/commands'
 import {
   remoteChangesSchema,
   remoteAttentionSchema,
+  remoteAllowanceSchema,
   remoteQuerySchema,
   remoteModelCatalogSchema,
   type RemoteCommand,
@@ -181,6 +182,7 @@ function commandOrReadExists(op: string): boolean {
     'files.read',
     'project.list',
     'models.list',
+    'usage.allowance',
     'changes.files',
     'changes.diff',
     'command.status',
@@ -939,6 +941,59 @@ describe('model catalog', () => {
         { driverKind: 'codex', available: true, models: [] },
       ],
     })
+  })
+})
+
+describe('provider allowance', () => {
+  it('is offered only by a desktop that can read it', async () => {
+    const host = hostFor(await tempStore(), fakeEngine())
+    expect(host.capabilities()).not.toContain('usage.allowance')
+  })
+
+  it('serves the windows and the reset count, never the ids that redeem one', async () => {
+    const allowance = vi.fn(async () => ({
+      kind: 'claude',
+      status: 'available' as const,
+      windows: [
+        { label: '5h', usedPercent: 41.5, resetsAt: 9_000 },
+        { label: 'Weekly', usedPercent: 140, resetsAt: null, resetText: 'Friday' },
+      ],
+      resetCredits: {
+        availableCount: 2,
+        nextExpiresAt: 50_000,
+        nextCreditId: 'grant_secret',
+        credits: [{ expiresAt: 50_000 }, { expiresAt: null }],
+      },
+      updatedAt: 1_000,
+      checkedAt: 1_000,
+      detail: '',
+    }))
+    const host = hostFor(await tempStore(), fakeEngine(), { allowance })
+    expect(host.capabilities()).toContain('usage.allowance')
+
+    // Not project-scoped: a device with no grants still reads its owner's account.
+    const result = await host.query(STRANGER, 'usage.allowance', { driverKind: 'claude' })
+
+    expect(allowance).toHaveBeenCalledWith('claude')
+    expect(remoteAllowanceSchema.safeParse(result).success).toBe(true)
+    expect(result).toEqual({
+      driverKind: 'claude',
+      status: 'available',
+      windows: [
+        { label: '5h', usedPercent: 41.5, resetsAt: 9_000 },
+        { label: 'Weekly', usedPercent: 100, resetsAt: null, resetText: 'Friday' },
+      ],
+      bankedResets: 2,
+      updatedAt: 1_000,
+    })
+    expect(JSON.stringify(result)).not.toContain('grant_secret')
+  })
+
+  it('refuses a provider the contract does not name', async () => {
+    const allowance = vi.fn()
+    const host = hostFor(await tempStore(), fakeEngine(), { allowance })
+    await expect(host.query(CALLER, 'usage.allowance', { driverKind: 'nope' })).rejects.toThrow()
+    expect(allowance).not.toHaveBeenCalled()
   })
 })
 

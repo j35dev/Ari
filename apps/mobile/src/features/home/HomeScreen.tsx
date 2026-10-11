@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { LoaderCircle, Search, Settings, SquarePen } from 'lucide-react'
+import { Gauge, LoaderCircle, Search, Settings, SquarePen } from 'lucide-react'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { EmptyState } from '../../components/EmptyState'
 import { useApp } from '../../lib/app-state'
@@ -7,6 +7,7 @@ import { connectionLabel, relativeTime } from '../../lib/format'
 import { usePullToRefresh } from '../../lib/pull-to-refresh'
 import { shelve, type ShelfRow } from '../../lib/shelves'
 import { useAttention } from '../../lib/use-attention'
+import { UsageSheet } from '../usage/UsageSheet'
 import { SessionActions } from './SessionActions'
 
 const HOLD_MS = 480
@@ -27,6 +28,7 @@ export function HomeScreen({
   const [query, setQuery] = useState('')
   const [archived, setArchived] = useState(false)
   const [acting, setActing] = useState<SessionSummary | null>(null)
+  const [usage, setUsage] = useState(false)
   const { pull, ready, handlers } = usePullToRefresh(() => void app.refresh())
   const shelves = useMemo(
     () =>
@@ -67,6 +69,16 @@ export function HomeScreen({
             />
             <span className="truncate">{host}</span>
           </span>
+          {connected && app.session?.supports('usage.allowance') === true && (
+            <button
+              type="button"
+              className="icon-button -mr-2 text-fg-muted"
+              aria-label="Usage"
+              onClick={() => setUsage(true)}
+            >
+              <Gauge size={19} />
+            </button>
+          )}
           <button
             type="button"
             className="icon-button text-fg-muted"
@@ -216,6 +228,7 @@ export function HomeScreen({
         <SquarePen size={22} />
       </button>
       {acting !== null && <SessionActions session={acting} onClose={() => setActing(null)} />}
+      {usage && <UsageSheet onClose={() => setUsage(false)} />}
     </div>
   )
 }
