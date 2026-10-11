@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { delegationSettingsSchema } from './agent-control'
+import { delegationSettingsPatchSchema, delegationSettingsSchema } from './agent-control'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { remoteOriginSchema } from './remote'
 
@@ -127,7 +127,7 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
-  delegation: delegationSettingsSchema.partial().optional(),
+  delegation: delegationSettingsPatchSchema.optional(),
   appearance: z
     .object({
       themeId: themeIdSchema,
