@@ -203,7 +203,7 @@ export interface AppServerMapper {
 export function createAppServerMapper(): AppServerMapper {
   const deltaSeen = new Set<string>()
   const startedItems = new Set<string>()
-  const threadTotals = new Map<string, TokenCounts>()
+  const usage: UsageTracker = { totals: new Map(), turnStarted: false }
 
   function itemEvents(item: AppServerItem, complete: boolean): AgentEvent[] {
     if (!item || typeof item !== 'object') return []
@@ -383,7 +383,7 @@ export function createAppServerMapper(): AppServerMapper {
       return {
         kind: 'notification',
         method: method ?? '',
-        events: notificationEvents(method, params, deltaSeen, threadTotals, itemEvents),
+        events: notificationEvents(method, params, deltaSeen, usage, itemEvents),
       }
     },
   }
@@ -481,6 +481,13 @@ interface TokenCounts {
   cachedInputTokens: number
 }
 
+/** What one connection has seen of token usage: one adapter, one turn. */
+interface UsageTracker {
+  /** Last cumulative total per thread, to diff the next update against. */
+  totals: Map<string, TokenCounts>
+  turnStarted: boolean
+}
+
 function tokenCounts(raw: unknown): TokenCounts | null {
   const counts = raw as Record<string, unknown> | null | undefined
   const input = counts?.['inputTokens']
@@ -498,7 +505,7 @@ function notificationEvents(
   method: string | null,
   params: Record<string, unknown>,
   deltaSeen: Set<string>,
-  threadTotals: Map<string, TokenCounts>,
+  usageTracker: UsageTracker,
   itemEvents: (item: AppServerItem, complete: boolean) => AgentEvent[],
 ): AgentEvent[] {
   switch (method) {
@@ -527,6 +534,9 @@ function notificationEvents(
       const item = params['item'] as AppServerItem | undefined
       return itemEvents(item ?? {}, method === 'item/completed')
     }
+    case 'turn/started':
+      usageTracker.turnStarted = true
+      return []
     case 'thread/tokenUsage/updated': {
       const usage = (params['tokenUsage'] ?? {}) as Record<string, unknown>
       const threadId = typeof params['threadId'] === 'string' ? params['threadId'] : ''
@@ -535,8 +545,8 @@ function notificationEvents(
       // `total` accumulates over the whole thread and is restated on every
       // update, so only its growth is new usage. The first update has nothing
       // to diff against; `last` is the single call that produced it.
-      const before = threadTotals.get(threadId)
-      const spent =
+      const before = usageTracker.totals.get(threadId)
+      const grown =
         total && before
           ? {
               inputTokens: Math.max(0, total.inputTokens - before.inputTokens),
@@ -544,7 +554,10 @@ function notificationEvents(
               cachedInputTokens: Math.max(0, total.cachedInputTokens - before.cachedInputTokens),
             }
           : last
-      if (total) threadTotals.set(threadId, total)
+      // A resumed thread restates its total before the turn begins. That is
+      // history earlier turns already counted, so it only sets the baseline.
+      const spent = usageTracker.turnStarted ? grown : null
+      if (total) usageTracker.totals.set(threadId, total)
       const events: AgentEvent[] = []
       if (spent && spent.inputTokens + spent.outputTokens > 0) {
         events.push({ type: 'usage', ...spent, costUsd: null })
