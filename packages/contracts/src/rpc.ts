@@ -609,6 +609,7 @@ export const rpcParams = {
   }),
   'browser.pick': z.object({ id: z.string().min(1) }),
   'browser.cancelPick': z.object({ id: z.string().min(1) }),
+  'browser.capture': z.object({ id: z.string().min(1) }),
   'project.list': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
@@ -988,6 +989,7 @@ export interface RpcResults {
   'browser.pick':
     { ok: true; element: PickedElement; pngBase64: string | null } | { ok: false; error: string }
   'browser.cancelPick': { cancelled: boolean }
+  'browser.capture': { pngBase64: string | null }
   'project.list': Project[]
   'project.add': Project
   'project.open': Project
