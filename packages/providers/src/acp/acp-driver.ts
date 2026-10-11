@@ -528,13 +528,26 @@ export async function createAcpAdapter(
       // lasts until the next tool. Widen the session instead. A mode switch
       // (Claude's plan exit) reuses the kind to name a mode, not a grant.
       const chosen = (pending.options ?? []).find((option) => option.optionId === optionId)
+      // A plain "allow" can fall back to the agent's only allow option, which
+      // may be a persistent one. That is not the user asking for a wider grant.
+      const askedForAlways = typeof decision !== 'string' || decision === 'always-allow'
       if (
+        askedForAlways &&
         chosen?.kind === 'allow_always' &&
         pending.kind !== 'switch_mode' &&
         permissionMode !== 'full'
       ) {
         permissionMode = 'full'
-        push([{ type: 'permission-mode', mode: 'full' }])
+        // The agent words its option for one tool ("Always allow Read"), so
+        // say what the answer covers here.
+        push([
+          { type: 'permission-mode', mode: 'full' },
+          {
+            type: 'notice',
+            message:
+              'Always allow now covers every tool in this session. Ari will not ask again until you change the permission mode.',
+          },
+        ])
       }
       pending.resolve(
         optionId !== undefined
