@@ -7,6 +7,7 @@ import { driverKindSchema, type DriverKind, type PermissionMode } from '@ari/con
 import type { Command } from '@ari/contracts/commands'
 import type { Message } from '@ari/contracts/message'
 import type {
+  RemoteAllowance,
   RemoteApproval,
   RemoteAttention,
   RemoteChanges,
@@ -18,7 +19,7 @@ import type {
   RemoteProject,
 } from '@ari/contracts/remote'
 import type { Session } from '@ari/contracts/session'
-import type { SessionSummary } from '@ari/contracts/rpc'
+import type { ProviderAllowance, SessionSummary } from '@ari/contracts/rpc'
 import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
 import type { PairingService } from '@ari/remote-gateway/pairing'
 import type { Engine } from './engine'
@@ -78,6 +79,8 @@ export interface RemoteHostDeps {
    * May start an agent to ask it, so the implementation is expected to cache.
    */
   effortsForModel?: (kind: DriverKind, modelId: string | null) => Promise<RemoteEffortOption[]>
+  /** The account allowance the desktop's own usage pill reads; never throws. */
+  allowance?: (kind: DriverKind) => Promise<ProviderAllowance>
   /** Owns the device records `device.list` and `device.revoke` read and write. */
   pairing: PairingService
   mintSessionId: () => string
@@ -372,6 +375,7 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
         ? []
         : (['changes.preview', 'changes.integrate'] as const)),
       ...(deps.effortsForModel === undefined ? [] : (['models.efforts'] as const)),
+      ...(deps.allowance === undefined ? [] : (['usage.allowance'] as const)),
     ],
     listSessions,
     listProjects,
@@ -495,6 +499,25 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           const kind = driverKindSchema.parse(params['driverKind'])
           const modelId = typeof params['modelId'] === 'string' ? params['modelId'] : null
           return { efforts: await effortOptions(kind, modelId) }
+        }
+        case 'usage.allowance': {
+          // Like the catalog, the account's and not a project's. Rebuilt field
+          // by field so the ids that redeem a banked reset stay here.
+          const kind = driverKindSchema.parse(params['driverKind'])
+          const allowance = await deps.allowance?.(kind)
+          if (allowance === undefined) return null
+          return {
+            driverKind: kind,
+            status: allowance.status,
+            windows: allowance.windows.map((window) => ({
+              label: window.label,
+              usedPercent: Math.min(100, Math.max(0, window.usedPercent)),
+              resetsAt: window.resetsAt,
+              ...(window.resetText === undefined ? {} : { resetText: window.resetText }),
+            })),
+            bankedResets: Math.max(0, allowance.resetCredits?.availableCount ?? 0),
+            updatedAt: allowance.updatedAt,
+          } satisfies RemoteAllowance
         }
         case 'device.list':
           // A paired device already acts as the user, so seeing and revoking
