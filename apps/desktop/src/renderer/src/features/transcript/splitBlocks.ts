@@ -21,7 +21,10 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
           isLastOfMessage: false,
           turnId: message.turnId,
         }
-      : { turnId: message.turnId }
+      : {
+          turnId: message.turnId,
+          ...(message.role === 'user' && message.origin ? { origin: message.origin } : {}),
+        }
   switch (part.type) {
     case 'text': {
       if (message.role === 'assistant' && ERROR_MARKER.test(part.text)) {
@@ -144,6 +147,7 @@ export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): 
         role: message.role,
         images: imageRun,
         turnId: message.turnId,
+        ...(message.role === 'user' && message.origin ? { origin: message.origin } : {}),
       })
       mergeIndex = blocks.length - 1
       mergeKind = null
