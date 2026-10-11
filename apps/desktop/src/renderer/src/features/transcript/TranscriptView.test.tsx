@@ -523,6 +523,27 @@ describe('TranscriptView tool bursts', () => {
   })
 })
 
+describe('TranscriptView notices', () => {
+  it('shows a notice in full, and not as a failed turn', () => {
+    const noted: Message = {
+      id: 'a1',
+      sessionId: 'sess_1',
+      turnId: 'turn_1',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: '\n\nℹ Always allow now covers every tool in this session.' },
+      ],
+      createdAt: 1,
+    }
+    render(createElement(TranscriptView, { sessionId: 'sess_1', messages: [noted] }))
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Always allow now covers every tool in this session.',
+    )
+    expect(screen.queryByRole('button', { name: /Turn failed/ })).not.toBeInTheDocument()
+  })
+})
+
 describe('TranscriptView failure history', () => {
   it('keeps raw provider errors collapsed until details are requested', async () => {
     const user = userEvent.setup()

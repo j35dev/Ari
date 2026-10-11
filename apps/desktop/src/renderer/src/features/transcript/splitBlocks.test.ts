@@ -175,6 +175,22 @@ describe('splitBlocks', () => {
     expect(blocks.map((b) => b.kind)).toEqual(['markdown', 'markdown'])
   })
 
+  it('keeps a notice apart from both the reply and a failure', () => {
+    const blocks = splitBlocks([
+      msg('u1', [{ type: 'text', text: 'ℹ fyi' }], 'user'),
+      msg('m1', [
+        { type: 'text', text: 'Reading the file.' },
+        { type: 'text', text: '\n\nℹ Always allow now covers every tool in this session.' },
+        { type: 'text', text: 'Carrying on.' },
+      ]),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['markdown', 'markdown', 'notice', 'markdown'])
+    expect(blocks[2]).toMatchObject({
+      text: 'Always allow now covers every tool in this session.',
+    })
+    expect(blocks[3]).toMatchObject({ text: 'Carrying on.' })
+  })
+
   it('breaks the markdown merge run at an error note', () => {
     const blocks = splitBlocks([
       msg('m1', [
