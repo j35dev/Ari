@@ -82,6 +82,8 @@ export interface EngineDeps {
   runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /** Whether finished children are reported to their parent; told to the agent. */
+  deliversResults?: () => boolean
   /**
    * Names the option to answer a provider's permission request with when it
    * needs no human — Ari's own control commands — or null to ask as usual.
@@ -548,6 +550,7 @@ export class Engine {
               session,
               await this.#parentTitle(session),
               viaSystem ? 'system' : 'prompt',
+              this.#deps.deliversResults?.() ?? true,
             )
           : null
       adapter = await driver.create({

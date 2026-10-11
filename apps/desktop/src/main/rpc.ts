@@ -469,6 +469,8 @@ let appUpdaterRef: UpdateController | null = null
  * gateway and the same paired devices rather than starting its own listener
  * on a port the first one already holds.
  */
+/** Set once a runtime has started in this process; see `AgentRuntimeOptions.recover`. */
+let agentRuntimeStarted = false
 let remoteRef: RemoteService | null = null
 let remoteConnectRef: RemoteConnectService | null = null
 
@@ -749,6 +751,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const attachmentStore = new AttachmentStore(join(app.getPath('userData'), 'attachments'))
 
   let runtime: Awaited<ReturnType<typeof startAgentRuntime>> | null = null
+  const firstRuntime = !agentRuntimeStarted
+  agentRuntimeStarted = true
   const engine = new Engine({
     store: getSessionStore(),
     registry: driverRegistry,
@@ -770,6 +774,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     runtimeEnvironment: async (session) => (await controlReady).environment(session),
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
+    deliversResults: () => {
+      const { enabled, autoDeliverResults } = getSettingsStore().current.delegation
+      return enabled && autoDeliverResults
+    },
     autoApprove: (request) => {
       const { enabled, autoApproveCli } = getSettingsStore().current.delegation
       return enabled && autoApproveCli ? controlCliApproval(request) : null
@@ -788,6 +796,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         store: getSessionStore(),
         baseEnv: processEnvWithPath(environment.pathEnv),
         policy: () => getSettingsStore().current.delegation,
+        recover: firstRuntime,
         providers: async () => {
           const detections = await probeAllDetections()
           const endpoints = await getEndpointStore().load()
@@ -1225,7 +1234,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   )
 
   r.register('session.stopChildren', async ({ sessionId }) => ({
-    stopped: await (await controlReady).service.stopDescendants(sessionId),
+    stopped: await (await controlReady).supervisor.stopBelow(sessionId),
   }))
 
   r.register('session.resume.schedule', async ({ sessionId, at }) => {
@@ -1238,12 +1247,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
   r.register('session.resume.get', async ({ sessionId }) => {
     await resumeReady
-    return { at: resumeSchedule.get(sessionId) }
+    return { at: await resumeSchedule.get(sessionId) }
   })
 
   r.register('session.destroy', async (params) => {
     const store = getSessionStore()
     const ids = [...descendantIds(await store.listSessions(), params.sessionId), params.sessionId]
+    const parentId = (await store.load(params.sessionId)).session?.parentSessionId
     for (const id of ids) {
       const model = await store.load(id)
       if (model.activeTurnId || engine.hasLiveTurn(id)) {
@@ -1253,6 +1263,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       await store.destroy(id)
       await runtime?.release(id)
     }
+    // The parent's transcript still holds this child's task card. Without the
+    // event the CLI's own destroy journals, the card went on reading "Done"
+    // and opened a session that no longer exists.
+    if (parentId && (await store.load(parentId)).session)
+      await engine.record(parentId, {
+        type: 'child.session.destroyed',
+        childSessionId: params.sessionId,
+      })
     return { destroyed: true }
   })
 

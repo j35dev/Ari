@@ -51,3 +51,12 @@ it('states the same facts plainly, on one line, for a provider system channel', 
   expect(controlPreamble(root, null, 'system')).toContain('session spawn|status|wait')
   expect(controlPreamble(child, 'Ship settings', 'system')).toContain('as its review agent')
 })
+
+it('does not promise a wake-up when automatic delivery is switched off', () => {
+  const parent = controlPreamble(root, null, 'prompt', false)
+  expect(parent).not.toContain('report back to you automatically')
+  expect(parent).toContain('collect its result with `ari session wait` before you end your turn')
+  const delegate = controlPreamble(child, 'Ship settings', 'prompt', false)
+  expect(delegate).not.toContain('Ari delivers that report')
+  expect(delegate).toContain('The parent reads that report')
+})

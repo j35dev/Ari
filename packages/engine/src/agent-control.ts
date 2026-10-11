@@ -761,20 +761,6 @@ export class AgentControlService {
   }
 
   /**
-   * Interrupts every running turn below `rootId` and returns how many there
-   * were. This is how a person stops delegated work from a parent that has
-   * already ended its own turn and so has nothing of its own to stop.
-   */
-  async stopDescendants(rootId: string): Promise<number> {
-    let stopped = 0
-    for (const id of descendantIds(await this.host.store.listSessions(), rootId)) {
-      if (!(await this.host.store.load(id)).activeTurnId) continue
-      if ((await this.host.dispatch({ type: 'turn.interrupt', sessionId: id })).accepted) stopped++
-    }
-    return stopped
-  }
-
-  /**
    * Where each delegated child of `parentId` stands and what it last reported.
    * A plain read: the desktop UI shows these without marking anything as seen
    * by the parent agent.

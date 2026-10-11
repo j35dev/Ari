@@ -34,8 +34,13 @@ async function create(id: string, parentSessionId?: string): Promise<void> {
   await store.append(id, { type: 'session.created', session: session(id, parentSessionId) })
 }
 
-async function start(id: string, text = 'go'): Promise<string> {
-  await host.dispatch({ type: 'turn.start', sessionId: id, text, attachments: [] })
+/** Starts a turn. A child's is prompted by its parent unless a person typed it. */
+async function start(id: string, text = 'go', by: 'agent' | 'person' = 'agent'): Promise<string> {
+  const parentId = (await store.load(id)).session?.parentSessionId
+  await host.dispatch(
+    { type: 'turn.start', sessionId: id, text, attachments: [] },
+    by === 'agent' && parentId ? { kind: 'session', sessionId: parentId } : undefined,
+  )
   return (await store.load(id)).activeTurnId!
 }
 
@@ -363,6 +368,70 @@ it('settles a child turn that a restart left open, and leaves a root alone', asy
   await expect.poll(async () => (await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
   expect((await store.load('root')).activeTurnId).not.toBeNull()
   expect((await store.load('b')).lastTurn).toBeUndefined()
+})
+
+it('does not deliver at start-up what settled before the launch', async () => {
+  // Also the shape every journal from before delivery existed is in: a
+  // settled child and nothing that says the parent has seen it.
+  await start('root')
+  await settle('root')
+  await start('a')
+  await settle('a', 'completed', 'A finished last week.')
+  await start('b')
+  host.isRunning = () => false
+  host.settleDelayMs = 5
+  supervisor.start()
+
+  await expect.poll(async () => (await store.load('b')).lastTurn?.stopReason).toBe('interrupted')
+  await expect
+    .poll(async () => (await store.load('root')).childCompletions?.a?.acknowledged)
+    .toBe(true)
+  // The user's next message in the old session is answered once, not twice.
+  await start('root')
+  await settle('root')
+  await supervisor.evaluate('root')
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  expect(await notices('root')).toHaveLength(0)
+})
+
+it('does not wake the parent for a turn a person ran in the child', async () => {
+  await start('root')
+  await settle('root')
+  await start('a', 'one more thing', 'person')
+  await settle('a', 'completed', 'Answered the person.')
+  await supervisor.evaluate('root')
+
+  expect(await notices('root')).toHaveLength(0)
+  expect((await store.load('root')).childCompletions?.a?.acknowledged).toBe(true)
+})
+
+it('stops everything below an idle parent without waking it for what had finished', async () => {
+  await start('root')
+  await settle('root')
+  await start('a')
+  await start('b')
+  await settle('a', 'completed', 'A is done.')
+
+  expect(await supervisor.stopBelow('root')).toBe(1)
+  expect((await store.load('b')).lastTurn?.stopReason).toBe('interrupted')
+  await supervisor.evaluate('root')
+  expect(await notices('root')).toHaveLength(0)
+  expect((await store.load('root')).activeTurnId).toBeNull()
+  expect(await supervisor.stopBelow('root')).toBe(0)
+})
+
+it('stops a grandchild under an idle child, and leaves a running parent alone', async () => {
+  await start('root')
+  await start('a')
+  await start('b')
+  await settle('b')
+  await create('grand', 'b')
+  await start('grand')
+
+  expect(await supervisor.stopBelow('root')).toBe(2)
+  expect((await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
+  expect((await store.load('grand')).lastTurn?.stopReason).toBe('interrupted')
+  expect((await store.load('root')).activeTurnId).not.toBeNull()
 })
 
 it('tries a refused wake-up again when any turn settles', async () => {
