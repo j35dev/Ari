@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DriverKind } from '@ari/contracts/common'
+import { DEFAULT_ACCOUNT } from '@ari/contracts/settings'
 import type { CliKind, ProviderConnection, SettingsUpdate } from '@ari/contracts/settings'
 import { Button } from '@ari/ui/button'
 import { RefreshCw } from 'lucide-react'
@@ -15,7 +16,12 @@ import { useProviderInstalls } from './use-provider-installs'
 
 const ORDER: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
 
-const ON: ProviderConnection = { enabled: true, binaryPath: '' }
+const ON: ProviderConnection = {
+  enabled: true,
+  binaryPath: '',
+  accounts: [],
+  activeAccount: DEFAULT_ACCOUNT,
+}
 
 /** How long a saved change may wait for its detection before Ari asks again. */
 const RECHECK_AFTER_MS = 20_000

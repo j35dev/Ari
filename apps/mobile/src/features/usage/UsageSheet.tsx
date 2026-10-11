@@ -17,7 +17,11 @@ function names(kinds: string[]): string {
   return kinds.map(providerName).join(', ')
 }
 
-/** Every installed provider's account allowance, the open session's provider first. */
+/**
+ * Every installed provider's account allowance, the open session's provider
+ * first, with the two things to do about a limit: run the provider as another
+ * of its accounts, and spend a banked reset. Both happen on the computer.
+ */
 export function UsageSheet({
   current,
   onClose,
@@ -25,16 +29,54 @@ export function UsageSheet({
   current?: string
   onClose: () => void
 }): ReactNode {
-  const { kinds, rows, refreshing, refresh } = useAllowance()
+  const { kinds, rows, accounts, refreshing, canRedeem, refresh, switchAccount, redeem } =
+    useAllowance()
   const [now, setNow] = useState(Date.now)
+  /** The provider an action is running for; one at a time keeps the sheet honest. */
+  const [working, setWorking] = useState<string | null>(null)
+  /** The provider whose reset is one tap from being spent. */
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const [notes, setNotes] = useState<Record<string, { ok: boolean; text: string }>>({})
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(timer)
   }, [])
+
+  const note = (kind: string, value: { ok: boolean; text: string } | null): void =>
+    setNotes((previous) => {
+      const next = { ...previous }
+      if (value === null) delete next[kind]
+      else next[kind] = value
+      return next
+    })
+
+  const use = async (kind: string, accountId: string): Promise<void> => {
+    setWorking(kind)
+    setConfirming(null)
+    note(kind, null)
+    const problem = await switchAccount(kind, accountId)
+    if (problem !== null) note(kind, { ok: false, text: problem })
+    setWorking(null)
+  }
+
+  const spend = async (kind: string): Promise<void> => {
+    setWorking(kind)
+    setConfirming(null)
+    note(kind, await redeem(kind))
+    setWorking(null)
+  }
+
   const ordered = [...kinds].sort((a, b) => Number(b === current) - Number(a === current))
+  // A provider with a choice of accounts is never hidden: the account in use
+  // may be the one with nothing to show, and this is where to leave it.
   const quiet = ordered.filter((kind) => {
     const row = rows[kind]
-    return row !== undefined && row.windows.length === 0 && row.bankedResets === 0
+    return (
+      row !== undefined &&
+      row.windows.length === 0 &&
+      row.bankedResets === 0 &&
+      accounts[kind] === undefined
+    )
   })
   const unread = quiet.filter((kind) => rows[kind]?.status === 'error')
   const unreported = quiet.filter((kind) => rows[kind]?.status !== 'error')
@@ -56,6 +98,7 @@ export function UsageSheet({
         {ordered.map((kind) => {
           const row = rows[kind]
           const name = providerName(kind)
+          const list = accounts[kind]
           // In its own place, so the list does not jump when a slow provider answers.
           if (row === undefined)
             return (
@@ -65,6 +108,8 @@ export function UsageSheet({
             )
           if (quiet.includes(kind)) return null
           const old = stale(row, now)
+          const active = list?.find((account) => account.active)
+          const busy = working !== null
           return (
             <section key={row.driverKind} aria-label={`${name} usage`} className="py-4">
               <div className="flex items-baseline justify-between gap-3">
@@ -82,6 +127,36 @@ export function UsageSheet({
                   </span>
                 )}
               </div>
+              {list !== undefined && (
+                <>
+                  <div
+                    role="group"
+                    aria-label={`${name} account`}
+                    className="mt-3 flex flex-wrap gap-2"
+                  >
+                    {list.map((account) => (
+                      <button
+                        key={account.id}
+                        type="button"
+                        aria-pressed={account.active}
+                        disabled={busy}
+                        onClick={() => {
+                          if (!account.active) void use(kind, account.id)
+                        }}
+                        className={`control-chip ${account.active ? 'bg-accent-subtle font-medium text-fg ring-1 ring-accent/50' : ''}`}
+                      >
+                        {account.label}
+                      </button>
+                    ))}
+                  </div>
+                  {active?.signedIn === false && (
+                    <p className="mt-2 text-xs text-warning">
+                      {active.label} is not signed in. Sign it in on your computer, or use another
+                      account.
+                    </p>
+                  )}
+                </>
+              )}
               {row.windows.map((window) => (
                 <div key={window.label} className="mt-3">
                   <div className="flex justify-between gap-3 text-[13px] text-fg-muted">
@@ -114,10 +189,69 @@ export function UsageSheet({
                   </p>
                 </div>
               ))}
-              {row.bankedResets > 0 && (
-                <p className="mt-3 text-xs text-fg-muted">
-                  {row.bankedResets} {row.bankedResets === 1 ? 'reset' : 'resets'} banked · use{' '}
-                  {row.bankedResets === 1 ? 'it' : 'them'} on your computer
+              {row.windows.length === 0 && working !== kind && (
+                <p className="mt-3 text-xs text-fg-subtle">No usage reported for this account.</p>
+              )}
+              {working === kind && (
+                <p role="status" className="mt-3 text-xs text-fg-muted">
+                  Working on your computer…
+                </p>
+              )}
+              {row.bankedResets > 0 &&
+                (!canRedeem ? (
+                  <p className="mt-3 text-xs text-fg-muted">
+                    {row.bankedResets} {row.bankedResets === 1 ? 'reset' : 'resets'} banked · use{' '}
+                    {row.bankedResets === 1 ? 'it' : 'them'} on your computer
+                  </p>
+                ) : confirming === kind ? (
+                  <div className="mt-3 rounded-xl border border-border bg-surface-1 p-3">
+                    <p className="text-[13px] text-fg">
+                      Use one of your {row.bankedResets} banked{' '}
+                      {row.bankedResets === 1 ? 'reset' : 'resets'} now? It clears the current limit
+                      and cannot be taken back.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        className="secondary-button flex-1"
+                        onClick={() => setConfirming(null)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-button min-h-11 flex-1"
+                        onClick={() => void spend(kind)}
+                      >
+                        Use reset
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className="text-xs text-fg-muted">
+                      {row.bankedResets} {row.bankedResets === 1 ? 'reset' : 'resets'} banked
+                    </span>
+                    <button
+                      type="button"
+                      className="control-chip"
+                      disabled={busy}
+                      aria-label={`Use a ${name} reset`}
+                      onClick={() => {
+                        note(kind, null)
+                        setConfirming(kind)
+                      }}
+                    >
+                      Use a reset
+                    </button>
+                  </div>
+                ))}
+              {notes[kind] !== undefined && (
+                <p
+                  role="status"
+                  className={`mt-3 text-xs ${notes[kind].ok ? 'text-fg-muted' : 'text-danger'}`}
+                >
+                  {notes[kind].text}
                 </p>
               )}
             </section>
