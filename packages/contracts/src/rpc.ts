@@ -68,6 +68,9 @@ export interface ProviderAllowance {
   detail: string
 }
 
+/** `default` or an account slug; checked against the stored accounts by the handler. */
+const accountIdParam = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/)
+
 const percentSchema = z.number().finite().min(0).max(100)
 const codexWindowSchema = z.object({
   usedPercent: percentSchema,
@@ -298,6 +301,26 @@ export interface TerminalDataFrame {
   data: string
 }
 
+/** One account a provider can run as. */
+export interface ProviderAccountRow {
+  /** `default` for the CLI's own sign-in, otherwise the account's slug. */
+  id: string
+  label: string
+  isDefault: boolean
+  /** The account new turns run as. */
+  active: boolean
+  /** Who the CLI says it is signed in as; null when it could not say. */
+  identity: { signedIn: boolean; email: string | null; plan: string | null } | null
+}
+
+export interface ProviderAccountsResult {
+  /** False for providers whose sign-in cannot be kept per account. */
+  supported: boolean
+  accounts: ProviderAccountRow[]
+  /** Why the requested change did not happen; the list is still current. */
+  error?: string
+}
+
 /**
  * Payload delivered on the providers.updates stream: fresh detection rounds
  * (with update availability), catalog refresh notifications, and one-shot
@@ -310,6 +333,12 @@ export type ProvidersUpdateFrame =
    */
   | { type: 'detections'; detections: RpcResults['providers.detect']; checked?: DriverKind[] }
   | { type: 'catalog'; at: number }
+  /**
+   * A provider's accounts changed. `active` is true when that changes who the
+   * provider now runs as (a switch, or the account in use signing in or out);
+   * false for an account merely added, removed or signed in beside it.
+   */
+  | { type: 'accounts'; kind: DriverKind; active: boolean }
   /** A provider refused a turn for want of a login; sign in to unblock it. */
   | { type: 'auth.required'; kind: DriverKind; label: string; logins: ProviderLoginMethod[] }
   /** Install/upgrade accepted; Settings and toasts can show a spinner immediately. */
@@ -359,6 +388,8 @@ export const providerLoginMethodSchema = z.object({
   description: z.string(),
   command: z.string().min(1),
   args: z.array(z.string()),
+  /** Variables the command needs so it signs in the account in use, not the default one. */
+  env: z.record(z.string(), z.string()).optional(),
 })
 export type ProviderLoginMethod = z.infer<typeof providerLoginMethodSchema>
 export const providerLoginMethodsSchema = z.array(providerLoginMethodSchema)
@@ -560,6 +591,18 @@ export const rpcParams = {
   'attachments.read': z.object({ id: z.string().min(1).max(128) }),
   'providers.detect': z.undefined(),
   'providers.rescan': z.undefined(),
+  'providers.accounts': z.object({
+    kind: driverKindSchema,
+    /** Ask each CLI again who it is, rather than reuse a recent answer. */
+    fresh: z.boolean().optional(),
+    /** Start no CLI at all: identities come from what is already known. */
+    brief: z.boolean().optional(),
+  }),
+  'providers.accounts.add': z.object({ kind: driverKindSchema, label: z.string().min(1).max(80) }),
+  'providers.accounts.activate': z.object({ kind: driverKindSchema, id: accountIdParam }),
+  'providers.accounts.signIn': z.object({ kind: driverKindSchema, id: accountIdParam }),
+  'providers.accounts.signOut': z.object({ kind: driverKindSchema, id: accountIdParam }),
+  'providers.accounts.remove': z.object({ kind: driverKindSchema, id: accountIdParam }),
   'providers.models': z.undefined(),
   /**
    * Thought/reasoning levels for one kind, optionally resolved against a
@@ -900,6 +943,24 @@ export interface RpcResults {
   }[]
   /** `providers.detect` without the cache: every CLI is looked for and probed again. */
   'providers.rescan': RpcResults['providers.detect']
+  /** The accounts a provider can run as; `fresh` asks each CLI again who it is. */
+  'providers.accounts': ProviderAccountsResult
+  'providers.accounts.add': ProviderAccountsResult
+  /** Makes an account the one new turns run as. */
+  'providers.accounts.activate': ProviderAccountsResult
+  /**
+   * The provider's own sign-in command for one account, to run in a terminal
+   * tab with `env` set; null when the CLI is missing or has no sign-in.
+   */
+  'providers.accounts.signIn': {
+    title: string
+    command: string
+    args: string[]
+    env: Record<string, string>
+  } | null
+  'providers.accounts.signOut': ProviderAccountsResult
+  /** Forgets an extra account and deletes its home, sign-in included. */
+  'providers.accounts.remove': ProviderAccountsResult
   /**
    * Merged model catalogs per driver kind, sourced live from the provider
    * (`source: 'live'`), a cached refresh (`'cache'`), the bundled snapshot
