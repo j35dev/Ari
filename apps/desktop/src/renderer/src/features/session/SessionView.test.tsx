@@ -1790,6 +1790,34 @@ describe('SessionView mode change preserves the picked model', () => {
 
     expect(screen.getByTestId('defaults').textContent).toBe('opencode|gpt-5|full')
   })
+
+  it('moves the mode chip when the engine changes the session mode', async () => {
+    function Host() {
+      const [defaults, setDefaults] = useState<SessionDefaults>(DEFAULTS)
+      return (
+        <ToastProvider>
+          <SessionView sessionId="sess_1" defaults={defaults} onDefaultsChange={setDefaults} />
+        </ToastProvider>
+      )
+    }
+
+    render(<Host />)
+    expect(await screen.findByRole('button', { name: 'Permission mode: Ask' })).toBeInTheDocument()
+
+    // An always-allow answer widens the session from the engine side; no chip
+    // was clicked, so the journal event is the only thing that can move it.
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'session.updated',
+      permissionMode: 'full',
+    })
+
+    expect(
+      await screen.findByRole('button', { name: 'Permission mode: Full auto' }),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('EffortChip', () => {
