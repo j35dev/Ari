@@ -21,15 +21,21 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
   const generation = useRef(0)
   /** Generation of the pass in flight, if there is one. */
   const running = useRef<number | null>(null)
+  const tickOwed = useRef(false)
   // A read that began before a redemption finished may predate it; the count of
   // redemptions per provider lets that read be dropped instead of applied.
   const redeemed = useRef(new Map<string, number>())
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async function pass(onTimer = false): Promise<void> {
     // Slow provider CLIs can keep a pass going past the minute timer. Starting
     // another would drop everything the first is still waiting on, and under
     // sustained load no pass would ever land, so a request joins the one in flight.
-    if (running.current === generation.current) return
+    if (running.current === generation.current) {
+      // A tick that found a pass running is owed: without it the next read is
+      // two minutes after the last, and rows that answered early go stale.
+      if (onTimer) tickOwed.current = true
+      return
+    }
     const current = ++generation.current
     running.current = current
     setRefreshing(true)
@@ -103,6 +109,10 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
       if (current === generation.current) {
         setRefreshing(false)
         setChecking([])
+        if (tickOwed.current) {
+          tickOwed.current = false
+          void pass()
+        }
       }
     }
   }, [])
@@ -110,11 +120,12 @@ export function useProviderAllowance(sessionId: string | null, kind: DriverKind)
   useEffect(() => {
     void refresh()
     const interval = setInterval(() => {
-      void refresh()
+      void refresh(true)
     }, 60_000)
     return () => {
       clearInterval(interval)
       generation.current++
+      tickOwed.current = false
     }
   }, [refresh, sessionId, kind])
 
