@@ -59,6 +59,9 @@ export function createCodeStream(lang: string): CodeStream {
           state = undefined
         }
         const keep = doneLines
+        // The source can shrink back to exactly the finished lines: half a
+        // closing fence is code for one flush. Nothing follows them then.
+        if (keep > 0 && source.length === done.length) return { keep, html: '' }
         // The renderer ends code with a newline while the last line is still
         // being typed, so the line before a trailing newline stays open.
         const closed = source.endsWith('\n')
