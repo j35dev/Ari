@@ -76,6 +76,12 @@ export interface DetectEnvironment {
    * the host's real environment.
    */
   vars?: Record<string, string | undefined>
+  /**
+   * True when `vars` point the CLI at a home Ari built for an extra account.
+   * Such a home holds nothing that authorises the CLI except its own sign-in,
+   * which a home the user relocated themselves does not promise.
+   */
+  separateAccount?: boolean
 }
 
 export function realDetectEnvironment(): DetectEnvironment {
