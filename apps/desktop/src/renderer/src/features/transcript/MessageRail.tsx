@@ -10,6 +10,10 @@ export interface MessageRailEntry {
  * Timeline minimap (T3 parity): one dot per user message in a slim right-edge
  * rail. The dot for the message currently in view lights up; clicking a dot
  * scrolls the transcript to that turn; hovering previews the prompt.
+ *
+ * Each dot owns an equal slot of the rail. Slots shrink before the rail grows,
+ * so a long session packs into a finer dotted line rather than running past
+ * the pane it belongs to.
  */
 export function MessageRail({
   entries,
@@ -26,10 +30,11 @@ export function MessageRail({
   return (
     <nav
       aria-label="Message timeline"
-      className="absolute bottom-6 right-1.5 top-6 z-10 flex w-4 flex-col items-center justify-start gap-1.5"
+      className="absolute bottom-6 right-1.5 top-6 z-10 flex w-4 flex-col"
     >
       {entries.map((entry) => {
         const isActive = entry.key === activeKey
+        const isHovered = entry.key === hovered
         return (
           <button
             key={entry.key}
@@ -41,15 +46,17 @@ export function MessageRail({
             onMouseLeave={() => setHovered(null)}
             onFocus={() => setHovered(entry.key)}
             onBlur={() => setHovered(null)}
-            className="group relative flex h-3 w-3 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className={`group relative flex h-4.5 min-h-0 w-full shrink items-center justify-center focus-visible:outline-none ${
+              isActive || isHovered ? 'z-10' : ''
+            }`}
           >
             <span
               aria-hidden="true"
-              className={`h-1.5 w-1.5 rounded-full transition-colors duration-150 ${
-                isActive ? 'bg-accent' : 'bg-surface-3 group-hover:bg-fg-subtle'
-              }`}
+              className={`aspect-square shrink-0 rounded-full transition-colors duration-150 group-focus-visible:ring-2 group-focus-visible:ring-accent-ring ${
+                isActive || isHovered ? 'h-1.5' : 'h-[clamp(2px,60%,6px)]'
+              } ${isActive ? 'bg-accent' : isHovered ? 'bg-fg-subtle' : 'bg-surface-3'}`}
             />
-            {hovered === entry.key ? (
+            {isHovered ? (
               <span
                 role="tooltip"
                 className="pointer-events-none absolute right-5 top-0 w-64 rounded-lg border border-border bg-surface-2 px-2.5 py-1.5 shadow-2"

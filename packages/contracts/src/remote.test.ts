@@ -5,6 +5,7 @@ import {
   normalizePairingCode,
   pairingConfirmationCode,
   pairingResolveSchema,
+  remoteAllowanceSchema,
   remoteClientMessageSchema,
   remoteCommandEnvelopeSchema,
   remoteErrorCodeSchema,
@@ -168,6 +169,26 @@ describe('remote contract', () => {
     expect(remoteQuerySchema.safeParse({ op: 'models.efforts', driverKind: 'nope' }).success).toBe(
       false,
     )
+  })
+
+  it('reads one provider allowance and carries no way to redeem a reset', () => {
+    expect(requiresAuthentication('usage.allowance')).toBe(true)
+    expect(
+      remoteQuerySchema.safeParse({ op: 'usage.allowance', driverKind: 'codex' }).success,
+    ).toBe(true)
+    expect(remoteQuerySchema.safeParse({ op: 'usage.allowance' }).success).toBe(false)
+    expect(
+      remoteQuerySchema.safeParse({ op: 'usage.allowance', driverKind: 'codex', creditId: 'c1' })
+        .success,
+    ).toBe(false)
+    const allowance = {
+      driverKind: 'codex',
+      status: 'available',
+      windows: [{ label: '5h', usedPercent: 42, resetsAt: 1_700_000_000_000 }],
+      bankedResets: 1,
+      updatedAt: 1_700_000_000_000,
+    }
+    expect(remoteAllowanceSchema.parse({ ...allowance, nextCreditId: 'c1' })).toEqual(allowance)
   })
 
   it('does not accept a wildcard origin anywhere', () => {
