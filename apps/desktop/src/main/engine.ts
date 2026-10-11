@@ -116,6 +116,13 @@ interface ActiveTurn {
    * queued so it still runs.
    */
   steer: (text: string) => Promise<boolean>
+  /**
+   * Starts a fresh assistant message for whatever the adapter emits next. A
+   * user message journaled mid-turn calls this so later output folds below it
+   * instead of into the message above. Resolves once the text written before
+   * the split has been journaled.
+   */
+  splitMessage: () => Promise<void>
 }
 
 /**
@@ -383,18 +390,25 @@ export class Engine {
       this.#dropSteered(sessionId, guard)
       throw e
     }
-    await this.#append(sessionId, {
-      type: 'user.message.added',
-      message: {
-        id: newTypedId('msg'),
-        sessionId,
-        turnId,
-        role: 'user',
-        ...(message.origin ? { origin: message.origin } : {}),
-        parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
-        createdAt: Date.now(),
-      },
-    })
+    // Split and append in the same tick: the store sequences appends in call
+    // order, so the turn's buffered text lands above the user message and
+    // nothing of the running turn can land between the two.
+    const flushed = this.#activeTurns.get(sessionId)?.splitMessage()
+    await Promise.all([
+      flushed,
+      this.#append(sessionId, {
+        type: 'user.message.added',
+        message: {
+          id: newTypedId('msg'),
+          sessionId,
+          turnId,
+          role: 'user',
+          ...(message.origin ? { origin: message.origin } : {}),
+          parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
+          createdAt: Date.now(),
+        },
+      }),
+    ])
   }
 
   /** Retires guards a snapshot already reflects, returning those still pending. */
@@ -544,6 +558,9 @@ export class Engine {
     }
 
     let interrupted = false
+    let messageId = newTypedId('msg')
+    // A result joins the message holding its call, even across a split.
+    const callMessageIds = new Map<string, string>()
     this.#activeTurns.set(session.id, {
       sessionId: session.id,
       turnId,
@@ -566,12 +583,18 @@ export class Engine {
           return false
         }
       },
+      splitMessage: () => {
+        // Text still in the buffer was written before the split, so it is
+        // journaled under the message it belongs to before the id rotates.
+        const flushed = flush()
+        messageId = newTypedId('msg')
+        return flushed
+      },
     })
 
     // Coalesced part buffer: text/thinking flush at ~120ms or on non-text.
     let buffer: { type: 'text' | 'thinking'; text: string }[] = []
     let lastFlush = Date.now()
-    const messageId = newTypedId('msg')
 
     // Post-interrupt guard: the decider already settled an interrupted turn;
     // late adapter events must never overwrite that state.
@@ -656,6 +679,7 @@ export class Engine {
           case 'tool-started': {
             await flush()
             // Tool calls attach to the same streaming assistant message.
+            callMessageIds.set(event.callId, messageId)
             await append({
               type: 'assistant.parts.appended',
               messageId,
@@ -672,9 +696,11 @@ export class Engine {
           }
           case 'tool-completed': {
             await flush()
+            const callMessageId = callMessageIds.get(event.callId) ?? messageId
+            callMessageIds.delete(event.callId)
             await append({
               type: 'assistant.parts.appended',
-              messageId,
+              messageId: callMessageId,
               parts: [
                 {
                   type: 'tool-result',
