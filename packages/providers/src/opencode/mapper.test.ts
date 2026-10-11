@@ -12,14 +12,19 @@ describe('opencode mapper', () => {
   it('maps the live-recorded hello run: text, usage, done (step_start skipped)', () => {
     const events = mapOpencodeStream(fixture('live-run.jsonl'))
     const types = events.map((e) => e.type)
-    expect(types).toEqual(['session-ref', 'text-delta', 'usage', 'done'])
+    expect(types).toEqual(['session-ref', 'text-delta', 'usage', 'context-usage', 'done'])
     if (events[0]?.type === 'session-ref') expect(events[0].ref).toBe('ses_fdce38260ffeZPFcxwzIXfDyU2')
     if (events[1]?.type === 'text-delta') expect(events[1].text).toBe('hello')
-    if (events[2]?.type === 'usage') {
-      expect(events[2].inputTokens).toBe(9371)
-      expect(events[2].outputTokens).toBe(15)
-      expect(events[2].costUsd).toBe(0)
-    }
+    // input 9371 + cache read 128; output 15 + reasoning 5.
+    expect(events[2]).toEqual({
+      type: 'usage',
+      inputTokens: 9499,
+      outputTokens: 20,
+      cachedInputTokens: 128,
+      costUsd: 0,
+    })
+    // The step's own `tokens.total`.
+    expect(events[3]).toEqual({ type: 'context-usage', usedTokens: 9519, windowTokens: null })
   })
 
   it('maps the live-recorded server error to an error event', () => {
@@ -103,8 +108,15 @@ describe('opencode mapper', () => {
         type: 'step_finish',
         part: { type: 'step-finish', reason, tokens: { input: 10, output: 2 }, cost: 0 },
       })
-    expect(mapOpencodeLine(finish('tool-calls')).map((e) => e.type)).toEqual(['usage'])
-    expect(mapOpencodeLine(finish('stop')).map((e) => e.type)).toEqual(['usage', 'done'])
+    expect(mapOpencodeLine(finish('tool-calls')).map((e) => e.type)).toEqual([
+      'usage',
+      'context-usage',
+    ])
+    expect(mapOpencodeLine(finish('stop')).map((e) => e.type)).toEqual([
+      'usage',
+      'context-usage',
+      'done',
+    ])
   })
 
   it('maps documented reasoning parts to thinking deltas', () => {

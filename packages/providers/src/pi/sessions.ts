@@ -61,6 +61,8 @@ interface PiContentBlock {
 interface PiUsage {
   input?: unknown
   output?: unknown
+  cacheRead?: unknown
+  cacheWrite?: unknown
   cost?: { total?: unknown }
 }
 
@@ -287,7 +289,11 @@ function assistantEntry(message: PiMessage, at: number): PiTranscriptEntry {
       usage === undefined
         ? null
         : {
-            inputTokens: numberOr(usage.input, 0),
+            // Cache traffic sits beside `input`; a live turn counts it as read.
+            inputTokens:
+              numberOr(usage.input, 0) +
+              numberOr(usage.cacheRead, 0) +
+              numberOr(usage.cacheWrite, 0),
             outputTokens: numberOr(usage.output, 0),
             costUsd: typeof usage.cost?.total === 'number' ? usage.cost.total : null,
           },

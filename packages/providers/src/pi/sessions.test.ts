@@ -64,7 +64,8 @@ describe('readPiTranscript', () => {
     expect(first).toMatchObject({
       kind: 'assistant',
       blocks: [{ type: 'thinking', text: 'I should list the workspace first.' }],
-      usage: { inputTokens: 6881, outputTokens: 111, costUsd: 0.0145432 },
+      // 6881 fresh plus the 384 the fixture reports as cache traffic.
+      usage: { inputTokens: 7265, outputTokens: 111, costUsd: 0.0145432 },
     })
     expect(first).toHaveProperty('toolCalls', [
       { callId: 'call-1', name: 'bash', argsJson: '{"command":"ls packages"}' },
