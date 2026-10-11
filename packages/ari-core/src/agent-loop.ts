@@ -421,7 +421,18 @@ export async function* runAgentLoop(
       }
 
       for (const w of deferredWhitespace) yield w
-      for (const u of deferredUsage) yield u
+      for (const u of deferredUsage) {
+        yield u
+        // One round is one model call: its prompt plus its reply is what the
+        // window holds going into the next.
+        if (u.type === 'usage' && u.inputTokens + u.outputTokens > 0) {
+          yield {
+            type: 'context-usage',
+            usedTokens: u.inputTokens + u.outputTokens,
+            windowTokens: null,
+          }
+        }
+      }
       break
     }
 

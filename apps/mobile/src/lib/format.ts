@@ -39,6 +39,17 @@ export function relativeTime(at: number, now = Date.now()): string {
   return `${Math.round(hours / 24)}d ago`
 }
 
+/** "45m", "2h 14m", "3d 4h", "19d" — how long until a usage window resets. */
+export function countdown(ms: number): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000))
+  if (minutes < 60) return `${minutes}m`
+  const [whole, rest] =
+    minutes < 1440
+      ? [`${Math.floor(minutes / 60)}h`, `${minutes % 60}m`]
+      : [`${Math.floor(minutes / 1440)}d`, `${Math.floor((minutes % 1440) / 60)}h`]
+  return rest.startsWith('0') ? whole : `${whole} ${rest}`
+}
+
 /**
  * The tool detail behind an approval, rendered as text rather than as markup:
  * it arrives as JSON written by the provider, and a phone that executes it
@@ -52,7 +63,9 @@ export function summarizeToolDetail(summaryJson: string): string {
       const entries = Object.entries(parsed as Record<string, unknown>)
         .filter(([, value]) => value !== null && value !== undefined)
         .slice(0, 4)
-        .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
+        .map(
+          ([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`,
+        )
       if (entries.length > 0) return entries.join('\n')
     }
   } catch {

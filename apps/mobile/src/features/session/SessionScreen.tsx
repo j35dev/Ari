@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   CornerLeftUp,
   Folder,
+  Gauge,
   GitBranch,
   MoreHorizontal,
   SlidersHorizontal,
@@ -29,6 +30,7 @@ import { AttentionDock } from './AttentionDock'
 import { Composer } from './Composer'
 import { Files } from './Files'
 import { SessionDetails } from './SessionDetails'
+import { UsageSheet } from '../usage/UsageSheet'
 import { ReviewIntegration } from './ReviewIntegration'
 import { ModelPicker, modelChipLabel } from '../../components/ModelPicker'
 import { SessionControls } from '../../components/SessionControls'
@@ -68,6 +70,7 @@ export function SessionScreen({
   const [view, setView] = useState<View>('conversation')
   const [details, setDetails] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [usage, setUsage] = useState(false)
   const [pickingModel, setPickingModel] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const [terminalOpened, setTerminalOpened] = useState(false)
@@ -308,6 +311,21 @@ export function SessionScreen({
                   </button>
                 </li>
               ))}
+            {can('usage.allowance') && (
+              <li>
+                <button
+                  type="button"
+                  className="flex min-h-14 w-full items-center gap-3 text-left text-[15px]"
+                  onClick={() => {
+                    setToolsOpen(false)
+                    setUsage(true)
+                  }}
+                >
+                  <Gauge size={18} className="text-fg-muted" />
+                  Usage
+                </button>
+              </li>
+            )}
             <li>
               <button
                 type="button"
@@ -475,6 +493,12 @@ export function SessionScreen({
             if (!can('session.update') || snapshot.session.status === 'running') return
             update({ modelId: modelId || null })
           }}
+        />
+      )}
+      {usage && (
+        <UsageSheet
+          {...(snapshot === null ? {} : { current: snapshot.session.driverKind })}
+          onClose={() => setUsage(false)}
         />
       )}
       {details && snapshot !== null && (

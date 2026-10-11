@@ -16,6 +16,7 @@ import {
   SessionView,
   contextTokensFromHint,
   formatCompactTokens,
+  formatTurnDuration,
   type SessionDefaults,
 } from './SessionView'
 
@@ -959,29 +960,77 @@ describe('SessionView context meter', () => {
       at: 2,
       sessionId: 'sess_1',
       type: 'usage.recorded',
-      inputTokens: 100,
-      outputTokens: 50,
+      inputTokens: 62_564,
+      outputTokens: 166,
+      cachedInputTokens: 47_040,
     })
   }
 
-  it('renders the used token count when usage is present', async () => {
+  function emitContext(seq: number, usedTokens: number, windowTokens: number | null): void {
+    emitSessionEvent({
+      seq,
+      at: seq,
+      sessionId: 'sess_1',
+      type: 'context.recorded',
+      usedTokens,
+      windowTokens,
+    })
+  }
+
+  it('totals input the model read, cache included, and says how much was cached', async () => {
     renderView()
     await screen.findByLabelText('Message')
 
     emitUsage()
 
-    expect(await screen.findByTitle('Total tokens: 150')).toBeInTheDocument()
-    expect(screen.getByText('150')).toBeInTheDocument()
+    expect(
+      await screen.findByTitle('Input tokens this session: 62,564 (47,040 read from cache)'),
+    ).toHaveTextContent('↑ 62.6K')
+    expect(screen.getByTitle('Output tokens this session: 166')).toHaveTextContent('↓ 166')
   })
 
-  it('omits the denominator when the catalog has no context hint', async () => {
+  it('leaves token totals out when the agent reports only a context reading', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitContext(2, 33_587, 200_000)
+
+    expect(await screen.findByText('33.6K / 200K')).toBeInTheDocument()
+    expect(screen.getByText('1 turn')).toBeInTheDocument()
+    expect(screen.queryByText(/↑|↓/)).not.toBeInTheDocument()
+  })
+
+  it('shows no context meter until the provider reports a reading', async () => {
     renderView()
     await screen.findByLabelText('Message')
 
     emitUsage()
 
-    expect(screen.getByText('150')).toBeInTheDocument()
+    await screen.findByText('↑ 62.6K')
+    expect(screen.queryByLabelText(/Context used/)).not.toBeInTheDocument()
+  })
+
+  it('tracks the latest context reading rather than a running token total', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitUsage()
+    emitContext(3, 29_134, null)
+    emitContext(4, 33_587, null)
+
+    expect(await screen.findByTitle('Context: 33.6K tokens')).toBeInTheDocument()
     expect(screen.queryByText(/\/.+/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the window the provider reported across readings that omit it', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitContext(1, 33_587, 200_000)
+    emitContext(2, 41_000, null)
+
+    expect(await screen.findByText('41K / 200K')).toBeInTheDocument()
   })
 
   it('shows used / window when the session model carries a context hint', async () => {
@@ -1021,15 +1070,7 @@ describe('SessionView context meter', () => {
     )
     await screen.findByLabelText('Message')
 
-    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
-    emitSessionEvent({
-      seq: 2,
-      at: 2,
-      sessionId: 'sess_1',
-      type: 'usage.recorded',
-      inputTokens: 100_000,
-      outputTokens: 5_000,
-    })
+    emitContext(1, 105_000, null)
 
     expect(await screen.findByText('105K / 200K')).toBeInTheDocument()
   })
@@ -1050,11 +1091,20 @@ describe('context meter helpers', () => {
     expect(formatCompactTokens(12_500)).toBe('12.5K')
     expect(formatCompactTokens(200_000)).toBe('200K')
     expect(formatCompactTokens(1_000_000)).toBe('1M')
+    expect(formatCompactTokens(3_982)).toBe('4K')
+    expect(formatCompactTokens(999_960)).toBe('1M')
+    expect(formatCompactTokens(3_412_900)).toBe('3.4M')
+  })
+
+  it('formats turn latency in seconds, then minutes', () => {
+    expect(formatTurnDuration(52_800)).toBe('52.8s')
+    expect(formatTurnDuration(59_700)).toBe('1m 00s')
+    expect(formatTurnDuration(125_400)).toBe('2m 05s')
   })
 
   it('renders a numeric-only chip without a window and a full chip with one', () => {
     const { container: bare } = render(<ContextMeter used={42} contextWindow={null} />)
-    expect(bare.textContent).toBe('42')
+    expect(bare.textContent).toBe('context42')
     const { container } = render(<ContextMeter used={50_000} contextWindow={200_000} />)
     expect(container.textContent).toContain('50K / 200K')
     expect(container.querySelector('[aria-hidden]')).not.toBeNull()
@@ -1128,16 +1178,18 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     })
 
     // Replay burst arrives afterwards, covering seq 1-2 again, then the sentinel.
-    emitFrame({ event: userMessage(1, 'who are you'), replay: true })
+    emitFrame({ events: [userMessage(1, 'who are you')], replay: true })
     emitFrame({
-      event: {
-        seq: 2,
-        at: 2,
-        sessionId: 'sess_1',
-        type: 'assistant.parts.appended',
-        messageId: 'm2',
-        parts: [{ type: 'text', text: 'I am the agent.' }],
-      },
+      events: [
+        {
+          seq: 2,
+          at: 2,
+          sessionId: 'sess_1',
+          type: 'assistant.parts.appended',
+          messageId: 'm2',
+          parts: [{ type: 'text', text: 'I am the agent.' }],
+        },
+      ],
       replay: true,
     })
     emitFrame({ replayDone: true })
@@ -1154,7 +1206,7 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
 
     // Live seq 2 lands before the replayed seq 1.
     emitFrame({ event: userMessage(2, 'second') })
-    emitFrame({ event: userMessage(1, 'first'), replay: true })
+    emitFrame({ events: [userMessage(1, 'first')], replay: true })
     emitFrame({ replayDone: true })
 
     const first = await screen.findByText('first')
@@ -1790,6 +1842,34 @@ describe('SessionView mode change preserves the picked model', () => {
 
     expect(screen.getByTestId('defaults').textContent).toBe('opencode|gpt-5|full')
   })
+
+  it('moves the mode chip when the engine changes the session mode', async () => {
+    function Host() {
+      const [defaults, setDefaults] = useState<SessionDefaults>(DEFAULTS)
+      return (
+        <ToastProvider>
+          <SessionView sessionId="sess_1" defaults={defaults} onDefaultsChange={setDefaults} />
+        </ToastProvider>
+      )
+    }
+
+    render(<Host />)
+    expect(await screen.findByRole('button', { name: 'Permission mode: Ask' })).toBeInTheDocument()
+
+    // An always-allow answer widens the session from the engine side; no chip
+    // was clicked, so the journal event is the only thing that can move it.
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'session.updated',
+      permissionMode: 'full',
+    })
+
+    expect(
+      await screen.findByRole('button', { name: 'Permission mode: Full auto' }),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('EffortChip', () => {
@@ -2069,12 +2149,17 @@ describe('SessionView settle sound', () => {
     vi.clearAllMocks()
   })
 
+  /** A live frame carries one event; a replay frame carries the burst. */
+  function frameOf(replay: boolean, event: Record<string, unknown>): Record<string, unknown> {
+    return replay
+      ? { sessionId: 'sess_1', replay: true, events: [event] }
+      : { sessionId: 'sess_1', event }
+  }
+
   function emitSettle(stopReason: string, replay = false): void {
     act(() => {
-      sessionListener?.({
-        sessionId: 'sess_1',
-        replay,
-        event: {
+      sessionListener?.(
+        frameOf(replay, {
           seq: replay ? 1 : 100,
           at: 1,
           sessionId: 'sess_1',
@@ -2082,17 +2167,15 @@ describe('SessionView settle sound', () => {
           turnId: replay ? 'turn_r' : 'turn_l',
           stopReason,
           errorMessage: stopReason === 'error' ? 'boom' : null,
-        },
-      })
+        }),
+      )
     })
   }
 
   function emitApproval(replay = false): void {
     act(() => {
-      sessionListener?.({
-        sessionId: 'sess_1',
-        replay,
-        event: {
+      sessionListener?.(
+        frameOf(replay, {
           seq: replay ? 2 : 101,
           at: 2,
           sessionId: 'sess_1',
@@ -2101,17 +2184,15 @@ describe('SessionView settle sound', () => {
           toolName: 'bash',
           summaryJson: '{}',
           options: [{ optionId: 'accept', name: 'Allow once', kind: 'allow_once' }],
-        },
-      })
+        }),
+      )
     })
   }
 
   function emitQuestion(replay = false): void {
     act(() => {
-      sessionListener?.({
-        sessionId: 'sess_1',
-        replay,
-        event: {
+      sessionListener?.(
+        frameOf(replay, {
           seq: replay ? 3 : 102,
           at: 3,
           sessionId: 'sess_1',
@@ -2119,8 +2200,8 @@ describe('SessionView settle sound', () => {
           inputId: replay ? 'q_r' : 'q_l',
           prompt: 'Which branch?',
           choicesJson: null,
-        },
-      })
+        }),
+      )
     })
   }
 
@@ -2262,7 +2343,7 @@ describe('SessionView delegated work', () => {
       sessionListener?.({
         sessionId: 'sess_1',
         replay: true,
-        event: { seq, at: seq, sessionId: 'sess_1', ...event },
+        events: [{ seq, at: seq, sessionId: 'sess_1', ...event }],
       })
     })
   }
