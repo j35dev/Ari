@@ -24,6 +24,14 @@ function hasDefinition(node: { type: string; children?: unknown[] }): boolean {
   )
 }
 
+/**
+ * A last line of nothing but markers (`#`, `-`, three backticks) reads as a
+ * new block, but the next characters can turn it into text that continues the
+ * paragraph above (`#123`, `***bold***`). Until they arrive, the block before
+ * it is not final.
+ */
+const BARE_OPENER = /^\s*(?:[#>*_`~+=-]+|\d+[.)])\s*$/
+
 function htmlBlocks(children: MarkdownNode[]): string[] {
   const tree = markdownProcessor.runSync({ type: 'root', children })
   const blocks: string[] = []
@@ -80,7 +88,13 @@ export function createMarkdownStream(): MarkdownStream {
 
         const last = tail.children[tail.children.length - 1]
         const cut = last === undefined ? null : lineStart(last)
-        if (last === undefined || cut === null || cut <= 0 || tail.children.length === 1) {
+        if (
+          last === undefined ||
+          cut === null ||
+          cut <= 0 ||
+          tail.children.length === 1 ||
+          BARE_OPENER.test(markdown.slice(settledOffset + cut))
+        ) {
           return [...settled, ...htmlBlocks(tail.children)]
         }
         settled = [...settled, ...htmlBlocks(tail.children.slice(0, -1))]

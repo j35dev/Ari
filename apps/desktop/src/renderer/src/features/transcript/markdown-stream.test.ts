@@ -64,6 +64,19 @@ describe('createMarkdownStream', () => {
     expect(flat(stream.render(REPLY).join(''))).toBe(flat(renderMarkdown(REPLY)))
   })
 
+  it('does not split a paragraph on a line that only looked like a block start', () => {
+    // A flush can end on bare markers that the next one turns into plain text.
+    for (const [first, second] of [
+      ['Fixes the bug in\n#', 'Fixes the bug in\n#123 and more'],
+      ['Read on\n***', 'Read on\n***bold*** words'],
+      ['Run it with\n```', 'Run it with\n```npm test``` first'],
+    ] as const) {
+      const stream = createMarkdownStream()
+      stream.render(first)
+      expect(flat(stream.render(second).join(''))).toBe(flat(renderMarkdown(second)))
+    }
+  })
+
   it('parses only the block still being written', () => {
     const parse = vi.spyOn(markdown.markdownProcessor, 'parse')
     const stream = createMarkdownStream()

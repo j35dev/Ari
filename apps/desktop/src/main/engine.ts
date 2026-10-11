@@ -601,7 +601,10 @@ export class Engine {
     let buffer: { type: 'text' | 'thinking'; text: string }[] = []
     let lastFlush = Date.now()
     let flushTimer: ReturnType<typeof setTimeout> | null = null
-    const timedFlush: { error: Error | null } = { error: null }
+    const timedFlush: { error: Error | null; pending: Promise<void> | null } = {
+      error: null,
+      pending: null,
+    }
 
     // Post-interrupt guard: the decider already settled an interrupted turn;
     // late adapter events must never overwrite that state.
@@ -634,7 +637,7 @@ export class Engine {
     const flushSoon = (): void => {
       flushTimer ??= setTimeout(() => {
         flushTimer = null
-        flush().catch((error: unknown) => {
+        timedFlush.pending = flush().catch((error: unknown) => {
           timedFlush.error = error instanceof Error ? error : new Error(String(error))
         })
       }, TEXT_FLUSH_MS)
@@ -804,6 +807,10 @@ export class Engine {
         }
       }
       await flush()
+      // The stream can end right behind a timed flush. Its text has already
+      // left the buffer, so a failure there must not settle as completed.
+      await timedFlush.pending
+      if (timedFlush.error !== null) throw timedFlush.error
       // Provider-emitted errors (auth failures, CLI crashes with exit 0, HTTP
       // errors) must settle the turn as `error`, never as a completed chat —
       // otherwise the failure is invisible and the UI looks broken.
