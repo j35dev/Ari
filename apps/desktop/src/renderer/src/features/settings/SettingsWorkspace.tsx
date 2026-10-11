@@ -144,8 +144,11 @@ export function SettingsWorkspace({
         <div key={section} className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto">
           {section === 'appearance' ? <AppearanceSettings /> : null}
           {section === 'providers' ? (
-            <div id="settings-providers" className="mx-auto max-w-2xl p-8">
-              <ProvidersView onOpenTerminal={onOpenTerminal} />
+            <div id="settings-providers" className="mx-auto max-w-4xl p-8">
+              <ProvidersView
+                onOpenTerminal={onOpenTerminal}
+                onOpenEndpoints={() => setSection('endpoints')}
+              />
             </div>
           ) : null}
           {section === 'agents' ? <AgentConfigSettings workspacePath={workspacePath} /> : null}

@@ -1,8 +1,12 @@
-import { existsSync, statSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
+import type { Stats } from 'node:fs'
+import { delimiter, join, posix, win32 } from 'node:path'
 import { spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
+import { err, ok } from '@ari/shared/result'
+import type { Result } from '@ari/shared/result'
 import { realDetectEnvironment } from './types'
 import type { AuthProbe, DetectEnvironment, Detection } from './types'
 import { needsWindowsShell, buildCmdSpawnArgs } from './spawn-cli'
@@ -59,7 +63,16 @@ function isRegularFile(path: string): boolean {
 
 /** Resolves a binary across PATH plus platform-specific install dirs. */
 export function findBinary(kind: DriverKind, env: DetectEnvironment): string | null {
-  if (kind === 'ari-core') return null
+  return findBinaries(kind, env)[0] ?? null
+}
+
+/**
+ * Every install of a CLI the search finds, the one Ari would use first. A
+ * machine often holds two (a native installer's and an npm shim), and which
+ * one wins depends on PATH order the user never chose.
+ */
+export function findBinaries(kind: DriverKind, env: DetectEnvironment): string[] {
+  if (kind === 'ari-core') return []
   // npm drops an extensionless sh shim next to the .cmd one, and Windows cannot
   // spawn it (ENOENT). Dropping those candidates outright, rather than merely
   // ranking them last, is what matters: the search is directory-first, so a
@@ -73,16 +86,63 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
     ...env.pathEnv.split(delimiter).filter((p) => p.length > 0),
     ...wellKnownDirs(env),
   ]
+  const found: string[] = []
+  const searched = new Set<string>()
   for (const dir of searchDirs) {
+    // PATH often names a directory twice (user and system halves overlap).
+    const trimmed = dir.replace(/(?<=.)[\\/]+$/, '')
+    const key = env.platform === 'win32' ? trimmed.toLowerCase() : trimmed
+    if (searched.has(key)) continue
+    searched.add(key)
     for (const name of names) {
       const candidate = join(dir, name)
       // isFile, not existsSync: a *directory* named `codex` (a checked-out
       // repo, a scratch folder) is not a CLI, and treating it as one put a
       // fully-populated provider row in front of users who never installed it.
-      if (isRegularFile(candidate)) return candidate
+      if (!isRegularFile(candidate)) continue
+      found.push(candidate)
+      // One per directory: a `.exe` beside its own `.cmd` is the same install.
+      break
     }
   }
-  return null
+  return found
+}
+
+/**
+ * Vets a CLI path the user typed before anything is launched from it. Says
+ * what is wrong in terms the user can act on, since the alternative is a
+ * provider that looks configured and fails on its first turn.
+ */
+export function checkBinaryPath(raw: string, env: DetectEnvironment): Result<string, string> {
+  const unquoted = raw.trim().replace(/^(["'])(.*)\1$/, '$2')
+  const path = /^~(?=$|[\\/])/.test(unquoted) ? join(env.homeDir, unquoted.slice(1)) : unquoted
+  const paths = env.platform === 'win32' ? win32 : posix
+  if (!paths.isAbsolute(path)) {
+    return err('Enter the full path to the executable.')
+  }
+  let stats: Stats | undefined
+  try {
+    stats = statSync(path, { throwIfNoEntry: false })
+  } catch {
+    stats = undefined
+  }
+  if (stats === undefined) return err('No file exists at this path.')
+  if (stats.isDirectory()) {
+    return err('This is a folder. Choose the executable inside it.')
+  }
+  if (!stats.isFile()) return err('This path is not a file.')
+  if (env.platform === 'win32') {
+    if (!/\.(?:exe|com|cmd|bat)$/i.test(path)) {
+      return err('Windows cannot run this file. Choose the .exe or .cmd version.')
+    }
+  } else {
+    try {
+      accessSync(path, constants.X_OK)
+    } catch {
+      return err('This file is not executable.')
+    }
+  }
+  return ok(path)
 }
 
 /**
@@ -101,23 +161,32 @@ function probeVersion(binaryPath: string, timeoutMs = 15000): Promise<string | n
         resolve(value)
       }
     }
-    const child = needsWindowsShell(binaryPath)
-      ? (() => {
-          const wrapped = buildCmdSpawnArgs(binaryPath, ['--version'])
-          const c = spawn(wrapped.file, wrapped.args, {
-            windowsVerbatimArguments: true,
+    let child: ChildProcess
+    try {
+      child = needsWindowsShell(binaryPath)
+        ? (() => {
+            const wrapped = buildCmdSpawnArgs(binaryPath, ['--version'])
+            const c = spawn(wrapped.file, wrapped.args, {
+              windowsVerbatimArguments: true,
+              stdio: ['ignore', 'pipe', 'ignore'],
+              windowsHide: true,
+              timeout: timeoutMs,
+            })
+            c.on('error', () => done(null))
+            return c
+          })()
+        : spawn(binaryPath, ['--version'], {
             stdio: ['ignore', 'pipe', 'ignore'],
             windowsHide: true,
             timeout: timeoutMs,
-          })
-          c.on('error', () => done(null))
-          return c
-        })()
-      : spawn(binaryPath, ['--version'], {
-          stdio: ['ignore', 'pipe', 'ignore'],
-          windowsHide: true,
-          timeout: timeoutMs,
-        }).on('error', () => done(null))
+          }).on('error', () => done(null))
+    } catch (error) {
+      // macOS refuses a file that is not a real executable (ENOEXEC) by
+      // throwing here, where Linux and Windows report it as an `error` event.
+      log.debug('version probe could not start', { binaryPath, error: String(error) })
+      done(null)
+      return
+    }
     child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8')
     })
@@ -222,9 +291,16 @@ export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthPr
   }
 }
 
+/** How the user configured one provider; absent fields mean on, and found on PATH. */
+export interface DetectOptions {
+  enabled?: boolean
+  binaryPath?: string
+}
+
 export async function detectDriver(
   kind: DriverKind,
   env: DetectEnvironment = realDetectEnvironment(),
+  options: DetectOptions = {},
 ): Promise<Detection> {
   if (kind === 'ari-core') {
     return {
@@ -235,26 +311,60 @@ export async function detectDriver(
       authStatus: 'authenticated',
     }
   }
-  const binaryPath = findBinary(kind, env)
+  const candidates = findBinaries(kind, env)
+  // Reported as absent rather than merely flagged, so nothing that reads a
+  // detection can launch, probe or offer a provider the user turned off.
+  const absent = { kind, installed: false, binaryPath: null, version: null, candidates } as const
+  if (options.enabled === false) {
+    return {
+      ...absent,
+      enabled: false,
+      authStatus: 'unknown',
+      authReason: 'Turned off in Settings.',
+    }
+  }
+  const configured = options.binaryPath?.trim() ?? ''
+  let binaryPath = candidates[0] ?? null
+  if (configured.length > 0) {
+    // A path that does not hold up is an error to show, never a reason to
+    // quietly run a different install than the one the user named.
+    const check = checkBinaryPath(configured, env)
+    if (!check.ok) {
+      return {
+        ...absent,
+        enabled: true,
+        pathSource: 'custom',
+        pathProblem: check.error,
+        authStatus: 'unknown',
+        authReason: 'Ari cannot check credentials until the CLI path is fixed.',
+      }
+    }
+    binaryPath = check.value
+  }
   if (!binaryPath) {
     // Install state and auth state are independent axes: with no binary there
     // is nothing to be logged out of, so the auth verdict is honestly unknown.
     return {
-      kind,
-      installed: false,
-      binaryPath: null,
-      version: null,
+      ...absent,
+      enabled: true,
       authStatus: 'unknown',
       authReason: 'Not installed - Ari cannot check credentials until the CLI is present.',
     }
   }
   const version = await probeVersion(binaryPath)
   const probe = readAuthStatus(kind, env)
+  const custom = configured.length > 0
   return {
     kind,
+    enabled: true,
     installed: true,
     binaryPath,
     version,
+    candidates,
+    pathSource: custom ? 'custom' : 'auto',
+    ...(custom && version === null
+      ? { pathProblem: 'This file did not answer --version, so it may not be the right CLI.' }
+      : {}),
     authStatus: probe.status,
     ...(probe.reason === undefined ? {} : { authReason: probe.reason }),
   }
