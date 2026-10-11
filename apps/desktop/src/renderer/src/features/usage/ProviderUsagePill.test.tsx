@@ -341,10 +341,16 @@ describe('provider allowance pill', () => {
     await act(async () => {
       reads[0]?.(banked(2))
     })
-    expect(hook.result.current.refreshing).toBe(false)
     expect(hook.result.current.rows[0]?.resetCredits?.availableCount).toBe(2)
 
-    await wait(60_000)
+    // The tick the slow pass swallowed is made up at once, not a minute later,
+    // or rows that answered early would sit stale in between.
+    await settle()
+    expect(probes()).toHaveLength(2)
+    await act(async () => {
+      reads[1]?.(banked(2))
+    })
+    expect(hook.result.current.refreshing).toBe(false)
     expect(probes()).toHaveLength(2)
   })
 
