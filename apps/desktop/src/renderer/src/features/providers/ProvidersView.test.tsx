@@ -148,6 +148,8 @@ describe('ProvidersView', () => {
         return Promise.resolve(detections)
       }
       if (method in answers) return Promise.resolve(answers[method])
+      // Accounts have their own tests; here no provider offers any.
+      if (method === 'providers.accounts') return Promise.resolve({ supported: false, accounts: [] })
       return Promise.reject(new Error(`unexpected rpc: ${method}`))
     })
   })
