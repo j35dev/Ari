@@ -1,5 +1,9 @@
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AcpAuthRequiredError,
   AcpConnection,
@@ -706,6 +710,81 @@ describe('AcpConnection', () => {
     await expect(connectionPromise).rejects.toThrow(
       /initialization failed.*exit 254.*npx failed before the agent started/s,
     )
+  })
+
+  describe('a half-installed npx entry', () => {
+    let cache: string
+    let entry: string
+    beforeEach(async () => {
+      cache = await mkdtemp(join(tmpdir(), 'ari-npx-'))
+      entry = join(cache, '_npx', 'fca12915ff656968')
+      await mkdir(join(entry, 'node_modules'), { recursive: true })
+    })
+    afterEach(() => rm(cache, { recursive: true, force: true }))
+
+    /** npm's own words when the entry has node_modules but no manifest. */
+    function dieLikeNpm(child: FakeChild): void {
+      child.stderr.write(
+        `npm error code ENOENT\nnpm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '${join(entry, 'package.json')}'\n`,
+      )
+      setTimeout(() => child.emitClose(254), 5)
+    }
+
+    it('is cleared and the launch retried once, so the adapter installs afresh', async () => {
+      const broken = fakeChild()
+      const healthy = fakeChild()
+      // The retry installs before it answers, well past the usual ceiling.
+      healthy.stdin.once('data', () => {
+        setTimeout(() => {
+          healthy.stdout.write(
+            `${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { agentInfo: { name: 'TestAgent' } } })}\n`,
+          )
+        }, 120)
+      })
+      const children = [broken, healthy]
+      const connectionPromise = AcpConnection.connect({
+        launch: { ...LAUNCH, viaNpx: true, args: ['-y', 'some-adapter@1.0.0'] },
+        cwd: '/w',
+        spawn: () => children.shift() ?? fakeChild(),
+        initializeTimeoutMs: 40,
+      })
+      dieLikeNpm(broken)
+      const connection = await connectionPromise
+      expect(connection.initialize.agentInfo?.name).toBe('TestAgent')
+      expect(existsSync(entry)).toBe(false)
+      expect(children).toHaveLength(0)
+      connection.kill()
+    })
+
+    it('is left alone by a probe, which may not install anything', async () => {
+      const broken = fakeChild()
+      let spawns = 0
+      const connectionPromise = AcpConnection.connect({
+        launch: { ...LAUNCH, viaNpx: true, args: ['--no-install', 'some-adapter@1.0.0'] },
+        cwd: '/w',
+        spawn: () => {
+          spawns++
+          return broken
+        },
+      })
+      dieLikeNpm(broken)
+      await expect(connectionPromise).rejects.toThrow(/Could not read package\.json/)
+      expect(existsSync(entry)).toBe(true)
+      expect(spawns).toBe(1)
+    })
+
+    it('is not cleared when npm fails for any other reason', async () => {
+      const failing = fakeChild()
+      await writeFile(join(entry, 'package.json'), '{}')
+      const connectionPromise = AcpConnection.connect({
+        launch: { ...LAUNCH, viaNpx: true, args: ['-y', 'some-adapter@1.0.0'] },
+        cwd: '/w',
+        spawn: () => failing,
+      })
+      dieLikeNpm(failing)
+      await expect(connectionPromise).rejects.toThrow(AcpConnectionError)
+      expect(existsSync(join(entry, 'node_modules'))).toBe(true)
+    })
   })
 
   it('advertises the terminal-auth capability so agents offer their logins', async () => {
