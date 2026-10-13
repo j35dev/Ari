@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildCmdSpawnArgs, needsWindowsShell } from './spawn-cli'
+import { buildCmdSpawnArgs, buildPowershellSpawnArgs, buildShellSpawnArgs, needsWindowsShell } from './spawn-cli'
 
 describe('buildCmdSpawnArgs', () => {
   it('wraps the command line in an escaped cmd.exe invocation', () => {
@@ -74,8 +74,7 @@ describe('buildCmdSpawnArgs', () => {
   })
 })
 
-describe('needsWindowsShell', () => {
-  const realPlatform = process.platform
+describe('needsWindowsShell', () => {  const realPlatform = process.platform
 
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: realPlatform })
@@ -95,7 +94,43 @@ describe('needsWindowsShell', () => {
     withPlatform('win32')
     expect(needsWindowsShell('C:\\bin\\claude.cmd')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude.bat')).toBe(true)
+    expect(needsWindowsShell('C:\\bin\\claude.ps1')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude.exe')).toBe(false)
+  })
+})
+
+describe('buildPowershellSpawnArgs', () => {
+  it('invokes powershell.exe -File with argv passed through literally', () => {
+    const wrapped = buildPowershellSpawnArgs('C:\\Users\\u\\.pi\\agent\\bin\\pi.ps1', [
+      '--mode',
+      'json',
+      '-p',
+      'fix the && bug > log | pipe',
+    ])
+    expect(wrapped.file).toBe('powershell.exe')
+    expect(wrapped.args.slice(0, 5)).toEqual([
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+    ])
+    expect(wrapped.args[5]).toBe('C:\\Users\\u\\.pi\\agent\\bin\\pi.ps1')
+    // Prompt text rides along unescaped: -File never re-parses metacharacters.
+    expect(wrapped.args.slice(6)).toEqual(['--mode', 'json', '-p', 'fix the && bug > log | pipe'])
+  })
+})
+
+describe('buildShellSpawnArgs', () => {
+  it('routes .ps1 through powershell and .cmd through cmd.exe', () => {
+    const ps1 = buildShellSpawnArgs('C:\\bin\\pi.ps1', ['--version'])
+    expect(ps1.file).toBe('powershell.exe')
+    expect(ps1.args).toContain('-File')
+    expect(ps1.windowsVerbatimArguments).toBe(true)
+
+    const cmd = buildShellSpawnArgs('C:\\bin\\pi.cmd', ['--version'])
+    expect(cmd.file).toBe(process.env['ComSpec'] ?? 'cmd.exe')
+    expect(cmd.args.slice(0, 3)).toEqual(['/d', '/s', '/c'])
   })
 })
