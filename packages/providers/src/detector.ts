@@ -5,18 +5,18 @@ import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { realDetectEnvironment } from './types'
 import type { AuthProbe, DetectEnvironment, Detection } from './types'
-import { needsWindowsShell, buildCmdSpawnArgs } from './spawn-cli'
+import { needsWindowsShell, buildShellSpawnArgs } from './spawn-cli'
 
 const log = createLogger('providers:detector')
 
 /** CLI binary names to search for, in priority order. */
 const BINARY_NAMES: Record<DriverKind, string[]> = {
-  claude: ['claude', 'claude.cmd', 'claude.exe'],
-  codex: ['codex', 'codex.cmd', 'codex.exe'],
-  opencode: ['opencode', 'opencode.cmd', 'opencode.exe'],
-  grok: ['grok', 'grok.cmd', 'grok.exe'],
-  pi: ['pi', 'pi.cmd', 'pi.exe'],
-  hermes: ['hermes', 'hermes.cmd', 'hermes.exe'],
+  claude: ['claude', 'claude.cmd', 'claude.exe', 'claude.ps1'],
+  codex: ['codex', 'codex.cmd', 'codex.exe', 'codex.ps1'],
+  opencode: ['opencode', 'opencode.cmd', 'opencode.exe', 'opencode.ps1'],
+  grok: ['grok', 'grok.cmd', 'grok.exe', 'grok.ps1'],
+  pi: ['pi', 'pi.cmd', 'pi.exe', 'pi.ps1'],
+  hermes: ['hermes', 'hermes.cmd', 'hermes.exe', 'hermes.ps1'],
   'ari-core': [],
 }
 
@@ -57,6 +57,13 @@ function isRegularFile(path: string): boolean {
   }
 }
 
+/** Sort key for runnable Windows candidates: native first, .ps1 last. */
+function windowsExtensionRank(name: string): number {
+  if (/\.exe$/i.test(name)) return 0
+  if (/\.cmd$/i.test(name)) return 1
+  return 2
+}
+
 /** Resolves a binary across PATH plus platform-specific install dirs. */
 export function findBinary(kind: DriverKind, env: DetectEnvironment): string | null {
   if (kind === 'ari-core') return null
@@ -65,9 +72,14 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
   // ranking them last, is what matters: the search is directory-first, so a
   // bare shim in an earlier PATH entry would still beat a runnable .cmd in a
   // later one. Nothing is lost — a Windows executable needs its extension.
+  // Native executables win over shell shims, and .cmd over .ps1 (powershell
+  // startup costs a full runtime per spawn): the extension rank below is the
+  // whole ordering, not insertion order, so appending a name never promotes it.
   const names =
     env.platform === 'win32'
-      ? BINARY_NAMES[kind].filter((name) => /\.(?:exe|cmd)$/i.test(name)).reverse()
+      ? [...BINARY_NAMES[kind]]
+          .filter((name) => /\.(?:exe|cmd|ps1)$/i.test(name))
+          .sort((a, b) => windowsExtensionRank(a) - windowsExtensionRank(b))
       : BINARY_NAMES[kind]
   const searchDirs = [
     ...env.pathEnv.split(delimiter).filter((p) => p.length > 0),
@@ -87,7 +99,8 @@ export function findBinary(kind: DriverKind, env: DetectEnvironment): string | n
 
 /**
  * Probes `<binary> --version`. On Windows, .cmd shims are executed through an
- * escaped cmd.exe wrapper (direct spawn is refused with EINVAL on Node ≥20).
+ * escaped cmd.exe wrapper and .ps1 scripts through powershell.exe -File
+ * (direct spawn is refused with EINVAL on Node ≥20).
  */
 // Large single-file CLIs (opencode.exe is ~180 MB) can take >5s to answer when
 // every provider is probed concurrently at startup, so allow a generous window.
@@ -103,7 +116,7 @@ function probeVersion(binaryPath: string, timeoutMs = 15000): Promise<string | n
     }
     const child = needsWindowsShell(binaryPath)
       ? (() => {
-          const wrapped = buildCmdSpawnArgs(binaryPath, ['--version'])
+          const wrapped = buildShellSpawnArgs(binaryPath, ['--version'])
           const c = spawn(wrapped.file, wrapped.args, {
             windowsVerbatimArguments: true,
             stdio: ['ignore', 'pipe', 'ignore'],
