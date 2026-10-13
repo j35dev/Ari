@@ -9,6 +9,10 @@ import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_pr
  * into cmd.exe. Instead we wrap the invocation in cmd.exe ourselves with
  * explicit escaping — the algorithm is ported verbatim from cross-spawn v7
  * (MIT, moxystudio/node-cross-spawn), which is built on https://qntm.org/cmd.
+ *
+ * PowerShell scripts (`.ps1`, e.g. the Pi agent's Windows installer layout)
+ * cannot run through cmd.exe at all, so they are spawned via
+ * `powershell.exe -File` instead — argv stays literal, never re-parsed.
  */
 
 // See http://www.robvanderwoude.com/escapechars.php
@@ -48,11 +52,51 @@ function escapeArgument(arg: string, doubleEscapeMetaChars: boolean): string {
 }
 
 /**
+ * True when the binary is a PowerShell script: cmd.exe cannot execute it, so
+ * it must go through powershell.exe -File rather than the cmd wrapper.
+ */
+export function isPowershellScript(binaryPath: string): boolean {
+  return /\.ps1$/i.test(binaryPath)
+}
+
+/**
  * True when spawning this binary needs the cmd.exe wrapper on Windows
  * (anything that is not a native .com/.exe executable).
  */
 export function needsWindowsShell(binaryPath: string): boolean {
   return process.platform === 'win32' && !/\.(?:com|exe)$/i.test(binaryPath)
+}
+
+/**
+ * Builds the argv for spawning a `.ps1` script via powershell.exe:
+ * `-File` passes every later arg through literally, so prompt text with
+ * cmd metacharacters (`&`, `|`, `>`) is never re-parsed as a command line.
+ */
+export function buildPowershellSpawnArgs(
+  binaryPath: string,
+  args: string[],
+): { file: string; args: string[] } {
+  return {
+    file: 'powershell.exe',
+    args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', binaryPath, ...args],
+  }
+}
+
+/**
+ * Windows shell dispatch: `.ps1` goes through powershell.exe, everything
+ * else needing a shell through the escaped cmd.exe wrapper. Callers that
+ * branch on {@link needsWindowsShell} should use this instead of calling
+ * {@link buildCmdSpawnArgs} directly, or a detected `.ps1` CLI will be
+ * reported as installed and then fail on use.
+ */
+export function buildShellSpawnArgs(
+  binaryPath: string,
+  args: string[],
+): { file: string; args: string[]; windowsVerbatimArguments: true } {
+  if (isPowershellScript(binaryPath)) {
+    return { ...buildPowershellSpawnArgs(binaryPath, args), windowsVerbatimArguments: true }
+  }
+  return buildCmdSpawnArgs(binaryPath, args)
 }
 
 /**
@@ -76,11 +120,12 @@ export function buildCmdSpawnArgs(
 
 /**
  * Spawns an external CLI safely on every platform: direct argv elsewhere,
- * and a fully-escaped cmd.exe wrapper for .cmd/.bat scripts on Windows so
- * arbitrary prompt text can never be parsed as a command line.
+ * a fully-escaped cmd.exe wrapper for .cmd/.bat scripts on Windows, and
+ * powershell.exe -File for .ps1 scripts — so arbitrary prompt text can
+ * never be parsed as a command line.
  *
  * Returns the non-null-stream shape every driver uses (callers pass pipe
- * stdio); the cmd.exe path is cast to match since it spawns the same way.
+ * stdio); the wrapped paths are cast to match since they spawn the same way.
  */
 export function spawnCli(
   binaryPath: string,
@@ -91,7 +136,7 @@ export function spawnCli(
     // Callers always pass pipe stdio; the non-null-stream overload applies.
     return spawn(binaryPath, args, options) as ChildProcessWithoutNullStreams
   }
-  const wrapped = buildCmdSpawnArgs(binaryPath, args)
+  const wrapped = buildShellSpawnArgs(binaryPath, args)
   return spawn(wrapped.file, wrapped.args, {
     ...options,
     windowsVerbatimArguments: true,

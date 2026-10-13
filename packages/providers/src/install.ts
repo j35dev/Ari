@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createLogger } from '@ari/shared/logger'
 import { teardownChild } from './teardown'
-import { buildCmdSpawnArgs, needsWindowsShell } from './spawn-cli'
+import { buildShellSpawnArgs, needsWindowsShell } from './spawn-cli'
 
 const log = createLogger('providers:install')
 
@@ -79,12 +79,13 @@ export function runInstall(
   const program = argv[0] ?? ''
   const args = argv.slice(1)
   const startedAt = Date.now()
-  // Reuse spawnCli's cmd.exe wrapper so .cmd shims (npm/pnpm) get the
-  // cross-spawn escaping — wrapping each arg in extra quotes produced
-  // `Unknown command: ""install""` on Windows.
+  // Reuse spawnCli's shell dispatch so .cmd shims (npm/pnpm) get the
+  // cross-spawn escaping and .ps1 scripts go through powershell.exe —
+  // wrapping each arg in extra quotes produced `Unknown command: ""install""`
+  // on Windows.
   const wrapped =
     process.platform === 'win32' && needsWindowsShell(program)
-      ? buildCmdSpawnArgs(program, args)
+      ? buildShellSpawnArgs(program, args)
       : { file: program, args, windowsVerbatimArguments: false as const }
   const child = spawn(wrapped.file, wrapped.args, {
     stdio: ['ignore', 'pipe', 'pipe'],

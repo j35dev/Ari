@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { buildCmdSpawnArgs, needsWindowsShell } from '@ari/providers/spawn-cli'
+import { buildShellSpawnArgs, needsWindowsShell } from '@ari/providers/spawn-cli'
 import type { DriverKind } from '@ari/contracts/common'
 import { resetCreditOutcomeSchema } from '@ari/contracts/rpc'
 import type { ProviderResetCredits, ResetCreditOutcome } from '@ari/contracts/rpc'
@@ -95,7 +95,7 @@ function probeClaudeVersion(binaryPath: string | null): Promise<string> {
   const pending = new Promise<string>((resolve) => {
     let stdout = ''
     const finish = (version: string): void => resolve(version)
-    const wrapped = needsWindowsShell(command) ? buildCmdSpawnArgs(command, ['--version']) : null
+    const wrapped = needsWindowsShell(command) ? buildShellSpawnArgs(command, ['--version']) : null
     const child = wrapped
       ? spawn(wrapped.file, wrapped.args, {
           windowsVerbatimArguments: true,

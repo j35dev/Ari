@@ -90,6 +90,29 @@ describe('findBinary', () => {
     expect(findBinary('opencode', { ...makeEnv(), platform: 'win32', pathEnv: npmDir })).toBeNull()
   })
 
+  it('finds a .ps1 script on win32 when nothing runnable precedes it', async () => {
+    // The Pi agent's Windows installer lays down pi.ps1 next to pi.cmd; a
+    // machine with only the script must still detect the provider, since
+    // spawnCli runs it through powershell.exe -File.
+    const binDir = join(dir, 'ps1-only')
+    await mkdir(binDir, { recursive: true })
+    await writeFileSafe(join(binDir, 'pi.ps1'), '')
+    expect(findBinary('pi', { ...makeEnv(), platform: 'win32', pathEnv: binDir })).toBe(
+      join(binDir, 'pi.ps1'),
+    )
+  })
+
+  it('prefers .exe over .cmd over .ps1 on win32', async () => {
+    const binDir = join(dir, 'ps1-rank')
+    await mkdir(binDir, { recursive: true })
+    await writeFileSafe(join(binDir, 'pi.ps1'), '')
+    await writeFileSafe(join(binDir, 'pi.cmd'), '')
+    const env = { ...makeEnv(), platform: 'win32' as const, pathEnv: binDir }
+    expect(findBinary('pi', env)).toBe(join(binDir, 'pi.cmd'))
+    await writeFileSafe(join(binDir, 'pi.exe'), '')
+    expect(findBinary('pi', env)).toBe(join(binDir, 'pi.exe'))
+  })
+
   it('returns null for missing binaries and for ari-core', () => {
     expect(findBinary('hermes', makeEnv())).toBeNull()
     expect(findBinary('ari-core', makeEnv())).toBeNull()

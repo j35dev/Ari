@@ -149,8 +149,8 @@ export function resolveAcpLaunch(
       // Otherwise the adapter runs its bundled CLI, which can lag the user's own.
       ...(kind === 'codex' ? { env: { CODEX_PATH: options.cliBinaryPath } } : {}),
       // The Claude adapter spawns this path with no shell, so an npm `.cmd`
-      // shim fails outright (EINVAL) and takes the whole ACP session with it.
-      // Such an install keeps the adapter's bundled CLI instead.
+      // shim (or a `.ps1` script) fails outright (EINVAL) and takes the whole
+      // ACP session with it. Such an install keeps the adapter's bundled CLI instead.
       ...(kind === 'claude' && !needsWindowsShell(options.cliBinaryPath)
         ? { env: { CLAUDE_CODE_EXECUTABLE: options.cliBinaryPath } }
         : {}),
