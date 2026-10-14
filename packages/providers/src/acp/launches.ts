@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { wellKnownDirs } from '../detector'
@@ -120,6 +120,27 @@ export function probeLaunch(launch: AcpLaunch): AcpLaunch {
   return { ...launch, args: ['--no-install', ...args] }
 }
 
+/** Where an npm install keeps Claude's native binary, relative to its shims. */
+const CLAUDE_NPM_BINARY = join('node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
+
+/**
+ * Points the Claude adapter at the user's CLI. The adapter spawns the path
+ * with no shell, so a Windows npm shim (`claude.cmd`) fails outright (EINVAL)
+ * and takes the whole ACP session with it. The shim only forwards to a native
+ * executable in the package beside it, so that is what gets passed instead;
+ * a shim with nothing behind it keeps the adapter's bundled CLI, which is
+ * pinned to the adapter's release and lags the user's own.
+ */
+function claudeExecutableEnv(cliBinaryPath: string): Pick<AcpLaunch, 'env'> {
+  if (!needsWindowsShell(cliBinaryPath)) return { env: { CLAUDE_CODE_EXECUTABLE: cliBinaryPath } }
+  const behindShim = join(dirname(cliBinaryPath), CLAUDE_NPM_BINARY)
+  if (existsSync(behindShim)) return { env: { CLAUDE_CODE_EXECUTABLE: behindShim } }
+  log.debug('acp: no native Claude binary behind the shim; adapter uses its bundled CLI', {
+    cliBinaryPath,
+  })
+  return {}
+}
+
 /**
  * Returns the ACP launch for a kind, or null when the transport is disabled,
  * unavailable, or its prerequisite CLI is missing.
@@ -148,12 +169,7 @@ export function resolveAcpLaunch(
       viaNpx: true,
       // Otherwise the adapter runs its bundled CLI, which can lag the user's own.
       ...(kind === 'codex' ? { env: { CODEX_PATH: options.cliBinaryPath } } : {}),
-      // The Claude adapter spawns this path with no shell, so an npm `.cmd`
-      // shim fails outright (EINVAL) and takes the whole ACP session with it.
-      // Such an install keeps the adapter's bundled CLI instead.
-      ...(kind === 'claude' && !needsWindowsShell(options.cliBinaryPath)
-        ? { env: { CLAUDE_CODE_EXECUTABLE: options.cliBinaryPath } }
-        : {}),
+      ...(kind === 'claude' ? claudeExecutableEnv(options.cliBinaryPath) : {}),
     }
   }
 

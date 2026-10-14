@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -94,6 +94,28 @@ describe('resolveAcpLaunch', () => {
       const native = resolveAcpLaunch('claude', { cliBinaryPath: 'C:/bin/claude.exe' }, env)
       expect(native?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: 'C:/bin/claude.exe' })
     })
+
+    it.each(['claude.cmd', 'claude.ps1'])(
+      'is followed to the executable npm installed beside %s',
+      async (shimName) => {
+        Object.defineProperty(process, 'platform', { value: 'win32' })
+        const npxPath = await makeFakeNpx()
+        const npmDir = await mkdtemp(join(tmpdir(), 'ari-npm-'))
+        const binDir = join(npmDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin')
+        await mkdir(binDir, { recursive: true })
+        await writeFile(join(binDir, 'claude.exe'), '', 'utf8')
+        await writeFile(join(npmDir, shimName), '@echo off\n', 'utf8')
+
+        const launch = resolveAcpLaunch(
+          'claude',
+          { cliBinaryPath: join(npmDir, shimName) },
+          { ...ENV, pathEnv: dirname(npxPath) },
+        )
+        // Without this the adapter runs its own bundled CLI, months behind.
+        expect(launch?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: join(binDir, 'claude.exe') })
+        expect(probeLaunch(launch!).env).toEqual(launch?.env)
+      },
+    )
   })
 
   it('launches native ACP servers with their own binary', () => {
