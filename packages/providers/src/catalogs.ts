@@ -51,6 +51,7 @@ const CLI_DEFAULT_MODELS: CatalogModel[] = [{ id: 'default', label: 'CLI default
 const FAMILY_ALIASES: Partial<Record<DriverKind, Record<string, string>>> = {
   claude: {
     'claude-fable': 'fable',
+    'claude-haiku': 'haiku',
     'claude-opus': 'opus',
     'claude-sonnet': 'sonnet',
   },
