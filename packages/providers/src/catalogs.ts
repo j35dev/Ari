@@ -221,6 +221,9 @@ export function catalogSource(kind: DriverKind): CatalogSource {
  */
 const CURRENT_MODEL_IDS: Partial<Record<DriverKind, string[]>> = {
   claude: [
+    'claude-opus-5-5',
+    'claude-sonnet-5-5',
+    'claude-haiku-5-5',
     'claude-fable-5-1',
     'claude-opus-5',
     'claude-sonnet-5',
@@ -229,7 +232,7 @@ const CURRENT_MODEL_IDS: Partial<Record<DriverKind, string[]>> = {
     'claude-opus-4-8',
     'claude-sonnet-4-6',
   ],
-  codex: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
+  codex: ['gpt-6-luna', 'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
   grok: ['grok-4.6', 'grok-4.5', 'grok-build-0.1'],
 }
 
@@ -330,7 +333,12 @@ interface FamilyPointers {
  *
  * Same family is required, which is what stops `gpt-5.5` from swallowing
  * `gpt-5.5-pro` — a genuinely different model line that merely shares a prefix.
+ * And the rest of the longer id must not continue the version: `claude-opus-5`
+ * is Opus 5, not a pointer at `claude-opus-5-5`.
  */
+/** A short number right after the shorter id (`-5`, `.1`) is a newer version; a date is not. */
+const VERSION_CONTINUATION = /^[-.]\d{1,3}(?:$|[-.])/
+
 function familyPointers(models: CatalogModel[]): FamilyPointers {
   const ids = new Set<string>()
   const targets = new Map<string, string[]>()
@@ -339,6 +347,7 @@ function familyPointers(models: CatalogModel[]): FamilyPointers {
       if (concrete.id === pointer.id) continue
       if (pointer.family === undefined || concrete.family !== pointer.family) continue
       if (!concrete.id.startsWith(pointer.id)) continue
+      if (VERSION_CONTINUATION.test(concrete.id.slice(pointer.id.length))) continue
       const folded = targets.get(concrete.id) ?? []
       if (!folded.includes(pointer.id)) folded.push(pointer.id)
       targets.set(concrete.id, folded)
