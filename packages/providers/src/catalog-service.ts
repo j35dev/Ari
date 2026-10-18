@@ -70,6 +70,12 @@ export interface CatalogServiceOptions {
   probeModels?: ModelProbe
   /** Kinds the probe is allowed to run for; empty disables probing. */
   probeKinds?: DriverKind[]
+  /**
+   * The installed CLI's version for a kind, or null when unknown. A live
+   * catalog is trusted only while this stays the same: a CLI that updates
+   * itself can serve new models long before the recheck window runs out.
+   */
+  cliVersion?: (kind: DriverKind) => Promise<string | null>
   /** Called after registry refresh and live ACP probes have settled. */
   onUpdated?: (at: number) => void
 }
@@ -150,6 +156,9 @@ export class CatalogService {
   readonly #ttlMs: number
   readonly #probeModels: ModelProbe | null
   readonly #probeKinds: DriverKind[]
+  readonly #cliVersion: ((kind: DriverKind) => Promise<string | null>) | null
+  /** The CLI version each kind's live catalog was read from. */
+  readonly #liveVersions = new Map<DriverKind, string | null>()
   readonly #onUpdated: ((at: number) => void) | null
   #lastRefreshAt = 0
   #lastAttemptAt: number | null = null
@@ -163,6 +172,7 @@ export class CatalogService {
     this.#ttlMs = options.ttlMs ?? REFRESH_TTL_MS
     this.#probeModels = options.probeModels ?? null
     this.#probeKinds = options.probeKinds ?? []
+    this.#cliVersion = options.cliVersion ?? null
     this.#onUpdated = options.onUpdated ?? null
   }
 
@@ -256,11 +266,13 @@ export class CatalogService {
         // agent again to hear the same list, so a kind that has already
         // answered waits out the window; one still on a fallback has
         // everything to gain from a retry and is never held back.
-        if (this.#probeIsFresh(kind)) return
+        const version = await this.#versionOf(kind)
+        if (this.#probeIsFresh(kind, version)) return
         try {
           const models = await this.#probeModels!(kind)
           if (models !== null && models.length > 0) {
             setDynamicModels(kind, 'live', models)
+            this.#liveVersions.set(kind, version)
             log.info('live model probe applied', { kind, count: models.length })
           }
         } catch (error) {
@@ -270,10 +282,23 @@ export class CatalogService {
     )
   }
 
-  #probeIsFresh(kind: DriverKind): boolean {
+  #probeIsFresh(kind: DriverKind, version: string | null): boolean {
     if (catalogSource(kind) !== 'live') return false
     const at = catalogSetAt(kind)
-    return at !== null && Date.now() - at < LIVE_RECHECK_MS
+    if (at === null || Date.now() - at >= LIVE_RECHECK_MS) return false
+    // A list a session's agent published came from the CLI installed now.
+    if (!this.#liveVersions.has(kind)) this.#liveVersions.set(kind, version)
+    return this.#liveVersions.get(kind) === version
+  }
+
+  async #versionOf(kind: DriverKind): Promise<string | null> {
+    if (this.#cliVersion === null) return null
+    try {
+      return await this.#cliVersion(kind)
+    } catch (error) {
+      log.debug('cli version lookup failed', { kind, error: String(error) })
+      return null
+    }
   }
 
   async #loadDiskCache(): Promise<void> {

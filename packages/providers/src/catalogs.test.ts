@@ -99,6 +99,7 @@ describe('modelsFor fallback chain', () => {
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-6-astra',
+      'gpt-6-luna',
     ])
     expect(codex.some((id) => id.startsWith('gpt-4'))).toBe(false)
     expect(codex.some((id) => id.startsWith('o1') || id.startsWith('o3'))).toBe(false)
@@ -107,6 +108,12 @@ describe('modelsFor fallback chain', () => {
     expect(claude).toContain('claude-fable-5-1')
     expect(claude).toContain('claude-opus-5')
     expect(claude).not.toContain('claude-opus-4-5-20251101')
+    // What Claude Code 2.1.296 serves; an offline first launch must offer it.
+    for (const id of ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']) {
+      const row = modelsFor('claude').find((m) => m.id === id)
+      expect(row, id).toBeDefined()
+      expect(row?.isLegacy, id).toBeUndefined()
+    }
     // Version-less family pointers are metadata now, not rows of their own:
     // a standalone `fable` row is what duplicated "Fable (latest)" beside
     // "Claude Fable 5.1" in the picker.
@@ -138,6 +145,30 @@ describe('collapseCatalog', () => {
     expect(models[1]?.isLegacy).toBe(true)
   })
 
+  it('keeps a model whose id merely prefixes its successor', () => {
+    // `claude-opus-5` is Opus 5, not a pointer at `claude-opus-5-5`: what
+    // follows the shorter id is a version number, not a date or a variant.
+    const models = collapseCatalog('claude', [
+      { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', family: 'claude-opus' },
+      { id: 'claude-opus-5', label: 'Claude Opus 5', family: 'claude-opus' },
+    ])
+    expect(models.map((m) => m.id)).toEqual(['claude-opus-5-5', 'claude-opus-5'])
+    expect(models[0]?.aliases).toEqual(['opus'])
+    expect(models[1]?.isLegacy).toBe(true)
+  })
+
+  it('files a pinned older Haiku under legacy beside the CLI haiku pointer', () => {
+    // As the Claude adapter advertises them: the pointer first, then pins.
+    const models = collapseCatalog('claude', [
+      { id: 'sonnet', label: 'Sonnet 5.5' },
+      { id: 'haiku', label: 'Haiku 5.5' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+      { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+    ])
+    const legacy = models.filter((m) => m.isLegacy === true).map((m) => m.id)
+    expect(legacy).toEqual(['claude-haiku-4-5-20251001', 'claude-sonnet-5'])
+  })
+
   it('collapses two rows sharing a display name into one', () => {
     const models = collapseCatalog('claude', [
       { id: 'claude-haiku-4-5-latest', label: 'Claude Haiku 4.5' },
@@ -146,7 +177,7 @@ describe('collapseCatalog', () => {
     expect(models).toHaveLength(1)
     expect(models[0]?.id).toBe('claude-haiku-4-5-latest')
     // The dropped id still resolves to the surviving row.
-    expect(models[0]?.aliases).toEqual(['claude-haiku-4-5'])
+    expect(models[0]?.aliases).toEqual(['haiku', 'claude-haiku-4-5'])
   })
 
   it('folds a version-less family pointer onto its dated sibling', () => {
@@ -160,7 +191,7 @@ describe('collapseCatalog', () => {
     expect(models).toHaveLength(1)
     expect(models[0]?.id).toBe('claude-haiku-4-5-20251001')
     expect(models[0]?.label).toBe('Claude Haiku 4.5')
-    expect(models[0]?.aliases).toEqual(['claude-haiku-4-5'])
+    expect(models[0]?.aliases).toEqual(['claude-haiku-4-5', 'haiku'])
   })
 
   it('folds a bare family id onto its named sibling', () => {
