@@ -1,5 +1,14 @@
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildCmdSpawnArgs, needsWindowsShell } from './spawn-cli'
+import {
+  buildCmdSpawnArgs,
+  buildPowershellSpawnArgs,
+  buildShellSpawnArgs,
+  needsWindowsShell,
+  spawnCli,
+} from './spawn-cli'
 
 describe('buildCmdSpawnArgs', () => {
   it('wraps the command line in an escaped cmd.exe invocation', () => {
@@ -95,7 +104,61 @@ describe('needsWindowsShell', () => {
     withPlatform('win32')
     expect(needsWindowsShell('C:\\bin\\claude.cmd')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude.bat')).toBe(true)
+    expect(needsWindowsShell('C:\\bin\\claude.ps1')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude')).toBe(true)
     expect(needsWindowsShell('C:\\bin\\claude.exe')).toBe(false)
   })
+})
+
+describe('buildPowershellSpawnArgs', () => {
+  it('invokes powershell.exe -File with argv passed through literally', () => {
+    const wrapped = buildPowershellSpawnArgs('C:\\Users\\u\\.pi\\agent\\bin\\pi.ps1', [
+      '--mode',
+      'json',
+      '-p',
+      'fix the && bug > log | pipe',
+    ])
+    expect(wrapped.file).toBe('powershell.exe')
+    expect(wrapped.args.slice(0, 5)).toEqual([
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+    ])
+    expect(wrapped.args[5]).toBe('C:\\Users\\u\\.pi\\agent\\bin\\pi.ps1')
+    // Prompt text rides along unescaped: -File never re-parses metacharacters.
+    expect(wrapped.args.slice(6)).toEqual(['--mode', 'json', '-p', 'fix the && bug > log | pipe'])
+  })
+})
+
+describe('buildShellSpawnArgs', () => {
+  it('routes .ps1 through powershell and .cmd through cmd.exe', () => {
+    const ps1 = buildShellSpawnArgs('C:\\bin\\pi.ps1', ['--version'])
+    expect(ps1.file).toBe('powershell.exe')
+    expect(ps1.args).toContain('-File')
+    // powershell.exe needs Node's own quoting; only the cmd wrapper quotes itself.
+    expect(ps1.windowsVerbatimArguments).toBe(false)
+
+    const cmd = buildShellSpawnArgs('C:\\bin\\pi.cmd', ['--version'])
+    expect(cmd.file).toBe(process.env['ComSpec'] ?? 'cmd.exe')
+    expect(cmd.args.slice(0, 3)).toEqual(['/d', '/s', '/c'])
+    expect(cmd.windowsVerbatimArguments).toBe(true)
+  })
+})
+
+describe.runIf(process.platform === 'win32')('spawnCli with a real .ps1', () => {
+  it('delivers a path with spaces and a multi-word prompt intact', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari ps1 '))
+    const script = join(dir, 'echo args.ps1')
+    await writeFile(script, '$args | ForEach-Object { Write-Output $_ }', 'utf8')
+    const child = spawnCli(script, ['-p', 'fix the && bug $env:USERNAME > log'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')))
+    const code = await new Promise<number | null>((resolve) => child.on('close', resolve))
+    expect(code).toBe(0)
+    expect(stdout.trim().split(/\r?\n/)).toEqual(['-p', 'fix the && bug $env:USERNAME > log'])
+  }, 30_000)
 })
