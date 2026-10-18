@@ -157,6 +157,21 @@ describe('DiscordPresence', () => {
     expect(second.sent[0]?.op).toBe(0)
   })
 
+  it('drops a client that never becomes ready and tries again', async () => {
+    vi.useFakeTimers()
+    const hung = new FakeSocket()
+    const healthy = new FakeSocket()
+    const { presence, connect } = presenceWith([hung, healthy])
+    presence.setEnabled(true)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(hung.destroyed).toBe(true)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(connect).toHaveBeenCalledTimes(2)
+    healthy.ready()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(healthy.destroyed).toBe(false)
+  })
+
   it('drops the connection and stops retrying when disabled', async () => {
     vi.useFakeTimers()
     const socket = new FakeSocket()

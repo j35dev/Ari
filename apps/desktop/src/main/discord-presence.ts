@@ -15,6 +15,8 @@ const OP_PING = 3
 const OP_PONG = 4
 
 const RETRY_MS = 30_000
+/** A client that accepts the socket but never says READY is hung; drop it and retry. */
+const READY_TIMEOUT_MS = 10_000
 
 /** One Discord IPC frame: little-endian op and length, then a JSON body. */
 export function encodeFrame(op: number, payload: unknown): Buffer {
@@ -189,7 +191,14 @@ export class DiscordPresence {
       for (const frame of decoder.push(chunk)) this.#onFrame(socket, frame)
     })
     socket.on('error', (error) => log.debug('discord socket error', { error: String(error) }))
+    const readyTimeout = setTimeout(() => {
+      if (this.#socket !== socket || this.#ready) return
+      log.warn('discord never became ready; reconnecting')
+      socket.destroy()
+    }, READY_TIMEOUT_MS)
+    readyTimeout.unref()
     socket.on('close', () => {
+      clearTimeout(readyTimeout)
       if (this.#socket !== socket) return
       this.#socket = null
       this.#ready = false
