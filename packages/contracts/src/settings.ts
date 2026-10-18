@@ -48,16 +48,50 @@ export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 export const cliKindSchema = driverKindSchema.exclude(['ari-core'])
 export type CliKind = z.infer<typeof cliKindSchema>
 
+/** The account every CLI already has: whatever it is signed into in its own home. */
+export const DEFAULT_ACCOUNT = 'default'
+
+/**
+ * A further sign-in for one provider. The id names the account's own home
+ * directory, so it is a slug and never changes; the label is the user's.
+ */
+export const providerAccountSchema = z.object({
+  id: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{0,31}$/)
+    .refine((id) => id !== DEFAULT_ACCOUNT),
+  label: z.string().trim().min(1).max(40),
+})
+export type ProviderAccount = z.infer<typeof providerAccountSchema>
+
+const accountsSchema = z.array(providerAccountSchema).max(12)
+
 /** How Ari reaches one installed agent CLI. */
 export const providerConnectionSchema = z.object({
   /** Off hides the provider everywhere and stops Ari launching or probing it. */
   enabled: z.boolean().default(true),
   /** Absolute path to the CLI to run; empty means find it on PATH. */
   binaryPath: z.string().trim().max(1024).default(''),
+  /** Sign-ins beyond the CLI's own; only providers with a relocatable home use it. */
+  accounts: accountsSchema.default([]),
+  /** The account turns run as: `default`, or the id of one in `accounts`. */
+  activeAccount: z.string().max(32).default(DEFAULT_ACCOUNT),
 })
 export type ProviderConnection = z.infer<typeof providerConnectionSchema>
 
-const defaultConnection = (): ProviderConnection => ({ enabled: true, binaryPath: '' })
+const defaultConnection = (): ProviderConnection => ({
+  enabled: true,
+  binaryPath: '',
+  accounts: [],
+  activeAccount: DEFAULT_ACCOUNT,
+})
+
+/** The id of the account in use, falling back to the default when the stored one is gone. */
+export function activeAccountId(connection: ProviderConnection): string {
+  return connection.accounts.some((account) => account.id === connection.activeAccount)
+    ? connection.activeAccount
+    : DEFAULT_ACCOUNT
+}
 
 const connectionsShape = <T extends z.ZodType>(field: () => T): Record<CliKind, T> => ({
   claude: field(),
@@ -181,6 +215,8 @@ export const settingsUpdateSchema = z.object({
     .object(
       connectionsShape(() =>
         z
+          // Accounts are not here on purpose: adding, removing and switching
+          // one has side effects a plain settings write would skip.
           .object({ enabled: z.boolean(), binaryPath: z.string().trim().max(1024) })
           .partial()
           .optional(),

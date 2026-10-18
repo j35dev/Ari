@@ -4,8 +4,22 @@ import type { ProviderAllowance } from '@ari/contracts/rpc'
 import { ProviderUsagePill } from './ProviderUsagePill'
 import { useProviderAllowance } from './use-provider-allowance'
 
-const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }))
-vi.mock('../../lib/rpc', () => ({ rpc: { invoke } }))
+const { invoke, stream } = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  /** The `providers.updates` listener the hook registered, so a test can publish a frame. */
+  stream: { publish: (_frame: unknown): void => undefined },
+}))
+vi.mock('../../lib/rpc', () => ({
+  rpc: {
+    invoke,
+    subscribe: (_name: string, _params: unknown, listener: (frame: unknown) => void) => {
+      stream.publish = listener
+      return () => undefined
+    },
+  },
+}))
+// Account switching has its own tests; here it would only add RPC calls to count.
+vi.mock('../providers/AccountSwitch', () => ({ AccountSwitch: () => null }))
 
 function sample(kind: string): ProviderAllowance {
   return {
@@ -92,6 +106,44 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.useRealTimers()
+})
+
+describe('provider allowance after an account switch', () => {
+  it('drops the other account’s usage at once and reads the provider again', async () => {
+    render(<ProviderUsagePill sessionId="one" kind="codex" />)
+    await settle()
+    expect(screen.getByRole('button', { name: 'Codex usage: 5h 12% used' })).toBeInTheDocument()
+    const reads = (): number =>
+      (invoke.mock.calls as [string, { kind?: string }?][]).filter(
+        ([method, params]) => method === 'providers.allowance' && params?.kind === 'codex',
+      ).length
+    const before = reads()
+
+    // The new account's answer is slower than the frame announcing the switch.
+    let answer: (value: ProviderAllowance) => void = () => undefined
+    invoke.mockImplementation(async (method: string, params?: { kind: string }) => {
+      if (method === 'providers.detect')
+        return ['codex', 'grok', 'claude'].map((kind) => ({ kind, installed: true }))
+      if (params?.kind === 'codex') return new Promise<ProviderAllowance>((resolve) => (answer = resolve))
+      return sample(params?.kind ?? 'grok')
+    })
+    // An account merely added beside the one in use changes nothing here.
+    act(() => stream.publish({ type: 'accounts', kind: 'codex', active: false }))
+    await settle()
+    expect(screen.getByRole('button', { name: 'Codex usage: 5h 12% used' })).toBeInTheDocument()
+    expect(reads()).toBe(before)
+
+    act(() => stream.publish({ type: 'accounts', kind: 'codex', active: true }))
+    await settle()
+
+    expect(screen.getByRole('button', { name: 'Codex usage: unavailable' })).toBeInTheDocument()
+    expect(reads()).toBe(before + 1)
+
+    await act(async () => {
+      answer({ ...sample('codex'), windows: [{ label: '5h', usedPercent: 71, resetsAt: null }] })
+    })
+    expect(screen.getByRole('button', { name: 'Codex usage: 5h 71% used' })).toBeInTheDocument()
+  })
 })
 
 describe('provider allowance pill', () => {

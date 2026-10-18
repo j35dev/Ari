@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     "./detector": "./src/detector.ts",
+    "./account-home": "./src/account-home.ts",
+    "./account-identity": "./src/account-identity.ts",
     "./types": "./src/types.ts",
     "./health": "./src/health.ts",
     "./catalogs": "./src/catalogs.ts",
