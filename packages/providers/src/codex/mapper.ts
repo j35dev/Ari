@@ -27,7 +27,7 @@ interface NativeLine {
   message?: string
   error?: { message?: string } | string
   item?: CodexItem
-  usage?: { input_tokens?: number; output_tokens?: number }
+  usage?: { input_tokens?: number; cached_input_tokens?: number; output_tokens?: number }
 }
 
 /** Reconnect chatter is transport noise, not a transcript-worthy failure. */
@@ -130,6 +130,9 @@ export function mapCodexLine(line: string): AgentEvent[] {
           type: 'usage',
           inputTokens: typeof usage['input_tokens'] === 'number' ? usage['input_tokens'] : 0,
           outputTokens: typeof usage['output_tokens'] === 'number' ? usage['output_tokens'] : 0,
+          ...(typeof usage['cached_input_tokens'] === 'number'
+            ? { cachedInputTokens: usage['cached_input_tokens'] }
+            : {}),
           costUsd: null,
         },
         { type: 'done' },
@@ -200,6 +203,7 @@ export interface AppServerMapper {
 export function createAppServerMapper(): AppServerMapper {
   const deltaSeen = new Set<string>()
   const startedItems = new Set<string>()
+  const usage: UsageTracker = { totals: new Map(), turnStarted: false }
 
   function itemEvents(item: AppServerItem, complete: boolean): AgentEvent[] {
     if (!item || typeof item !== 'object') return []
@@ -379,7 +383,7 @@ export function createAppServerMapper(): AppServerMapper {
       return {
         kind: 'notification',
         method: method ?? '',
-        events: notificationEvents(method, params, deltaSeen, itemEvents),
+        events: notificationEvents(method, params, deltaSeen, usage, itemEvents),
       }
     },
   }
@@ -470,10 +474,38 @@ export function approvalRef(params: Record<string, unknown>): string {
   return `codex-appr-${typeof itemId === 'string' && itemId.length > 0 ? itemId : 'unknown'}`
 }
 
+/** One side of a `tokenUsage` payload. Codex counts cached input inside input. */
+interface TokenCounts {
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+}
+
+/** What one connection has seen of token usage: one adapter, one turn. */
+interface UsageTracker {
+  /** Last cumulative total per thread, to diff the next update against. */
+  totals: Map<string, TokenCounts>
+  turnStarted: boolean
+}
+
+function tokenCounts(raw: unknown): TokenCounts | null {
+  const counts = raw as Record<string, unknown> | null | undefined
+  const input = counts?.['inputTokens']
+  const output = counts?.['outputTokens']
+  const cached = counts?.['cachedInputTokens']
+  if (typeof input !== 'number' || typeof output !== 'number') return null
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    cachedInputTokens: typeof cached === 'number' ? cached : 0,
+  }
+}
+
 function notificationEvents(
   method: string | null,
   params: Record<string, unknown>,
   deltaSeen: Set<string>,
+  usageTracker: UsageTracker,
   itemEvents: (item: AppServerItem, complete: boolean) => AgentEvent[],
 ): AgentEvent[] {
   switch (method) {
@@ -502,18 +534,45 @@ function notificationEvents(
       const item = params['item'] as AppServerItem | undefined
       return itemEvents(item ?? {}, method === 'item/completed')
     }
+    case 'turn/started':
+      usageTracker.turnStarted = true
+      return []
     case 'thread/tokenUsage/updated': {
-      const usage = params['tokenUsage'] as
-        { total?: { inputTokens?: number; outputTokens?: number } } | undefined
-      const total = usage?.total ?? {}
-      return [
-        {
-          type: 'usage',
-          inputTokens: typeof total['inputTokens'] === 'number' ? total['inputTokens'] : 0,
-          outputTokens: typeof total['outputTokens'] === 'number' ? total['outputTokens'] : 0,
-          costUsd: null,
-        },
-      ]
+      const usage = (params['tokenUsage'] ?? {}) as Record<string, unknown>
+      const threadId = typeof params['threadId'] === 'string' ? params['threadId'] : ''
+      const total = tokenCounts(usage['total'])
+      const last = tokenCounts(usage['last'])
+      // `total` accumulates over the whole thread and is restated on every
+      // update, so only its growth is new usage. The first update has nothing
+      // to diff against; `last` is the single call that produced it.
+      const before = usageTracker.totals.get(threadId)
+      const grown =
+        total && before
+          ? {
+              inputTokens: Math.max(0, total.inputTokens - before.inputTokens),
+              outputTokens: Math.max(0, total.outputTokens - before.outputTokens),
+              cachedInputTokens: Math.max(0, total.cachedInputTokens - before.cachedInputTokens),
+            }
+          : last
+      // A resumed thread restates its total before the turn begins. That is
+      // history earlier turns already counted, so it only sets the baseline.
+      const spent = usageTracker.turnStarted ? grown : null
+      if (total) usageTracker.totals.set(threadId, total)
+      const events: AgentEvent[] = []
+      if (spent && spent.inputTokens + spent.outputTokens > 0) {
+        events.push({ type: 'usage', ...spent, costUsd: null })
+      }
+      // The last call's prompt plus its reply is what the window now holds.
+      const used = (usage['last'] as Record<string, unknown> | undefined)?.['totalTokens']
+      const window = usage['modelContextWindow']
+      if (typeof used === 'number' && used >= 0) {
+        events.push({
+          type: 'context-usage',
+          usedTokens: used,
+          windowTokens: typeof window === 'number' && window > 0 ? window : null,
+        })
+      }
+      return events
     }
     case 'turn/completed': {
       const turn = params['turn'] as

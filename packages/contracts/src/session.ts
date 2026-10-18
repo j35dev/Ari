@@ -32,6 +32,17 @@ export const sessionWorkspaceSchema = z.discriminatedUnion('kind', [
 ])
 export type SessionWorkspace = z.infer<typeof sessionWorkspaceSchema>
 
+/** What a parent delegated a child to do; shapes the child's brief, not its permissions. */
+export const delegationRoleSchema = z.enum([
+  'implementation',
+  'research',
+  'review',
+  'design',
+  'test',
+  'general',
+])
+export type DelegationRole = z.infer<typeof delegationRoleSchema>
+
 export const sessionSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -55,6 +66,8 @@ export const sessionSchema = z.object({
   parentSessionId: z.string().min(1).nullish(),
   rootSessionId: z.string().min(1).nullish(),
   createdBy: sessionCreatorSchema.nullish(),
+  /** Set on delegated children only; absent on journals written before roles. */
+  role: delegationRoleSchema.nullish(),
   workspace: sessionWorkspaceSchema.nullish(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
@@ -67,6 +80,7 @@ export const sessionHierarchySummarySchema = sessionSchema.pick({
   driverKind: true,
   modelId: true,
   status: true,
+  role: true,
 }).partial().extend({
   workspaceKind: z.enum(['project', 'managed-worktree']).optional(),
   branch: z.string().nullable().optional(),

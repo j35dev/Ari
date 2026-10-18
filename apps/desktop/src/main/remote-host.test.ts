@@ -12,7 +12,9 @@ import type { Command } from '@ari/contracts/commands'
 import {
   remoteChangesSchema,
   remoteAttentionSchema,
+  remoteAccountsSchema,
   remoteAllowanceSchema,
+  remoteRedeemSchema,
   remoteQuerySchema,
   remoteModelCatalogSchema,
   type RemoteCommand,
@@ -183,6 +185,7 @@ function commandOrReadExists(op: string): boolean {
     'project.list',
     'models.list',
     'usage.allowance',
+    'accounts.list',
     'changes.files',
     'changes.diff',
     'command.status',
@@ -200,6 +203,8 @@ function commandOrReadExists(op: string): boolean {
     'approval.respond',
     'input.respond',
     'changes.integrate',
+    'usage.redeem',
+    'accounts.activate',
   ])
   const overTheWire = new Set(['events.subscribe', 'events.ack', 'events.snapshot'])
   return queries.has(op) || commands.has(op) || overTheWire.has(op)
@@ -284,6 +289,41 @@ describe('reading sessions', () => {
       'opt_session',
       'opt_prefix',
     ])
+  })
+
+  it('sends the work a session delegated, and the session that delegated to it', async () => {
+    const store = await tempStore()
+    await store.append('sess_a', sessionCreated('sess_a'))
+    await store.append('sess_child', {
+      type: 'session.created',
+      session: { ...sessionFixture('sess_child'), title: 'Parser', parentSessionId: 'sess_a' },
+    })
+    const asked: string[] = []
+    const task = { sessionId: 'sess_child', title: 'Parser', workState: 'working' }
+    const host = hostFor(store, fakeEngine(), {
+      tasks: async (sessionId) => {
+        asked.push(sessionId)
+        return sessionId === 'sess_a' ? ([task] as never) : []
+      },
+    })
+
+    const parent = await host.getSession(CALLER, 'sess_a')
+    expect(parent?.tasks).toEqual([task])
+    expect(parent?.parent).toBeNull()
+    const child = await host.getSession(CALLER, 'sess_child')
+    expect(child?.tasks).toEqual([])
+    expect(child?.parent).toEqual({ id: 'sess_a', title: parent?.summary.title })
+    expect(asked).toEqual(['sess_a', 'sess_child'])
+
+    // A desktop without the control runtime, or one that fails, still answers.
+    const bare = await hostFor(store, fakeEngine()).getSession(CALLER, 'sess_a')
+    expect(bare?.tasks).toEqual([])
+    const failing = hostFor(store, fakeEngine(), {
+      tasks: async () => {
+        throw new Error('control runtime is down')
+      },
+    })
+    expect((await failing.getSession(CALLER, 'sess_a'))?.tasks).toEqual([])
   })
 
   it('answers undefined for a session that does not exist', async () => {
@@ -994,6 +1034,159 @@ describe('provider allowance', () => {
     const host = hostFor(await tempStore(), fakeEngine(), { allowance })
     await expect(host.query(CALLER, 'usage.allowance', { driverKind: 'nope' })).rejects.toThrow()
     expect(allowance).not.toHaveBeenCalled()
+  })
+})
+
+describe('spending a banked reset from a phone', () => {
+  const after = {
+    kind: 'claude',
+    status: 'available' as const,
+    windows: [{ label: '5h', usedPercent: 0, resetsAt: 9_000 }],
+    resetCredits: { availableCount: 1, nextExpiresAt: null, nextCreditId: 'grant_next' },
+    updatedAt: 2_000,
+    checkedAt: 2_000,
+    detail: '',
+  }
+
+  it('is offered only by a desktop that can do it', async () => {
+    const host = hostFor(await tempStore(), fakeEngine())
+    expect(host.capabilities()).not.toContain('usage.redeem')
+    expect(await host.execute(CALLER, command('usage.redeem', { driverKind: 'claude' }))).toEqual({
+      ok: false,
+      code: 'unsupported_capability',
+      message: 'Using a reset is not available on this desktop.',
+    })
+  })
+
+  it('answers with what the provider said and the allowance it leaves, without a grant id', async () => {
+    const redeemReset = vi.fn(async () => ({ ok: true as const, outcome: 'reset' as const, allowance: after }))
+    const host = hostFor(await tempStore(), fakeEngine(), { redeemReset })
+    expect(host.capabilities()).toContain('usage.redeem')
+
+    // The account's, like the allowance itself: no project grant is needed.
+    const reply = await host.execute(STRANGER, command('usage.redeem', { driverKind: 'claude' }))
+
+    expect(redeemReset).toHaveBeenCalledWith('claude')
+    expect(reply.ok && remoteRedeemSchema.safeParse(reply.result).success).toBe(true)
+    expect(reply).toEqual({
+      ok: true,
+      result: {
+        outcome: 'reset',
+        allowance: {
+          driverKind: 'claude',
+          status: 'available',
+          windows: [{ label: '5h', usedPercent: 0, resetsAt: 9_000 }],
+          bankedResets: 1,
+          updatedAt: 2_000,
+        },
+      },
+    })
+    expect(JSON.stringify(reply)).not.toContain('grant_next')
+  })
+
+  it('passes on the reason a reset could not be used', async () => {
+    const redeemReset = vi.fn(async () => ({
+      ok: false as const,
+      error: 'Claude is turned off. Turn it on in Settings > Providers to use this session.',
+    }))
+    const host = hostFor(await tempStore(), fakeEngine(), { redeemReset })
+    expect(await host.execute(CALLER, command('usage.redeem', { driverKind: 'claude' }))).toEqual({
+      ok: false,
+      code: 'conflict',
+      message: 'Claude is turned off. Turn it on in Settings > Providers to use this session.',
+    })
+  })
+})
+
+describe('a provider’s accounts from a phone', () => {
+  const listed = (active: string) => ({
+    supported: true,
+    accounts: [
+      {
+        id: 'default',
+        label: 'Default',
+        isDefault: true,
+        active: active === 'default',
+        identity: { signedIn: true, email: 'owner@home.example', plan: 'max' },
+      },
+      {
+        id: 'work',
+        label: 'Work',
+        isDefault: false,
+        active: active === 'work',
+        identity: null,
+      },
+    ],
+  })
+  const accounts = () => ({
+    list: vi.fn(async () => listed('default')),
+    activate: vi.fn(async (_kind: DriverKind, id: string) => listed(id)),
+  })
+
+  it('is offered only by a desktop that has the feature', async () => {
+    const host = hostFor(await tempStore(), fakeEngine())
+    expect(host.capabilities()).not.toContain('accounts.list')
+    expect(host.capabilities()).not.toContain('accounts.activate')
+  })
+
+  it('lists label, state and plan, and keeps the address the account is signed in with', async () => {
+    const deps = accounts()
+    const host = hostFor(await tempStore(), fakeEngine(), { accounts: deps })
+    expect(host.capabilities()).toEqual(
+      expect.arrayContaining(['accounts.list', 'accounts.activate']),
+    )
+
+    const result = await host.query(STRANGER, 'accounts.list', { driverKind: 'claude' })
+
+    expect(deps.list).toHaveBeenCalledWith('claude')
+    expect(remoteAccountsSchema.safeParse(result).success).toBe(true)
+    expect(result).toEqual({
+      driverKind: 'claude',
+      accounts: [
+        { id: 'default', label: 'Default', active: true, signedIn: true, plan: 'max' },
+        { id: 'work', label: 'Work', active: false, signedIn: null, plan: null },
+      ],
+    })
+    expect(JSON.stringify(result)).not.toContain('owner@home.example')
+  })
+
+  it('answers with no accounts for a provider that has none to offer', async () => {
+    const deps = { ...accounts(), list: vi.fn(async () => ({ supported: false, accounts: [] })) }
+    const host = hostFor(await tempStore(), fakeEngine(), { accounts: deps })
+    expect(await host.query(CALLER, 'accounts.list', { driverKind: 'grok' })).toEqual({
+      driverKind: 'grok',
+      accounts: [],
+    })
+  })
+
+  it('switches the account the provider runs as and answers with the new list', async () => {
+    const deps = accounts()
+    const host = hostFor(await tempStore(), fakeEngine(), { accounts: deps })
+
+    const reply = await host.execute(
+      CALLER,
+      command('accounts.activate', { driverKind: 'claude', accountId: 'work' }),
+    )
+
+    expect(deps.activate).toHaveBeenCalledWith('claude', 'work')
+    expect(reply).toMatchObject({
+      ok: true,
+      result: { accounts: [{ id: 'default', active: false }, { id: 'work', active: true }] },
+    })
+  })
+
+  it('refuses with the desktop’s reason when the switch did not happen', async () => {
+    const deps = {
+      ...accounts(),
+      activate: vi.fn(async () => ({ ...listed('default'), error: 'That account no longer exists.' })),
+    }
+    const host = hostFor(await tempStore(), fakeEngine(), { accounts: deps })
+    expect(
+      await host.execute(
+        CALLER,
+        command('accounts.activate', { driverKind: 'claude', accountId: 'gone' }),
+      ),
+    ).toEqual({ ok: false, code: 'conflict', message: 'That account no longer exists.' })
   })
 })
 

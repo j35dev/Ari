@@ -11,6 +11,21 @@
   margin: 0.5rem 0;
 }
 
+/*
+ * A block that arrives while the reply is being written fades in instead of
+ * landing at full weight. It plays once, on insertion: a block that keeps
+ * growing is updated in place, so the text already on screen never dims.
+ */
+.ari-md[data-streaming] > * {
+  transition: opacity calc(var(--ari-dur-slow) * 2) ease-out;
+}
+
+@starting-style {
+  .ari-md[data-streaming] > * {
+    opacity: 0;
+  }
+}
+
 .ari-md h1,
 .ari-md h2,
 .ari-md h3,

@@ -27,6 +27,26 @@ describe('MessageRail', () => {
     expect(screen.getByLabelText(/first prompt/)).not.toHaveAttribute('aria-current')
   })
 
+  // jsdom lays nothing out, so this pins the rule that keeps the rail inside
+  // its pane: dots sit in slots that give up height, with no fixed gap between.
+  it('lets every slot shrink so a long session cannot outgrow the rail', () => {
+    const many = Array.from({ length: 80 }, (_, i) => ({ key: String(i), text: `prompt ${i}` }))
+    render(<MessageRail entries={many} activeKey="40" onJump={() => undefined} />)
+
+    const rail = screen.getByRole('navigation', { name: 'Message timeline' })
+    expect(rail.className).not.toMatch(/\bgap-/)
+    const slots = screen.getAllByRole('button')
+    expect(slots).toHaveLength(80)
+    for (const slot of slots) expect(slot).toHaveClass('shrink', 'min-h-0')
+  })
+
+  it('keeps the active dot full size however tightly the rest are packed', () => {
+    render(<MessageRail entries={entries} activeKey="4" onJump={() => undefined} />)
+
+    expect(screen.getByLabelText(/second prompt/).firstElementChild).toHaveClass('h-1.5')
+    expect(screen.getByLabelText(/first prompt/).firstElementChild).not.toHaveClass('h-1.5')
+  })
+
   it('jumps on click and previews the prompt on hover', async () => {
     const onJump = vi.fn()
     const user = userEvent.setup()

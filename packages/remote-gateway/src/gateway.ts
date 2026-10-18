@@ -14,6 +14,7 @@ import {
   remoteErrorCodeSchema,
   remoteQuerySchema,
   requiresAuthentication,
+  type RemoteCommand,
   type RemoteErrorCode,
 } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
@@ -90,6 +91,19 @@ interface RecordedOutcome {
   reply: { ok: true; result: unknown }
   sessionId?: string
   projectId?: string
+  /**
+   * Set for a command on the user's account with a provider. It belongs to no
+   * session or project, and its receipt is already keyed by the device that
+   * sent it, so that device may always read it back.
+   */
+  account?: true
+}
+
+/** What a finished command is filed under, which decides who may read its outcome back. */
+function scopeOf(command: RemoteCommand): Omit<RecordedOutcome, 'reply'> {
+  if (command.op === 'session.create') return { projectId: command.projectId }
+  if (command.op === 'usage.redeem' || command.op === 'accounts.activate') return { account: true }
+  return { sessionId: command.sessionId }
 }
 
 export async function createRemoteGateway(options: RemoteGatewayOptions): Promise<RemoteGateway> {
@@ -522,12 +536,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
 
     const result = await host.execute(caller, command)
     if (result.ok) {
-      receipts.complete(key, {
-        reply: result,
-        ...(command.op === 'session.create'
-          ? { projectId: command.projectId }
-          : { sessionId: command.sessionId }),
-      })
+      receipts.complete(key, { reply: result, ...scopeOf(command) })
       if (durable) remember()
       return reply(200, result)
     }
@@ -609,6 +618,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
   }
 
   async function outcomeVisible(caller: RemoteCaller, outcome: RecordedOutcome): Promise<boolean> {
+    if (outcome.account === true) return true
     if (outcome.sessionId !== undefined)
       return (await host.getSession(caller, outcome.sessionId)) !== undefined
     return outcome.projectId !== undefined && caller.projectIds.includes(outcome.projectId)

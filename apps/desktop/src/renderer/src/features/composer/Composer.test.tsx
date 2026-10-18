@@ -27,6 +27,37 @@ describe('Composer', () => {
     expect(onSend).toHaveBeenCalledOnce()
   })
 
+  it('recalls sent prompts with the arrows from an empty field and returns to it', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} history={['first prompt', 'second prompt']} />)
+    const input = screen.getByLabelText('Message')
+    await user.click(input)
+    await user.keyboard('{ArrowUp}')
+    expect(input).toHaveValue('second prompt')
+    await user.keyboard('{ArrowUp}')
+    expect(input).toHaveValue('first prompt')
+    await user.keyboard('{ArrowUp}')
+    expect(input).toHaveValue('first prompt')
+    await user.keyboard('{ArrowDown}{ArrowDown}')
+    expect(input).toHaveValue('')
+  })
+
+  it('leaves the arrows alone once the user is writing or has edited a recalled prompt', async () => {
+    const user = userEvent.setup()
+    render(<Composer onSend={vi.fn()} history={['first prompt', 'second prompt']} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'my draft')
+    await user.keyboard('{ArrowUp}')
+    expect(input).toHaveValue('my draft')
+
+    await user.clear(input)
+    await user.keyboard('{ArrowUp}')
+    expect(input).toHaveValue('second prompt')
+    await user.type(input, ' again')
+    await user.keyboard('{ArrowUp}{ArrowDown}')
+    expect(input).toHaveValue('second prompt again')
+  })
+
   it('does not send empty or whitespace-only messages', async () => {
     const user = userEvent.setup()
     const onSend = vi.fn()

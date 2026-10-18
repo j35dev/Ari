@@ -3,6 +3,7 @@ import {
   ACTIVE_SETTLE_LINGER_MS,
   peakActivity,
   reduceSessionActivity,
+  treeActivity,
   type SessionActivity,
 } from './session-activity'
 
@@ -117,6 +118,27 @@ describe('peakActivity', () => {
 
   it('returns undefined when nothing is live', () => {
     expect(peakActivity([undefined, undefined])).toBeUndefined()
+  })
+})
+
+describe('treeActivity', () => {
+  const working: SessionActivity = { phase: 'working', startedAt: NOW }
+  const blocked: SessionActivity = { phase: 'paused', startedAt: NOW, pauseReason: 'approval' }
+  const done: SessionActivity = { phase: 'done', startedAt: null, settledAt: NOW }
+
+  it('shows a parent as working while its children still run', () => {
+    expect(treeActivity(done, [undefined, working])).toBe(working)
+    expect(treeActivity(undefined, [working])).toBe(working)
+  })
+
+  it('surfaces a child waiting on the user even over the parent’s own live turn', () => {
+    expect(treeActivity(working, [working, blocked])).toBe(blocked)
+  })
+
+  it('keeps the parent’s own mark when no child is live', () => {
+    expect(treeActivity(done, [done, undefined])).toBe(done)
+    expect(treeActivity(working, [done])).toBe(working)
+    expect(treeActivity(undefined, [])).toBeUndefined()
   })
 })
 

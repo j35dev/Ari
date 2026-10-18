@@ -40,8 +40,27 @@ export function buildClaudeArgs(session: AdapterSession): string[] {
   ]
   if (session.modelId) args.push('--model', session.modelId)
   if (session.resumeOf) args.push('--resume', session.resumeOf)
+  // Not stored with the conversation, so it is sent on every spawn, resumed or not.
+  if (session.instructions)
+    args.push('--append-system-prompt', argvSafeText(session.instructions))
   args.push('--permission-mode', permissionModeFlag(session.permissionMode))
   return args
+}
+
+/**
+ * Makes free text safe to pass as one argument through a Windows `.cmd` shim.
+ *
+ * A global npm install of `claude` is a shim that re-parses its arguments
+ * with cmd.exe. That second parse does not understand `\"`, so a double quote
+ * inside the argument ends the quoted region and whatever follows — `&`, `<`,
+ * `>` — is executed as shell syntax; `%NAME%` is expanded even inside quotes.
+ * The text can carry a session title, which a model or a user chose. Without
+ * a double quote or a percent sign in it there is nothing for cmd.exe to act
+ * on, so those two are replaced on every platform rather than only where the
+ * shim happens to be in use.
+ */
+export function argvSafeText(text: string): string {
+  return text.replace(/"/g, "'").replace(/%/g, ' percent ').replace(/\s*[\r\n]+\s*/g, ' ')
 }
 
 function permissionModeFlag(mode: PermissionMode): string {
@@ -282,6 +301,7 @@ export interface ClaudeDriverOptions {
 
 export class ClaudeDriver implements Driver {
   readonly kind = 'claude' as const
+  readonly systemInstructions = true
 
   constructor(
     private readonly binaryPath: string,

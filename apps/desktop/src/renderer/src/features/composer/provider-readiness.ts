@@ -8,6 +8,8 @@ export interface ProviderReadiness {
   installed: boolean
   authStatus: string
   authReason?: string | undefined
+  /** False when the user turned the provider off in settings. */
+  enabled?: boolean | undefined
 }
 
 /** A provider the rail will not offer, paired with why. */
@@ -38,6 +40,9 @@ export interface ProviderPartition<T> {
  *   another way (`ANTHROPIC_API_KEY`, a subscription session); hiding those
  *   would drop providers that work fine.
  *
+ * A provider the user turned off is in neither list: it was their choice, so
+ * the picker has nothing to explain.
+ *
  * `ari-core` is Ari's own runtime and has no binary to find, so it is always
  * offered regardless of what the probe reported.
  */
@@ -47,6 +52,7 @@ export function partitionProviders<T extends ProviderReadiness>(
   const ready: T[] = []
   const withheld: WithheldProvider<T>[] = []
   for (const detection of detections) {
+    if (detection.enabled === false) continue
     if (detection.kind !== 'ari-core' && !detection.installed) {
       withheld.push({ detection, reason: 'Not installed - no CLI found on PATH.' })
       continue

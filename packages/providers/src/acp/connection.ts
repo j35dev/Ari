@@ -5,6 +5,7 @@ import { spawnCli } from '../spawn-cli'
 import { teardownChild } from '../teardown'
 import { AUTH_REQUIRED_ERROR, describeAcpFailure, terminalLoginsFrom } from './protocol'
 import { isInteractiveClientMethod } from './client-requests'
+import { removeBrokenNpxInstall } from './npx-cache'
 import type {
   AcpInitializeResult,
   AcpNewSessionResult,
@@ -22,6 +23,11 @@ export const ACP_PROTOCOL_VERSION = 1
 const TRANSPORT_EOF_GRACE_MS = 400
 /** How long SIGTERM gets before the process tree is killed outright. */
 const TRANSPORT_TERM_GRACE_MS = 600
+/**
+ * Handshake ceiling for a launch known to be installing its adapter first.
+ * The Claude adapter alone took 44s to install from a warm npm cache.
+ */
+const NPX_INSTALL_HANDSHAKE_MS = 180_000
 
 /** Launch description for an ACP agent subprocess. */
 export interface AcpLaunch {
@@ -73,6 +79,8 @@ export interface AcpConnectOptions {
   clientVersion?: string
   /** Client-hosted MCP servers (Ari's in-app browser). Empty when none. */
   mcpServers?: AcpMcpServer[]
+  /** Agent-specific `_meta` sent with every session open (new, load, resume). */
+  sessionMeta?: Record<string, unknown>
   /** Handshake ceiling; provider runtimes can spend time starting on first use. */
   initializeTimeoutMs?: number
   /** Client-side handler for `session/request_permission` server calls. */
@@ -161,6 +169,7 @@ export class AcpConnection {
   launch: AcpLaunch
   initialize: AcpInitializeResult
   #mcpServers: AcpMcpServer[]
+  #sessionMeta: Record<string, unknown> | null = null
 
   /** Hook for `session/update` notifications; assigned by the driver. */
   onSessionUpdate: ((notification: AcpSessionNotification) => void) | null = null
@@ -225,7 +234,7 @@ export class AcpConnection {
    * AcpConnectionError on spawn failure, timeout, or a JSON-RPC error so the
    * caller can fall back to another transport.
    */
-  static async connect(options: AcpConnectOptions): Promise<AcpConnection> {
+  static async connect(options: AcpConnectOptions, retried = false): Promise<AcpConnection> {
     const { launch } = options
     let child: AcpChildProcess
     try {
@@ -283,6 +292,7 @@ export class AcpConnection {
     })
 
     connection.#mcpServers = options.mcpServers ?? []
+    connection.#sessionMeta = options.sessionMeta ?? null
     connection.#wireStdout()
     connection.#watchExit()
 
@@ -331,6 +341,23 @@ export class AcpConnection {
       return connection
     } catch (error) {
       connection.kill()
+      // A half-installed npx entry fails every launch the same way; clearing
+      // it lets one retry install the adapter afresh. Probes stay read-only:
+      // without `-y` a retry has nothing it is allowed to install.
+      if (
+        !retried &&
+        launch.viaNpx === true &&
+        launch.args.includes('-y') &&
+        (await removeBrokenNpxInstall(connection.#stderrTail.join('')))
+      ) {
+        // That retry is an install, and cutting one short is what leaves the
+        // entry half-installed in the first place.
+        const initializeTimeoutMs = Math.max(
+          options.initializeTimeoutMs ?? 0,
+          NPX_INSTALL_HANDSHAKE_MS,
+        )
+        return AcpConnection.connect({ ...options, initializeTimeoutMs }, true)
+      }
       const message = error instanceof Error ? error.message : String(error)
       const detail =
         `${launch.label} initialization failed: ${message}` +
@@ -574,13 +601,18 @@ export class AcpConnection {
     return stdio
   }
 
+  /** What every session open carries besides its own ids. */
+  #sessionParams(cwd: string): Record<string, unknown> {
+    return {
+      cwd,
+      mcpServers: this.#sessionMcpServers(),
+      ...(this.#sessionMeta !== null ? { _meta: this.#sessionMeta } : {}),
+    }
+  }
+
   /** Creates a session bound to `cwd`; throws descriptive errors on auth walls. */
   async newSession(cwd: string): Promise<AcpNewSessionResult> {
-    const result = await this.#request(
-      'session/new',
-      { cwd, mcpServers: this.#sessionMcpServers() },
-      30_000,
-    )
+    const result = await this.#request('session/new', this.#sessionParams(cwd), 30_000)
     const created = (result ?? {}) as AcpNewSessionResult
     if (typeof created.sessionId !== 'string') {
       throw new AcpConnectionError(`${this.launch.label} returned no sessionId`)
@@ -601,7 +633,7 @@ export class AcpConnection {
   async loadSession(sessionId: string, cwd: string): Promise<AcpNewSessionResult> {
     const result = await this.#request(
       'session/load',
-      { sessionId, cwd, mcpServers: this.#sessionMcpServers() },
+      { sessionId, ...this.#sessionParams(cwd) },
       60_000,
     )
     return { ...((result ?? {}) as AcpNewSessionResult), sessionId }
@@ -614,7 +646,7 @@ export class AcpConnection {
   async resumeSession(sessionId: string, cwd: string): Promise<AcpNewSessionResult> {
     const result = await this.#request(
       'session/resume',
-      { sessionId, cwd, mcpServers: this.#sessionMcpServers() },
+      { sessionId, ...this.#sessionParams(cwd) },
       60_000,
     )
     return { ...((result ?? {}) as AcpNewSessionResult), sessionId }

@@ -53,6 +53,8 @@ export interface RemoteServiceDeps {
   listModels: () => Promise<RemoteModelCatalog['providers']>
   effortsForModel?: RemoteHostDeps['effortsForModel']
   allowance?: RemoteHostDeps['allowance']
+  redeemReset?: RemoteHostDeps['redeemReset']
+  accounts?: RemoteHostDeps['accounts']
   mintSessionId: () => string
   /**
    * The address a phone should open, or null when none is configured yet.
@@ -73,6 +75,7 @@ export interface RemoteServiceDeps {
   now?: () => number
   terminalFactory?: PtyFactory
   fork?: RemoteHostDeps['fork']
+  tasks?: RemoteHostDeps['tasks']
 }
 
 export class RemoteService {
@@ -144,10 +147,13 @@ export class RemoteService {
           attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
           integration: this.#integration,
           ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+          ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
           ...(this.#deps.effortsForModel === undefined
             ? {}
             : { effortsForModel: this.#deps.effortsForModel }),
           ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
+          ...(this.#deps.redeemReset === undefined ? {} : { redeemReset: this.#deps.redeemReset }),
+          ...(this.#deps.accounts === undefined ? {} : { accounts: this.#deps.accounts }),
           ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
         }),
         // Exact origins, plus whatever the gateway is bound to. A phone on
@@ -214,10 +220,13 @@ export class RemoteService {
         attachments: new AttachmentStore(join(dirname(this.#deps.dir), 'attachments')),
         integration: this.#integration,
         ...(this.#deps.fork === undefined ? {} : { fork: this.#deps.fork }),
+        ...(this.#deps.tasks === undefined ? {} : { tasks: this.#deps.tasks }),
         ...(this.#deps.effortsForModel === undefined
           ? {}
           : { effortsForModel: this.#deps.effortsForModel }),
         ...(this.#deps.allowance === undefined ? {} : { allowance: this.#deps.allowance }),
+        ...(this.#deps.redeemReset === undefined ? {} : { redeemReset: this.#deps.redeemReset }),
+        ...(this.#deps.accounts === undefined ? {} : { accounts: this.#deps.accounts }),
         ...(this.#terminals === undefined ? {} : { terminals: this.#terminals }),
       }),
       allowedOrigins: [options.issuer, `https://${options.hostname}`],

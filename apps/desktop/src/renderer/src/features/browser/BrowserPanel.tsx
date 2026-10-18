@@ -13,6 +13,7 @@ import { Input } from '@ari/ui/input'
 import type { BrowserTabState } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
 import { addBrowserPick, fileFromPngBase64 } from './browser-picks'
+import { useCovered } from './use-covered'
 
 const TAB_ID = 'inspector'
 
@@ -29,13 +30,16 @@ const EMPTY: BrowserTabState = {
 /**
  * Inspector-rail browser: address chrome in the renderer, Chromium guest in
  * the main process. The host div is only a bounds target — the page itself
- * is a WebContentsView overlaid by main.
+ * is a WebContentsView overlaid by main, above everything the renderer draws.
+ * So while app UI overlaps the host, the guest gives way to a still of itself.
  */
 export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [tab, setTab] = useState<BrowserTabState>(EMPTY)
   const [draft, setDraft] = useState('')
   const [picking, setPicking] = useState(false)
+  const [still, setStill] = useState<string | null>(null)
+  const [parked, setParked] = useState(false)
 
   const syncLayout = useCallback((visible: boolean) => {
     const host = hostRef.current
@@ -82,15 +86,41 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   }, [])
 
   const showGuest = tab.url !== 'about:blank' || tab.loading
+  const covered = useCovered(hostRef, showGuest)
+
+  useEffect(() => {
+    if (!covered) return
+    let live = true
+    void rpc
+      .invoke('browser.capture', { id: TAB_ID })
+      .then((shot) => {
+        if (!live) return
+        // Without a frame to show there is nothing to wait for: hide now.
+        if (shot.pngBase64 === null) setParked(true)
+        else setStill(`data:image/png;base64,${shot.pngBase64}`)
+      })
+      .catch(() => {
+        if (live) setParked(true)
+      })
+    return () => {
+      live = false
+      setParked(false)
+      setStill(null)
+    }
+  }, [covered])
+
+  // `parked` only counts while something covers the page: the still's load can
+  // land after the cover has gone, and that must not leave the guest hidden.
+  const guestVisible = showGuest && !(covered && parked)
 
   useEffect(() => {
     const host = hostRef.current
     if (host === null) return
-    const observer = new ResizeObserver(() => syncLayout(showGuest))
+    const observer = new ResizeObserver(() => syncLayout(guestVisible))
     observer.observe(host)
-    syncLayout(showGuest)
+    syncLayout(guestVisible)
     return () => observer.disconnect()
-  }, [syncLayout, showGuest])
+  }, [syncLayout, guestVisible])
 
   const submit = (): void => {
     void rpc
@@ -215,6 +245,17 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
               Type a URL, then pick an element to mention it to the agent.
             </p>
           </div>
+        ) : null}
+        {still !== null ? (
+          <img
+            src={still}
+            alt=""
+            decoding="sync"
+            draggable={false}
+            // The guest hides only once its stand-in has loaded, so the swap never flashes.
+            onLoad={() => setParked(true)}
+            className="absolute inset-0 h-full w-full"
+          />
         ) : null}
       </div>
     </div>

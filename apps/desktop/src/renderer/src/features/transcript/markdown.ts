@@ -61,7 +61,8 @@ function rehypeDropLocalImages(): (tree: HastNode) => void {
   return (tree: HastNode) => visit(tree)
 }
 
-const processor = unified()
+/** The one pipeline every transcript surface renders through. */
+export const markdownProcessor = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkBreaks)
@@ -79,7 +80,7 @@ const processor = unified()
 /** Renders markdown to safe HTML. Total: falls back to escaped text. */
 export function renderMarkdown(markdown: string): string {
   try {
-    return String(processor.processSync(markdown))
+    return String(markdownProcessor.processSync(markdown))
   } catch {
     const div = markdown.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c] ?? c)
     return `<p>${div}</p>`

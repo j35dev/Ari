@@ -34,6 +34,31 @@ export interface Detection {
   latestVersion?: string | null
   /** True when latestVersion is newer than version; null when unknowable. */
   updateAvailable?: boolean | null
+  /**
+   * False when the user turned the provider off. Such a row reports nothing
+   * installed, so every consumer treats it as absent without knowing why.
+   */
+  enabled?: boolean
+  /** Whether `binaryPath` is the user's own choice or the PATH search's. */
+  pathSource?: 'custom' | 'auto'
+  /**
+   * What is wrong with a path the user chose. With `installed: false` the path
+   * was rejected; with `installed: true` it runs but looks like the wrong file.
+   */
+  pathProblem?: string
+  /** Every install the PATH search found, the one it would use first. */
+  candidates?: string[]
+  /** How Ari talks to this CLI once it is found. */
+  transport?: ProviderTransport
+}
+
+export interface ProviderTransport {
+  /** `acp` when turns go through the Agent Client Protocol, `cli` for one-shot runs. */
+  mode: 'acp' | 'cli'
+  /** What is launched, e.g. the adapter package and version. */
+  label: string
+  /** Something about this pairing worth knowing, e.g. a bundled CLI standing in. */
+  note?: string
 }
 
 /** Everything detect() needs from the outside world; injectable for tests. */
@@ -51,6 +76,12 @@ export interface DetectEnvironment {
    * the host's real environment.
    */
   vars?: Record<string, string | undefined>
+  /**
+   * True when `vars` point the CLI at a home Ari built for an extra account.
+   * Such a home holds nothing that authorises the CLI except its own sign-in,
+   * which a home the user relocated themselves does not promise.
+   */
+  separateAccount?: boolean
 }
 
 export function realDetectEnvironment(): DetectEnvironment {

@@ -633,6 +633,38 @@ describe('remote gateway idempotency', () => {
     expect(host.executed).toHaveLength(1)
   })
 
+  it('spends a banked reset once when the phone retries, even for a device with no projects', async () => {
+    // A reset belongs to the user's account, not to a session or a project,
+    // so the retry's outcome is found by the device and key alone.
+    const host = fakeHost({
+      capabilities: () => ['usage.redeem'],
+      execute: async () => ({ ok: true, result: { outcome: 'reset' } }),
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), [])
+    const redeem = {
+      op: 'usage.redeem',
+      driverKind: 'claude',
+      clientCommandId: 'c-reset',
+      idempotencyKey: 'key-reset-0123456789',
+    }
+
+    const first = await call(gateway, '/command', redeem, { token })
+    const second = await call(gateway, '/command', redeem, { token })
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(second.body).toEqual(first.body)
+    expect(host.executed).toHaveLength(1)
+    const status = await call(
+      gateway,
+      '/query',
+      { op: 'command.status', idempotencyKey: redeem.idempotencyKey },
+      { token },
+    )
+    expect(status.body['result']).toEqual({ ok: true, result: { outcome: 'reset' } })
+  })
+
   it('refuses a key reused with a different payload', async () => {
     const host = fakeHost()
     const gateway = await start(host)

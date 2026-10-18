@@ -11,6 +11,7 @@ import { useUpdateToasts } from './features/providers/use-update-toasts'
 import { useAppUpdateToast } from './features/updates'
 import type {
   BrowserTabState,
+  NavigateFrame,
   RpcResults,
   SessionEventFrame,
   SessionSummary,
@@ -29,7 +30,7 @@ import {
   shellRootFor,
   sidebarOrder,
 } from './features/session/session-nav'
-import { descendantIds } from './features/session/session-tree'
+import { descendantIds, parentOf } from './features/session/session-tree'
 import { BrowserPanel } from './features/browser/BrowserPanel'
 import { TerminalDock, TerminalPane } from './features/terminal'
 import {
@@ -141,6 +142,10 @@ function Shell() {
   const activeSessionId = activeSessionOf(layout)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
+  const sessionTitle = useCallback(
+    (id: string) => sessions.find((session) => session.id === id)?.title,
+    [sessions],
+  )
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -267,6 +272,18 @@ function Shell() {
       setFullPage(null)
     },
     [layout, clearTransientInspector, leaveWorkspaceTool],
+  )
+
+  // Clicking an OS notification asks to see the session it was about.
+  const selectSessionRef = useRef(selectSession)
+  selectSessionRef.current = selectSession
+  useEffect(
+    () =>
+      rpc.subscribe('app.navigate', {}, (payload) => {
+        const sessionId = (payload as Partial<NavigateFrame> | null)?.sessionId
+        if (typeof sessionId === 'string') selectSessionRef.current(sessionId)
+      }),
+    [],
   )
 
   const { toast } = useToast()
@@ -408,6 +425,18 @@ function Shell() {
       .then(setProjects)
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
+
+  // New sessions start in the mode Settings → Permissions names; without this
+  // the seed above never left `ask`, whatever the setting said.
+  const defaultPermissionMode = useEngineSettings().settings?.sessions.defaultPermissionMode
+  useEffect(() => {
+    if (defaultPermissionMode === undefined) return
+    setDefaults((prev) =>
+      prev.permissionMode === defaultPermissionMode
+        ? prev
+        : { ...prev, permissionMode: defaultPermissionMode },
+    )
+  }, [defaultPermissionMode])
 
   // First available CLI becomes the default driver at boot; when none is
   // installed, sessions fall back to Ari Core (endpoint-powered).
@@ -680,8 +709,28 @@ function Shell() {
       )
       if (reusable) {
         if (overrides) setDefaults(effective)
-        splitLayoutActions.assign(layout.focusedPaneId, reusable.id)
-        clearTransientInspector()
+        const open = (): void => {
+          splitLayoutActions.assign(layout.focusedPaneId, reusable.id)
+          clearTransientInspector()
+        }
+        // Already on screen: its chips are the user's to set, nothing starts.
+        if (reusable.id === activeSessionId) {
+          open()
+          return
+        }
+        // It was created under the default of its day; an empty session picked
+        // up as "new" has to start the way a new one would. Opened only after
+        // the update lands, so the pane never loads the stale mode.
+        void rpc
+          .invoke('command.dispatch', {
+            command: {
+              type: 'session.update',
+              sessionId: reusable.id,
+              permissionMode: effective.permissionMode,
+            },
+          })
+          .catch((error: unknown) => log.warn('rpc call failed', error))
+          .then(open)
         return
       }
       void rpc
@@ -701,7 +750,7 @@ function Shell() {
         })
         .catch((error: unknown) => log.warn('rpc call failed', error))
     },
-    [defaults, sessions, layout, refreshSessions, clearTransientInspector],
+    [defaults, sessions, layout, activeSessionId, refreshSessions, clearTransientInspector],
   )
 
   /**
@@ -1191,6 +1240,8 @@ function Shell() {
                                 (session) =>
                                   session.parentSessionId === sessionId && !session.archived,
                               )}
+                              sessionTitle={sessionTitle}
+                              parentSession={parentOf(sessions, sessionId)}
                             />
                           )}
                         />

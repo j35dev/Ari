@@ -7,6 +7,11 @@ import type { TranscriptBlock, TranscriptImage } from './types'
  * text opens with it render as styled error notes instead of markdown.
  */
 const ERROR_MARKER = /^\s*⚠\s?/
+/**
+ * Marker before something the engine tells the user that did not fail the
+ * turn: the model that actually answered, what an approval now covers.
+ */
+const NOTICE_MARKER = /^\s*ℹ\s?/
 
 function partToBlock(message: Message, part: MessagePart, partIndex: number): TranscriptBlock {
   const key = `${message.id}#${partIndex}`
@@ -21,7 +26,10 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
           isLastOfMessage: false,
           turnId: message.turnId,
         }
-      : { turnId: message.turnId }
+      : {
+          turnId: message.turnId,
+          ...(message.role === 'user' && message.origin ? { origin: message.origin } : {}),
+        }
   switch (part.type) {
     case 'text': {
       if (message.role === 'assistant' && ERROR_MARKER.test(part.text)) {
@@ -30,6 +38,15 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
           kind: 'error-note',
           role: message.role,
           text: part.text.replace(ERROR_MARKER, ''),
+          ...meta,
+        }
+      }
+      if (message.role === 'assistant' && NOTICE_MARKER.test(part.text)) {
+        return {
+          key,
+          kind: 'notice',
+          role: message.role,
+          text: part.text.replace(NOTICE_MARKER, ''),
           ...meta,
         }
       }
@@ -76,16 +93,59 @@ function partToBlock(message: Message, part: MessagePart, partIndex: number): Tr
 }
 
 /**
+ * Blocks last built for a message object. Messages are replaced, never
+ * mutated, so a hit is exact — a settled message is split once for as long as
+ * it lives, however many times the transcript re-renders around it.
+ */
+const blocksByMessage = new WeakMap<Message, TranscriptBlock[]>()
+
+function sameImages(a: TranscriptImage[] | undefined, b: TranscriptImage[] | undefined): boolean {
+  if (a === b) return true
+  if (a === undefined || b === undefined || a.length !== b.length) return false
+  return a.every((image, index) => image.attachmentId === b[index]?.attachmentId)
+}
+
+function sameBlock(a: TranscriptBlock, b: TranscriptBlock): boolean {
+  return (
+    a.kind === b.kind &&
+    a.role === b.role &&
+    a.text === b.text &&
+    a.callId === b.callId &&
+    a.name === b.name &&
+    a.argsJson === b.argsJson &&
+    a.resultJson === b.resultJson &&
+    a.isError === b.isError &&
+    a.messageId === b.messageId &&
+    a.messageCreatedAt === b.messageCreatedAt &&
+    a.isLastOfMessage === b.isLastOfMessage &&
+    a.turnId === b.turnId &&
+    sameImages(a.images, b.images)
+  )
+}
+
+/**
  * Purely flattens an ordered message list into the flat block list the
- * virtualizer renders. Contiguous text parts — the engine flushes streamed
+ * transcript renders. Contiguous text parts — the engine flushes streamed
  * deltas every ~120ms as separate parts — coalesce into ONE block per run so
  * paragraphs flow instead of rendering one fragment per line; the merged
  * block's key (`msgId#firstPartIndex`) stays stable while it grows.
  * Thinking parts merge the same way; any tool block breaks the run.
+ *
+ * Returned blocks are immutable. Pass the `previous` result and every block
+ * the new messages leave unchanged comes back as the *same object*, so a
+ * streaming flush hands React one changed row instead of a transcript of
+ * fresh ones.
  */
-export function splitBlocks(messages: Message[]): TranscriptBlock[] {
-  const blocks: TranscriptBlock[] = []
+export function splitBlocks(messages: Message[], previous?: TranscriptBlock[]): TranscriptBlock[] {
+  let prior: Map<string, TranscriptBlock> | null = null
+  const out: TranscriptBlock[] = []
   for (const message of messages) {
+    const cached = blocksByMessage.get(message)
+    if (cached !== undefined) {
+      for (const block of cached) out.push(block)
+      continue
+    }
+    const blocks: TranscriptBlock[] = []
     let mergeIndex: number | null = null
     let mergeKind: 'markdown' | 'thinking' | null = null
     // A message's images render as one thumbnail strip, not one row per
@@ -101,6 +161,7 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
         role: message.role,
         images: imageRun,
         turnId: message.turnId,
+        ...(message.role === 'user' && message.origin ? { origin: message.origin } : {}),
       })
       mergeIndex = blocks.length - 1
       mergeKind = null
@@ -121,13 +182,14 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
         return
       }
       flushImages()
-      // An error note is its own block: the marker check lives in partToBlock,
-      // but the merge must not swallow the part before it gets there.
+      // An error note or a notice is its own block: the marker check lives in
+      // partToBlock, but the merge must not swallow the part before it gets there.
       if (
         part.type === 'text' &&
         mergeKind === 'markdown' &&
         mergeIndex !== null &&
-        !ERROR_MARKER.test(part.text)
+        !ERROR_MARKER.test(part.text) &&
+        !NOTICE_MARKER.test(part.text)
       ) {
         const target = blocks[mergeIndex]
         if (target !== undefined && target.kind === 'markdown') {
@@ -158,8 +220,20 @@ export function splitBlocks(messages: Message[]): TranscriptBlock[] {
     ) {
       last.isLastOfMessage = true
     }
+
+    let shared = blocks
+    if (previous !== undefined && previous.length > 0) {
+      prior ??= new Map(previous.map((block) => [block.key, block]))
+      const known = prior
+      shared = blocks.map((block) => {
+        const before = known.get(block.key)
+        return before !== undefined && sameBlock(before, block) ? before : block
+      })
+    }
+    blocksByMessage.set(message, shared)
+    for (const block of shared) out.push(block)
   }
-  return blocks
+  return out
 }
 
 /**

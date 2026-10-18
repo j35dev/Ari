@@ -41,6 +41,7 @@ const app = vi.hoisted(() => ({
   origin: 'https://phone.test',
   connection: 'connected',
   projects: [{ id: 'proj_1', name: 'Ari' }],
+  sessions: [] as { id: string; title: string }[],
   catalog: null as RemoteModelCatalog | null,
   managedComputerId: null,
   refresh: vi.fn(async () => {}),
@@ -186,5 +187,88 @@ describe('the session header', () => {
     render(<SessionScreen sessionId="sess_1" onBack={onBack} onForked={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
     expect(onBack).toHaveBeenCalledOnce()
+  })
+})
+
+describe('delegated agents', () => {
+  const task = (sessionId: string, title: string, fields: Record<string, unknown> = {}) => ({
+    sessionId,
+    parentSessionId: 'sess_1',
+    title,
+    role: 'research',
+    driverKind: 'claude',
+    modelId: null,
+    workState: 'working',
+    blockedOn: null,
+    queuedMessages: 0,
+    latestTurn: null,
+    report: null,
+    reportTruncated: false,
+    delivered: false,
+    workspaceKind: 'project',
+    branch: null,
+    ...fields,
+  })
+  const done = task('child_done', 'Parser', {
+    workState: 'result_available',
+    latestTurn: { turnId: 't', stopReason: 'completed', settledAt: 1 },
+    report: 'Parser fixed and tested.',
+  })
+
+  it('says how the delegated work is going and opens an agent from the sheet', async () => {
+    app.session.query.mockResolvedValue({
+      ...snapshot,
+      tasks: [done, task('child_busy', 'Docs'), task('child_ask', 'Tests', { workState: 'blocked_on_user' })],
+    })
+    const onOpen = vi.fn()
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={onOpen} />)
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Delegated agents: 3 agents · 1 needs you · 1 working · 1 done',
+      }),
+    )
+    // Its own turn is over, but the work is not: the header must not say "ready".
+    expect(screen.getByText('Ari, 1 agent needs you')).toBeTruthy()
+    expect(screen.getByText('Parser fixed and tested.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Tests: Needs you' }))
+    expect(onOpen).toHaveBeenCalledWith('child_ask')
+  })
+
+  it('stops every running agent from the sheet, and only those', async () => {
+    app.session.query.mockResolvedValue({
+      ...snapshot,
+      tasks: [done, task('child_busy', 'Docs'), task('child_ask', 'Tests', { workState: 'blocked_on_user' })],
+    })
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Delegated agents:/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop all agents' }))
+    await waitFor(() =>
+      expect(app.session.send.mock.calls.map(([command]) => command)).toEqual([
+        { op: 'session.interrupt', sessionId: 'child_busy' },
+        { op: 'session.interrupt', sessionId: 'child_ask' },
+      ]),
+    )
+  })
+
+  it('shows nothing extra for a session that delegated nothing, including on an older desktop', async () => {
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Fix pairing' })
+    expect(screen.queryByRole('button', { name: /^Delegated agents:/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Open parent session/ })).toBeNull()
+    expect(screen.getByText('Ari, ready')).toBeTruthy()
+  })
+
+  it('links a delegated agent back to the session it works for', async () => {
+    app.session.query.mockResolvedValue({
+      ...snapshot,
+      parent: { id: 'sess_lead', title: 'Ship settings' },
+    })
+    const onOpen = vi.fn()
+    render(<SessionScreen sessionId="sess_1" onBack={vi.fn()} onForked={onOpen} />)
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open parent session: Ship settings' }),
+    )
+    expect(onOpen).toHaveBeenCalledWith('sess_lead')
   })
 })

@@ -2,6 +2,41 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ProviderAllowanceReader } from './provider-allowance'
 
+describe('account allowance reader after an account switch', () => {
+  it('forgets the other account’s usage instead of serving it as a stale sample', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce([{ label: '5h', usedPercent: 90, resetsAt: null }])
+      .mockRejectedValueOnce(new Error('the new account is signed out'))
+    const reader = new ProviderAllowanceReader(fetch, () => 1)
+    expect((await reader.read('claude', 'cli')).windows).toHaveLength(1)
+
+    reader.forget('claude')
+    const after = await reader.read('claude', 'cli')
+    expect(after.status).toBe('error')
+    expect(after.windows).toEqual([])
+  })
+
+  it('does not remember a read that was already under way for the old account', async () => {
+    let answer: (windows: unknown[]) => void = () => undefined
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)))
+      .mockRejectedValueOnce(new Error('offline'))
+    const reader = new ProviderAllowanceReader(fetch, () => 1)
+    const early = reader.read('claude', 'cli')
+
+    reader.forget('claude')
+    answer([{ label: '5h', usedPercent: 90, resetsAt: null }])
+    await early
+
+    // The failed read that follows has nothing of the old account's to fall back on.
+    expect((await reader.read('claude', 'cli')).windows).toEqual([])
+    // Other providers are untouched.
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('account allowance reader', () => {
   it('coalesces simultaneous requests and actually refetches the next time', async () => {
     const fetch = vi.fn(async () => [{ label: '5h', usedPercent: 42, resetsAt: null }])

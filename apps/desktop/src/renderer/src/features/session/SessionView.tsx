@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
+import { delegatedChildren, type SpawnRecord } from './delegation-view'
+import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
+import type { DelegatedChild } from '../transcript/types'
+import type { ChildTask } from '@ari/contracts/agent-control'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { AttachmentRef } from '@ari/contracts/attachments'
@@ -20,7 +24,7 @@ import { QuestionPanel } from '../approvals/QuestionPanel'
 import { PlanReviewRail } from '../approvals/PlanReviewRail'
 import { parseQuestionPayload } from '../approvals/questionnaire'
 import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../moment'
-import { WorkingGlyph } from '../moment'
+import { formatElapsed, WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
@@ -83,27 +87,31 @@ function respondedInputId(event: JournalEvent): string | null {
 interface Telemetry {
   turnCount: number
   lastDurationMs: number | null
+  /** Session totals. Input counts every token read, cached or not. */
   inputTokens: number
+  cachedInputTokens: number
   outputTokens: number
   startedAt: number | null
-  /** Running total for the ACTIVE turn only (drives the context meter). */
-  turnInputTokens: number
-  turnOutputTokens: number
+  /** The provider's latest context-window reading; null until it sends one. */
+  context: { usedTokens: number; windowTokens: number | null } | null
 }
+
+const NO_DELEGATIONS: readonly DelegatedChild[] = []
 
 const EMPTY_TELEMETRY: Telemetry = {
   turnCount: 0,
   lastDurationMs: null,
   inputTokens: 0,
+  cachedInputTokens: 0,
   outputTokens: 0,
   startedAt: null,
-  turnInputTokens: 0,
-  turnOutputTokens: 0,
+  context: null,
 }
 
-function formatTokens(n: number): string {
-  if (n >= 10_000) return `${(n / 1000).toFixed(1)}K`
-  return String(n)
+/** Turn latency for the strip: 52.8s, then 2m 05s once it passes a minute. */
+export function formatTurnDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  return seconds < 60 ? `${(ms / 1000).toFixed(1)}s` : formatElapsed(seconds)
 }
 
 /**
@@ -125,15 +133,10 @@ export function contextTokensFromHint(hint: string | undefined): number | null {
 
 /** Compact token formatting for the meter chip: 200K, 1M, 12.5K, 999. */
 export function formatCompactTokens(n: number): string {
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000
-    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`
-  }
-  if (n >= 1000) {
-    const k = n / 1000
-    return `${Number.isInteger(k) ? k : k.toFixed(1)}K`
-  }
-  return String(n)
+  if (n < 1000) return String(n)
+  // Rounded first, so 3,982 reads 4K and 999,960 reads 1M, never 4.0K or 1000K.
+  const k = Number((n / 1000).toFixed(1))
+  return k < 1000 ? `${k}K` : `${Number((n / 1_000_000).toFixed(1))}M`
 }
 
 const METER_WARN_PCT = 75
@@ -142,6 +145,7 @@ const METER_DANGER_PCT = 90
 /**
  * Context-window meter for the telemetry strip: a slim fill bar plus
  * `used / window` tokens. Without a known window only the used count shows.
+ * `used` is what the conversation occupies now, not tokens spent so far.
  */
 export function ContextMeter({
   used,
@@ -166,16 +170,17 @@ export function ContextMeter({
       title={
         contextWindow !== null
           ? `Context: ${formatCompactTokens(used)} of ${formatCompactTokens(contextWindow)} tokens (${pct}%)`
-          : `Total tokens: ${formatCompactTokens(used)}`
+          : `Context: ${formatCompactTokens(used)} tokens`
       }
     >
+      <span aria-hidden="true">context</span>
       {contextWindow !== null ? (
         <span aria-hidden="true" className="h-1 w-9 overflow-hidden rounded-full bg-surface-2">
           <span className={`block h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
         </span>
       ) : null}
       <span
-        aria-label={`Token usage: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}
+        aria-label={`Context used: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}
       >
         {formatCompactTokens(used)}
         {contextWindow !== null ? ` / ${formatCompactTokens(contextWindow)}` : ''}
@@ -205,6 +210,8 @@ export function SessionView({
   onOpenSession,
   childSessions = [],
   activityOf,
+  sessionTitle,
+  parentSession = null,
 }: {
   sessionId: string
   defaults: SessionDefaults
@@ -212,6 +219,10 @@ export function SessionView({
   onOpenSession?: (id: string) => void
   childSessions?: SessionSummary[]
   activityOf?: (id: string) => SessionActivity | undefined
+  /** Current title of any session, for naming the sender of a relayed message. */
+  sessionTitle?: (id: string) => string | undefined
+  /** The session that delegated to this one, when it is a child. */
+  parentSession?: { id: string; title: string } | null
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
@@ -252,6 +263,16 @@ export function SessionView({
   // Mirrors the engine fold's activeTurnId so locally synthesized assistant
   // messages carry their turn id (drives per-turn diff card placement).
   const activeTurnIdRef = useRef<string | null>(null)
+  // Delegated children: where each was spawned in this transcript, and the
+  // latest snapshot of how each is doing. The ref tracks the newest message
+  // part in journal order so a spawn can be anchored without reading state.
+  const [spawns, setSpawns] = useState<SpawnRecord[]>([])
+  // Null until the first snapshot lands: a card drawn before it would have
+  // to guess, and reads as idle for the moment it takes to arrive.
+  const [tasks, setTasks] = useState<ChildTask[] | null>(null)
+  const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
+  const partCountsRef = useRef(new Map<string, number>())
+  const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
   notifySettledRef.current = notifySettledTurn
@@ -260,6 +281,10 @@ export function SessionView({
   const { settings: engineSettings } = useEngineSettings()
   const settleSoundRef = useRef(true)
   settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
+  const defaultsRef = useRef(defaults)
+  defaultsRef.current = defaults
+  const onDefaultsChangeRef = useRef(onDefaultsChange)
+  onDefaultsChangeRef.current = onDefaultsChange
 
   // @file mentions index the first registered workspace; ad-hoc sessions have none.
   // Model catalogs feed the context-window meter's denominator.
@@ -274,13 +299,14 @@ export function SessionView({
       .catch(() => undefined)
   }, [sessionId])
 
-  // Window size for the meter: the session model's contextHint from the live
-  // catalog, when the catalog carries one. Absent → used-count-only chip.
-  const contextWindow = useMemo(() => {
+  // Window size for the meter: what the provider measured, else the session
+  // model's contextHint from the live catalog. Neither → used-count-only chip.
+  const catalogWindow = useMemo(() => {
     const row = catalogModels.find((r) => r.kind === defaults.driverKind)
     const model = row?.models.find((m) => m.id === defaults.modelId)
     return contextTokensFromHint(model?.contextHint)
   }, [catalogModels, defaults.driverKind, defaults.modelId])
+  const contextWindow = telemetry.context?.windowTokens ?? catalogWindow
 
   useEffect(() => {
     let cancelled = false
@@ -293,8 +319,31 @@ export function SessionView({
     setTurnError(null)
     setTelemetry(EMPTY_TELEMETRY)
     setTurnDiffs({})
+    setSpawns([])
+    setTasks(null)
+    lastPartRef.current = null
+    partCountsRef.current = new Map()
     fetchedTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
+
+    // Task snapshots trail the journal: a burst of child events (replay, or
+    // siblings settling together) coalesces into one fetch.
+    let tasksTimer: ReturnType<typeof setTimeout> | null = null
+    refreshTasksRef.current = () => {
+      if (tasksTimer !== null) return
+      tasksTimer = setTimeout(() => {
+        tasksTimer = null
+        void rpc
+          .invoke('session.tasks', { sessionId })
+          .then((next) => {
+            if (!cancelled) setTasks(next)
+          })
+          // Without a snapshot the cards still show, from live activity alone.
+          .catch(() => {
+            if (!cancelled) setTasks((prev) => prev ?? [])
+          })
+      }, 200)
+    }
 
     appliedSeqsRef.current = new Set()
     replayDoneRef.current = false
@@ -320,12 +369,13 @@ export function SessionView({
         for (const event of buffered) ingest(event, true)
         return
       }
-      const event = frame.event as JournalEvent
       if (frame.replay === true) {
-        // The replay burst is seq-ordered; apply directly.
-        ingest(event, false)
+        // The burst is seq-ordered and arrives whole, so it folds in one pass
+        // and renders once however long the session is.
+        for (const event of (frame.events ?? []) as JournalEvent[]) ingest(event, false)
         return
       }
+      const event = frame.event as JournalEvent
       // Live frame: hold until the replay burst has drained so history and
       // live events interleave in journal order, not arrival order.
       if (!replayDoneRef.current) {
@@ -380,25 +430,57 @@ export function SessionView({
 
     return () => {
       cancelled = true
+      if (tasksTimer !== null) clearTimeout(tasksTimer)
+      refreshTasksRef.current = () => {}
       unsubscribe()
     }
   }, [sessionId])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
-      case 'child.session.spawned':
-      case 'child.session.settled':
-      case 'child.session.integrated':
-      case 'child.session.stopped':
+      case 'child.session.spawned': {
+        // The card sits where the spawn happened: after whatever part of the
+        // conversation was last on screen when this event was journaled.
+        const anchor = lastPartRef.current
+        const record: SpawnRecord = {
+          sessionId: event.childSessionId,
+          title: event.title,
+          role: event.role ?? null,
+          driverKind: event.driverKind,
+          modelId: event.modelId,
+          anchor: { messageId: anchor?.messageId ?? null, partIndex: (anchor?.parts ?? 1) - 1 },
+          destroyed: false,
+        }
+        setSpawns((prev) =>
+          prev.some((spawn) => spawn.sessionId === record.sessionId) ? prev : [...prev, record],
+        )
+        refreshTasksRef.current()
+        break
+      }
       case 'child.session.destroyed':
-        // Child lifecycle stays out of the transcript: the composer rail and
-        // sidebar already surface child activity, and orchestration summaries
-        // belong to the agent's own reply.
+        setSpawns((prev) =>
+          prev.map((spawn) =>
+            spawn.sessionId === event.childSessionId ? { ...spawn, destroyed: true } : spawn,
+          ),
+        )
+        break
+      case 'child.session.settled':
+      case 'child.session.stopped':
+        refreshTasksRef.current()
+        break
+      case 'child.session.integrated':
+      case 'child.session.acknowledged':
         break
       case 'user.message.added':
+        lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
         setMessages((prev) => [...prev, event.message])
         break
-      case 'assistant.parts.appended':
+      case 'assistant.parts.appended': {
+        // Counted per message: a steered user message lands in the middle of
+        // a turn, and the assistant message it interrupts keeps growing after.
+        const parts = (partCountsRef.current.get(event.messageId) ?? 0) + event.parts.length
+        partCountsRef.current.set(event.messageId, parts)
+        lastPartRef.current = { messageId: event.messageId, parts }
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === event.messageId)
           if (existing) {
@@ -419,6 +501,7 @@ export function SessionView({
           ]
         })
         break
+      }
       case 'turn.started':
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
@@ -503,13 +586,32 @@ export function SessionView({
       case 'approval.responded':
         setApprovals((prev) => prev.filter((a) => a.approvalId !== event.approvalId))
         break
+      case 'session.updated':
+        // An always-allow answer widens the mode from the engine side. Live
+        // only: `session.load` already seeds the chip with the replayed value.
+        if (live && event.permissionMode !== undefined) {
+          onDefaultsChangeRef.current({
+            ...defaultsRef.current,
+            permissionMode: event.permissionMode,
+          })
+        }
+        break
       case 'usage.recorded':
         setTelemetry((t) => ({
           ...t,
           inputTokens: t.inputTokens + (event.inputTokens ?? 0),
+          cachedInputTokens: t.cachedInputTokens + (event.cachedInputTokens ?? 0),
           outputTokens: t.outputTokens + (event.outputTokens ?? 0),
-          turnInputTokens: t.turnInputTokens + (event.inputTokens ?? 0),
-          turnOutputTokens: t.turnOutputTokens + (event.outputTokens ?? 0),
+        }))
+        break
+      case 'context.recorded':
+        setTelemetry((t) => ({
+          ...t,
+          context: {
+            usedTokens: event.usedTokens,
+            // Mid-turn readings may omit the size; the last one given holds.
+            windowTokens: event.windowTokens ?? t.context?.windowTokens ?? null,
+          },
         }))
         break
       default: {
@@ -694,6 +796,9 @@ export function SessionView({
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
       if (!m || m.role !== 'user') continue
+      // A turn another session or Ari itself started is not the user's to
+      // resend: it would go back out as if they had typed it.
+      if (m.origin && m.origin.kind !== 'human') return null
       const text = m.parts
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
@@ -835,6 +940,45 @@ export function SessionView({
     [sessionId, onDefaultsChange, defaults],
   )
 
+  const delegations = useMemo(
+    // One shared empty list for the common case: the activity lookup is new on
+    // every render, and a fresh array each time would re-derive the transcript.
+    () =>
+      tasks === null || spawns.length === 0
+        ? NO_DELEGATIONS
+        : delegatedChildren(spawns, tasks, activityOf),
+    [spawns, tasks, activityOf],
+  )
+
+  // A parent that ended its turn to wait has no Stop of its own, yet its
+  // children may run for a long time. The rail offers one for all of them.
+  const delegatedWorkLive = delegations.some(
+    (child) => child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
+  )
+  const stopChildren = useCallback(() => {
+    void rpc
+      .invoke('session.stopChildren', { sessionId })
+      .then(() => refreshTasksRef.current())
+      .catch(() => toast({ tone: 'danger', title: 'Could not stop the child sessions' }))
+  }, [sessionId, toast])
+
+  const turnResume = useTurnResume(sessionId, turnError, defaults.driverKind)
+
+  // What the composer's ArrowUp recalls: prompts typed here, not messages
+  // another session or Ari put into this conversation.
+  const sentPrompts = useMemo(
+    () =>
+      messages
+        .filter((m) => m.role === 'user' && (m.origin === undefined || m.origin.kind === 'human'))
+        .map((m) =>
+          m.parts
+            .filter((part) => part.type === 'text')
+            .map((part) => part.text)
+            .join('\n'),
+        ),
+    [messages],
+  )
+
   const pendingPlan =
     pendingQuestion === null
       ? null
@@ -872,7 +1016,11 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <SessionBranchChip sessionId={sessionId} />
+        <SessionBranchChip
+          sessionId={sessionId}
+          parentSession={parentSession}
+          onOpenSession={onOpenSession}
+        />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <TranscriptView
             sessionId={sessionId}
@@ -886,6 +1034,9 @@ export function SessionView({
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
+            delegations={delegations}
+            sessionTitle={sessionTitle}
+            onOpenSession={onOpenSession}
           />
         </div>
         <div
@@ -900,26 +1051,40 @@ export function SessionView({
               <span>
                 last{' '}
                 {telemetry.lastDurationMs !== null
-                  ? `${(telemetry.lastDurationMs / 1000).toFixed(1)}s`
+                  ? formatTurnDuration(telemetry.lastDurationMs)
                   : '—'}
               </span>
-              <span aria-hidden>·</span>
-              <span title="Input tokens">↑ {formatTokens(telemetry.inputTokens)}</span>
-              <span aria-hidden>·</span>
-              <span title="Output tokens">↓ {formatTokens(telemetry.outputTokens)}</span>
+              {/* Some agents report a context reading but no token totals. */}
+              {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span
+                    title={`Input tokens this session: ${telemetry.inputTokens.toLocaleString('en-US')}${
+                      telemetry.cachedInputTokens > 0
+                        ? ` (${telemetry.cachedInputTokens.toLocaleString('en-US')} read from cache)`
+                        : ''
+                    }`}
+                  >
+                    ↑ {formatCompactTokens(telemetry.inputTokens)}
+                  </span>
+                  <span aria-hidden>·</span>
+                  <span
+                    title={`Output tokens this session: ${telemetry.outputTokens.toLocaleString('en-US')}`}
+                  >
+                    ↓ {formatCompactTokens(telemetry.outputTokens)}
+                  </span>
+                </>
+              ) : null}
             </>
           ) : (
             <span>{running ? null : 'no turns yet'}</span>
           )}
           <div className="flex-1" />
-          {/* Context meter shows the ACTIVE/last turn's footprint, not the
-            lifetime total — the window is per-turn, so lifetime totals would
-            lie about headroom (DSH token-meter semantics). */}
-          {telemetry.turnInputTokens + telemetry.turnOutputTokens > 0 ? (
-            <ContextMeter
-              used={telemetry.turnInputTokens + telemetry.turnOutputTokens}
-              contextWindow={contextWindow}
-            />
+          {/* Headroom comes from the provider's own reading of the window.
+            Summing the turns' tokens instead would count each re-read of the
+            conversation again and miss everything served from cache. */}
+          {telemetry.context !== null ? (
+            <ContextMeter used={telemetry.context.usedTokens} contextWindow={contextWindow} />
           ) : null}
         </div>
         {turnError ? (
@@ -929,6 +1094,7 @@ export function SessionView({
             retryDisabled={running}
             onRetry={resendLastPrompt}
             onDismiss={() => setTurnError(null)}
+            resume={turnResume}
           />
         ) : null}
         <ElementChips picks={elementPicks} />
@@ -980,6 +1146,7 @@ export function SessionView({
             seed={composerSeed ?? undefined}
             suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
             attentionRequired={composerAttentionRequired}
+            history={sentPrompts}
             above={
               // A plan approval is answered in the side panel, so it mounts no
               // QuestionPanel and must not raise the strip on its own — an
@@ -1023,6 +1190,8 @@ export function SessionView({
                       sessions={childSessions}
                       activityOf={activityOf}
                       onOpen={onOpenSession}
+                      // While this session runs, its own Stop reaches the children.
+                      {...(!running && delegatedWorkLive ? { onStopAll: stopChildren } : {})}
                     />
                   ) : null}
                 </>

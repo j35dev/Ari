@@ -1,11 +1,11 @@
 import { existsSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { wellKnownDirs } from '../detector'
 import { needsWindowsShell } from '../spawn-cli'
 import type { AcpLaunch } from './connection'
-import type { DetectEnvironment } from '../types'
+import type { DetectEnvironment, ProviderTransport } from '../types'
 import { realDetectEnvironment } from '../types'
 
 const log = createLogger('providers:acp')
@@ -121,6 +121,26 @@ export function probeLaunch(launch: AcpLaunch): AcpLaunch {
 }
 
 /**
+ * The file the Claude adapter can be pointed at. It starts this path with no
+ * shell, so an npm `.cmd` shim fails outright (EINVAL) and takes the whole ACP
+ * session with it. The shim only forwards to the package's own `claude.exe`
+ * beside it, so that is used instead; null when there is none, which leaves
+ * the adapter on the CLI bundled with it.
+ */
+export function claudeAdapterExecutable(cliBinaryPath: string): string | null {
+  if (!needsWindowsShell(cliBinaryPath)) return cliBinaryPath
+  const packaged = join(
+    dirname(cliBinaryPath),
+    'node_modules',
+    '@anthropic-ai',
+    'claude-code',
+    'bin',
+    'claude.exe',
+  )
+  return existsSync(packaged) ? packaged : null
+}
+
+/**
  * Returns the ACP launch for a kind, or null when the transport is disabled,
  * unavailable, or its prerequisite CLI is missing.
  */
@@ -141,6 +161,8 @@ export function resolveAcpLaunch(
       return null
     }
     const spec = acpAdapterSpec(kind) ?? adapterPkg
+    const claudeExecutable =
+      kind === 'claude' ? claudeAdapterExecutable(options.cliBinaryPath) : null
     return {
       label: `${kind} (ACP adapter ${spec})`,
       command: npx,
@@ -148,12 +170,7 @@ export function resolveAcpLaunch(
       viaNpx: true,
       // Otherwise the adapter runs its bundled CLI, which can lag the user's own.
       ...(kind === 'codex' ? { env: { CODEX_PATH: options.cliBinaryPath } } : {}),
-      // The Claude adapter spawns this path with no shell, so an npm `.cmd`
-      // shim (or a `.ps1` script) fails outright (EINVAL) and takes the whole
-      // ACP session with it. Such an install keeps the adapter's bundled CLI instead.
-      ...(kind === 'claude' && !needsWindowsShell(options.cliBinaryPath)
-        ? { env: { CLAUDE_CODE_EXECUTABLE: options.cliBinaryPath } }
-        : {}),
+      ...(claudeExecutable === null ? {} : { env: { CLAUDE_CODE_EXECUTABLE: claudeExecutable } }),
     }
   }
 
@@ -162,4 +179,41 @@ export function resolveAcpLaunch(
     return { label: `${kind} (native ACP)`, command: options.cliBinaryPath, args }
   }
   return null
+}
+
+/**
+ * Says in plain terms how turns reach a CLI found at `cliBinaryPath`, for the
+ * providers settings page. Mirrors {@link resolveAcpLaunch} rather than
+ * guessing, so what the page claims is what a turn will do.
+ */
+export function describeTransport(
+  kind: DriverKind,
+  cliBinaryPath: string,
+  detectEnv: DetectEnvironment = realDetectEnvironment(),
+): ProviderTransport {
+  const launch = resolveAcpLaunch(kind, { cliBinaryPath }, detectEnv)
+  if (launch === null) {
+    const needsNpx = NPM_ADAPTERS[kind] !== undefined && findNpxCommand(detectEnv) === null
+    return {
+      mode: 'cli',
+      label: 'Command line',
+      ...(needsNpx
+        ? { note: 'npx was not found, so Ari runs the CLI directly instead of its ACP adapter.' }
+        : {}),
+    }
+  }
+  if (launch.viaNpx !== true) {
+    return { mode: 'acp', label: `Built-in ACP server (${launch.args.join(' ')})` }
+  }
+  const spec = acpAdapterSpec(kind) ?? ''
+  const bundled = kind === 'claude' && launch.env?.['CLAUDE_CODE_EXECUTABLE'] === undefined
+  return {
+    mode: 'acp',
+    label: `ACP adapter ${spec}`,
+    ...(bundled
+      ? {
+          note: 'The adapter cannot start this file, so it runs the Claude Code bundled with it instead of your install. Point the path at a claude.exe to use your own.',
+        }
+      : {}),
+  }
 }
