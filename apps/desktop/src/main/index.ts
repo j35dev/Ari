@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron'
+import { createLogger } from '@ari/shared/logger'
 import { isolateDevInstance } from './dev-instance'
 import { DiscordPresence } from './discord-presence'
 import { registerRpc, startAppUpdateChecks } from './rpc'
@@ -6,6 +7,8 @@ import { getSettingsStore } from './store'
 import { createTray, type TrayHandle } from './tray'
 import { updateTrayStatus } from './tray-status'
 import { createMainWindow } from './window'
+
+const log = createLogger('desktop:main')
 
 // The launch animation's signature sound is Web Audio; without this switch
 // Chromium blocks it until the first user gesture.
@@ -58,7 +61,8 @@ if (!gotLock) {
     })
     void getSettingsStore()
       .load()
-      .then((settings) => presence.setEnabled(settings.notifications.discordPresence))
+      .catch((error: unknown) => log.warn('settings load failed', { error }))
+      .then(() => presence.setEnabled(getSettingsStore().current.notifications.discordPresence))
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
