@@ -4,6 +4,7 @@ import { Popover } from '@ari/ui/popover'
 import { driverKindSchema } from '@ari/contracts/common'
 import type { DriverKind } from '@ari/contracts/common'
 import type { ProviderAllowance, ResetCreditOutcome } from '@ari/contracts/rpc'
+import { AccountSwitch } from '../providers/AccountSwitch'
 import { useProviderAllowance } from './use-provider-allowance'
 
 const OUTCOME_TEXT: Record<ResetCreditOutcome, string> = {
@@ -181,6 +182,13 @@ function ResetLine({
   )
 }
 
+/** The account switch for one usage row; rows carry their kind as a plain string. */
+function UsageAccountSwitch({ kind, onSwitched }: { kind: string; onSwitched: () => void }) {
+  const parsed = driverKindSchema.safeParse(kind)
+  if (!parsed.success) return null
+  return <AccountSwitch kind={parsed.data} name={NAMES[kind] ?? kind} onSwitched={onSwitched} />
+}
+
 /** Always-visible account allowance for the session, with all installed providers one click away. */
 export function ProviderUsagePill({
   sessionId,
@@ -344,6 +352,7 @@ export function ProviderUsagePill({
                           : ''}
                   </span>
                 </div>
+                <UsageAccountSwitch kind={row.kind} onSwitched={() => void refresh()} />
                 {row.windows.length ? (
                   row.windows.map((window) => (
                     <div key={window.label} className="mt-2">

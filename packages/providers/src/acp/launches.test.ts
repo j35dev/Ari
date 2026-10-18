@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { acpAdapterSpec, findNpxCommand, probeLaunch, resolveAcpLaunch } from './launches'
+import {
+  acpAdapterSpec,
+  describeTransport,
+  findNpxCommand,
+  probeLaunch,
+  resolveAcpLaunch,
+} from './launches'
 import type { DetectEnvironment } from '../types'
 
 const ENV: DetectEnvironment = {
@@ -95,27 +101,23 @@ describe('resolveAcpLaunch', () => {
       expect(native?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: 'C:/bin/claude.exe' })
     })
 
-    it.each(['claude.cmd', 'claude.ps1'])(
-      'is followed to the executable npm installed beside %s',
-      async (shimName) => {
-        Object.defineProperty(process, 'platform', { value: 'win32' })
-        const npxPath = await makeFakeNpx()
-        const npmDir = await mkdtemp(join(tmpdir(), 'ari-npm-'))
-        const binDir = join(npmDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin')
-        await mkdir(binDir, { recursive: true })
-        await writeFile(join(binDir, 'claude.exe'), '', 'utf8')
-        await writeFile(join(npmDir, shimName), '@echo off\n', 'utf8')
+    it('is followed to the executable an npm shim forwards to', async () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      const npxPath = await makeFakeNpx()
+      const env = { ...ENV, pathEnv: dirname(npxPath) }
+      const npmDir = await mkdtemp(join(tmpdir(), 'ari-claude-shim-'))
+      const packaged = join(npmDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin')
+      await mkdir(packaged, { recursive: true })
+      await writeFile(join(packaged, 'claude.exe'), '')
+      const shim = join(npmDir, 'claude.cmd')
 
-        const launch = resolveAcpLaunch(
-          'claude',
-          { cliBinaryPath: join(npmDir, shimName) },
-          { ...ENV, pathEnv: dirname(npxPath) },
-        )
-        // Without this the adapter runs its own bundled CLI, months behind.
-        expect(launch?.env).toEqual({ CLAUDE_CODE_EXECUTABLE: join(binDir, 'claude.exe') })
-        expect(probeLaunch(launch!).env).toEqual(launch?.env)
-      },
-    )
+      expect(resolveAcpLaunch('claude', { cliBinaryPath: shim }, env)?.env).toEqual({
+        CLAUDE_CODE_EXECUTABLE: join(packaged, 'claude.exe'),
+      })
+      // The user's own install runs, so there is nothing to warn about.
+      expect(describeTransport('claude', shim, env).note).toBeUndefined()
+      expect(describeTransport('claude', 'C:/npm/claude.cmd', env).note).toMatch(/bundled/)
+    })
   })
 
   it('launches native ACP servers with their own binary', () => {
@@ -169,6 +171,31 @@ describe('resolveAcpLaunch', () => {
 
   it('returns null for kinds without an ACP transport story (ari-core)', () => {
     expect(resolveAcpLaunch('ari-core', { cliBinaryPath: '/x' }, ENV)).toBeNull()
+  })
+})
+
+describe('describeTransport', () => {
+  it('names the adapter a kind is reached through', async () => {
+    const npxPath = await makeFakeNpx()
+    const transport = describeTransport('codex', '/usr/bin/codex', {
+      ...ENV,
+      pathEnv: dirname(npxPath),
+    })
+    expect(transport).toEqual({ mode: 'acp', label: `ACP adapter ${acpAdapterSpec('codex')}` })
+  })
+
+  it('names the built-in server of a CLI that speaks ACP itself', () => {
+    expect(describeTransport('grok', '/usr/bin/grok', ENV)).toEqual({
+      mode: 'acp',
+      label: 'Built-in ACP server (agent stdio)',
+    })
+  })
+
+  it('says why a kind with an adapter is on the plain command line', () => {
+    const noNpx: DetectEnvironment = { platform: 'win32', pathEnv: '', homeDir: '/nonexistent-home' }
+    const transport = describeTransport('claude', '/usr/bin/claude', noNpx)
+    expect(transport.mode).toBe('cli')
+    expect(transport.note).toMatch(/npx was not found/)
   })
 })
 

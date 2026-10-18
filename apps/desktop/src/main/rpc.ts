@@ -14,6 +14,7 @@ import {
 import type { IPty, IPtyForkOptions } from '@lydell/node-pty'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { DriverKind } from '@ari/contracts/common'
+import { cliKindSchema } from '@ari/contracts/settings'
 import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdateFrame } from '@ari/contracts/rpc'
@@ -84,7 +85,6 @@ import { OpencodeDriver } from '@ari/providers/opencode'
 import { GrokDriver } from '@ari/providers/grok'
 import { PiDriver } from '@ari/providers/pi'
 import { HermesDriver } from '@ari/providers/hermes'
-import { detectDriver } from '@ari/providers/detector'
 import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
@@ -107,6 +107,9 @@ import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver, modelsFromConfigOptions } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
+import { ProviderAccounts } from './provider-accounts'
+import { detectConnection, unavailableReason } from './provider-connections'
+import { providerEnvironment, setProviderEnvironment } from './provider-env'
 import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
@@ -162,14 +165,13 @@ function acpProbeKinds(): DriverKind[] {
 async function probeAcpModels(
   kind: DriverKind,
 ): Promise<RpcResults['providers.models'][number]['models'] | null> {
-  const { detectDriver } = await import('@ari/providers/detector')
   const environment = await resolveDetectionEnvironment()
-  const detection = await detectDriver(kind, environment)
+  const detection = await detectConfigured(kind, environment)
   if (!detection.binaryPath) return null
   // Detection searches the enriched PATH, so the probe processes must run with
   // it too: a shim found there is only runnable if the child can also resolve
   // the runtime it shells out to (GUI launches inherit a thin process PATH).
-  const probeEnv = processEnvWithPath(environment.pathEnv)
+  const probeEnv = { ...processEnvWithPath(environment.pathEnv), ...providerEnvironment(kind) }
 
   if (kind === 'codex') {
     try {
@@ -245,15 +247,14 @@ async function probeEffortsForModel(
   kind: DriverKind,
   modelId: string | null | undefined,
 ): Promise<{ id: string; label: string; description?: string; current?: boolean }[]> {
-  const { detectDriver } = await import('@ari/providers/detector')
   const environment = await resolveDetectionEnvironment()
-  const detection = await detectDriver(kind, environment)
+  const detection = await detectConfigured(kind, environment)
   if (!detection.binaryPath) return []
   if (process.env['ARI_ACP'] === '0') return []
   const launch = resolveAcpLaunch(kind, { cliBinaryPath: detection.binaryPath }, environment)
   if (launch === null) return []
   const { AcpConnection } = await import('@ari/providers/acp/connection')
-  const probeEnv = processEnvWithPath(environment.pathEnv)
+  const probeEnv = { ...processEnvWithPath(environment.pathEnv), ...providerEnvironment(kind) }
   const probe = probeLaunch(launch)
   const connection = await AcpConnection.connect({
     launch: probe,
@@ -302,6 +303,35 @@ const ALL_CLI_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi'
 /** CLIs plus Ari Core — catalogs, detections, and the effort chip all use this. */
 const ALL_PROVIDER_KINDS: DriverKind[] = [...ALL_CLI_KINDS, 'ari-core']
 
+let settingsLoaded: Promise<unknown> | null = null
+
+/** Resolves once settings are read from disk; until then `current` is only the defaults. */
+function settingsReady(): Promise<unknown> {
+  settingsLoaded ??= getSettingsStore()
+    .load()
+    .catch((error: unknown) => {
+      // Not remembered: one failed read must not leave every provider on
+      // "detection failed" until Ari is restarted.
+      log.warn('settings load failed; detecting with what is in memory', { error: String(error) })
+      settingsLoaded = null
+    })
+  return settingsLoaded
+}
+
+/** One provider's detection with the user's connection settings applied. */
+async function detectConfigured(kind: DriverKind, env: DetectEnvironment): Promise<Detection> {
+  await settingsReady()
+  // The account's variables go in with the rest, so the sign-in looked for is
+  // the one of the account in use.
+  const account = providerEnvironment(kind)
+  const separateAccount = Object.keys(account).length > 0
+  return detectConnection(
+    kind,
+    { ...env, vars: { ...env.vars, ...account }, separateAccount },
+    getSettingsStore().current.providers,
+  )
+}
+
 /** Short cache so mount-time detect calls from several views share one probe round. */
 let detectionCache: { at: number; value: Promise<RpcResults['providers.detect']> } | null = null
 const DETECTION_CACHE_TTL_MS = 30_000
@@ -325,6 +355,7 @@ const authProbeDeps: AuthProbeDeps = {
       launch: probeLaunch(launch),
       cwd: homedir(),
       initializeTimeoutMs: 20_000,
+      runtimeEnv: providerEnvironment(kind),
     })
   },
   cwd: () => homedir(),
@@ -349,13 +380,32 @@ function mergeUpdateFields(
   const byKind = new Map(enriched.map((detection) => [detection.kind, detection]))
   return raw.map((detection) => {
     const match = byKind.get(detection.kind)
-    if (match === undefined) return detection
+    // Update info describes one install; a row now pointing at another binary
+    // would otherwise be offered an update it already has, or denied one.
+    if (match === undefined || match.version !== detection.version) return detection
     return {
       ...detection,
       latestVersion: match.latestVersion,
       updateAvailable: match.updateAvailable,
     }
   })
+}
+
+/** One kind's detection; a probe that throws becomes a row saying so, not a failed round. */
+async function detectSafely(kind: DriverKind, env: DetectEnvironment): Promise<Detection> {
+  try {
+    return await detectConfigured(kind, env)
+  } catch (error) {
+    log.error('detection crashed', { kind, error: String(error) })
+    return {
+      kind,
+      installed: false,
+      binaryPath: null,
+      version: null,
+      authStatus: 'unknown',
+      authReason: 'Detection failed - see logs.',
+    }
+  }
 }
 
 function rawDetections(force = false): Promise<RpcResults['providers.detect']> {
@@ -366,33 +416,26 @@ function rawDetections(force = false): Promise<RpcResults['providers.detect']> {
     detectionCache = {
       at: Date.now(),
       value: resolveDetectionEnvironment().then((env: DetectEnvironment) =>
-        Promise.all(
-          ALL_PROVIDER_KINDS.map(async (kind) => {
-            try {
-              return await detectDriver(kind, env)
-            } catch (error) {
-              log.error('detection crashed', { kind, error: String(error) })
-              return {
-                kind,
-                installed: false,
-                binaryPath: null,
-                version: null,
-                authStatus: 'unknown',
-                authReason: 'Detection failed - see logs.',
-              } satisfies Detection
-            }
-          }),
-        ),
+        Promise.all(ALL_PROVIDER_KINDS.map((kind) => detectSafely(kind, env))),
       ),
     }
   }
   return detectionCache.value
 }
 
-function publishDetections(detections: RpcResults['providers.detect']): void {
+/**
+ * `checked` names the kinds this round looked for again, so a settings page
+ * waiting on one provider is not answered by a round about another. Absent
+ * means all of them; empty means only update info changed.
+ */
+function publishDetections(
+  detections: RpcResults['providers.detect'],
+  checked?: readonly DriverKind[],
+): void {
   rpcRegistryRef?.publish('providers.updates', {
     type: 'detections',
     detections,
+    ...(checked === undefined ? {} : { checked: [...checked] }),
   } satisfies ProvidersUpdateFrame)
 }
 
@@ -405,12 +448,12 @@ function startEnrichment(
     .then((enriched) => {
       if (generation !== enrichGeneration) return enriched
       updateCache = { at: Date.now(), value: enriched }
-      publishDetections(enriched)
+      publishDetections(enriched, [])
       return enriched
     })
     .catch((error: unknown) => {
       log.debug('update enrichment failed', { error: String(error) })
-      if (generation === enrichGeneration) publishDetections(detections)
+      if (generation === enrichGeneration) publishDetections(detections, [])
       return detections
     })
   enrichInFlight = promise
@@ -436,12 +479,54 @@ function probeAllDetections(): Promise<RpcResults['providers.detect']> {
   })
 }
 
+let redetectQueue: Promise<unknown> = Promise.resolve()
+
+/** Rounds that replace the detection cache run one at a time, each on the last one's result. */
+function queueRound<T>(round: () => Promise<T>): Promise<T> {
+  const done = redetectQueue.then(round)
+  redetectQueue = done.catch(() => undefined)
+  return done
+}
+
+/**
+ * Looks for providers again after a rescan or a connection setting change:
+ * all of them, or only `kinds` so one edited path is not held up by the
+ * slowest CLI on the machine. The fresh rows go out at once and again when
+ * update info lands. A full round also re-registers every driver; the caller
+ * of a partial one does that itself, without waiting its turn here.
+ */
+function redetect(kinds?: readonly DriverKind[]): Promise<RpcResults['providers.detect']> {
+  return queueRound(async () => {
+    let detections: RpcResults['providers.detect']
+    if (kinds === undefined) {
+      detections = await rawDetections(true)
+      if (driverRegistryRef !== null) hydrateDrivers(driverRegistryRef)
+    } else {
+      const env = await resolveDetectionEnvironment()
+      const fresh = await Promise.all(kinds.map((kind) => detectSafely(kind, env)))
+      // Read after the probes, so whatever landed while they ran is kept. The
+      // last round however old: its other rows are only carried over, and
+      // waiting on a full re-probe is the delay this avoids.
+      const previous = await (detectionCache?.value ?? rawDetections())
+      detections = previous.map((row) => fresh.find((next) => next.kind === row.kind) ?? row)
+      detectionCache = { at: Date.now(), value: Promise.resolve(detections) }
+    }
+    const known = updateCache === null ? detections : mergeUpdateFields(detections, updateCache.value)
+    publishDetections(known, kinds)
+    void startEnrichment(detections)
+    return known
+  })
+}
+
 /** Force a re-probe + enrichment and publish the result (post-install auto-sync). */
-async function refreshDetections(): Promise<RpcResults['providers.detect']> {
-  updateCache = null
-  enrichGeneration += 1
-  const detections = await rawDetections(true)
-  return startEnrichment(detections)
+function refreshDetections(): Promise<RpcResults['providers.detect']> {
+  // Wrapped so the queue is held for the probes only, not for the registry
+  // lookup that follows them.
+  return queueRound(async () => {
+    updateCache = null
+    enrichGeneration += 1
+    return { enriched: startEnrichment(await rawDetections(true)) }
+  }).then((round) => round.enriched)
 }
 
 async function detectionsForClient(): Promise<RpcResults['providers.detect']> {
@@ -459,6 +544,52 @@ async function detectionsForClient(): Promise<RpcResults['providers.detect']> {
  */
 let rpcRegistryRef: RpcRegistry | null = null
 let driverRegistryRef: DriverRegistry | null = null
+/** Process-wide like the detection cache: its samples are per provider, not per window. */
+let allowanceReaderRef: ProviderAllowanceReader | null = null
+let accountsRef: ProviderAccounts | null = null
+let engineRef: Engine | null = null
+let catalogServiceRef: CatalogService | null = null
+
+/**
+ * The accounts each provider can run as, built once per process. Switching the
+ * one in use changes who every later process for that provider runs as, so
+ * what was remembered about the previous account (its usage, a refused
+ * sign-in, whether it is signed in at all) is dropped and looked up again.
+ */
+function providerAccounts(userData: string): ProviderAccounts {
+  accountsRef ??= new ProviderAccounts({
+    root: join(userData, 'provider-accounts'),
+    settings: () => getSettingsStore().current,
+    update: (patch) => getSettingsStore().update(patch),
+    detectEnvironment: () => resolveDetectionEnvironment(),
+    binaryPath: async (kind) =>
+      (await rawDetections()).find((row) => row.kind === kind)?.binaryPath ?? null,
+    busy: async (kind) => {
+      const engine = engineRef
+      if (engine === null) return false
+      const sessions = await getSessionStore().listSessions()
+      return sessions.some((session) => session.driverKind === kind && engine.hasLiveTurn(session.id))
+    },
+    changed: (kind, what) => {
+      if (what === 'active') {
+        providerAuth.clear(kind)
+        allowanceReaderRef?.forget(kind)
+        // Another account can be on another plan, with other models.
+        void redetect([kind])
+          .then(() => catalogServiceRef?.refresh())
+          .catch((error: unknown) =>
+            log.warn('redetect after an account switch failed', { error: String(error) }),
+          )
+      }
+      rpcRegistryRef?.publish('providers.updates', {
+        type: 'accounts',
+        kind,
+        active: what === 'active',
+      } satisfies ProvidersUpdateFrame)
+    },
+  })
+  return accountsRef
+}
 /**
  * Built once per process: a second window must not arm a second check timer,
  * so the controller rebinds to whichever registry is current when it speaks.
@@ -537,20 +668,26 @@ function publishAuthWall(
     type: 'auth.required',
     kind,
     label: wall.label,
-    logins: toLoginMethods(wall.logins),
+    logins: toLoginMethods(wall.logins, kind),
   } satisfies ProvidersUpdateFrame)
 }
 
 let browserMcpServers: AcpMcpServer[] = []
 let browserCoreMcpServers: McpServerConfig[] = []
 
+const hydrateGenerations = new Map<DriverKind, number>()
+
 /**
  * Registers each installed CLI driver as its detection resolves, preferring
  * the ACP transport (M16) with the legacy one-shot CLI driver as automatic
  * fallback inside {@link AcpDriver}. Detection is concurrent and runs in the
  * background — the RPC surface is fully usable the instant this runs.
+ *
+ * Runs again whenever an install or a connection setting changes what a kind
+ * resolves to; a kind that no longer resolves is dropped, so a provider turned
+ * off stops taking turns at once rather than at the next restart.
  */
-function hydrateDrivers(registry: DriverRegistry): void {
+function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]): void {
   const candidates: {
     kind: 'claude' | 'codex' | 'opencode' | 'grok' | 'pi' | 'hermes'
     make: (bin: string) => Driver
@@ -562,12 +699,26 @@ function hydrateDrivers(registry: DriverRegistry): void {
     { kind: 'pi', make: (bin) => new PiDriver(bin) },
     { kind: 'hermes', make: (bin) => new HermesDriver(bin) },
   ]
+  // Claimed before anything is awaited: a round already in flight for a kind
+  // (the one from start-up, say) must lose to this one however long it takes.
+  const rounds = candidates
+    .filter((candidate) => only === undefined || only.includes(candidate.kind))
+    .map((candidate) => {
+      const generation = (hydrateGenerations.get(candidate.kind) ?? 0) + 1
+      hydrateGenerations.set(candidate.kind, generation)
+      return { candidate, generation }
+    })
   void resolveDetectionEnvironment().then((env) =>
     Promise.all(
-      candidates.map(async (candidate) => {
+      rounds.map(async ({ candidate, generation }) => {
         try {
-          const detection = await detectDriver(candidate.kind, env)
-          if (!detection.binaryPath) return
+          const detection = await detectConfigured(candidate.kind, env)
+          // A later round already speaks for this kind's current settings.
+          if (generation !== hydrateGenerations.get(candidate.kind)) return
+          if (!detection.binaryPath) {
+            registry.unregister(candidate.kind)
+            return
+          }
           const launch: AcpLaunch | null = resolveAcpLaunch(candidate.kind, {
             cliBinaryPath: detection.binaryPath,
           })
@@ -657,6 +808,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // The registry exists immediately with Ari Core attached; CLI drivers are
   // added as background detection completes. Nothing waits on that to answer.
+  const accounts = providerAccounts(app.getPath('userData'))
+  setProviderEnvironment((kind) => accounts.env(kind))
   const driverRegistry = new DriverRegistry()
   const coreDir = join(app.getPath('userData'), 'ari-core')
   const mcpStore = new McpServerStore({ dir: coreDir })
@@ -706,6 +859,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         at,
       } satisfies ProvidersUpdateFrame),
   })
+  catalogServiceRef = catalogService
   catalogService.start()
 
   // The running-turn counter feeds the tray from the same event flow the
@@ -780,7 +934,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       if (attachment === undefined) throw new Error('provider image was not staged')
       return attachment
     },
-    runtimeEnvironment: async (session) => (await controlReady).environment(session),
+    runtimeEnvironment: async (session) => ({
+      ...(await controlReady).environment(session),
+      ...providerEnvironment(session.driverKind),
+    }),
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     deliversResults: () => {
@@ -791,7 +948,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       const { enabled, autoApproveCli } = getSettingsStore().current.delegation
       return enabled && autoApproveCli ? controlCliApproval(request) : null
     },
+    driverUnavailable: async (kind) => {
+      const cli = cliKindSchema.safeParse(kind)
+      if (cli.success && !getSettingsStore().current.providers[cli.data].enabled) {
+        return unavailableReason(kind, undefined, false)
+      }
+      const rows = await rawDetections()
+      return unavailableReason(kind, rows.find((row) => row.kind === kind) as Detection | undefined)
+    },
   })
+  engineRef = engine
   const controlReady = Promise.all([resolveDetectionEnvironment(), getSettingsStore().load()]).then(
     async ([environment]) => {
       runtime = await startAgentRuntime({
@@ -1014,7 +1180,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Settings are the single writer's file; load once at boot so window
   // bounds and renderer reads share the same in-memory state.
-  void getSettingsStore().load()
+  void settingsReady().then(() => accounts.startUp())
 
   r.register('settings.get', async () => {
     const store = getSettingsStore()
@@ -1022,7 +1188,22 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return store.current
   })
 
-  r.register('settings.update', async (params) => getSettingsStore().update(params))
+  r.register('settings.update', async (params) => {
+    const settings = await getSettingsStore().update(params)
+    if (params.providers !== undefined) {
+      const kinds = cliKindSchema.array().parse(Object.keys(params.providers))
+      // Off takes effect before this call returns: detection may be seconds
+      // behind, and a turn sent in that time must not find the driver.
+      for (const kind of kinds) {
+        if (!settings.providers[kind].enabled) driverRegistry.unregister(kind)
+      }
+      hydrateDrivers(driverRegistry, kinds)
+      void redetect(kinds)
+        .then(() => catalogService.refresh())
+        .catch((error: unknown) => log.warn('provider redetect failed', { error: String(error) }))
+    }
+    return settings
+  })
 
   // Remote access (ADR §5): the gateway stays off until the user turns it on,
   // and the records it outlives the process with — paired devices and command
@@ -1045,15 +1226,37 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   }
 
   // One reader for the usage pill and paired phones, so the two share a probe.
-  const allowanceReader = new ProviderAllowanceReader((kind, binaryPath) =>
+  const allowanceReader = (allowanceReaderRef ??= new ProviderAllowanceReader((kind, binaryPath) =>
     fetchAllowanceReading(kind, binaryPath, undefined),
-  )
+  ))
   const readAllowance = async (kind: DriverKind): Promise<RpcResults['providers.allowance']> => {
     const detections = await probeAllDetections()
     return allowanceReader.read(
       kind,
       detections.find((row) => row.kind === kind)?.binaryPath ?? null,
     )
+  }
+  /**
+   * Spends one banked reset of the account a provider runs as. One function
+   * for the usage pill and for a paired phone, so a reset costs and answers
+   * the same wherever it was asked for. Without `creditId` the grant to spend
+   * is looked up here.
+   */
+  const redeemReset = async (
+    kind: DriverKind,
+    creditId?: string,
+  ): Promise<RpcResults['providers.consumeResetCredit']> => {
+    const detections = await probeAllDetections()
+    const row = detections.find((entry) => entry.kind === kind) as Detection | undefined
+    const binaryPath = row?.binaryPath ?? null
+    // Redeeming falls back to whatever `claude` is on PATH when handed no
+    // binary, which is exactly what a provider turned off must not run.
+    const unavailable = unavailableReason(kind, row)
+    if (unavailable !== null) return { ok: false, error: unavailable }
+    const redeemed = await resetCreditService.consume({ kind, binaryPath, creditId })
+    if (!redeemed.ok) return { ok: false, error: redeemed.error }
+    const allowance = await allowanceReader.reread(kind, binaryPath, redeemed.value === 'reset')
+    return { ok: true, outcome: redeemed.value, allowance }
   }
 
   const remote =
@@ -1094,6 +1297,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         },
         effortsForModel: cachedEffortLookup(probeEffortsForModel),
         allowance: readAllowance,
+        // No grant id from a phone: the one to spend is looked up here.
+        redeemReset: (kind) => redeemReset(kind),
+        accounts: {
+          list: (kind) => accounts.list(kind),
+          activate: (kind, accountId) => accounts.activate(kind, accountId),
+        },
         mintSessionId: () =>
           `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         terminalFactory: ptyFactory,
@@ -1319,14 +1528,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Usage dashboard feed: per-session rows + totals from the sidecar indexes.
   r.register('usage.summary', async () => getSessionStore().usageSummary())
   r.register('providers.allowance', async ({ kind }) => readAllowance(kind))
-  r.register('providers.consumeResetCredit', async ({ kind, creditId }) => {
-    const detections = await probeAllDetections()
-    const binaryPath = detections.find((row) => row.kind === kind)?.binaryPath ?? null
-    const redeemed = await resetCreditService.consume({ kind, binaryPath, creditId })
-    if (!redeemed.ok) return { ok: false as const, error: redeemed.error }
-    const allowance = await allowanceReader.reread(kind, binaryPath, redeemed.value === 'reset')
-    return { ok: true as const, outcome: redeemed.value, allowance }
-  })
+  r.register('providers.consumeResetCredit', ({ kind, creditId }) => redeemReset(kind, creditId))
 
   // Full ccusage report (the community Claude Code analyzer) run out-of-process.
   // argv only; npx resolves/downloads the package so nothing is preinstalled.
@@ -1416,6 +1618,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   }))
 
   r.register('providers.detect', () => detectionsForClient())
+  r.register('providers.rescan', () => redetect())
+
+  r.register('providers.accounts', ({ kind, fresh, brief }) =>
+    accounts.list(kind, fresh === true, brief === true),
+  )
+  r.register('providers.accounts.add', ({ kind, label }) => accounts.add(kind, label))
+  r.register('providers.accounts.activate', ({ kind, id }) => accounts.activate(kind, id))
+  r.register('providers.accounts.signIn', ({ kind, id }) => accounts.signIn(kind, id))
+  r.register('providers.accounts.signOut', ({ kind, id }) => accounts.signOut(kind, id))
+  r.register('providers.accounts.remove', ({ kind, id }) => accounts.remove(kind, id))
 
   r.register('providers.plan', async (params) => {
     const detections = await probeAllDetections()
@@ -1745,6 +1957,17 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       ? await dialog.showOpenDialog(parent, options)
       : await dialog.showOpenDialog(options)
     // Cancel must be a clean no-op, not an error the renderer has to catch.
+    if (result.canceled) return { path: null }
+    return { path: result.filePaths[0] ?? null }
+  })
+
+  r.register('dialog.pickFile', async (params) => {
+    const options: Electron.OpenDialogOptions = { properties: ['openFile'] }
+    if (params?.defaultPath) options.defaultPath = params.defaultPath
+    const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null
+    const result = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options)
     if (result.canceled) return { path: null }
     return { path: result.filePaths[0] ?? null }
   })
