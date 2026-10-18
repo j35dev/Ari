@@ -12,6 +12,7 @@ import { createLogger } from '@ari/shared/logger'
 import { err, mapErr, ok, type Result } from '@ari/shared/result'
 
 import { parseClaudeResetCredits } from './allowance-windows'
+import { providerEnvironment } from './provider-env'
 
 const log = createLogger('desktop:resets')
 
@@ -65,12 +66,14 @@ function refused(message: string, retainKey: boolean): Result<never, RedeemFailu
 }
 
 function claudeConfigDir(): string {
-  const override = process.env['CLAUDE_CONFIG_DIR']
+  const override =
+    providerEnvironment('claude')['CLAUDE_CONFIG_DIR'] ?? process.env['CLAUDE_CONFIG_DIR']
   return override && override.length > 0 ? override : join(homedir(), '.claude')
 }
 
 function claudeAccountPath(): string {
-  const override = process.env['CLAUDE_CONFIG_DIR']
+  const override =
+    providerEnvironment('claude')['CLAUDE_CONFIG_DIR'] ?? process.env['CLAUDE_CONFIG_DIR']
   return override && override.length > 0
     ? join(override, '.claude.json')
     : join(homedir(), '.claude.json')
@@ -98,7 +101,7 @@ function probeClaudeVersion(binaryPath: string | null): Promise<string> {
     const wrapped = needsWindowsShell(command) ? buildShellSpawnArgs(command, ['--version']) : null
     const child = wrapped
       ? spawn(wrapped.file, wrapped.args, {
-          windowsVerbatimArguments: true,
+          windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
           stdio: ['ignore', 'pipe', 'ignore'],
           windowsHide: true,
           timeout: 8_000,
@@ -178,7 +181,11 @@ const defaultClient: ResetCreditClient = {
     return { status: response.status, json }
   },
   async codexRequest(binaryPath, method, params) {
-    const connection = AppServerConnection.start({ binaryPath, cwd: homedir() })
+    const connection = AppServerConnection.start({
+      binaryPath,
+      cwd: homedir(),
+      env: { ...process.env, ...providerEnvironment('codex') },
+    })
     try {
       await connection.request(
         'initialize',

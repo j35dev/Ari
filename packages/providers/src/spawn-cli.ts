@@ -87,14 +87,17 @@ export function buildPowershellSpawnArgs(
  * else needing a shell through the escaped cmd.exe wrapper. Callers that
  * branch on {@link needsWindowsShell} should use this instead of calling
  * {@link buildCmdSpawnArgs} directly, or a detected `.ps1` CLI will be
- * reported as installed and then fail on use.
+ * reported as installed and then fail on use. Pass the returned
+ * `windowsVerbatimArguments` through: the cmd wrapper quotes its own command
+ * line, while powershell.exe needs Node's normal quoting or a prompt with
+ * spaces arrives as separate words.
  */
 export function buildShellSpawnArgs(
   binaryPath: string,
   args: string[],
-): { file: string; args: string[]; windowsVerbatimArguments: true } {
+): { file: string; args: string[]; windowsVerbatimArguments: boolean } {
   if (isPowershellScript(binaryPath)) {
-    return { ...buildPowershellSpawnArgs(binaryPath, args), windowsVerbatimArguments: true }
+    return { ...buildPowershellSpawnArgs(binaryPath, args), windowsVerbatimArguments: false }
   }
   return buildCmdSpawnArgs(binaryPath, args)
 }
@@ -139,6 +142,6 @@ export function spawnCli(
   const wrapped = buildShellSpawnArgs(binaryPath, args)
   return spawn(wrapped.file, wrapped.args, {
     ...options,
-    windowsVerbatimArguments: true,
+    windowsVerbatimArguments: wrapped.windowsVerbatimArguments,
   }) as ChildProcessWithoutNullStreams
 }
