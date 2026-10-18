@@ -1,6 +1,13 @@
 import { expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { archiveTargetIds, descendantIds, searchSessionTree, selectionRoots, sessionTree } from './session-tree'
+import {
+  archiveTargetIds,
+  descendantIds,
+  parentOf,
+  searchSessionTree,
+  selectionRoots,
+  sessionTree,
+} from './session-tree'
 
 const row = (id: string, parentSessionId?: string): SessionSummary => ({
   id,
@@ -48,4 +55,10 @@ it('retains orphans and corrupt cycles exactly once', () => {
       .map((r) => r.session.id)
       .sort(),
   ).toEqual(['a', 'b', 'orphan'])
+})
+it('finds the parent of a child while that parent is still listed', () => {
+  const sessions = [row('a'), row('a1', 'a'), row('orphan', 'missing')]
+  expect(parentOf(sessions, 'a1')).toEqual({ id: 'a', title: 'a' })
+  expect(parentOf(sessions, 'a')).toBeNull()
+  expect(parentOf(sessions, 'orphan')).toBeNull()
 })

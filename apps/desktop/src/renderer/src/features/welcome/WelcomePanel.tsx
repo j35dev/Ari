@@ -22,6 +22,7 @@ interface Detection {
   binaryPath: string | null
   version: string | null
   authStatus: string
+  enabled?: boolean
 }
 
 const CLI_LABELS: Record<string, string> = {
@@ -90,7 +91,7 @@ export function WelcomePanel({
   const clis = useMemo(
     () =>
       (detections ?? [])
-        .filter((d) => d.kind !== 'ari-core')
+        .filter((d) => d.kind !== 'ari-core' && d.enabled !== false)
         .map((d) => ({
           kind: d.kind,
           label: CLI_LABELS[d.kind] ?? d.kind,

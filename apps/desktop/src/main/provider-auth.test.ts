@@ -61,6 +61,31 @@ function deps(over: Partial<AuthProbeDeps> = {}): AuthProbeDeps {
   }
 }
 
+describe('a sign-in check that straddles an account switch', () => {
+  it('is answered but not remembered as the new account’s verdict', async () => {
+    const state = new ProviderAuthState()
+    const gate: { finish: (() => void) | null } = { finish: null }
+    const slow = deps({
+      connect: async () =>
+        connectionThat(
+          () => new Promise((resolve) => (gate.finish = () => resolve({ sessionId: 'p' }))),
+        ),
+    })
+    const early = probeProviderAuth('claude', slow, state)
+    await vi.waitFor(() => expect(gate.finish).not.toBeNull())
+
+    // What an account switch does to everything known about the provider.
+    state.clear('claude')
+    gate.finish?.()
+    expect((await early).status).toBe('ready')
+    expect(state.cachedProbe('claude')).toBeNull()
+
+    // A check made as the new account is remembered as usual.
+    await probeProviderAuth('claude', deps(), state)
+    expect(state.cachedProbe('claude')?.status).toBe('ready')
+  })
+})
+
 describe('probeProviderAuth', () => {
   it('reports ready when the existing harness already opens a session', async () => {
     const probe = await probeProviderAuth('claude', deps(), new ProviderAuthState())

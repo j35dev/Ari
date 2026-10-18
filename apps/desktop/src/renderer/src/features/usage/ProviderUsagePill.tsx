@@ -4,6 +4,7 @@ import { Popover } from '@ari/ui/popover'
 import { driverKindSchema } from '@ari/contracts/common'
 import type { DriverKind } from '@ari/contracts/common'
 import type { ProviderAllowance, ResetCreditOutcome } from '@ari/contracts/rpc'
+import { AccountSwitch } from '../providers/AccountSwitch'
 import { useProviderAllowance } from './use-provider-allowance'
 
 const OUTCOME_TEXT: Record<ResetCreditOutcome, string> = {
@@ -32,6 +33,10 @@ function duration(ms: number): string {
   if (minutes < 60) return `${minutes}m`
   if (minutes < 1440) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
   return `${Math.floor(minutes / 1440)}d ${Math.floor((minutes % 1440) / 60)}h`
+}
+
+function ago(at: number, now: number): string {
+  return now - at < 60_000 ? 'just now' : `${Math.floor((now - at) / 60_000)}m ago`
 }
 
 function stale(row: ProviderAllowance | undefined, now: number): boolean {
@@ -177,6 +182,13 @@ function ResetLine({
   )
 }
 
+/** The account switch for one usage row; rows carry their kind as a plain string. */
+function UsageAccountSwitch({ kind, onSwitched }: { kind: string; onSwitched: () => void }) {
+  const parsed = driverKindSchema.safeParse(kind)
+  if (!parsed.success) return null
+  return <AccountSwitch kind={parsed.data} name={NAMES[kind] ?? kind} onSwitched={onSwitched} />
+}
+
 /** Always-visible account allowance for the session, with all installed providers one click away. */
 export function ProviderUsagePill({
   sessionId,
@@ -185,7 +197,8 @@ export function ProviderUsagePill({
   sessionId: string | null
   kind: DriverKind
 }) {
-  const { rows, refreshing, error, refresh, consumeReset } = useProviderAllowance(sessionId, kind)
+  const { rows, refreshing, checking, error, checkedAt, refresh, consumeReset } =
+    useProviderAllowance(sessionId, kind)
   const [open, setOpen] = useState(false)
   const [now, setNow] = useState(Date.now)
   const [confirm, setConfirm] = useState<{ kind: string; armed: boolean } | null>(null)
@@ -195,6 +208,10 @@ export function ProviderUsagePill({
     const timer = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(timer)
   }, [])
+  // A finished pass moves the clock, or "checked just now" waits for the tick.
+  useEffect(() => {
+    if (checkedAt !== null) setNow(Date.now())
+  }, [checkedAt])
   useEffect(() => {
     if (!confirm || confirm.armed) return
     const timer = setTimeout(() => setConfirm({ ...confirm, armed: true }), CONFIRM_ARM_MS)
@@ -216,6 +233,7 @@ export function ProviderUsagePill({
   const outdated = stale(selected, now)
   const banked = selected?.resetCredits?.availableCount ?? 0
   const label = NAMES[kind] ?? kind
+  const unread = rows.filter((row) => row.status === 'error').map((row) => NAMES[row.kind] ?? row.kind)
 
   async function useReset(row: ProviderAllowance) {
     const parsed = driverKindSchema.safeParse(row.kind)
@@ -300,11 +318,16 @@ export function ProviderUsagePill({
             <button
               type="button"
               aria-label="Refresh usage"
+              aria-busy={refreshing || undefined}
               disabled={refreshing}
               onClick={() => void refresh()}
-              className="rounded p-1 text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-40"
+              className="rounded p-1 text-fg-subtle hover:text-fg focus-visible:ring-2 focus-visible:ring-accent-ring disabled:text-accent"
             >
-              <RefreshCw size={12} aria-hidden="true" />
+              <RefreshCw
+                size={12}
+                aria-hidden="true"
+                className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined}
+              />
             </button>
           </div>
           <div className="max-h-[min(65vh,480px)] overflow-y-auto px-3">
@@ -318,15 +341,18 @@ export function ProviderUsagePill({
                     ) : null}
                   </span>
                   <span className="text-fg-subtle">
-                    {stale(row, now)
-                      ? 'Stale'
-                      : row.updatedAt !== null
-                        ? now - row.updatedAt < 60_000
-                          ? 'Just updated'
-                          : `${Math.floor((now - row.updatedAt) / 60_000)}m ago`
-                        : ''}
+                    {checking.includes(row.kind)
+                      ? 'Checking…'
+                      : stale(row, now)
+                        ? 'Stale'
+                        : row.updatedAt !== null
+                          ? now - row.updatedAt < 60_000
+                            ? 'Just updated'
+                            : `${Math.floor((now - row.updatedAt) / 60_000)}m ago`
+                          : ''}
                   </span>
                 </div>
+                <UsageAccountSwitch kind={row.kind} onSwitched={() => void refresh()} />
                 {row.windows.length ? (
                   row.windows.map((window) => (
                     <div key={window.label} className="mt-2">
@@ -406,8 +432,16 @@ export function ProviderUsagePill({
               </p>
             ) : null}
           </div>
-          <p className="border-t border-border px-3 py-2 text-[10px] text-fg-subtle">
-            Allowance used · refreshes every minute
+          <p aria-live="polite" className="border-t border-border px-3 py-2 text-[10px] text-fg-subtle">
+            {refreshing
+              ? 'Refreshing…'
+              : checkedAt === null
+                ? 'Refreshes every minute'
+                : `Checked ${ago(checkedAt, now)} · ${
+                    unread.length > 0
+                      ? `could not read ${unread.join(', ')}`
+                      : 'refreshes every minute'
+                  }`}
           </p>
         </Popover.Content>
       </Popover>

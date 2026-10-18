@@ -155,6 +155,51 @@ describe('groupBlocks', () => {
   })
 })
 
+describe('groupBlocks row reuse', () => {
+  const call = (callId: string): Message['parts'][number] => ({
+    type: 'tool-call',
+    callId,
+    name: 'Bash',
+    argsJson: '{}',
+  })
+
+  it('returns the same activity row when a flush only grows the text after it', () => {
+    const burst = [call('c1'), call('c2')]
+    const blocks = splitBlocks([assistantMessage([...burst, { type: 'text', text: 'do' }])])
+    const before = groupBlocks(blocks)
+    const after = groupBlocks(
+      splitBlocks([assistantMessage([...burst, { type: 'text', text: 'done' }])], blocks),
+      undefined,
+      before,
+    )
+
+    expect(after[0]?.kind).toBe('tool-group')
+    expect(after[0]).toBe(before[0])
+    expect(after[1]).not.toBe(before[1])
+  })
+
+  it('rebuilds an activity row when a call joins it', () => {
+    const blocks = splitBlocks([assistantMessage([call('c1')])])
+    const before = groupBlocks(blocks)
+    const after = groupBlocks(
+      splitBlocks([assistantMessage([call('c1'), call('c2')])], blocks),
+      undefined,
+      before,
+    )
+
+    expect(after[0]).not.toBe(before[0])
+    expect(after[0]).toMatchObject({ kind: 'tool-group', key: before[0]?.key })
+  })
+
+  it('keeps a turn diff card until its diff text changes', () => {
+    const blocks = splitBlocks([{ ...assistantMessage([{ type: 'text', text: 'hi' }]), turnId: 't1' }])
+    const before = groupBlocks(blocks, { t1: 'diff a' })
+
+    expect(groupBlocks(blocks, { t1: 'diff a' }, before)[1]).toBe(before[1])
+    expect(groupBlocks(blocks, { t1: 'diff b' }, before)[1]).not.toBe(before[1])
+  })
+})
+
 describe('turn diff cards', () => {
   const DIFF = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n'
 

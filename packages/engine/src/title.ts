@@ -139,7 +139,7 @@ export function generateQualityTitle(text: string): string | null {
 }
 
 /** Opens the error and notice banners the engine stores as assistant text. */
-const BANNER_MARKER = /^\s*⚠/
+const BANNER_MARKER = /^\s*[⚠ℹ]/
 
 /**
  * An assistant message's own prose, read the way the transcript renders it:

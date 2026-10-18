@@ -6,14 +6,17 @@ import {
   type QueuedMessage,
 } from '@ari/contracts/attachments'
 import type { Command } from '@ari/contracts/commands'
+import type { DriverKind } from '@ari/contracts/common'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
 import type { MessageOrigin } from '@ari/contracts/message'
+import type { ApprovalOption } from '@ari/contracts/common'
 import { decideCommand, findQueued } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
+import { controlPreamble } from '@ari/engine/control-preamble'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -22,6 +25,9 @@ import type { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterApprovalDecision } from '@ari/providers/driver'
 
 const log = createLogger('desktop:engine')
+
+/** Longest streamed text is held before it is journaled and published. */
+const TEXT_FLUSH_MS = 50
 
 function attributedInput(text: string, origin?: MessageOrigin): string {
   return origin?.kind === 'session'
@@ -80,6 +86,19 @@ export interface EngineDeps {
   runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
+  /** Whether finished children are reported to their parent; told to the agent. */
+  deliversResults?: () => boolean
+  /**
+   * Names the option to answer a provider's permission request with when it
+   * needs no human — Ari's own control commands — or null to ask as usual.
+   */
+  autoApprove?: (request: {
+    toolName: string
+    summaryJson: string
+    options: readonly ApprovalOption[]
+  }) => string | null
+  /** Why a kind has no driver, worded for the user; null when the cause is unknown. */
+  driverUnavailable?: (kind: DriverKind) => Promise<string | null>
   /**
    * Resolves a staged attachment id to its disk path for adapters. Absent
    * for tests: attachments resolve as unavailable and are named in text.
@@ -116,6 +135,13 @@ interface ActiveTurn {
    * queued so it still runs.
    */
   steer: (text: string) => Promise<boolean>
+  /**
+   * Starts a fresh assistant message for whatever the adapter emits next. A
+   * user message journaled mid-turn calls this so later output folds below it
+   * instead of into the message above. Resolves once the text written before
+   * the split has been journaled.
+   */
+  splitMessage: () => Promise<void>
 }
 
 /**
@@ -383,18 +409,25 @@ export class Engine {
       this.#dropSteered(sessionId, guard)
       throw e
     }
-    await this.#append(sessionId, {
-      type: 'user.message.added',
-      message: {
-        id: newTypedId('msg'),
-        sessionId,
-        turnId,
-        role: 'user',
-        ...(message.origin ? { origin: message.origin } : {}),
-        parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
-        createdAt: Date.now(),
-      },
-    })
+    // Split and append in the same tick: the store sequences appends in call
+    // order, so the turn's buffered text lands above the user message and
+    // nothing of the running turn can land between the two.
+    const flushed = this.#activeTurns.get(sessionId)?.splitMessage()
+    await Promise.all([
+      flushed,
+      this.#append(sessionId, {
+        type: 'user.message.added',
+        message: {
+          id: newTypedId('msg'),
+          sessionId,
+          turnId,
+          role: 'user',
+          ...(message.origin ? { origin: message.origin } : {}),
+          parts: message.text.length > 0 ? [{ type: 'text', text: message.text }] : [],
+          createdAt: Date.now(),
+        },
+      }),
+    ])
   }
 
   /** Retires guards a snapshot already reflects, returning those still pending. */
@@ -442,6 +475,11 @@ export class Engine {
     return resolved
   }
 
+  async #parentTitle(session: Session): Promise<string | null> {
+    if (!session.parentSessionId) return null
+    return (await this.#deps.store.load(session.parentSessionId)).session?.title ?? null
+  }
+
   /** Authoritative cwd for providers, checkpoints, control operations and the UI. */
   workspace(session: Session): Promise<string | null> {
     return resolveSessionWorkspace(
@@ -466,11 +504,17 @@ export class Engine {
   ): Promise<void> {
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
+      const reason = await this.#deps
+        .driverUnavailable?.(session.driverKind)
+        .catch((error: unknown) => {
+          log.warn('could not explain a missing driver', { error: String(error) })
+          return null
+        })
       await this.#settle(
         session.id,
         turnId,
         'error',
-        `no driver registered for ${session.driverKind}`,
+        reason ?? `no driver registered for ${session.driverKind}`,
       )
       return
     }
@@ -513,17 +557,34 @@ export class Engine {
     }
 
     let adapter
+    /** Whether this turn's process was given the `ari` control CLI. */
+    let hasControl: boolean
     try {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) return
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
+      hasControl = runtimeEnv?.ARI_ENV === '1'
+      // What Ari offers this session goes through the provider's system
+      // channel when the driver has one. A note at the top of the user's
+      // message is the fallback: providers treat instructions arriving there
+      // as suspect, and Claude refuses them outright as an injection. That
+      // fallback is only sent into a fresh provider context — a resumed
+      // thread still holds the copy from its first turn.
+      const viaSystem = runtimeEnv?.ARI_ENV === '1' && driver.systemInstructions === true
+      const preamble =
+        runtimeEnv?.ARI_ENV === '1' && (viaSystem || resumeOf === null)
+          ? controlPreamble(
+              session,
+              await this.#parentTitle(session),
+              viaSystem ? 'system' : 'prompt',
+              this.#deps.deliversResults?.() ?? true,
+            )
+          : null
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
         workspacePath,
-        prompt:
-          runtimeEnv?.ARI_ENV === '1'
-            ? `[Ari control surface: added automatically by the Ari desktop app, not written by the user. This session can operate Ari through the CLI at $ARI_CLI. Commands: env, agents, session spawn|prompt|wait|read|diff|integrate|stop|destroy. Full protocol: $ARI_CLI --skill. Never disclose ARI_CONTROL_TOKEN.]\n\n${prompt}`
-            : prompt,
+        prompt: preamble === null || viaSystem ? prompt : `${preamble}\n\n${prompt}`,
+        ...(viaSystem && preamble !== null ? { instructions: preamble } : {}),
         modelId: session.modelId,
         permissionMode: session.permissionMode,
         effort: session.effort ?? null,
@@ -544,6 +605,9 @@ export class Engine {
     }
 
     let interrupted = false
+    let messageId = newTypedId('msg')
+    // A result joins the message holding its call, even across a split.
+    const callMessageIds = new Map<string, string>()
     this.#activeTurns.set(session.id, {
       sessionId: session.id,
       turnId,
@@ -566,12 +630,25 @@ export class Engine {
           return false
         }
       },
+      splitMessage: () => {
+        // Text still in the buffer was written before the split, so it is
+        // journaled under the message it belongs to before the id rotates.
+        const flushed = flush()
+        messageId = newTypedId('msg')
+        return flushed
+      },
     })
 
-    // Coalesced part buffer: text/thinking flush at ~120ms or on non-text.
+    // Coalesced part buffer: text/thinking flush every TEXT_FLUSH_MS or on
+    // non-text. Adjacent deltas of one kind merge, so a flush journals one
+    // part per run instead of one per provider token.
     let buffer: { type: 'text' | 'thinking'; text: string }[] = []
     let lastFlush = Date.now()
-    const messageId = newTypedId('msg')
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+    const timedFlush: { error: Error | null; pending: Promise<void> | null } = {
+      error: null,
+      pending: null,
+    }
 
     // Post-interrupt guard: the decider already settled an interrupted turn;
     // late adapter events must never overwrite that state.
@@ -581,6 +658,10 @@ export class Engine {
     }
 
     const flush = async (): Promise<void> => {
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer)
+        flushTimer = null
+      }
       if (buffer.length === 0 || interrupted) {
         buffer = []
         return
@@ -593,6 +674,17 @@ export class Engine {
         messageId,
         parts,
       })
+    }
+
+    // Without a timer the tail of a burst sat in the buffer until the next
+    // delta arrived, so text stalled mid-sentence whenever the provider paused.
+    const flushSoon = (): void => {
+      flushTimer ??= setTimeout(() => {
+        flushTimer = null
+        timedFlush.pending = flush().catch((error: unknown) => {
+          timedFlush.error = error instanceof Error ? error : new Error(String(error))
+        })
+      }, TEXT_FLUSH_MS)
     }
 
     const stageProviderImage = async (
@@ -629,14 +721,17 @@ export class Engine {
     try {
       let firstErrorMessage: string | null = null
       for await (const event of adapter.start()) {
+        // A timed flush that could not journal fails the turn like any other.
+        if (timedFlush.error !== null) throw timedFlush.error
         switch (event.type) {
           case 'text-delta':
           case 'thinking-delta': {
-            buffer.push({
-              type: event.type === 'text-delta' ? 'text' : 'thinking',
-              text: event.text,
-            })
-            if (Date.now() - lastFlush >= 120) await flush()
+            const type = event.type === 'text-delta' ? 'text' : 'thinking'
+            const last = buffer[buffer.length - 1]
+            if (last?.type === type) last.text += event.text
+            else buffer.push({ type, text: event.text })
+            if (Date.now() - lastFlush >= TEXT_FLUSH_MS) await flush()
+            else flushSoon()
             break
           }
           case 'image-output': {
@@ -656,6 +751,7 @@ export class Engine {
           case 'tool-started': {
             await flush()
             // Tool calls attach to the same streaming assistant message.
+            callMessageIds.set(event.callId, messageId)
             await append({
               type: 'assistant.parts.appended',
               messageId,
@@ -672,9 +768,11 @@ export class Engine {
           }
           case 'tool-completed': {
             await flush()
+            const callMessageId = callMessageIds.get(event.callId) ?? messageId
+            callMessageIds.delete(event.callId)
             await append({
               type: 'assistant.parts.appended',
-              messageId,
+              messageId: callMessageId,
               parts: [
                 {
                   type: 'tool-result',
@@ -691,10 +789,20 @@ export class Engine {
               type: 'usage.recorded',
               inputTokens: event.inputTokens,
               outputTokens: event.outputTokens,
+              ...(event.cachedInputTokens === undefined
+                ? {}
+                : { cachedInputTokens: event.cachedInputTokens }),
               costUsd: event.costUsd,
             })
             break
           }
+          case 'context-usage':
+            await append({
+              type: 'context.recorded',
+              usedTokens: event.usedTokens,
+              windowTokens: event.windowTokens,
+            })
+            break
           case 'status':
             await append({
               type: 'session.status.changed',
@@ -703,7 +811,14 @@ export class Engine {
               reason: null,
             })
             break
-          case 'approval-requested':
+          case 'approval-requested': {
+            // Ari's own control commands are governed by its delegation
+            // policy, not by a click on every one of them.
+            const grant = hasControl ? (this.#deps.autoApprove?.(event) ?? null) : null
+            if (grant !== null && adapter.respondApproval !== undefined) {
+              adapter.respondApproval(event.approvalId, { optionId: grant })
+              break
+            }
             await append({
               type: 'approval.requested',
               approvalId: event.approvalId,
@@ -712,6 +827,7 @@ export class Engine {
               options: event.options,
             })
             break
+          }
           case 'input-requested':
             // Journal the question so the QuestionPanel can answer it via
             // `input.respond` and answers survive replay.
@@ -727,6 +843,9 @@ export class Engine {
             // it instead of re-prompting cold.
             await append({ type: 'session.ref.observed', ref: event.ref })
             break
+          case 'permission-mode':
+            await append({ type: 'session.updated', permissionMode: event.mode })
+            break
           case 'notice':
             // Shown, but deliberately not recorded as `firstErrorMessage`:
             // the turn is answering, just not with what the user picked.
@@ -734,7 +853,7 @@ export class Engine {
             await append({
               type: 'assistant.parts.appended',
               messageId,
-              parts: [{ type: 'text', text: `\n\n⚠ ${event.message}` }],
+              parts: [{ type: 'text', text: `\n\nℹ ${event.message}` }],
             })
             break
           case 'error':
@@ -750,6 +869,10 @@ export class Engine {
         }
       }
       await flush()
+      // The stream can end right behind a timed flush. Its text has already
+      // left the buffer, so a failure there must not settle as completed.
+      await timedFlush.pending
+      if (timedFlush.error !== null) throw timedFlush.error
       // Provider-emitted errors (auth failures, CLI crashes with exit 0, HTTP
       // errors) must settle the turn as `error`, never as a completed chat —
       // otherwise the failure is invisible and the UI looks broken.
@@ -765,6 +888,7 @@ export class Engine {
       await flush().catch(() => undefined)
       if (!interrupted) await this.#settle(session.id, turnId, 'error', String(e))
     } finally {
+      if (flushTimer !== null) clearTimeout(flushTimer)
       this.#activeTurns.delete(session.id)
       await adapter.dispose()
     }

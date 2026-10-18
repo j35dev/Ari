@@ -86,16 +86,28 @@ export function mapOpencodeLine(line: string): AgentEvent[] {
       return parsed.part?.type === 'tool' ? mapToolPart(parsed.part) : []
 
     case 'step_finish': {
+      // One step is one model call. opencode keeps cache traffic and
+      // reasoning out of `input` and `output`, in fields of their own.
       const tokens = parsed.part?.tokens ?? {}
-      const input = typeof tokens['input'] === 'number' ? tokens['input'] : 0
-      const output = typeof tokens['output'] === 'number' ? tokens['output'] : 0
-      const usage: AgentEvent = {
-        type: 'usage',
-        inputTokens: input,
-        outputTokens: output,
-        costUsd: typeof parsed.part?.cost === 'number' ? parsed.part.cost : null,
+      const cache = (tokens['cache'] ?? {}) as Record<string, unknown>
+      const count = (value: unknown): number => (typeof value === 'number' ? value : 0)
+      const cached = count(cache['read'])
+      const input = count(tokens['input']) + count(cache['write']) + cached
+      const output = count(tokens['output']) + count(tokens['reasoning'])
+      const events: AgentEvent[] = [
+        {
+          type: 'usage',
+          inputTokens: input,
+          outputTokens: output,
+          cachedInputTokens: cached,
+          costUsd: typeof parsed.part?.cost === 'number' ? parsed.part.cost : null,
+        },
+      ]
+      if (input + output > 0) {
+        events.push({ type: 'context-usage', usedTokens: input + output, windowTokens: null })
       }
-      return isTerminalStepFinish(parsed.part?.reason) ? [usage, { type: 'done' }] : [usage]
+      if (isTerminalStepFinish(parsed.part?.reason)) events.push({ type: 'done' })
+      return events
     }
 
     case 'error': {
