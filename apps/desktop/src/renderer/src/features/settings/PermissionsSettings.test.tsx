@@ -24,7 +24,7 @@ const engineSettings: Settings = {
     wallpaper: 'none',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
-  notifications: { settleSound: true, desktop: true },
+  notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
