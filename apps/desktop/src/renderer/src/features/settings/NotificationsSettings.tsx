@@ -16,6 +16,7 @@ export function NotificationsSettings() {
   const { settings, update } = useEngineSettings()
   const settleSound = settings?.notifications.settleSound ?? true
   const desktop = settings?.notifications.desktop ?? true
+  const discordPresence = settings?.notifications.discordPresence ?? true
 
   const handleSettleSoundChange = (checked: boolean) => {
     void update({ notifications: { settleSound: checked } }).catch((error: unknown) => {
@@ -29,8 +30,17 @@ export function NotificationsSettings() {
     })
   }
 
+  const handleDiscordPresenceChange = (checked: boolean) => {
+    void update({ notifications: { discordPresence: checked } }).catch((error: unknown) => {
+      log.warn('failed to persist discord status preference', { error })
+    })
+  }
+
   return (
-    <SettingsPage title="Notifications" description="How Ari signals that a turn finished.">
+    <SettingsPage
+      title="Notifications"
+      description="How Ari signals that a turn finished, and what others see."
+    >
       <SettingsRow
         label="Completion sound"
         hint="A soft chime when the agent finishes a turn; failures get a lower tone."
@@ -49,6 +59,16 @@ export function NotificationsSettings() {
           checked={desktop}
           onCheckedChange={handleDesktopChange}
           aria-label="Desktop notifications"
+        />
+      </SettingsRow>
+      <SettingsRow
+        label="Discord status"
+        hint="Show “Playing Ari” on your Discord profile, with how long Ari has been open and how many agents are running. Needs the Discord desktop app."
+      >
+        <Switch
+          checked={discordPresence}
+          onCheckedChange={handleDiscordPresenceChange}
+          aria-label="Discord status"
         />
       </SettingsRow>
     </SettingsPage>

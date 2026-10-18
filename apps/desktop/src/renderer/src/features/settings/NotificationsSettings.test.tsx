@@ -26,7 +26,7 @@ const engineSettings: Settings = {
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
-  notifications: { settleSound: true, desktop: true },
+  notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
@@ -51,7 +51,7 @@ describe('NotificationsSettings', () => {
   it('reflects the engine-backed value and toggles via update', async () => {
     mocks.holder.settings = {
       ...engineSettings,
-      notifications: { settleSound: false, desktop: true },
+      notifications: { settleSound: false, desktop: true, discordPresence: true },
     }
     render(<NotificationsSettings />)
     const toggle = screen.getByRole('switch', { name: 'Completion sound' })
@@ -71,6 +71,16 @@ describe('NotificationsSettings', () => {
     await userEvent.setup().click(toggle)
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({ notifications: { desktop: false } }),
+    )
+  })
+
+  it('turns the Discord status off on its own', async () => {
+    render(<NotificationsSettings />)
+    const toggle = screen.getByRole('switch', { name: 'Discord status' })
+    expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await userEvent.setup().click(toggle)
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({ notifications: { discordPresence: false } }),
     )
   })
 })

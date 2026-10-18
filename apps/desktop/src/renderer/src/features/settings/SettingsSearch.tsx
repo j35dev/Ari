@@ -75,6 +75,11 @@ export const SETTINGS_SEARCH_INDEX = [
     keywords: 'allowlist run without confirmation exact command',
   },
   {
+    section: 'settings-notifications',
+    label: 'Discord status',
+    keywords: 'discord rich presence playing activity profile status friends',
+  },
+  {
     section: 'settings-remote',
     label: 'Mobile access',
     keywords: 'phone mobile remote gateway pair qr pairing device revoke invitation serve connect',
