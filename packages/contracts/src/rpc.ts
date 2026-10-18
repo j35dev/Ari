@@ -304,7 +304,11 @@ export interface TerminalDataFrame {
  * sign-in signals.
  */
 export type ProvidersUpdateFrame =
-  | { type: 'detections'; detections: RpcResults['providers.detect'] }
+  /**
+   * `checked` lists the kinds this round looked for again: absent for all of
+   * them, empty when only update availability was refreshed.
+   */
+  | { type: 'detections'; detections: RpcResults['providers.detect']; checked?: DriverKind[] }
   | { type: 'catalog'; at: number }
   /** A provider refused a turn for want of a login; sign in to unblock it. */
   | { type: 'auth.required'; kind: DriverKind; label: string; logins: ProviderLoginMethod[] }
@@ -555,6 +559,7 @@ export const rpcParams = {
   /** Reads staged bytes back as base64 for transcript thumbnails. */
   'attachments.read': z.object({ id: z.string().min(1).max(128) }),
   'providers.detect': z.undefined(),
+  'providers.rescan': z.undefined(),
   'providers.models': z.undefined(),
   /**
    * Thought/reasoning levels for one kind, optionally resolved against a
@@ -642,6 +647,7 @@ export const rpcParams = {
   /** Slots a project ahead of `beforeId` in the sidebar (null = last). */
   'project.move': z.object({ id: z.string().min(1), beforeId: z.string().min(1).nullable() }),
   'dialog.pickFolder': z.object({ defaultPath: z.string().min(1).optional() }),
+  'dialog.pickFile': z.object({ defaultPath: z.string().min(1).max(1024).optional() }),
   'shell.revealPath': z.object({ path: z.string().min(1) }),
   /** Opens a URL in the OS browser; only http/https/mailto reach openExternal. */
   'shell.openUrl': z.object({ url: z.string().min(1).max(2048) }),
@@ -881,7 +887,19 @@ export interface RpcResults {
     latestVersion?: string | null
     /** True when latestVersion > version; null when either side is unknown. */
     updateAvailable?: boolean | null
+    /** False when turned off in settings; the row then reports nothing installed. */
+    enabled?: boolean
+    /** Whether binaryPath is the user's own choice or what the PATH search found. */
+    pathSource?: 'custom' | 'auto'
+    /** What is wrong with a path the user chose; blocking when `installed` is false. */
+    pathProblem?: string
+    /** Every install the PATH search found, the one it would use first. */
+    candidates?: string[]
+    /** How turns reach the CLI: over ACP, or as one-shot command line runs. */
+    transport?: { mode: 'acp' | 'cli'; label: string; note?: string }
   }[]
+  /** `providers.detect` without the cache: every CLI is looked for and probed again. */
+  'providers.rescan': RpcResults['providers.detect']
   /**
    * Merged model catalogs per driver kind, sourced live from the provider
    * (`source: 'live'`), a cached refresh (`'cache'`), the bundled snapshot
@@ -1028,6 +1046,8 @@ export interface RpcResults {
   'project.move': Project | null
   /** Native folder picker; `path` is null when the user cancels (clean no-op). */
   'dialog.pickFolder': { path: string | null }
+  /** Native file picker for an executable; `path` is null when the user cancels. */
+  'dialog.pickFile': { path: string | null }
   'shell.revealPath': { revealed: boolean }
   'shell.openUrl': { opened: boolean }
   'files.index': { paths: string[] }
