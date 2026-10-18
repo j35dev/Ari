@@ -84,8 +84,10 @@ export const settingsSchema = z.object({
       settleSound: z.boolean().default(true),
       /** OS notification when a session finishes, fails or needs an answer while Ari is in the background. */
       desktop: z.boolean().default(true),
+      /** "Playing Ari" on the user's Discord profile while Discord is running. */
+      discordPresence: z.boolean().default(true),
     })
-    .default({ settleSound: true, desktop: true }),
+    .default({ settleSound: true, desktop: true, discordPresence: true }),
   permissions: z
     .object({
       /** Tools pre-approved across all sessions, e.g. ['Bash(git status*)']. */
@@ -148,6 +150,7 @@ export const settingsUpdateSchema = z.object({
     .object({
       settleSound: z.boolean(),
       desktop: z.boolean(),
+      discordPresence: z.boolean(),
     })
     .partial()
     .optional(),
@@ -183,7 +186,7 @@ export const defaultSettings: Settings = {
   version: 1,
   appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
-  notifications: { settleSound: true, desktop: true },
+  notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,

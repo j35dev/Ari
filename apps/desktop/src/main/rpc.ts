@@ -17,6 +17,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdateFrame } from '@ari/contracts/rpc'
+import type { Settings } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
@@ -614,6 +615,8 @@ export interface EngineHandle {
 export interface RegisterRpcOptions {
   /** Notified whenever the live mid-turn count changes (tray status). */
   onRunningCount?: (runningCount: number) => void
+  /** Notified with the stored settings after every successful `settings.update`. */
+  onSettingsChanged?: (settings: Settings) => void
 }
 
 /** Hard ceiling for `fs.readTextFile` regardless of the requested maxBytes. */
@@ -1019,7 +1022,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return store.current
   })
 
-  r.register('settings.update', async (params) => getSettingsStore().update(params))
+  r.register('settings.update', async (params) => {
+    const next = await getSettingsStore().update(params)
+    options.onSettingsChanged?.(next)
+    return next
+  })
 
   // Remote access (ADR §5): the gateway stays off until the user turns it on,
   // and the records it outlives the process with — paired devices and command
