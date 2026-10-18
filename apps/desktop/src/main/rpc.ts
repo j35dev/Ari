@@ -18,6 +18,7 @@ import { cliKindSchema } from '@ari/contracts/settings'
 import type { NavigateFrame, RpcResults, SessionEventFrame } from '@ari/contracts/rpc'
 import type { ProvidersUpdateFrame } from '@ari/contracts/rpc'
 import type { AppUpdateFrame } from '@ari/contracts/rpc'
+import type { Settings } from '@ari/contracts/settings'
 import { createLogger } from '@ari/shared/logger'
 import { IPC_METHODS, isTrustedIpcSender } from './ipc-methods'
 import { Engine } from './engine'
@@ -765,6 +766,8 @@ export interface EngineHandle {
 export interface RegisterRpcOptions {
   /** Notified whenever the live mid-turn count changes (tray status). */
   onRunningCount?: (runningCount: number) => void
+  /** Notified with the stored settings after every successful `settings.update`. */
+  onSettingsChanged?: (settings: Settings) => void
 }
 
 /** Hard ceiling for `fs.readTextFile` regardless of the requested maxBytes. */
@@ -1202,6 +1205,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         .then(() => catalogService.refresh())
         .catch((error: unknown) => log.warn('provider redetect failed', { error: String(error) }))
     }
+    options.onSettingsChanged?.(settings)
     return settings
   })
 
