@@ -214,6 +214,15 @@ function envVar(env: DetectEnvironment, name: string): string | null {
   return raw != null && raw.length > 0 ? raw : null
 }
 
+/** Ways Claude Code is authorised without a stored sign-in. */
+const CLAUDE_KEYLESS_VARS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+] as const
+
 const authenticated: AuthProbe = { status: 'authenticated' }
 const unauthenticated: AuthProbe = { status: 'unauthenticated' }
 
@@ -227,12 +236,26 @@ function unknownAuth(reason: string): AuthProbe {
  */
 function authCandidates(kind: DriverKind, env: DetectEnvironment): string[] {
   switch (kind) {
-    case 'claude':
+    case 'claude': {
+      // A relocated home (another account's) proves a sign-in only by its
+      // credentials file: `.claude.json` appears there on first run regardless.
+      const moved = envVar(env, 'CLAUDE_CONFIG_DIR')
+      if (moved !== null) return [join(moved, '.credentials.json')]
       return [join(env.homeDir, '.claude', '.credentials.json'), join(env.homeDir, '.claude.json')]
-    case 'codex':
+    }
+    case 'codex': {
       // Codex auths either via auth.json (ChatGPT/OpenAI login) or via a
-      // config.toml provider block (custom routers/API keys).
+      // config.toml provider block (custom routers/API keys). A home Ari set
+      // up for another account shares the default one's config.toml, so only
+      // its own auth.json says anything about it.
+      const moved = envVar(env, 'CODEX_HOME')
+      if (moved !== null) {
+        return env.separateAccount === true
+          ? [join(moved, 'auth.json')]
+          : [join(moved, 'auth.json'), join(moved, 'config.toml')]
+      }
       return [join(env.homeDir, '.codex', 'auth.json'), join(env.homeDir, '.codex', 'config.toml')]
+    }
     case 'opencode':
       return env.platform === 'win32' && env.localAppData
         ? [join(env.localAppData, 'opencode', 'auth.json')]
@@ -277,6 +300,19 @@ export function readAuthStatus(kind: DriverKind, env: DetectEnvironment): AuthPr
       // `codex login` has genuinely never run.
       return unauthenticated
     case 'claude':
+      // A home Ari set up for another account keeps its sign-in, off macOS,
+      // in that one file, so its absence is an answer. On macOS it is in the
+      // Keychain, and a key or cloud provider in the environment needs no file
+      // at all. A home the user relocated themselves may be authorised by
+      // means Ari cannot see, and stays unknown.
+      if (
+        env.separateAccount === true &&
+        envVar(env, 'CLAUDE_CONFIG_DIR') !== null &&
+        env.platform !== 'darwin' &&
+        CLAUDE_KEYLESS_VARS.every((name) => envVar(env, name) === null)
+      ) {
+        return { status: 'unauthenticated', reason: 'This account is not signed in.' }
+      }
       return unknownAuth('No ~/.claude credentials file; Claude Code may be using a subscription session or ANTHROPIC_API_KEY.')
     case 'opencode':
       return unknownAuth('No opencode auth.json found; opencode can also read provider keys from the environment.')

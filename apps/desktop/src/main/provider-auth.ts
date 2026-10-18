@@ -3,6 +3,7 @@ import type { ProviderLoginMethod, RpcResults } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
 import { AUTH_REQUIRED_ERROR } from '@ari/providers/acp/protocol'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
+import { providerEnvironment } from './provider-env'
 
 const log = createLogger('desktop:provider-auth')
 
@@ -62,13 +63,20 @@ function isAuthWall(error: unknown): error is { logins: AcpTerminalLogin[] } {
 }
 
 /** Normalizes a login for the wire; identical shape, no adapter types leaking. */
-export function toLoginMethods(logins: AcpTerminalLogin[] | undefined): ProviderLoginMethod[] {
+export function toLoginMethods(
+  logins: AcpTerminalLogin[] | undefined,
+  kind: DriverKind,
+): ProviderLoginMethod[] {
+  // The agent names the command; which account it signs in is decided by the
+  // home it runs in, so that travels with it.
+  const env = providerEnvironment(kind)
   return (logins ?? []).map((login) => ({
     methodId: login.methodId,
     name: login.name,
     description: login.description,
     command: login.command,
     args: login.args,
+    ...(Object.keys(env).length > 0 ? { env } : {}),
   }))
 }
 
@@ -81,6 +89,7 @@ export function toLoginMethods(logins: AcpTerminalLogin[] | undefined): Provider
 export class ProviderAuthState {
   readonly #walls = new Map<DriverKind, { label: string; logins: ProviderLoginMethod[]; at: number }>()
   readonly #probes = new Map<DriverKind, { result: AuthProbeResult; at: number }>()
+  readonly #generations = new Map<DriverKind, number>()
   readonly #now: () => number
 
   constructor(now: () => number = Date.now) {
@@ -89,7 +98,7 @@ export class ProviderAuthState {
 
   /** Records a live refusal; also invalidates any stale `ready` probe verdict. */
   recordWall(kind: DriverKind, label: string, logins: AcpTerminalLogin[]): void {
-    this.#walls.set(kind, { label, logins: toLoginMethods(logins), at: this.#now() })
+    this.#walls.set(kind, { label, logins: toLoginMethods(logins, kind), at: this.#now() })
     this.#probes.delete(kind)
   }
 
@@ -102,6 +111,16 @@ export class ProviderAuthState {
   clear(kind: DriverKind): void {
     this.#walls.delete(kind)
     this.#probes.delete(kind)
+    this.#generations.set(kind, this.generation(kind) + 1)
+  }
+
+  /**
+   * Changes whenever what is known about a kind is thrown away. A probe notes
+   * it before starting, so a verdict about one account, reached after the
+   * provider was switched to another, is not remembered as the new one's.
+   */
+  generation(kind: DriverKind): number {
+    return this.#generations.get(kind) ?? 0
   }
 
   cachedProbe(kind: DriverKind): AuthProbeResult | null {
@@ -114,7 +133,8 @@ export class ProviderAuthState {
     return entry.result
   }
 
-  rememberProbe(kind: DriverKind, result: AuthProbeResult): void {
+  rememberProbe(kind: DriverKind, result: AuthProbeResult, generation = this.generation(kind)): void {
+    if (generation !== this.generation(kind)) return
     this.#probes.set(kind, { result, at: this.#now() })
   }
 }
@@ -131,6 +151,7 @@ export async function probeProviderAuth(
 ): Promise<AuthProbeResult> {
   const cached = state.cachedProbe(kind)
   if (cached !== null) return cached
+  const generation = state.generation(kind)
 
   // A wall seen during a real turn outranks anything a probe could learn.
   const wall = state.wallFor(kind)
@@ -158,9 +179,9 @@ export async function probeProviderAuth(
       const result: AuthProbeResult = {
         status: 'auth-required',
         label: kind,
-        logins: toLoginMethods(error.logins),
+        logins: toLoginMethods(error.logins, kind),
       }
-      state.rememberProbe(kind, result)
+      state.rememberProbe(kind, result, generation)
       return result
     }
     log.debug('auth probe could not reach the agent', { kind, error: String(error) })
@@ -183,16 +204,19 @@ export async function probeProviderAuth(
       label: kind,
       version: detection.version ?? null,
     }
-    state.rememberProbe(kind, result)
+    state.rememberProbe(kind, result, generation)
     return result
   } catch (error) {
     if (isAuthWall(error)) {
       const result: AuthProbeResult = {
         status: 'auth-required',
         label: kind,
-        logins: toLoginMethods(connection.terminalLogins.length > 0 ? connection.terminalLogins : error.logins),
+        logins: toLoginMethods(
+          connection.terminalLogins.length > 0 ? connection.terminalLogins : error.logins,
+          kind,
+        ),
       }
-      state.rememberProbe(kind, result)
+      state.rememberProbe(kind, result, generation)
       return result
     }
     log.debug('auth probe session failed for a non-auth reason', { kind, error: String(error) })
