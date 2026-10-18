@@ -64,9 +64,15 @@ export const remoteOperationSchema = z.enum([
   // a choice instead of a text field it cannot validate.
   'models.list',
   'models.efforts',
-  // Account allowance, as the desktop's usage pill reads it. Redeeming a
-  // banked reset spends something scarce and stays at the desktop.
+  // Account allowance, as the desktop's usage pill reads it, and the two
+  // things to do about a limit: spend a banked reset, or run the provider as
+  // another of its accounts. A reset is scarce, so the phone asks twice and
+  // the command's key keeps a retried request from spending two. Signing an
+  // account in stays at the desktop, where its CLI can open a browser.
   'usage.allowance',
+  'usage.redeem',
+  'accounts.list',
+  'accounts.activate',
   // Agent actions.
   'session.prompt',
   'session.queue',
@@ -226,6 +232,9 @@ const envelope = <T extends z.ZodRawShape>(shape: T) =>
 
 const remoteEffortIdSchema = z.string().min(1).max(64)
 
+/** `default` or an account's slug, as the desktop names them. */
+const remoteAccountIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/)
+
 export const remoteCommandEnvelopeSchema = z.discriminatedUnion('op', [
   // A paired phone chooses effort and permission mode as the desktop composer
   // does; left out, the session takes the desktop's defaults.
@@ -321,7 +330,17 @@ export const remoteCommandEnvelopeSchema = z.discriminatedUnion('op', [
     snapshotCommit: z.string().regex(/^[a-f0-9]{40,64}$/),
     expectedParentSnapshot: z.string().regex(/^[a-f0-9]{40,64}$/),
   }),
+  // The two below act on the user's provider account, not on a session.
+  envelope({ op: z.literal('usage.redeem'), driverKind: driverKindSchema }),
+  envelope({
+    op: z.literal('accounts.activate'),
+    driverKind: driverKindSchema,
+    accountId: remoteAccountIdSchema,
+  }),
 ])
+
+/** The operations that belong to the user's account with a provider rather than to a session. */
+export const REMOTE_ACCOUNT_COMMANDS = ['usage.redeem', 'accounts.activate'] as const
 export type RemoteCommand = z.infer<typeof remoteCommandEnvelopeSchema>
 
 /** Only the child identifier from native delegation leaves the fork adapter. */
@@ -380,6 +399,7 @@ export const remoteQuerySchema = z.discriminatedUnion('op', [
     })
     .strict(),
   z.object({ op: z.literal('usage.allowance'), driverKind: driverKindSchema }).strict(),
+  z.object({ op: z.literal('accounts.list'), driverKind: driverKindSchema }).strict(),
   z.object({ op: z.literal('changes.files'), sessionId: sessionIdSchema }),
   z.object({ op: z.literal('changes.preview'), sessionId: sessionIdSchema }).strict(),
   z.object({ op: z.literal('changes.diff'), sessionId: sessionIdSchema, path: z.string().min(1) }),
@@ -516,6 +536,34 @@ export const remoteAllowanceSchema = z.object({
   updatedAt: timestampSchema.nullable(),
 })
 export type RemoteAllowance = z.infer<typeof remoteAllowanceSchema>
+
+/** What the provider said happened to a banked reset, and the allowance that leaves. */
+export const remoteRedeemSchema = z.object({
+  outcome: z.enum(['reset', 'nothingToReset', 'noCredit', 'alreadyRedeemed']),
+  allowance: remoteAllowanceSchema,
+})
+export type RemoteRedeem = z.infer<typeof remoteRedeemSchema>
+
+/**
+ * The accounts a provider can run as on the desktop. A label, whether it is
+ * signed in and its plan travel; the address it is signed in with does not.
+ * Empty for a provider with only its own sign-in to offer.
+ */
+export const remoteAccountsSchema = z.object({
+  driverKind: driverKindSchema,
+  accounts: z.array(
+    z.object({
+      id: remoteAccountIdSchema,
+      label: z.string().min(1).max(40),
+      /** The account new turns run as. */
+      active: z.boolean(),
+      /** Null when the desktop could not ask the provider's CLI. */
+      signedIn: z.boolean().nullable(),
+      plan: z.string().nullable(),
+    }),
+  ),
+})
+export type RemoteAccounts = z.infer<typeof remoteAccountsSchema>
 
 /**
  * Content-free: a version to compare and the operation names this gateway

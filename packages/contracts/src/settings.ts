@@ -44,6 +44,71 @@ export type WallpaperIdSetting = z.infer<typeof wallpaperIdSchema>
 export const wallpaperSchema = z.union([z.literal('none'), wallpaperIdSchema])
 export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 
+/** The agent CLIs Ari drives; Ari Core is built in and has no connection to configure. */
+export const cliKindSchema = driverKindSchema.exclude(['ari-core'])
+export type CliKind = z.infer<typeof cliKindSchema>
+
+/** The account every CLI already has: whatever it is signed into in its own home. */
+export const DEFAULT_ACCOUNT = 'default'
+
+/**
+ * A further sign-in for one provider. The id names the account's own home
+ * directory, so it is a slug and never changes; the label is the user's.
+ */
+export const providerAccountSchema = z.object({
+  id: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{0,31}$/)
+    .refine((id) => id !== DEFAULT_ACCOUNT),
+  label: z.string().trim().min(1).max(40),
+})
+export type ProviderAccount = z.infer<typeof providerAccountSchema>
+
+const accountsSchema = z.array(providerAccountSchema).max(12)
+
+/** How Ari reaches one installed agent CLI. */
+export const providerConnectionSchema = z.object({
+  /** Off hides the provider everywhere and stops Ari launching or probing it. */
+  enabled: z.boolean().default(true),
+  /** Absolute path to the CLI to run; empty means find it on PATH. */
+  binaryPath: z.string().trim().max(1024).default(''),
+  /** Sign-ins beyond the CLI's own; only providers with a relocatable home use it. */
+  accounts: accountsSchema.default([]),
+  /** The account turns run as: `default`, or the id of one in `accounts`. */
+  activeAccount: z.string().max(32).default(DEFAULT_ACCOUNT),
+})
+export type ProviderConnection = z.infer<typeof providerConnectionSchema>
+
+const defaultConnection = (): ProviderConnection => ({
+  enabled: true,
+  binaryPath: '',
+  accounts: [],
+  activeAccount: DEFAULT_ACCOUNT,
+})
+
+/** The id of the account in use, falling back to the default when the stored one is gone. */
+export function activeAccountId(connection: ProviderConnection): string {
+  return connection.accounts.some((account) => account.id === connection.activeAccount)
+    ? connection.activeAccount
+    : DEFAULT_ACCOUNT
+}
+
+const connectionsShape = <T extends z.ZodType>(field: () => T): Record<CliKind, T> => ({
+  claude: field(),
+  codex: field(),
+  opencode: field(),
+  grok: field(),
+  pi: field(),
+  hermes: field(),
+})
+
+export const providerConnectionsSchema = z.object(
+  connectionsShape(() => providerConnectionSchema.default(defaultConnection)),
+)
+export type ProviderConnections = z.infer<typeof providerConnectionsSchema>
+
+const defaultConnections = (): ProviderConnections => providerConnectionsSchema.parse({})
+
 const defaultAppearance = {
   themeId: 'obsidian',
   mode: 'system',
@@ -78,6 +143,7 @@ export const settingsSchema = z.object({
       defaultPermissionMode: permissionModeSchema.default('ask'),
     })
     .default({ defaultDriverKind: null, defaultPermissionMode: 'ask' }),
+  providers: providerConnectionsSchema.default(defaultConnections),
   notifications: z
     .object({
       /** Soft chime when a turn settles; failures get their own muted tone. */
@@ -146,6 +212,20 @@ export const settingsUpdateSchema = z.object({
     })
     .partial()
     .optional(),
+  /** Per provider, only the fields being changed; the rest keep their stored value. */
+  providers: z
+    .object(
+      connectionsShape(() =>
+        z
+          // Accounts are not here on purpose: adding, removing and switching
+          // one has side effects a plain settings write would skip.
+          .object({ enabled: z.boolean(), binaryPath: z.string().trim().max(1024) })
+          .partial()
+          .optional(),
+      ),
+    )
+    .partial()
+    .optional(),
   notifications: z
     .object({
       settleSound: z.boolean(),
@@ -186,6 +266,7 @@ export const defaultSettings: Settings = {
   version: 1,
   appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  providers: defaultConnections(),
   notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },

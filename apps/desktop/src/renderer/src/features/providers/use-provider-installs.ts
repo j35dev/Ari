@@ -22,9 +22,12 @@ const SETTLED_DISPLAY_MS = 8_000
  *
  * `onDetections` fires whenever the main process publishes a fresh detection
  * round (including the mandatory post-install re-probe), so the caller's
- * grid stays current without polling.
+ * grid stays current without polling. It is also told which kinds that round
+ * looked for again, when it was not all of them.
  */
-export function useProviderInstalls(onDetections: (detections: Detection[]) => void): {
+export function useProviderInstalls(
+  onDetections: (detections: Detection[], checked?: readonly DriverKind[]) => void,
+): {
   installs: InstallStates
   planFor: (kind: DriverKind) => Promise<RpcResults['providers.plan']>
   start: (kind: DriverKind, operation: 'install' | 'upgrade') => Promise<void>
@@ -38,7 +41,7 @@ export function useProviderInstalls(onDetections: (detections: Detection[]) => v
     const unsubscribe = rpc.subscribe('providers.updates', {}, (payload) => {
       const frame = payload as ProvidersUpdateFrame
       if (frame.type === 'detections') {
-        detectionsRef.current(frame.detections)
+        detectionsRef.current(frame.detections, frame.checked)
         return
       }
       if (frame.type === 'install.started') {
