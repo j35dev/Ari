@@ -46,7 +46,7 @@ export function ProviderSignIn({ kind, result, onOpenTerminal, onDone }: Provide
       requestTerminalTab({
         title: loginTabTitle(login),
         cwd: info.homeDir,
-        command: loginCommandLine(login, info.platform),
+        command: loginCommandLine(login, info.platform, login.env),
       })
       setLaunched(login.name)
       onOpenTerminal?.()

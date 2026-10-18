@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defaultSettings } from '@ari/contracts/settings'
 import type { Settings } from '@ari/contracts/settings'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import { useEngineSettings } from './useEngineSettings'
@@ -20,6 +21,7 @@ const baseSettings: Settings = {
     wallpaper: 'none',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },

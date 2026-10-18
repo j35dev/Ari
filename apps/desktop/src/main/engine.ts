@@ -6,6 +6,7 @@ import {
   type QueuedMessage,
 } from '@ari/contracts/attachments'
 import type { Command } from '@ari/contracts/commands'
+import type { DriverKind } from '@ari/contracts/common'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
 import type { MessageOrigin } from '@ari/contracts/message'
@@ -96,6 +97,8 @@ export interface EngineDeps {
     summaryJson: string
     options: readonly ApprovalOption[]
   }) => string | null
+  /** Why a kind has no driver, worded for the user; null when the cause is unknown. */
+  driverUnavailable?: (kind: DriverKind) => Promise<string | null>
   /**
    * Resolves a staged attachment id to its disk path for adapters. Absent
    * for tests: attachments resolve as unavailable and are named in text.
@@ -501,11 +504,17 @@ export class Engine {
   ): Promise<void> {
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
+      const reason = await this.#deps
+        .driverUnavailable?.(session.driverKind)
+        .catch((error: unknown) => {
+          log.warn('could not explain a missing driver', { error: String(error) })
+          return null
+        })
       await this.#settle(
         session.id,
         turnId,
         'error',
-        `no driver registered for ${session.driverKind}`,
+        reason ?? `no driver registered for ${session.driverKind}`,
       )
       return
     }

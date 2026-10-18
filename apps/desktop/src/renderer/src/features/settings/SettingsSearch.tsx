@@ -44,6 +44,16 @@ export const SETTINGS_SEARCH_INDEX = [
     keywords: 'claude codex opencode grok pi hermes detect rescan health install auth badge',
   },
   {
+    section: 'settings-providers',
+    label: 'Turn providers on or off',
+    keywords: 'enable disable toggle hide agent model picker claude codex opencode grok pi hermes',
+  },
+  {
+    section: 'settings-providers',
+    label: 'Provider binary path',
+    keywords: 'executable location custom cli install path browse which claude.exe npm shim connection',
+  },
+  {
     section: 'settings-agents',
     label: 'Agent configuration files',
     keywords:

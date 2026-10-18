@@ -75,4 +75,15 @@ describe('partitionProviders', () => {
     const { withheld } = partitionProviders([absentCodex])
     expect(withheld[0]?.reason).toBeTruthy()
   })
+
+  it('leaves a provider the user turned off out of both lists', () => {
+    // Not "withheld": the picker has no absence to explain to the person who
+    // asked for it.
+    const { ready, withheld } = partitionProviders([
+      installedClaude,
+      detection({ kind: 'grok', enabled: false }),
+    ])
+    expect(ready.map((d) => d.kind)).toEqual(['claude'])
+    expect(withheld).toEqual([])
+  })
 })

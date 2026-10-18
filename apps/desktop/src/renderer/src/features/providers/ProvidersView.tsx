@@ -1,250 +1,186 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DriverKind } from '@ari/contracts/common'
-import type { RpcResults } from '@ari/contracts/rpc'
-import { Badge } from '@ari/ui/badge'
-import type { BadgeTone } from '@ari/ui/badge'
+import { DEFAULT_ACCOUNT } from '@ari/contracts/settings'
+import type { CliKind, ProviderConnection, SettingsUpdate } from '@ari/contracts/settings'
 import { Button } from '@ari/ui/button'
-import { Spinner } from '@ari/ui/spinner'
-import { Tooltip } from '@ari/ui/tooltip'
 import { RefreshCw } from 'lucide-react'
 import { rpc } from '../../lib/rpc'
-import { ProviderSignIn } from './ProviderSignIn'
+import { useEngineSettings } from '../settings/useEngineSettings'
+import { ProviderEditor } from './ProviderEditor'
+import { ProviderList } from './ProviderList'
+import type { ProviderListRow } from './ProviderList'
+import { checkedAgo, providerStatus, shortVersion } from './provider-status'
+import type { Detection } from './provider-status'
 import { useProviderAuth } from './use-provider-auth'
-import type { ProviderAuthEntry } from './use-provider-auth'
 import { useProviderInstalls } from './use-provider-installs'
 
-type Detection = RpcResults['providers.detect'][number]
+const ORDER: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
 
-const AUTH_BADGES: Record<string, { label: string; tone: BadgeTone }> = {
-  authenticated: { label: 'authenticated', tone: 'success' },
-  unauthenticated: { label: 'unauthenticated', tone: 'warning' },
-  unknown: { label: 'unknown', tone: 'neutral' },
+const ON: ProviderConnection = {
+  enabled: true,
+  binaryPath: '',
+  accounts: [],
+  activeAccount: DEFAULT_ACCOUNT,
 }
 
-const UNKNOWN_AUTH_TOOLTIP = 'Ari could not verify - the CLI manages its own login'
+/** How long a saved change may wait for its detection before Ari asks again. */
+const RECHECK_AFTER_MS = 20_000
 
-const UNKNOWN_AUTH_BADGE: { label: string; tone: BadgeTone } = {
-  label: 'unknown',
-  tone: 'neutral',
-}
-
-function authBadgeFor(authStatus: string): { label: string; tone: BadgeTone } {
-  return AUTH_BADGES[authStatus] ?? UNKNOWN_AUTH_BADGE
-}
-
-/**
- * The badge the user should believe. The detector infers a verdict from a
- * credential file existing, which can read `authenticated` while every turn is
- * refused; a live wall or a preflight is direct evidence and overrides it.
- */
-function resolveAuthBadge(
-  detection: Detection,
-  observed: ProviderAuthEntry | undefined,
-): { label: string; tone: BadgeTone } {
-  if (observed?.result.status === 'auth-required') {
-    return { label: 'sign-in needed', tone: 'warning' }
-  }
-  if (observed?.result.status === 'ready') return AUTH_BADGES['authenticated'] as { label: string; tone: BadgeTone }
-  return authBadgeFor(detection.authStatus)
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-interface ProviderCardProps {
-  detection: Detection
-  running: ReturnType<typeof useProviderInstalls>['installs'][DriverKind]
-  auth: ProviderAuthEntry | undefined
-  checkingAuth: boolean
-  onInstall: (detection: Detection) => void
-  onUpdate: (detection: Detection) => void
-  onRecheck: () => void
-  onCheckAuth: (kind: DriverKind) => void
-  onAuthResolved: (kind: DriverKind) => void
-  onCancel: (kind: DriverKind) => void
+export interface ProvidersViewProps {
   onOpenTerminal?: () => void
-}
-
-function ProviderCard({
-  detection,
-  running,
-  auth,
-  checkingAuth,
-  onInstall,
-  onUpdate,
-  onRecheck,
-  onCheckAuth,
-  onAuthResolved,
-  onCancel,
-  onOpenTerminal,
-}: ProviderCardProps) {
-  const isCore = detection.kind === 'ari-core'
-  const authBadge = isCore
-    ? authBadgeFor('authenticated')
-    : resolveAuthBadge(detection, auth)
-  const badge = <Badge tone={authBadge.tone}>{authBadge.label}</Badge>
-  const isRunning = running != null && running.outcome === null
-
-  return (
-    <li className="flex flex-col gap-2 rounded-md border border-border bg-surface-1 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <span className="truncate text-sm font-medium text-fg">
-          {isCore ? 'Ari Core (built-in)' : capitalize(detection.kind)}
-        </span>
-        {detection.authStatus === 'unknown' && !isCore ? (
-          <Tooltip content={UNKNOWN_AUTH_TOOLTIP}>{badge}</Tooltip>
-        ) : (
-          badge
-        )}
-      </div>
-
-      {isRunning ? (
-        <p className="flex items-center gap-2 text-xs text-fg-muted">
-          <Spinner className="h-3 w-3" />
-          {running?.operation === 'install' ? 'Installing…' : 'Updating…'}
-        </p>
-      ) : detection.binaryPath === null && !isCore ? (
-        <p className="text-2xs text-danger">not installed</p>
-      ) : detection.version != null ? (
-        <p className="truncate font-mono text-2xs text-fg-subtle">{detection.version}</p>
-      ) : null}
-
-      {detection.binaryPath != null && (
-        <p className="truncate font-mono text-2xs text-fg-subtle" title={detection.binaryPath}>
-          {detection.binaryPath}
-        </p>
-      )}
-
-      {detection.updateAvailable === true && !isRunning && !isCore && (
-        <p className="text-2xs text-warning">
-          update available{detection.latestVersion != null ? ` → ${detection.latestVersion}` : ''}
-        </p>
-      )}
-      {detection.installed && detection.updateAvailable === false && !isRunning && !isCore && (
-        <p className="text-2xs text-fg-subtle">Up to date.</p>
-      )}
-
-      {/* The detector's own explanation, which used to be computed and never shown. */}
-      {!isCore && detection.authStatus === 'unknown' && detection.authReason != null && auth == null && (
-        <p className="text-2xs text-fg-subtle">{detection.authReason}</p>
-      )}
-
-      {!isCore && auth != null && (
-        <ProviderSignIn
-          kind={detection.kind as DriverKind}
-          result={auth.result}
-          onOpenTerminal={onOpenTerminal}
-          onDone={() => onAuthResolved(detection.kind as DriverKind)}
-        />
-      )}
-
-      {!isCore && (
-        <div className="flex items-center gap-2">
-          {detection.installed ? (
-            <>
-              {detection.updateAvailable === true && (
-                <Button size="sm" onClick={() => onUpdate(detection)} disabled={isRunning}>
-                  Update
-                </Button>
-              )}
-            </>
-          ) : (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => onInstall(detection)}
-              disabled={isRunning}
-            >
-              Install
-            </Button>
-          )}
-          {isRunning ? (
-            <Button size="sm" variant="ghost" onClick={() => onCancel(detection.kind as DriverKind)}>
-              Cancel
-            </Button>
-          ) : (
-            <Button size="sm" variant="ghost" onClick={onRecheck} disabled={detection.binaryPath === null}>
-              Re-check
-            </Button>
-          )}
-          {detection.installed && !isRunning && (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={checkingAuth}
-              onClick={() => onCheckAuth(detection.kind as DriverKind)}
-            >
-              {checkingAuth ? <Spinner className="h-3 w-3" /> : null} Check sign-in
-            </Button>
-          )}
-        </div>
-      )}
-
-      {isCore && (
-        <p className="text-xs text-fg-muted">
-          Runs on your own endpoints — manage them in the Endpoints settings section.
-        </p>
-      )}
-
-      {running?.outcome != null && !running.outcome.ok && (
-        <p role="alert" className="text-xs text-danger">
-          {running.outcome.reason}
-        </p>
-      )}
-      {running?.outcome?.ok === true && (
-        <p className="text-xs text-success">
-          {running.operation === 'install' ? 'Installed.' : 'Updated.'}
-        </p>
-      )}
-    </li>
-  )
+  /** Leaves for the Endpoints section, where Ari Core's connections live. */
+  onOpenEndpoints?: () => void
 }
 
 /**
- * Providers settings page: detection grid with per-CLI version, install state
- * and auth badges. Install and Update run immediately — no command dump.
- * Sign-in is offered per provider, but only for one that actually refused a
- * turn or that the user explicitly asked Ari to check.
+ * Providers settings page: every agent Ari can drive with a switch beside it,
+ * and for the selected one which install runs, how Ari reaches it, and whether
+ * it is signed in and current. Changes save as they are made; Ari then looks
+ * for the CLI again so the page shows what the next turn will really use.
  */
-export function ProvidersView({ onOpenTerminal }: { onOpenTerminal?: () => void } = {}) {
+export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersViewProps = {}) {
+  const { settings, update } = useEngineSettings()
   const [detections, setDetections] = useState<Detection[] | null>(null)
+  const [checkedAt, setCheckedAt] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { installs, start, cancel } = useProviderInstalls(setDetections)
+  const [pending, setPending] = useState<ReadonlySet<DriverKind>>(() => new Set())
+  const [selected, setSelected] = useState<DriverKind>('claude')
+  const chosen = useRef(false)
+
+  // A row stops waiting only when a round that looked for it again reports:
+  // a round about another provider, or one begun before the change was saved,
+  // would otherwise pass off the old answer as the new one.
+  const receive = useCallback((rows: Detection[], checked?: readonly DriverKind[]): void => {
+    setDetections(rows)
+    setCheckedAt(Date.now())
+    setNow(Date.now())
+    setPending((current) =>
+      checked === undefined
+        ? new Set()
+        : new Set([...current].filter((kind) => !checked.includes(kind))),
+    )
+  }, [])
+  const { installs, start, cancel } = useProviderInstalls(receive)
   const { auth, checking, check, dismiss } = useProviderAuth()
 
-  const scan = useCallback(async (): Promise<void> => {
-    setScanning(true)
-    try {
-      setDetections(await rpc.invoke('providers.detect'))
-      setError(null)
-    } catch {
-      setError('Provider detection failed.')
-    } finally {
-      setScanning(false)
-    }
-  }, [])
+  const scan = useCallback(
+    async (method: 'providers.detect' | 'providers.rescan'): Promise<void> => {
+      setScanning(true)
+      try {
+        // Only a rescan is certain to be newer than whatever is being waited on.
+        receive(await rpc.invoke(method), method === 'providers.rescan' ? undefined : [])
+        setError(null)
+      } catch {
+        setError('Provider detection failed.')
+        setPending(new Set())
+      } finally {
+        setScanning(false)
+      }
+    },
+    [receive],
+  )
 
   useEffect(() => {
-    void scan()
+    void scan('providers.detect')
   }, [scan])
 
-  const beginAction = async (detection: Detection, operation: 'install' | 'upgrade'): Promise<void> => {
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Detection normally follows a saved change by itself; this covers the round
+  // that never arrives, so a row cannot sit on "Checking" for good.
+  useEffect(() => {
+    if (pending.size === 0) return
+    const timer = setTimeout(() => void scan('providers.rescan'), RECHECK_AFTER_MS)
+    return () => clearTimeout(timer)
+  }, [pending, scan])
+
+  const connectionOf = useCallback(
+    (kind: DriverKind): ProviderConnection | null =>
+      kind === 'ari-core' ? null : (settings?.providers[kind] ?? ON),
+    [settings],
+  )
+
+  const rows = useMemo<ProviderListRow[]>(
+    () =>
+      ORDER.map((kind) => {
+        const connection = connectionOf(kind)
+        const detection = pending.has(kind) ? undefined : detections?.find((d) => d.kind === kind)
+        return {
+          kind,
+          enabled: connection === null ? null : connection.enabled,
+          version: detection?.installed === true ? shortVersion(detection.version) : null,
+          status: providerStatus({
+            kind,
+            detection,
+            enabled: connection?.enabled !== false,
+            auth: auth[kind],
+            install: installs[kind],
+          }),
+        }
+      }),
+    [auth, connectionOf, detections, installs, pending],
+  )
+
+  // Open on whatever needs the user, once, and never move a selection they made.
+  useEffect(() => {
+    if (chosen.current || detections === null) return
+    chosen.current = true
+    const troubled = rows.find((row) => row.status.tone === 'error' || row.status.tone === 'warning')
+    if (troubled) setSelected(troubled.kind)
+  }, [detections, rows])
+
+  const save = (kind: CliKind, patch: Partial<ProviderConnection>): void => {
+    // Whoever is editing a provider has chosen it; the page must not move on.
+    chosen.current = true
     setError(null)
-    try {
-      await start(detection.kind as DriverKind, operation)
-    } catch {
-      setError('Could not start the operation.')
-    }
+    setPending((current) => new Set(current).add(kind))
+    const providers: NonNullable<SettingsUpdate['providers']> = {}
+    providers[kind] = patch
+    update({ providers }).catch(() => {
+      setError('Could not save the provider setting.')
+      setPending((current) => {
+        const next = new Set(current)
+        next.delete(kind)
+        return next
+      })
+    })
   }
 
+  const run = (kind: DriverKind, operation: 'install' | 'upgrade'): void => {
+    setError(null)
+    start(kind, operation).catch(() => setError('Could not start the operation.'))
+  }
+
+  const select = (kind: DriverKind): void => {
+    chosen.current = true
+    setSelected(kind)
+  }
+
+  const row = rows.find((entry) => entry.kind === selected) ?? rows[0]
+
   return (
-    <section aria-label="Providers" className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium text-fg">Providers</h2>
-        <Button size="sm" variant="secondary" disabled={scanning} onClick={() => void scan()}>
-          <RefreshCw className={`h-3.5 w-3.5${scanning ? ' animate-spin' : ''}`} /> Re-scan
+    <section aria-label="Providers" className="flex flex-col gap-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-lg font-semibold">Providers</h1>
+          <p className="text-sm text-fg-muted">
+            Choose which agents Ari uses and which install of each it runs.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={scanning}
+          title="Look for every provider again"
+          onClick={() => void scan('providers.rescan')}
+        >
+          <RefreshCw className={`h-3.5 w-3.5${scanning ? ' animate-spin' : ''}`} />
+          {scanning || checkedAt === null ? 'Checking…' : `Checked ${checkedAgo(checkedAt, now)}`}
         </Button>
       </div>
 
@@ -254,32 +190,44 @@ export function ProvidersView({ onOpenTerminal }: { onOpenTerminal?: () => void 
         </p>
       )}
 
-      {detections === null ? null : detections.length === 0 ? (
-        <p className="px-2 py-6 text-center text-xs text-fg-subtle">
-          No providers detected.
-          <br />
-          Install a supported CLI and re-scan.
-        </p>
-      ) : (
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-          {detections.map((detection) => (
-            <ProviderCard
-              key={detection.kind}
-              detection={detection}
-              running={installs[detection.kind as DriverKind]}
-              auth={auth[detection.kind as DriverKind]}
-              checkingAuth={checking[detection.kind as DriverKind] === true}
-              onInstall={(d) => void beginAction(d, 'install')}
-              onUpdate={(d) => void beginAction(d, 'upgrade')}
-              onRecheck={() => void scan()}
-              onCheckAuth={(kind) => void check(kind)}
-              onAuthResolved={dismiss}
-              onCancel={(kind) => void cancel(kind)}
-              onOpenTerminal={onOpenTerminal}
-            />
-          ))}
-        </ul>
-      )}
+      <div className="grid overflow-hidden rounded-lg border border-border bg-surface-1 md:grid-cols-[16rem_minmax(0,1fr)]">
+        <div className="border-b border-border md:border-b-0 md:border-r">
+          <ProviderList
+            rows={rows}
+            selected={selected}
+            onSelect={select}
+            onEnabledChange={(kind, enabled) => {
+              if (kind !== 'ari-core') save(kind, { enabled })
+            }}
+          />
+        </div>
+        {row !== undefined && (
+          <ProviderEditor
+            key={row.kind}
+            kind={row.kind}
+            detection={detections?.find((d) => d.kind === row.kind)}
+            connection={connectionOf(row.kind)}
+            status={row.status}
+            checking={pending.has(row.kind) || detections === null}
+            install={installs[row.kind]}
+            auth={auth[row.kind]}
+            checkingAuth={checking[row.kind] === true}
+            onEnabledChange={(enabled) => {
+              if (row.kind !== 'ari-core') save(row.kind, { enabled })
+            }}
+            onBinaryPathChange={(binaryPath) => {
+              if (row.kind !== 'ari-core') save(row.kind, { binaryPath })
+            }}
+            onInstall={() => run(row.kind, 'install')}
+            onUpdate={() => run(row.kind, 'upgrade')}
+            onCancelInstall={() => void cancel(row.kind)}
+            onCheckAuth={() => void check(row.kind)}
+            onAuthResolved={() => dismiss(row.kind)}
+            onOpenTerminal={onOpenTerminal}
+            onOpenEndpoints={onOpenEndpoints}
+          />
+        )}
+      </div>
     </section>
   )
 }
