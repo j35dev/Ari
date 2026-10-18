@@ -14,6 +14,7 @@ import {
   parsePiAnthropicUsage,
   parsePiCodexUsage,
 } from './allowance-windows'
+import { providerEnvironment } from './provider-env'
 import { resetCreditService } from './reset-credits'
 
 const log = createLogger('desktop:allowance')
@@ -31,7 +32,11 @@ function asReading(value: Windows | AllowanceReading): AllowanceReading {
 }
 
 async function readCodexAllowance(binaryPath: string): Promise<AllowanceReading> {
-  const connection = AppServerConnection.start({ binaryPath, cwd: homedir() })
+  const connection = AppServerConnection.start({
+    binaryPath,
+    cwd: homedir(),
+    env: { ...process.env, ...providerEnvironment('codex') },
+  })
   try {
     await connection.request(
       'initialize',
@@ -163,6 +168,7 @@ export async function fetchAllowance(
     launch: probeLaunch(launch),
     cwd: homedir(),
     initializeTimeoutMs: 15_000,
+    runtimeEnv: providerEnvironment(kind),
   })
   try {
     if (kind === 'grok')
@@ -225,6 +231,8 @@ export async function fetchAllowanceReading(
 export class ProviderAllowanceReader {
   readonly #pending = new Map<string, Promise<ProviderAllowance>>()
   readonly #last = new Map<string, ProviderAllowance>()
+  /** Bumped by `forget`; a read begun before it must not store what it finds. */
+  readonly #epochs = new Map<DriverKind, number>()
   constructor(
     private readonly fetch: (
       kind: DriverKind,
@@ -234,11 +242,28 @@ export class ProviderAllowanceReader {
     private readonly now = Date.now,
   ) {}
 
+  /**
+   * Drops what is remembered for a kind, for when the account behind it
+   * changes: the last sample is another account's allowance, not a stale one
+   * of this account's.
+   */
+  forget(kind: DriverKind): void {
+    this.#epochs.set(kind, (this.#epochs.get(kind) ?? 0) + 1)
+    for (const key of [...this.#last.keys()]) {
+      if (key.startsWith(`${kind}:`)) this.#last.delete(key)
+    }
+    for (const key of [...this.#pending.keys()]) {
+      if (key.startsWith(`${kind}:`)) this.#pending.delete(key)
+    }
+  }
+
   read(kind: DriverKind, binaryPath: string | null): Promise<ProviderAllowance> {
     const key = `${kind}:${binaryPath ?? ''}`
     const pending = this.#pending.get(key)
     if (pending) return pending
-    const read = this.#read(kind, binaryPath, key).finally(() => this.#pending.delete(key))
+    const read: Promise<ProviderAllowance> = this.#read(kind, binaryPath, key).finally(() => {
+      if (this.#pending.get(key) === read) this.#pending.delete(key)
+    })
     this.#pending.set(key, read)
     return read
   }
@@ -273,6 +298,8 @@ export class ProviderAllowanceReader {
     binaryPath: string | null,
     key: string,
   ): Promise<ProviderAllowance> {
+    const epoch = this.#epochs.get(kind) ?? 0
+    const current = (): boolean => (this.#epochs.get(kind) ?? 0) === epoch
     try {
       const reading = asReading(binaryPath ? await this.fetch(kind, binaryPath) : [])
       const { windows } = reading
@@ -291,7 +318,7 @@ export class ProviderAllowanceReader {
         checkedAt: this.now(),
         detail: visible ? '' : 'This provider did not expose account allowance.',
       }
-      this.#last.set(key, result)
+      if (current()) this.#last.set(key, result)
       return result
     } catch (error) {
       log.debug('Account allowance refresh failed', {
