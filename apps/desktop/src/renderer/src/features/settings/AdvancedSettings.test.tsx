@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
+import { defaultSettings } from '@ari/contracts/settings'
 import type { Settings } from '@ari/contracts/settings'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import { AdvancedSettings } from './AdvancedSettings'
@@ -33,6 +34,7 @@ const engineSettings: Settings = {
     wallpaper: 'none',
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
+  providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: ['git status'] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
