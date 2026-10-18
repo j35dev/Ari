@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
-import { catalogSource, clearDynamicModels, modelsFor } from './catalogs'
+import { catalogSource, clearDynamicModels, modelsFor, setDynamicModels } from './catalogs'
 import { CatalogService, DEFAULT_REGISTRY_URL, REFRESH_TTL_MS, REGISTRY_PROVIDER } from './catalog-service'
 import type { CatalogModel } from './catalogs'
 
@@ -309,6 +309,68 @@ describe('CatalogService', () => {
     await vi.advanceTimersByTimeAsync(REFRESH_TTL_MS)
     await service.refresh()
     expect(probeModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-probes as soon as the installed CLI reports a new version', async () => {
+    vi.useFakeTimers()
+    let version = '2.1.232'
+    const probeModels = vi.fn().mockResolvedValue([{ id: 'live-model', label: 'Live' }])
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['claude'],
+      cliVersion: async () => version,
+    })
+    await service.refresh()
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(1)
+
+    // The CLI updated itself while Ari stayed open: its vocabulary may have
+    // grown, so the live-catalog window no longer applies.
+    version = '2.1.296'
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps asking after a version change until a probe lands', async () => {
+    vi.useFakeTimers()
+    let version = '1.0.0'
+    const probeModels = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: 'old-model', label: 'Old' }])
+      .mockRejectedValueOnce(new Error('cli busy updating'))
+      .mockResolvedValue([{ id: 'new-model', label: 'New' }])
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['claude'],
+      cliVersion: async () => version,
+    })
+    await service.refresh()
+    version = '1.1.0'
+    await service.refresh()
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(3)
+    expect(modelsFor('claude')).toEqual([{ id: 'new-model', label: 'New' }])
+  })
+
+  it('adopts a live catalog it did not probe without re-asking the agent', async () => {
+    vi.useFakeTimers()
+    const probeModels = vi.fn().mockResolvedValue([{ id: 'probed', label: 'Probed' }])
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['claude'],
+      cliVersion: async () => '2.1.296',
+    })
+    // A session's agent published its list before any probe ran.
+    setDynamicModels('claude', 'live', [{ id: 'from-session', label: 'From session' }])
+    await service.refresh()
+    expect(probeModels).not.toHaveBeenCalled()
   })
 
   it('keeps re-probing a kind that never managed to report', async () => {

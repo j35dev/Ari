@@ -31,7 +31,7 @@ const NPM_ADAPTERS: Partial<Record<DriverKind, string>> = {
 
 /** Pinned adapter versions resolved through npx (see acpAdapterSpec). */
 const ACP_ADAPTER_VERSIONS: Partial<Record<DriverKind, string>> = {
-  claude: '0.70.0',
+  claude: '0.90.0',
   codex: '1.7.0',
   pi: '0.0.33',
 }
