@@ -91,11 +91,19 @@ export async function createAcpAdapter(
   spawn?: (childLaunch: AcpLaunch, cwd: string) => AcpChildProcess,
   onAuthRequired?: AcpAuthRequiredHandler,
   mcpServers: AcpMcpServer[] = [],
+  sessionMeta: Record<string, unknown> | null = null,
 ): Promise<AcpAdapter> {
   const pendingPermissions = new Map<
     string,
-    { options: AcpRequestPermission['options']; resolve: (outcome: unknown) => void }
+    {
+      options: AcpRequestPermission['options']
+      kind: string | undefined
+      resolve: (outcome: unknown) => void
+    }
   >()
+  // Starts as the session's mode and widens when the user answers an approval
+  // with a persistent grant; requests later in the turn are judged against it.
+  let permissionMode = session.permissionMode
   const pendingInputs = new Map<
     string,
     {
@@ -146,10 +154,10 @@ export async function createAcpAdapter(
     // on the user. Answer inline with the agent's own allow option, mirroring
     // respondApproval's allow preference; an agent that offers no allow option
     // gets the same cancelled outcome a dismissal produces.
-    if (autoAllows(session.permissionMode, request.toolCall?.kind)) {
+    if (autoAllows(permissionMode, request.toolCall?.kind)) {
       const optionId = optionFor(request.options, ['allow_once', 'allow_always'])
       log.debug('acp: auto-approved by permission mode', {
-        mode: session.permissionMode,
+        mode: permissionMode,
         kind: request.toolCall?.kind,
       })
       return Promise.resolve(
@@ -160,7 +168,11 @@ export async function createAcpAdapter(
     }
     return new Promise((resolve) => {
       const approvalId = `acp-perm-${++permissionSeq}`
-      pendingPermissions.set(approvalId, { options: request.options, resolve })
+      pendingPermissions.set(approvalId, {
+        options: request.options,
+        kind: request.toolCall?.kind,
+        resolve,
+      })
       push([
         {
           type: 'approval-requested',
@@ -241,6 +253,7 @@ export async function createAcpAdapter(
       cwd: session.workspacePath,
       ...(spawn !== undefined ? { spawn } : {}),
       ...(mcpServers.length > 0 ? { mcpServers } : {}),
+      ...(sessionMeta !== null ? { sessionMeta } : {}),
     })
   } catch (error) {
     throw setupFailure(error)
@@ -512,6 +525,32 @@ export async function createAcpAdapter(
       pendingPermissions.delete(approvalId)
       const optionId =
         typeof decision === 'string' ? optionForKind(pending.options, decision) : decision.optionId
+      // The agent scopes a persistent grant to the one tool it asked about and
+      // keeps it in a process that ends with the turn, so on its own "always"
+      // lasts until the next tool. Widen the session instead. A mode switch
+      // (Claude's plan exit) reuses the kind to name a mode, not a grant.
+      const chosen = (pending.options ?? []).find((option) => option.optionId === optionId)
+      // A plain "allow" can fall back to the agent's only allow option, which
+      // may be a persistent one. That is not the user asking for a wider grant.
+      const askedForAlways = typeof decision !== 'string' || decision === 'always-allow'
+      if (
+        askedForAlways &&
+        chosen?.kind === 'allow_always' &&
+        pending.kind !== 'switch_mode' &&
+        permissionMode !== 'full'
+      ) {
+        permissionMode = 'full'
+        // The agent words its option for one tool ("Always allow Read"), so
+        // say what the answer covers here.
+        push([
+          { type: 'permission-mode', mode: 'full' },
+          {
+            type: 'notice',
+            message:
+              'Always allow now covers every tool in this session. Ari will not ask again until you change the permission mode.',
+          },
+        ])
+      }
       pending.resolve(
         optionId !== undefined
           ? { outcome: { outcome: 'selected', optionId } }
@@ -996,8 +1035,23 @@ export function publishAdvertisedEfforts(kind: DriverKind, efforts: EffortCatalo
   log.info('effort catalog taken from the session agent', { kind, count: efforts.options.length })
 }
 
+/**
+ * The `_meta` an agent's `session/new`, `load` and `resume` take to add to its
+ * system prompt, for the agents known to honour one. The Claude adapter
+ * forwards `systemPrompt` preset options to the Agent SDK; ACP itself defines
+ * no such field, so other agents get nothing here.
+ */
+export function systemInstructionsMeta(
+  kind: DriverKind,
+  instructions: string | null | undefined,
+): Record<string, unknown> | null {
+  if (kind !== 'claude' || !instructions) return null
+  return { systemPrompt: { append: instructions } }
+}
+
 export class AcpDriver implements Driver {
   readonly kind: DriverKind
+  readonly systemInstructions: boolean
 
   constructor(
     kind: DriverKind,
@@ -1008,6 +1062,9 @@ export class AcpDriver implements Driver {
     private readonly mcpServers: () => AcpMcpServer[] = () => [],
   ) {
     this.kind = kind
+    // Both paths must take them: a turn may start over ACP or fall back to the CLI.
+    this.systemInstructions =
+      systemInstructionsMeta(kind, 'probe') !== null && fallback?.systemInstructions === true
   }
 
   async create(session: AdapterSession): Promise<ProviderAdapter> {
@@ -1019,6 +1076,7 @@ export class AcpDriver implements Driver {
           undefined,
           this.onAuthRequired ?? undefined,
           this.mcpServers(),
+          systemInstructionsMeta(this.kind, session.instructions),
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
         publishAdvertisedEfforts(this.kind, adapter.advertisedEfforts)

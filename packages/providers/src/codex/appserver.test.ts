@@ -30,6 +30,7 @@ describe('codex app-server mapper', () => {
       'text-delta',
       'text-delta',
       'usage',
+      'context-usage',
       'done',
     ])
     const ref = events[0]
@@ -37,6 +38,77 @@ describe('codex app-server mapper', () => {
     const usage = events.find((e) => e.type === 'usage')
     expect(usage?.type === 'usage' && usage.inputTokens).toBe(812)
     expect(usage?.type === 'usage' && usage.outputTokens).toBe(57)
+    expect(events.find((e) => e.type === 'context-usage')).toEqual({
+      type: 'context-usage',
+      usedTokens: 893,
+      windowTokens: 272000,
+    })
+  })
+
+  /** A `thread/tokenUsage/updated` frame; each triple is input, cached, output. */
+  const usageUpdate = (
+    mapper: ReturnType<typeof createAppServerMapper>,
+    total: [number, number, number],
+    last: [number, number, number],
+  ): AgentEvent[] => {
+    const counts = ([inputTokens, cachedInputTokens, outputTokens]: number[]) => ({
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+    })
+    return mapper.mapLine(
+      JSON.stringify({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thr_1',
+          tokenUsage: { total: counts(total), last: counts(last), modelContextWindow: 258400 },
+        },
+      }),
+    ).events
+  }
+  const startTurn = (mapper: ReturnType<typeof createAppServerMapper>): void => {
+    mapper.mapLine(JSON.stringify({ method: 'turn/started', params: { turn: { id: 'turn_1' } } }))
+  }
+
+  it('does not recount the history a resumed thread restates before its turn', () => {
+    // Recorded from a real journal: the second turn opened by restating the
+    // first turn's single call, before any new one.
+    const mapper = createAppServerMapper()
+    const restated = usageUpdate(mapper, [20609, 6912, 14], [20609, 6912, 14])
+    expect(restated).toEqual([{ type: 'context-usage', usedTokens: 20623, windowTokens: 258400 }])
+
+    startTurn(mapper)
+    expect(usageUpdate(mapper, [46228, 9728, 150], [25619, 2816, 136])).toContainEqual({
+      type: 'usage',
+      inputTokens: 25619,
+      cachedInputTokens: 2816,
+      outputTokens: 136,
+      costUsd: null,
+    })
+  })
+
+  it('counts only the growth of the cumulative thread total', () => {
+    const mapper = createAppServerMapper()
+    startTurn(mapper)
+    // Counts recorded from a real rollout: `total` restates the whole thread.
+    const update = (total: [number, number, number], last: [number, number, number]) =>
+      usageUpdate(mapper, total, last)
+    const events = [
+      ...update([20609, 6912, 14], [20609, 6912, 14]),
+      ...update([46228, 9728, 150], [25619, 2816, 136]),
+      // Restated without a new call in between: nothing was spent.
+      ...update([46228, 9728, 150], [25619, 2816, 136]),
+    ]
+    expect(events.filter((e) => e.type === 'usage')).toEqual([
+      { type: 'usage', inputTokens: 20609, cachedInputTokens: 6912, outputTokens: 14, costUsd: null },
+      { type: 'usage', inputTokens: 25619, cachedInputTokens: 2816, outputTokens: 136, costUsd: null },
+    ])
+    expect(events.at(-1)).toEqual({
+      type: 'context-usage',
+      usedTokens: 25755,
+      windowTokens: 258400,
+    })
   })
 
   it('does not duplicate message text when both deltas and completion arrive', () => {

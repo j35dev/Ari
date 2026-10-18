@@ -3,6 +3,7 @@ import type { Message } from '@ari/contracts/message'
 import type { Session } from '@ari/contracts/session'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind } from '@ari/contracts/common'
+import type { ChildTask } from '@ari/contracts/agent-control'
 import type {
   RemoteApproval,
   RemoteCommand,
@@ -84,6 +85,10 @@ export interface RemoteHost {
         messages: Message[]
         pendingApprovals: RemoteApproval[]
         pendingInputs: RemoteInput[]
+        /** The children this session delegated to. Absent from hosts that predate delegation views. */
+        tasks?: ChildTask[]
+        /** The session that delegated to this one, when it is a child the caller can see. */
+        parent?: { id: string; title: string } | null
       }
     | undefined
   >

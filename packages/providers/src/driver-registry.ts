@@ -16,6 +16,11 @@ export class DriverRegistry {
     this.#drivers.set(driver.kind, driver)
   }
 
+  /** Drops a kind so new turns are refused; adapters already running are untouched. */
+  unregister(kind: DriverKind): void {
+    this.#drivers.delete(kind)
+  }
+
   get(kind: DriverKind): Driver | null {
     return this.#drivers.get(kind) ?? null
   }
