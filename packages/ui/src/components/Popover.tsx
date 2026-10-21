@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react-dom'
 import type { Placement } from '@floating-ui/react-dom'
 import { menuInVariants } from '../motion'
+import { useOverlayRef } from '../overlay-registry'
 
 type Side = 'top' | 'bottom' | 'left' | 'right'
 type Align = 'start' | 'center' | 'end'
@@ -155,6 +156,7 @@ export function PopoverContent({
   ...rest
 }: PopoverContentProps) {
   const ctx = usePopoverContext('Popover.Content')
+  const overlayRef = useOverlayRef()
   const placement: Placement = align === 'center' ? side : `${side}-${align}`
 
   const { refs, floatingStyles } = useFloating({
@@ -174,6 +176,7 @@ export function PopoverContent({
           ref={(node) => {
             refs.setFloating(node)
             ctx.contentRef.current = node
+            overlayRef(node)
           }}
           role="dialog"
           initial="hidden"

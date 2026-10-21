@@ -15,8 +15,33 @@ import { rpc } from '../../lib/rpc'
 import { addBrowserPick, fileFromPngBase64 } from './browser-picks'
 import { trackBounds, type Bounds } from './bounds-sync'
 import { useCovered } from './use-covered'
+import { watchOverlays } from './overlay-cover'
 
 const TAB_ID = 'inspector'
+const STILL_AFTER_LOAD_MS = 300
+const STILL_REFRESH_MS = 2000
+
+/** Resolves once `url` is decoded, so swapping it in never shows a half-drawn frame. */
+async function decoded(url: string): Promise<void> {
+  const image = new Image()
+  image.src = url
+  try {
+    await image.decode()
+  } catch {
+    // Undecodable here means the <img> shows nothing either; it is replaced on the next refresh.
+  }
+}
+
+/**
+ * The guest paints over everything, toasts included, so while it shows the
+ * toast stack keeps to the left of it rather than freezing it behind a still:
+ * update toasts are sticky and would otherwise leave the page frozen.
+ */
+function avoidForToasts(bounds: Bounds | null): void {
+  const root = document.documentElement.style
+  if (bounds === null) root.removeProperty('--ari-native-inset-right')
+  else root.setProperty('--ari-native-inset-right', `${window.innerWidth - bounds.x}px`)
+}
 
 const EMPTY: BrowserTabState = {
   id: TAB_ID,
@@ -32,7 +57,9 @@ const EMPTY: BrowserTabState = {
  * Inspector-rail browser: address chrome in the renderer, Chromium guest in
  * the main process. The host div is only a bounds target — the page itself
  * is a WebContentsView overlaid by main, above everything the renderer draws.
- * So while app UI overlaps the host, the guest gives way to a still of itself.
+ * So while app UI overlaps the host, the guest gives way to a still of itself:
+ * registered overlays hide it before they first paint, anything else once the
+ * hit-test sweep finds it.
  */
 export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -40,19 +67,30 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   const [draft, setDraft] = useState('')
   const [picking, setPicking] = useState(false)
   const [still, setStill] = useState<string | null>(null)
-  const [parked, setParked] = useState(false)
 
   const boundsRef = useRef<Bounds | null>(null)
+  // Why the guest may not show, kept outside React so a cover hides it in the
+  // same task that detects it rather than after a render and a passive effect.
+  const gateRef = useRef({ showGuest: false, overlaid: false, covered: false })
   const visibleRef = useRef(false)
+  const sentRef = useRef('')
 
-  const sendLayout = useCallback(() => {
+  const pushLayout = useCallback(() => {
     const bounds = boundsRef.current
     if (bounds === null) return
+    const { showGuest, overlaid, covered } = gateRef.current
     // A host with no box sits under `display: none` (a hidden space, Settings
     // open over the workspace); a guest left showing there would float on top.
     const placed = bounds.width > 0 && bounds.height > 0
+    const visible = showGuest && placed && !overlaid && !covered
+    const key = `${visible} ${showGuest} ${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`
+    if (key === sentRef.current) return
+    sentRef.current = key
+    visibleRef.current = visible
+    // Keyed to the page being up at all, so a menu opening over it does not shuffle the toasts.
+    avoidForToasts(showGuest && placed ? bounds : null)
     void rpc
-      .invoke('browser.layout', { id: TAB_ID, visible: visibleRef.current && placed, ...bounds })
+      .invoke('browser.layout', { id: TAB_ID, visible, ...bounds })
       .catch(() => undefined)
   }, [])
 
@@ -72,6 +110,7 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
     })
     return () => {
       unsub()
+      avoidForToasts(null)
       void rpc.invoke('browser.cancelPick', { id: TAB_ID })
       void rpc.invoke('browser.layout', {
         id: TAB_ID,
@@ -85,46 +124,58 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   }, [])
 
   const showGuest = tab.url !== 'about:blank' || tab.loading
+  // Fallback for app UI that does not register as an overlay: hit-testing
+  // only notices it once painted, so it is spaced out and arrives late.
   const covered = useCovered(hostRef, showGuest)
 
   useEffect(() => {
-    if (!covered) return
-    let live = true
-    void rpc
-      .invoke('browser.capture', { id: TAB_ID })
-      .then((shot) => {
-        if (!live) return
-        // Without a frame to show there is nothing to wait for: hide now.
-        if (shot.pngBase64 === null) setParked(true)
-        else setStill(`data:image/png;base64,${shot.pngBase64}`)
-      })
-      .catch(() => {
-        if (live) setParked(true)
-      })
-    return () => {
-      live = false
-      setParked(false)
-      setStill(null)
-    }
-  }, [covered])
-
-  // `parked` only counts while something covers the page: the still's load can
-  // land after the cover has gone, and that must not leave the guest hidden.
-  const guestVisible = showGuest && !(covered && parked)
+    gateRef.current.showGuest = showGuest
+    gateRef.current.covered = covered
+    pushLayout()
+  }, [pushLayout, showGuest, covered])
 
   useEffect(() => {
     const host = hostRef.current
     if (host === null) return
-    return trackBounds(host, (bounds) => {
+    const stopBounds = trackBounds(host, (bounds) => {
       boundsRef.current = bounds
-      sendLayout()
+      pushLayout()
     })
-  }, [sendLayout])
+    const stopOverlays = watchOverlays(host, (overlaid) => {
+      gateRef.current.overlaid = overlaid
+      pushLayout()
+    })
+    return () => {
+      stopBounds()
+      stopOverlays()
+    }
+  }, [pushLayout])
 
+  // The guest can only be captured while it shows, so the stand-in for any
+  // cover is the latest still taken before it: one after each load, then a
+  // cheap JPEG every few seconds while the page is on screen.
   useEffect(() => {
-    visibleRef.current = guestVisible
-    sendLayout()
-  }, [sendLayout, guestVisible])
+    if (!showGuest || tab.loading) return
+    let live = true
+    const refresh = (): void => {
+      if (!visibleRef.current || document.visibilityState !== 'visible') return
+      void rpc
+        .invoke('browser.capture', { id: TAB_ID })
+        .then(async ({ dataUrl }) => {
+          if (dataUrl === null) return
+          await decoded(dataUrl)
+          if (live) setStill(dataUrl)
+        })
+        .catch(() => undefined)
+    }
+    const settled = window.setTimeout(refresh, STILL_AFTER_LOAD_MS)
+    const timer = window.setInterval(refresh, STILL_REFRESH_MS)
+    return () => {
+      live = false
+      window.clearTimeout(settled)
+      window.clearInterval(timer)
+    }
+  }, [showGuest, tab.loading, tab.url])
 
   const submit = (): void => {
     void rpc
@@ -250,14 +301,13 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
             </p>
           </div>
         ) : null}
-        {still !== null ? (
+        {!blank && still !== null ? (
+          // Always under the guest, so hiding the guest reveals it with no wait.
           <img
             src={still}
             alt=""
             decoding="sync"
             draggable={false}
-            // The guest hides only once its stand-in has loaded, so the swap never flashes.
-            onLoad={() => setParked(true)}
             className="absolute inset-0 h-full w-full"
           />
         ) : null}

@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { transitions } from '../motion'
+import { useOverlayRef } from '../overlay-registry'
 import { useOverlayFocus } from './use-overlay-focus'
 
 /** Scrim must blend over any theme, so it is a raw color-mix rather than a token. */
@@ -133,12 +134,14 @@ export function SheetContent({
   const close = useCallback(() => setOpen(false), [setOpen])
 
   useOverlayFocus({ active: open, panelRef, onEscape: close })
+  const scrimRef = useOverlayRef()
 
   return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
           key="sheet-scrim"
+          ref={scrimRef}
           className="fixed inset-0 z-50"
           style={SCRIM_STYLE}
           initial={{ opacity: 0 }}

@@ -183,7 +183,11 @@ describe('Toast', () => {
     await user.click(screen.getByRole('button', { name: 'show' }))
     const viewport = document.querySelector('[data-toast-viewport]')
     expect(viewport).not.toBeNull()
-    expect(viewport).toHaveClass('fixed', 'top-12', 'right-4')
+    expect(viewport).toHaveClass(
+      'fixed',
+      'top-12',
+      'right-[calc(var(--ari-native-inset-right,0px)+1rem)]',
+    )
     expect(viewport).not.toHaveClass('bottom-4')
   })
 
