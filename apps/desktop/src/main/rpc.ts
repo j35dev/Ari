@@ -95,6 +95,7 @@ import {
   effortsFor,
   modelsFor,
   modesFor,
+  resolveOfferedModel,
   setAgentDefaultModel,
   setDynamicEfforts,
   setDynamicModes,
@@ -283,12 +284,14 @@ async function probeEffortsForModel(
     let configOptions = created.configOptions ?? []
     if (typeof modelId === 'string' && modelId.length > 0) {
       const modelOption = configOptions.find((o) => o.category === 'model' && o.type === 'select')
-      const offered = modelOption?.options?.some((v) => v.value === modelId) === true
-      if (modelOption?.id !== undefined && offered) {
+      // Matched the way a turn applies it, so a registry id asks for the
+      // levels of the agent's row for that model, not the default model's.
+      const offered = resolveOfferedModel(modelId, modelsFromConfigOptions(configOptions))
+      if (modelOption?.id !== undefined && offered !== null) {
         const refreshed = await connection.setConfigOption(
           created.sessionId as string,
           modelOption.id,
-          modelId,
+          offered,
         )
         if (refreshed !== null && refreshed !== undefined && refreshed.length > 0) {
           configOptions = refreshed
