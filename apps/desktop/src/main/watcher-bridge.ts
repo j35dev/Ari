@@ -20,10 +20,17 @@ export const watchers = new Map<string, WorkspaceWatcher>()
 
 /** Per-project file index fed by the watchers; keyed by project id. */
 const indexes = new Map<string, ProjectFileIndex>()
+/** Each index's initial walk, settled once it is done (or failed). */
+const builds = new Map<string, Promise<void>>()
 
 function keyFor(projectPath: string): string {
   const absolute = resolve(projectPath)
   return process.platform === 'win32' ? absolute.toLowerCase() : absolute
+}
+
+/** True when two paths name the same folder under the platform's case rules. */
+export function sameRoot(a: string, b: string): boolean {
+  return keyFor(a) === keyFor(b)
 }
 
 function handleChange(paths: string[]): void {
@@ -65,18 +72,28 @@ export async function ensureProjectWatched(
   if (!indexes.has(project.id)) {
     const index = new ProjectFileIndex(project.path)
     indexes.set(project.id, index)
-    try {
-      await index.init()
-    } catch (error) {
-      log.error('file index build failed', error)
-    }
+    builds.set(
+      project.id,
+      index.init().catch((error: unknown) => log.error('file index build failed', error)),
+    )
   }
+  await builds.get(project.id)
 }
 
 /** Indexed workspace-relative paths for a project, or null if none built. */
-/** Indexed workspace-relative paths for a project, or null if none built. */
 export function getIndexedFiles(projectId: string): string[] | null {
   return indexes.get(projectId)?.paths() ?? null
+}
+
+/**
+ * Indexed paths of a project that is already being watched, once its initial
+ * walk is done; null when nothing watches it. Never starts a watcher.
+ */
+export async function watchedFiles(projectId: string): Promise<string[] | null> {
+  const build = builds.get(projectId)
+  if (build === undefined) return null
+  await build
+  return getIndexedFiles(projectId)
 }
 
 /**
@@ -85,7 +102,10 @@ export function getIndexedFiles(projectId: string): string[] | null {
  * Idempotent; safe when nothing was ever watching.
  */
 export async function stopWatchingProject(projectPath: string, projectId?: string): Promise<void> {
-  if (projectId) indexes.delete(projectId)
+  if (projectId) {
+    indexes.delete(projectId)
+    builds.delete(projectId)
+  }
   const watcher = watchers.get(keyFor(projectPath))
   if (!watcher) return
   watchers.delete(keyFor(projectPath))
@@ -98,5 +118,6 @@ export async function closeAllWatchers(): Promise<void> {
   const all = [...watchers.values()]
   watchers.clear()
   indexes.clear()
+  builds.clear()
   await Promise.all(all.map((watcher) => watcher.close()))
 }
