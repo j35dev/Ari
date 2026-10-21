@@ -10,6 +10,8 @@ type MarkdownNode = MarkdownTree['children'][number]
 export interface MarkdownStream {
   /** HTML for each top-level block of `markdown`, in document order. */
   render(markdown: string): string[]
+  /** Characters of the last rendered source the next render parses again. */
+  unsettledLength(): number
 }
 
 /**
@@ -75,6 +77,7 @@ export function createMarkdownStream(): MarkdownStream {
   }
 
   return {
+    unsettledLength: () => source.length - settledOffset,
     render(markdown) {
       try {
         if (whole) return renderWhole(markdown)
