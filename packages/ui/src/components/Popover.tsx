@@ -9,6 +9,8 @@ import { layerRoot } from '../layer-root'
 import { useOverlayRef } from '../overlay-registry'
 
 type Side = 'top' | 'bottom' | 'left' | 'right'
+
+const PANEL_CHROME = 'bg-surface-2 border border-border rounded-lg shadow-2 p-3'
 type Align = 'start' | 'center' | 'end'
 
 interface PopoverContextValue {
@@ -45,11 +47,42 @@ export interface PopoverProps {
   defaultOpen?: boolean
   /** Called with the next state after the popover opens or closes. */
   onOpenChange?: (open: boolean) => void
+  /**
+   * Positions the panel against this element instead of a Popover.Trigger,
+   * for menus with a trigger of their own. Presses inside it are not outside
+   * presses, so that trigger keeps toggling the menu itself.
+   */
+  anchor?: HTMLElement | null
   children: ReactNode
 }
 
+/**
+ * Eats the click that completes an outside press, so dismissing a popover
+ * does not also press whatever sat under the pointer. Another menu's trigger
+ * is let through, so moving from one menu to the next is still one click.
+ */
+function swallowClickAfter(target: Element | null): void {
+  if (target?.closest('[aria-haspopup]')) return
+  const eat = (event: MouseEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  window.addEventListener('click', eat, { capture: true, once: true })
+  // A drag, or a press released elsewhere, ends without a click.
+  const release = (): void => {
+    window.setTimeout(() => window.removeEventListener('click', eat, true), 0)
+  }
+  window.addEventListener('pointerup', release, { capture: true, once: true })
+}
+
 /** Non-modal floating panel anchored to its trigger; compound API via Popover.Trigger/Content. */
-function PopoverRoot({ open, defaultOpen = false, onOpenChange, children }: PopoverProps) {
+function PopoverRoot({
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  anchor: anchorProp,
+  children,
+}: PopoverProps) {
   const [internal, setInternal] = useState(defaultOpen)
   const isControlled = open !== undefined
   const current = isControlled ? open : internal
@@ -75,7 +108,9 @@ function PopoverRoot({ open, defaultOpen = false, onOpenChange, children }: Popo
       const target = event.target as Node
       if (contentRef.current?.contains(target)) return
       if (triggerRef.current?.contains(target)) return
+      if (anchorProp?.contains(target)) return
       setOpen(false)
+      swallowClickAfter(event.target instanceof Element ? event.target : null)
     }
     document.addEventListener('keydown', onKeyDown)
     document.addEventListener('pointerdown', onPointerDown)
@@ -83,7 +118,7 @@ function PopoverRoot({ open, defaultOpen = false, onOpenChange, children }: Popo
       document.removeEventListener('keydown', onKeyDown)
       document.removeEventListener('pointerdown', onPointerDown)
     }
-  }, [current, setOpen])
+  }, [current, setOpen, anchorProp])
 
   // Return focus to the trigger whenever an open popover closes.
   const wasOpen = useRef(current)
@@ -95,7 +130,7 @@ function PopoverRoot({ open, defaultOpen = false, onOpenChange, children }: Popo
   const ctx: PopoverContextValue = {
     open: current,
     setOpen,
-    anchor,
+    anchor: anchorProp ?? anchor,
     setAnchor,
     triggerRef,
     contentRef,
@@ -144,6 +179,8 @@ export interface PopoverContentProps
   align?: Align
   /** Gap between trigger and panel in px. */
   sideOffset?: number
+  /** Drops the default panel chrome (fill, border, padding) for menus that bring their own. */
+  bare?: boolean
 }
 
 /** Floating panel portaled to the layer root; animates in with the menu-in motion. */
@@ -151,6 +188,7 @@ export function PopoverContent({
   side = 'bottom',
   align = 'center',
   sideOffset = 8,
+  bare = false,
   className,
   style,
   children,
@@ -185,7 +223,7 @@ export function PopoverContent({
           exit="exit"
           variants={menuInVariants}
           style={{ ...floatingStyles, transformOrigin: transformOriginFor(placement), ...style }}
-          className={['z-popover bg-surface-2 border border-border rounded-lg shadow-2 p-3', className]
+          className={['z-popover', bare ? null : PANEL_CHROME, className]
             .filter(Boolean)
             .join(' ')}
           {...rest}
