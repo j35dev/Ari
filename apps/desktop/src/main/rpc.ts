@@ -62,7 +62,9 @@ import {
   getSessionStore,
   getSettingsStore,
   loadProject,
+  sessionsRoot,
 } from './store'
+import { WorktreeRoots } from './worktree-roots'
 import {
   TerminalService,
   ptyUnavailableReason,
@@ -1110,18 +1112,28 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // roots writes use) and refuses anything outside — canonicalized through
   // symlinks, fail-closed. `project.add`/`project.open` define roots and the
   // OS picker sources them, so they stay outside the jail by construction.
+  const worktreeRoots = new WorktreeRoots({
+    sessionDirs: () => readdir(sessionsRoot()).catch(() => []),
+    collect: async () => {
+      const roots: string[] = []
+      for (const summary of await getSessionStore().listSessions()) {
+        if (summary.workspaceKind !== 'managed-worktree') continue
+        const { session } = await getSessionStore().load(summary.id)
+        if (session?.workspace?.kind === 'managed-worktree') roots.push(session.workspace.path)
+      }
+      return roots
+    },
+  })
+  getSessionStore().subscribe((event) => {
+    if (event.type === 'session.created') worktreeRoots.invalidate()
+  })
+
   async function collectFsRoots(): Promise<string[]> {
     await getProjectStore().load()
     const roots = getProjectStore()
       .list()
       .map((p) => p.path)
-    for (const summary of await getSessionStore().listSessions()) {
-      if (summary.workspaceKind !== 'managed-worktree') continue
-      const { session } = await getSessionStore().load(summary.id)
-      const workspace = session ? await engine.workspace(session) : null
-      if (workspace) roots.push(workspace)
-    }
-    return roots
+    return [...roots, ...(await worktreeRoots.get())]
   }
 
   /** Resolves a renderer-supplied path inside the jail; throws when outside. */

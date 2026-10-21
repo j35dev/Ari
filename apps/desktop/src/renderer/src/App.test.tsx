@@ -183,6 +183,42 @@ describe('SessionBranchChip', () => {
     }
   })
 
+  it('pauses the poll while the window is hidden and refreshes on return', async () => {
+    vi.useFakeTimers()
+    const setVisibility = (state: DocumentVisibilityState): void => {
+      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+    }
+    try {
+      render(<SessionBranchChip sessionId="sess_1" />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(invokeMock).toHaveBeenCalledTimes(1)
+
+      setVisibility('hidden')
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+        await vi.advanceTimersByTimeAsync(3 * BRANCH_POLL_MS)
+      })
+      expect(invokeMock).toHaveBeenCalledTimes(1)
+
+      invokeMock.mockImplementation(async (method) => {
+        if (method === 'git.status') return { isRepo: true, branch: 'fix/other', files: [] }
+        throw new Error(`unexpected method: ${String(method)}`)
+      })
+      setVisibility('visible')
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(invokeMock).toHaveBeenCalledTimes(2)
+      expect(screen.getByText('fix/other')).toBeInTheDocument()
+    } finally {
+      delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState
+      vi.useRealTimers()
+    }
+  })
+
   it('stays hidden outside a git repo', async () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
