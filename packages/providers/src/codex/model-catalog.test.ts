@@ -68,6 +68,53 @@ describe('probeCodexModelCatalog', () => {
     expect(shutdown).toHaveBeenCalledOnce()
   })
 
+  it('takes the model and level the Codex config sets over the catalog default', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === 'model/list') {
+        return {
+          data: [
+            {
+              model: 'gpt-6-luna',
+              displayName: 'GPT-6 Luna',
+              isDefault: true,
+              defaultReasoningEffort: 'high',
+              supportedReasoningEfforts: [
+                { reasoningEffort: 'medium' },
+                { reasoningEffort: 'high' },
+              ],
+            },
+          ],
+          nextCursor: null,
+        }
+      }
+      if (method === 'config/read') {
+        return { config: { model: 'gpt-6-sol', model_reasoning_effort: 'medium' } }
+      }
+      return {}
+    })
+    const catalog = await probeCodexModelCatalog('/bin/codex', '/workspace', {
+      start: () => ({ request, shutdown: vi.fn().mockResolvedValue(undefined) }),
+    })
+    // What a session without a pick really runs, listed or not.
+    expect(catalog.defaultModelId).toBe('gpt-6-sol')
+    expect(catalog.models.map((model) => model.id)).toEqual(['gpt-6-sol', 'gpt-6-luna'])
+    expect(catalog.efforts.currentId).toBe('medium')
+  })
+
+  it('keeps the catalog default when the CLI cannot read its config', async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === 'model/list') {
+        return { data: [{ model: 'gpt-6-luna', isDefault: true }], nextCursor: null }
+      }
+      if (method === 'config/read') throw new Error('unknown method')
+      return {}
+    })
+    const catalog = await probeCodexModelCatalog('/bin/codex', '/workspace', {
+      start: () => ({ request, shutdown: vi.fn().mockResolvedValue(undefined) }),
+    })
+    expect(catalog.defaultModelId).toBe('gpt-6-luna')
+  })
+
   it('always shuts down when the installed CLI does not support model/list', async () => {
     const shutdown = vi.fn().mockResolvedValue(undefined)
     await expect(
