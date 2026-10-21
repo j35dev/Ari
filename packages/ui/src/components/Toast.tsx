@@ -126,7 +126,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div
         data-toast-viewport
-        className="fixed top-12 right-4 z-50 flex flex-col gap-2"
+        // Hosts of native views, which paint over the whole document, widen
+        // --ari-native-inset-right so the stack stays clear of them.
+        className="fixed top-12 right-[calc(var(--ari-native-inset-right,0px)+1rem)] z-50 flex flex-col gap-2"
       >
         <AnimatePresence initial={false}>
           {toasts.map((t) => (

@@ -1,7 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { registerOverlay } from '@ari/ui/overlay-registry'
 import { BrowserPanel } from './BrowserPanel'
+
+const STILL = 'data:image/jpeg;base64,cGFnZQ=='
 
 const { invokeFn, subscribeFn } = vi.hoisted(() => ({
   invokeFn: vi.fn(),
@@ -37,7 +40,7 @@ describe('BrowserPanel', () => {
       if (method === 'browser.layout') return { applied: true }
       if (method === 'browser.cancelPick') return { cancelled: true }
       if (method === 'browser.pick') return { ok: false, error: 'cancelled' }
-      if (method === 'browser.capture') return { pngBase64: 'cGFnZQ==' }
+      if (method === 'browser.capture') return { dataUrl: STILL }
       if (method === 'shell.openUrl') return { opened: true }
       throw new Error(`unexpected method: ${method}`)
     })
@@ -101,26 +104,59 @@ describe('BrowserPanel', () => {
       document.querySelector('[role="dialog"]')?.remove()
     })
 
-    it('swaps the guest for a still while app UI covers it', async () => {
+    it('keeps a still under the guest and hides the guest the moment an overlay covers it', async () => {
       const { container } = render(<BrowserPanel />)
+      await waitFor(() => expect(layouts().at(-1)).toBe(true))
+      await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', STILL))
+
+      const release = registerOverlay(document.createElement('div'))
+      await Promise.resolve()
+      expect(layouts().at(-1)).toBe(false)
+
+      release()
+      await Promise.resolve()
+      expect(layouts().at(-1)).toBe(true)
+    })
+
+    it('ignores an overlay that sits clear of the page', async () => {
+      render(<BrowserPanel />)
+      await waitFor(() => expect(layouts().at(-1)).toBe(true))
+      const menu = document.createElement('div')
+      menu.getBoundingClientRect = () =>
+        ({ left: 500, top: 0, right: 700, bottom: 100, width: 200, height: 100 }) as DOMRect
+      const release = registerOverlay(menu)
+      await Promise.resolve()
+      expect(layouts().at(-1)).toBe(true)
+      release()
+    })
+
+    it('still hides the guest for unregistered app UI the hit-test sweep finds', async () => {
+      render(<BrowserPanel />)
       await waitFor(() => expect(layouts().at(-1)).toBe(true))
 
       const dialog = document.createElement('div')
       dialog.setAttribute('role', 'dialog')
       document.body.append(dialog)
-      const still = await waitFor(() => {
-        const img = container.querySelector('img')
-        expect(img).toHaveAttribute('src', 'data:image/png;base64,cGFnZQ==')
-        return img as HTMLImageElement
-      })
-      // The guest stays up until its stand-in has loaded.
-      expect(layouts().at(-1)).toBe(true)
-      fireEvent.load(still)
       await waitFor(() => expect(layouts().at(-1)).toBe(false))
 
       dialog.remove()
       await waitFor(() => expect(layouts().at(-1)).toBe(true))
-      expect(container.querySelector('img')).toBeNull()
+    })
+
+    it('moves the toast stack clear of the page while it shows', async () => {
+      const { unmount } = render(<BrowserPanel />)
+      await waitFor(() => expect(layouts().at(-1)).toBe(true))
+      const inset = (): string =>
+        document.documentElement.style.getPropertyValue('--ari-native-inset-right')
+      expect(inset()).toBe(`${window.innerWidth}px`)
+      // A menu standing the page down for a moment must not shuffle the toasts.
+      const release = registerOverlay(document.createElement('div'))
+      await Promise.resolve()
+      expect(layouts().at(-1)).toBe(false)
+      expect(inset()).toBe(`${window.innerWidth}px`)
+      release()
+      unmount()
+      expect(inset()).toBe('')
     })
 
     it('hides the guest while its host has no box, as under a hidden workspace', async () => {
@@ -141,22 +177,6 @@ describe('BrowserPanel', () => {
       } as DOMRect)
       window.dispatchEvent(new Event('resize'))
       await waitFor(() => expect(layouts().at(-1)).toBe(true))
-    })
-
-    it('hides the guest outright when no still can be captured', async () => {
-      const loaded = invokeFn.getMockImplementation()
-      invokeFn.mockImplementation(async (method: string) => {
-        const result: unknown = await loaded?.(method)
-        return method === 'browser.capture' ? { pngBase64: null } : result
-      })
-      const { container } = render(<BrowserPanel />)
-      await waitFor(() => expect(layouts().at(-1)).toBe(true))
-
-      const dialog = document.createElement('div')
-      dialog.setAttribute('role', 'dialog')
-      document.body.append(dialog)
-      await waitFor(() => expect(layouts().at(-1)).toBe(false))
-      expect(container.querySelector('img')).toBeNull()
     })
   })
 })

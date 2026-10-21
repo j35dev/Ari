@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
+import { useOverlayRef } from '@ari/ui/overlay-registry'
 import { Kbd } from '@ari/ui/kbd'
 import { matchCommands } from './match'
 import type { PaletteCommand } from './useCommands'
@@ -25,6 +26,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const overlayRef = useOverlayRef()
   const listRef = useRef<HTMLUListElement>(null)
   const idBase = useId()
 
@@ -97,6 +99,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
       {open ? (
         <div
           key="palette"
+          ref={overlayRef}
           onClick={() => onClose()}
           className="fixed inset-0 z-50 flex justify-center"
           style={{ background: 'color-mix(in oklab, black 45%, transparent)' }}
