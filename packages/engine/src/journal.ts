@@ -67,11 +67,14 @@ export class Journal<T> {
     this.#handle = await open(this.#activePath, 'a')
   }
 
-  async append(event: T): Promise<void> {
+  /**
+   * Appends one event as a JSONL line. `serialized` is `JSON.stringify(event)`
+   * when the caller already holds it, so a hot path never encodes twice.
+   */
+  async append(event: T, serialized: string = JSON.stringify(event)): Promise<void> {
     if (!this.#handle) throw new Error('journal not opened')
     if (this.#activeSize >= this.#opts.rotateBytes) await this.#rotate()
-    const line = `${JSON.stringify(event)}\n`
-    const buffer = Buffer.from(line, 'utf8')
+    const buffer = Buffer.from(`${serialized}\n`, 'utf8')
     await this.#handle.write(buffer)
     if (this.#opts.fsync === 'always') await this.#handle.sync()
     this.#activeSize += buffer.byteLength

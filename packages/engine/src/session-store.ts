@@ -295,7 +295,8 @@ export class SessionStore {
     // cached model `load` serves never drifts from the journal on disk.
     const parsed = journalEventSchema.safeParse(stamped)
     const post = applyEvent(model, parsed.success ? parsed.data : stamped)
-    const lineBytes = Buffer.byteLength(JSON.stringify(stamped), 'utf8') + 1
+    const line = JSON.stringify(stamped)
+    const lineBytes = Buffer.byteLength(line, 'utf8') + 1
     const entry = entryFrom(post, prevBytes + lineBytes)
     // A streaming turn appends parts many times a second. Paying a sidecar
     // rewrite and an fsync for each one made the stream wait on the disk, so
@@ -309,7 +310,7 @@ export class SessionStore {
       await this.#writeIndex(sessionId, entry)
       this.#indexBehind.delete(sessionId)
     }
-    await journal.append(stamped)
+    await journal.append(stamped, line)
     if (!streamed) await journal.flush()
     this.#indexCache.set(sessionId, entry)
     this.#models.set(sessionId, post)

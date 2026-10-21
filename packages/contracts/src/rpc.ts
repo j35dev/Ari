@@ -1291,3 +1291,13 @@ export interface StreamFrame<P = unknown> {
   name: StreamName
   payload: P
 }
+
+/**
+ * One payload for several subscriptions on the same stream, sent over IPC once
+ * instead of once per subscriber; the preload fans it out as {@link StreamFrame}s.
+ */
+export interface StreamBatchFrame<P = unknown> {
+  ids: string[]
+  name: StreamName
+  payload: P
+}
