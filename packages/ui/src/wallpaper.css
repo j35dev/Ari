@@ -11,6 +11,13 @@
  * wallpaper pane. The pane is lightly tinted so the scene remains visible
  * without changing the native window's opaque chrome.
  *
+ * The scene is shown blurred. The ThemeProvider bakes that blur once per
+ * scene and window size (wallpaper-bake.ts) and flags `<html>` with
+ * `data-ari-wallpaper-baked`; the layer then paints the baked copy and the
+ * pane is a plain tint. A live `backdrop-filter` on the pane re-blurred the
+ * full window on every repaint beneath it, so it is only the stand-in while a
+ * bake is pending or where baking is unavailable.
+ *
  * One plate, not many, is deliberate: separately-plated columns stack tints
  * where they meet and show a backdrop-filter fringe along the seam. With a
  * single plate, structure comes from hairline borders instead, and nothing
@@ -27,7 +34,7 @@
 }
 
 /* The scene. Negative z-index paints it above the canvas background but below
-   every in-flow element, so the plate above blurs it.
+   every in-flow element, so the plate above tints it.
 
    The image URL arrives as `--ari-wallpaper-image`, set on <html> by the
    ThemeProvider from the wallpapers registry. It is deliberately NOT a
@@ -49,9 +56,19 @@
   background-position: center;
 }
 
+/* The baked blur, made for exactly this window size. */
+[data-ari-wallpaper][data-ari-wallpaper-baked] body::before {
+  background-image: var(--ari-wallpaper-baked);
+  background-size: 100% 100%;
+}
+
 /* One continuous wallpaper treatment for the whole window. */
 [data-ari-wallpaper] .ari-wallpaper-pane {
   background: var(--ari-wallpaper-pane);
+}
+
+/* Live stand-in until the bake lands; must match wallpaper-bake.ts. */
+[data-ari-wallpaper]:not([data-ari-wallpaper-baked]) .ari-wallpaper-pane {
   -webkit-backdrop-filter: blur(28px) saturate(1.35);
   backdrop-filter: blur(28px) saturate(1.35);
 }
@@ -63,8 +80,6 @@
 [data-ari-wallpaper] .ari-wallpaper-pane .bg-surface-0,
 [data-ari-wallpaper] .ari-wallpaper-pane .bg-bg {
   background-color: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 
 /* Reduced transparency: keep the scene visible (it is an explicit opt-in) but
@@ -73,8 +88,12 @@
   [data-ari-wallpaper] {
     --ari-wallpaper-pane: color-mix(in oklab, var(--ari-surface-0) 92%, transparent);
   }
-  [data-ari-wallpaper] .ari-wallpaper-pane {
+  [data-ari-wallpaper]:not([data-ari-wallpaper-baked]) .ari-wallpaper-pane {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+  [data-ari-wallpaper][data-ari-wallpaper-baked] body::before {
+    background-image: var(--ari-wallpaper-image);
+    background-size: cover;
   }
 }

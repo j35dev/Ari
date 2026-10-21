@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { WALLPAPER_BLUR_PX, WALLPAPER_SATURATE } from './wallpaper-bake'
 
 /**
  * wallpaper.css is the whole feature — jsdom cannot evaluate `backdrop-filter`
@@ -14,7 +15,18 @@ describe('wallpaper.css', () => {
   it('paints one continuous wallpaper pane', () => {
     expect(css).toContain('[data-ari-wallpaper] .ari-wallpaper-pane {')
     expect(css).toMatch(/\.ari-wallpaper-pane \{[^}]*background: var\(--ari-wallpaper-pane\)/)
-    expect(css).toMatch(/\.ari-wallpaper-pane \{[^}]*backdrop-filter: blur\(28px\) saturate\(1\.35\)/)
+  })
+
+  it('paints the baked blur once one lands, and blurs live only until then', () => {
+    expect(css).toMatch(
+      /\[data-ari-wallpaper\]\[data-ari-wallpaper-baked\] body::before \{[^}]*background-image: var\(--ari-wallpaper-baked\)/,
+    )
+    // The live filter is scoped to the pending state, never the baked one.
+    const live = /([^{}]+)\{[^}]*backdrop-filter: blur\(28px\) saturate\(1\.35\)/.exec(css)
+    expect(live?.[1]).toContain(':not([data-ari-wallpaper-baked])')
+    expect(css.match(/^\s*backdrop-filter: blur/gm)).toHaveLength(1)
+    // The fallback must be the filter the bake reproduces.
+    expect(css).toContain(`blur(${WALLPAPER_BLUR_PX}px) saturate(${WALLPAPER_SATURATE})`)
   })
 
   it('neutralizes nested chrome and pane fills so no surface double-tints', () => {
