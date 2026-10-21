@@ -1213,6 +1213,33 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     const second = screen.getByText('second')
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
+
+  it('stays loading until the replay lands, then shows history without entrances', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    // Metadata resolving first must not read as an empty session.
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_1' }),
+    )
+    await act(async () => undefined)
+    expect(screen.queryByText(/No messages yet/)).not.toBeInTheDocument()
+
+    const deltas = Array.from({ length: 300 }, (_, i) => ({
+      seq: i + 2,
+      at: i + 2,
+      sessionId: 'sess_1',
+      type: 'assistant.parts.appended',
+      messageId: 'm_reply',
+      parts: [{ type: 'text', text: `w${i} ` }],
+    }))
+    emitFrame({ events: [userMessage(1, 'hello'), ...deltas], replay: true })
+    emitFrame({ replayDone: true })
+
+    expect(await screen.findByText('hello')).toBeInTheDocument()
+    expect(screen.getByText(/^w0 w1 w2 .* w299$/)).toBeInTheDocument()
+    expect(document.querySelector('.ari-enter-rise')).toBeNull()
+    expect(screen.queryByText(/No messages yet/)).not.toBeInTheDocument()
+  })
 })
 
 describe('SessionView queued messages', () => {
