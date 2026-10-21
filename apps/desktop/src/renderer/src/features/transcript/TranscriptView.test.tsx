@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
@@ -431,6 +431,55 @@ describe('TranscriptView per-turn diff cards', () => {
     // parseDiff strips marker characters, so rows render bare content.
     expect(screen.getByText('new')).toBeInTheDocument()
     expect(screen.getByText('old')).toBeInTheDocument()
+  })
+
+  it('reports a turn only once its last row nears the viewport', () => {
+    const observed: Element[] = []
+    let notify: (entries: Partial<IntersectionObserverEntry>[]) => void = () => undefined
+    class FakeObserver {
+      constructor(callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {
+        notify = callback
+      }
+      observe(node: Element): void {
+        observed.push(node)
+      }
+      unobserve(node: Element): void {
+        observed.splice(observed.indexOf(node), 1)
+      }
+      disconnect(): void {
+        observed.length = 0
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeObserver)
+    try {
+      const onTurnInView = vi.fn()
+      render(
+        createElement(TranscriptView, {
+          sessionId: 'sess_1',
+          messages: [
+            { ...message('u1'), turnId: 'turn_1' },
+            turnMessage('a1', 'turn_1'),
+            { ...message('u2'), turnId: 'turn_2' },
+            turnMessage('a2', 'turn_2'),
+          ],
+          onTurnInView,
+        }),
+      )
+      // One watched row per turn: its last one.
+      expect(observed.map((node) => (node as HTMLElement).dataset.turnEnd)).toEqual([
+        'turn_1',
+        'turn_2',
+      ])
+      expect(onTurnInView).not.toHaveBeenCalled()
+
+      const last = observed[1] as Element
+      act(() => notify([{ target: last, isIntersecting: true }]))
+      expect(onTurnInView).toHaveBeenCalledTimes(1)
+      expect(onTurnInView).toHaveBeenCalledWith('turn_2')
+      expect(observed).toHaveLength(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
