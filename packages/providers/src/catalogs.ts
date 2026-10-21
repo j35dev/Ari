@@ -466,6 +466,41 @@ function mergeAliases(current: string[] | undefined, added: readonly string[]): 
 }
 
 /**
+ * A model id or display name reduced to what both spellings share: the
+ * registry's `claude-opus-5-5` and the agent's "Opus 5.5" both read
+ * `opus-5-5`, as do `opus-5.5` and "Claude Opus 5.5".
+ */
+function modelKey(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s._]+/g, '-')
+    .replace(/^claude-/, '')
+}
+
+/**
+ * The id an agent knows a requested model by. An exact id wins; otherwise a
+ * row whose id or name names the same model does. That is how a pick made
+ * from the registry's list (`claude-opus-5-5`, before the agent had answered)
+ * still reaches the agent, which calls the same model `opus` and names it
+ * "Opus 5.5". Null when nothing on offer is that model.
+ */
+export function resolveOfferedModel(
+  requested: string,
+  offered: readonly Pick<CatalogModel, 'id' | 'label' | 'aliases'>[],
+): string | null {
+  const exact = offered.find(
+    (model) => model.id === requested || model.aliases?.includes(requested),
+  )
+  if (exact !== undefined) return exact.id
+  const key = modelKey(requested)
+  if (key.length === 0) return null
+  return (
+    offered.find((model) => modelKey(model.id) === key || modelKey(model.label) === key)?.id ?? null
+  )
+}
+
+/**
  * Model catalog entries for a driver's picker, merged in priority order:
  * live provider data → cached refresh → bundled snapshot → static defaults.
  * Synchronous and renderer-safe; dynamic overlays arrive via
