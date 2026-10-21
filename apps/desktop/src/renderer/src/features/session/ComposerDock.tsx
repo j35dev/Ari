@@ -55,7 +55,7 @@ export const ComposerDock = memo(function ComposerDock({
   return (
     <motion.div
       ref={dockRef}
-      className="ari-composer-dock relative z-10 mx-auto w-full max-w-3xl shrink-0"
+      className="ari-composer-dock relative z-pane-chrome mx-auto w-full max-w-3xl shrink-0"
       data-centered={centered || undefined}
       initial={false}
       layout="position"
