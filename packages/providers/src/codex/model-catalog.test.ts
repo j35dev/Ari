@@ -3,7 +3,10 @@ import { AppServerConnection } from './appserver-connection'
 import { probeCodexModelCatalog } from './model-catalog'
 
 /** Transport double that answers the handshake and an empty model page. */
-function fakeTransport(): { request: ReturnType<typeof vi.fn>; shutdown: ReturnType<typeof vi.fn> } {
+function fakeTransport(): {
+  request: ReturnType<typeof vi.fn>
+  shutdown: ReturnType<typeof vi.fn>
+} {
   return {
     request: vi
       .fn()
@@ -60,6 +63,8 @@ describe('probeCodexModelCatalog', () => {
         { id: 'high', label: 'High', description: 'Deeper' },
       ],
     })
+    // The model id, not the row id: it is what a session without a pick runs.
+    expect(catalog.defaultModelId).toBe('gpt-6-astra')
     expect(shutdown).toHaveBeenCalledOnce()
   })
 
