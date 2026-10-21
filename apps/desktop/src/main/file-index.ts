@@ -1,5 +1,5 @@
 import { readdir, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { DEFAULT_IGNORED_NAMES } from '@ari/engine/watcher'
 import { createLogger } from '@ari/shared/logger'
 
@@ -80,6 +80,43 @@ export async function walkWorkspaceFiles(rootDir: string, cap: number): Promise<
 
   await visit(rootDir, '')
   return found.sort((a, b) => a.localeCompare(b))
+}
+
+/** How long a walked listing of an unwatched root is reused. */
+export const WALK_CACHE_TTL_MS = 30_000
+
+/**
+ * Recent walks of roots no watcher keeps fresh (managed worktrees, the ad-hoc
+ * home folder), so switching between sessions does not re-walk the same tree
+ * every time. Concurrent asks for one root share a walk; a failed walk is not
+ * kept.
+ */
+export class WalkCache {
+  readonly #entries = new Map<string, { at: number; paths: Promise<string[]> }>()
+  readonly #ttlMs: number
+  readonly #now: () => number
+
+  constructor(ttlMs = WALK_CACHE_TTL_MS, now: () => number = Date.now) {
+    this.#ttlMs = ttlMs
+    this.#now = now
+  }
+
+  paths(rootDir: string): Promise<string[]> {
+    const at = this.#now()
+    for (const [key, entry] of this.#entries) {
+      if (at - entry.at >= this.#ttlMs) this.#entries.delete(key)
+    }
+    const absolute = resolve(rootDir)
+    const key = process.platform === 'win32' ? absolute.toLowerCase() : absolute
+    const hit = this.#entries.get(key)
+    if (hit !== undefined) return hit.paths
+    const entry = { at, paths: walkWorkspaceFiles(rootDir, FILE_INDEX_CAP) }
+    this.#entries.set(key, entry)
+    void entry.paths.catch(() => {
+      if (this.#entries.get(key) === entry) this.#entries.delete(key)
+    })
+    return entry.paths
+  }
 }
 
 /**
