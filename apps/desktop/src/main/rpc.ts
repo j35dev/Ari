@@ -162,6 +162,14 @@ function acpProbeKinds(): DriverKind[] {
 }
 
 /**
+ * How long a catalog probe waits for the agent to start. The same ceiling a
+ * real session gets: at boot six probes start together, and Claude's adapter
+ * (npx resolution plus a Node start) took 11 s alone on a busy machine, so a
+ * tighter budget dropped exactly the probe whose reasoning levels matter most.
+ */
+const PROBE_HANDSHAKE_MS = 45_000
+
+/**
  * Opens a throwaway ACP session against the agent and reads its advertised
  * model list (session config options, category `model`) — models fetched
  * from the provider itself instead of a bundled list (M16).
@@ -213,7 +221,7 @@ async function probeAcpModels(
   const connection = await AcpConnection.connect({
     launch: probe,
     cwd: homedir(),
-    initializeTimeoutMs: 20_000,
+    initializeTimeoutMs: PROBE_HANDSHAKE_MS,
     // probeEnv adds the PATH detection resolved, but `connect` spreads
     // runtimeEnv last — so the launch's own variables go back on top. Without
     // that, a CODEX_PATH inherited from the host would beat the binary
@@ -267,7 +275,7 @@ async function probeEffortsForModel(
   const connection = await AcpConnection.connect({
     launch: probe,
     cwd: homedir(),
-    initializeTimeoutMs: 20_000,
+    initializeTimeoutMs: PROBE_HANDSHAKE_MS,
     runtimeEnv: { ...probeEnv, ...probe.env },
   })
   try {
