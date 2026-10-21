@@ -1269,6 +1269,39 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('paints a burst of live deltas once, on the next animation frame', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    emitFrame({ replayDone: true })
+    const frames: FrameRequestCallback[] = []
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    try {
+      emitFrame({ event: userMessage(1, 'go') })
+      expect(screen.getByText('go')).toBeInTheDocument()
+      for (let i = 0; i < 5; i++) {
+        emitFrame({
+          event: {
+            seq: i + 2,
+            at: i + 2,
+            sessionId: 'sess_1',
+            type: 'assistant.parts.appended',
+            messageId: 'm_live',
+            parts: [{ type: 'text', text: `d${i} ` }],
+          },
+        })
+      }
+      expect(screen.queryByText(/d0/)).not.toBeInTheDocument()
+      expect(frames).toHaveLength(1)
+      act(() => frames.forEach((callback) => callback(0)))
+      expect(await screen.findByText(/^d0 d1 d2 d3 d4$/)).toBeInTheDocument()
+    } finally {
+      raf.mockRestore()
+    }
+  })
+
   it('stays loading until the replay lands, then shows history without entrances', async () => {
     renderView()
     await screen.findByLabelText('Message')
