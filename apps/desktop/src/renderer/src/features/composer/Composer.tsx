@@ -1,4 +1,12 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, Bookmark, Clock, CornerUpRight, Square, Trash2, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
@@ -242,12 +250,13 @@ export function Composer({
     setDismissed(false)
   }, [tokenKey])
 
+  // The popup filters a deferred query: a large file index is ranked after
+  // the keystroke paints, never in its way.
+  const mentionQuery = useDeferredValue(token?.kind === 'mention' ? token.raw.slice(1) : null)
   const mentionItems = useMemo(
     () =>
-      token?.kind === 'mention' && suggestions
-        ? matchSuggestions(suggestions, token.raw.slice(1))
-        : [],
-    [token, suggestions],
+      mentionQuery !== null && suggestions ? matchSuggestions(suggestions, mentionQuery) : [],
+    [mentionQuery, suggestions],
   )
 
   const syncCaret = useCallback((el: HTMLTextAreaElement) => {
@@ -263,6 +272,9 @@ export function Composer({
     el.setSelectionRange(caretIndex, caretIndex)
   }, [])
 
+  // What the last measure saw: typing forward can only grow the field, so it
+  // skips the collapse-and-remeasure that costs a second layout per keystroke.
+  const measuredRef = useRef({ length: 0, lines: 0, floor: -1 })
   const resize = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -270,7 +282,16 @@ export function Composer({
     // resting padding is the whole plate. `resting` is a dependency so the
     // field re-measures against the padding it now carries.
     const floor = resting ? 0 : centered ? 88 : MIN_HEIGHT
-    el.style.height = 'auto'
+    const length = el.value.length
+    const lines = el.value.split('\n').length
+    const last = measuredRef.current
+    const mayShrink = length < last.length || lines < last.lines || floor !== last.floor
+    measuredRef.current = { length, lines, floor }
+    if (mayShrink) el.style.height = 'auto'
+    else if (el.scrollHeight <= el.clientHeight) {
+      syncOverlayScroll()
+      return
+    }
     el.style.height = `${Math.min(Math.max(el.scrollHeight, floor), MAX_HEIGHT)}px`
     el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden'
     syncOverlayScroll()
