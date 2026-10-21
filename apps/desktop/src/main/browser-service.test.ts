@@ -1,5 +1,10 @@
+import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import { BrowserService, type BrowserGuest } from './browser-service'
+import {
+  BrowserService,
+  hideGuestsOnShellReset,
+  type BrowserGuest,
+} from './browser-service'
 
 function fakeGuest(): {
   guest: BrowserGuest
@@ -95,5 +100,30 @@ describe('BrowserService', () => {
       expect(result.element.selector).toBe('button')
       expect(result.pngBase64).toBe(Buffer.from('png').toString('base64'))
     }
+  })
+
+  it('hides every guest when the shell reloads or its renderer dies, keeping the pages', async () => {
+    const first = fakeGuest()
+    const second = fakeGuest()
+    const guests = [first.guest, second.guest]
+    const service = new BrowserService(() => guests.shift() as BrowserGuest, vi.fn())
+    await service.open('a')
+    await service.open('b')
+    const shell = new EventEmitter()
+    hideGuestsOnShellReset(shell, service)
+
+    shell.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+    shell.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false })
+    expect(first.setVisible).not.toHaveBeenCalled()
+
+    shell.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    expect(first.setVisible).toHaveBeenLastCalledWith(false)
+    expect(second.setVisible).toHaveBeenLastCalledWith(false)
+
+    first.setVisible.mockClear()
+    shell.emit('render-process-gone')
+    expect(first.setVisible).toHaveBeenCalledWith(false)
+    expect(first.destroy).not.toHaveBeenCalled()
+    expect(service.has('a')).toBe(true)
   })
 })

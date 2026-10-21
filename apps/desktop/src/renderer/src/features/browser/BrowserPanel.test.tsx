@@ -123,6 +123,26 @@ describe('BrowserPanel', () => {
       expect(container.querySelector('img')).toBeNull()
     })
 
+    it('hides the guest while its host has no box, as under a hidden workspace', async () => {
+      render(<BrowserPanel />)
+      await waitFor(() => expect(layouts().at(-1)).toBe(true))
+      document.elementFromPoint = () => null
+      const none = { x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(none as DOMRect)
+      window.dispatchEvent(new Event('resize'))
+      await waitFor(() => expect(layouts().at(-1)).toBe(false))
+
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+        ...none,
+        right: 400,
+        bottom: 600,
+        width: 400,
+        height: 600,
+      } as DOMRect)
+      window.dispatchEvent(new Event('resize'))
+      await waitFor(() => expect(layouts().at(-1)).toBe(true))
+    })
+
     it('hides the guest outright when no still can be captured', async () => {
       const loaded = invokeFn.getMockImplementation()
       invokeFn.mockImplementation(async (method: string) => {
