@@ -29,6 +29,7 @@ import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
 import { ComposerDock } from './ComposerDock'
+import { createMessageFold } from './message-fold'
 import './session-canvas.css'
 import { TurnErrorBanner } from './TurnErrorBanner'
 import { ElementChips } from '../browser/ElementChips'
@@ -225,8 +226,11 @@ export function SessionView({
   parentSession?: { id: string; title: string } | null
 }) {
   const [messages, setMessages] = useState<Message[]>([])
-  const [loading, setLoading] = useState(true)
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
+  // History is loading until its replay has been applied, so the transcript
+  // never paints an empty state, or animates history in, while it is in flight.
+  const loading = historyReadySession !== sessionId
+  const messageFoldRef = useRef(createMessageFold())
   const canvasRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<{ text: string; attachments: AttachmentRef[] }[]>([])
@@ -311,7 +315,7 @@ export function SessionView({
   useEffect(() => {
     let cancelled = false
     setMessages([])
-    setLoading(true)
+    messageFoldRef.current = createMessageFold()
     setRunning(false)
     setQueued([])
     setApprovals([])
@@ -357,6 +361,11 @@ export function SessionView({
       }
       applyEvent(raw, live)
     }
+    // One state update per frame however many events it carried.
+    const publishMessages = (): void => {
+      const next = messageFoldRef.current.commit()
+      if (next !== null) setMessages(next)
+    }
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
       const frame = payload as SessionEventFrame
@@ -367,12 +376,14 @@ export function SessionView({
         const buffered = liveBufferRef.current
         liveBufferRef.current = []
         for (const event of buffered) ingest(event, true)
+        publishMessages()
         return
       }
       if (frame.replay === true) {
         // The burst is seq-ordered and arrives whole, so it folds in one pass
         // and renders once however long the session is.
         for (const event of (frame.events ?? []) as JournalEvent[]) ingest(event, false)
+        publishMessages()
         return
       }
       const event = frame.event as JournalEvent
@@ -383,6 +394,7 @@ export function SessionView({
         return
       }
       ingest(event, true)
+      publishMessages()
     })
 
     // Per-turn diff cards (M18.1): after a turn settles, query its checkpoint
@@ -424,9 +436,6 @@ export function SessionView({
         })
       })
       .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
 
     return () => {
       cancelled = true
@@ -473,7 +482,7 @@ export function SessionView({
         break
       case 'user.message.added':
         lastPartRef.current = { messageId: event.message.id, parts: event.message.parts.length }
-        setMessages((prev) => [...prev, event.message])
+        messageFoldRef.current.addUser(event.message)
         break
       case 'assistant.parts.appended': {
         // Counted per message: a steered user message lands in the middle of
@@ -481,25 +490,13 @@ export function SessionView({
         const parts = (partCountsRef.current.get(event.messageId) ?? 0) + event.parts.length
         partCountsRef.current.set(event.messageId, parts)
         lastPartRef.current = { messageId: event.messageId, parts }
-        setMessages((prev) => {
-          const existing = prev.find((m) => m.id === event.messageId)
-          if (existing) {
-            return prev.map((m) =>
-              m.id === event.messageId ? { ...m, parts: [...m.parts, ...event.parts] } : m,
-            )
-          }
-          return [
-            ...prev,
-            {
-              id: event.messageId,
-              sessionId: event.sessionId,
-              turnId: activeTurnIdRef.current,
-              role: 'assistant',
-              parts: [...event.parts],
-              createdAt: event.at,
-            },
-          ]
-        })
+        messageFoldRef.current.appendParts(event.messageId, event.parts, () => ({
+          id: event.messageId,
+          sessionId: event.sessionId,
+          turnId: activeTurnIdRef.current,
+          role: 'assistant',
+          createdAt: event.at,
+        }))
         break
       }
       case 'turn.started':
@@ -997,7 +994,6 @@ export function SessionView({
   const composerAttentionRequired =
     (pendingQuestion !== null && pendingPlan === null) || approvals.length > 0
   const centered =
-    historyReadySession === sessionId &&
     !loading &&
     messages.length === 0 &&
     !running &&
