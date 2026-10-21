@@ -17,9 +17,9 @@
   content: '';
   position: fixed;
   inset: 0;
-  /* Above every popover and menu (the highest is 61), below the launch splash
-     (70), which is brand and looks the same under every theme. */
-  z-index: 65;
+  /* Above every app layer, below the launch splash, which is brand and looks
+     the same under every theme. */
+  z-index: var(--ari-z-theme-fx);
   pointer-events: none;
 }
 

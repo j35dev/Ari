@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react-dom'
 import type { Placement } from '@floating-ui/react-dom'
 import { menuInVariants } from '../motion'
+import { layerRoot } from '../layer-root'
 import { useOverlayRef } from '../overlay-registry'
 
 type Side = 'top' | 'bottom' | 'left' | 'right'
@@ -145,7 +146,7 @@ export interface PopoverContentProps
   sideOffset?: number
 }
 
-/** Floating panel portaled to document.body; animates in with the menu-in motion. */
+/** Floating panel portaled to the layer root; animates in with the menu-in motion. */
 export function PopoverContent({
   side = 'bottom',
   align = 'center',
@@ -184,7 +185,7 @@ export function PopoverContent({
           exit="exit"
           variants={menuInVariants}
           style={{ ...floatingStyles, transformOrigin: transformOriginFor(placement), ...style }}
-          className={['z-50 bg-surface-2 border border-border rounded-lg shadow-2 p-3', className]
+          className={['z-popover bg-surface-2 border border-border rounded-lg shadow-2 p-3', className]
             .filter(Boolean)
             .join(' ')}
           {...rest}
@@ -193,7 +194,7 @@ export function PopoverContent({
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    layerRoot(),
   )
 }
 

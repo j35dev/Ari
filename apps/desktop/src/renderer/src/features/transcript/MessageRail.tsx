@@ -30,7 +30,7 @@ export function MessageRail({
   return (
     <nav
       aria-label="Message timeline"
-      className="absolute bottom-6 right-1.5 top-6 z-10 flex w-4 flex-col"
+      className="absolute bottom-6 right-1.5 top-6 z-pane-chrome flex w-4 flex-col"
     >
       {entries.map((entry) => {
         const isActive = entry.key === activeKey
