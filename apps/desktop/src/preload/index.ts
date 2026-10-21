@@ -1,8 +1,14 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
-import type { StreamFrame } from '@ari/contracts/rpc'
+import type { StreamBatchFrame, StreamFrame } from '@ari/contracts/rpc'
+import { StreamRouter } from './stream-router'
 
 const STREAM_CHANNEL = 'ari:stream'
+
+const streams = new StreamRouter()
+ipcRenderer.on(STREAM_CHANNEL, (_event: IpcRendererEvent, frame: StreamFrame | StreamBatchFrame) =>
+  streams.dispatch(frame),
+)
 
 const api = {
   invoke: (method: string, params?: unknown): Promise<unknown> => {
@@ -21,15 +27,8 @@ const api = {
     }
   },
   /** Returns an unsubscribe function; frames arrive tagged by subscription id. */
-  subscribe: (id: string, callback: (frame: StreamFrame) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, frame: StreamFrame): void => {
-      if (frame.id === id) callback(frame)
-    }
-    ipcRenderer.on(STREAM_CHANNEL, listener)
-    return () => {
-      ipcRenderer.removeListener(STREAM_CHANNEL, listener)
-    }
-  },
+  subscribe: (id: string, callback: (frame: StreamFrame) => void): (() => void) =>
+    streams.subscribe(id, callback),
 }
 
 contextBridge.exposeInMainWorld('ari', api)
