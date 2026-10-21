@@ -142,9 +142,14 @@ function Shell() {
   const activeSessionId = activeSessionOf(layout)
   const visibleSessionIds = useMemo(() => sessionsOnScreen(layout), [layout])
   const { activityOf, acknowledge, forget } = useSessionActivity(visibleSessionIds)
+  // Every list refresh is a new array; the lookup changes identity only when
+  // a title does, or each refresh would re-render every memoized transcript row.
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+  const titlesKey = sessions.map((session) => `${session.id}:${session.title}`).join('\n')
   const sessionTitle = useCallback(
-    (id: string) => sessions.find((session) => session.id === id)?.title,
-    [sessions],
+    (id: string) => sessionsRef.current.find((session) => session.id === id)?.title,
+    [titlesKey],
   )
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
