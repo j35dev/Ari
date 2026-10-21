@@ -13,6 +13,7 @@ import { Input } from '@ari/ui/input'
 import type { BrowserTabState } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
 import { addBrowserPick, fileFromPngBase64 } from './browser-picks'
+import { trackBounds, type Bounds } from './bounds-sync'
 import { useCovered } from './use-covered'
 
 const TAB_ID = 'inspector'
@@ -41,19 +42,17 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   const [still, setStill] = useState<string | null>(null)
   const [parked, setParked] = useState(false)
 
-  const syncLayout = useCallback((visible: boolean) => {
-    const host = hostRef.current
-    if (host === null) return
-    const rect = host.getBoundingClientRect()
+  const boundsRef = useRef<Bounds | null>(null)
+  const visibleRef = useRef(false)
+
+  const sendLayout = useCallback(() => {
+    const bounds = boundsRef.current
+    if (bounds === null) return
+    // A host with no box sits under `display: none` (a hidden space, Settings
+    // open over the workspace); a guest left showing there would float on top.
+    const placed = bounds.width > 0 && bounds.height > 0
     void rpc
-      .invoke('browser.layout', {
-        id: TAB_ID,
-        visible,
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      })
+      .invoke('browser.layout', { id: TAB_ID, visible: visibleRef.current && placed, ...bounds })
       .catch(() => undefined)
   }, [])
 
@@ -116,11 +115,16 @@ export function BrowserPanel({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     const host = hostRef.current
     if (host === null) return
-    const observer = new ResizeObserver(() => syncLayout(guestVisible))
-    observer.observe(host)
-    syncLayout(guestVisible)
-    return () => observer.disconnect()
-  }, [syncLayout, guestVisible])
+    return trackBounds(host, (bounds) => {
+      boundsRef.current = bounds
+      sendLayout()
+    })
+  }, [sendLayout])
+
+  useEffect(() => {
+    visibleRef.current = guestVisible
+    sendLayout()
+  }, [sendLayout, guestVisible])
 
   const submit = (): void => {
     void rpc
