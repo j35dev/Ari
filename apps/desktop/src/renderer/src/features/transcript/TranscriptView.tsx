@@ -116,6 +116,7 @@ export function TranscriptView({
   sessionTitle,
   onOpenSession,
   onTurnInView,
+  hidden = false,
 }: {
   sessionId: string
   messages: Message[]
@@ -152,12 +153,20 @@ export function TranscriptView({
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
   /** Live working indicator, rendered where the next assistant reply will land. */
   working?: React.ReactNode
+  /**
+   * Kept mounted off screen. Rows that land meanwhile are not announced: the
+   * entrance would wait for the view to show and then play for all of them.
+   */
+  hidden?: boolean
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   const lastScrollTopRef = useRef<number | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const atBottomRef = useRef(true)
+  // Where the reader left off when scrolled up; null while pinned to the tail.
+  // Hiding a scroller resets its offset, so this is what showing it restores.
+  const readingAtRef = useRef<{ sessionId: string; top: number } | null>(null)
 
   // Each pass is handed the last one's output, so rows a flush left alone keep
   // their identity and the memoized row view skips them. Delegation cards are
@@ -307,22 +316,41 @@ export function TranscriptView({
   const ranHereRef = useRef(false)
   if (running) ranHereRef.current = true
 
-  // Session switch (and first mount) always lands on the tail. The pin
-  // starts true, but a leftover unpin from the previous session — or a
-  // `display:none` pane restoring at scrollTop 0 — would otherwise show
-  // the jump pill on a long transcript.
+  /**
+   * Lands a scroller that has just come into view: back where the reader left
+   * off when they had scrolled up, otherwise on the tail. A `display:none`
+   * pane restores at scrollTop 0, which would show the jump pill on a long
+   * transcript and lose their place.
+   */
+  const land = useCallback(
+    (scroller: HTMLElement): void => {
+      lastScrollTopRef.current = null
+      const readingAt = readingAtRef.current
+      if (readingAt?.sessionId === sessionId) {
+        scroller.scrollTop = readingAt.top
+        atBottomRef.current = false
+        setAtBottom(false)
+        return
+      }
+      atBottomRef.current = true
+      setAtBottom(true)
+      scrollToBottom(scroller, 'auto')
+    },
+    [sessionId],
+  )
+
+  // First mount, a session switch, and every time a kept-alive view is shown
+  // again: its effects re-run then, after the hidden stretch reset the scroller.
+  const landedSessionRef = useRef<string | null>(null)
   useLayoutEffect(() => {
-    ranHereRef.current = false
-    atBottomRef.current = true
-    setAtBottom(true)
-    lastScrollTopRef.current = null
+    if (landedSessionRef.current !== sessionId) ranHereRef.current = false
+    landedSessionRef.current = sessionId
     const scroller = scrollRef.current
-    if (scroller) scrollToBottom(scroller, 'auto')
-  }, [sessionId])
+    if (scroller) land(scroller)
+  }, [sessionId, land])
 
   // Split-view zoom (and any other `display:none`) collapses the scroller
-  // to height 0 and resets scrollTop. When it comes back, re-pin so the
-  // reader lands on latest instead of the restored top.
+  // to height 0 and resets scrollTop. When it comes back, land it again.
   useLayoutEffect(() => {
     const scroller = scrollRef.current
     if (!scroller || typeof ResizeObserver === 'undefined') return
@@ -335,15 +363,11 @@ export function TranscriptView({
         lastScrollTopRef.current = null
         return
       }
-      if (!appeared) return
-      lastScrollTopRef.current = null
-      atBottomRef.current = true
-      setAtBottom(true)
-      scrollToBottom(scroller, 'auto')
+      if (appeared) land(scroller)
     })
     observer.observe(scroller)
     return () => observer.disconnect()
-  }, [])
+  }, [land])
 
   // Jumps rather than glides: a smooth scroll restarted on every streamed
   // flush kept the compositor busy and fired a storm of scroll events.
@@ -425,6 +449,7 @@ export function TranscriptView({
       scrolledUp,
     })
     atBottomRef.current = pinned
+    readingAtRef.current = pinned ? null : { sessionId, top: el.scrollTop }
     setAtBottom(pinned)
     // The rail reads row offsets: once per frame however many events fire.
     if (railFrameRef.current === null && railEntries.length >= 2) {
@@ -442,7 +467,7 @@ export function TranscriptView({
   const seenRows = seenRowsRef.current
   const freshRows = freshRowsRef.current
   for (const row of rows) {
-    if (historyLoadedRef.current && !seenRows.has(row.key)) freshRows.add(row.key)
+    if (historyLoadedRef.current && !hidden && !seenRows.has(row.key)) freshRows.add(row.key)
     seenRows.add(row.key)
   }
   if (!loading) historyLoadedRef.current = true
@@ -537,6 +562,7 @@ export function TranscriptView({
           onClick={() => {
             const el = scrollRef.current
             atBottomRef.current = true
+            readingAtRef.current = null
             setAtBottom(true)
             if (el) scrollToBottom(el, 'smooth')
           }}
