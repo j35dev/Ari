@@ -68,6 +68,18 @@ html {
   --ari-text-2xl: 1.5625rem;
   --ari-text-3xl: 2rem;
 
+  /* stacking — the app's one z-index scale. Floating surfaces portal into
+     #ari-layer-root (outside every pane's stacking context) and pick a rung
+     here through the z-* utilities; nothing else sets a raw z-index. */
+  --ari-z-base: 0;
+  --ari-z-pane-chrome: 10;
+  --ari-z-popover: 40;
+  --ari-z-overlay: 50;
+  --ari-z-toast: 60;
+  --ari-z-context: 70;
+  --ari-z-theme-fx: 80;
+  --ari-z-splash: 90;
+
   /* layout metrics */
   --ari-sidebar-width: 280px;
   --ari-titlebar-height: 38px;

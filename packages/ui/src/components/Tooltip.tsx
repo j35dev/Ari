@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react-dom'
 import { transitions } from '../motion'
+import { layerRoot } from '../layer-root'
 import { useOverlayRef } from '../overlay-registry'
 
 /** 140ms fade in/out (PLAN §6.4 timing budget for transient surfaces). */
@@ -121,13 +122,13 @@ export function Tooltip({
               exit="hidden"
               variants={tooltipVariants}
               style={{ ...floatingStyles }}
-              className="pointer-events-none z-50 rounded-md bg-surface-3 px-2 py-1 text-xs text-fg"
+              className="pointer-events-none z-context rounded-md bg-surface-3 px-2 py-1 text-xs text-fg"
             >
               {content}
             </motion.span>
           )}
         </AnimatePresence>,
-        document.body,
+        layerRoot(),
       )}
     </>
   )

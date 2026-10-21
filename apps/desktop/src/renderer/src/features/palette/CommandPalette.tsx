@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
+import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
 import { Kbd } from '@ari/ui/kbd'
 import { matchCommands } from './match'
@@ -94,14 +96,14 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [open])
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {open ? (
         <div
           key="palette"
           ref={overlayRef}
           onClick={() => onClose()}
-          className="fixed inset-0 z-50 flex justify-center"
+          className="fixed inset-0 z-overlay flex justify-center"
           style={{ background: 'color-mix(in oklab, black 45%, transparent)' }}
         >
           <motion.div
@@ -177,6 +179,7 @@ export function CommandPalette({ open, onClose, commands }: CommandPaletteProps)
           </motion.div>
         </div>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    layerRoot(),
   )
 }
