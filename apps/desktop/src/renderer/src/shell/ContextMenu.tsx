@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
+import { useOverlayRef } from '@ari/ui/overlay-registry'
 
 export interface ContextMenuItem {
   id: string
@@ -53,6 +54,7 @@ export function ContextMenu({
   onClose: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const overlayRef = useOverlayRef()
   const [position, setPosition] = useState<MenuAnchor>(anchor)
 
   useLayoutEffect(() => {
@@ -97,7 +99,10 @@ export function ContextMenu({
     <>
       <div className="fixed inset-0 z-[60]" onMouseDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }} />
       <div
-        ref={ref}
+        ref={(node) => {
+          ref.current = node
+          overlayRef(node)
+        }}
         role="menu"
         aria-label={label}
         style={{ left: position.x, top: position.y, width: MENU_WIDTH }}
