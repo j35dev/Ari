@@ -253,12 +253,16 @@ export function TranscriptView({
   }, [])
 
   const hasWorking = Boolean(working)
+  // Only a turn seen running here may announce that it finished.
+  const ranHereRef = useRef(false)
+  if (running) ranHereRef.current = true
 
   // Session switch (and first mount) always lands on the tail. The pin
   // starts true, but a leftover unpin from the previous session — or a
   // `display:none` pane restoring at scrollTop 0 — would otherwise show
   // the jump pill on a long transcript.
   useLayoutEffect(() => {
+    ranHereRef.current = false
     atBottomRef.current = true
     setAtBottom(true)
     lastScrollTopRef.current = null
@@ -404,7 +408,9 @@ export function TranscriptView({
         onWheel={handleWheel}
         role="log"
         aria-label="Conversation transcript"
-        aria-live="polite"
+        // Not a live region: a screen reader would re-announce every streamed
+        // flush. The working status below announces instead.
+        aria-live="off"
         className="ari-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
         data-session={sessionId}
       >
@@ -454,6 +460,10 @@ export function TranscriptView({
             ))}
           </div>
         ) : null}
+
+        <span className="sr-only" role="status">
+          {running ? 'Agent is replying' : ranHereRef.current ? 'Reply finished' : ''}
+        </span>
 
         {working ? (
           <div className="mx-auto mt-3 max-w-3xl px-1" aria-live="polite">
