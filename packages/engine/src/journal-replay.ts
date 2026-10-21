@@ -1,6 +1,6 @@
 import { journalEventSchema } from '@ari/contracts/events'
 import type { ParsedLine } from '@ari/shared/jsonl'
-import { applyEvent, initialReadModel, type SessionReadModel } from './projection'
+import { applyEventToDraft, initialReadModel, type SessionReadModel } from './projection'
 
 /** One journal line that failed JSON or schema validation during replay. */
 export interface RejectedLine {
@@ -50,7 +50,7 @@ export function replayEntries(entries: ParsedLine<unknown>[]): ReplayOutcome {
       rejected.push({ line: entry.line, reason: reasonOf(parsed.error), raw: entry.raw })
       continue
     }
-    model = applyEvent(model, parsed.data)
+    model = applyEventToDraft(model, parsed.data)
   }
   return { model, rejected }
 }

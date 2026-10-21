@@ -336,7 +336,51 @@ function foldCompletion(
   }
 }
 
+/**
+ * Replay fold: same result as {@link applyEvent}, but transcript events grow
+ * `draft` in place instead of copying every message and part per event, which
+ * made a full replay quadratic in transcript length. `draft` must be owned
+ * exclusively by the caller — start from {@link initialReadModel} and share
+ * nothing until the replay finishes.
+ */
+export function applyEventToDraft(draft: SessionReadModel, event: JournalEvent): SessionReadModel {
+  switch (event.type) {
+    case 'user.message.added':
+      draft.lastSeq = Math.max(draft.lastSeq, event.seq)
+      draft.messages.push({ ...event.message, parts: [...event.message.parts] })
+      draft.streamingMessageId = null
+      return draft
+    case 'assistant.parts.appended': {
+      draft.lastSeq = Math.max(draft.lastSeq, event.seq)
+      const last = draft.messages[draft.messages.length - 1]
+      const existing =
+        last?.id === event.messageId
+          ? last
+          : draft.messages.find((m) => m.id === event.messageId)
+      if (existing) {
+        for (const part of event.parts) existing.parts.push(part)
+      } else {
+        draft.messages.push({
+          id: event.messageId,
+          sessionId: event.sessionId,
+          turnId: draft.activeTurnId,
+          role: 'assistant',
+          parts: [...event.parts],
+          createdAt: event.at,
+        })
+      }
+      draft.streamingMessageId = event.messageId
+      return draft
+    }
+    default:
+      return applyEvent(draft, event)
+  }
+}
+
 /** Folds a full event list into a read model (boot replay path). */
 export function projectEvents(events: JournalEvent[]): SessionReadModel {
-  return events.reduce(applyEvent, initialReadModel())
+  return events.reduce(
+    (draft: SessionReadModel, event) => applyEventToDraft(draft, event),
+    initialReadModel(),
+  )
 }
