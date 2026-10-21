@@ -66,6 +66,28 @@
   --text-2xs: var(--ari-text-2xs);
 }
 
+/* The z-index scale from tokens.css. Popovers sit under modal scrims, toasts
+   stay readable above them, and context menus and tooltips — always the last
+   thing the user summoned — top every app layer. */
+@utility z-base {
+  z-index: var(--ari-z-base);
+}
+@utility z-pane-chrome {
+  z-index: var(--ari-z-pane-chrome);
+}
+@utility z-popover {
+  z-index: var(--ari-z-popover);
+}
+@utility z-overlay {
+  z-index: var(--ari-z-overlay);
+}
+@utility z-toast {
+  z-index: var(--ari-z-toast);
+}
+@utility z-context {
+  z-index: var(--ari-z-context);
+}
+
 @layer base {
   html,
   body,
