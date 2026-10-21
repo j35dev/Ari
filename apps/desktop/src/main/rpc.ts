@@ -2411,9 +2411,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
               replayDone: true,
             } satisfies SessionEventFrame)
           })
-          .catch((error: unknown) =>
-            log.warn('journal replay failed', { sessionId, error: String(error) }),
-          )
+          // The sentinel still goes out: the renderer holds live frames, and
+          // its loading state, until it arrives.
+          .catch((error: unknown) => {
+            log.warn('journal replay failed', { sessionId, error: String(error) })
+            rpcRegistry.sendTo(params.id, {
+              sessionId,
+              replayDone: true,
+            } satisfies SessionEventFrame)
+          })
       }
     }
     if (params.name === 'terminal.data') {
