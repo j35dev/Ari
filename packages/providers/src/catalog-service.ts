@@ -181,6 +181,7 @@ export class CatalogService {
   readonly #liveCachePath: string | null
   /** Kinds serving a catalog restored from disk that no probe has confirmed yet. */
   readonly #unconfirmed = new Set<DriverKind>()
+  #liveWrite: Promise<void> = Promise.resolve()
   readonly #ttlMs: number
   readonly #probeModels: ModelProbe | null
   readonly #probeKinds: DriverKind[]
@@ -323,15 +324,16 @@ export class CatalogService {
             adopted = true
             log.info('live model probe applied', { kind, count: models.length })
             // Each agent lands on its own: Claude's list must not wait for the
-            // slowest of six handshakes before the picker hears about it.
+            // slowest of six handshakes before the picker hears about it, nor
+            // before it is saved — a quit mid-round would lose it otherwise.
             this.#onUpdated?.(Date.now())
+            await this.#writeLiveCache()
           }
         } catch (error) {
           log.debug('live model probe failed', { kind, error: String(error) })
         }
       }),
     )
-    if (adopted) await this.#writeLiveCache()
     return adopted
   }
 
@@ -418,7 +420,13 @@ export class CatalogService {
     this.#onUpdated?.(Date.now())
   }
 
-  async #writeLiveCache(): Promise<void> {
+  /** Saves the agents' catalogs; writes queue so two landings never interleave. */
+  #writeLiveCache(): Promise<void> {
+    this.#liveWrite = this.#liveWrite.then(() => this.#saveLiveCache())
+    return this.#liveWrite
+  }
+
+  async #saveLiveCache(): Promise<void> {
     if (this.#liveCachePath === null) return
     const kinds: Partial<Record<DriverKind, LiveCatalog>> = {}
     for (const kind of this.#probeKinds) {
