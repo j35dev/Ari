@@ -3,6 +3,7 @@ import { createLogger } from '@ari/shared/logger'
 import { isolateDevInstance } from './dev-instance'
 import { DiscordPresence } from './discord-presence'
 import { registerRpc, startAppUpdateChecks } from './rpc'
+import { afterFirstPaint } from './startup-gate'
 import { getSettingsStore } from './store'
 import { createTray, type TrayHandle } from './tray'
 import { updateTrayStatus } from './tray-status'
@@ -42,6 +43,7 @@ if (!gotLock) {
     // painted its first frame, which is the launch animation itself, so there
     // is never a separate splash surface to hand over from.
     mainWindow = createMainWindow()
+    const firstPaint = afterFirstPaint(mainWindow)
     mainWindow.once('ready-to-show', () => {
       startAppUpdateChecks()
     })
@@ -58,6 +60,7 @@ if (!gotLock) {
         presence.setRunningCount(count)
       },
       onSettingsChanged: (settings) => presence.setEnabled(settings.notifications.discordPresence),
+      backgroundReady: firstPaint,
     })
     void getSettingsStore()
       .load()
