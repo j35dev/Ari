@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { JournalEvent } from '@ari/contracts/events'
-import { applyEvent, initialReadModel, projectEvents, type UnstampedEvent } from './projection'
+import {
+  applyEvent,
+  applyEventToDraft,
+  initialReadModel,
+  projectEvents,
+  type UnstampedEvent,
+} from './projection'
 
 const session = {
   id: 'sess_1',
@@ -235,5 +241,57 @@ describe('session projection', () => {
       )
     }
     expect(state.childEvents).toHaveLength(200)
+  })
+
+  describe('replay draft fold', () => {
+    const transcript = (): JournalEvent[] => {
+      const events: JournalEvent[] = [ev(0, { type: 'session.created', session })]
+      const push = (event: UnstampedEvent): void => {
+        events.push(ev(events.length, event))
+      }
+      for (let turn = 0; turn < 3; turn++) {
+        push({ type: 'turn.started', turnId: `turn_${turn}` })
+        push({
+          type: 'user.message.added',
+          message: { id: `u${turn}`, sessionId: 'sess_1', turnId: `turn_${turn}`, role: 'user', parts: [{ type: 'text', text: 'go' }], createdAt: 1 },
+        })
+        push({ type: 'assistant.parts.appended', messageId: `a${turn}`, parts: [{ type: 'text', text: 'a' }] })
+        push({ type: 'approval.requested', approvalId: `ap${turn}`, toolName: 'bash', summaryJson: '{}', options: [] })
+        push({ type: 'assistant.parts.appended', messageId: `a${turn}`, parts: [{ type: 'text', text: 'b' }] })
+        // A late part for an earlier message, not the newest one.
+        if (turn > 0) push({ type: 'assistant.parts.appended', messageId: 'a0', parts: [{ type: 'text', text: 'late' }] })
+        push({ type: 'turn.settled', turnId: `turn_${turn}`, stopReason: 'completed', errorMessage: null })
+      }
+      return events
+    }
+
+    it('lands on the same model as the pure fold', () => {
+      const events = transcript()
+      expect(projectEvents(events)).toEqual(events.reduce(applyEvent, initialReadModel()))
+    })
+
+    it('never mutates the events it folds', () => {
+      const events = transcript()
+      const before = structuredClone(events)
+      projectEvents(events)
+      projectEvents(events)
+      expect(events).toEqual(before)
+    })
+
+    it('replays a long streamed reply in linear time', () => {
+      const count = 20_000
+      let draft = applyEventToDraft(initialReadModel(), ev(0, { type: 'session.created', session }))
+      const start = performance.now()
+      for (let seq = 1; seq <= count; seq++) {
+        draft = applyEventToDraft(
+          draft,
+          ev(seq, { type: 'assistant.parts.appended', messageId: 'm1', parts: [{ type: 'text', text: 'x' }] }),
+        )
+      }
+      // The pure fold copies the growing parts array per event: ~200M copies.
+      expect(performance.now() - start).toBeLessThan(500)
+      expect(draft.messages[0]?.parts).toHaveLength(count)
+      expect(draft.lastSeq).toBe(count)
+    })
   })
 })
