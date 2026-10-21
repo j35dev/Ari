@@ -3,7 +3,7 @@ import { X, FolderPlus } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
-import { sidebarSpring, transitions } from '@ari/ui/motion'
+import { transitions } from '@ari/ui/motion'
 import { useEngineSettings } from './features/settings/useEngineSettings'
 import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
@@ -1052,7 +1052,7 @@ function Shell() {
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: sidebar.width, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
-              transition={sidebar.dragging || reducedMotion ? { duration: 0 } : sidebarSpring}
+              transition={sidebar.dragging || reducedMotion ? { duration: 0 } : transitions.sidebar}
               className="ari-sidebar-motion flex shrink-0 flex-col overflow-hidden bg-surface-0"
               style={{ '--ari-sidebar-motion-width': `${sidebar.width}px` } as React.CSSProperties}
             >
@@ -1063,7 +1063,7 @@ function Shell() {
               <SessionsUnderProjects
                 sessions={sessions}
                 projects={openProjects}
-                knownProjectNames={projects.map((p) => ({ id: p.id, name: p.name }))}
+                knownProjectNames={projects}
                 searchInputRef={sidebarSearchRef}
                 onNewSession={beginNewSession}
                 onOpenProject={openProjectViaDialog}
