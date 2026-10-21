@@ -44,34 +44,17 @@ describe('AppProviders', () => {
     const settings = settingsSchema.parse({ version: 1, appearance: { reducedMotion: true } })
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return settings
-      if (method === 'settings.update')
-        return { ...settings, appearance: { ...settings.appearance, reducedMotion: false } }
+      if (method === 'settings.update') return { ...settings, appearance: { ...settings.appearance, reducedMotion: false } }
       return undefined
     })
     function MotionProbe() {
       const { update } = useEngineSettings()
-      return (
-        <button
-          onClick={() => {
-            void update({ appearance: { reducedMotion: false } })
-          }}
-        >
-          Enable motion
-        </button>
-      )
+      return <button onClick={() => { void update({ appearance: { reducedMotion: false } }) }}>Enable motion</button>
     }
-    render(
-      <AppProviders>
-        <MotionProbe />
-      </AppProviders>,
-    )
-    await vi.waitFor(() =>
-      expect(document.documentElement).toHaveAttribute('data-ari-reduced-motion'),
-    )
+    render(<AppProviders><MotionProbe /></AppProviders>)
+    await vi.waitFor(() => expect(document.documentElement).toHaveAttribute('data-ari-reduced-motion'))
     await user.click(screen.getByRole('button', { name: 'Enable motion' }))
-    await vi.waitFor(() =>
-      expect(document.documentElement).not.toHaveAttribute('data-ari-reduced-motion'),
-    )
+    await vi.waitFor(() => expect(document.documentElement).not.toHaveAttribute('data-ari-reduced-motion'))
   })
 })
 
