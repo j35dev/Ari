@@ -72,13 +72,19 @@ html {
   --ari-sidebar-width: 280px;
   --ari-titlebar-height: 38px;
 
-  /* motion */
+  /* motion — the standard lives in packages/ui/src/motion/index.ts, whose
+     `durations` mirror these. Transform and opacity only; hover/press are
+     colour-only at --ari-dur-fast; nothing on a click path exceeds 200ms. */
   --ari-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --ari-ease-slide: cubic-bezier(0.22, 1, 0.36, 1);
+  --ari-ease-glide: cubic-bezier(0.22, 1, 0.36, 1);
+  --ari-ease-slide: var(--ari-ease-glide);
+  --ari-ease-soft: cubic-bezier(0.2, 0, 0, 1);
   --ari-dur-instant: 80ms;
+  --ari-dur-micro: 100ms;
   --ari-dur-fast: 140ms;
-  --ari-dur-base: 220ms;
-  --ari-dur-slow: 260ms;
+  --ari-dur-panel: 180ms;
+  --ari-dur-base: 180ms;
+  --ari-dur-slow: 200ms;
 }
 
 /* Obsidian — Smoky plum, warm ivory and luminous coral. */

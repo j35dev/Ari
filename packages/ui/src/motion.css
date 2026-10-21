@@ -60,8 +60,7 @@
     transform var(--ari-dur-fast) var(--ari-ease-out-expo),
     color var(--ari-dur-fast) ease-out,
     background-color var(--ari-dur-fast) ease-out,
-    border-color var(--ari-dur-fast) ease-out,
-    box-shadow var(--ari-dur-fast) ease-out;
+    border-color var(--ari-dur-fast) ease-out;
 }
 
 .ari-press:active:not(:disabled) {
