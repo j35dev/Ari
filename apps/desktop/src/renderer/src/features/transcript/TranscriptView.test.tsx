@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createElement } from 'react'
+import { Activity, createElement } from 'react'
 import type { Message } from '@ari/contracts/message'
 import { TranscriptView } from './TranscriptView'
 
@@ -182,6 +182,15 @@ describe('TranscriptView row entrance', () => {
     rerender(view([message('a')]))
     expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(1)
   })
+
+  it('does not announce rows that land while the view is kept hidden', () => {
+    const hiddenView = (messages: Message[], hidden: boolean) =>
+      createElement(TranscriptView, { sessionId: 'sess_1', messages, hidden })
+    const { container, rerender } = render(hiddenView([message('a')], false))
+    rerender(hiddenView([message('a'), message('b')], true))
+    rerender(hiddenView([message('a'), message('b')], false))
+    expect(container.querySelectorAll('.ari-enter-rise')).toHaveLength(0)
+  })
 })
 
 describe('TranscriptView loading state', () => {
@@ -264,6 +273,36 @@ describe('TranscriptView loading state', () => {
     } finally {
       raf.mockRestore()
     }
+  })
+
+  it('returns a kept-alive view to where the reader left off', () => {
+    const messages = [message('m1'), message('m2'), message('m3')]
+    const view = (mode: 'visible' | 'hidden') => (
+      <Activity mode={mode}>
+        <TranscriptView sessionId="sess_1" messages={messages} />
+      </Activity>
+    )
+    const { container, rerender } = render(view('visible'))
+    const scroller = container.querySelector<HTMLElement>('[aria-label="Conversation transcript"]')!
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => 4000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: 3600,
+    })
+    fireEvent.scroll(scroller)
+    scroller.scrollTop = 1200
+    fireEvent.scroll(scroller)
+    expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeInTheDocument()
+
+    // Hiding resets the offset, as `display:none` does in a browser.
+    rerender(view('hidden'))
+    scroller.scrollTop = 0
+    rerender(view('visible'))
+
+    expect(scroller.scrollTop).toBe(1200)
+    expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeInTheDocument()
   })
 
   it('re-pins to the tail when switching sessions', () => {

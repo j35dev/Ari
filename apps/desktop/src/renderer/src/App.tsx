@@ -23,6 +23,8 @@ import { themePersistence } from './lib/theme-persistence'
 import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
+import { SessionKeepAlive } from './features/session/SessionKeepAlive'
+import { keepAliveActions } from './features/session/session-keep-alive'
 import {
   UNFILED_GROUP_ID,
   moveProjectInList,
@@ -381,7 +383,9 @@ function Shell() {
   // shell pointed at something that no longer exists.
   useEffect(() => {
     if (!sessionsLoadedRef.current) return
-    splitLayoutActions.prune(new Set(sessions.map((session) => session.id)))
+    const known = new Set(sessions.map((session) => session.id))
+    splitLayoutActions.prune(known)
+    keepAliveActions.keepOnly(known)
   }, [sessions])
 
   // Late-bound so the global key handler (registered before the session
@@ -1226,27 +1230,34 @@ function Shell() {
                               </ErrorBoundary>
                             )
                           }}
-                          renderSession={(sessionId, paneId) => (
-                            // Keyed by pane *and* session, so a pane that changes what
-                            // it shows remounts: composer seeds and review notes belong
-                            // to the session, not to the position it sits in.
-                            <SessionView
-                              key={`${paneId}:${sessionId}`}
-                              sessionId={sessionId}
-                              defaults={defaultsFor(sessionId)}
-                              onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                              // A child session opens in the pane it was opened from,
-                              // rather than yanking the whole shell to it.
-                              onOpenSession={(childId) =>
-                                splitLayoutActions.assign(paneId, childId)
-                              }
-                              activityOf={activityOf}
-                              childSessions={sessions.filter(
-                                (session) =>
-                                  session.parentSessionId === sessionId && !session.archived,
+                          renderSession={(current, paneId) => (
+                            // One view per session, never reused for another: composer
+                            // seeds and review notes belong to the session, not to the
+                            // position it sits in. Recent ones stay mounted, hidden.
+                            <SessionKeepAlive
+                              key={paneId}
+                              poolId={paneId}
+                              sessionId={current}
+                              render={(sessionId, hidden) => (
+                                <SessionView
+                                  sessionId={sessionId}
+                                  hidden={hidden}
+                                  defaults={defaultsFor(sessionId)}
+                                  onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                                  // A child session opens in the pane it was opened from,
+                                  // rather than yanking the whole shell to it.
+                                  onOpenSession={(childId) =>
+                                    splitLayoutActions.assign(paneId, childId)
+                                  }
+                                  activityOf={activityOf}
+                                  childSessions={sessions.filter(
+                                    (session) =>
+                                      session.parentSessionId === sessionId && !session.archived,
+                                  )}
+                                  sessionTitle={sessionTitle}
+                                  parentSession={parentOf(sessions, sessionId)}
+                                />
                               )}
-                              sessionTitle={sessionTitle}
-                              parentSession={parentOf(sessions, sessionId)}
                             />
                           )}
                         />
