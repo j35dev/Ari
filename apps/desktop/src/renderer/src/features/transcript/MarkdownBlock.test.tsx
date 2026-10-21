@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const highlight = vi.hoisted(() => ({
@@ -95,6 +95,29 @@ describe('MarkdownBlock', () => {
     expect(grown[0]).toBe(lines[0])
     expect(grown[1]).toBe(lines[1])
     expect(root(container).querySelector('code')).toBe(code)
+  })
+
+  it('re-parses a large growing block at most once per interval, then lands the end', () => {
+    vi.useFakeTimers()
+    try {
+      const rows = (n: number): string =>
+        Array.from({ length: n }, (_, i) => `- item ${i} ${'x'.repeat(40)}`).join('\n')
+      const { container, rerender } = render(<MarkdownBlock text={rows(60)} streaming />)
+      rerender(<MarkdownBlock text={rows(61)} streaming />)
+      rerender(<MarkdownBlock text={rows(62)} streaming />)
+      expect(root(container).querySelectorAll('li')).toHaveLength(60)
+
+      act(() => {
+        vi.advanceTimersByTime(150)
+      })
+      expect(root(container).querySelectorAll('li')).toHaveLength(62)
+
+      rerender(<MarkdownBlock text={rows(63)} streaming />)
+      rerender(<MarkdownBlock text={rows(64)} />)
+      expect(root(container).querySelectorAll('li')).toHaveLength(64)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('never applies a late highlight to code that has since changed', async () => {

@@ -8,7 +8,13 @@ import { bundledLanguages, createHighlighter, type BundledLanguage, type Highlig
 
 const THEMES = { light: 'github-light', dark: 'github-dark' } as const
 
-const CACHE_MAX = 200
+/**
+ * Highlight cache bounds. A long session holds hundreds of code blocks, and
+ * every one that falls out is re-tokenized when it scrolls back in, so the
+ * cache is sized by what it holds rather than a small entry count.
+ */
+const CACHE_MAX_ENTRIES = 2_000
+const CACHE_MAX_CHARS = 16_000_000
 
 let pool: Promise<Highlighter> | null = null
 
@@ -22,13 +28,32 @@ function getPool(): Promise<Highlighter> {
 }
 
 const cache = new Map<string, string>()
+let cacheChars = 0
+
+/** A hit moves to the young end, so a block read often outlives a burst of new ones. */
+function cacheGet(key: string): string | undefined {
+  const html = cache.get(key)
+  if (html !== undefined) {
+    cache.delete(key)
+    cache.set(key, html)
+  }
+  return html
+}
 
 function cacheSet(key: string, html: string): void {
-  if (cache.size >= CACHE_MAX) {
-    const oldest = cache.keys().next()
-    if (!oldest.done) cache.delete(oldest.value)
+  const before = cache.get(key)
+  if (before !== undefined) {
+    cache.delete(key)
+    cacheChars -= key.length + before.length
   }
   cache.set(key, html)
+  cacheChars += key.length + html.length
+  for (const [oldKey, oldHtml] of cache) {
+    if (cache.size <= CACHE_MAX_ENTRIES && cacheChars <= CACHE_MAX_CHARS) break
+    if (oldKey === key) break
+    cache.delete(oldKey)
+    cacheChars -= oldKey.length + oldHtml.length
+  }
 }
 
 /** Which bundled theme is the default color source. Ari is dark-only. */
@@ -48,12 +73,12 @@ export function shikiInner(html: string): string {
 /**
  * Highlights `code` tagged as `lang`, returning full Shiki `<pre>` markup.
  * Returns null when the language is unknown or highlighting fails; callers fall
- * back to plain rendering. Results are memoized per (lang, code), capped at 200
- * entries.
+ * back to plain rendering. Results are memoized per (lang, code) in an LRU
+ * bounded by entry count and size.
  */
 export async function highlightCode(code: string, lang: string): Promise<string | null> {
   const key = `${lang}\u0000${code}`
-  const cached = cache.get(key)
+  const cached = cacheGet(key)
   if (cached !== undefined) return cached
 
   if (!(lang in bundledLanguages)) return null
@@ -94,7 +119,7 @@ export function warmHighlighter(lang: string): Highlighter | null {
  * text that never repeats.
  */
 export function highlightCodeSync(code: string, lang: string, compute: boolean): string | null {
-  const cached = cache.get(`${lang}\u0000${code}`)
+  const cached = cacheGet(`${lang}\u0000${code}`)
   if (cached !== undefined) return cached
   if (!compute || warm === null || !warmLanguages.has(lang)) return null
   try {
