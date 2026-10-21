@@ -666,7 +666,12 @@ describe('Shell split panes', () => {
     render(<App />)
     await screen.findByText('Alpha', {}, { timeout: 10_000 })
     fireEvent.keyDown(window, { key: '2', ctrlKey: true })
-    const pane = await screen.findByText('No messages yet — say hello.', {}, { timeout: 10_000 })
+    const pane = await screen.findByRole(
+      'log',
+      { name: 'Conversation transcript' },
+      { timeout: 10_000 },
+    )
+    expect(pane).toHaveAttribute('data-session', 'sess-beta')
 
     fireEvent.contextMenu(pane, { clientX: 60, clientY: 60 })
     expect(screen.getByRole('menu')).toHaveAccessibleName('Beta pane')
