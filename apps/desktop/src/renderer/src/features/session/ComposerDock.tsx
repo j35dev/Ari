@@ -59,6 +59,11 @@ export const ComposerDock = memo(function ComposerDock({
       data-centered={centered || undefined}
       initial={false}
       layout="position"
+      // Only the welcome ↔ conversation handoff moves the dock. Without this,
+      // every re-render of the session view starts an app-wide layout pass
+      // that re-measures every motion layout node, the sidebar's
+      // drag-reorderable groups included.
+      layoutDependency={centered}
       animate={{ y: centered ? -lift : 0 }}
       transition={instant || !measured ? { duration: 0 } : transitions.composerDock}
     >

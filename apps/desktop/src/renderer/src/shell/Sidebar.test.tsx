@@ -736,6 +736,32 @@ describe('SessionsUnderProjects', () => {
     expect(screen.queryByText('3 selected')).not.toBeInTheDocument()
     expect(onToggleArchive).not.toHaveBeenCalled()
   })
+
+  it('calls the latest handler after a re-render that only replaced handlers', async () => {
+    localStorage.clear()
+    const sessions = [session('a', 1, 'proj-1')]
+    const first = vi.fn()
+    const second = vi.fn()
+    const view = (onSelect: (id: string) => void) => (
+      <SessionsUnderProjects
+        sessions={sessions}
+        projects={projects}
+        activeSessionId={null}
+        onSelect={onSelect}
+        onRename={() => {}}
+        onDelete={() => {}}
+        onTogglePin={() => {}}
+        onToggleArchive={() => {}}
+      />
+    )
+    const { rerender } = render(view(first))
+    rerender(view(second))
+
+    await userEvent.setup().click(screen.getByText('Session a'))
+
+    expect(second).toHaveBeenCalledWith('a')
+    expect(first).not.toHaveBeenCalled()
+  })
 })
 
 describe('SidebarHeader', () => {
