@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FILE_INDEX_MAX_DEPTH, ProjectFileIndex, walkWorkspaceFiles } from './file-index'
+import { FILE_INDEX_MAX_DEPTH, ProjectFileIndex, WalkCache, walkWorkspaceFiles } from './file-index'
 
 let dir: string
 let root: string
@@ -127,5 +127,45 @@ describe('ProjectFileIndex', () => {
     await index.applyBatch([extra])
     expect(index.size).toBe(3)
     expect(index.paths()).not.toContain('e.txt')
+  })
+})
+
+describe('WalkCache', () => {
+  it('reuses a walk within the TTL and re-walks after it', async () => {
+    let now = 0
+    const cache = new WalkCache(1_000, () => now)
+    await writeFile(join(root, 'a.ts'), '')
+    expect(await cache.paths(root)).toEqual(['a.ts'])
+
+    await writeFile(join(root, 'b.ts'), '')
+    now = 999
+    expect(await cache.paths(root)).toEqual(['a.ts'])
+    now = 1_000
+    expect(await cache.paths(root)).toEqual(['a.ts', 'b.ts'])
+  })
+
+  it('shares one walk between concurrent asks', async () => {
+    const cache = new WalkCache()
+    const first = cache.paths(root)
+    expect(cache.paths(root)).toBe(first)
+    await first
+  })
+
+  it('does not keep a failed walk', async () => {
+    const cache = new WalkCache()
+    const missing = join(dir, 'missing')
+    await expect(cache.paths(missing)).rejects.toThrow()
+    await mkdir(missing)
+    await writeFile(join(missing, 'c.ts'), '')
+    expect(await cache.paths(missing)).toEqual(['c.ts'])
+  })
+
+  it('skips nested toolchain output and dependency trees', async () => {
+    for (const name of ['target', '.venv', 'venv', '__pycache__', 'vendor', '.next', '.turbo']) {
+      await mkdir(join(root, 'pkg', name), { recursive: true })
+      await writeFile(join(root, 'pkg', name, 'x.txt'), '')
+    }
+    await writeFile(join(root, 'pkg', 'keep.ts'), '')
+    expect(await walkWorkspaceFiles(root, 100)).toEqual(['pkg/keep.ts'])
   })
 })

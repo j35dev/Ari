@@ -7,7 +7,9 @@ import {
   ensureProjectWatched,
   getIndexedFiles,
   getWatcher,
+  sameRoot,
   stopWatchingProject,
+  watchedFiles,
 } from './watcher-bridge'
 
 let dir: string
@@ -105,5 +107,24 @@ describe('watcher bridge', () => {
     expect(getIndexedFiles('p3')).not.toBeNull()
     await closeAllWatchers()
     expect(getIndexedFiles('p3')).toBeNull()
+  })
+
+  it('serves watched files only for projects already being watched', async () => {
+    await writeFile(join(dir, 'a.ts'), '')
+    expect(await watchedFiles('p4')).toBeNull()
+
+    // A caller arriving mid-build waits for the complete listing.
+    const first = ensureProjectWatched({ id: 'p4', path: dir }, { debounceMs: 25 })
+    expect(await watchedFiles('p4')).toEqual(['a.ts'])
+    await first
+
+    await stopWatchingProject(dir, 'p4')
+    expect(await watchedFiles('p4')).toBeNull()
+  })
+
+  it('compares roots under the platform case rules', () => {
+    expect(sameRoot(join(dir, 'x'), join(dir, 'x', '..', 'x'))).toBe(true)
+    expect(sameRoot(join(dir, 'x'), join(dir, 'y'))).toBe(false)
+    if (process.platform === 'win32') expect(sameRoot(dir.toUpperCase(), dir)).toBe(true)
   })
 })
