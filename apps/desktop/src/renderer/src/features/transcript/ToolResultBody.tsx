@@ -47,7 +47,7 @@ export function ToolResultBody({ resultJson }: { resultJson: string }) {
   const clippable = isClippable(text)
   return (
     <div className="relative">
-      <div className="absolute right-1 top-1.5 z-10">
+      <div className="absolute right-1 top-1.5 z-pane-chrome">
         <CopyButton text={text} />
       </div>
       <CodeBlock

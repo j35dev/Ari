@@ -98,10 +98,9 @@ describe('CommandPalette', () => {
 
   it('closes on backdrop click', () => {
     const onClose = vi.fn()
-    const { container } = render(
-      <CommandPalette open onClose={onClose} commands={makeCommands()} />,
-    )
-    fireEvent.click(container.firstElementChild!)
+    render(<CommandPalette open onClose={onClose} commands={makeCommands()} />)
+    // The palette portals out of the render container, into the layer root.
+    fireEvent.click(screen.getByRole('dialog').parentElement!)
     expect(onClose).toHaveBeenCalledOnce()
   })
 })
