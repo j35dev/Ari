@@ -711,11 +711,15 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
       hydrateGenerations.set(candidate.kind, generation)
       return { candidate, generation }
     })
+  // A full round reads the shared detection round that providers.detect and
+  // the catalog wait on too, rather than spawning every CLI a second time.
+  const shared = only === undefined ? rawDetections() : null
   void resolveDetectionEnvironment().then((env) =>
     Promise.all(
       rounds.map(async ({ candidate, generation }) => {
         try {
-          const detection = await detectConfigured(candidate.kind, env)
+          const row = (await shared)?.find((detection) => detection.kind === candidate.kind)
+          const detection = row ?? (await detectConfigured(candidate.kind, env))
           // A later round already speaks for this kind's current settings.
           if (generation !== hydrateGenerations.get(candidate.kind)) return
           if (!detection.binaryPath) {
@@ -770,6 +774,12 @@ export interface RegisterRpcOptions {
   onRunningCount?: (runningCount: number) => void
   /** Notified with the stored settings after every successful `settings.update`. */
   onSettingsChanged?: (settings: Settings) => void
+  /**
+   * Gate for start-up work nothing on screen needs yet (agent runtime with its
+   * session recovery, browser MCP server); typically the window's first paint.
+   * Absent means start at once.
+   */
+  backgroundReady?: Promise<void>
 }
 
 /** Hard ceiling for `fs.readTextFile` regardless of the requested maxBytes. */
@@ -963,7 +973,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   engineRef = engine
-  const controlReady = Promise.all([resolveDetectionEnvironment(), getSettingsStore().load()]).then(
+  const backgroundReady = options.backgroundReady ?? Promise.resolve()
+  // The runtime's start-up recovery replays every delegated session; turns
+  // and agent-control calls wait on it, the first paint does not.
+  const environmentReady = backgroundReady.then(() => resolveDetectionEnvironment())
+  const controlReady = Promise.all([environmentReady, getSettingsStore().load()]).then(
     async ([environment]) => {
       runtime = await startAgentRuntime({
         userData: app.getPath('userData'),
@@ -1063,7 +1077,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     browserMcpServers = []
     browserCoreMcpServers = []
   })
-  void startBrowserMcpServer(browsers)
+  void backgroundReady
+    .then(() => startBrowserMcpServer(browsers))
     .then(async (handle) => {
       const proxyPath = await writeBrowserMcpProxy(app.getPath('userData'))
       const stdioEnv = [
