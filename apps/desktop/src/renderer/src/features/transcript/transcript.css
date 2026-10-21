@@ -17,7 +17,7 @@
  * growing is updated in place, so the text already on screen never dims.
  */
 .ari-md[data-streaming] > * {
-  transition: opacity calc(var(--ari-dur-slow) * 2) ease-out;
+  transition: opacity var(--ari-dur-micro) ease-out;
 }
 
 @starting-style {
