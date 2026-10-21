@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -139,13 +140,20 @@ const isEmpty = (messages: Message[]): boolean => messages.length === 0
 /**
  * The transcript, subscribed to the session's message store on its own: a
  * streamed delta re-renders it, not the session view and composer around it.
+ * The list is deferred, so a keystroke interrupts a transcript render rather
+ * than queueing behind it.
  */
 function StoreTranscript({
   store,
+  loading,
   ...props
 }: { store: TranscriptStore } & Omit<ComponentProps<typeof TranscriptView>, 'messages'>) {
-  const messages = useTranscriptMessages(store)
-  return <TranscriptView messages={messages} {...props} />
+  const latest = useTranscriptMessages(store)
+  const messages = useDeferredValue(latest)
+  // History that has landed but not rendered yet is still loading: the
+  // transcript must not read the stale empty list as an empty session.
+  const pending = messages !== latest && messages.length === 0
+  return <TranscriptView messages={messages} loading={loading === true || pending} {...props} />
 }
 
 const EMPTY_TELEMETRY: Telemetry = {
@@ -411,9 +419,20 @@ export function SessionView({
       }
       applyEvent(raw, live)
     }
-    // One state update per frame however many events it carried.
+    // One transcript update per IPC frame, and live deltas at most once per
+    // animation frame: a burst of flushes (several panes streaming, or a
+    // batched stream frame) paints once.
+    let publishFrame: number | null = null
     const publishMessages = (): void => {
+      if (publishFrame !== null) cancelAnimationFrame(publishFrame)
+      publishFrame = null
       store.publish()
+    }
+    const publishSoon = (): void => {
+      publishFrame ??= requestAnimationFrame(() => {
+        publishFrame = null
+        store.publish()
+      })
     }
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
@@ -443,7 +462,9 @@ export function SessionView({
         return
       }
       ingest(event, true)
-      publishMessages()
+      // A prompt lands at once; streamed parts wait for the next frame.
+      if (event.type === 'assistant.parts.appended') publishSoon()
+      else publishMessages()
     })
 
     // Per-turn diff cards (M18.1): after a turn settles, query its checkpoint
@@ -490,6 +511,7 @@ export function SessionView({
       cancelled = true
       if (tasksTimer !== null) clearTimeout(tasksTimer)
       refreshTasksRef.current = () => {}
+      if (publishFrame !== null) cancelAnimationFrame(publishFrame)
       unsubscribe()
     }
   }, [sessionId, store])
