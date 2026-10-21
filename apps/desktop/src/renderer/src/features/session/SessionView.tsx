@@ -252,6 +252,7 @@ export function SessionView({
   const sessionTitleRef = useRef('Session')
   const fetchedTurnIdsRef = useRef(new Set<string>())
   const fetchTurnDiffRef = useRef<(turnId: string) => void>(() => {})
+  const settledTurnIdsRef = useRef(new Set<string>())
   // Stream ordering guards (M23.12): the journal replay on (re)subscribe races
   // live events, so frames are sequenced by journal `seq` — replayed frames
   // apply immediately, live frames buffer until the replay sentinel, and any
@@ -324,6 +325,7 @@ export function SessionView({
     lastPartRef.current = null
     partCountsRef.current = new Map()
     fetchedTurnIdsRef.current = new Set()
+    settledTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
 
     // Task snapshots trail the journal: a burst of child events (replay, or
@@ -527,7 +529,11 @@ export function SessionView({
             t.startedAt !== null ? Math.max(0, event.at - t.startedAt) : t.lastDurationMs,
           startedAt: null,
         }))
-        fetchTurnDiffRef.current(event.turnId)
+        // History turns query their diff once the transcript scrolls them
+        // near view (see handleTurnInView); a session with N past turns would
+        // otherwise spawn N git diffs on open.
+        settledTurnIdsRef.current.add(event.turnId)
+        if (live) fetchTurnDiffRef.current(event.turnId)
         setPlanNonce((n) => n + 1)
         if (event.stopReason === 'error' && event.errorMessage) {
           // Raw text is kept: the banner's Details disclosure shows it verbatim.
@@ -738,6 +744,10 @@ export function SessionView({
     },
     [dispatchSend, toast],
   )
+
+  const handleTurnInView = useCallback((turnId: string) => {
+    if (settledTurnIdsRef.current.has(turnId)) fetchTurnDiffRef.current(turnId)
+  }, [])
 
   /** M21.1 review loop: a saved diff line note joins the next message. */
   const handleDiffComment = useCallback(
@@ -1037,6 +1047,7 @@ export function SessionView({
             delegations={delegations}
             sessionTitle={sessionTitle}
             onOpenSession={onOpenSession}
+            onTurnInView={handleTurnInView}
           />
         </div>
         <div

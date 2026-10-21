@@ -28,7 +28,7 @@ function hasToolTraffic(run: TranscriptBlock[]): boolean {
 }
 
 /** The turn a row belongs to, or null for rows outside any turn. */
-function rowTurnId(row: GroupedRow): string | null {
+export function rowTurnId(row: GroupedRow): string | null {
   if (row.kind === 'tool-group') return row.blocks[0]?.turnId ?? null
   if (row.kind === 'turn-diff') return row.turnId
   return row.turnId ?? null

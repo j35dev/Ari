@@ -14,7 +14,7 @@ import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
 import { followBehavior, pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
-import { groupBlocks } from './groupBlocks'
+import { groupBlocks, rowTurnId } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
 import { MessageFooter } from './MessageFooter'
 import { ThinkingBlock } from './ThinkingBlock'
@@ -107,9 +107,16 @@ export function TranscriptView({
   delegations,
   sessionTitle,
   onOpenSession,
+  onTurnInView,
 }: {
   sessionId: string
   messages: Message[]
+  /**
+   * Called with a turn's id once its last row comes near the viewport, so
+   * per-turn work (the diff card query) runs for turns the reader can see
+   * rather than for every turn in history. May repeat for the same turn.
+   */
+  onTurnInView?: (turnId: string) => void
   activity?: React.ReactNode
   /** Children this session delegated to; each renders as a task card where it was spawned. */
   delegations?: readonly DelegatedChild[]
@@ -161,6 +168,25 @@ export function TranscriptView({
     for (let i = rows.length - 1; i >= 0; i--) if (rows[i]?.kind !== 'delegation') return i
     return -1
   }, [rows])
+  // The last row of each turn, keyed by row key: where its diff card attaches.
+  const turnEnds = useMemo(() => {
+    const ends = new Map<string, string>()
+    let lastKey: string | null = null
+    let lastTurn: string | null = null
+    for (const row of rows) {
+      if (row.kind === 'delegation') continue
+      const turn = rowTurnId(row)
+      if (lastKey !== null && lastTurn !== null && turn !== lastTurn) ends.set(lastKey, lastTurn)
+      lastKey = row.key
+      lastTurn = turn
+    }
+    if (lastKey !== null && lastTurn !== null) ends.set(lastKey, lastTurn)
+    return ends
+  }, [rows])
+  const turnEndsSignature = useMemo(() => [...turnEnds.values()].join(' '), [turnEnds])
+  const onTurnInViewRef = useRef(onTurnInView)
+  onTurnInViewRef.current = onTurnInView
+  const watchesTurns = onTurnInView !== undefined
   const seenRowsRef = useRef(new Set<string>())
   const freshRowsRef = useRef(new Set<string>())
   const historyLoadedRef = useRef(false)
@@ -295,6 +321,32 @@ export function TranscriptView({
     return () => observer.disconnect()
   }, [followTail])
 
+  useEffect(() => {
+    const inner = innerRef.current
+    if (!inner || !watchesTurns || turnEndsSignature.length === 0) return
+    const nodes = inner.querySelectorAll<HTMLElement>('[data-turn-end]')
+    const report = (node: Element): void => {
+      const turnId = node instanceof HTMLElement ? node.dataset.turnEnd : undefined
+      if (turnId) onTurnInViewRef.current?.(turnId)
+    }
+    if (typeof IntersectionObserver === 'undefined') {
+      nodes.forEach(report)
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          observer.unobserve(entry.target)
+          report(entry.target)
+        }
+      },
+      { root: scrollRef.current, rootMargin: '600px 0px' },
+    )
+    nodes.forEach((node) => observer.observe(node))
+    return () => observer.disconnect()
+  }, [watchesTurns, turnEndsSignature])
+
   // The working indicator sits outside the observed column, and re-pinning
   // has to land on the tail at once rather than at the next resize.
   useLayoutEffect(followTail, [followTail, rows, atBottom, hasWorking])
@@ -361,6 +413,7 @@ export function TranscriptView({
             <div
               key={row.key}
               className={freshRows.has(row.key) ? 'ari-enter-rise' : undefined}
+              data-turn-end={turnEnds.get(row.key)}
               // Once it has played, the class comes off: a pane shown again
               // after being hidden restarts CSS animations, and every row that
               // arrived live would rise at once.
