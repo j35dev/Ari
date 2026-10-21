@@ -13,3 +13,7 @@ class ResizeObserverStub {
   disconnect(): void {}
 }
 globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver
+
+// jsdom lacks the Web Animations API; nothing it lays out ever animates.
+const animatable = Element.prototype as Partial<Pick<Element, 'getAnimations'>>
+animatable.getAnimations ??= () => []
