@@ -33,7 +33,7 @@ export interface BrowserGuest {
   getTitle(): string
   isLoading(): boolean
   executeJavaScript(code: string): Promise<unknown>
-  capturePage(rect?: BrowserBounds): Promise<Buffer | null>
+  capturePage(rect?: BrowserBounds, format?: 'png' | 'jpeg'): Promise<Buffer | null>
   setBounds(bounds: BrowserBounds): void
   setVisible(visible: boolean): void
   destroy(): void
@@ -195,9 +195,10 @@ export class BrowserService {
     return tab.guest.executeJavaScript(code)
   }
 
-  async screenshot(id: string): Promise<Buffer | null> {
-    const tab = this.#tab(id)
-    return tab.guest.capturePage()
+  /** A cheap JPEG of the whole page, for the stand-in shown while app UI covers it. */
+  async still(id: string): Promise<string | null> {
+    const jpeg = await this.#tab(id).guest.capturePage(undefined, 'jpeg')
+    return jpeg ? `data:image/jpeg;base64,${jpeg.toString('base64')}` : null
   }
 
   reveal(id: string): void {

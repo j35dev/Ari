@@ -1098,7 +1098,8 @@ export interface RpcResults {
   'browser.pick':
     { ok: true; element: PickedElement; pngBase64: string | null } | { ok: false; error: string }
   'browser.cancelPick': { cancelled: boolean }
-  'browser.capture': { pngBase64: string | null }
+  /** A JPEG still of the page as a data URL; null when the guest has no frame. */
+  'browser.capture': { dataUrl: string | null }
   'project.list': Project[]
   'project.add': Project
   'project.open': Project

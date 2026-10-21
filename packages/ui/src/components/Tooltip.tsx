@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react-dom'
 import { transitions } from '../motion'
+import { useOverlayRef } from '../overlay-registry'
 
 /** 140ms fade in/out (PLAN §6.4 timing budget for transient surfaces). */
 const tooltipVariants: Variants = {
@@ -40,6 +41,7 @@ export function Tooltip({
   const [visible, setVisible] = useState(false)
   const timerRef = useRef<number | undefined>(undefined)
   const id = useId()
+  const overlayRef = useOverlayRef()
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== undefined) {
@@ -108,7 +110,10 @@ export function Tooltip({
         <AnimatePresence>
           {visible && (
             <motion.span
-              ref={refs.setFloating}
+              ref={(node) => {
+                refs.setFloating(node)
+                overlayRef(node)
+              }}
               role="tooltip"
               id={id}
               initial="hidden"

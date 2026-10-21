@@ -8,6 +8,7 @@ import type {
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { menuInVariants } from '../motion'
+import { useOverlayRef } from '../overlay-registry'
 import { useOverlayFocus } from './use-overlay-focus'
 
 /** Scrim must blend over any theme, so it is a raw color-mix rather than a token. */
@@ -112,11 +113,13 @@ export function DialogContent({
   const close = useCallback(() => setOpen(false), [setOpen])
 
   useOverlayFocus({ active: open, panelRef, onEscape: close })
+  const scrimRef = useOverlayRef()
 
   return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={scrimRef}
           className="fixed inset-0 z-50 flex items-center justify-center"
           style={SCRIM_STYLE}
           initial={{ opacity: 0 }}
