@@ -10,6 +10,7 @@ import {
   MODEL_CATALOGS,
   modelsFor,
   modesFor,
+  resolveOfferedModel,
   setDynamicEfforts,
   setDynamicModels,
   setDynamicModes,
@@ -326,5 +327,30 @@ describe('modesFor', () => {
     // The picker filter is the RPC layer's job; the overlay keeps raw data.
     setDynamicModes('codex', { currentId: null, options: [] })
     expect(modesFor('codex')).toEqual({ currentId: null, options: [] })
+  })
+})
+
+describe('resolveOfferedModel', () => {
+  const claude = [
+    { id: 'default', label: 'Default (recommended)' },
+    { id: 'opus', label: 'Opus 5.5' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+    { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+  ]
+
+  it('prefers an exact id or alias', () => {
+    expect(resolveOfferedModel('claude-opus-4-8', claude)).toBe('claude-opus-4-8')
+    expect(
+      resolveOfferedModel('opus-latest', [{ id: 'opus', label: 'Opus', aliases: ['opus-latest'] }]),
+    ).toBe('opus')
+  })
+
+  it('matches a registry id to the row the agent names the same model by', () => {
+    expect(resolveOfferedModel('claude-opus-5-5', claude)).toBe('opus')
+    expect(resolveOfferedModel('claude-haiku-4-5', claude)).toBe('claude-haiku-4-5-20251001')
+  })
+
+  it('finds nothing for a model the agent does not offer', () => {
+    expect(resolveOfferedModel('claude-sonnet-5-5', claude)).toBeNull()
   })
 })
