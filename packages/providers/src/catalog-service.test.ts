@@ -329,6 +329,33 @@ describe('CatalogService', () => {
     expect(modelsFor('claude')).toEqual([{ id: 'opus', label: 'Opus 5.5' }])
   })
 
+  it('saves an agent that answered while another is still being asked', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const liveCachePath = join(dir, 'agent-catalogs.json')
+    const gate: { release: (() => void) | null } = { release: null }
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      liveCachePath,
+      probeModels: vi.fn((kind: DriverKind) =>
+        kind === 'claude'
+          ? Promise.resolve([{ id: 'opus', label: 'Opus 5.5' }])
+          : new Promise<null>((resolve) => {
+              gate.release = () => resolve(null)
+            }),
+      ),
+      probeKinds: ['claude', 'hermes'],
+    })
+    const round = service.refresh()
+    await vi.waitFor(async () => {
+      const saved = JSON.parse(await readFile(liveCachePath, 'utf8')) as {
+        kinds: Record<string, { models: CatalogModel[] }>
+      }
+      expect(saved.kinds['claude']?.models).toEqual([{ id: 'opus', label: 'Opus 5.5' }])
+    })
+    gate.release?.()
+    await round
+  })
+
   it('opens on what each agent said last run, then asks it again', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
     const liveCachePath = join(dir, 'agent-catalogs.json')
