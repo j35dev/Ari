@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+} from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
 import { useTurnResume } from './use-turn-resume'
@@ -30,6 +38,12 @@ import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
 import { ComposerDock } from './ComposerDock'
 import { createMessageFold } from './message-fold'
+import {
+  transcriptStore,
+  useTranscriptMessages,
+  useTranscriptSelector,
+  type TranscriptStore,
+} from './transcript-store'
 import './session-canvas.css'
 import { TurnErrorBanner } from './TurnErrorBanner'
 import { ElementChips } from '../browser/ElementChips'
@@ -98,6 +112,40 @@ interface Telemetry {
 }
 
 const NO_DELEGATIONS: readonly DelegatedChild[] = []
+
+/** The newest user message, which regenerate and retry resend. */
+function lastUserOf(messages: Message[]): Message | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    if (m?.role === 'user') return m
+  }
+  return null
+}
+
+/** Prompts typed here, not messages another session or Ari put into this conversation. */
+function humanPromptsOf(messages: Message[]): Message[] {
+  return messages.filter(
+    (m) => m.role === 'user' && (m.origin === undefined || m.origin.kind === 'human'),
+  )
+}
+
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item, i) => item === b[i])
+}
+
+const isEmpty = (messages: Message[]): boolean => messages.length === 0
+
+/**
+ * The transcript, subscribed to the session's message store on its own: a
+ * streamed delta re-renders it, not the session view and composer around it.
+ */
+function StoreTranscript({
+  store,
+  ...props
+}: { store: TranscriptStore } & Omit<ComponentProps<typeof TranscriptView>, 'messages'>) {
+  const messages = useTranscriptMessages(store)
+  return <TranscriptView messages={messages} {...props} />
+}
 
 const EMPTY_TELEMETRY: Telemetry = {
   turnCount: 0,
@@ -225,7 +273,7 @@ export function SessionView({
   /** The session that delegated to this one, when it is a child. */
   parentSession?: { id: string; title: string } | null
 }) {
-  const [messages, setMessages] = useState<Message[]>([])
+  const store = useMemo(() => transcriptStore(sessionId), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   // History is loading until its replay has been applied, so the transcript
   // never paints an empty state, or animates history in, while it is in flight.
@@ -314,8 +362,7 @@ export function SessionView({
 
   useEffect(() => {
     let cancelled = false
-    setMessages([])
-    messageFoldRef.current = createMessageFold()
+    messageFoldRef.current = store.begin()
     setRunning(false)
     setQueued([])
     setApprovals([])
@@ -363,8 +410,7 @@ export function SessionView({
     }
     // One state update per frame however many events it carried.
     const publishMessages = (): void => {
-      const next = messageFoldRef.current.commit()
-      if (next !== null) setMessages(next)
+      store.publish()
     }
 
     const unsubscribe = rpc.subscribe('session.events', { sessionId }, (payload) => {
@@ -443,7 +489,7 @@ export function SessionView({
       refreshTasksRef.current = () => {}
       unsubscribe()
     }
-  }, [sessionId])
+  }, [sessionId, store])
 
   const applyEvent = useCallback((event: JournalEvent, live: boolean) => {
     switch (event.type) {
@@ -789,31 +835,28 @@ export function SessionView({
   // M19.4 regenerate/retry: the prompt to re-run is the most recent user
   // message's text plus its staged image refs (null when the transcript has
   // no user message yet).
+  const lastUser = useTranscriptSelector(store, lastUserOf)
   const lastUserMessage = useMemo((): { text: string; attachments: AttachmentRef[] } | null => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
-      if (!m || m.role !== 'user') continue
-      // A turn another session or Ari itself started is not the user's to
-      // resend: it would go back out as if they had typed it.
-      if (m.origin && m.origin.kind !== 'human') return null
-      const text = m.parts
-        .filter((part) => part.type === 'text')
-        .map((part) => part.text)
-        .join('\n')
-        .trim()
-      const attachments: AttachmentRef[] = m.parts
-        .filter((part) => part.type === 'image')
-        .map((part) => ({
-          id: part.attachmentId,
-          name: part.name,
-          mimeType: part.mimeType,
-          size: part.size,
-        }))
-      if (text.length === 0 && attachments.length === 0) return null
-      return { text, attachments }
-    }
-    return null
-  }, [messages])
+    const m = lastUser
+    // A turn another session or Ari itself started is not the user's to
+    // resend: it would go back out as if they had typed it.
+    if (m === null || (m.origin && m.origin.kind !== 'human')) return null
+    const text = m.parts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n')
+      .trim()
+    const attachments: AttachmentRef[] = m.parts
+      .filter((part) => part.type === 'image')
+      .map((part) => ({
+        id: part.attachmentId,
+        name: part.name,
+        mimeType: part.mimeType,
+        size: part.size,
+      }))
+    if (text.length === 0 && attachments.length === 0) return null
+    return { text, attachments }
+  }, [lastUser])
 
   // Both regenerate (assistant footer) and retry (error banner) resend the
   // last user prompt as a fresh turn via the normal send path; disabled while
@@ -963,18 +1006,18 @@ export function SessionView({
 
   // What the composer's ArrowUp recalls: prompts typed here, not messages
   // another session or Ari put into this conversation.
+  const humanPrompts = useTranscriptSelector(store, humanPromptsOf, sameItems)
   const sentPrompts = useMemo(
     () =>
-      messages
-        .filter((m) => m.role === 'user' && (m.origin === undefined || m.origin.kind === 'human'))
-        .map((m) =>
-          m.parts
-            .filter((part) => part.type === 'text')
-            .map((part) => part.text)
-            .join('\n'),
-        ),
-    [messages],
+      humanPrompts.map((m) =>
+        m.parts
+          .filter((part) => part.type === 'text')
+          .map((part) => part.text)
+          .join('\n'),
+      ),
+    [humanPrompts],
   )
+  const transcriptEmpty = useTranscriptSelector(store, isEmpty)
 
   const pendingPlan =
     pendingQuestion === null
@@ -995,7 +1038,7 @@ export function SessionView({
     (pendingQuestion !== null && pendingPlan === null) || approvals.length > 0
   const centered =
     !loading &&
-    messages.length === 0 &&
+    transcriptEmpty &&
     !running &&
     !composerAttentionRequired &&
     pendingPlan === null &&
@@ -1018,9 +1061,9 @@ export function SessionView({
           onOpenSession={onOpenSession}
         />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
-          <TranscriptView
+          <StoreTranscript
             sessionId={sessionId}
-            messages={messages}
+            store={store}
             loading={loading}
             turnDiffs={turnDiffs}
             onEditUserMessage={handleEditMessage}
