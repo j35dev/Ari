@@ -75,3 +75,22 @@
     animation: none;
   }
 }
+
+/* Ambient accent glow behind the welcome panel: a 320px disk under a 100px
+   blur, drawn as the gradient that blur produces. A CSS `filter: blur()` that
+   wide re-rasterises a large offscreen surface whenever anything near it
+   repaints; a gradient is a plain background. `local` scrolls it with the
+   content, as the positioned element it replaces did. */
+.ari-welcome-glow {
+  background-image: radial-gradient(
+    400px circle at 50% 96px,
+    color-mix(in oklab, var(--ari-accent) 7.2%, transparent),
+    color-mix(in oklab, var(--ari-accent) 6.2%, transparent) 80px,
+    color-mix(in oklab, var(--ari-accent) 3.7%, transparent) 160px,
+    color-mix(in oklab, var(--ari-accent) 1.4%, transparent) 240px,
+    color-mix(in oklab, var(--ari-accent) 0.3%, transparent) 320px,
+    transparent 400px
+  );
+  background-repeat: no-repeat;
+  background-attachment: local;
+}

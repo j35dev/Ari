@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { defaultThemeId, isThemeId, systemTheme, themes } from './themes'
 import type { Theme, ThemeId } from './themes'
+import { canBakeWallpaper, installWallpaperBake } from './wallpaper-bake'
 import { isWallpaperSetting, wallpapers } from './wallpapers'
 import type { WallpaperSetting } from './wallpapers'
 
@@ -259,6 +260,13 @@ export function ThemeProvider({
     else revealTheme(root, apply)
     painted.current = true
   }, [theme.id, theme.scheme, prefs.wallpaper])
+
+  // Swap the live backdrop blur for a baked one (see wallpaper-bake.ts).
+  useEffect(() => {
+    const src = wallpapers.find((w) => w.id === prefs.wallpaper)?.src
+    if (src === undefined || !canBakeWallpaper()) return
+    return installWallpaperBake(document.documentElement, src)
+  }, [prefs.wallpaper])
 
   useEffect(() => {
     writeCache(prefs)
