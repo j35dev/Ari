@@ -19,6 +19,14 @@ export const DEFAULT_IGNORED_NAMES: readonly string[] = [
   'out',
   'build',
   'coverage',
+  // Toolchain output and dependency trees: Rust/Maven, Python, Go/PHP, Next, Turbo.
+  'target',
+  '.venv',
+  'venv',
+  '__pycache__',
+  'vendor',
+  '.next',
+  '.turbo',
 ]
 
 export interface WorkspaceWatcherEvents {

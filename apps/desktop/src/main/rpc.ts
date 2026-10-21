@@ -34,7 +34,7 @@ import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
-import { ProjectFileIndex } from './file-index'
+import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
   performGitAction,
@@ -75,7 +75,13 @@ import { BrowserService } from './browser-service'
 import { createElectronBrowserGuest } from './browser-electron'
 import { startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
 import { buildExtensionInventory, readInventoriedSkill } from './extension-inventory'
-import { ensureProjectWatched, getIndexedFiles, stopWatchingProject } from './watcher-bridge'
+import {
+  ensureProjectWatched,
+  getIndexedFiles,
+  sameRoot,
+  stopWatchingProject,
+  watchedFiles,
+} from './watcher-bridge'
 import { createAppUpdater } from './updater'
 import type { UpdateController } from './update-controller'
 import { applyThemeToWindow } from './window'
@@ -2030,14 +2036,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { opened: true }
   })
 
+  const walkCache = new WalkCache()
   r.register('files.index', async (params) => {
     if (params.sessionId) {
       const { session } = await getSessionStore().load(params.sessionId)
       const workspace = session ? await engine.workspace(session) : null
-      if (!workspace) return { paths: [] }
-      const index = new ProjectFileIndex(workspace)
-      await index.init()
-      return { paths: index.paths() }
+      if (!session || !workspace) return { paths: [] }
+      // A session in its project's folder reads the watcher-fed project index
+      // when one is running; anything else reuses a recent walk. Switching
+      // sessions must not start a watcher per project.
+      await getProjectStore().load()
+      const project = getProjectStore().get(session.projectId)
+      const watched =
+        project && sameRoot(project.path, workspace) ? await watchedFiles(project.id) : null
+      return { paths: watched ?? (await walkCache.paths(workspace)) }
     }
     if (!params.projectId) throw new Error('Project or session is required')
     await getProjectStore().load()
