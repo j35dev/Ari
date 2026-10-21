@@ -162,9 +162,7 @@ export function WelcomePanel({
   ]
 
   return (
-    <div className="ari-scroll relative flex h-full items-center justify-center overflow-y-auto p-6">
-      {/* Ambient background glow */}
-      <div className="pointer-events-none absolute -top-16 left-1/2 -translate-x-1/2 h-80 w-80 rounded-full bg-accent/10 blur-[100px]" />
+    <div className="ari-scroll ari-welcome-glow relative flex h-full items-center justify-center overflow-y-auto p-6">
 
       <motion.div
         initial={{ opacity: 0, y: 12 }}
