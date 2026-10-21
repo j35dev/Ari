@@ -806,6 +806,68 @@ describe('Shell split panes', () => {
   })
 })
 
+describe('Shell optimistic sidebar changes', () => {
+  let answerUpdate: (result: { accepted: boolean; reason?: string }) => void = () => undefined
+
+  beforeEach(() => {
+    splitLayoutActions.reset()
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      switch (method) {
+        case 'ping':
+          return 'pong'
+        case 'session.list':
+          return [
+            {
+              id: 'sess-alpha',
+              projectId: 'proj-ari',
+              title: 'Alpha',
+              updatedAt: 0,
+              messageCount: 1,
+            },
+          ]
+        case 'project.list':
+          return [{ id: 'proj-ari', name: 'Ari', path: '/projects/ari', status: 'ok', open: true }]
+        case 'providers.detect':
+        case 'providers.models':
+        case 'endpoints.list':
+          return []
+        case 'command.dispatch':
+          return new Promise((resolve) => {
+            answerUpdate = resolve
+          })
+        default:
+          throw new Error(`unexpected method: ${String(method)}`)
+      }
+    })
+  })
+
+  const openRowMenu = async (): Promise<void> => {
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Session actions for Alpha' }, { timeout: 10_000 }),
+    )
+  }
+
+  it('pins the row at once, and takes it back with a toast when the engine refuses', async () => {
+    render(<App />)
+    await openRowMenu()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Pin to top' }))
+
+    await openRowMenu()
+    expect(await screen.findByRole('menuitem', { name: 'Unpin' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await act(async () => {
+      answerUpdate({ accepted: false, reason: 'Session is gone.' })
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByText('Couldn’t update the session')).toBeInTheDocument()
+    await openRowMenu()
+    expect(await screen.findByRole('menuitem', { name: 'Pin to top' })).toBeInTheDocument()
+  })
+})
+
 describe('Shell spaces', () => {
   const NOW = Date.now()
 
@@ -1310,7 +1372,7 @@ describe('Shell live sidebar feed', () => {
       )
     })
 
-    it('moves a reused empty session onto that mode before opening it', async () => {
+    it('moves a reused empty session onto that mode as it opens it', async () => {
       render(<App />)
       await vi.waitFor(() => expect(screen.getAllByText('New session')).not.toHaveLength(0))
       await settingsLoaded()
@@ -1323,6 +1385,12 @@ describe('Shell live sidebar feed', () => {
         }),
       )
       expect(invokeMock).not.toHaveBeenCalledWith('session.create', expect.anything())
+      // The update leaves before the pane asks for the session.
+      await vi.waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-alpha' }),
+      )
+      const order = invokeMock.mock.calls.map(([method]) => method)
+      expect(order.indexOf('command.dispatch')).toBeLessThan(order.indexOf('session.load'))
     })
   })
 
