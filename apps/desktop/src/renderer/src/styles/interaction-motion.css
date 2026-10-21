@@ -1,10 +1,12 @@
-/* Shared chrome feedback; editor and streaming content never animate their layout. */
+/* Shared chrome feedback; editor and streaming content never animate their layout.
+   Colour and opacity only: a shadow or ring repaints its whole box every frame,
+   so focus rings and elevation snap. */
 .ari-sidebar-motion > * {
   min-width: var(--ari-sidebar-motion-width);
 }
 
 :where(button, [role='tab'], [role='menuitem'], [role='radio']) {
-  transition-property: color, background-color, border-color, box-shadow, opacity;
+  transition-property: color, background-color, border-color, opacity;
   transition-duration: var(--ari-dur-fast);
   transition-timing-function: var(--ari-ease-out-expo);
 }
@@ -12,7 +14,6 @@
 .ari-composer-shell {
   transition:
     border-color var(--ari-dur-base) var(--ari-ease-out-expo),
-    box-shadow var(--ari-dur-base) var(--ari-ease-out-expo),
     background-color var(--ari-dur-base) var(--ari-ease-out-expo),
     border-radius var(--ari-dur-base) var(--ari-ease-out-expo);
 }
