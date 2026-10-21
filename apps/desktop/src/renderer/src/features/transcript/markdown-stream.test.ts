@@ -77,6 +77,12 @@ describe('createMarkdownStream', () => {
     }
   })
 
+  it('reports how much of the source the next render parses again', () => {
+    const stream = createMarkdownStream()
+    stream.render('first paragraph\n\n- one\n- two')
+    expect(stream.unsettledLength()).toBe('- one\n- two'.length)
+  })
+
   it('parses only the block still being written', () => {
     const parse = vi.spyOn(markdown.markdownProcessor, 'parse')
     const stream = createMarkdownStream()

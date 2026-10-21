@@ -69,6 +69,21 @@ describe('highlightCode', () => {
   })
 })
 
+describe('highlight cache', () => {
+  it('keeps a block that is read often while thousands of others pass through', async () => {
+    await highlightCode('kept()', 'ts')
+    for (let i = 0; i < 2_100; i++) {
+      await highlightCode(`passing${i}()`, 'ts')
+      if (i % 500 === 0) await highlightCode('kept()', 'ts')
+    }
+    shiki.codeToHtml.mockClear()
+    await highlightCode('kept()', 'ts')
+    expect(shiki.codeToHtml).not.toHaveBeenCalled()
+    await highlightCode('passing0()', 'ts')
+    expect(shiki.codeToHtml).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('highlightCodeSync', () => {
   beforeEach(() => {
     shiki.codeToHtml.mockClear()

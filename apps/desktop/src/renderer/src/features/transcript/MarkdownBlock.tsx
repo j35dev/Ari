@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { createCodeStream, type CodeStream } from './code-stream'
 import { highlightCode, highlightCodeSync, shikiInner } from './highlight'
 import { createMarkdownStream, type MarkdownStream } from './markdown-stream'
@@ -7,10 +7,19 @@ import { morphNode } from './morph-dom'
 /**
  * Longest code block re-highlighted on every flush. Past this a flush would
  * spend longer tokenizing than the frame it has, so the block waits until the
- * text stops moving.
+ * text stops moving. Fences nested in lists or quotes take this path whole
+ * each flush, so the cap stays small.
  */
-const LIVE_HIGHLIGHT_MAX_CHARS = 20_000
+const LIVE_HIGHLIGHT_MAX_CHARS = 4_000
 const SETTLE_HIGHLIGHT_MS = 300
+
+/**
+ * A growing block (a long list, table or fence) is re-parsed from its start
+ * on every flush. Past this many unsettled characters that is quadratic over
+ * the reply, so it is re-parsed at most once per interval while it streams.
+ */
+const THROTTLE_UNSETTLED_CHARS = 2_000
+const THROTTLED_RENDER_MS = 120
 
 const settleTimers = new WeakMap<Element, ReturnType<typeof setTimeout>>()
 const codeStreams = new WeakMap<Element, CodeStream>()
@@ -131,12 +140,21 @@ export const MarkdownBlock = memo(function MarkdownBlock({
   const ref = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MarkdownStream | null>(null)
   const shownRef = useRef<string[]>([])
+  const textRef = useRef(text)
+  textRef.current = text
+  const renderedAtRef = useRef(0)
+  const renderedTextRef = useRef<string | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useLayoutEffect(() => {
+  const sync = useCallback((): void => {
     const root = ref.current
     if (!root) return
+    if (timerRef.current !== null) clearTimeout(timerRef.current)
+    timerRef.current = null
+    renderedAtRef.current = performance.now()
+    renderedTextRef.current = textRef.current
     streamRef.current ??= createMarkdownStream()
-    const next = streamRef.current.render(text)
+    const next = streamRef.current.render(textRef.current)
     const shown = shownRef.current
     // The first paint of a block stays plain and colors afterwards, as opening
     // a long session must not tokenize every code block before it shows. Any
@@ -156,7 +174,33 @@ export const MarkdownBlock = memo(function MarkdownBlock({
     })
     while (root.childNodes.length > next.length) root.lastChild?.remove()
     shownRef.current = next
-  }, [text])
+  }, [])
+
+  // A first paint and a settled block render before the browser paints, so
+  // history never flashes empty and the final flush lands whole.
+  useLayoutEffect(() => {
+    if (!streaming || shownRef.current.length === 0) sync()
+  }, [text, streaming, sync])
+
+  // Streaming flushes render after paint, keeping the frame for input; a
+  // large growing block is re-parsed at most once per interval.
+  useEffect(() => {
+    if (!streaming || renderedTextRef.current === text || timerRef.current !== null) return
+    const unsettled = streamRef.current?.unsettledLength() ?? 0
+    const wait =
+      unsettled < THROTTLE_UNSETTLED_CHARS
+        ? 0
+        : THROTTLED_RENDER_MS - (performance.now() - renderedAtRef.current)
+    if (wait <= 0) sync()
+    else timerRef.current = setTimeout(sync, wait)
+  }, [text, streaming, sync])
+
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current)
+    },
+    [],
+  )
 
   return <div ref={ref} className="ari-md" data-streaming={streaming ? '' : undefined} />
 })
