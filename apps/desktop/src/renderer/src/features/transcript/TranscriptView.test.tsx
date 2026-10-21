@@ -217,6 +217,31 @@ describe('TranscriptView loading state', () => {
     expect(screen.queryByRole('button', { name: /Jump to latest/ })).not.toBeInTheDocument()
   })
 
+  it('updates the message rail at most once per frame while scrolling', () => {
+    const frames: FrameRequestCallback[] = []
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    try {
+      const { container } = render(
+        createElement(TranscriptView, {
+          sessionId: 'sess_1',
+          messages: [message('m1'), message('m2'), message('m3')],
+        }),
+      )
+      const scroller = container.querySelector('[aria-label="Conversation transcript"]')
+      Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 400 })
+      frames.length = 0
+      fireEvent.scroll(scroller!)
+      fireEvent.scroll(scroller!)
+      fireEvent.scroll(scroller!)
+      expect(frames).toHaveLength(1)
+    } finally {
+      raf.mockRestore()
+    }
+  })
+
   it('re-pins to the tail when switching sessions', () => {
     const { rerender, container } = render(
       createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }),

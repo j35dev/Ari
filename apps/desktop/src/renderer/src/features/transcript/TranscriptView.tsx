@@ -12,7 +12,7 @@ import {
 import { Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
-import { followBehavior, pinnedAfterScroll } from './transcript-pin'
+import { pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
 import { groupBlocks } from './groupBlocks'
 import { MarkdownBlock } from './MarkdownBlock'
@@ -67,14 +67,6 @@ function railText(row: TranscriptRow): string {
   }
   if (row.kind === 'markdown') return row.text ?? ''
   return ''
-}
-
-/** The OS preference or the in-app switch (see interaction-motion.css). */
-function prefersStillness(): boolean {
-  if (document.documentElement.hasAttribute('data-ari-reduced-motion')) return true
-  return typeof window.matchMedia === 'function'
-    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    : false
 }
 
 function scrollToBottom(el: HTMLElement, behavior: ScrollBehavior): void {
@@ -203,19 +195,46 @@ export function TranscriptView({
     return null
   }, [messages])
 
+  // Rail rows are looked up once per rail change, not per scroll event.
+  const railNodesRef = useRef<{ entries: MessageRailEntry[]; nodes: (HTMLElement | null)[] }>({
+    entries: [],
+    nodes: [],
+  })
   const updateActiveRailKey = useCallback((): void => {
     const el = scrollRef.current
     if (el === null || railEntries.length < 2) return
+    const cache = railNodesRef.current
+    if (cache.entries !== railEntries || cache.nodes.some((node) => node?.isConnected === false)) {
+      cache.entries = railEntries
+      cache.nodes = railEntries.map(({ key }) => {
+        const node = el.querySelector(`[data-index="${key}"]`)
+        return node instanceof HTMLElement ? node : null
+      })
+    }
     const anchor = el.scrollTop + el.clientHeight * 0.25
+    // Prompts sit in document order, so the active one is found by bisection.
+    let low = 0
+    let high = cache.nodes.length - 1
     let active: string | null = null
-    for (const { key } of railEntries) {
-      const node = el.querySelector(`[data-index="${key}"]`)
-      if (!(node instanceof HTMLElement)) continue
-      if (node.offsetTop <= anchor) active = key
-      else break
+    while (low <= high) {
+      const mid = (low + high) >> 1
+      const node = cache.nodes[mid]
+      if (node != null && node.offsetTop > anchor) {
+        high = mid - 1
+      } else {
+        if (node != null) active = railEntries[mid]?.key ?? null
+        low = mid + 1
+      }
     }
     setActiveRailKey((prev) => (prev === active ? prev : active))
   }, [railEntries])
+  const railFrameRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (railFrameRef.current !== null) cancelAnimationFrame(railFrameRef.current)
+    },
+    [],
+  )
 
   const handleRailJump = useCallback((key: string) => {
     const scroller = scrollRef.current
@@ -265,27 +284,20 @@ export function TranscriptView({
     return () => observer.disconnect()
   }, [])
 
-  const runningRef = useRef(running)
-  runningRef.current = running
+  // Jumps rather than glides: a smooth scroll restarted on every streamed
+  // flush kept the compositor busy and fired a storm of scroll events.
   const followTail = useCallback((): void => {
     const scroller = scrollRef.current
     if (!scroller || !atBottomRef.current) return
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
     if (Math.abs(scroller.scrollTop - max) <= 1) return
-    scrollToBottom(
-      scroller,
-      followBehavior({
-        running: runningRef.current,
-        distanceFromBottom: max - scroller.scrollTop,
-        viewportHeight: scroller.clientHeight,
-        reducedMotion: prefersStillness(),
-      }),
-    )
+    scrollToBottom(scroller, 'auto')
   }, [])
 
-  // Follow the tail while pinned. Observe the column so Shiki/code-fence
-  // growth still sticks without a virtualizer measurement loop. The observer
-  // lives for the life of the view: rebuilding it on every streaming flush
+  // Follow the tail while pinned. Observe the column so streamed rows,
+  // Shiki and code-fence growth stick after layout has already run, instead
+  // of forcing one from a layout effect on every flush. The observer lives
+  // for the life of the view: rebuilding it on every streaming flush
   // re-observed the whole column several times a second.
   useLayoutEffect(() => {
     const inner = innerRef.current
@@ -297,7 +309,7 @@ export function TranscriptView({
 
   // The working indicator sits outside the observed column, and re-pinning
   // has to land on the tail at once rather than at the next resize.
-  useLayoutEffect(followTail, [followTail, rows, atBottom, hasWorking])
+  useLayoutEffect(followTail, [followTail, atBottom, hasWorking])
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
     if (event.deltaY >= 0 || !atBottomRef.current) return
@@ -327,7 +339,13 @@ export function TranscriptView({
     })
     atBottomRef.current = pinned
     setAtBottom(pinned)
-    updateActiveRailKey()
+    // The rail reads row offsets: once per frame however many events fire.
+    if (railFrameRef.current === null && railEntries.length >= 2) {
+      railFrameRef.current = requestAnimationFrame(() => {
+        railFrameRef.current = null
+        updateActiveRailKey()
+      })
+    }
   }
 
   // Rows that arrive after the transcript has loaded announce themselves; the
