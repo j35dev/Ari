@@ -333,11 +333,11 @@ describe('SessionStore', () => {
     }
     expect(spy).not.toHaveBeenCalled()
 
-    // The cached model stays coherent: sequence continues and state folds.
-    // (`load` remains an authoritative replay by contract — that's its job.)
+    // The cached model stays coherent and `load` serves it without a replay.
     const model = await store.load(session.id)
-    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).not.toHaveBeenCalled()
     expect(model.lastSeq).toBe(25)
+    expect(model.activeTurnId).toBe('turn_24')
 
     // closeJournal drops the cache so a reopened journal replays fresh.
     await store.closeJournal(session.id)
@@ -347,6 +347,58 @@ describe('SessionStore', () => {
     expect(spy2).toHaveBeenCalledTimes(1) // cache was dropped: one fresh replay
     expect(await store.nextSeq(session.id)).toBe(27) // then folds in memory
     expect(spy2).toHaveBeenCalledTimes(1)
+  })
+
+  it('serves repeated loads from memory and matches a cold replay', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    await store.append(session.id, { type: 'turn.started', turnId: 'turn_1' })
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'm1',
+      parts: [{ type: 'text', text: 'hel' }],
+    })
+    const spy = vi.spyOn(await store.openJournal(session.id), 'readAll')
+
+    const first = await store.load(session.id)
+    const second = await store.load(session.id)
+    expect(spy).not.toHaveBeenCalled()
+    expect(second).toBe(first)
+
+    // Appends replace the cached model, so an earlier snapshot never changes.
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'm1',
+      parts: [{ type: 'text', text: 'lo' }],
+    })
+    const after = await store.load(session.id)
+    expect(first.messages[0]?.parts).toHaveLength(1)
+    expect(after.messages[0]?.parts).toHaveLength(2)
+    expect(spy).not.toHaveBeenCalled()
+
+    await store.closeJournal(session.id)
+    expect(await new SessionStore({ rootDir }).load(session.id)).toEqual(after)
+  })
+
+  it('caches the schema-parsed event so memory matches a replay', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    const image = { type: 'image', attachmentId: 'att_1', name: 'a.png', mimeType: 'image/png', size: 2 }
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'm1',
+      parts: [{ ...image, id: 'att_1' } as typeof image & { type: 'image' }],
+    })
+    const live = await store.load(session.id)
+    expect(live.messages[0]?.parts).toEqual([image])
+    await store.closeJournal(session.id)
+    expect(await new SessionStore({ rootDir }).load(session.id)).toEqual(live)
+  })
+
+  it('waits for an in-flight append before serving the cached model', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    const appending = store.append(session.id, { type: 'turn.started', turnId: 'turn_1' })
+    const model = await store.load(session.id)
+    await appending
+    expect(model.activeTurnId).toBe('turn_1')
   })
 
   it('serializes destroy against an in-flight append so the session cannot resurrect', async () => {
