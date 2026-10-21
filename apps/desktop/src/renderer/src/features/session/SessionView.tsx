@@ -207,6 +207,7 @@ export function SessionView({
   sessionId,
   defaults,
   onDefaultsChange,
+  onPick,
   onOpenSession,
   childSessions = [],
   activityOf,
@@ -216,6 +217,8 @@ export function SessionView({
   sessionId: string
   defaults: SessionDefaults
   onDefaultsChange: (next: SessionDefaults) => void
+  /** A model or reasoning level the user chose here, for new sessions to start from. */
+  onPick?: (pick: Partial<Pick<SessionDefaults, 'driverKind' | 'modelId' | 'effort'>>) => void
   onOpenSession?: (id: string) => void
   childSessions?: SessionSummary[]
   activityOf?: (id: string) => SessionActivity | undefined
@@ -899,6 +902,7 @@ export function SessionView({
       // context silently. The picker is locked too; this guards other paths.
       if (telemetry.turnCount > 0 && next.driverKind !== defaults.driverKind) return
       onDefaultsChange({ ...defaults, ...next })
+      onPick?.(next)
       void rpc
         .invoke('command.dispatch', {
           command: {
@@ -910,19 +914,20 @@ export function SessionView({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, telemetry.turnCount, defaults],
+    [sessionId, onDefaultsChange, onPick, telemetry.turnCount, defaults],
   )
 
   const changeEffort = useCallback(
     (effort: string | null) => {
       onDefaultsChange({ ...defaults, effort })
+      onPick?.({ effort })
       void rpc
         .invoke('command.dispatch', {
           command: { type: 'session.update', sessionId, effort },
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, defaults],
+    [sessionId, onDefaultsChange, onPick, defaults],
   )
 
   const changePermissionMode = useCallback(

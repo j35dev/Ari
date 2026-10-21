@@ -109,6 +109,8 @@ export function ModelSelector({
   const [detections, setDetections] = useState<ProviderReadiness[]>([])
   const [catalog, setCatalog] = useState<CatalogByKind>({})
   const [sources, setSources] = useState<SourcesByKind>({})
+  /** The model each agent runs when a session names none, as it reported. */
+  const [agentDefaults, setAgentDefaults] = useState<Partial<Record<DriverKind, string>>>({})
   const [endpointModels, setEndpointModels] = useState<SelectorOption[]>([])
   const [showLegacy, setShowLegacy] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -131,6 +133,7 @@ export function ModelSelector({
       rpc.invoke('providers.models').then((rows) => {
         const byKind: CatalogByKind = {}
         const sources: SourcesByKind = {}
+        const defaults: Partial<Record<DriverKind, string>> = {}
         // Every source is usable: snapshot/cache are curated to what each CLI
         // currently serves and `live` rows are the harness's own model list.
         // Which one it was is kept: only `live` is the agent's own word, and
@@ -138,9 +141,13 @@ export function ModelSelector({
         for (const row of rows) {
           byKind[row.kind as DriverKind] = row.models
           sources[row.kind as DriverKind] = row.source
+          if (typeof row.defaultModelId === 'string') {
+            defaults[row.kind as DriverKind] = row.defaultModelId
+          }
         }
         setCatalog(byKind)
         setSources(sources)
+        setAgentDefaults(defaults)
       }),
       rpc.invoke('endpoints.list').then((endpoints) => {
         // One row per model an endpoint serves, so a single endpoint holding
@@ -197,7 +204,8 @@ export function ModelSelector({
     return compute
   }, [catalog, endpointModels])
 
-  const currentId = `${driverKind}:${modelId ?? ''}`
+  // No pick runs whatever the agent is set to, so that is the row to check.
+  const currentId = `${driverKind}:${modelId ?? agentDefaults[driverKind] ?? ''}`
   const currentKindLabel = driverLabel(driverKind)
 
   const { ready, withheld } = useMemo(() => partitionProviders(detections), [detections])
@@ -415,15 +423,15 @@ export function ModelSelector({
       return legacy?.label ?? modelId ?? 'Ari Core'
     }
     const current = optionsFor(driverKind).find((o) => matchesCurrent(o, currentId))
-    if (current === undefined) return modelId ?? 'CLI default'
-    const { name, recommended } = splitRecommended(current.label)
-    // The agent's default row says which model it resolves to; a chip reading
-    // only "Default" would hide the one thing the chip is there to show.
+    if (current === undefined) return modelId ?? currentKindLabel
+    const { name } = splitRecommended(current.label)
+    if (current.id !== `${driverKind}:default`) return name
+    // The agent's default row says which model it resolves to, and that model
+    // is what the chip is there to show. A default row that names nothing
+    // (a placeholder catalog) says less than the agent's own name does.
     const resolved = current.description
-    return recommended && resolved !== undefined && resolved.length <= 16
-      ? `${name} · ${resolved}`
-      : name
-  }, [driverKind, modelId, currentId, optionsFor, endpointModels])
+    return resolved !== undefined && resolved.length <= 16 ? resolved : currentKindLabel
+  }, [driverKind, modelId, currentId, currentKindLabel, optionsFor, endpointModels])
 
   const optionRow = (opt: SelectorOption, index: number) => {
     const isSelected = matchesCurrent(opt, currentId)

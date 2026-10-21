@@ -23,6 +23,8 @@ import { themePersistence } from './lib/theme-persistence'
 import { Titlebar } from './shell/Titlebar'
 import { GalleryView } from './views'
 import { SessionView } from './features/session/SessionView'
+import { loadLastPick, nextLastPick, saveLastPick } from './features/composer/last-pick'
+import type { LastPick } from './features/composer/last-pick'
 import {
   UNFILED_GROUP_ID,
   moveProjectInList,
@@ -183,14 +185,25 @@ function Shell() {
       cancelled = true
     }
   }, [activeSessionId])
-  const [defaults, setDefaults] = useState<SessionDefaults>({
-    // Ari Core is the safe default: it works with a user-configured endpoint
-    // and never depends on an installed CLI. Detection below upgrades this.
-    driverKind: 'ari-core',
-    modelId: null,
+  // New sessions start on the user's last pick. Without one, Ari Core is the
+  // safe seed: it never depends on an installed CLI, and detection below
+  // upgrades it to the first agent that is installed.
+  const [lastPickAtBoot] = useState(loadLastPick)
+  const [defaults, setDefaults] = useState<SessionDefaults>(() => ({
+    driverKind: lastPickAtBoot?.driverKind ?? 'ari-core',
+    modelId: lastPickAtBoot?.modelId ?? null,
     permissionMode: 'ask',
-    effort: null,
-  })
+    effort: lastPickAtBoot?.effort ?? null,
+  }))
+
+  /** A model or level the user chose in a composer becomes the next session's start. */
+  const rememberPick = useCallback((change: Partial<LastPick>): void => {
+    setDefaults((prev) => {
+      const pick = nextLastPick(prev, change)
+      saveLastPick(pick)
+      return { ...prev, ...pick }
+    })
+  }, [])
 
   /**
    * Composer seeds per session. `defaults` stays the seed for sessions that
@@ -446,11 +459,17 @@ function Shell() {
       .then((detections) => {
         const installed = detections.find((d) => d.binaryPath !== null && d.kind !== 'ari-core')
         if (installed) {
-          setDefaults((prev) =>
-            prev.driverKind === 'ari-core'
-              ? { ...prev, driverKind: installed.kind as DriverKind }
-              : prev,
-          )
+          setDefaults((prev) => {
+            // A remembered agent that is still installed stays; one that was
+            // uninstalled since, or the bare Ari Core seed, gives way.
+            const usable =
+              prev.driverKind === 'ari-core'
+                ? lastPickAtBoot?.driverKind === 'ari-core'
+                : detections.some((d) => d.kind === prev.driverKind && d.binaryPath !== null)
+            return usable
+              ? prev
+              : { ...prev, driverKind: installed.kind as DriverKind, modelId: null, effort: null }
+          })
         }
       })
       .catch((error: unknown) => log.warn('rpc call failed', error))
@@ -726,7 +745,10 @@ function Shell() {
             command: {
               type: 'session.update',
               sessionId: reusable.id,
+              driverKind: effective.driverKind,
+              modelId: effective.modelId,
               permissionMode: effective.permissionMode,
+              effort: effective.effort,
             },
           })
           .catch((error: unknown) => log.warn('rpc call failed', error))
@@ -1230,6 +1252,7 @@ function Shell() {
                               sessionId={sessionId}
                               defaults={defaultsFor(sessionId)}
                               onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                              onPick={rememberPick}
                               // A child session opens in the pane it was opened from,
                               // rather than yanking the whole shell to it.
                               onOpenSession={(childId) =>
