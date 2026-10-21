@@ -82,6 +82,12 @@ import {
   type MenuAnchor,
 } from './shell/ContextMenu'
 import { ErrorBoundary } from './shell/ErrorBoundary'
+import {
+  applyPatches,
+  dropSettled,
+  type PendingPatch,
+  type SessionPatch,
+} from './shell/session-patches'
 import { useSessionCollapse } from './shell/use-session-collapse'
 import { useSidebarView } from './shell/use-sidebar-view'
 import {
@@ -131,7 +137,11 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hubOpen, setHubOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [listedSessions, setSessions] = useState<SessionSummary[]>([])
+  // Sidebar changes show the moment they are clicked; the list catches up.
+  const [patches, setPatches] = useState<readonly PendingPatch[]>([])
+  const patchTokenRef = useRef(0)
+  const sessions = useMemo(() => applyPatches(listedSessions, patches), [listedSessions, patches])
   const [projects, setProjects] = useState<ProjectRow[]>([])
   // Which session is active is now a property of the panes: it is whatever the
   // focused pane is showing, so every single-session view in the shell — the
@@ -372,9 +382,51 @@ function Shell() {
         appliedListRef.current = generation
         sessionsLoadedRef.current = true
         setSessions(next)
+        setPatches((prev) => dropSettled(prev, generation))
       })
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
+
+  /**
+   * Sends one sidebar change to the engine. The caller has already shown it;
+   * a refusal takes it back and says why, an acceptance lets the next list
+   * take over from it.
+   */
+  const confirmPatch = useCallback(
+    (token: number, sessionId: string, patch: SessionPatch): Promise<void> =>
+      rpc
+        .invoke('command.dispatch', { command: { type: 'session.update', sessionId, ...patch } })
+        .then((result) => {
+          if (!result.accepted) throw new Error(result.reason ?? 'The change was refused.')
+          refreshSessions()
+          const generation = listsRef.current
+          setPatches((prev) =>
+            prev.map((p) => (p.token === token ? { ...p, settledAt: generation } : p)),
+          )
+        })
+        .catch((error: unknown) => {
+          log.warn('session update failed', error)
+          setPatches((prev) => prev.filter((p) => p.token !== token))
+          toast({
+            tone: 'danger',
+            title: 'Couldn’t update the session',
+            description: error instanceof Error ? error.message : String(error),
+          })
+        }),
+    [refreshSessions, toast],
+  )
+
+  /** Shows `patch` on each session at once and confirms them one by one. */
+  const patchSessions = useCallback(
+    (ids: readonly string[], patch: SessionPatch): void => {
+      const pending = ids.map((sessionId) => ({ token: ++patchTokenRef.current, sessionId, patch }))
+      setPatches((prev) => [...prev, ...pending])
+      void (async () => {
+        for (const p of pending) await confirmPatch(p.token, p.sessionId, p.patch)
+      })()
+    },
+    [confirmPatch],
+  )
 
   // A pane remembers what it was showing across launches. A session that is
   // gone by the time the list arrives blanks its pane rather than leaving the
@@ -724,8 +776,9 @@ function Shell() {
           return
         }
         // It was created under the default of its day; an empty session picked
-        // up as "new" has to start the way a new one would. Opened only after
-        // the update lands, so the pane never loads the stale mode.
+        // up as "new" has to start the way a new one would. The update goes out
+        // first and the pane opens in the same frame: whichever lands first, the
+        // load or the journal's `session.updated`, the chip ends on this mode.
         void rpc
           .invoke('command.dispatch', {
             command: {
@@ -735,7 +788,7 @@ function Shell() {
             },
           })
           .catch((error: unknown) => log.warn('rpc call failed', error))
-          .then(open)
+        open()
         return
       }
       void rpc
@@ -1031,14 +1084,7 @@ function Shell() {
                 activityOf={activityOf}
                 onSelect={selectSession}
                 onOpenInSplit={splitLayoutActions.openInSplit}
-                onRename={(id, title) => {
-                  void rpc
-                    .invoke('command.dispatch', {
-                      command: { type: 'session.update', sessionId: id, title },
-                    })
-                    .then(refreshSessions)
-                    .catch((error: unknown) => log.warn('rpc call failed', error))
-                }}
+                onRename={(id, title) => patchSessions([id], { title })}
                 onDelete={(id) => {
                   const dropped = new Set([id, ...descendantIds(sessions, id)])
                   for (const gone of dropped) forget(gone)
@@ -1048,36 +1094,9 @@ function Shell() {
                     .then(refreshSessions)
                     .catch((error: unknown) => log.warn('rpc call failed', error))
                 }}
-                onTogglePin={(id, pinned) => {
-                  void rpc
-                    .invoke('command.dispatch', {
-                      command: { type: 'session.update', sessionId: id, pinned },
-                    })
-                    .then(refreshSessions)
-                    .catch((error: unknown) => log.warn('rpc call failed', error))
-                }}
-                onToggleArchive={(id, archived) => {
-                  void rpc
-                    .invoke('command.dispatch', {
-                      command: { type: 'session.update', sessionId: id, archived },
-                    })
-                    .then(refreshSessions)
-                    .catch((error: unknown) => log.warn('rpc call failed', error))
-                }}
-                onArchiveMany={(ids) => {
-                  void (async () => {
-                    for (const id of ids) {
-                      try {
-                        await rpc.invoke('command.dispatch', {
-                          command: { type: 'session.update', sessionId: id, archived: true },
-                        })
-                      } catch (error: unknown) {
-                        log.warn('rpc call failed', error)
-                      }
-                    }
-                    refreshSessions()
-                  })()
-                }}
+                onTogglePin={(id, pinned) => patchSessions([id], { pinned })}
+                onToggleArchive={(id, archived) => patchSessions([id], { archived })}
+                onArchiveMany={(ids) => patchSessions(ids, { archived: true })}
                 onDeleteMany={(ids) => {
                   const dropped = new Set<string>()
                   for (const id of ids) {
