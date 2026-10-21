@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { matchSuggestions } from './match-suggestions'
 
 const PATHS = [
@@ -37,5 +37,24 @@ describe('matchSuggestions', () => {
 
   it('keeps registry order within a tier', () => {
     expect(matchSuggestions(['b/a.ts', 'a.ts'], 'a')).toEqual(['b/a.ts', 'a.ts'])
+  })
+})
+
+describe('matchSuggestions index', () => {
+  it('lowercases an index once, not on every keystroke', () => {
+    const paths = Array.from({ length: 200 }, (_, i) => `src/Module${i}.ts`)
+    matchSuggestions(paths, 'm')
+    const lower = vi.spyOn(String.prototype, 'toLowerCase')
+    try {
+      const first = matchSuggestions(paths, 'module1')
+      const second = matchSuggestions(paths, 'module19')
+      // Only the queries themselves are lowercased now.
+      const calls = lower.mock.calls.length
+      expect(calls).toBe(2)
+      expect(first).toHaveLength(8)
+      expect(second[0]).toBe('src/Module19.ts')
+    } finally {
+      lower.mockRestore()
+    }
   })
 })

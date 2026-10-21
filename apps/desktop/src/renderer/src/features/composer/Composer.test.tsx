@@ -141,6 +141,31 @@ describe('Composer', () => {
     const send = screen.getByRole('button', { name: 'Send' })
     expect(stash.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
+
+  it('re-measures its height only when typing could shrink or overflow it', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const field = screen.getByLabelText('Message')
+    let contentHeight = 52
+    Object.defineProperty(field, 'scrollHeight', { configurable: true, get: () => contentHeight })
+    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 52 })
+    fireEvent.change(field, { target: { value: 'a' } })
+    // A marker the old collapse-and-remeasure would overwrite.
+    field.style.height = '53px'
+
+    // Still fits: no collapse to `auto`, no write at all.
+    fireEvent.change(field, { target: { value: 'ab' } })
+    expect(field.style.height).toBe('53px')
+
+    // Wrapped onto a new line: grows to the content.
+    contentHeight = 74
+    fireEvent.change(field, { target: { value: 'abc' } })
+    expect(field.style.height).toBe('74px')
+
+    // Deleting may shrink it: measured from scratch.
+    contentHeight = 52
+    fireEvent.change(field, { target: { value: 'ab' } })
+    expect(field.style.height).toBe('52px')
+  })
 })
 
 describe('Composer resting state', () => {
