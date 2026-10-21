@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
 import { ChevronRight, GitBranch } from 'lucide-react'
-import { SessionActivityMark } from '../moment'
+import { SessionActivityMark, useTickingText } from '../moment'
 import type { SessionActivity } from '../session/session-activity'
 import { summarizeDelegation } from './delegation-rows'
 import type { DelegatedChild, DelegatedChildState, DelegationRow } from './types'
@@ -44,13 +43,14 @@ function formatElapsed(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
+/** Repaints on the shared clock; a running child never re-renders the card. */
 function Elapsed({ startedAt }: { startedAt: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-  return <span className="tabular-nums">{formatElapsed(now - startedAt)}</span>
+  const ref = useTickingText<HTMLSpanElement>((now) => formatElapsed(now - startedAt), startedAt)
+  return (
+    <span ref={ref} className="tabular-nums">
+      0s
+    </span>
+  )
 }
 
 function ChildRow({
