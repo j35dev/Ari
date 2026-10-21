@@ -25,6 +25,26 @@ import {
 /** Ceiling on simultaneous spaces. Each keeps a live pane tree. */
 export const MAX_SPACES = 6
 
+/** How many spaces stay mounted at once: the one on screen and the last ones left. */
+export const MOUNTED_SPACES = 3
+
+/**
+ * The spaces to keep mounted, given the visit order so far (newest first) and
+ * the space now on screen. Spaces that no longer exist drop out. Returns
+ * `recent` itself when nothing changed, so it can sit in React state.
+ */
+export function recentSpaces(
+  recent: readonly string[],
+  activeSpaceId: string,
+  spaceIds: readonly string[],
+  limit = MOUNTED_SPACES,
+): readonly string[] {
+  const next = [activeSpaceId, ...recent.filter((id) => id !== activeSpaceId)]
+    .filter((id) => spaceIds.includes(id))
+    .slice(0, limit)
+  return next.length === recent.length && next.every((id, i) => id === recent[i]) ? recent : next
+}
+
 /** One named workspace: a pane layout plus the label its tab shows. */
 export interface Space {
   id: string

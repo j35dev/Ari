@@ -4,6 +4,7 @@ export { useSpaceSwipe, type SwipeDirection } from './use-space-swipe'
 export {
   MAX_SPACES,
   activeLayoutOf,
+  recentSpaces,
   parseLegacyLayout,
   parseSpaceStore,
   serializeSpaceStore,
