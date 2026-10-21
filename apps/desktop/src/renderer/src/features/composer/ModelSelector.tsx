@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } fr
 import { Check, ChevronDown, Search } from 'lucide-react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
-import { modelsFor } from '@ari/providers/catalogs'
+import { modelsFor, resolveOfferedModel } from '@ari/providers/catalogs'
 import type { CatalogSource } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
 import { driverLabel } from './agent-mark'
@@ -204,8 +204,18 @@ export function ModelSelector({
     return compute
   }, [catalog, endpointModels])
 
-  // No pick runs whatever the agent is set to, so that is the row to check.
-  const currentId = `${driverKind}:${modelId ?? agentDefaults[driverKind] ?? ''}`
+  /**
+   * The row to check. No pick runs whatever the agent is set to; a pick made
+   * from the registry's list (`claude-opus-5-5`) is the agent's row for that
+   * same model ("Opus 5.5") once the agent's own list replaces it.
+   */
+  const currentId = useMemo(() => {
+    const pick = modelId ?? agentDefaults[driverKind] ?? null
+    if (pick === null || driverKind === 'ari-core') return `${driverKind}:${pick ?? ''}`
+    const live = catalog[driverKind]
+    const list = live && live.length > 0 ? live : modelsFor(driverKind)
+    return `${driverKind}:${resolveOfferedModel(pick, list) ?? pick}`
+  }, [driverKind, modelId, agentDefaults, catalog])
   const currentKindLabel = driverLabel(driverKind)
 
   const { ready, withheld } = useMemo(() => partitionProviders(detections), [detections])
