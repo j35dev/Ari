@@ -25,6 +25,7 @@ import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
+import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
 import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
@@ -1397,16 +1398,7 @@ export function EffortChip({
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [options, setOptions] = useState<EffortOption[]>([])
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: PointerEvent): void => {
-      if (rootRef.current?.contains(e.target as Node) !== true) setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
+  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -1480,7 +1472,7 @@ export function EffortChip({
   if (current === undefined) return null
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={setAnchor} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -1497,11 +1489,14 @@ export function EffortChip({
           className={`text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ${open ? 'rotate-180' : ''}`}
         />
       </button>
-      {open ? (
-        <div
+      <Popover open={open} onOpenChange={setOpen} anchor={anchor}>
+        <Popover.Content
+          side="top"
+          align="start"
+          bare
           role="listbox"
           aria-label="Effort"
-          className="ari-enter-pop absolute bottom-full left-0 z-50 mb-2 w-52 origin-bottom-left overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+          className="w-52 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
         >
           {options.map((option) => (
             <button
@@ -1521,8 +1516,8 @@ export function EffortChip({
               ) : null}
             </button>
           ))}
-        </div>
-      ) : null}
+        </Popover.Content>
+      </Popover>
     </div>
   )
 }
@@ -1596,16 +1591,7 @@ export function PermissionModeChip({
   const [open, setOpen] = useState(false)
   const [discovered, setDiscovered] = useState<DiscoveredModeOption[]>([])
   const menuRef = useRef<HTMLDivElement>(null)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: PointerEvent): void => {
-      if (rootRef.current?.contains(e.target as Node) !== true) setOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
+  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -1664,7 +1650,7 @@ export function PermissionModeChip({
   }
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={setAnchor} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -1687,40 +1673,41 @@ export function PermissionModeChip({
           className={`text-fg-subtle transition-transform duration-[var(--ari-dur-fast)] ease-[var(--ari-ease-out-expo)] motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
         />
       </button>
-      {open ? (
-        <div
-          ref={menuRef}
-          role="listbox"
-          aria-label="Permission mode"
-          onKeyDown={onMenuKeyDown}
-          className="ari-enter-pop absolute bottom-full left-0 z-50 mb-2 w-56 origin-bottom-left overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+      <Popover open={open} onOpenChange={setOpen} anchor={anchor}>
+        <Popover.Content
+          side="top"
+          align="start"
+          bare
+          className="w-56 overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
         >
-          {entries.map((m) => {
-            const selected = m === current
-            return (
-              <button
-                key={m.nativeId ?? m.value}
-                type="button"
-                role="option"
-                aria-selected={selected}
-                onClick={() => {
-                  onChange(m.value)
-                  setOpen(false)
-                }}
-                className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-xs font-medium text-fg">{m.label}</span>
-                  <span className="block text-2xs text-fg-subtle">{m.hint}</span>
-                </span>
-                {selected ? (
-                  <Check size={12} className="mt-0.5 shrink-0 text-accent" aria-hidden />
-                ) : null}
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
+          <div ref={menuRef} role="listbox" aria-label="Permission mode" onKeyDown={onMenuKeyDown}>
+            {entries.map((m) => {
+              const selected = m === current
+              return (
+                <button
+                  key={m.nativeId ?? m.value}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onChange(m.value)
+                    setOpen(false)
+                  }}
+                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium text-fg">{m.label}</span>
+                    <span className="block text-2xs text-fg-subtle">{m.hint}</span>
+                  </span>
+                  {selected ? (
+                    <Check size={12} className="mt-0.5 shrink-0 text-accent" aria-hidden />
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
+        </Popover.Content>
+      </Popover>
     </div>
   )
 }
