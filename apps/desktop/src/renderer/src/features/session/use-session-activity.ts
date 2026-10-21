@@ -119,8 +119,12 @@ export function useSessionActivity(visibleSessionIds: readonly string[]): {
     }
   }, [clearFade])
 
+  // Changes identity only when some session's activity does, so memoized
+  // consumers (the transcript's delegation cards) skip unrelated renders.
+  const activityOf = useCallback((sessionId: string) => byId.get(sessionId), [byId])
+
   return {
-    activityOf: (sessionId) => byId.get(sessionId),
+    activityOf,
     acknowledge,
     forget,
   }

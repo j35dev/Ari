@@ -98,6 +98,7 @@ interface Telemetry {
 }
 
 const NO_DELEGATIONS: readonly DelegatedChild[] = []
+const NO_CHILD_SESSIONS: SessionSummary[] = []
 
 const EMPTY_TELEMETRY: Telemetry = {
   turnCount: 0,
@@ -209,7 +210,7 @@ export function SessionView({
   defaults,
   onDefaultsChange,
   onOpenSession,
-  childSessions = [],
+  childSessions = NO_CHILD_SESSIONS,
   activityOf,
   sessionTitle,
   parentSession = null,
@@ -960,7 +961,8 @@ export function SessionView({
   // A parent that ended its turn to wait has no Stop of its own, yet its
   // children may run for a long time. The rail offers one for all of them.
   const delegatedWorkLive = delegations.some(
-    (child) => child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
+    (child) =>
+      child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
   )
   const stopChildren = useCallback(() => {
     void rpc
@@ -986,13 +988,11 @@ export function SessionView({
     [messages],
   )
 
-  const pendingPlan =
-    pendingQuestion === null
-      ? null
-      : (() => {
-          const payload = parseQuestionPayload(pendingQuestion.prompt, pendingQuestion.choicesJson)
-          return payload.kind === 'plan-approval' ? payload : null
-        })()
+  const pendingPlan = useMemo(() => {
+    if (pendingQuestion === null) return null
+    const payload = parseQuestionPayload(pendingQuestion.prompt, pendingQuestion.choicesJson)
+    return payload.kind === 'plan-approval' ? payload : null
+  }, [pendingQuestion])
 
   /**
    * Docked UI that needs an answer before anything else. Feeds the composer's
@@ -1010,6 +1010,135 @@ export function SessionView({
     !composerAttentionRequired &&
     pendingPlan === null &&
     turnError === null
+
+  // The composer is built only when something it shows changes: a session
+  // view re-render (telemetry, child snapshots) must not re-render the editor
+  // and its chips, nor re-measure the dock's layout animation around it.
+  const composer = useMemo(
+    () => (
+      <Composer
+        centered={centered}
+        sessionId={sessionId}
+        onSend={handleSend}
+        onStop={handleStop}
+        running={running}
+        queued={queued}
+        onSteerQueued={handleSteerQueued}
+        onRemoveQueued={handleRemoveQueued}
+        seed={composerSeed ?? undefined}
+        suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
+        attentionRequired={composerAttentionRequired}
+        history={sentPrompts}
+        above={
+          // A plan approval is answered in the side panel, so it mounts no
+          // QuestionPanel and must not raise the strip on its own — an
+          // `above` of empty children still draws the border.
+          composerAttentionRequired || childSessions.length > 0 ? (
+            <>
+              {/* The question rides in the same layer as the approvals: the
+                  strip that peeks out from behind the composer. A plan approval
+                  is not asked here — it has the side panel. */}
+              {pendingQuestion !== null && pendingPlan === null ? (
+                <>
+                  <QuestionPanel
+                    prompt={pendingQuestion.prompt}
+                    choicesJson={pendingQuestion.choicesJson}
+                    onRespond={respondQuestion}
+                    onCancel={cancelQuestion}
+                  />
+                  {approvals.length > 0 || childSessions.length > 0 ? (
+                    <div className="mx-3 border-t border-border/60" />
+                  ) : null}
+                </>
+              ) : null}
+              {approvals.length > 0 ? (
+                <div className="max-h-40 space-y-px overflow-y-auto">
+                  {approvals.map((a, i) => (
+                    <ApprovalCard
+                      key={a.approvalId}
+                      approvalId={a.approvalId}
+                      toolName={a.toolName}
+                      summaryJson={a.summaryJson}
+                      options={a.options}
+                      position={i + 1}
+                      total={approvals.length}
+                      onRespond={(answer) => respondApproval(a.approvalId, answer)}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {childSessions.length > 0 ? (
+                <ChildSessionActivity
+                  sessions={childSessions}
+                  activityOf={activityOf}
+                  onOpen={onOpenSession}
+                  // While this session runs, its own Stop reaches the children.
+                  {...(!running && delegatedWorkLive ? { onStopAll: stopChildren } : {})}
+                />
+              ) : null}
+            </>
+          ) : null
+        }
+        leading={
+          <>
+            <ModelSelector
+              driverKind={defaults.driverKind}
+              modelId={defaults.modelId}
+              onChange={changeModel}
+              lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
+            />
+            <EffortChip
+              driverKind={defaults.driverKind}
+              modelId={defaults.modelId}
+              effort={defaults.effort}
+              onChange={changeEffort}
+            />
+            <PermissionModeChip
+              driverKind={defaults.driverKind}
+              mode={defaults.permissionMode}
+              onChange={changePermissionMode}
+            />
+          </>
+        }
+      />
+    ),
+    [
+      centered,
+      sessionId,
+      handleSend,
+      handleStop,
+      running,
+      queued,
+      handleSteerQueued,
+      handleRemoveQueued,
+      composerSeed,
+      fileSuggestions,
+      composerAttentionRequired,
+      sentPrompts,
+      childSessions,
+      pendingQuestion,
+      pendingPlan,
+      respondQuestion,
+      cancelQuestion,
+      approvals,
+      respondApproval,
+      activityOf,
+      onOpenSession,
+      delegatedWorkLive,
+      stopChildren,
+      defaults.driverKind,
+      defaults.modelId,
+      defaults.effort,
+      defaults.permissionMode,
+      changeModel,
+      changeEffort,
+      changePermissionMode,
+      telemetry.turnCount,
+    ],
+  )
+  const startFromStarter = useCallback((text: string) => {
+    setComposerSeed({ text, nonce: Date.now() })
+  }, [])
 
   return (
     <div className="ari-enter-fade flex h-full min-h-0">
@@ -1139,93 +1268,9 @@ export function SessionView({
           centered={centered}
           canvasRef={canvasRef}
           reducedMotion={engineSettings?.appearance.reducedMotion ?? false}
-          onStart={(text) => setComposerSeed({ text, nonce: Date.now() })}
+          onStart={startFromStarter}
         >
-          <Composer
-            centered={centered}
-            sessionId={sessionId}
-            onSend={handleSend}
-            onStop={handleStop}
-            running={running}
-            queued={queued}
-            onSteerQueued={handleSteerQueued}
-            onRemoveQueued={handleRemoveQueued}
-            seed={composerSeed ?? undefined}
-            suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
-            attentionRequired={composerAttentionRequired}
-            history={sentPrompts}
-            above={
-              // A plan approval is answered in the side panel, so it mounts no
-              // QuestionPanel and must not raise the strip on its own — an
-              // `above` of empty children still draws the border.
-              composerAttentionRequired || childSessions.length > 0 ? (
-                <>
-                  {/* The question rides in the same layer as the approvals: the
-                  strip that peeks out from behind the composer. A plan approval
-                  is not asked here — it has the side panel. */}
-                  {pendingQuestion !== null && pendingPlan === null ? (
-                    <>
-                      <QuestionPanel
-                        prompt={pendingQuestion.prompt}
-                        choicesJson={pendingQuestion.choicesJson}
-                        onRespond={respondQuestion}
-                        onCancel={cancelQuestion}
-                      />
-                      {approvals.length > 0 || childSessions.length > 0 ? (
-                        <div className="mx-3 border-t border-border/60" />
-                      ) : null}
-                    </>
-                  ) : null}
-                  {approvals.length > 0 ? (
-                    <div className="max-h-40 space-y-px overflow-y-auto">
-                      {approvals.map((a, i) => (
-                        <ApprovalCard
-                          key={a.approvalId}
-                          approvalId={a.approvalId}
-                          toolName={a.toolName}
-                          summaryJson={a.summaryJson}
-                          options={a.options}
-                          position={i + 1}
-                          total={approvals.length}
-                          onRespond={(answer) => respondApproval(a.approvalId, answer)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  {childSessions.length > 0 ? (
-                    <ChildSessionActivity
-                      sessions={childSessions}
-                      activityOf={activityOf}
-                      onOpen={onOpenSession}
-                      // While this session runs, its own Stop reaches the children.
-                      {...(!running && delegatedWorkLive ? { onStopAll: stopChildren } : {})}
-                    />
-                  ) : null}
-                </>
-              ) : null
-            }
-            leading={
-              <>
-                <ModelSelector
-                  driverKind={defaults.driverKind}
-                  modelId={defaults.modelId}
-                  onChange={changeModel}
-                  lockedTo={telemetry.turnCount > 0 ? defaults.driverKind : null}
-                />
-                <EffortChip
-                  driverKind={defaults.driverKind}
-                  modelId={defaults.modelId}
-                  effort={defaults.effort}
-                  onChange={changeEffort}
-                />
-                <PermissionModeChip
-                  driverKind={defaults.driverKind}
-                  mode={defaults.permissionMode}
-                  onChange={changePermissionMode}
-                />
-              </>
-            }
-          />
+          {composer}
         </ComposerDock>
       </div>
       {pendingPlan !== null ? (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { ReactNode, RefObject } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { transitions } from '@ari/ui/motion'
@@ -12,8 +12,12 @@ const starters = [
   },
 ]
 
-/** Moves the existing editor between the welcome canvas and its conversation dock. */
-export function ComposerDock({
+/**
+ * Moves the existing editor between the welcome canvas and its conversation
+ * dock. Memoized: its `layout` animation measures the dock on every render,
+ * so it renders only when its own props change.
+ */
+export const ComposerDock = memo(function ComposerDock({
   centered,
   canvasRef,
   reducedMotion,
@@ -91,4 +95,4 @@ export function ComposerDock({
       </motion.div>
     </motion.div>
   )
-}
+})

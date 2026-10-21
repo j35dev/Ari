@@ -29,6 +29,28 @@ function message(id: string): Message {
   }
 }
 
+describe('TranscriptView announcements', () => {
+  it('announces the turn, not every streamed flush', () => {
+    const { rerender } = render(
+      createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }),
+    )
+    const log = screen.getByRole('log', { name: 'Conversation transcript' })
+    expect(log).toHaveAttribute('aria-live', 'off')
+    expect(screen.getByRole('status')).toHaveTextContent('')
+
+    rerender(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [message('m1')],
+        running: true,
+      }),
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('Agent is replying')
+    rerender(createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }))
+    expect(screen.getByRole('status')).toHaveTextContent('Reply finished')
+  })
+})
+
 describe('TranscriptView delegation', () => {
   const titles: Record<string, string> = { child_a: 'Parser', child_b: 'Docs' }
   const onOpenSession = vi.fn()

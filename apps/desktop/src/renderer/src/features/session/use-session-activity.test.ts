@@ -48,6 +48,15 @@ afterEach(() => {
 })
 
 describe('useSessionActivity', () => {
+  it('keeps the lookup identity until some activity changes', () => {
+    const { api, fire, rerender } = renderActivity()
+    const before = api().activityOf
+    rerender(['s2'])
+    expect(api().activityOf).toBe(before)
+    fire({ sessionId: 's1', event: { type: 'turn.started', at: 10 } })
+    expect(api().activityOf).not.toBe(before)
+  })
+
   it('folds live turn events into the sidebar overlay', () => {
     const { api, fire } = renderActivity()
     expect(api().activityOf('s1')).toBeUndefined()
