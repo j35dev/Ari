@@ -13,6 +13,7 @@ import type { Session } from '@ari/contracts/session'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
+import { resolveOfferedModel } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { TranscriptView } from '../transcript'
@@ -306,7 +307,11 @@ export function SessionView({
   // model's contextHint from the live catalog. Neither → used-count-only chip.
   const catalogWindow = useMemo(() => {
     const row = catalogModels.find((r) => r.kind === defaults.driverKind)
-    const model = row?.models.find((m) => m.id === defaults.modelId)
+    const id =
+      defaults.modelId === null || row === undefined
+        ? null
+        : resolveOfferedModel(defaults.modelId, row.models)
+    const model = row?.models.find((m) => m.id === id)
     return contextTokensFromHint(model?.contextHint)
   }, [catalogModels, defaults.driverKind, defaults.modelId])
   const contextWindow = telemetry.context?.windowTokens ?? catalogWindow
@@ -958,7 +963,8 @@ export function SessionView({
   // A parent that ended its turn to wait has no Stop of its own, yet its
   // children may run for a long time. The rail offers one for all of them.
   const delegatedWorkLive = delegations.some(
-    (child) => child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
+    (child) =>
+      child.state === 'working' || child.state === 'needs-you' || child.state === 'waiting',
   )
   const stopChildren = useCallback(() => {
     void rpc
