@@ -77,6 +77,7 @@ describe('Popover', () => {
     await user.click(screen.getByRole('button', { name: 'Open' }))
 
     expect(onOpenChange).toHaveBeenCalledWith(true)
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The controlled close plays the exit animation before unmounting.
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
