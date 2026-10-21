@@ -805,6 +805,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     send: (frame) => {
       if (!contents.isDestroyed()) contents.send(STREAM_CHANNEL, frame)
     },
+    sendBatch: (frame) => {
+      if (!contents.isDestroyed()) contents.send(STREAM_CHANNEL, frame)
+    },
   })
   rpcRegistryRef = rpcRegistry
   appUpdaterRef ??= createAppUpdater((frame) => rpcRegistryRef?.publish('app.updates', frame))
