@@ -14,10 +14,13 @@ import { keepAliveActions, useKeptSessions } from './session-keep-alive'
 export function SessionKeepAlive({
   poolId,
   sessionId,
+  hidden = false,
   render,
 }: {
   poolId: string
   sessionId: string
+  /** The whole pane is off screen (a space in the background): its current session hides too. */
+  hidden?: boolean
   render: (sessionId: string, hidden: boolean) => ReactNode
 }) {
   const kept = useKeptSessions(poolId)
@@ -32,7 +35,7 @@ export function SessionKeepAlive({
   const ids = [...new Set([sessionId, ...kept])].sort()
   const nextHidden = new Map<string, ReactNode>()
   const views = ids.map((id) => {
-    if (id === sessionId) return <Fragment key={id}>{render(id, false)}</Fragment>
+    if (id === sessionId) return <Fragment key={id}>{render(id, hidden)}</Fragment>
     const element = hiddenElements.current.get(id) ?? (
       <Fragment key={id}>{render(id, true)}</Fragment>
     )

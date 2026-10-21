@@ -44,17 +44,34 @@ describe('AppProviders', () => {
     const settings = settingsSchema.parse({ version: 1, appearance: { reducedMotion: true } })
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return settings
-      if (method === 'settings.update') return { ...settings, appearance: { ...settings.appearance, reducedMotion: false } }
+      if (method === 'settings.update')
+        return { ...settings, appearance: { ...settings.appearance, reducedMotion: false } }
       return undefined
     })
     function MotionProbe() {
       const { update } = useEngineSettings()
-      return <button onClick={() => { void update({ appearance: { reducedMotion: false } }) }}>Enable motion</button>
+      return (
+        <button
+          onClick={() => {
+            void update({ appearance: { reducedMotion: false } })
+          }}
+        >
+          Enable motion
+        </button>
+      )
     }
-    render(<AppProviders><MotionProbe /></AppProviders>)
-    await vi.waitFor(() => expect(document.documentElement).toHaveAttribute('data-ari-reduced-motion'))
+    render(
+      <AppProviders>
+        <MotionProbe />
+      </AppProviders>,
+    )
+    await vi.waitFor(() =>
+      expect(document.documentElement).toHaveAttribute('data-ari-reduced-motion'),
+    )
     await user.click(screen.getByRole('button', { name: 'Enable motion' }))
-    await vi.waitFor(() => expect(document.documentElement).not.toHaveAttribute('data-ari-reduced-motion'))
+    await vi.waitFor(() =>
+      expect(document.documentElement).not.toHaveAttribute('data-ari-reduced-motion'),
+    )
   })
 })
 
@@ -906,6 +923,23 @@ describe('Shell spaces', () => {
       await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 }),
     ).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Alpha' })).toBeInTheDocument()
+  })
+
+  it('returns to a space with its sessions as they were, without reloading them', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+    const loads = () => invokeMock.mock.calls.filter(([method]) => method === 'session.load').length
+    await vi.waitFor(() => expect(loads()).toBe(2), { timeout: 10_000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New space' }))
+    await screen.findByText('Quick Actions', {}, { timeout: 10_000 })
+    fireEvent.click(screen.getByRole('tab', { name: 'Space 1' }))
+
+    expect(await screen.findByRole('region', { name: 'Beta' })).toBeVisible()
+    // The space left behind stays mounted too, out of sight.
+    expect(screen.getByText('Quick Actions')).not.toBeVisible()
+    expect(loads()).toBe(2)
   })
 
   it('ignores the close chord on the last space, keeping its panes', async () => {

@@ -58,6 +58,7 @@ import { splitLayoutActions, useSplitLayout } from './features/split/use-split-l
 import {
   MAX_SPACES,
   SpaceTabs,
+  recentSpaces,
   spaceActions,
   spaceStatus,
   useSpaces,
@@ -172,6 +173,17 @@ function Shell() {
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
   const tabsVisible = !settingsOpen && !hubOpen && !galleryOpen
+  const [recentSpaceIds, setRecentSpaceIds] = useState<readonly string[]>([])
+  const nextRecentSpaceIds = recentSpaces(
+    recentSpaceIds,
+    spaceStore.activeSpaceId,
+    spaceStore.spaces.map((space) => space.id),
+  )
+  if (nextRecentSpaceIds !== recentSpaceIds) setRecentSpaceIds(nextRecentSpaceIds)
+  // Sorted by id, not visit order: a keyed node React moves loses its scroll.
+  const mountedSpaces = spaceStore.spaces
+    .filter((space) => nextRecentSpaceIds.includes(space.id))
+    .sort((a, b) => (a.id < b.id ? -1 : 1))
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -1163,108 +1175,115 @@ function Shell() {
                 aria-labelledby={`space-tab-${spaceStore.activeSpaceId}`}
                 className="relative min-h-0 min-w-0 flex-1"
               >
-                <AnimatePresence initial={false}>
-                  <motion.div
-                    key={spaceStore.activeSpaceId}
-                    initial={reducedMotion ? { opacity: 0 } : { opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
-                    transition={reducedMotion ? { duration: 0 } : transitions.fadeUp}
-                    className="absolute inset-0 flex min-h-0 min-w-0 flex-col"
-                  >
-                    {activeSessionId === null &&
-                    paneCount(layout) === 1 &&
-                    (leaves(layout.root)[0] === undefined ||
-                      isBlankLeaf(leaves(layout.root)[0]!)) ? (
-                      // Nothing open at all: the welcome panel is still the view.
-                      <ErrorBoundary label="Welcome">
-                        <WelcomePanel
-                          hasProjects={projects.length > 0}
-                          onCreateSession={beginNewSession}
-                          onConnect={(endpointId, anchor) =>
-                            beginNewSession(anchor, {
-                              driverKind: 'ari-core',
-                              modelId: `ep:${endpointId}`,
-                            })
-                          }
-                        />
-                      </ErrorBoundary>
-                    ) : (
-                      <ErrorBoundary label="Session">
-                        <SplitView
-                          layout={layout}
-                          titleOf={(id) => {
-                            const session = sessions.find((s) => s.id === id)
-                            if (session === undefined) return null
-                            const projectName =
-                              session.projectId === UNFILED_GROUP_ID
-                                ? null
-                                : (projects.find((p) => p.id === session.projectId)?.name ?? null)
-                            return formatPaneTitle(session.title, projectName)
-                          }}
-                          onFocus={splitLayoutActions.focus}
-                          onClose={splitLayoutActions.close}
-                          onSplit={splitLayoutActions.split}
-                          onToggleZoom={splitLayoutActions.toggleZoom}
-                          onResize={splitLayoutActions.resize}
-                          onDropSession={splitLayoutActions.dropSession}
-                          onDropPane={splitLayoutActions.dropPane}
-                          onOpenTerminal={openTerminalInPane}
-                          canOpenTerminal={shellRoot !== null}
-                          terminalTitleOf={(id) =>
-                            terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
-                          }
-                          renderTerminal={(terminalId, paneId) => {
-                            const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
-                            return (
-                              <ErrorBoundary label="Terminal">
-                                <div className="h-full min-h-0 overflow-hidden">
-                                  <TerminalPane
-                                    key={`${paneId}:${terminalId}`}
-                                    terminalId={terminalId}
-                                    cwd={tab?.cwd ?? shellRoot}
-                                    initialCommand={tab?.command}
-                                    active={paneId === activePaneOf(layout)}
+                {/* The spaces visited last stay mounted, hidden: switching is a
+                    same-frame swap, and every session and terminal in the
+                    space comes back exactly as it was left. */}
+                {mountedSpaces.map((space) => {
+                  const visible = space.id === spaceStore.activeSpaceId
+                  const layout = space.layout
+                  const activeSessionId = activeSessionOf(layout)
+                  return (
+                    <div
+                      key={space.id}
+                      hidden={!visible}
+                      inert={!visible}
+                      className={`absolute inset-0 min-h-0 min-w-0 flex-col ${visible ? 'flex' : 'hidden'}`}
+                    >
+                      {activeSessionId === null &&
+                      paneCount(layout) === 1 &&
+                      (leaves(layout.root)[0] === undefined ||
+                        isBlankLeaf(leaves(layout.root)[0]!)) ? (
+                        // Nothing open at all: the welcome panel is still the view.
+                        <ErrorBoundary label="Welcome">
+                          <WelcomePanel
+                            hasProjects={projects.length > 0}
+                            onCreateSession={beginNewSession}
+                            onConnect={(endpointId, anchor) =>
+                              beginNewSession(anchor, {
+                                driverKind: 'ari-core',
+                                modelId: `ep:${endpointId}`,
+                              })
+                            }
+                          />
+                        </ErrorBoundary>
+                      ) : (
+                        <ErrorBoundary label="Session">
+                          <SplitView
+                            layout={layout}
+                            titleOf={(id) => {
+                              const session = sessions.find((s) => s.id === id)
+                              if (session === undefined) return null
+                              const projectName =
+                                session.projectId === UNFILED_GROUP_ID
+                                  ? null
+                                  : (projects.find((p) => p.id === session.projectId)?.name ?? null)
+                              return formatPaneTitle(session.title, projectName)
+                            }}
+                            onFocus={splitLayoutActions.focus}
+                            onClose={splitLayoutActions.close}
+                            onSplit={splitLayoutActions.split}
+                            onToggleZoom={splitLayoutActions.toggleZoom}
+                            onResize={splitLayoutActions.resize}
+                            onDropSession={splitLayoutActions.dropSession}
+                            onDropPane={splitLayoutActions.dropPane}
+                            onOpenTerminal={openTerminalInPane}
+                            canOpenTerminal={shellRoot !== null}
+                            terminalTitleOf={(id) =>
+                              terminalDock.tabs.find((tab) => tab.id === id)?.title ?? 'Terminal'
+                            }
+                            renderTerminal={(terminalId, paneId) => {
+                              const tab = terminalDock.tabs.find((entry) => entry.id === terminalId)
+                              return (
+                                <ErrorBoundary label="Terminal">
+                                  <div className="h-full min-h-0 overflow-hidden">
+                                    <TerminalPane
+                                      key={`${paneId}:${terminalId}`}
+                                      terminalId={terminalId}
+                                      cwd={tab?.cwd ?? shellRoot}
+                                      initialCommand={tab?.command}
+                                      active={visible && paneId === activePaneOf(layout)}
+                                    />
+                                  </div>
+                                </ErrorBoundary>
+                              )
+                            }}
+                            renderSession={(current, paneId) => (
+                              // One view per session, never reused for another: composer
+                              // seeds and review notes belong to the session, not to the
+                              // position it sits in. Recent ones stay mounted, hidden.
+                              <SessionKeepAlive
+                                key={paneId}
+                                poolId={paneId}
+                                sessionId={current}
+                                hidden={!visible}
+                                render={(sessionId, hidden) => (
+                                  <SessionView
+                                    sessionId={sessionId}
+                                    hidden={hidden}
+                                    defaults={defaultsFor(sessionId)}
+                                    onDefaultsChange={(next) => writeDefaults(sessionId, next)}
+                                    // A child session opens in the pane it was opened from,
+                                    // rather than yanking the whole shell to it.
+                                    onOpenSession={(childId) =>
+                                      splitLayoutActions.assign(paneId, childId)
+                                    }
+                                    activityOf={activityOf}
+                                    childSessions={sessions.filter(
+                                      (session) =>
+                                        session.parentSessionId === sessionId && !session.archived,
+                                    )}
+                                    sessionTitle={sessionTitle}
+                                    parentSession={parentOf(sessions, sessionId)}
                                   />
-                                </div>
-                              </ErrorBoundary>
-                            )
-                          }}
-                          renderSession={(current, paneId) => (
-                            // One view per session, never reused for another: composer
-                            // seeds and review notes belong to the session, not to the
-                            // position it sits in. Recent ones stay mounted, hidden.
-                            <SessionKeepAlive
-                              key={paneId}
-                              poolId={paneId}
-                              sessionId={current}
-                              render={(sessionId, hidden) => (
-                                <SessionView
-                                  sessionId={sessionId}
-                                  hidden={hidden}
-                                  defaults={defaultsFor(sessionId)}
-                                  onDefaultsChange={(next) => writeDefaults(sessionId, next)}
-                                  // A child session opens in the pane it was opened from,
-                                  // rather than yanking the whole shell to it.
-                                  onOpenSession={(childId) =>
-                                    splitLayoutActions.assign(paneId, childId)
-                                  }
-                                  activityOf={activityOf}
-                                  childSessions={sessions.filter(
-                                    (session) =>
-                                      session.parentSessionId === sessionId && !session.archived,
-                                  )}
-                                  sessionTitle={sessionTitle}
-                                  parentSession={parentOf(sessions, sessionId)}
-                                />
-                              )}
-                            />
-                          )}
-                        />
-                      </ErrorBoundary>
-                    )}
-                  </motion.div>
-                </AnimatePresence>
+                                )}
+                              />
+                            )}
+                          />
+                        </ErrorBoundary>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
               {inspector ? (
                 <>
