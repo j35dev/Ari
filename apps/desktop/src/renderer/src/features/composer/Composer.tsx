@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { ArrowUp, Bookmark, Clock, CornerUpRight, Square, Trash2, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import { transitions } from '@ari/ui/motion'
+import { Popover } from '@ari/ui/popover'
 import { activeTokenAt } from './active-token'
 import { matchSuggestions } from './match-suggestions'
 import { FilePopup } from './FilePopup'
@@ -142,6 +143,7 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [stash, setStash] = useState<StashEntry[]>(() => loadStash())
   const [stashOpen, setStashOpen] = useState(false)
+  const [stashAnchor, setStashAnchor] = useState<HTMLDivElement | null>(null)
   const [stashedPulse, setStashedPulse] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -588,11 +590,13 @@ export function Composer({
               resting ? 'flex shrink-0 items-center' : 'ms-auto flex shrink-0 items-center gap-1'
             }
           >
-            <div className={resting ? 'hidden' : 'relative'}>
+            <div ref={setStashAnchor} className={resting ? 'hidden' : 'relative'}>
               <motion.button
                 key={`stash-pulse-${stashedPulse}`}
                 type="button"
                 aria-label={`Prompt stash (${stash.length})`}
+                aria-haspopup="menu"
+                aria-expanded={stashOpen}
                 title="Stash this prompt (Mod+S) or reuse a stashed one"
                 onClick={() => setStashOpen((o) => !o)}
                 animate={stashedPulse > 0 ? { scale: [1, 1.25, 1] } : undefined}
@@ -601,60 +605,54 @@ export function Composer({
               >
                 <Bookmark size={13} />
               </motion.button>
-              <AnimatePresence>
-                {stashOpen ? (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setStashOpen(false)} />
-                    <motion.div
-                      initial={{ opacity: 0, y: 4, scale: 0.97 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                      transition={transitions.menuIn}
-                      className="absolute bottom-full right-0 z-40 mb-2 max-h-72 w-80 overflow-y-auto rounded-lg border border-border bg-surface-2 p-1 shadow-2"
-                      role="menu"
-                      aria-label="Stashed prompts"
-                    >
-                      {stash.length === 0 ? (
-                        <p className="px-3 py-4 text-center text-xs text-fg-subtle">
-                          Nothing stashed yet.
-                          <br />
-                          Press Mod+S to save the current draft.
-                        </p>
-                      ) : (
-                        stash.map((entry) => (
-                          <div
-                            key={entry.savedAt}
-                            className="group flex items-start gap-1 rounded-sm"
-                            role="none"
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => restoreFromStash(entry)}
-                              className="min-w-0 flex-1 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                            >
-                              <span className="line-clamp-2 block whitespace-pre-wrap break-words text-xs leading-snug text-fg">
-                                {entry.text}
-                              </span>
-                              <span className="mt-0.5 block text-2xs tabular-nums text-fg-subtle">
-                                {new Date(entry.savedAt).toLocaleString()}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Remove from stash"
-                              onClick={() => removeFromStash(entry)}
-                              className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
-                            >
-                              <Trash2 size={11} />
-                            </button>
-                          </div>
-                        ))
-                      )}
-                    </motion.div>
-                  </>
-                ) : null}
-              </AnimatePresence>
+              <Popover open={stashOpen} onOpenChange={setStashOpen} anchor={stashAnchor}>
+                <Popover.Content
+                  side="top"
+                  align="end"
+                  bare
+                  role="menu"
+                  aria-label="Stashed prompts"
+                  className="max-h-72 w-80 overflow-y-auto rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+                >
+                  {stash.length === 0 ? (
+                    <p className="px-3 py-4 text-center text-xs text-fg-subtle">
+                      Nothing stashed yet.
+                      <br />
+                      Press Mod+S to save the current draft.
+                    </p>
+                  ) : (
+                    stash.map((entry) => (
+                      <div
+                        key={entry.savedAt}
+                        className="group flex items-start gap-1 rounded-sm"
+                        role="none"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => restoreFromStash(entry)}
+                          className="min-w-0 flex-1 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                        >
+                          <span className="line-clamp-2 block whitespace-pre-wrap break-words text-xs leading-snug text-fg">
+                            {entry.text}
+                          </span>
+                          <span className="mt-0.5 block text-2xs tabular-nums text-fg-subtle">
+                            {new Date(entry.savedAt).toLocaleString()}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Remove from stash"
+                          onClick={() => removeFromStash(entry)}
+                          className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-fg-subtle opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </Popover.Content>
+              </Popover>
             </div>
             <SendStopButton
               running={running}
