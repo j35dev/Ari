@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { sessionHierarchySummarySchema, type SessionHierarchySummary } from '@ari/contracts/session'
-import type { JournalEvent } from '@ari/contracts/events'
+import { journalEventSchema, type JournalEvent } from '@ari/contracts/events'
 import { newTypedId } from '@ari/shared/ids'
 import { createLogger } from '@ari/shared/logger'
 import { Journal } from './journal'
@@ -291,7 +291,10 @@ export class SessionStore {
     }
     const cachedBytes = this.#indexCache.get(sessionId)?.journalBytes
     const prevBytes = cachedBytes ?? (await this.#measureJournalBytes(sessionId))
-    const post = applyEvent(model, stamped)
+    // Fold what a replay would fold — schema-stripped and defaulted — so the
+    // cached model `load` serves never drifts from the journal on disk.
+    const parsed = journalEventSchema.safeParse(stamped)
+    const post = applyEvent(model, parsed.success ? parsed.data : stamped)
     const lineBytes = Buffer.byteLength(JSON.stringify(stamped), 'utf8') + 1
     const entry = entryFrom(post, prevBytes + lineBytes)
     // A streaming turn appends parts many times a second. Paying a sidecar
@@ -321,15 +324,21 @@ export class SessionStore {
   }
 
   /**
-   * Replays the full journal into a read model. Every line is validated
-   * against `journalEventSchema`: invalid lines are neither applied nor
-   * dropped — they are quarantined in `journal.rejected.jsonl` and reported
-   * by {@link replayDiagnostics} while the valid lines still fold.
+   * Current read model for a session. Served from memory while the journal is
+   * open in this process (appends keep it folded); otherwise the full journal
+   * is replayed. Every replayed line is validated against
+   * `journalEventSchema`: invalid lines are neither applied nor dropped — they
+   * are quarantined in `journal.rejected.jsonl` and reported by
+   * {@link replayDiagnostics} while the valid lines still fold.
+   *
+   * The returned model is shared with the store and must be treated as
+   * read-only; appends replace it rather than mutate it.
    */
   async load(sessionId: string): Promise<SessionReadModel> {
-    return this.#serial(sessionId, () => this.#load(sessionId))
+    return this.#serial(sessionId, () => this.#modelFor(sessionId))
   }
 
+  /** Full journal replay, bypassing and then refreshing the cached model. */
   async #load(sessionId: string): Promise<SessionReadModel> {
     const journal = await this.openJournal(sessionId)
     const entries = await journal.readAll()
@@ -356,7 +365,7 @@ export class SessionStore {
 
   /**
    * Appends rejected lines verbatim to the sibling quarantine file, skipping
-   * lines already recorded (`load` runs on every append) so a corrupt journal
+   * lines already recorded (a journal may be replayed many times) so a corrupt journal
    * cannot grow the file without bound.
    */
   async #quarantine(sessionId: string, rejected: RejectedLine[]): Promise<void> {
@@ -448,7 +457,9 @@ export class SessionStore {
       return disk.hasSession ? disk : null
     }
     // Stale, missing, corrupt, or old-version index: one replay, then repair.
-    const model = await this.load(id)
+    // A size mismatch means the journal changed behind this process, so the
+    // cached model cannot be trusted either.
+    const model = await this.#serial(id, () => this.#load(id))
     const entry = entryFrom(model, bytes)
     this.#indexCache.set(id, entry)
     await this.#writeIndex(id, entry)
