@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { StreamFrame } from '@ari/contracts/rpc'
+import type { StreamBatchFrame, StreamFrame } from '@ari/contracts/rpc'
 import { RpcRegistry } from './rpc-registry'
 
 function makeRegistry() {
@@ -78,6 +78,31 @@ describe('RpcRegistry', () => {
     registry.publish('session.events', { seq: 1 })
     expect(calls).toBe(2)
     expect(sent).toEqual([{ id: 'b', name: 'session.events', payload: { seq: 1 } }])
+  })
+
+  it('sends one batched frame when several subscribers take the same payload', () => {
+    const sent: StreamFrame[] = []
+    const batches: StreamBatchFrame[] = []
+    const registry = new RpcRegistry({
+      send: (frame) => sent.push(frame),
+      sendBatch: (frame) => batches.push(frame),
+    })
+    registry.subscribe({ id: 'pane', name: 'session.events', params: { sessionId: 's1' } })
+    registry.subscribe({ id: 'shell', name: 'session.events', params: {} })
+    registry.subscribe({ id: 'other', name: 'session.events', params: { sessionId: 's2' } })
+
+    const payload = { seq: 1 }
+    registry.publish('session.events', payload, (params) => {
+      const wanted = params['sessionId']
+      return typeof wanted !== 'string' || wanted === 's1'
+    })
+    expect(sent).toEqual([])
+    expect(batches).toEqual([{ ids: ['pane', 'shell'], name: 'session.events', payload }])
+
+    // A lone subscriber still gets a plain frame.
+    registry.publish('session.events', payload, (params) => params['sessionId'] === 's2')
+    expect(sent).toEqual([{ id: 'other', name: 'session.events', payload }])
+    expect(batches).toHaveLength(1)
   })
 
   it('unsubscribe stops delivery and subscriberCount tracks by name', () => {

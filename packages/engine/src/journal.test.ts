@@ -36,6 +36,18 @@ describe('Journal', () => {
     await reopened.close()
   })
 
+  it('writes a caller-serialized line verbatim instead of encoding again', async () => {
+    const journal = new Journal<TestEvent>({ dir, name: 'j' })
+    await journal.open()
+    const event = { seq: 0, kind: 'a' }
+    await journal.append(event, JSON.stringify(event))
+    const entries = await journal.readAll()
+    await journal.close()
+    expect(entries).toEqual([
+      expect.objectContaining({ kind: 'value', value: { seq: 0, kind: 'a' } }),
+    ])
+  })
+
   it('rotates segments when the size cap is exceeded', async () => {
     const journal = new Journal<TestEvent>({ dir, name: 'j', rotateBytes: 40 })
     await journal.open()
