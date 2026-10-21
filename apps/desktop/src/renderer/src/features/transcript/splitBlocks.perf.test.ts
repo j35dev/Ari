@@ -1,5 +1,5 @@
 import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import type { Message } from '@ari/contracts/message'
 import { splitBlocks } from './splitBlocks'
@@ -59,14 +59,29 @@ describe('transcript performance budgets', () => {
   })
 
   it('mounts large transcript', () => {
-    const { container } = render(
-      createElement(TranscriptView, {
-        sessionId: 'sess_1',
-        messages: syntheticMessages(MOUNT_MESSAGE_COUNT),
-      }),
+    // The app's path: with IntersectionObserver only the tail mounts.
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+      },
     )
+    try {
+      const { container } = render(
+        createElement(TranscriptView, {
+          sessionId: 'sess_1',
+          messages: syntheticMessages(MOUNT_MESSAGE_COUNT),
+        }),
+      )
 
-    expect(container.querySelector('[data-session="sess_1"]')).not.toBeNull()
-    expect(container.querySelectorAll('[data-index]').length).toBeGreaterThan(0)
+      expect(container.querySelector('[data-session="sess_1"]')).not.toBeNull()
+      const rows = container.querySelectorAll('[data-index]').length
+      expect(rows).toBeGreaterThan(0)
+      expect(container.querySelectorAll('[data-lazy-row]').length).toBeGreaterThan(rows / 2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
