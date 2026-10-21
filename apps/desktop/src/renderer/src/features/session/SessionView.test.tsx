@@ -887,6 +887,61 @@ describe('SessionView per-turn diff cards', () => {
     ).toBeInTheDocument()
   })
 
+  it('queries a replayed turn only once the transcript brings it into view', async () => {
+    const observed: Element[] = []
+    let notify: (entries: Partial<IntersectionObserverEntry>[]) => void = () => undefined
+    class FakeObserver {
+      constructor(callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {
+        notify = callback
+      }
+      observe(node: Element): void {
+        observed.push(node)
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('IntersectionObserver', FakeObserver)
+    try {
+      renderView()
+      await screen.findByLabelText('Message')
+      const events = [
+        {
+          type: 'user.message.added',
+          message: {
+            id: 'm1',
+            sessionId: 'sess_1',
+            turnId: 'turn_1',
+            role: 'user',
+            parts: [{ type: 'text', text: 'edit the file' }],
+            createdAt: 1,
+          },
+        },
+        { type: 'turn.started', turnId: 'turn_1' },
+        {
+          type: 'assistant.parts.appended',
+          messageId: 'm2',
+          parts: [{ type: 'text', text: 'Done.' }],
+        },
+        { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed', errorMessage: null },
+      ].map((event, i) => ({ seq: i + 1, at: i + 1, sessionId: 'sess_1', ...event }))
+      act(() => {
+        sessionListener?.({ sessionId: 'sess_1', replay: true, events })
+      })
+      expect(await screen.findByText('Done.')).toBeInTheDocument()
+      expect(invokeMock).not.toHaveBeenCalledWith('git.turnDiff', expect.anything())
+
+      const end = observed.find((node) => (node as HTMLElement).dataset.turnEnd === 'turn_1')
+      expect(end).toBeDefined()
+      act(() => notify([{ target: end, isIntersecting: true }]))
+      expect(
+        await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }),
+      ).toBeInTheDocument()
+      expect(invokeMock.mock.calls.filter(([method]) => method === 'git.turnDiff')).toHaveLength(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('shows no card when the settled turn has a null diff', async () => {
     renderView()
     await screen.findByLabelText('Message')
