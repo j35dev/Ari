@@ -22,7 +22,7 @@
 .ari-awaken {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: var(--ari-z-splash);
   overflow: hidden;
   isolation: isolate;
   display: grid;

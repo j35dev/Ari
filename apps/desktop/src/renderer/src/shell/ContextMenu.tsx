@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
+import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
 
 export interface ContextMenuItem {
@@ -97,7 +98,7 @@ export function ContextMenu({
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[60]" onMouseDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }} />
+      <div className="fixed inset-0 z-context" onMouseDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }} />
       <div
         ref={(node) => {
           ref.current = node
@@ -106,7 +107,7 @@ export function ContextMenu({
         role="menu"
         aria-label={label}
         style={{ left: position.x, top: position.y, width: MENU_WIDTH }}
-        className="ari-enter-pop ari-enter-pop-down fixed z-[61] origin-top-left overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
+        className="ari-enter-pop ari-enter-pop-down fixed z-context origin-top-left overflow-hidden rounded-lg border border-border bg-surface-2 p-1 shadow-2"
       >
         {items.map((item, index) => {
           const Icon = item.icon
@@ -143,7 +144,7 @@ export function ContextMenu({
         })}
       </div>
     </>,
-    document.body,
+    layerRoot(),
   )
 }
 

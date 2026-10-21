@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { FileText, LoaderCircle, Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
+import { layerRoot } from '@ari/ui/layer-root'
 import { useOverlayRef } from '@ari/ui/overlay-registry'
 import { Kbd } from '@ari/ui/kbd'
 import type { GitScope, RpcResults } from '@ari/contracts/rpc'
@@ -160,14 +162,14 @@ export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSear
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [open])
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {open ? (
         <div
           key="content-search"
           ref={overlayRef}
           onClick={() => onClose()}
-          className="fixed inset-0 z-50 flex justify-center"
+          className="fixed inset-0 z-overlay flex justify-center"
           style={{ background: 'color-mix(in oklab, black 45%, transparent)' }}
         >
           <motion.div
@@ -259,6 +261,7 @@ export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSear
           </motion.div>
         </div>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    layerRoot(),
   )
 }

@@ -2,6 +2,8 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { layerRoot } from '../layer-root'
 import { transitions } from '@ari/ui/motion'
 
 export type ToastTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info'
@@ -124,18 +126,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div
-        data-toast-viewport
-        // Hosts of native views, which paint over the whole document, widen
-        // --ari-native-inset-right so the stack stays clear of them.
-        className="fixed top-12 right-[calc(var(--ari-native-inset-right,0px)+1rem)] z-50 flex flex-col gap-2"
-      >
-        <AnimatePresence initial={false}>
-          {toasts.map((t) => (
-            <ToastCard key={t.id} record={t} onDismiss={dismiss} />
-          ))}
-        </AnimatePresence>
-      </div>
+      {createPortal(
+        <div
+          data-toast-viewport
+          // Hosts of native views, which paint over the whole document, widen
+          // --ari-native-inset-right so the stack stays clear of them.
+          className="fixed top-12 right-[calc(var(--ari-native-inset-right,0px)+1rem)] z-toast flex flex-col gap-2"
+        >
+          <AnimatePresence initial={false}>
+            {toasts.map((t) => (
+              <ToastCard key={t.id} record={t} onDismiss={dismiss} />
+            ))}
+          </AnimatePresence>
+        </div>,
+        layerRoot(),
+      )}
     </ToastContext.Provider>
   )
 }

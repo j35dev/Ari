@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import type { Variants } from 'motion/react'
 import { transitions } from '../motion'
+import { layerRoot } from '../layer-root'
 import { useOverlayRef } from '../overlay-registry'
 import { useOverlayFocus } from './use-overlay-focus'
 
@@ -122,7 +123,7 @@ export interface SheetContentProps
   side?: SheetSide
 }
 
-/** Edge-sliding panel portaled to document.body; traps focus while open. */
+/** Edge-sliding panel portaled to the layer root; traps focus while open. */
 export function SheetContent({
   side = 'right',
   className,
@@ -142,7 +143,7 @@ export function SheetContent({
         <motion.div
           key="sheet-scrim"
           ref={scrimRef}
-          className="fixed inset-0 z-50"
+          className="fixed inset-0 z-overlay"
           style={SCRIM_STYLE}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -171,7 +172,7 @@ export function SheetContent({
           style={style}
           className={[
             PANEL_CLASS[side],
-            'bg-surface-1 border border-border shadow-2 p-5 outline-none',
+            'z-overlay bg-surface-1 border border-border shadow-2 p-5 outline-none',
             className,
           ]
             .filter(Boolean)
@@ -182,7 +183,7 @@ export function SheetContent({
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    layerRoot(),
   )
 }
 

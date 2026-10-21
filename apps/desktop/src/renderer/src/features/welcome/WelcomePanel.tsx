@@ -168,7 +168,7 @@ export function WelcomePanel({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={transitions.fadeUp}
-        className="relative z-10 flex w-full max-w-lg flex-col gap-6"
+        className="relative z-pane-chrome flex w-full max-w-lg flex-col gap-6"
       >
         <div className="flex flex-col items-center gap-1.5 text-center">
           <h1 className="text-[28px] font-semibold tracking-[-0.035em] text-fg">

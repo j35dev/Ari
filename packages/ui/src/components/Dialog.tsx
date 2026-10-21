@@ -8,6 +8,7 @@ import type {
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { menuInVariants } from '../motion'
+import { layerRoot } from '../layer-root'
 import { useOverlayRef } from '../overlay-registry'
 import { useOverlayFocus } from './use-overlay-focus'
 
@@ -101,7 +102,7 @@ const SIZE_CLASS: Record<DialogSize, string> = {
   lg: 'flex h-[min(680px,86vh)] w-[min(920px,92vw)] flex-col p-0',
 }
 
-/** Centered modal panel portaled to document.body; traps focus while open. */
+/** Centered modal panel portaled to the layer root; traps focus while open. */
 export function DialogContent({
   className,
   style,
@@ -120,7 +121,7 @@ export function DialogContent({
       {open && (
         <motion.div
           ref={scrimRef}
-          className="fixed inset-0 z-50 flex items-center justify-center"
+          className="fixed inset-0 z-overlay flex items-center justify-center"
           style={SCRIM_STYLE}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -158,7 +159,7 @@ export function DialogContent({
         </motion.div>
       )}
     </AnimatePresence>,
-    document.body,
+    layerRoot(),
   )
 }
 
