@@ -71,7 +71,7 @@ import {
   type PtyFactory,
   type PtyLike,
 } from './terminal-service'
-import { BrowserService } from './browser-service'
+import { BrowserService, hideGuestsOnShellReset } from './browser-service'
 import { createElectronBrowserGuest } from './browser-electron'
 import { startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
 import { buildExtensionInventory, readInventoriedSkill } from './extension-inventory'
@@ -1081,6 +1081,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
     (state) => rpcRegistry.publish('browser.updated', state),
   )
+  hideGuestsOnShellReset(contents, browsers)
   contents.once('destroyed', () => {
     browsers.dispose()
     browserMcpServers = []

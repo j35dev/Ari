@@ -41,6 +41,30 @@ export interface BrowserGuest {
 
 export type BrowserGuestFactory = (id: string, onUpdated: () => void) => BrowserGuest
 
+/** The shell webContents events after which no panel is left to place a guest. */
+export interface ShellResetSource {
+  on(
+    event: 'did-start-navigation',
+    listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void,
+  ): unknown
+  on(event: 'render-process-gone', listener: () => void): unknown
+}
+
+/**
+ * Guests are native views stacked over the shell, positioned by the renderer.
+ * A shell reload or renderer crash skips React's unmount cleanup, so nothing
+ * would ever hide them and they would float over the fresh UI.
+ */
+export function hideGuestsOnShellReset(
+  shell: ShellResetSource,
+  browsers: Pick<BrowserService, 'hideAll'>,
+): void {
+  shell.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) browsers.hideAll()
+  })
+  shell.on('render-process-gone', () => browsers.hideAll())
+}
+
 interface Tab {
   guest: BrowserGuest
   error: string | null
@@ -106,6 +130,11 @@ export class BrowserService {
     tab.guest.setVisible(visible)
     if (visible) tab.guest.setBounds(bounds)
     return true
+  }
+
+  /** Hides every guest; each keeps its page for the next panel that asks for it. */
+  hideAll(): void {
+    for (const tab of this.#tabs.values()) tab.guest.setVisible(false)
   }
 
   close(id: string): boolean {
