@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { FileText, LoaderCircle, Search } from 'lucide-react'
 import { menuInVariants } from '@ari/ui/motion'
+import { useOverlayRef } from '@ari/ui/overlay-registry'
 import { Kbd } from '@ari/ui/kbd'
 import type { GitScope, RpcResults } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
@@ -48,6 +49,7 @@ export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSear
   const [error, setError] = useState<string | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const overlayRef = useOverlayRef()
   const listRef = useRef<HTMLUListElement>(null)
   const idBase = useId()
 
@@ -163,6 +165,7 @@ export function ContentSearchOverlay({ open, onClose, root, scope }: ContentSear
       {open ? (
         <div
           key="content-search"
+          ref={overlayRef}
           onClick={() => onClose()}
           className="fixed inset-0 z-50 flex justify-center"
           style={{ background: 'color-mix(in oklab, black 45%, transparent)' }}

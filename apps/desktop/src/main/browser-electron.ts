@@ -69,11 +69,11 @@ export function createElectronBrowserGuest(
     getTitle: () => wc.getTitle(),
     isLoading: () => wc.isLoading(),
     executeJavaScript: (code) => wc.executeJavaScript(code, true),
-    capturePage: async (rect) => {
+    capturePage: async (rect, format = 'png') => {
       try {
         const image = await wc.capturePage(rect)
-        const png = image.toPNG()
-        return png.length > 0 ? png : null
+        const encoded = format === 'jpeg' ? image.toJPEG(80) : image.toPNG()
+        return encoded.length > 0 ? encoded : null
       } catch {
         return null
       }
