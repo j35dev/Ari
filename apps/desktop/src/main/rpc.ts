@@ -872,6 +872,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
   catalogServiceRef = catalogService
   catalogService.start()
+  // One answer per model for the life of the app: each ask is a full agent
+  // handshake, and the composer's chip asks on every mount and catalog frame.
+  const effortsForModel = cachedEffortLookup(probeEffortsForModel)
 
   // The running-turn counter feeds the tray from the same event flow the
   // renderer subscribes to; no extra engine coupling. Imports use the same
@@ -1307,7 +1310,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             modes: modesFor,
           })
         },
-        effortsForModel: cachedEffortLookup(probeEffortsForModel),
+        effortsForModel,
         allowance: readAllowance,
         // No grant id from a phone: the one to spend is looked up here.
         redeemReset: (kind) => redeemReset(kind),
@@ -1836,19 +1839,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Model-aware effort lookup for the picker: a throwaway ACP session has
   // the selected model applied, then reports that model's own thought
-  // levels. Empty on any failure — the caller keeps the catalog fallback.
-  r.register('providers.efforts', async (params) => {
-    try {
-      const efforts = await probeEffortsForModel(params.kind, params.modelId ?? null)
-      return { efforts }
-    } catch (error) {
-      log.debug('model-specific effort probe failed; keeping catalog fallback', {
-        kind: params.kind,
-        error: String(error),
-      })
-      return { efforts: [] }
-    }
-  })
+  // levels. Empty on any failure (logged and not cached by the lookup) — the
+  // caller keeps the catalog fallback.
+  r.register('providers.efforts', async (params) => ({
+    efforts: await effortsForModel(params.kind, params.modelId ?? null),
+  }))
 
   r.register('window.minimize', () => {
     BrowserWindow.fromWebContents(contents)?.minimize()
