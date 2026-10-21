@@ -26,6 +26,8 @@ interface ModelListResult {
 export interface CodexModelCatalog {
   models: CatalogModel[]
   efforts: EffortCatalog
+  /** The row Codex marks as its default, which a session without a pick runs on. */
+  defaultModelId: string | null
 }
 
 /** Environment for the spawned CLI; the caller's enriched PATH, when it has one. */
@@ -107,9 +109,15 @@ export async function probeCodexModelCatalog(
       })
     }
 
-    const effortEntry = entries.find((entry) => entry.isDefault === true) ?? entries[0]
-    const efforts = effortCatalog(effortEntry)
-    return { models, efforts }
+    const defaultEntry = entries.find((entry) => entry.isDefault === true)
+    const efforts = effortCatalog(defaultEntry ?? entries[0])
+    const defaultId =
+      typeof defaultEntry?.model === 'string' ? defaultEntry.model : defaultEntry?.id
+    return {
+      models,
+      efforts,
+      defaultModelId: typeof defaultId === 'string' && seenModels.has(defaultId) ? defaultId : null,
+    }
   } finally {
     await connection.shutdown()
   }

@@ -90,10 +90,12 @@ import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import {
+  agentDefaultModel,
   catalogSource,
   effortsFor,
   modelsFor,
   modesFor,
+  setAgentDefaultModel,
   setDynamicEfforts,
   setDynamicModes,
 } from '@ari/providers/catalogs'
@@ -112,6 +114,7 @@ import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
 import { providerEnvironment, setProviderEnvironment } from './provider-env'
 import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
+import { currentModelId } from '@ari/providers/acp/protocol'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
   ProviderAuthState,
@@ -181,6 +184,7 @@ async function probeAcpModels(
       })
       if (catalog.models.length > 0) {
         setDynamicEfforts(kind, catalog.efforts)
+        setAgentDefaultModel(kind, catalog.defaultModelId)
         return catalog.models
       }
     } catch (error) {
@@ -231,6 +235,9 @@ async function probeAcpModels(
     // And the permission-mode selector, so the picker can offer the harness's
     // own modes (codex `yolo`, claude `bypassPermissions`) instead of guessing.
     setDynamicModes(kind, agentModesFromSession(created))
+    // A fresh session names no model, so its current value is the one a
+    // session without a pick will run on — Claude's follows the CLI settings.
+    setAgentDefaultModel(kind, currentModelId(created.configOptions))
     return models
   } finally {
     await connection.shutdown()
@@ -849,6 +856,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // model lists) upgrade the pickers without any restart.
   const catalogService = new CatalogService({
     cachePath: join(app.getPath('userData'), 'model-catalog.json'),
+    liveCachePath: join(app.getPath('userData'), 'agent-catalogs.json'),
     probeModels: (kind) => probeAcpModels(kind),
     probeKinds: acpProbeKinds(),
     // Shares the 30 s detection cache, so this adds no `--version` spawns of its own.
@@ -1818,6 +1826,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       kind,
       source: catalogSource(kind),
       models: modelsFor(kind),
+      defaultModelId: agentDefaultModel(kind),
       efforts: catalogEfforts(effortsFor(kind)),
       // Only classifiable modes reach the renderer; the picker falls back to
       // Ari's own vocabulary when the list is empty.
