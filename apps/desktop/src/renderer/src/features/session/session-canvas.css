@@ -12,12 +12,18 @@
     var(--ari-wallpaper-image, none);
   background-position: center;
   background-size: cover;
+  /* Hidden, not merely transparent, once faded out: a conversation never
+     rasterises or composites a second full-size copy of the scene. */
   opacity: 0;
-  transition: opacity var(--ari-dur-panel) var(--ari-ease-glide);
+  visibility: hidden;
+  transition:
+    opacity var(--ari-dur-panel) var(--ari-ease-glide),
+    visibility var(--ari-dur-panel);
 }
 
 .ari-session-scene[data-visible] {
   opacity: 1;
+  visibility: visible;
 }
 
 .ari-composer-dock[data-centered] .ari-composer-shell {
