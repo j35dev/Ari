@@ -44,17 +44,34 @@ describe('AppProviders', () => {
     const settings = settingsSchema.parse({ version: 1, appearance: { reducedMotion: true } })
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') return settings
-      if (method === 'settings.update') return { ...settings, appearance: { ...settings.appearance, reducedMotion: false } }
+      if (method === 'settings.update')
+        return { ...settings, appearance: { ...settings.appearance, reducedMotion: false } }
       return undefined
     })
     function MotionProbe() {
       const { update } = useEngineSettings()
-      return <button onClick={() => { void update({ appearance: { reducedMotion: false } }) }}>Enable motion</button>
+      return (
+        <button
+          onClick={() => {
+            void update({ appearance: { reducedMotion: false } })
+          }}
+        >
+          Enable motion
+        </button>
+      )
     }
-    render(<AppProviders><MotionProbe /></AppProviders>)
-    await vi.waitFor(() => expect(document.documentElement).toHaveAttribute('data-ari-reduced-motion'))
+    render(
+      <AppProviders>
+        <MotionProbe />
+      </AppProviders>,
+    )
+    await vi.waitFor(() =>
+      expect(document.documentElement).toHaveAttribute('data-ari-reduced-motion'),
+    )
     await user.click(screen.getByRole('button', { name: 'Enable motion' }))
-    await vi.waitFor(() => expect(document.documentElement).not.toHaveAttribute('data-ari-reduced-motion'))
+    await vi.waitFor(() =>
+      expect(document.documentElement).not.toHaveAttribute('data-ari-reduced-motion'),
+    )
   })
 })
 
@@ -825,6 +842,26 @@ describe('Shell split panes', () => {
       { timeout: 10_000 },
     )
     expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess-beta' })
+  })
+
+  it('keeps the workspace mounted under the GitHub hub, so leaving it replays nothing', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Alpha' }, { timeout: 10_000 })
+    const loads = () => invokeMock.mock.calls.filter(([method]) => method === 'session.load').length
+    await vi.waitFor(() => expect(loads()).toBe(2), { timeout: 10_000 })
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    fireEvent.click(await screen.findByRole('option', { name: /Go to PRs & issues/ }))
+    await screen.findByRole('navigation', { name: 'Projects' }, { timeout: 10_000 })
+    // Covered, not torn down: out of reach while the hub is up.
+    expect(screen.queryByRole('region', { name: 'Alpha' })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(await screen.findByRole('region', { name: 'Alpha' })).toBeVisible()
+    expect(screen.queryByRole('navigation', { name: 'Projects' })).not.toBeInTheDocument()
+    expect(loads()).toBe(2)
   })
 
   it('leaves the pane chords to a field that has the keyboard', async () => {
