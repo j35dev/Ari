@@ -43,8 +43,14 @@ export const transitions = {
   paneSlide: { duration: durations.panel, ease: EASE_GLIDE } satisfies Transition,
   /** composer morph + icon crossfades */
   morph: { duration: durations.panel, ease: EASE_OUT_EXPO } satisfies Transition,
-  /** session-resort FLIP slides */
-  resort: { duration: durations.panel, ease: EASE_GLIDE } satisfies Transition,
+  /** session-resort and project-collapse FLIP slides: one quick glide */
+  resort: { duration: durations.fast, ease: EASE_GLIDE } satisfies Transition,
+  /**
+   * Sidebar collapse/expand. A short ease-out tween rather than a spring: the
+   * width drives a re-layout of the main column on every frame, so the fewer
+   * frames it spans the better.
+   */
+  sidebar: { duration: durations.panel, ease: 'easeOut' } satisfies Transition,
   /** Retargetable, critically damped movement without scaling the editor. */
   composerDock: {
     type: 'spring',
@@ -52,9 +58,6 @@ export const transitions = {
     bounce: 0,
   } satisfies Transition,
 } as const
-
-/** Sidebar collapse/expand spring (PLAN §6.4: stiffness 320 / damping 34). */
-export const sidebarSpring: Transition = { type: 'spring', stiffness: 320, damping: 34 }
 
 export const fadeUpVariants: Variants = {
   hidden: { opacity: 0, y: 4 },

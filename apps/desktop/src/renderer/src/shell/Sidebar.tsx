@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type Ref } from 'react'
-import { AnimatePresence, motion, Reorder, useDragControls } from 'motion/react'
+import { memo, useEffect, useMemo, useRef, useState, type Ref } from 'react'
+import { motion, Reorder, useDragControls } from 'motion/react'
 import type { DragControls } from 'motion/react'
 import {
   Archive,
@@ -46,6 +46,7 @@ import {
   type SidebarGroup,
 } from '../features/session/session-nav'
 import { useProjectExpand } from './use-project-expand'
+import { useStableHandlers } from './use-stable-handlers'
 import { useSessionCollapse } from './use-session-collapse'
 import { useSidebarView, type SidebarView } from './use-sidebar-view'
 import {
@@ -64,8 +65,10 @@ import {
 } from './ContextMenu'
 
 /**
- * Position-only FLIP for session reorder and project expand. Ease-slide keeps
- * sibling rows translating while a group grows or collapses.
+ * Position-only FLIP for session reorder and child-tree expand. Every layout
+ * node is measured whenever any motion layout anywhere in the app updates, so
+ * rows opt in only when their list actually changed: `layoutDependency` is the
+ * list's row order, and a re-render that leaves it alone measures nothing.
  */
 const LIST_LAYOUT = { layout: 'position' as const, transition: transitions.resort }
 
@@ -513,13 +516,15 @@ function SessionList({
   handlers: SessionRowHandlers
 }) {
   const { collapsed, toggle } = useSessionCollapse()
+  const rows = sessionTree(sessions, searching ? new Set() : collapsed)
+  const order = rows.map((row) => row.session.id).join(' ')
   return (
     <ul className="flex flex-col gap-0.5">
-      {sessionTree(sessions, searching ? new Set() : collapsed).map(
+      {rows.map(
         ({ session: s, childCount, lastAtDepth }) => {
           const expanded = !collapsed.has(s.id)
           return (
-            <motion.li key={s.id} {...LIST_LAYOUT}>
+            <motion.li key={s.id} {...LIST_LAYOUT} layoutDependency={order}>
               <div className="flex items-center">
                 <SessionTreeGuides lastAtDepth={lastAtDepth} />
                 {childCount > 0 && !searching ? (
@@ -689,25 +694,13 @@ function CollapsibleSessions({
           </button>
         </ProjectNotice>
       ) : null}
-      <AnimatePresence initial={false}>
-        {open ? (
-          <motion.div
-            key={label}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={transitions.morph}
-          >
-            <div className="pt-0.5">
-              <SessionList
-                sessions={sessions}
-                projectNameOf={projectNameOf}
-                handlers={handlers}
-              />
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {/* Closing is instant: an exit fade would hold the space open and keep
+          everything below from moving up until it finished. */}
+      {open ? (
+        <div className="ari-enter-fade pt-0.5">
+          <SessionList sessions={sessions} projectNameOf={projectNameOf} handlers={handlers} />
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1120,6 +1113,19 @@ function DraggableProjectGroup({
   )
 }
 
+type SessionsUnderProjectsProps = SessionRowHandlers &
+  ProjectActions & {
+    sessions: SessionSummary[]
+    projects: SidebarProject[]
+    /** Every known project (open or not), so archived/search rows keep their origin chip. */
+    knownProjectNames?: { id: string; name: string }[]
+    /** Opens the native folder picker; a cancel is a silent no-op. */
+    onOpenProject?: () => void
+    /** Anchors the project picker the new session will run in, under the button. */
+    onNewSession?: (anchor: MenuAnchor) => void
+    searchInputRef?: Ref<HTMLInputElement>
+  }
+
 /**
  * Sidebar body: a compose row, then either the Projects view (one collapsible
  * group per open project with its sessions nested inside, pinned first, a
@@ -1127,7 +1133,14 @@ function DraggableProjectGroup({
  * session in one flat list bucketed by recency), plus the global Archived
  * shelf. Searching flattens matches across every project into one list.
  */
-export function SessionsUnderProjects({
+export function SessionsUnderProjects(props: SessionsUnderProjectsProps) {
+  // The shell re-renders far more often than the sidebar's data changes, and
+  // passes inline handlers; every sidebar render re-measures each
+  // drag-reorderable project group. Stable handlers let the memo hold.
+  return <SessionsUnderProjectsBody {...useStableHandlers(props)} />
+}
+
+const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   sessions,
   projects,
   activeSessionId,
@@ -1145,18 +1158,7 @@ export function SessionsUnderProjects({
   searchInputRef,
   knownProjectNames,
   ...actions
-}: SessionRowHandlers &
-  ProjectActions & {
-    sessions: SessionSummary[]
-    projects: SidebarProject[]
-    /** Every known project (open or not), so archived/search rows keep their origin chip. */
-    knownProjectNames?: { id: string; name: string }[]
-    /** Opens the native folder picker; a cancel is a silent no-op. */
-    onOpenProject?: () => void
-    /** Anchors the project picker the new session will run in, under the button. */
-    onNewSession?: (anchor: MenuAnchor) => void
-    searchInputRef?: Ref<HTMLInputElement>
-  }) {
+}: SessionsUnderProjectsProps) {
   const [query, setQuery] = useState('')
   const trimmed = query.trim().toLowerCase()
   const { isExpanded, toggle } = useProjectExpand()
@@ -1545,7 +1547,7 @@ export function SessionsUnderProjects({
       ) : null}
     </>
   )
-}
+})
 
 /**
  * Section caption doubling as the Projects / Sessions view switch. Sits between
