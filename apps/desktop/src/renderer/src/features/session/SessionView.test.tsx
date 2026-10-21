@@ -2376,6 +2376,33 @@ describe('SessionView settle sound', () => {
     expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
   })
 
+  it('stays silent while kept hidden behind another session', async () => {
+    const view = (hidden: boolean) => (
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+          hidden={hidden}
+        />
+      </ToastProvider>
+    )
+    const { rerender } = render(view(false))
+    await screen.findByLabelText('Message')
+    rerender(view(true))
+
+    emitSettle('completed')
+    emitApproval()
+    emitQuestion()
+
+    expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
+    expect(screen.queryByRole('log', { name: 'Conversation transcript' })).not.toBeInTheDocument()
+    // The stream stayed live: the blocks it carried are there when it returns.
+    rerender(view(false))
+    expect(await screen.findByRole('log', { name: 'Conversation transcript' })).toBeVisible()
+    expect(settleSoundMocks.playSettleSound).not.toHaveBeenCalled()
+  })
+
   it('stays silent when the setting is off', async () => {
     invokeMock.mockImplementation(async (method) => {
       if (method === 'settings.get') {

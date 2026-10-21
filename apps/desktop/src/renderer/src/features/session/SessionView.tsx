@@ -1,4 +1,5 @@
 import {
+  Activity,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -270,6 +271,7 @@ export function SessionView({
   activityOf,
   sessionTitle,
   parentSession = null,
+  hidden = false,
 }: {
   sessionId: string
   defaults: SessionDefaults
@@ -281,6 +283,13 @@ export function SessionView({
   sessionTitle?: (id: string) => string | undefined
   /** The session that delegated to this one, when it is a child. */
   parentSession?: { id: string; title: string } | null
+  /**
+   * Kept mounted behind the pane's current session. The journal subscription
+   * stays live so the view is current when it returns, but its subtree's
+   * effects pause and its cues stay quiet: an unseen session makes no sound,
+   * as it did when switching away unmounted it.
+   */
+  hidden?: boolean
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
@@ -345,6 +354,8 @@ export function SessionView({
   settleSoundRef.current = engineSettings?.notifications.settleSound ?? true
   const defaultsRef = useRef(defaults)
   defaultsRef.current = defaults
+  const hiddenRef = useRef(hidden)
+  hiddenRef.current = hidden
   const onDefaultsChangeRef = useRef(onDefaultsChange)
   onDefaultsChangeRef.current = onDefaultsChange
 
@@ -604,13 +615,13 @@ export function SessionView({
         if (event.stopReason === 'error' && event.errorMessage) {
           // Raw text is kept: the banner's Details disclosure shows it verbatim.
           setTurnError(event.errorMessage)
-          notifySettledRef.current({ error: event.errorMessage })
-        } else {
+          if (!hiddenRef.current) notifySettledRef.current({ error: event.errorMessage })
+        } else if (!hiddenRef.current) {
           notifySettledRef.current()
         }
         // Settle chime — live settles only, so remounting a session never
         // replays the cue for turns that finished while it was closed.
-        if (live && settleSoundRef.current) {
+        if (live && settleSoundRef.current && !hiddenRef.current) {
           playSettleSound(event.stopReason === 'error' ? 'error' : 'complete')
         }
         // Queue continuation is the engine's job now: after a clean settle
@@ -644,6 +655,7 @@ export function SessionView({
             options: event.options,
           },
         ])
+        if (hiddenRef.current) break
         // An approval blocks the turn silently while away — say so.
         notifyNeedsAttention(sessionTitleRef.current, {
           detail: `${event.toolName} approval`,
@@ -690,6 +702,7 @@ export function SessionView({
         const question = asInputRequested(event)
         if (question) {
           setPendingQuestion(question)
+          if (hiddenRef.current) break
           notifyNeedsAttention(sessionTitleRef.current, {
             detail: question.prompt.slice(0, 80),
           })
@@ -1205,8 +1218,8 @@ export function SessionView({
     setComposerSeed({ text, nonce: Date.now() })
   }, [])
 
-  return (
-    <div className="ari-enter-fade flex h-full min-h-0">
+  const view = (
+    <div className="flex h-full min-h-0">
       <div
         ref={canvasRef}
         className="ari-session-canvas relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
@@ -1238,6 +1251,7 @@ export function SessionView({
             sessionTitle={sessionTitle}
             onOpenSession={onOpenSession}
             onTurnInView={handleTurnInView}
+            hidden={hidden}
           />
         </div>
         <div
@@ -1347,6 +1361,9 @@ export function SessionView({
       ) : null}
     </div>
   )
+  // Hidden views keep their DOM and state; React defers their renders and
+  // pauses the effects inside, so a background stream costs no layout.
+  return <Activity mode={hidden ? 'hidden' : 'visible'}>{view}</Activity>
 }
 
 interface EffortOption {

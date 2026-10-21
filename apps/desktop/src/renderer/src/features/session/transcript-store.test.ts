@@ -51,6 +51,18 @@ describe('transcriptStore', () => {
     expect(transcriptStore(first)).not.toBe(store)
   })
 
+  it('never evicts a store a mounted view still subscribes to', () => {
+    const first = sessionId()
+    const store = transcriptStore(first)
+    const unsubscribe = store.subscribe(() => undefined)
+    for (let i = 0; i < TRANSCRIPT_CACHE_SIZE; i++) transcriptStore(sessionId())
+    expect(transcriptStore(first)).toBe(store)
+
+    unsubscribe()
+    for (let i = 0; i < TRANSCRIPT_CACHE_SIZE; i++) transcriptStore(sessionId())
+    expect(transcriptStore(first)).not.toBe(store)
+  })
+
   it('keeps the last snapshot readable until a new fold publishes', () => {
     const store = transcriptStore(sessionId())
     stream(store, 'hi')

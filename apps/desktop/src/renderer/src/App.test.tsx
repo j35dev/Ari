@@ -294,6 +294,37 @@ describe('Shell session navigation keys', () => {
     )
   })
 
+  it('returns to a recent session without reloading or resubscribing it', async () => {
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+    const loadsOf = (sessionId: string) =>
+      invokeMock.mock.calls.filter(
+        ([method, params]) =>
+          method === 'session.load' && (params as { sessionId?: string }).sessionId === sessionId,
+      ).length
+    const subscriptionsOf = (sessionId: string) =>
+      rpcMocks.subscribe.mock.calls.filter(
+        (call) =>
+          (call as unknown[])[0] === 'session.events' &&
+          ((call as unknown[])[1] as { sessionId?: string }).sessionId === sessionId,
+      ).length
+
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true })
+    await vi.waitFor(() => expect(loadsOf('sess-alpha')).toBe(1), { timeout: 10_000 })
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true })
+    await vi.waitFor(() => expect(loadsOf('sess-beta')).toBe(1), { timeout: 10_000 })
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true })
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole('log', { name: 'Conversation transcript' })).toHaveAttribute(
+        'data-session',
+        'sess-alpha',
+      ),
+    )
+    expect(loadsOf('sess-alpha')).toBe(1)
+    expect(subscriptionsOf('sess-alpha')).toBe(1)
+  })
+
   it('Ctrl+Tab cycles forward through sessions and wraps', async () => {
     render(<App />)
     await screen.findByText('Alpha', {}, { timeout: 10_000 })

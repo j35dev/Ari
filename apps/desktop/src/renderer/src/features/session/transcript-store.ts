@@ -9,7 +9,7 @@ import { createMessageFold, type MessageFold } from './message-fold'
  *
  * Stores are module-level and outlive the view that fills them: the most
  * recently used {@link TRANSCRIPT_CACHE_SIZE} sessions keep their last
- * snapshot, so a view mounted for a session opened recently can paint its
+ * snapshot (beyond any that a mounted view is still subscribed to), so a view mounted for a session opened recently can paint its
  * transcript at once while the journal replay rebuilds it underneath.
  *
  * Lifecycle, as `SessionView` drives it:
@@ -36,6 +36,8 @@ export const TRANSCRIPT_CACHE_SIZE = 12
 
 const NO_MESSAGES: Message[] = []
 const stores = new Map<string, TranscriptStore>()
+/** How many subscribers each store has; a watched store is never evicted. */
+const watchers = new WeakMap<TranscriptStore, number>()
 
 function createStore(sessionId: string): TranscriptStore {
   let fold = createMessageFold()
@@ -44,7 +46,7 @@ function createStore(sessionId: string): TranscriptStore {
   // replay brought nothing, or an emptied list would keep showing old rows.
   let replacing = false
   const listeners = new Set<() => void>()
-  return {
+  const store: TranscriptStore = {
     sessionId,
     begin() {
       fold = createMessageFold()
@@ -61,9 +63,14 @@ function createStore(sessionId: string): TranscriptStore {
     getSnapshot: () => snapshot,
     subscribe(listener) {
       listeners.add(listener)
-      return () => listeners.delete(listener)
+      watchers.set(store, listeners.size)
+      return () => {
+        listeners.delete(listener)
+        watchers.set(store, listeners.size)
+      }
     },
   }
+  return store
 }
 
 /** The store for `sessionId`, created on first use and marked most recent. */
@@ -72,9 +79,11 @@ export function transcriptStore(sessionId: string): TranscriptStore {
   if (store === undefined) store = createStore(sessionId)
   else stores.delete(sessionId)
   stores.set(sessionId, store)
-  for (const oldest of stores.keys()) {
+  // Oldest first, skipping stores a mounted view still reads: evicting one
+  // would hand the next caller a second store for the same session.
+  for (const [id, candidate] of stores) {
     if (stores.size <= TRANSCRIPT_CACHE_SIZE) break
-    stores.delete(oldest)
+    if ((watchers.get(candidate) ?? 0) === 0) stores.delete(id)
   }
   return store
 }
@@ -101,7 +110,8 @@ export function useTranscriptSelector<T>(
     const hit = cache.current
     if (hit !== null && hit.store === store && hit.list === list) return hit.value
     const value = select(list)
-    const kept = hit !== null && hit.store === store && isEqual(hit.value, value) ? hit.value : value
+    const kept =
+      hit !== null && hit.store === store && isEqual(hit.value, value) ? hit.value : value
     cache.current = { store, list, value: kept }
     return kept
   }
