@@ -12,6 +12,7 @@ import {
   parseLegacyLayout,
   parseSpaceStore,
   pruneSpaceSessions,
+  recentSpaces,
   renameSpace,
   selectSpace,
   selectSpaceAt,
@@ -222,6 +223,27 @@ describe('space store model', () => {
     expect(pruneSpaceSessions(pruned, new Set(['sB']))).toBe(pruned)
     // pruneSessions is the per-layout primitive this wraps.
     expect(leaves(pruneSessions(layoutOf(store, 'space1'), new Set()).root)).toHaveLength(1)
+  })
+})
+
+describe('recentSpaces', () => {
+  const all = ['s1', 's2', 's3', 's4']
+
+  it('puts the space on screen first and keeps the last ones visited', () => {
+    expect(recentSpaces(['s1', 's2'], 's3', all)).toEqual(['s3', 's1', 's2'])
+  })
+
+  it('lets the least recent fall off past the limit', () => {
+    expect(recentSpaces(['s3', 's1', 's2'], 's4', all)).toEqual(['s4', 's3', 's1'])
+  })
+
+  it('drops spaces that were closed', () => {
+    expect(recentSpaces(['s1', 's2'], 's1', ['s1', 's3'])).toEqual(['s1'])
+  })
+
+  it('returns the same list when nothing changed', () => {
+    const recent = ['s1', 's2']
+    expect(recentSpaces(recent, 's1', all)).toBe(recent)
   })
 })
 
