@@ -201,7 +201,7 @@ export function WelcomePanel({
                   key={item.title}
                   type="button"
                   onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
-                  className="group relative flex flex-col items-start gap-1.5 rounded-xl border border-border/80 bg-surface-1/70 p-3 text-left shadow-sm transition-all duration-150 hover:border-accent/50 hover:bg-surface-2 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  className="group relative flex flex-col items-start gap-1.5 rounded-xl border border-border/80 bg-surface-1/70 p-3 text-left shadow-sm transition-[color,background-color,border-color,scale] duration-150 hover:border-accent/50 hover:bg-surface-2 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                 >
                   <div className="flex w-full items-center justify-between">
                     <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 border border-border/60 text-fg-muted transition-colors group-hover:border-accent/40 group-hover:text-accent">
@@ -209,7 +209,7 @@ export function WelcomePanel({
                     </div>
                     <ArrowRight
                       size={13}
-                      className="text-fg-subtle opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-accent"
+                      className="text-fg-subtle opacity-0 transition-[color,opacity,translate] duration-150 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-accent"
                     />
                   </div>
                   <div>
@@ -228,7 +228,7 @@ export function WelcomePanel({
         <button
           type="button"
           onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
-          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-all duration-150 hover:bg-accent-hover active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="group flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-fg-on-accent shadow-2 transition-[background-color,scale] duration-150 hover:bg-accent-hover active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
           <Sparkles size={15} />
           <span>{hasProjects ? 'Start a new session' : 'Add a project to start'}</span>

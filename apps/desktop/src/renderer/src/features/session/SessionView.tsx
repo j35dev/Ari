@@ -1354,7 +1354,7 @@ export function EffortChip({
         aria-label={`Effort: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-all hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span>{current.label}</span>
         <ChevronDown
@@ -1538,7 +1538,7 @@ export function PermissionModeChip({
         aria-label={`Permission mode: ${current.label}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-all hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-border/80 bg-surface-2/60 pe-2 ps-2 text-xs font-medium text-fg-muted shadow-sm transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
         <span
           aria-hidden

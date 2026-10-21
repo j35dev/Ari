@@ -162,7 +162,7 @@ export function TerminalDock({
             return (
               <span
                 key={tab.id}
-                className={`group flex h-6 shrink-0 items-center gap-1 rounded-md pl-2 pr-1 transition-all duration-150 ${
+                className={`group flex h-6 shrink-0 items-center gap-1 rounded-md pl-2 pr-1 transition-colors duration-150 ${
                   active
                     ? 'bg-accent/15 text-accent border border-accent/25 shadow-sm font-medium'
                     : 'text-fg-subtle hover:bg-surface-2/70 border border-transparent hover:text-fg'

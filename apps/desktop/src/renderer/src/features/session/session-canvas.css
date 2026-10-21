@@ -13,7 +13,7 @@
   background-position: center;
   background-size: cover;
   opacity: 0;
-  transition: opacity 420ms var(--ari-ease-slide);
+  transition: opacity var(--ari-dur-panel) var(--ari-ease-glide);
 }
 
 .ari-session-scene[data-visible] {

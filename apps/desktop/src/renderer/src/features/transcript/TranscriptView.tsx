@@ -705,7 +705,7 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
             onClick={() => onEdit(text)}
             aria-label="Edit message"
             title="Edit and resend"
-            className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-all duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+            className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-[color,background-color,opacity] duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
           >
             <Pencil size={12} />
           </button>
@@ -714,7 +714,7 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
           type="button"
           onClick={() => void copy()}
           aria-label={copied ? 'Copied' : 'Copy message'}
-          className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-all duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+          className="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-subtle opacity-0 transition-[color,background-color,opacity] duration-150 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
         </button>

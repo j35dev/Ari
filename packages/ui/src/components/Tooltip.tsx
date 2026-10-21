@@ -8,7 +8,7 @@ import { transitions } from '../motion'
 
 /** 140ms fade in/out (PLAN §6.4 timing budget for transient surfaces). */
 const tooltipVariants: Variants = {
-  hidden: { opacity: 0, transition: { duration: 0.14, ease: 'easeIn' } },
+  hidden: { opacity: 0, transition: transitions.menuOut },
   visible: { opacity: 1, transition: transitions.menuIn },
 }
 
