@@ -1332,8 +1332,10 @@ export function EffortChip({
   }, [driverKind, modelId])
 
   useEffect(() => {
-    if (!loaded || effort === null) return
-    if (options.length === 0 || !options.some((o) => o.id === effort)) onChange(null)
+    // No list is not a verdict: an agent that has not answered yet (or a
+    // probe that failed) would otherwise wipe the level the user saved.
+    if (!loaded || effort === null || options.length === 0) return
+    if (!options.some((o) => o.id === effort)) onChange(null)
   }, [loaded, options, effort, onChange])
 
   if (options.length === 0) return null

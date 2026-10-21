@@ -2045,6 +2045,15 @@ describe('EffortChip', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(null))
   })
 
+  it('keeps a saved effort while the agent has reported no levels yet', async () => {
+    const onChange = vi.fn()
+    invokeMock.mockResolvedValue([{ kind: 'claude', source: 'cache', models: [], efforts: [] }])
+    render(<EffortChip driverKind="claude" effort="xhigh" onChange={onChange} />)
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('providers.models'))
+    await act(async () => undefined)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('keeps a saved effort across a model switch until the new model answers', async () => {
     const onChange = vi.fn()
     let releaseNext: (() => void) | undefined
