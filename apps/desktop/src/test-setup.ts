@@ -15,5 +15,8 @@ class ResizeObserverStub {
 globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver
 
 // jsdom lacks the Web Animations API; nothing it lays out ever animates.
-const animatable = Element.prototype as Partial<Pick<Element, 'getAnimations'>>
-animatable.getAnimations ??= () => []
+// Main-process suites run under node, where there is no Element at all.
+if (typeof Element !== 'undefined') {
+  const animatable = Element.prototype as Partial<Pick<Element, 'getAnimations'>>
+  animatable.getAnimations ??= () => []
+}
