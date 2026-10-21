@@ -9,6 +9,7 @@ import {
   useState,
   type WheelEvent,
 } from 'react'
+import { flushSync } from 'react-dom'
 import { Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
 import { Dialog } from '@ari/ui/dialog'
 import { Skeleton } from '@ari/ui/skeleton'
@@ -26,6 +27,7 @@ import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { DelegationCard } from './DelegationCard'
 import { DelegationNotice } from './DelegationNotice'
 import { insertDelegationRows } from './delegation-rows'
+import { useLazyRows } from './use-lazy-rows'
 import { attachmentDataUrl } from './attachment-urls'
 import type {
   DelegatedChild,
@@ -46,6 +48,17 @@ const LINE_HEIGHT_PX = 22
  * `content-visibility: auto` skips them.
  */
 function estimateRowSize(row: TranscriptRow): number {
+  const known = estimates.get(row)
+  if (known !== undefined) return known
+  const size = estimateUncached(row)
+  estimates.set(row, size)
+  return size
+}
+
+/** Rows keep their identity across flushes, so each is estimated once. */
+const estimates = new WeakMap<TranscriptRow, number>()
+
+function estimateUncached(row: TranscriptRow): number {
   if (row.kind === 'tool-group') return 30
   if (row.kind === 'turn-diff') return 40
   if (row.kind === 'delegation') return 30 * row.children.length
@@ -89,7 +102,10 @@ const LOADING_ROW_WIDTHS = ['92%', '78%', '85%', '64%'] as const
 /**
  * Transcript in one native-scrolling document. Rows stay in flow — windowing
  * them as absolutely positioned segments made long sessions hitch and eat
- * wheel gestures every time a block mounted at a new height.
+ * wheel gestures every time a block mounted at a new height. A long history
+ * mounts progressively instead (see `useLazyRows`): rows far from the
+ * viewport hold their estimated height until the reader nears them, and
+ * the browser's scroll anchoring absorbs the difference.
  */
 export function TranscriptView({
   sessionId,
@@ -217,14 +233,29 @@ export function TranscriptView({
     setActiveRailKey((prev) => (prev === active ? prev : active))
   }, [railEntries])
 
-  const handleRailJump = useCallback((key: string) => {
-    const scroller = scrollRef.current
-    const node = scroller?.querySelector(`[data-index="${key}"]`)
-    if (!scroller || !(node instanceof HTMLElement)) return
-    atBottomRef.current = false
-    setAtBottom(false)
-    scroller.scrollTo({ top: Math.max(0, node.offsetTop - 12), left: 0, behavior: 'smooth' })
-  }, [])
+  const lazyRows = useLazyRows(scrollRef, rows, sessionId, (index) => {
+    const row = rows[index]
+    return row === undefined ? 0 : estimateRowSize(row)
+  })
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+  const mountRow = lazyRows.mount
+
+  const handleRailJump = useCallback(
+    (key: string) => {
+      const target = rowsRef.current[Number(key)]
+      // A row still held as a placeholder mounts first, so the jump lands on
+      // its real top rather than its estimate.
+      if (target !== undefined) flushSync(() => mountRow(target.key))
+      const scroller = scrollRef.current
+      const node = scroller?.querySelector(`[data-index="${key}"]`)
+      if (!scroller || !(node instanceof HTMLElement)) return
+      atBottomRef.current = false
+      setAtBottom(false)
+      scroller.scrollTo({ top: Math.max(0, node.offsetTop - 12), left: 0, behavior: 'smooth' })
+    },
+    [mountRow],
+  )
 
   const hasWorking = Boolean(working)
 
@@ -369,26 +400,30 @@ export function TranscriptView({
                 if (freshRows.delete(row.key)) settleEntrance()
               }}
             >
-              <TranscriptRowView
-                row={row}
-                index={index}
-                sessionTitle={sessionTitle}
-                onOpenSession={onOpenSession}
-                onEditUserMessage={onEditUserMessage}
-                // Only the newest answer's footer row regenerates; handing the
-                // callback to every row would re-render all of them whenever
-                // it changes, which is every flush.
-                onRegenerate={
-                  row.kind === 'markdown' &&
-                  row.isLastOfMessage === true &&
-                  row.messageId === lastAssistantMessageId
-                    ? onRegenerate
-                    : undefined
-                }
-                regenerateDisabled={regenerateDisabled}
-                active={running && index === activeIndex}
-                onDiffComment={onDiffComment}
-              />
+              {lazyRows.isMounted(row.key) ? (
+                <TranscriptRowView
+                  row={row}
+                  index={index}
+                  sessionTitle={sessionTitle}
+                  onOpenSession={onOpenSession}
+                  onEditUserMessage={onEditUserMessage}
+                  // Only the newest answer's footer row regenerates; handing the
+                  // callback to every row would re-render all of them whenever
+                  // it changes, which is every flush.
+                  onRegenerate={
+                    row.kind === 'markdown' &&
+                    row.isLastOfMessage === true &&
+                    row.messageId === lastAssistantMessageId
+                      ? onRegenerate
+                      : undefined
+                  }
+                  regenerateDisabled={regenerateDisabled}
+                  active={running && index === activeIndex}
+                  onDiffComment={onDiffComment}
+                />
+              ) : (
+                <RowPlaceholder row={row} index={index} observe={lazyRows.observe} />
+              )}
             </div>
           ))}
         </div>
@@ -436,6 +471,27 @@ export function TranscriptView({
     </div>
   )
 }
+
+/** A row not mounted yet: its estimated height, watched for the viewport. */
+const RowPlaceholder = memo(function RowPlaceholder({
+  row,
+  index,
+  observe,
+}: {
+  row: TranscriptRow
+  index: number
+  observe: (element: HTMLElement | null) => (() => void) | undefined
+}) {
+  return (
+    <div
+      ref={observe}
+      data-index={index}
+      data-lazy-row={row.key}
+      aria-hidden="true"
+      style={{ height: estimateRowSize(row) }}
+    />
+  )
+})
 
 /**
  * Memoized: rows keep their identity across flushes (see `splitBlocks`), so a
