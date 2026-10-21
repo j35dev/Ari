@@ -5,6 +5,21 @@ function basenameOf(path: string): string {
   return slash === -1 ? path : path.slice(slash + 1)
 }
 
+/** Lowercased path and basename per index entry, built once per index array. */
+const loweredIndexes = new WeakMap<readonly string[], { lower: string; base: string }[]>()
+
+function loweredIndex(paths: readonly string[]): { lower: string; base: string }[] {
+  let index = loweredIndexes.get(paths)
+  if (index === undefined) {
+    index = paths.map((path) => {
+      const lower = path.toLowerCase()
+      return { lower, base: basenameOf(lower) }
+    })
+    loweredIndexes.set(paths, index)
+  }
+  return index
+}
+
 /**
  * Filter workspace paths for the @file mention popup. A path matches when the
  * query (case-insensitive) is a substring of it; matches rank basename-prefix
@@ -20,10 +35,10 @@ export function matchSuggestions(
   const q = query.toLowerCase()
   if (q === '') return paths.slice(0, limit)
   const ranked: Array<{ path: string; tier: number; order: number }> = []
+  const index = loweredIndex(paths)
   for (let order = 0; order < paths.length; order++) {
     const path = paths[order]!
-    const lower = path.toLowerCase()
-    const base = basenameOf(lower)
+    const { lower, base } = index[order]!
     let tier = -1
     if (base.startsWith(q)) tier = 0
     else if (lower.startsWith(q)) tier = 1
