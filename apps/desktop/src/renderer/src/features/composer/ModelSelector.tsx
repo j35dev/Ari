@@ -4,6 +4,7 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { CatalogModelInfo } from '@ari/contracts/rpc'
 import { modelsFor } from '@ari/providers/catalogs'
 import type { CatalogSource } from '@ari/providers/catalogs'
+import { Popover } from '@ari/ui/popover'
 import { rpc } from '../../lib/rpc'
 import { driverLabel } from './agent-mark'
 import { partitionProviders } from './provider-readiness'
@@ -114,7 +115,7 @@ export function ModelSelector({
   const [loaded, setLoaded] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const rootRef = useRef<HTMLDivElement>(null)
+  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null)
   const listboxId = useId()
   const activeId = `${listboxId}-opt-${activeIndex}`
 
@@ -313,21 +314,6 @@ export function ModelSelector({
     setActiveKind(null)
   }, [])
 
-  /**
-   * Outside pointerdown (not a fullscreen backdrop) dismisses the picker, so
-   * a click on a sibling composer chip reaches that chip: the open picker
-   * closes and the new one opens in the same gesture instead of the click
-   * being swallowed and the composer collapsing underneath.
-   */
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: PointerEvent): void => {
-      if (rootRef.current?.contains(e.target as Node) !== true) close()
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open, close])
-
   const pickModel = (opt: SelectorOption): void => {
     // Endpoint options carry `ep:<endpointId>`; they ride the ari-core driver,
     // never a CLI kind — splitting on ':' would send driverKind 'ep' and fail
@@ -501,7 +487,7 @@ export function ModelSelector({
   const noteClasses = 'border-t border-border px-3 py-2 text-[11px] leading-4 text-fg-subtle'
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
+    <div ref={setAnchor} className="relative min-w-0">
       <button
         type="button"
         onClick={() => {
@@ -527,11 +513,22 @@ export function ModelSelector({
         />
       </button>
 
-      {open ? (
-        <div
+      {/* Portaled to the layer root, so a narrow split pane cannot clip it. An
+          outside press closes it; one on a sibling chip still opens that chip. */}
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) close()
+        }}
+        anchor={anchor}
+      >
+        <Popover.Content
+          side="top"
+          align="start"
+          bare
           role="presentation"
           onKeyDown={onMenuKeyDown}
-          className="ari-pop-in absolute bottom-full left-0 z-50 mb-2 flex w-[21rem] max-w-[calc(100vw-2rem)] origin-bottom-left flex-col overflow-hidden rounded-xl border border-border bg-surface-1 shadow-[inset_0_1px_0_0_var(--ari-inner-stroke),var(--ari-shadow-3)]"
+          className="flex w-[21rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border bg-surface-1 shadow-[inset_0_1px_0_0_var(--ari-inner-stroke),var(--ari-shadow-3)]"
         >
           <div className="relative border-b border-border">
             <Search
@@ -656,8 +653,8 @@ export function ModelSelector({
               {withheldNote}
             </div>
           ) : null}
-        </div>
-      ) : null}
+        </Popover.Content>
+      </Popover>
     </div>
   )
 }
