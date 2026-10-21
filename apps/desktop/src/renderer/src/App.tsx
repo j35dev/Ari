@@ -184,6 +184,16 @@ function Shell() {
   const mountedSpaces = spaceStore.spaces
     .filter((space) => nextRecentSpaceIds.includes(space.id))
     .sort((a, b) => (a.id < b.id ? -1 : 1))
+  const workspaceToolOpen = settingsOpen || hubOpen
+  // Where the keyboard was in the workspace, so leaving Settings or the hub
+  // hands it back instead of dropping it on the page.
+  const lastWorkspaceFocusRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (workspaceToolOpen) return
+    const last = lastWorkspaceFocusRef.current
+    const lost = document.activeElement === null || document.activeElement === document.body
+    if (lost && last?.isConnected === true) last.focus({ preventScroll: true })
+  }, [workspaceToolOpen])
   const [sessionWorkspace, setSessionWorkspace] = useState<{
     id: string
     path: string | null
@@ -921,43 +931,6 @@ function Shell() {
     [shellRoot],
   )
 
-  if (settingsOpen || hubOpen) {
-    return (
-      <div className="ari-wallpaper-pane flex h-full flex-col">
-        <Titlebar
-          activeTool={settingsOpen ? 'settings' : 'github'}
-          onSelectTool={selectWorkspaceTool}
-          usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
-        />
-        {settingsOpen ? (
-          <SettingsWorkspace
-            section={settingsSection}
-            onSectionChange={setSettingsSection}
-            onBack={() => setSettingsOpen(false)}
-            workspacePath={sessionWorkspace?.path ?? null}
-            onOpenTerminal={() => {
-              setSettingsOpen(false)
-              setFullPage(null)
-              setInspector('terminal')
-            }}
-          />
-        ) : (
-          <HubWorkspace
-            projects={projects}
-            initialProjectId={activeSession?.projectId ?? projects[0]?.id ?? null}
-            onBack={() => setHubOpen(false)}
-          />
-        )}
-        <CommandPalette
-          open={paletteOpen}
-          onClose={() => setPaletteOpen(false)}
-          commands={commands}
-        />
-        <KeyboardCheatSheet />
-      </div>
-    )
-  }
-
   if (galleryOpen) {
     return (
       <div className="ari-wallpaper-pane flex h-full flex-col bg-bg">
@@ -984,12 +957,41 @@ function Shell() {
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col">
       <Titlebar
-        activeTool={settingsOpen ? 'settings' : (fullPage ?? inspector)}
+        activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
-        onExpandSidebar={sidebarOpen ? undefined : toggleSidebar}
+        onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
       />
-      <div className="flex min-h-0 flex-1">
+      {/* Settings and the hub cover the workspace rather than replace it: the
+          sidebar, sessions and terminals stay mounted underneath, so going
+          back is instant and nothing replays. */}
+      {settingsOpen ? (
+        <SettingsWorkspace
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
+          onBack={() => setSettingsOpen(false)}
+          workspacePath={sessionWorkspace?.path ?? null}
+          onOpenTerminal={() => {
+            setSettingsOpen(false)
+            setFullPage(null)
+            setInspector('terminal')
+          }}
+        />
+      ) : hubOpen ? (
+        <HubWorkspace
+          projects={projects}
+          initialProjectId={activeSession?.projectId ?? projects[0]?.id ?? null}
+          onBack={() => setHubOpen(false)}
+        />
+      ) : null}
+      <div
+        className={`${workspaceToolOpen ? 'hidden' : 'flex'} min-h-0 flex-1`}
+        hidden={workspaceToolOpen}
+        inert={workspaceToolOpen}
+        onFocusCapture={(event) => {
+          lastWorkspaceFocusRef.current = event.target
+        }}
+      >
         <AnimatePresence initial={false}>
           {sidebarOpen ? (
             <motion.aside
