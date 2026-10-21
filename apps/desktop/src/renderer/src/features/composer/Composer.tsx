@@ -704,7 +704,7 @@ function SendStopButton({
   canSend: boolean
 }) {
   const buttonClass = (busy: boolean, enabled: boolean): string =>
-    `flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm ${
+    `relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-[color,background-color,opacity,scale] duration-[var(--ari-dur-fast)] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring shadow-sm ${
       busy
         ? 'bg-busy text-fg-on-accent hover:brightness-110 shadow-busy/20'
         : enabled
@@ -736,14 +736,15 @@ function SendStopButton({
         transition={transitions.morph}
         className={buttonClass(running, canSend)}
       >
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence initial={false}>
           {running ? (
             <motion.span
               key="stop"
               initial={{ opacity: 0, scale: 0.7 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.7 }}
-              transition={{ duration: 0.09 }}
+              transition={transitions.micro}
+              className="absolute inset-0 flex items-center justify-center"
             >
               <Square size={12} fill="currentColor" />
             </motion.span>
@@ -753,7 +754,8 @@ function SendStopButton({
               initial={{ opacity: 0, scale: 0.7 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.7 }}
-              transition={{ duration: 0.09 }}
+              transition={transitions.micro}
+              className="absolute inset-0 flex items-center justify-center"
             >
               <ArrowUp size={15} strokeWidth={2.4} />
             </motion.span>
