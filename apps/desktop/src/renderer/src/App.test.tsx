@@ -908,6 +908,23 @@ describe('Shell spaces', () => {
     expect(screen.getByRole('region', { name: 'Alpha' })).toBeInTheDocument()
   })
 
+  it('returns to a space with its sessions as they were, without reloading them', async () => {
+    openTwoPanes()
+    render(<App />)
+    await screen.findByRole('region', { name: 'Beta' }, { timeout: 10_000 })
+    const loads = () => invokeMock.mock.calls.filter(([method]) => method === 'session.load').length
+    await vi.waitFor(() => expect(loads()).toBe(2), { timeout: 10_000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New space' }))
+    await screen.findByText('Quick Actions', {}, { timeout: 10_000 })
+    fireEvent.click(screen.getByRole('tab', { name: 'Space 1' }))
+
+    expect(await screen.findByRole('region', { name: 'Beta' })).toBeVisible()
+    // The space left behind stays mounted too, out of sight.
+    expect(screen.getByText('Quick Actions')).not.toBeVisible()
+    expect(loads()).toBe(2)
+  })
+
   it('ignores the close chord on the last space, keeping its panes', async () => {
     openTwoPanes()
     render(<App />)
