@@ -1,5 +1,11 @@
 import type { z } from 'zod'
-import type { RpcMethod, RpcResults, StreamFrame, StreamName } from '@ari/contracts/rpc'
+import type {
+  RpcMethod,
+  RpcResults,
+  StreamBatchFrame,
+  StreamFrame,
+  StreamName,
+} from '@ari/contracts/rpc'
 import { rpcParams } from '@ari/contracts/rpc'
 
 /**
@@ -25,6 +31,11 @@ export interface StreamSubscriber {
 export interface RegistryDeps {
   /** Delivers a frame to the subscriber's transport. */
   send: (frame: StreamFrame) => void
+  /**
+   * Delivers one payload to several subscribers in a single transport message.
+   * Without it, a publish sends (and serializes) one frame per subscriber.
+   */
+  sendBatch?: (frame: StreamBatchFrame) => void
 }
 
 export class RpcRegistry {
@@ -81,11 +92,24 @@ export class RpcRegistry {
     payload: P,
     accepts?: (params: Record<string, unknown>) => boolean,
   ): void {
+    const ids: string[] = []
     for (const sub of this.#subscribers.values()) {
       if (sub.name !== name) continue
       if (accepts !== undefined && !accepts(sub.params)) continue
+      ids.push(sub.id)
+    }
+    const { sendBatch } = this.#deps
+    if (sendBatch !== undefined && ids.length > 1) {
       try {
-        this.#deps.send({ id: sub.id, name, payload })
+        sendBatch({ ids, name, payload })
+      } catch {
+        // A dead renderer must not back-pressure journals.
+      }
+      return
+    }
+    for (const id of ids) {
+      try {
+        this.#deps.send({ id, name, payload })
       } catch {
         // One dead renderer must not starve the rest or back-pressure journals.
       }
