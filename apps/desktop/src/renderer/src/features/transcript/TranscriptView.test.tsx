@@ -96,7 +96,9 @@ describe('TranscriptView delegation', () => {
       parts: [{ type: 'text', text: 'Child session "Docs" (child_b) failed.\nError: rate limit' }],
     }
     render(view([notice]))
-    expect(screen.getByRole('button', { name: 'Delegation update: Docs failed' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Delegation update: Docs failed' }),
+    ).toBeInTheDocument()
   })
 
   it('names the session a relayed message came from and offers no edit', async () => {
@@ -601,9 +603,7 @@ describe('TranscriptView notices', () => {
       sessionId: 'sess_1',
       turnId: 'turn_1',
       role: 'assistant',
-      parts: [
-        { type: 'text', text: '\n\nℹ Always allow now covers every tool in this session.' },
-      ],
+      parts: [{ type: 'text', text: '\n\nℹ Always allow now covers every tool in this session.' }],
       createdAt: 1,
     }
     render(createElement(TranscriptView, { sessionId: 'sess_1', messages: [noted] }))
@@ -637,5 +637,98 @@ describe('TranscriptView failure history', () => {
     await user.click(disclosure)
     expect(disclosure).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText(/spawn claude ENOENT/)).toBeInTheDocument()
+  })
+})
+
+describe('TranscriptView progressive mount', () => {
+  function stubObserver(): {
+    observed: Element[]
+    intersect: (node: Element) => void
+    restore: () => void
+  } {
+    const observed: Element[] = []
+    let notify: (entries: Partial<IntersectionObserverEntry>[]) => void = () => undefined
+    class FakeObserver {
+      constructor(callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {
+        notify = callback
+      }
+      observe(node: Element): void {
+        observed.push(node)
+      }
+      unobserve(node: Element): void {
+        const at = observed.indexOf(node)
+        if (at >= 0) observed.splice(at, 1)
+      }
+      disconnect(): void {
+        observed.length = 0
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeObserver)
+    return {
+      observed,
+      intersect: (node) => act(() => notify([{ target: node, isIntersecting: true }])),
+      restore: () => vi.unstubAllGlobals(),
+    }
+  }
+
+  const history = (count: number): Message[] =>
+    Array.from({ length: count }, (_, i) => message(`h${i}`))
+
+  it('mounts only the tail of a long history and the rest as the reader nears it', () => {
+    const io = stubObserver()
+    try {
+      const { container, rerender } = render(
+        createElement(TranscriptView, { sessionId: 'sess_1', messages: history(300) }),
+      )
+      expect(screen.getByText('hello h299')).toBeInTheDocument()
+      expect(screen.queryByText('hello h0')).not.toBeInTheDocument()
+      const placeholders = container.querySelectorAll('[data-lazy-row]')
+      expect(placeholders.length).toBeGreaterThan(150)
+      // Every row keeps its place in the flow, mounted or not.
+      expect(container.querySelectorAll('[data-index]')).toHaveLength(300)
+
+      const first = io.observed.find(
+        (node) =>
+          (node as HTMLElement).dataset.lazyRow === placeholders[0]?.getAttribute('data-lazy-row'),
+      )
+      expect(first).toBeDefined()
+      io.intersect(first as Element)
+      expect(screen.getByText('hello h0')).toBeInTheDocument()
+
+      // A row that arrives live mounts at once.
+      rerender(
+        createElement(TranscriptView, {
+          sessionId: 'sess_1',
+          messages: [...history(300), message('live')],
+        }),
+      )
+      expect(screen.getByText('hello live')).toBeInTheDocument()
+    } finally {
+      io.restore()
+    }
+  })
+
+  it('mounts a short history whole', () => {
+    const io = stubObserver()
+    try {
+      const { container } = render(
+        createElement(TranscriptView, { sessionId: 'sess_1', messages: history(20) }),
+      )
+      expect(container.querySelector('[data-lazy-row]')).toBeNull()
+    } finally {
+      io.restore()
+    }
+  })
+
+  it('mounts a placeholder row before the rail jumps to it', () => {
+    const io = stubObserver()
+    try {
+      render(createElement(TranscriptView, { sessionId: 'sess_1', messages: history(300) }))
+      expect(screen.queryByText('hello h0')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Jump to message: hello h0' }))
+      expect(screen.getByText('hello h0')).toBeInTheDocument()
+    } finally {
+      io.restore()
+    }
   })
 })
