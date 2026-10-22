@@ -26,6 +26,8 @@ interface ModelListResult {
 export interface CodexModelCatalog {
   models: CatalogModel[]
   efforts: EffortCatalog
+  /** The row Codex marks as its default, which a session without a pick runs on. */
+  defaultModelId: string | null
 }
 
 /** Environment for the spawned CLI; the caller's enriched PATH, when it has one. */
@@ -107,15 +109,59 @@ export async function probeCodexModelCatalog(
       })
     }
 
-    const effortEntry = entries.find((entry) => entry.isDefault === true) ?? entries[0]
-    const efforts = effortCatalog(effortEntry)
-    return { models, efforts }
+    // `config.toml` beats the catalog's own default: a session that names no
+    // model runs the configured one, which the list may not even contain.
+    const configured = await readConfiguredDefaults(connection)
+    if (configured.model !== null && !seenModels.has(configured.model)) {
+      models.unshift({ id: configured.model, label: configured.model })
+      seenModels.add(configured.model)
+    }
+    const defaultEntry = entries.find((entry) => entry.isDefault === true)
+    const catalogDefault =
+      typeof defaultEntry?.model === 'string' ? defaultEntry.model : defaultEntry?.id
+    const defaultId = configured.model ?? catalogDefault
+    const efforts = effortCatalog(
+      entries.find((entry) => entryId(entry) === defaultId) ?? defaultEntry ?? entries[0],
+      configured.effort,
+    )
+    return {
+      models,
+      efforts,
+      defaultModelId: typeof defaultId === 'string' && seenModels.has(defaultId) ? defaultId : null,
+    }
   } finally {
     await connection.shutdown()
   }
 }
 
-function effortCatalog(entry: ModelEntry | undefined): EffortCatalog {
+function entryId(entry: ModelEntry): unknown {
+  return typeof entry.model === 'string' ? entry.model : entry.id
+}
+
+/**
+ * The model and reasoning level the user's Codex config sets, from
+ * `config/read`. Nulls when the CLI predates it or the config sets neither:
+ * the catalog's own defaults still stand then.
+ */
+async function readConfiguredDefaults(
+  connection: CatalogTransport,
+): Promise<{ model: string | null; effort: string | null }> {
+  try {
+    const result = (await connection.request('config/read', {}, 5_000)) as {
+      config?: { model?: unknown; model_reasoning_effort?: unknown }
+    } | null
+    const model = result?.config?.model
+    const effort = result?.config?.model_reasoning_effort
+    return {
+      model: typeof model === 'string' && model.length > 0 ? model : null,
+      effort: typeof effort === 'string' && effort.length > 0 ? effort : null,
+    }
+  } catch {
+    return { model: null, effort: null }
+  }
+}
+
+function effortCatalog(entry: ModelEntry | undefined, configured: string | null): EffortCatalog {
   const raw = Array.isArray(entry?.supportedReasoningEfforts) ? entry.supportedReasoningEfforts : []
   const options = raw.flatMap((value) => {
     if (value === null || typeof value !== 'object') return []
@@ -132,7 +178,10 @@ function effortCatalog(entry: ModelEntry | undefined): EffortCatalog {
       },
     ]
   })
-  const current = entry?.defaultReasoningEffort
+  const current =
+    configured !== null && options.some((option) => option.id === configured)
+      ? configured
+      : entry?.defaultReasoningEffort
   return {
     currentId:
       typeof current === 'string' && options.some((option) => option.id === current)

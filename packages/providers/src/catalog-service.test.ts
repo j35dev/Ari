@@ -3,8 +3,24 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
-import { catalogSource, clearDynamicModels, modelsFor, setDynamicModels } from './catalogs'
-import { CatalogService, DEFAULT_REGISTRY_URL, PROBE_RETRY_DELAYS_MS, REFRESH_TTL_MS, REGISTRY_PROVIDER } from './catalog-service'
+import {
+  agentDefaultModel,
+  catalogSource,
+  clearDynamicEfforts,
+  clearDynamicModels,
+  effortsFor,
+  modelsFor,
+  setAgentDefaultModel,
+  setDynamicEfforts,
+  setDynamicModels,
+} from './catalogs'
+import {
+  CatalogService,
+  DEFAULT_REGISTRY_URL,
+  PROBE_RETRY_DELAYS_MS,
+  REFRESH_TTL_MS,
+  REGISTRY_PROVIDER,
+} from './catalog-service'
 import type { CatalogModel } from './catalogs'
 
 const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
@@ -110,10 +126,12 @@ describe('CatalogService', () => {
             gate.release = () => reject(new Error('offline'))
           }),
       )
+    // Both rounds go unanswered; only the ladder's later retry lands.
     const probeModels = vi
       .fn()
       .mockRejectedValueOnce(new Error('adapter not cached'))
-      .mockResolvedValue([{ id: 'from-round', label: 'From round' }])
+      .mockRejectedValueOnce(new Error('adapter not cached'))
+      .mockResolvedValue([{ id: 'from-retry', label: 'From retry' }])
     const service = new CatalogService({
       fetchImpl: fetchImpl as unknown as typeof fetch,
       probeModels,
@@ -121,15 +139,17 @@ describe('CatalogService', () => {
     })
     await service.refresh()
     expect(probeModels).toHaveBeenCalledTimes(1)
-    // A second round starts (say, a connection rescan) and is still waiting on
-    // the registry when the retry timer comes due.
+    // A second round starts (say, a connection rescan). It asks the agent at
+    // once, and is still waiting on the registry when the retry comes due.
     const inFlight = service.refresh()
     await vi.advanceTimersByTimeAsync(PROBE_RETRY_DELAYS_MS[0])
-    expect(probeModels).toHaveBeenCalledTimes(1)
+    // The in-flight round already asked, so the retry spawned nothing.
+    expect(probeModels).toHaveBeenCalledTimes(2)
     gate.release?.()
     await inFlight
-    // The in-flight round asked the kind itself, so nothing was spawned twice.
-    expect(probeModels).toHaveBeenCalledTimes(2)
+    // Its completion restarts the ladder from the first delay.
+    await vi.advanceTimersByTimeAsync(PROBE_RETRY_DELAYS_MS[0])
+    expect(probeModels).toHaveBeenCalledTimes(3)
     expect(catalogSource('codex')).toBe('live')
   })
 
@@ -280,8 +300,109 @@ describe('CatalogService', () => {
     await service.refresh()
 
     expect(probeModels).toHaveBeenCalledWith('codex')
-    expect(onUpdated).toHaveBeenCalledOnce()
+    // Once when the agent's list lands, once when the whole round settles.
+    expect(onUpdated).toHaveBeenCalledTimes(2)
     expect(onUpdated).toHaveBeenCalledWith(expect.any(Number))
+  })
+
+  it('asks the agents without waiting for the registry fetch', async () => {
+    const gate: { release: (() => void) | null } = { release: null }
+    const fetchImpl = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          gate.release = () => reject(new Error('offline'))
+        }),
+    )
+    const onUpdated = vi.fn()
+    const service = new CatalogService({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      probeModels: vi.fn().mockResolvedValue([{ id: 'opus', label: 'Opus 5.5' }]),
+      probeKinds: ['claude'],
+      onUpdated,
+    })
+    const round = service.refresh()
+    await vi.waitFor(() => expect(catalogSource('claude')).toBe('live'))
+    // The picker already heard, while the registry is still out.
+    expect(onUpdated).toHaveBeenCalledOnce()
+    gate.release?.()
+    await round
+    expect(modelsFor('claude')).toEqual([{ id: 'opus', label: 'Opus 5.5' }])
+  })
+
+  it('saves an agent that answered while another is still being asked', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const liveCachePath = join(dir, 'agent-catalogs.json')
+    const gate: { release: (() => void) | null } = { release: null }
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      liveCachePath,
+      probeModels: vi.fn((kind: DriverKind) =>
+        kind === 'claude'
+          ? Promise.resolve([{ id: 'opus', label: 'Opus 5.5' }])
+          : new Promise<null>((resolve) => {
+              gate.release = () => resolve(null)
+            }),
+      ),
+      probeKinds: ['claude', 'hermes'],
+    })
+    const round = service.refresh()
+    await vi.waitFor(async () => {
+      const saved = JSON.parse(await readFile(liveCachePath, 'utf8')) as {
+        kinds: Record<string, { models: CatalogModel[] }>
+      }
+      expect(saved.kinds['claude']?.models).toEqual([{ id: 'opus', label: 'Opus 5.5' }])
+    })
+    gate.release?.()
+    await round
+  })
+
+  it('opens on what each agent said last run, then asks it again', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const liveCachePath = join(dir, 'agent-catalogs.json')
+    const offline = vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch
+    const effort = { currentId: 'high', options: [{ id: 'high', label: 'High' }] }
+    const first = new CatalogService({
+      fetchImpl: offline,
+      liveCachePath,
+      probeModels: vi.fn(async () => {
+        setDynamicEfforts('claude', effort)
+        setAgentDefaultModel('claude', 'opus')
+        return [{ id: 'opus', label: 'Opus 5.5' }]
+      }),
+      probeKinds: ['claude'],
+    })
+    await first.refresh()
+    for (const kind of ALL_KINDS) clearDynamicModels(kind)
+    clearDynamicEfforts('claude')
+    expect(catalogSource('claude')).not.toBe('live')
+
+    // Next launch: the agent is slow to answer, then fails outright.
+    const gate: { fail: (() => void) | null } = { fail: null }
+    const probeModels = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          gate.fail = () => reject(new Error('busy'))
+        }),
+    )
+    const onUpdated = vi.fn()
+    const second = new CatalogService({
+      fetchImpl: offline,
+      liveCachePath,
+      probeModels,
+      probeKinds: ['claude'],
+      onUpdated,
+    })
+    second.start()
+    await vi.waitFor(() => expect(probeModels).toHaveBeenCalledOnce())
+    expect(catalogSource('claude')).toBe('live')
+    expect(modelsFor('claude')).toEqual([{ id: 'opus', label: 'Opus 5.5' }])
+    expect(effortsFor('claude')).toEqual(effort)
+    expect(agentDefaultModel('claude')).toBe('opus')
+    expect(onUpdated).toHaveBeenCalled()
+    gate.fail?.()
+    await second.ready
+    // A failed re-ask leaves last run's answer in place.
+    expect(modelsFor('claude')).toEqual([{ id: 'opus', label: 'Opus 5.5' }])
   })
 
   it('persists a successful round to the disk cache and reloads it cold', async () => {

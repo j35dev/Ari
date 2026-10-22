@@ -1414,6 +1414,29 @@ describe('Shell live sidebar feed', () => {
     )
   })
 
+  it('starts new sessions on the last model and level the user picked', async () => {
+    localStorage.setItem(
+      'ari.composer.last-pick',
+      JSON.stringify({ driverKind: 'claude', modelId: 'opus', effort: 'xhigh' }),
+    )
+    listCalls = 1 // skip the pristine row so the click has to create
+    try {
+      render(<App />)
+      await vi.waitFor(() => expect(screen.getByText('Fixed the build')).toBeInTheDocument())
+      fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
+      const menu = await screen.findByRole('menu', { name: 'New session in project' })
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
+      await vi.waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith(
+          'session.create',
+          expect.objectContaining({ driverKind: 'claude', modelId: 'opus', effort: 'xhigh' }),
+        ),
+      )
+    } finally {
+      localStorage.removeItem('ari.composer.last-pick')
+    }
+  })
+
   describe('with Full access as the default permission mode', () => {
     beforeEach(() => {
       const base = invokeMock.getMockImplementation()
@@ -1464,11 +1487,13 @@ describe('Shell live sidebar feed', () => {
 
       await startSessionInAri()
 
-      await vi.waitFor(() =>
-        expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+      await vi.waitFor(() => {
+        const dispatched = invokeMock.mock.calls.find(([method]) => method === 'command.dispatch')
+        // The rest of the new-session start (agent, model, level) rides along.
+        expect(dispatched?.[1]).toMatchObject({
           command: { type: 'session.update', sessionId: 'sess-alpha', permissionMode: 'full' },
-        }),
-      )
+        })
+      })
       expect(invokeMock).not.toHaveBeenCalledWith('session.create', expect.anything())
       // The update leaves before the pane asks for the session.
       await vi.waitFor(() =>
