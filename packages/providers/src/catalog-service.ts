@@ -2,8 +2,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
-import { catalogSetAt, catalogSource, setDynamicModels } from './catalogs'
-import type { CatalogModel } from './catalogs'
+import {
+  catalogSetAt,
+  catalogSource,
+  liveCatalogOf,
+  restoreLiveCatalog,
+  setDynamicModels,
+} from './catalogs'
+import type { CatalogModel, LiveCatalog } from './catalogs'
 
 const log = createLogger('providers:catalog')
 
@@ -61,6 +67,11 @@ interface DiskCache {
   providers: Record<string, CatalogModel[]>
 }
 
+interface LiveDiskCache {
+  at: number
+  kinds: Partial<Record<DriverKind, LiveCatalog>>
+}
+
 export interface ModelProbe {
   /** Probes the provider itself for its model list; null/throw means unavailable. */
   (kind: DriverKind): Promise<CatalogModel[] | null>
@@ -70,6 +81,12 @@ export interface CatalogServiceOptions {
   fetchImpl?: typeof fetch
   registryUrl?: string
   cachePath?: string
+  /**
+   * Where the agents' own catalogs are kept between runs. Restored before the
+   * first read, so pickers open on what each agent said last time instead of
+   * a registry guess while it is asked again.
+   */
+  liveCachePath?: string
   ttlMs?: number
   /**
    * Optional live probe (ACP session config options). When provided it runs
@@ -161,6 +178,10 @@ export class CatalogService {
   readonly #fetchImpl: typeof fetch
   readonly #registryUrl: string
   readonly #cachePath: string | null
+  readonly #liveCachePath: string | null
+  /** Kinds serving a catalog restored from disk that no probe has confirmed yet. */
+  readonly #unconfirmed = new Set<DriverKind>()
+  #liveWrite: Promise<void> = Promise.resolve()
   readonly #ttlMs: number
   readonly #probeModels: ModelProbe | null
   readonly #probeKinds: DriverKind[]
@@ -180,6 +201,7 @@ export class CatalogService {
     this.#fetchImpl = options.fetchImpl ?? fetch
     this.#registryUrl = options.registryUrl ?? process.env['ARI_MODELS_URL'] ?? DEFAULT_REGISTRY_URL
     this.#cachePath = options.cachePath ?? null
+    this.#liveCachePath = options.liveCachePath ?? null
     this.#ttlMs = options.ttlMs ?? REFRESH_TTL_MS
     this.#probeModels = options.probeModels ?? null
     this.#probeKinds = options.probeKinds ?? []
@@ -198,7 +220,7 @@ export class CatalogService {
   /** Resolves once the initial disk-cache load + refresh round completes. */
   get ready(): Promise<void> {
     this.#boot ??= (async () => {
-      await this.#loadDiskCache()
+      await Promise.all([this.#loadLiveCache(), this.#loadDiskCache()])
       await this.refresh()
     })()
     return this.#boot
@@ -232,6 +254,20 @@ export class CatalogService {
   }
 
   async #refresh(): Promise<void> {
+    // A fresh round asks every not-yet-live kind again, so its completion both
+    // supersedes any pending retry and restarts the retry ladder.
+    this.#probeRetryAttempts = 0
+    // The agents are asked alongside the registry, not after it: a probe is
+    // the slow half, and waiting on a network fetch first only delayed it.
+    await Promise.all([this.#refreshRegistry(), this.#runProbes()])
+    this.#scheduleProbeRetry()
+    // Even a round whose probes failed publishes: the composer's first empty
+    // catalog read must be invalidated once the handshakes that would answer
+    // it have settled, whatever their verdict.
+    this.#onUpdated?.(Date.now())
+  }
+
+  async #refreshRegistry(): Promise<void> {
     try {
       const response = await this.#fetchImpl(this.#registryUrl, {
         signal: AbortSignal.timeout(15_000),
@@ -264,15 +300,6 @@ export class CatalogService {
       // stale disk cache keep pickers populated until a later round lands.
       log.debug('registry refresh failed (snapshot stays active)', { error: String(error) })
     }
-    // A fresh round asks every not-yet-live kind again, so its completion both
-    // supersedes any pending retry and restarts the retry ladder.
-    this.#probeRetryAttempts = 0
-    await this.#runProbes()
-    this.#scheduleProbeRetry()
-    // Even a round whose probes failed publishes: the composer's first empty
-    // catalog read must be invalidated once the handshakes that would answer
-    // it have settled, whatever their verdict.
-    this.#onUpdated?.(Date.now())
   }
 
   /** True when a kind adopted a live catalog it did not have before. */
@@ -293,8 +320,14 @@ export class CatalogService {
           if (models !== null && models.length > 0) {
             setDynamicModels(kind, 'live', models)
             this.#liveVersions.set(kind, version)
+            this.#unconfirmed.delete(kind)
             adopted = true
             log.info('live model probe applied', { kind, count: models.length })
+            // Each agent lands on its own: Claude's list must not wait for the
+            // slowest of six handshakes before the picker hears about it, nor
+            // before it is saved — a quit mid-round would lose it otherwise.
+            this.#onUpdated?.(Date.now())
+            await this.#writeLiveCache()
           }
         } catch (error) {
           log.debug('live model probe failed', { kind, error: String(error) })
@@ -334,15 +367,14 @@ export class CatalogService {
     // a registry fetch that failed would only stretch the wait. A kind answered
     // by an earlier attempt waits out the live-catalog window, so a retry only
     // re-asks what is still silent.
-    const adopted = await this.#runProbes()
-    // Publish on success so an idle composer re-reads without a user gesture;
-    // a still-failing kind simply advances the ladder below.
-    if (adopted) this.#onUpdated?.(Date.now())
+    // A landing publishes from inside the round, so an idle composer re-reads
+    // without a user gesture; a still-failing kind advances the ladder below.
+    await this.#runProbes()
     this.#scheduleProbeRetry()
   }
 
   #probeIsFresh(kind: DriverKind, version: string | null): boolean {
-    if (catalogSource(kind) !== 'live') return false
+    if (catalogSource(kind) !== 'live' || this.#unconfirmed.has(kind)) return false
     const at = catalogSetAt(kind)
     if (at === null || Date.now() - at >= LIVE_RECHECK_MS) return false
     // A list a session's agent published came from the CLI installed now.
@@ -360,6 +392,59 @@ export class CatalogService {
     }
   }
 
+  async #loadLiveCache(): Promise<void> {
+    if (this.#liveCachePath === null) return
+    let raw: LiveDiskCache
+    try {
+      raw = JSON.parse(await readFile(this.#liveCachePath, 'utf8')) as LiveDiskCache
+    } catch {
+      return // First run: nothing saved yet, the round below asks.
+    }
+    let restored = 0
+    for (const [kind, catalog] of Object.entries(raw.kinds ?? {})) {
+      if (!Array.isArray(catalog?.models) || catalog.models.length === 0) continue
+      // A kind a session already answered for this run keeps its fresher list.
+      if (catalogSource(kind as DriverKind) === 'live') continue
+      restoreLiveCatalog(kind as DriverKind, {
+        models: catalog.models,
+        efforts: catalog.efforts ?? { currentId: null, options: [] },
+        modes: catalog.modes ?? { currentId: null, options: [] },
+        defaultModelId: catalog.defaultModelId ?? null,
+      })
+      this.#unconfirmed.add(kind as DriverKind)
+      restored += 1
+    }
+    if (restored === 0) return
+    log.info('agent catalogs restored from disk', { kinds: restored })
+    // The composer may have read before the file did; tell it to read again.
+    this.#onUpdated?.(Date.now())
+  }
+
+  /** Saves the agents' catalogs; writes queue so two landings never interleave. */
+  #writeLiveCache(): Promise<void> {
+    this.#liveWrite = this.#liveWrite.then(() => this.#saveLiveCache())
+    return this.#liveWrite
+  }
+
+  async #saveLiveCache(): Promise<void> {
+    if (this.#liveCachePath === null) return
+    const kinds: Partial<Record<DriverKind, LiveCatalog>> = {}
+    for (const kind of this.#probeKinds) {
+      const catalog = liveCatalogOf(kind)
+      if (catalog !== null) kinds[kind] = catalog
+    }
+    try {
+      await mkdir(dirname(this.#liveCachePath), { recursive: true })
+      await writeFile(
+        this.#liveCachePath,
+        JSON.stringify({ at: Date.now(), kinds } satisfies LiveDiskCache),
+        'utf8',
+      )
+    } catch (error) {
+      log.debug('live catalog cache write failed', { error: String(error) })
+    }
+  }
+
   async #loadDiskCache(): Promise<void> {
     if (this.#cachePath === null || this.lastRefreshAt > 0) return
     try {
@@ -367,7 +452,12 @@ export class CatalogService {
       if (raw.url !== this.#registryUrl) return
       for (const [kind, providerId] of Object.entries(REGISTRY_PROVIDER)) {
         const models = raw.providers[providerId]
-        if (Array.isArray(models) && models.length > 0) {
+        // The agents' own lists load alongside; the registry never covers one.
+        if (
+          Array.isArray(models) &&
+          models.length > 0 &&
+          catalogSource(kind as DriverKind) !== 'live'
+        ) {
           setDynamicModels(kind as DriverKind, 'cache', models)
         }
       }

@@ -23,6 +23,7 @@ import type { Session } from '@ari/contracts/session'
 import type { CatalogModelInfo, SessionEventFrame, SessionSummary } from '@ari/contracts/rpc'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import type { ApprovalOption } from '@ari/contracts/common'
+import { resolveOfferedModel } from '@ari/providers/catalogs'
 import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
@@ -267,6 +268,7 @@ export function SessionView({
   sessionId,
   defaults,
   onDefaultsChange,
+  onPick,
   onOpenSession,
   childSessions = NO_CHILD_SESSIONS,
   activityOf,
@@ -277,6 +279,8 @@ export function SessionView({
   sessionId: string
   defaults: SessionDefaults
   onDefaultsChange: (next: SessionDefaults) => void
+  /** A model or reasoning level the user chose here, for new sessions to start from. */
+  onPick?: (pick: Partial<Pick<SessionDefaults, 'driverKind' | 'modelId' | 'effort'>>) => void
   onOpenSession?: (id: string) => void
   childSessions?: SessionSummary[]
   activityOf?: (id: string) => SessionActivity | undefined
@@ -377,7 +381,11 @@ export function SessionView({
   // model's contextHint from the live catalog. Neither → used-count-only chip.
   const catalogWindow = useMemo(() => {
     const row = catalogModels.find((r) => r.kind === defaults.driverKind)
-    const model = row?.models.find((m) => m.id === defaults.modelId)
+    const id =
+      defaults.modelId === null || row === undefined
+        ? null
+        : resolveOfferedModel(defaults.modelId, row.models)
+    const model = row?.models.find((m) => m.id === id)
     return contextTokensFromHint(model?.contextHint)
   }, [catalogModels, defaults.driverKind, defaults.modelId])
   const contextWindow = telemetry.context?.windowTokens ?? catalogWindow
@@ -986,6 +994,7 @@ export function SessionView({
       // context silently. The picker is locked too; this guards other paths.
       if (telemetry.turnCount > 0 && next.driverKind !== defaults.driverKind) return
       onDefaultsChange({ ...defaults, ...next })
+      onPick?.(next)
       void rpc
         .invoke('command.dispatch', {
           command: {
@@ -997,19 +1006,20 @@ export function SessionView({
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, telemetry.turnCount, defaults],
+    [sessionId, onDefaultsChange, onPick, telemetry.turnCount, defaults],
   )
 
   const changeEffort = useCallback(
     (effort: string | null) => {
       onDefaultsChange({ ...defaults, effort })
+      onPick?.({ effort })
       void rpc
         .invoke('command.dispatch', {
           command: { type: 'session.update', sessionId, effort },
         })
         .catch(() => undefined)
     },
-    [sessionId, onDefaultsChange, defaults],
+    [sessionId, onDefaultsChange, onPick, defaults],
   )
 
   const changePermissionMode = useCallback(
@@ -1458,8 +1468,10 @@ export function EffortChip({
   }, [driverKind, modelId])
 
   useEffect(() => {
-    if (!loaded || effort === null) return
-    if (options.length === 0 || !options.some((o) => o.id === effort)) onChange(null)
+    // No list is not a verdict: an agent that has not answered yet (or a
+    // probe that failed) would otherwise wipe the level the user saved.
+    if (!loaded || effort === null || options.length === 0) return
+    if (!options.some((o) => o.id === effort)) onChange(null)
   }, [loaded, options, effort, onChange])
 
   if (options.length === 0) return null

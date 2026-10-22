@@ -125,6 +125,7 @@ export function catalogSetAt(kind: DriverKind): number | null {
 /** Removes any dynamic overlay for a kind (tests, invalidation). */
 export function clearDynamicModels(kind: DriverKind): void {
   dynamic.delete(kind)
+  agentDefaults.delete(kind)
 }
 
 /** Installs the thought/reasoning levels a live ACP probe reported for a kind. */
@@ -155,6 +156,55 @@ export function setDynamicModes(kind: DriverKind, catalog: AgentModeCatalog): vo
 /** Removes a kind's mode overlay (tests). */
 export function clearDynamicModes(kind: DriverKind): void {
   dynamicModes.delete(kind)
+}
+
+const agentDefaults = new Map<DriverKind, string>()
+
+/**
+ * Records the model an agent runs when a session names none — Claude's
+ * `currentValue` on a fresh session, which follows the CLI's own settings.
+ * Null forgets it.
+ */
+export function setAgentDefaultModel(kind: DriverKind, modelId: string | null): void {
+  if (modelId === null || modelId.length === 0) agentDefaults.delete(kind)
+  else agentDefaults.set(kind, modelId)
+}
+
+/** The model a session without a pick runs on, as the agent last reported it. */
+export function agentDefaultModel(kind: DriverKind): string | null {
+  return agentDefaults.get(kind) ?? null
+}
+
+/** Everything an agent reported about itself, in a form that survives a restart. */
+export interface LiveCatalog {
+  models: CatalogModel[]
+  efforts: EffortCatalog
+  modes: AgentModeCatalog
+  defaultModelId: string | null
+}
+
+/** A kind's agent-reported catalog, or null while it has not answered. */
+export function liveCatalogOf(kind: DriverKind): LiveCatalog | null {
+  const entry = dynamic.get(kind)
+  if (entry?.source !== 'live') return null
+  return {
+    models: entry.models,
+    efforts: dynamicEfforts.get(kind) ?? { currentId: null, options: [] },
+    modes: dynamicModes.get(kind) ?? { currentId: null, options: [] },
+    defaultModelId: agentDefaultModel(kind),
+  }
+}
+
+/**
+ * Reinstalls a catalog saved by an earlier run. The agent said all of this
+ * last time, which beats any registry guess while it is asked again.
+ */
+export function restoreLiveCatalog(kind: DriverKind, catalog: LiveCatalog): void {
+  if (catalog.models.length === 0) return
+  setDynamicModels(kind, 'live', catalog.models)
+  setDynamicEfforts(kind, catalog.efforts)
+  setDynamicModes(kind, catalog.modes)
+  setAgentDefaultModel(kind, catalog.defaultModelId)
 }
 
 /**
@@ -413,6 +463,41 @@ function mergeAliases(current: string[] | undefined, added: readonly string[]): 
     if (id.length > 0 && !merged.includes(id)) merged.push(id)
   }
   return merged
+}
+
+/**
+ * A model id or display name reduced to what both spellings share: the
+ * registry's `claude-opus-5-5` and the agent's "Opus 5.5" both read
+ * `opus-5-5`, as do `opus-5.5` and "Claude Opus 5.5".
+ */
+function modelKey(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s._]+/g, '-')
+    .replace(/^claude-/, '')
+}
+
+/**
+ * The id an agent knows a requested model by. An exact id wins; otherwise a
+ * row whose id or name names the same model does. That is how a pick made
+ * from the registry's list (`claude-opus-5-5`, before the agent had answered)
+ * still reaches the agent, which calls the same model `opus` and names it
+ * "Opus 5.5". Null when nothing on offer is that model.
+ */
+export function resolveOfferedModel(
+  requested: string,
+  offered: readonly Pick<CatalogModel, 'id' | 'label' | 'aliases'>[],
+): string | null {
+  const exact = offered.find(
+    (model) => model.id === requested || model.aliases?.includes(requested),
+  )
+  if (exact !== undefined) return exact.id
+  const key = modelKey(requested)
+  if (key.length === 0) return null
+  return (
+    offered.find((model) => modelKey(model.id) === key || modelKey(model.label) === key)?.id ?? null
+  )
 }
 
 /**
