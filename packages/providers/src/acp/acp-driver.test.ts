@@ -410,6 +410,49 @@ describe('createAcpAdapter', () => {
     await adapter.dispose()
   }, 15000)
 
+  it('runs a registry pick on the agent row for that same model', async () => {
+    const child = fakeChild()
+    // Claude's own vocabulary: version-less ids, versions only in the names.
+    const claudeShaped: AgentHandler = (method, params, id) => {
+      if (method === 'session/new') {
+        return {
+          sessionId: 'sess_acp_1',
+          configOptions: [
+            {
+              id: 'model',
+              name: 'Model',
+              category: 'model',
+              type: 'select',
+              currentValue: 'default',
+              options: [
+                { value: 'default', name: 'Default (recommended)', description: 'Opus 5.5' },
+                { value: 'opus', name: 'Opus 5.5' },
+                { value: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5' },
+              ],
+            },
+          ],
+        }
+      }
+      return CONFIG_OPTIONS_AGENT(method, params, id)
+    }
+    script(child, claudeShaped)
+    // Picked from the registry's list before the agent had reported its own.
+    const adapter = await createAcpAdapter(
+      LAUNCH,
+      { ...SESSION, modelId: 'claude-opus-5-5' },
+      () => child,
+    )
+    const modelRequests = child.sent.filter(
+      (m) =>
+        m['method'] === 'session/set_config_option' &&
+        (m['params'] as { configId?: string })?.configId === 'model',
+    )
+    expect(modelRequests.map((m) => (m['params'] as { value?: string }).value)).toEqual(['opus'])
+    const notices = (await collectEvents(adapter)).filter((event) => event.type === 'notice')
+    expect(notices).toEqual([])
+    await adapter.dispose()
+  }, 15000)
+
   it('keeps the agent default when the requested model is not advertised', async () => {
     const child = fakeChild()
     script(child, CONFIG_OPTIONS_AGENT)

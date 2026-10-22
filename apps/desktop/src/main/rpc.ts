@@ -98,10 +98,13 @@ import type { DetectEnvironment, Detection } from '@ari/providers/types'
 import { processEnvWithPath, resolveDetectionEnvironment } from '@ari/providers/shell-env'
 import { CatalogService } from '@ari/providers/catalog-service'
 import {
+  agentDefaultModel,
   catalogSource,
   effortsFor,
   modelsFor,
   modesFor,
+  resolveOfferedModel,
+  setAgentDefaultModel,
   setDynamicEfforts,
   setDynamicModes,
 } from '@ari/providers/catalogs'
@@ -120,6 +123,7 @@ import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
 import { providerEnvironment, setProviderEnvironment } from './provider-env'
 import type { AcpLaunch, AcpMcpServer } from '@ari/providers/acp/connection'
+import { currentModelId } from '@ari/providers/acp/protocol'
 import type { AcpTerminalLogin } from '@ari/providers/acp/protocol'
 import {
   ProviderAuthState,
@@ -167,6 +171,14 @@ function acpProbeKinds(): DriverKind[] {
 }
 
 /**
+ * How long a catalog probe waits for the agent to start. The same ceiling a
+ * real session gets: at boot six probes start together, and Claude's adapter
+ * (npx resolution plus a Node start) took 11 s alone on a busy machine, so a
+ * tighter budget dropped exactly the probe whose reasoning levels matter most.
+ */
+const PROBE_HANDSHAKE_MS = 45_000
+
+/**
  * Opens a throwaway ACP session against the agent and reads its advertised
  * model list (session config options, category `model`) — models fetched
  * from the provider itself instead of a bundled list (M16).
@@ -189,6 +201,7 @@ async function probeAcpModels(
       })
       if (catalog.models.length > 0) {
         setDynamicEfforts(kind, catalog.efforts)
+        setAgentDefaultModel(kind, catalog.defaultModelId)
         return catalog.models
       }
     } catch (error) {
@@ -217,7 +230,7 @@ async function probeAcpModels(
   const connection = await AcpConnection.connect({
     launch: probe,
     cwd: homedir(),
-    initializeTimeoutMs: 20_000,
+    initializeTimeoutMs: PROBE_HANDSHAKE_MS,
     // probeEnv adds the PATH detection resolved, but `connect` spreads
     // runtimeEnv last — so the launch's own variables go back on top. Without
     // that, a CODEX_PATH inherited from the host would beat the binary
@@ -239,6 +252,9 @@ async function probeAcpModels(
     // And the permission-mode selector, so the picker can offer the harness's
     // own modes (codex `yolo`, claude `bypassPermissions`) instead of guessing.
     setDynamicModes(kind, agentModesFromSession(created))
+    // A fresh session names no model, so its current value is the one a
+    // session without a pick will run on — Claude's follows the CLI settings.
+    setAgentDefaultModel(kind, currentModelId(created.configOptions))
     return models
   } finally {
     await connection.shutdown()
@@ -268,7 +284,7 @@ async function probeEffortsForModel(
   const connection = await AcpConnection.connect({
     launch: probe,
     cwd: homedir(),
-    initializeTimeoutMs: 20_000,
+    initializeTimeoutMs: PROBE_HANDSHAKE_MS,
     runtimeEnv: { ...probeEnv, ...probe.env },
   })
   try {
@@ -276,12 +292,14 @@ async function probeEffortsForModel(
     let configOptions = created.configOptions ?? []
     if (typeof modelId === 'string' && modelId.length > 0) {
       const modelOption = configOptions.find((o) => o.category === 'model' && o.type === 'select')
-      const offered = modelOption?.options?.some((v) => v.value === modelId) === true
-      if (modelOption?.id !== undefined && offered) {
+      // Matched the way a turn applies it, so a registry id asks for the
+      // levels of the agent's row for that model, not the default model's.
+      const offered = resolveOfferedModel(modelId, modelsFromConfigOptions(configOptions))
+      if (modelOption?.id !== undefined && offered !== null) {
         const refreshed = await connection.setConfigOption(
           created.sessionId as string,
           modelOption.id,
-          modelId,
+          offered,
         )
         if (refreshed !== null && refreshed !== undefined && refreshed.length > 0) {
           configOptions = refreshed
@@ -870,6 +888,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // model lists) upgrade the pickers without any restart.
   const catalogService = new CatalogService({
     cachePath: join(app.getPath('userData'), 'model-catalog.json'),
+    liveCachePath: join(app.getPath('userData'), 'agent-catalogs.json'),
     probeModels: (kind) => probeAcpModels(kind),
     probeKinds: acpProbeKinds(),
     // Shares the 30 s detection cache, so this adds no `--version` spawns of its own.
@@ -885,6 +904,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
   catalogServiceRef = catalogService
   catalogService.start()
+  // One answer per model for the life of the app: each ask is a full agent
+  // handshake, and the composer's chip asks on every mount and catalog frame.
+  const effortsForModel = cachedEffortLookup(probeEffortsForModel)
 
   // The running-turn counter feeds the tray from the same event flow the
   // renderer subscribes to; no extra engine coupling. Imports use the same
@@ -1336,7 +1358,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             modes: modesFor,
           })
         },
-        effortsForModel: cachedEffortLookup(probeEffortsForModel),
+        effortsForModel,
         allowance: readAllowance,
         // No grant id from a phone: the one to spend is looked up here.
         redeemReset: (kind) => redeemReset(kind),
@@ -1855,6 +1877,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       kind,
       source: catalogSource(kind),
       models: modelsFor(kind),
+      defaultModelId: agentDefaultModel(kind),
       efforts: catalogEfforts(effortsFor(kind)),
       // Only classifiable modes reach the renderer; the picker falls back to
       // Ari's own vocabulary when the list is empty.
@@ -1864,19 +1887,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   // Model-aware effort lookup for the picker: a throwaway ACP session has
   // the selected model applied, then reports that model's own thought
-  // levels. Empty on any failure — the caller keeps the catalog fallback.
-  r.register('providers.efforts', async (params) => {
-    try {
-      const efforts = await probeEffortsForModel(params.kind, params.modelId ?? null)
-      return { efforts }
-    } catch (error) {
-      log.debug('model-specific effort probe failed; keeping catalog fallback', {
-        kind: params.kind,
-        error: String(error),
-      })
-      return { efforts: [] }
-    }
-  })
+  // levels. Empty on any failure (logged and not cached by the lookup) — the
+  // caller keeps the catalog fallback.
+  r.register('providers.efforts', async (params) => ({
+    efforts: await effortsForModel(params.kind, params.modelId ?? null),
+  }))
 
   r.register('window.minimize', () => {
     BrowserWindow.fromWebContents(contents)?.minimize()
