@@ -28,7 +28,8 @@ function registryResponse(providers: Record<string, { models: Record<string, unk
 }
 
 describe('CatalogService', () => {
-  it('retries discovery on a later read without spawning a probe for every read', async () => {    vi.useFakeTimers()
+  it('retries discovery on a later read without spawning a probe for every read', async () => {
+    vi.useFakeTimers()
     const probeModels = vi
       .fn()
       .mockRejectedValueOnce(new Error('adapter not cached'))
