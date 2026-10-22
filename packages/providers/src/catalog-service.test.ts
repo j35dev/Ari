@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
 import { catalogSource, clearDynamicModels, modelsFor, setDynamicModels } from './catalogs'
-import { CatalogService, DEFAULT_REGISTRY_URL, REFRESH_TTL_MS, REGISTRY_PROVIDER } from './catalog-service'
+import { CatalogService, DEFAULT_REGISTRY_URL, PROBE_RETRY_DELAYS_MS, REFRESH_TTL_MS, REGISTRY_PROVIDER } from './catalog-service'
 import type { CatalogModel } from './catalogs'
 
 const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
@@ -28,8 +28,7 @@ function registryResponse(providers: Record<string, { models: Record<string, unk
 }
 
 describe('CatalogService', () => {
-  it('retries discovery on a later read without spawning a probe for every read', async () => {
-    vi.useFakeTimers()
+  it('retries discovery on a later read without spawning a probe for every read', async () => {    vi.useFakeTimers()
     const probeModels = vi
       .fn()
       .mockRejectedValueOnce(new Error('adapter not cached'))
@@ -48,6 +47,89 @@ describe('CatalogService', () => {
     expect(modelsFor('codex')).toEqual([{ id: 'future-cli-model', label: 'New CLI model' }])
     await service.refreshIfStale()
     expect(probeModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('heals a failed round on its own, without waiting for the user', async () => {
+    vi.useFakeTimers()
+    const onUpdated = vi.fn()
+    // First round dropped by the agent (a cold adapter download outlasting its
+    // handshake timeout); the retry lands it.
+    const probeModels = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('adapter not cached'))
+      .mockResolvedValue([{ id: 'late-landing', label: 'Late landing' }])
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+      onUpdated,
+    })
+    await service.refresh()
+    expect(catalogSource('codex')).not.toBe('live')
+
+    await vi.advanceTimersByTimeAsync(PROBE_RETRY_DELAYS_MS[0])
+    expect(probeModels).toHaveBeenCalledTimes(2)
+    expect(modelsFor('codex')).toEqual([{ id: 'late-landing', label: 'Late landing' }])
+    // The retry published, so an idle composer re-reads without a gesture.
+    expect(onUpdated).toHaveBeenCalledTimes(2)
+    // Everything landed: the ladder is gone, and no later retry spawns again.
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(probeModels).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops retrying a kind nobody answers after the bounded ladder', async () => {
+    vi.useFakeTimers()
+    const probeModels = vi.fn().mockRejectedValue(new Error('adapter not cached'))
+    const service = new CatalogService({
+      fetchImpl: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+    })
+    await service.refresh()
+    let calls = 1
+    for (const delay of PROBE_RETRY_DELAYS_MS) {
+      await vi.advanceTimersByTimeAsync(delay)
+      calls += 1
+      expect(probeModels).toHaveBeenCalledTimes(calls)
+    }
+    // Ladder exhausted: the timer is not rewound and no further attempts run.
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(probeModels).toHaveBeenCalledTimes(calls)
+  })
+
+  it('refrains from retrying while a refresh round is in flight', async () => {
+    vi.useFakeTimers()
+    const gate: { release: (() => void) | null } = { release: null }
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockImplementation(
+        () =>
+          new Promise<never>((_resolve, reject) => {
+            gate.release = () => reject(new Error('offline'))
+          }),
+      )
+    const probeModels = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('adapter not cached'))
+      .mockResolvedValue([{ id: 'from-round', label: 'From round' }])
+    const service = new CatalogService({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      probeModels,
+      probeKinds: ['codex'],
+    })
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(1)
+    // A second round starts (say, a connection rescan) and is still waiting on
+    // the registry when the retry timer comes due.
+    const inFlight = service.refresh()
+    await vi.advanceTimersByTimeAsync(PROBE_RETRY_DELAYS_MS[0])
+    expect(probeModels).toHaveBeenCalledTimes(1)
+    gate.release?.()
+    await inFlight
+    // The in-flight round asked the kind itself, so nothing was spawned twice.
+    expect(probeModels).toHaveBeenCalledTimes(2)
+    expect(catalogSource('codex')).toBe('live')
   })
 
   it('retains the live catalog if a later probe fails after a registry refresh', async () => {
@@ -382,11 +464,18 @@ describe('CatalogService', () => {
       probeKinds: ['codex'],
     })
     await service.refresh()
-    await vi.advanceTimersByTimeAsync(10 * 60_000)
-    await service.refresh()
-    // A kind still on the snapshot has everything to gain from a retry, so the
-    // live-catalog window must not hold it back.
+    expect(probeModels).toHaveBeenCalledTimes(1)
+
+    // The ladder re-asks on its own — a kind still on the snapshot after a
+    // failed round is not left waiting for the user to do anything.
+    await vi.advanceTimersByTimeAsync(PROBE_RETRY_DELAYS_MS[0])
     expect(probeModels).toHaveBeenCalledTimes(2)
+
+    // A natural round after the 60s throttle re-asks too: the live-catalog
+    // window must not hold a kind that never answered back.
+    await vi.advanceTimersByTimeAsync(60_000)
+    await service.refresh()
+    expect(probeModels).toHaveBeenCalledTimes(3)
   })
 
   it('shares one in-flight refresh across concurrent callers', async () => {

@@ -25,6 +25,14 @@ export const DEFAULT_REGISTRY_URL = 'https://models.dev/api.json'
 export const REFRESH_TTL_MS = 6 * 60 * 60 * 1000
 
 /**
+ * Escalating gaps between self-scheduled probe retries. A round the agent
+ * failed to answer (a cold npx cache, a busy CLI) must not leave its pickers
+ * waiting for the user to do anything: the service re-asks itself a few times,
+ * then stops and retries on the next natural round instead.
+ */
+export const PROBE_RETRY_DELAYS_MS = [30_000, 120_000, 600_000] as const
+
+/**
  * How long an agent's own model list is trusted before it is worth asking
  * again. Deliberately far longer than the retry throttle: re-probing spawns
  * the CLI to hear a vocabulary that only changes when the CLI is upgraded.
@@ -164,6 +172,9 @@ export class CatalogService {
   #lastAttemptAt: number | null = null
   #refreshing: Promise<void> | null = null
   #boot: Promise<void> | null = null
+  /** Retries scheduled for kinds a round could not get an answer from. */
+  #probeRetryTimer: ReturnType<typeof setTimeout> | null = null
+  #probeRetryAttempts = 0
 
   constructor(options: CatalogServiceOptions = {}) {
     this.#fetchImpl = options.fetchImpl ?? fetch
@@ -253,12 +264,21 @@ export class CatalogService {
       // stale disk cache keep pickers populated until a later round lands.
       log.debug('registry refresh failed (snapshot stays active)', { error: String(error) })
     }
+    // A fresh round asks every not-yet-live kind again, so its completion both
+    // supersedes any pending retry and restarts the retry ladder.
+    this.#probeRetryAttempts = 0
     await this.#runProbes()
+    this.#scheduleProbeRetry()
+    // Even a round whose probes failed publishes: the composer's first empty
+    // catalog read must be invalidated once the handshakes that would answer
+    // it have settled, whatever their verdict.
     this.#onUpdated?.(Date.now())
   }
 
-  async #runProbes(): Promise<void> {
-    if (this.#probeModels === null || this.#probeKinds.length === 0) return
+  /** True when a kind adopted a live catalog it did not have before. */
+  async #runProbes(): Promise<boolean> {
+    if (this.#probeModels === null || this.#probeKinds.length === 0) return false
+    let adopted = false
     await Promise.all(
       this.#probeKinds.map(async (kind) => {
         // A live catalog is the agent's own word, and the vocabulary belongs to
@@ -273,6 +293,7 @@ export class CatalogService {
           if (models !== null && models.length > 0) {
             setDynamicModels(kind, 'live', models)
             this.#liveVersions.set(kind, version)
+            adopted = true
             log.info('live model probe applied', { kind, count: models.length })
           }
         } catch (error) {
@@ -280,6 +301,44 @@ export class CatalogService {
         }
       }),
     )
+    return adopted
+  }
+
+  /**
+   * Sets the timer for kinds a round could not get an answer from. Without
+   * this a failed handshake (a freshly bumped adapter downloading into npx
+   * slower than its own timeout) leaves model and effort pickers empty until
+   * some other round happens to run — and nothing schedules one while the app
+   * idles, which is how a chip can sit missing for a whole session.
+   */
+  #scheduleProbeRetry(): void {
+    if (this.#probeRetryTimer !== null) {
+      clearTimeout(this.#probeRetryTimer)
+      this.#probeRetryTimer = null
+    }
+    if (this.#probeModels === null) return
+    const pending = this.#probeKinds.filter((kind) => catalogSource(kind) !== 'live')
+    if (pending.length === 0) return
+    if (this.#probeRetryAttempts >= PROBE_RETRY_DELAYS_MS.length) return
+    const delay = PROBE_RETRY_DELAYS_MS[this.#probeRetryAttempts] ?? PROBE_RETRY_DELAYS_MS[0]
+    this.#probeRetryTimer = setTimeout(() => void this.#runProbeRetry(), delay)
+  }
+
+  async #runProbeRetry(): Promise<void> {
+    this.#probeRetryTimer = null
+    // An in-flight round asks every kind itself; racing it would double the
+    // spawns, and its completion reschedules from the first delay.
+    if (this.#refreshing !== null) return
+    this.#probeRetryAttempts += 1
+    // Probes only: registry data cannot have moved within a retry window, and
+    // a registry fetch that failed would only stretch the wait. A kind answered
+    // by an earlier attempt waits out the live-catalog window, so a retry only
+    // re-asks what is still silent.
+    const adopted = await this.#runProbes()
+    // Publish on success so an idle composer re-reads without a user gesture;
+    // a still-failing kind simply advances the ladder below.
+    if (adopted) this.#onUpdated?.(Date.now())
+    this.#scheduleProbeRetry()
   }
 
   #probeIsFresh(kind: DriverKind, version: string | null): boolean {
