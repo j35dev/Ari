@@ -970,6 +970,11 @@ export interface RpcResults {
     kind: string
     source: 'live' | 'cache' | 'snapshot' | 'static'
     models: CatalogModelInfo[]
+    /**
+     * The model a session without a pick runs on, as the agent reported it
+     * (Claude follows its CLI settings); null until the agent has answered.
+     */
+    defaultModelId?: string | null
     /** Thought/reasoning levels the harness advertised; empty when it has none. */
     efforts: { id: string; label: string; description?: string; current?: boolean }[]
     /**

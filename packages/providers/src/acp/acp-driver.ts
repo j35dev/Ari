@@ -28,7 +28,7 @@ import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { CatalogModel } from '../catalogs'
-import { setDynamicEfforts, setDynamicModels } from '../catalogs'
+import { resolveOfferedModel, setDynamicEfforts, setDynamicModels } from '../catalogs'
 import {
   AcpUpdateFolder,
   configOptionsFromUpdate,
@@ -325,7 +325,16 @@ export async function createAcpAdapter(
   // folder has the exact prelude before that notification can be folded.
   folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   const sessionId = created.sessionId as string
-  const drift = new ModelDriftWatch(session.modelId, currentModelId(created.configOptions ?? null))
+  // The pick as the agent names it: a registry id resolves to the agent's row,
+  // and the agent then reporting that row is the pick taking effect.
+  const pickedModel =
+    session.modelId === null
+      ? null
+      : (resolveOfferedModel(
+          session.modelId,
+          modelsFromConfigOptions(created.configOptions ?? []),
+        ) ?? session.modelId)
+  const drift = new ModelDriftWatch(pickedModel, currentModelId(created.configOptions ?? null))
   connection.onSessionUpdate = (notification) => {
     push(folder.fold(notification))
     // The agent announcing a configuration move has no transcript surface, but
@@ -791,7 +800,9 @@ async function applyModel(
   if (modelId === null) return { kind: 'skipped' }
   const option = findModelOption(configOptions)
   if (option === null || option.options === undefined) return { kind: 'skipped' }
-  const value = option.options.find((v) => v.value === modelId)?.value
+  // A pick from the registry's list names the model its own way; match it to
+  // the agent's row for that same model before calling it unavailable.
+  const value = resolveOfferedModel(modelId, modelsFromConfigOptions(configOptions)) ?? undefined
   if (value === undefined) {
     // `default` is also Ari's own placeholder id (`CLI_DEFAULT_MODELS`), used
     // when no live catalog has landed. An agent that does not offer it has

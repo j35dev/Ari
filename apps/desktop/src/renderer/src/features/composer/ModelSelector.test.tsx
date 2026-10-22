@@ -481,7 +481,9 @@ describe('ModelSelector', () => {
       setup('claude', null)
       const user = userEvent.setup()
       const trigger = await screen.findByRole('button', { name: /model:/i })
-      await waitFor(() => expect(trigger).toHaveTextContent('Default · Opus 5.5'))
+      // The model that will run, not the word "Default".
+      await waitFor(() => expect(trigger).toHaveTextContent('Opus 5.5'))
+      expect(trigger).not.toHaveTextContent('Default')
 
       await user.click(trigger)
       const models = screen.getByRole('listbox', { name: 'Models' })
@@ -489,6 +491,65 @@ describe('ModelSelector', () => {
       // The agent's "(recommended)" suffix is dropped from the row name.
       expect(selected).toHaveTextContent('Default')
       expect(selected).not.toHaveTextContent('recommended')
+    })
+
+    it('names and checks the model the agent is set to when there is no pick', async () => {
+      modelsAs([
+        {
+          kind: 'claude',
+          source: 'live',
+          defaultModelId: 'sonnet',
+          models: [
+            { id: 'default', label: 'Default (recommended)', description: 'Opus 5.5' },
+            { id: 'opus', label: 'Opus 5.5' },
+            { id: 'sonnet', label: 'Sonnet 5.5' },
+          ],
+        },
+      ])
+      setup('claude', null)
+      const user = userEvent.setup()
+      const trigger = await screen.findByRole('button', { name: /model:/i })
+      // The CLI's own settings pick Sonnet, so that is what a no-pick session runs.
+      await waitFor(() => expect(trigger).toHaveTextContent('Sonnet 5.5'))
+
+      await user.click(trigger)
+      const models = screen.getByRole('listbox', { name: 'Models' })
+      expect(within(models).getByRole('option', { selected: true })).toHaveTextContent(
+        'Sonnet 5.5',
+      )
+    })
+
+    it('keeps a registry pick checked once the agent lists that model its own way', async () => {
+      modelsAs([
+        {
+          kind: 'claude',
+          source: 'live',
+          models: [
+            { id: 'opus', label: 'Opus 5.5' },
+            { id: 'sonnet', label: 'Sonnet 5.5' },
+          ],
+        },
+      ])
+      // Saved from the registry's list before Claude had answered.
+      setup('claude', 'claude-opus-5-5')
+      const user = userEvent.setup()
+      const trigger = await screen.findByRole('button', { name: /model:/i })
+      await waitFor(() => expect(trigger).toHaveTextContent('Opus 5.5'))
+      expect(trigger).not.toHaveTextContent('claude-opus-5-5')
+
+      await user.click(trigger)
+      const models = screen.getByRole('listbox', { name: 'Models' })
+      expect(within(models).getByRole('option', { selected: true })).toHaveTextContent('Opus 5.5')
+    })
+
+    it('names the agent rather than a placeholder before it has reported', async () => {
+      modelsAs([
+        { kind: 'claude', source: 'static', models: [{ id: 'default', label: 'CLI default' }] },
+      ])
+      setup('claude', null)
+      const trigger = await screen.findByRole('button', { name: /model:/i })
+      await waitFor(() => expect(trigger).toHaveTextContent('Claude'))
+      expect(trigger).not.toHaveTextContent('CLI default')
     })
 
     it('checks the row a version-less saved id resolves to', async () => {
