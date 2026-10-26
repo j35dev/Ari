@@ -6,6 +6,7 @@ import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
 import type { DiscoveredModel, EndpointModel } from './endpoint'
+import type { Bot } from './bot'
 import type { Project } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
@@ -682,6 +683,8 @@ export const rpcParams = {
   'browser.pick': z.object({ id: z.string().min(1) }),
   'browser.cancelPick': z.object({ id: z.string().min(1) }),
   'browser.capture': z.object({ id: z.string().min(1) }),
+  /** Every Hive bot on disk, sorted by name. */
+  'bots.list': z.undefined(),
   'project.list': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
@@ -1105,6 +1108,7 @@ export interface RpcResults {
   'browser.cancelPick': { cancelled: boolean }
   /** A JPEG still of the page as a data URL; null when the guest has no frame. */
   'browser.capture': { dataUrl: string | null }
+  'bots.list': Bot[]
   'project.list': Project[]
   'project.add': Project
   'project.open': Project

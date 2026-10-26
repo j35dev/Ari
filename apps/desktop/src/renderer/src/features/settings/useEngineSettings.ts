@@ -10,6 +10,8 @@ let revision = 0
 export interface EngineSettings {
   /** Current settings; null until the initial `settings.get` resolves. */
   settings: Settings | null
+  /** True once the initial `settings.get` has settled, whether it loaded or failed. */
+  loaded: boolean
   /** Persists a patch through the engine and syncs the local copy. */
   update: (patch: SettingsUpdate) => Promise<Settings>
 }
@@ -21,6 +23,7 @@ export interface EngineSettings {
  */
 export function useEngineSettings(): EngineSettings {
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -29,10 +32,13 @@ export function useEngineSettings(): EngineSettings {
     listeners.add(receive)
     rpc.invoke('settings.get').then(
       (loaded) => {
-        if (!cancelled && initialRevision === revision) setSettings(loaded)
+        if (cancelled) return
+        if (initialRevision === revision) setSettings(loaded)
+        setLoaded(true)
       },
       (error: unknown) => {
         log.warn('settings.get failed; defaults apply', { error })
+        if (!cancelled) setLoaded(true)
       },
     )
     return () => {
@@ -48,5 +54,5 @@ export function useEngineSettings(): EngineSettings {
     return next
   }, [])
 
-  return { settings, update }
+  return { settings, loaded, update }
 }

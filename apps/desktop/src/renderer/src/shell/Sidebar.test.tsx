@@ -1,11 +1,14 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import type { Bot } from '@ari/contracts/bot'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import type { SessionActivity } from '../features/session/session-activity'
 import {
   formatRelativeTime,
+  HiveRoster,
   SessionsUnderProjects,
+  SidebarBody,
   SidebarHeader,
   type SidebarProject,
 } from './Sidebar'
@@ -53,7 +56,9 @@ function renderSidebar(
 ): void {
   localStorage.clear()
   render(
-    <SessionsUnderProjects
+    <SidebarBody
+      hiveView={false}
+      bots={[]}
       sessions={sessions}
       projects={openProjects}
       activeSessionId={activeSessionId}
@@ -226,6 +231,8 @@ describe('SessionsUnderProjects', () => {
         onDelete={() => {}}
         onTogglePin={() => {}}
         onToggleArchive={() => {}}
+        searchQuery=""
+        onSearchQueryChange={() => {}}
       />,
     )
     expect(screen.queryByText('Session a')).not.toBeInTheDocument()
@@ -292,6 +299,8 @@ describe('SessionsUnderProjects', () => {
         onDelete={() => {}}
         onTogglePin={() => {}}
         onToggleArchive={() => {}}
+        searchQuery=""
+        onSearchQueryChange={() => {}}
       />,
     )
     expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
@@ -752,6 +761,8 @@ describe('SessionsUnderProjects', () => {
         onDelete={() => {}}
         onTogglePin={() => {}}
         onToggleArchive={() => {}}
+        searchQuery=""
+        onSearchQueryChange={() => {}}
       />
     )
     const { rerender } = render(view(first))
@@ -761,6 +772,47 @@ describe('SessionsUnderProjects', () => {
 
     expect(second).toHaveBeenCalledWith('a')
     expect(first).not.toHaveBeenCalled()
+  })
+})
+
+describe('HiveRoster', () => {
+  it('lists every bot with its emoji and name', () => {
+    const bots: Bot[] = [
+      {
+        id: 'bot_pixel',
+        name: 'Pixel',
+        emoji: '🎨',
+        personaMd: '',
+        driverKind: 'claude',
+        modelId: null,
+      },
+      {
+        id: 'bot_forge',
+        name: 'Forge',
+        emoji: '🔧',
+        personaMd: '',
+        driverKind: 'claude',
+        modelId: null,
+      },
+    ]
+    render(<HiveRoster bots={bots} />)
+
+    const roster = within(screen.getByRole('region', { name: 'Hive roster' }))
+    const items = within(roster.getByRole('list', { name: 'Bots' })).getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('🎨')
+    expect(items[0]).toHaveTextContent('Pixel')
+    expect(items[1]).toHaveTextContent('🔧')
+    expect(items[1]).toHaveTextContent('Forge')
+    expect(roster.queryByText('No bots yet')).not.toBeInTheDocument()
+  })
+
+  it('shows the empty state when there are no bots', () => {
+    render(<HiveRoster bots={[]} />)
+
+    const roster = within(screen.getByRole('region', { name: 'Hive roster' }))
+    expect(roster.getByText('No bots yet')).toBeInTheDocument()
+    expect(roster.queryByRole('list', { name: 'Bots' })).not.toBeInTheDocument()
   })
 })
 

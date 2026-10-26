@@ -40,17 +40,16 @@ describe('useEngineSettings', () => {
   it('loads settings on mount via settings.get', async () => {
     const { result } = renderHook(() => useEngineSettings())
     expect(result.current.settings).toBeNull()
+    expect(result.current.loaded).toBe(false)
     await waitFor(() => expect(result.current.settings).toEqual(baseSettings))
+    expect(result.current.loaded).toBe(true)
     expect(invoke).toHaveBeenCalledWith('settings.get')
   })
 
-  it('keeps settings null when the initial load fails', async () => {
+  it('keeps settings null but reports loaded when the initial load fails', async () => {
     invoke.mockRejectedValue(new Error('engine unavailable'))
     const { result } = renderHook(() => useEngineSettings())
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('settings.get'))
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await waitFor(() => expect(result.current.loaded).toBe(true))
     expect(result.current.settings).toBeNull()
   })
 
