@@ -238,18 +238,20 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       let lastSeq = fromSeq ?? -1
       let projectId: string | undefined
       let unsubscribe = (): void => {}
-      const current = (): boolean =>
+      const current = (): RemoteCaller | undefined =>
         subscriptions.get(sessionId) === unsubscribe &&
         connection.open &&
-        callerNow() !== undefined &&
         (lease === undefined || lease.expiresAt > (options.now?.() ?? Date.now()))
+          ? callerNow()
+          : undefined
       const stop = (): void => {
         unsubscribe()
         subscriptions.delete(sessionId)
       }
       const deliver = (event: JournalEvent, caughtUp?: boolean): void => {
-        if (!current()) return teardown()
-        if (projectId !== undefined && !(callerNow()?.projectIds.includes(projectId) ?? false)) {
+        const live = current()
+        if (live === undefined) return teardown()
+        if (projectId !== undefined && !live.projectIds.includes(projectId)) {
           stop()
           return send(
             errorMessage('access_revoked', 'this device no longer has access to that project'),

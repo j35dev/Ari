@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
@@ -33,6 +33,7 @@ describe('control endpoint', () => {
   it('stays within it when bound in a short root', async () => {
     const { endpoint } = await controlEndpoint('darwin', tmpdir())
     expect(Buffer.byteLength(endpoint)).toBeLessThan(MACOS_SUN_PATH_BYTES)
+    await rm(dirname(endpoint), { recursive: true, force: true })
   })
 
   // `controlEndpoint` is exercised above with a caller-supplied root, so this
@@ -44,16 +45,14 @@ describe('control endpoint', () => {
   })
 })
 
-/** Socket directories the runtime owns under the shipped root. */
-async function socketDirs(): Promise<string[]> {
-  return (await readdir(SOCKET_ROOT)).filter((name) => name.startsWith('ari-')).sort()
-}
-
 // `close` only exists on the object a successful start returns, so a startup
 // that rejected after creating the directory had nothing left to remove it —
 // one directory per attempt, for a failure that repeats on every launch.
 it('removes the socket directory when startup fails after creating it', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ari-startup-fail-'))
+  // A private socket root: the shared one is also written by every other Ari
+  // process and test run on the machine, so a snapshot of it is never stable.
+  const socketRoot = await mkdtemp(join(tmpdir(), 'ari-socket-root-'))
   const bin = join(dir, 'agent-control', 'bin')
   await mkdir(bin, { recursive: true })
   // A directory where the launcher file belongs, so the write — which runs
@@ -67,21 +66,27 @@ it('removes the socket directory when startup fails after creating it', async ()
     resolveWorkspace: async () => dir,
     git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
   })
-  const before = await socketDirs()
-  await expect(
-    startAgentRuntime({
-      engine,
-      store,
-      userData: dir,
-      cliPath,
-      executable: process.execPath,
-      version: 'test',
-      policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
-      providers: async () => [],
-    }),
-  ).rejects.toThrow()
-  expect(await socketDirs()).toEqual(before)
-  await rm(dir, { recursive: true, force: true })
+  // The cleanup wraps the assertion so a startup that resolves — the regression
+  // this guards — still removes both temp roots before the failure surfaces.
+  try {
+    await expect(
+      startAgentRuntime({
+        engine,
+        store,
+        userData: dir,
+        cliPath,
+        executable: process.execPath,
+        version: 'test',
+        policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+        providers: async () => [],
+        socketRoot,
+      }),
+    ).rejects.toThrow()
+    expect(await readdir(socketRoot)).toEqual([])
+  } finally {
+    await rm(socketRoot, { recursive: true, force: true })
+    await rm(dir, { recursive: true, force: true })
+  }
 })
 
 it('runs the shipped CLI through scoped transport, a real isolated worker and exact integration', async () => {

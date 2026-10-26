@@ -1,11 +1,13 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '@ari/engine/session-store'
 import { ProjectStore } from '@ari/engine/projects'
 import { importPiSession, importPiSessionCandidate, listImportableSessions } from './session-import'
 import type { SessionImportDeps } from './session-import'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 /**
  * Every case builds a real pi session file and a real Ari store on disk: the
@@ -33,11 +35,11 @@ let projectPath = ''
 const originalSessionDir = process.env['PI_CODING_AGENT_SESSION_DIR']
 
 beforeEach(async () => {
-  piRoot = await mkdtemp(join(tmpdir(), 'ari-import-pi-'))
+  piRoot = tempDir('ari-import-pi-')
   process.env['PI_CODING_AGENT_SESSION_DIR'] = piRoot
 
-  const ariRoot = await mkdtemp(join(tmpdir(), 'ari-import-store-'))
-  projectPath = await mkdtemp(join(tmpdir(), 'ari-import-proj-'))
+  const ariRoot = tempDir('ari-import-store-')
+  projectPath = tempDir('ari-import-proj-')
   const projects = new ProjectStore({ dir: ariRoot })
   await projects.load()
   await projects.add(projectPath)
@@ -80,7 +82,7 @@ async function seedFixtureSession(name: string): Promise<string> {
 describe('listImportableSessions', () => {
   it('returns only sessions whose canonical cwd matches the requested project', async () => {
     await seedPiSession('ari', 'keep this one')
-    await seedPiSession('other', 'exclude this one', await mkdtemp(join(tmpdir(), 'other-project-')))
+    await seedPiSession('other', 'exclude this one', tempDir('other-project-'))
 
     const scoped = await listImportableSessions(deps, projectPath)
     expect(scoped.map((session) => session.title)).toEqual(['keep this one'])
@@ -249,7 +251,7 @@ describe('importPiSession', () => {
   })
 
   it('refuses a file that is not a pi session', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-import-junk-'))
+    const dir = tempDir('ari-import-junk-')
     const path = join(dir, 'notes.jsonl')
     await writeFile(path, '{"hello":"world"}\n', 'utf8')
     expect(await importPiSession({ path }, deps)).toMatchObject({ ok: false })

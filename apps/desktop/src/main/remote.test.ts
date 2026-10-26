@@ -9,6 +9,9 @@ import type { Engine } from './engine'
 import type { SessionStore } from '@ari/engine/session-store'
 import type { PtyFactory } from './terminal-service'
 import { RemoteService, type RemoteServiceDeps } from './remote'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 /**
  * The desktop end of remote access: the gateway's lifetime, the two decisions
@@ -68,7 +71,7 @@ const live: RemoteService[] = []
 let counter = 0
 
 function makeService(overrides: Partial<RemoteServiceDeps> = {}, port = 0): Harness {
-  const dir = overrides.dir ?? mkdtempSync(join(tmpdir(), 'ari-remote-'))
+  const dir = overrides.dir ?? tempDir('ari-remote-')
   const states: RemoteState[] = []
   const service = new RemoteService(
     {
@@ -566,7 +569,7 @@ describe('remote service host wiring', () => {
     expect(service.running).toBe(false)
   })
   it('serves the built PWA from the gateway, same-origin with the API', async () => {
-    const build = mkdtempSync(join(tmpdir(), 'ari-pwa-'))
+    const build = tempDir('ari-pwa-')
     writeFileSync(join(build, 'index.html'), '<!doctype html><title>Ari Remote</title>', 'utf8')
     const { service } = makeService({ webRoot: () => build })
     const started = await service.start()

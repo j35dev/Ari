@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
 import { REMOTE_PROTOCOL_VERSION } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
@@ -1218,6 +1218,37 @@ describe('remote gateway grant edits', () => {
       error: { code: 'access_revoked' },
     })
     expect(unsubscribed).toBe(true)
+    client.close()
+  })
+
+  it('authenticates the device once per delivered event', async () => {
+    let emit: ((event: unknown) => void) | null = null
+    const host = fakeHost({
+      subscribe: (_caller, _sessionId, onEvent) => {
+        emit = onEvent as (event: unknown) => void
+        return () => {
+          emit = null
+        }
+      },
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), ['proj_1'])
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1' }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const authenticate = vi.spyOn(gateway.pairing, 'authenticate')
+    emit!({ type: 'turn.started', seq: 11, at: 1, sessionId: 'sess_1', turnId: 't1' })
+    // Delivery is synchronous, so the once-a-second credential sweep cannot land in between.
+    expect(authenticate).toHaveBeenCalledTimes(1)
+    authenticate.mockRestore()
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'events.frame',
+      events: [{ seq: 11 }],
+    })
     client.close()
   })
 
