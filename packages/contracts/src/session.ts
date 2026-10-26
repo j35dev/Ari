@@ -69,6 +69,8 @@ export const sessionSchema = z.object({
   /** Set on delegated children only; absent on journals written before roles. */
   role: delegationRoleSchema.nullish(),
   workspace: sessionWorkspaceSchema.nullish(),
+  /** The Hive bot this session runs as; absent for ordinary sessions. */
+  botId: z.string().min(1).optional(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
 })
