@@ -56,13 +56,14 @@ export interface CheckpointCapturer {
     turnId: string,
   ): Promise<{ ok: true; value: string | null } | { ok: false; error: { message: string } }>
   /**
-   * Best-effort GC of hidden checkpoint refs, keeping the newest
-   * `maxPerSession` per session. Returns the deleted refs. Optional so
-   * test doubles can omit it.
+   * Best-effort GC of hidden checkpoint refs: keeps the last `maxPerSession`
+   * of `turnIds` (capture order, oldest first) and deletes the session's
+   * other refs. Returns the deleted refs. Optional so test doubles can omit it.
    */
   pruneCheckpoints?(
     cwd: string,
     sessionId: string,
+    turnIds: readonly string[],
     maxPerSession: number,
   ): Promise<{ ok: true; value: string[] } | { ok: false; error: { message: string } }>
 }
@@ -246,6 +247,22 @@ export class Engine {
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
+    if (command.type === 'checkpoint.revert') {
+      // Revert before journaling `checkpoint.reverted`: a failed revert keeps
+      // the checkpoint and reaches the caller as a rejection.
+      const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
+      const ws = model.session === null ? null : await this.workspace(model.session)
+      if (ref === undefined || ws === null) {
+        return { accepted: false, reason: 'checkpoint workspace is unavailable' }
+      }
+      const { GitService } = await import('@ari/engine/git')
+      const result = await new GitService().revertToRef(ws, ref)
+      if (!result.ok) {
+        log.error('checkpoint revert failed', { error: result.error.message })
+        return { accepted: false, reason: `revert failed: ${result.error.message}` }
+      }
+    }
+
     // A `message.enqueue` decided with no active turn is promoted to a turn
     // start (see decideCommand), so the turn lifecycle keys off the decision
     // and never off the command type.
@@ -357,19 +374,6 @@ export class Engine {
         }
       }
       await this.#recordSteered(command.sessionId, model.activeTurnId, queued)
-    }
-
-    if (command.type === 'checkpoint.revert') {
-      const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
-      const session = model.session
-      const ws = session === null ? null : await this.workspace(session)
-      if (ref !== undefined && ws !== null) {
-        const { GitService } = await import('@ari/engine/git')
-        const result = await new GitService().revertToRef(ws, ref)
-        if (!result.ok) {
-          log.error('checkpoint revert failed', { error: result.error.message })
-        }
-      }
     }
 
     return { accepted: true }
@@ -541,10 +545,17 @@ export class Engine {
         gitRef: captured.value,
       })
       // M8.10: cap stored checkpoints per session. Pruning is event-sourced
-      // (checkpoint.pruned folds the projection) and best-effort.
+      // (checkpoint.pruned folds the projection) and best-effort. The
+      // projection lists checkpoints in capture order, so this turn's is last.
       const prune = git.pruneCheckpoints?.bind(git)
       if (prune) {
-        const pruned = await prune(workspacePath, session.id, MAX_CHECKPOINTS_PER_SESSION)
+        const model = await this.#deps.store.load(session.id)
+        const pruned = await prune(
+          workspacePath,
+          session.id,
+          model.checkpoints.map((c) => c.turnId),
+          MAX_CHECKPOINTS_PER_SESSION,
+        )
         if (pruned.ok) {
           for (const ref of pruned.value) {
             const turnId = ref.slice(ref.lastIndexOf('/') + 1)
