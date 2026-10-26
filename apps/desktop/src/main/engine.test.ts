@@ -493,6 +493,10 @@ describe('engine end-to-end with scripted driver', () => {
     dirs.push(repo)
     const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
     git('init', '-q')
+    // The revert below restores through the checkout filter, which rewrites LF
+    // to CRLF on Windows unless the repo opts out. Every other git-backed suite
+    // pins it; this one did not.
+    git('config', 'core.autocrlf', 'false')
     await writeFile(join(repo, 'a.txt'), 'committed\n')
     git('add', '.')
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
@@ -1858,6 +1862,7 @@ describe('turn workspace', () => {
     dirs.push(repo)
     try {
       execFileSync('git', ['init'], { cwd: repo, stdio: 'ignore' })
+      execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: repo, stdio: 'ignore' })
     } catch {
       return null
     }
