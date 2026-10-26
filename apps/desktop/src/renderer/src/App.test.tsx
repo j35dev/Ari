@@ -1588,6 +1588,41 @@ describe('Hive view switch', () => {
     expect(screen.queryByRole('region', { name: 'Hive roster' })).not.toBeInTheDocument()
   })
 
+  it('keeps the sidebar search across a Hive round trip', async () => {
+    const base = invokeMock.getMockImplementation()
+    if (base === undefined) throw new Error('missing invoke mock implementation')
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'session.list'
+        ? [
+            { id: 'sess-alpha', projectId: 'adhoc', title: 'Alpha', updatedAt: 0 },
+            { id: 'sess-beta', projectId: 'adhoc', title: 'Beta', updatedAt: 0 },
+          ]
+        : base(method, params),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+    await screen.findByText('Beta', {}, { timeout: 10_000 })
+
+    const search = screen.getByRole('searchbox', { name: 'Search sessions' })
+    await user.type(search, 'alp')
+
+    expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+
+    await user.click(await hiveSwitch())
+    await screen.findByRole('region', { name: 'Hive roster' })
+    expect(screen.queryByRole('searchbox', { name: 'Search sessions' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('switch', { name: 'Hive view' }))
+
+    const restored = await screen.findByRole('searchbox', { name: 'Search sessions' })
+    expect(restored).toHaveValue('alp')
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+  })
+
   it('reopens in Hive view after a restart', async () => {
     const user = userEvent.setup()
     const first = render(<App />)
