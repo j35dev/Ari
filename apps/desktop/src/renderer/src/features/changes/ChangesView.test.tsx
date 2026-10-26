@@ -16,6 +16,30 @@ const invokeMock = rpcMocks.invoke as unknown as Mock<
   (method: string, params?: unknown) => Promise<unknown>
 >
 
+const DIFF = [
+  'diff --git a/src/app.ts b/src/app.ts',
+  '--- a/src/app.ts',
+  '+++ b/src/app.ts',
+  '@@ -1,2 +1,2 @@',
+  ' const one = 1',
+  '-const two = 2',
+  '+const two = 22',
+].join('\n')
+
+function mockChangedFileDiff(diffWorktree: () => Promise<unknown>): void {
+  invokeMock.mockImplementation(async (method) => {
+    if (method === 'project.list') return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
+    if (method === 'git.status')
+      return {
+        isRepo: true,
+        branch: 'main',
+        files: [{ path: 'src/app.ts', staged: false, kind: 'M' }],
+      }
+    if (method === 'git.diffWorktree') return diffWorktree()
+    throw new Error(`unexpected method: ${String(method)}`)
+  })
+}
+
 describe('ChangesView', () => {
   beforeEach(() => {
     invokeMock.mockReset()
@@ -82,5 +106,50 @@ describe('ChangesView', () => {
 
     expect(chip).toHaveAttribute('draggable', 'true')
     expect(setData).toHaveBeenCalledWith(FILE_MIME, 'index.html')
+  })
+
+  it('shows the error when the worktree diff request rejects', async () => {
+    mockChangedFileDiff(async () => {
+      throw new Error('diff failed')
+    })
+    render(<ToastProvider><ChangesView /></ToastProvider>)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Couldn't load the diff: diff failed",
+    )
+  })
+
+  it('shows the error the diff response carries', async () => {
+    mockChangedFileDiff(async () => ({ diffText: '', error: 'diff_too_large' }))
+    render(<ToastProvider><ChangesView /></ToastProvider>)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Couldn't load the diff: diff_too_large",
+    )
+  })
+
+  it('renders the diff on a successful load', async () => {
+    mockChangedFileDiff(async () => ({ diffText: DIFF }))
+    render(<ToastProvider><ChangesView /></ToastProvider>)
+
+    expect(await screen.findByText('const two = 22')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('clears a diff error once a refresh loads the diff', async () => {
+    const diff = vi
+      .fn<() => Promise<unknown>>()
+      .mockRejectedValueOnce(new Error('diff failed'))
+      .mockResolvedValue({ diffText: DIFF })
+    mockChangedFileDiff(diff)
+    render(<ToastProvider><ChangesView /></ToastProvider>)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Couldn't load the diff: diff failed",
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    expect(await screen.findByText('const two = 22')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
