@@ -85,8 +85,42 @@ describe('ToolResultBody MCP content', () => {
   const PNG_BASE64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
-  it('renders mixed text and image content as text plus a thumbnail', async () => {
-    const user = userEvent.setup()
+  it('shows a placeholder for an MCP image block without rendering its data', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [{ type: 'image', data: PNG_BASE64, mimeType: 'image/png' }],
+        })}
+      />,
+    )
+    expect(screen.getByText('Image shown below')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+  })
+
+  it('shows a placeholder for an Anthropic image block without rendering its data', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: 'image/png', data: PNG_BASE64 },
+            },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText('Image shown below')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+  })
+
+  it('shows text beside an MCP image placeholder without rendering an image', () => {
     const { container } = render(
       <ToolResultBody
         resultJson={JSON.stringify({
@@ -97,56 +131,16 @@ describe('ToolResultBody MCP content', () => {
         })}
       />,
     )
-
     expect(screen.getByText('Captured https://example.com')).toBeInTheDocument()
-    expect(screen.getByAltText('Tool result image 2')).toHaveAttribute(
-      'src',
-      `data:image/png;base64,${PNG_BASE64}`,
-    )
-    expect(container.textContent).not.toContain(PNG_BASE64)
-
-    await user.click(screen.getByRole('button', { name: 'Open image 2' }))
-    expect(screen.getByAltText('Full-size image-2.png')).toBeInTheDocument()
-    expect(document.body.textContent).not.toContain(PNG_BASE64)
-  })
-
-  it('accepts a bare content array', () => {
-    render(
-      <ToolResultBody
-        resultJson={JSON.stringify([{ type: 'image', data: PNG_BASE64, mimeType: 'image/webp' }])}
-      />,
-    )
-    expect(screen.getByAltText('Tool result image 1')).toBeInTheDocument()
-  })
-
-  it.each([
-    ['a non-image mimeType', { type: 'image', data: PNG_BASE64, mimeType: 'text/html' }],
-    ['missing data', { type: 'image', mimeType: 'image/png' }],
-    ['non-base64 data', { type: 'image', data: 'abc";alert(1)//', mimeType: 'image/png' }],
-  ])('shows a placeholder for an image block with %s', (_, block) => {
-    const { container } = render(
-      <ToolResultBody resultJson={JSON.stringify({ content: [block] })} />,
-    )
-    expect(screen.getByText('Image unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Image shown below')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
     expect(container.textContent).not.toContain(PNG_BASE64)
-  })
-
-  it('shows a placeholder for an oversized image block', () => {
-    const huge = 'A'.repeat(5 * 1024 * 1024 + 4)
-    const { container } = render(
-      <ToolResultBody
-        resultJson={JSON.stringify({
-          content: [{ type: 'image', data: huge, mimeType: 'image/png' }],
-        })}
-      />,
-    )
-    expect(screen.getByText('Image too large to preview')).toBeInTheDocument()
-    expect(container.textContent).not.toContain('AAAAAAAAAAAAAAAA')
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
   })
 
   it('shows a placeholder for non-text, non-image blocks beside an image', () => {
-    render(
+    const { container } = render(
       <ToolResultBody
         resultJson={JSON.stringify([
           { type: 'resource', resource: { uri: 'file:///a.txt' } },
@@ -155,7 +149,10 @@ describe('ToolResultBody MCP content', () => {
       />,
     )
     expect(screen.getByText('Unsupported content')).toBeInTheDocument()
-    expect(screen.getByAltText('Tool result image 2')).toBeInTheDocument()
+    expect(screen.getByText('Image shown below')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
   })
 
   it.each([
