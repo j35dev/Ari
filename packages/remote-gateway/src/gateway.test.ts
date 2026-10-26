@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1260,9 +1260,19 @@ describe('remote gateway remembered devices', () => {
 })
 
 describe('remote gateway PWA hosting', () => {
+  const buildParents: string[] = []
+
+  afterEach(() => {
+    for (const parent of buildParents) rmSync(parent, { recursive: true, force: true })
+    buildParents.length = 0
+  })
+
   /** A directory shaped like a Vite build, with one file Ari must not serve. */
   function buildDirectory(): string {
-    const dir = mkdtempSync(join(tmpdir(), 'ari-pwa-'))
+    const parent = mkdtempSync(join(tmpdir(), 'ari-pwa-'))
+    buildParents.push(parent)
+    const dir = join(parent, 'build')
+    mkdirSync(dir)
     mkdirSync(join(dir, 'assets'))
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Ari</title>', 'utf8')
     writeFileSync(join(dir, 'manifest.webmanifest'), '{"name":"Ari"}', 'utf8')
