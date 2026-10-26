@@ -12,7 +12,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-function setup(allowed = () => true) {
+function setup(allowed: (deviceId: string, projectId: string) => boolean = () => true) {
   const shells: {
     write: ReturnType<typeof vi.fn>
     resize: ReturnType<typeof vi.fn>
@@ -51,7 +51,7 @@ function setup(allowed = () => true) {
     const result = manager.execute(
       caller,
       { ...envelope, op: 'terminal.create', cols: 80, rows: 24 },
-      '/trusted/workspace',
+      { projectId: 'p', workspace: '/trusted/workspace' },
     )
     if (!result.ok) throw new Error(result.message)
     return (result.result as { terminalId: string }).terminalId
@@ -70,7 +70,7 @@ describe('remote terminals', () => {
       manager.execute(
         { ...caller, allowTerminal: false },
         { ...envelope, op: 'terminal.create', cols: 80, rows: 24 },
-        '.',
+        { projectId: 'p', workspace: '.' },
       ),
     ).toMatchObject({ ok: false, code: 'access_revoked' })
     const id = create()
@@ -83,7 +83,7 @@ describe('remote terminals', () => {
         manager.execute(
           unauthorized,
           command('terminal.write', id) as Extract<RemoteCommand, { op: `terminal.${string}` }>,
-          '.',
+          { projectId: 'p', workspace: '.' },
         ).ok,
       ).toBe(false)
     }
@@ -92,14 +92,14 @@ describe('remote terminals', () => {
       manager.execute(
         caller,
         command('terminal.write', id) as Extract<RemoteCommand, { op: `terminal.${string}` }>,
-        '.',
+        { projectId: 'p', workspace: '.' },
       ).ok,
     ).toBe(true)
     expect(shells[0]?.write).toHaveBeenCalledWith('echo hi\r')
     manager.execute(
       caller,
       command('terminal.resize', id) as Extract<RemoteCommand, { op: `terminal.${string}` }>,
-      '.',
+      { projectId: 'p', workspace: '.' },
     )
     expect(shells[0]?.resize).toHaveBeenLastCalledWith(100, 40)
   })
@@ -109,7 +109,11 @@ describe('remote terminals', () => {
     const id = create()
     create()
     expect(
-      manager.execute(caller, { ...envelope, op: 'terminal.create', cols: 80, rows: 24 }, '.'),
+      manager.execute(
+        caller,
+        { ...envelope, op: 'terminal.create', cols: 80, rows: 24 },
+        { projectId: 'p', workspace: '.' },
+      ),
     ).toMatchObject({ ok: false, code: 'rate_limited' })
     shells[0]?.data('x'.repeat(200_000))
     const read = manager.read(caller, 's', id, 0)
@@ -133,5 +137,17 @@ describe('remote terminals', () => {
     vi.advanceTimersByTime(1000)
     expect(shells[0]?.kill).toHaveBeenCalledOnce()
     expect(manager.read(caller, 's', id, 0)).toBeNull()
+  })
+
+  it('kills device shells when the session project is no longer granted', () => {
+    vi.useFakeTimers()
+    let granted = ['p']
+    const { shells, create } = setup((_deviceId, projectId) => granted.includes(projectId))
+    create()
+    vi.advanceTimersByTime(1000)
+    expect(shells[0]?.kill).not.toHaveBeenCalled()
+    granted = []
+    vi.advanceTimersByTime(1000)
+    expect(shells[0]?.kill).toHaveBeenCalledOnce()
   })
 })

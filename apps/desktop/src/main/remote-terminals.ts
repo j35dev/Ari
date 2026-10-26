@@ -8,6 +8,7 @@ type TerminalCommand = Extract<RemoteCommand, { op: `terminal.${string}` }>
 interface Entry {
   deviceId: string
   sessionId: string
+  projectId: string
   data: string
   seq: number
   exited: boolean
@@ -20,7 +21,7 @@ export class RemoteTerminals {
   readonly #terminals: TerminalService
   readonly #watchdog: ReturnType<typeof setInterval>
 
-  constructor(factory: PtyFactory, allowed: (deviceId: string) => boolean) {
+  constructor(factory: PtyFactory, allowed: (deviceId: string, projectId: string) => boolean) {
     this.#terminals = new TerminalService(
       {
         onData: (id, data) => {
@@ -47,7 +48,8 @@ export class RemoteTerminals {
       },
     )
     this.#watchdog = setInterval(() => {
-      for (const [id, entry] of this.#entries) if (!allowed(entry.deviceId)) this.#kill(id)
+      for (const [id, entry] of this.#entries)
+        if (!allowed(entry.deviceId, entry.projectId)) this.#kill(id)
     }, 1000)
     this.#watchdog.unref()
   }
@@ -55,7 +57,7 @@ export class RemoteTerminals {
   execute(
     caller: RemoteCaller,
     command: TerminalCommand,
-    workspace: string,
+    session: { projectId: string; workspace: string },
   ): { ok: true; result: unknown } | { ok: false; code: string; message: string } {
     if (caller.allowTerminal !== true)
       return {
@@ -80,12 +82,13 @@ export class RemoteTerminals {
         this.#entries.set(terminalId, {
           deviceId: caller.deviceId,
           sessionId: command.sessionId,
+          projectId: session.projectId,
           data: '',
           seq: 0,
           exited: false,
         })
         try {
-          this.#terminals.create(terminalId, workspace)
+          this.#terminals.create(terminalId, session.workspace)
           this.#terminals.resize(terminalId, command.cols, command.rows)
         } catch (error) {
           this.#entries.delete(terminalId)
