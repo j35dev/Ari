@@ -349,6 +349,18 @@ suite('GitService', () => {
     expect(await listedRefs(dir, 'sess-gc-same')).toEqual(refs.slice(-3).sort())
   }, 30000)
 
+  it('pruneCheckpoints deletes an orphan ref missing from turnIds even under the cap', async () => {
+    const dir = await initRepo()
+    const [first, omitted, last] = [newTypedId('turn'), newTypedId('turn'), newTypedId('turn')]
+    const kept = [await capture(dir, 'sess-gc-orphan', first)]
+    const orphan = await capture(dir, 'sess-gc-orphan', omitted)
+    kept.push(await capture(dir, 'sess-gc-orphan', last))
+
+    const pruned = await service.pruneCheckpoints(dir, 'sess-gc-orphan', [first, last], 50)
+    expect(pruned.ok && pruned.value).toEqual([orphan])
+    expect(await listedRefs(dir, 'sess-gc-orphan')).toEqual(kept.sort())
+  })
+
   it('pruneCheckpoints is a no-op at or under the cap and rejects invalid caps', async () => {
     const dir = await initRepo()
     const turnIds = [newTypedId('turn'), newTypedId('turn')]
