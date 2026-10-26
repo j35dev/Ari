@@ -34,6 +34,7 @@ export interface BrowserGuest {
   isLoading(): boolean
   executeJavaScript(code: string): Promise<unknown>
   capturePage(rect?: BrowserBounds, format?: 'png' | 'jpeg'): Promise<Buffer | null>
+  sendKey(key: string, phase: 'down' | 'up'): void
   setBounds(bounds: BrowserBounds): void
   setVisible(visible: boolean): void
   destroy(): void
@@ -199,6 +200,17 @@ export class BrowserService {
   async still(id: string): Promise<string | null> {
     const jpeg = await this.#tab(id).guest.capturePage(undefined, 'jpeg')
     return jpeg ? `data:image/jpeg;base64,${jpeg.toString('base64')}` : null
+  }
+
+  /** Holds `key` down in the page for `holdMs`, then releases it. The key up is always sent. */
+  async key(id: string, key: string, holdMs: number): Promise<void> {
+    const { guest } = this.#tab(id)
+    try {
+      guest.sendKey(key, 'down')
+      await new Promise((resolve) => setTimeout(resolve, holdMs))
+    } finally {
+      guest.sendKey(key, 'up')
+    }
   }
 
   reveal(id: string): void {
