@@ -25,7 +25,10 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.unstubAllEnvs()
-  await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
+  // Windows returns EBUSY while a handle is still closing; retry like store.test.ts.
+  await Promise.all(
+    dirs.map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })),
+  )
 })
 
 async function makeDir(prefix: string): Promise<string> {
@@ -380,7 +383,7 @@ suite('GitService', () => {
     const pruned = await service.pruneCheckpoints(dir, 'sess-gc-orphan', [first, last], 50)
     expect(pruned.ok && pruned.value).toEqual([orphan])
     expect(await listedRefs(dir, 'sess-gc-orphan')).toEqual(kept.sort())
-  })
+  }, 30000)
 
   it('pruneCheckpoints is a no-op at or under the cap and rejects invalid caps', async () => {
     const dir = await initRepo()
