@@ -126,10 +126,15 @@ export class RemoteService {
       // service whose devices are the ones from a previous run.
       this.#pairing = this.#makePairing()
       if (this.#deps.terminalFactory !== undefined)
-        this.#terminals = new RemoteTerminals(this.#deps.terminalFactory, (id) =>
+        this.#terminals = new RemoteTerminals(this.#deps.terminalFactory, (id, projectId) =>
           this.#pairing
             .devices()
-            .some((device) => device.deviceId === id && device.allowTerminal === true),
+            .some(
+              (device) =>
+                device.deviceId === id &&
+                device.allowTerminal === true &&
+                device.projectIds.includes(projectId),
+            ),
         )
       const webRoot = this.#deps.webRoot?.()
       this.#gateway = await createRemoteGateway({
@@ -351,6 +356,16 @@ export class RemoteService {
       log.warn('revoking a device that is not paired', { deviceId })
     }
     return this.#changed()
+  }
+
+  updateDeviceGrants(
+    deviceId: string,
+    projectIds: readonly string[],
+    allowTerminal: boolean,
+  ): RemoteState {
+    if (!this.#pairing.updateGrants(deviceId, projectIds, allowTerminal))
+      throw new Error(`no paired device ${deviceId}`)
+    return this.state()
   }
 
   #pendingInvitation(): RemoteState['pending'] {
