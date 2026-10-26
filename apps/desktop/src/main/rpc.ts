@@ -1450,6 +1450,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   )
   r.register('remote.deny', (params) => remote.deny(params.invitationId))
   r.register('remote.revokeDevice', (params) => remote.revokeDevice(params.deviceId))
+  r.register('remote.updateDeviceGrants', (params) =>
+    remote.updateDeviceGrants(params.deviceId, params.projectIds, params.allowTerminal),
+  )
 
   r.register('remote.tailscale.status', () => refreshTailscale())
   r.register('remote.tailscale.enable', async () => {
