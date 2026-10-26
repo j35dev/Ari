@@ -10,6 +10,12 @@ export function isBrowserGuest(contents: WebContents): boolean {
   return session.partition === BROWSER_PARTITION
 }
 
+/** sendInputEvent takes accelerator key names, so map DOM names like ArrowRight and " ". */
+function acceleratorKey(key: string): string {
+  if (key === ' ') return 'Space'
+  return key.startsWith('Arrow') ? key.slice('Arrow'.length) : key
+}
+
 /**
  * Chromium guest for one in-app tab. Isolated partition, sandboxed, no Node.
  * Popups navigate the same view instead of spawning windows.
@@ -77,6 +83,13 @@ export function createElectronBrowserGuest(
       } catch {
         return null
       }
+    },
+    sendKey: (key, phase) => {
+      if (!wc.isFocused()) wc.focus()
+      wc.sendInputEvent({
+        type: phase === 'down' ? 'keyDown' : 'keyUp',
+        keyCode: acceleratorKey(key),
+      })
     },
     setBounds: (bounds) => view.setBounds(bounds),
     setVisible: (visible) => view.setVisible(visible),
