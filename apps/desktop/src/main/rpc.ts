@@ -1505,6 +1505,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   }
 
   r.register('session.create', (params) => createSession(sessionDeps, params))
+  r.register('bots.list', () => getBotStore().list())
   r.register('bots.create', (params) => createBot(sessionDeps, params))
   r.register('bots.setHidden', ({ botId, hidden }) => getBotStore().update(botId, { hidden }))
 
