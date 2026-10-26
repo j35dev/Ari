@@ -783,4 +783,17 @@ describe('SidebarHeader', () => {
     await user.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(onCollapse).toHaveBeenCalledOnce()
   })
+
+  it('offers Hive view as a keyboard-operable switch', async () => {
+    const onHiveViewChange = vi.fn()
+    render(<SidebarHeader hiveView={false} onHiveViewChange={onHiveViewChange} />)
+    const user = userEvent.setup()
+
+    const toggle = screen.getByRole('switch', { name: 'Hive view' })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await user.tab()
+    expect(toggle).toHaveFocus()
+    await user.keyboard(' ')
+    expect(onHiveViewChange).toHaveBeenCalledWith(true)
+  })
 })

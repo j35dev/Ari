@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { appendFile, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { newTypedId } from '@ari/shared/ids'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DIFF_MAX_BYTES, GitService } from './git-service'
 
 let gitAvailable = true
@@ -23,6 +24,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
@@ -34,6 +36,10 @@ async function makeDir(prefix: string): Promise<string> {
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'ignore' })
+}
+
+function gitOut(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' })
 }
 
 async function initRepo(): Promise<string> {
@@ -52,6 +58,18 @@ async function initRepo(): Promise<string> {
   git(dir, 'add', '.')
   git(dir, 'commit', '-m', 'fixture')
   return dir
+}
+
+async function capture(dir: string, sessionId: string, turnId: string): Promise<string> {
+  const captured = await service.captureCheckpoint(dir, sessionId, turnId)
+  if (!captured.ok || captured.value === null) throw new Error('checkpoint not captured')
+  return captured.value
+}
+
+async function listedRefs(dir: string, sessionId: string): Promise<string[]> {
+  const list = await service.listCheckpoints(dir, sessionId)
+  if (!list.ok) throw new Error(list.error.message)
+  return list.value.map((c) => c.ref).sort()
 }
 
 suite('GitService', () => {
@@ -152,28 +170,122 @@ suite('GitService', () => {
     expect(result).toEqual({ ok: true, value: '' })
   })
 
-  it('revert restores tracked state at the checkpoint and keeps untracked files', async () => {
+  it('revert restores the checkpointed working tree without moving HEAD or the index', async () => {
     const dir = await initRepo()
+    await writeFile(join(dir, 'fixture.txt'), 'uncommitted\n', 'utf8')
+    await writeFile(join(dir, 'kept.txt'), 'untracked before\n', 'utf8')
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' })
     const cp = await service.captureCheckpoint(dir, 'sess-r', 'turn-01')
     expect(cp.ok).toBe(true)
 
     await writeFile(join(dir, 'fixture.txt'), 'rewritten\n', 'utf8')
     await rm(join(dir, 'extra.txt'))
-    await writeFile(join(dir, 'untracked.txt'), 'keep me\n', 'utf8')
+    await rm(join(dir, 'kept.txt'))
+    await writeFile(join(dir, 'created.txt'), 'new since checkpoint\n', 'utf8')
 
     const reverted = await service.revertToRef(dir, 'refs/ari/sess-r/turn-01')
     expect(reverted.ok).toBe(true)
 
-    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('line-one\n')
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('uncommitted\n')
     expect(await readFile(join(dir, 'extra.txt'), 'utf8')).toBe('extra\n')
-    expect(await readFile(join(dir, 'untracked.txt'), 'utf8')).toBe('keep me\n')
+    expect(await readFile(join(dir, 'kept.txt'), 'utf8')).toBe('untracked before\n')
+    await expect(readFile(join(dir, 'created.txt'), 'utf8')).rejects.toThrow()
+    expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' })).toBe(head)
 
     const status = await service.status(dir)
     expect(status.ok).toBe(true)
     if (!status.ok) return
-    const byPath = new Map(status.value.files.map((f) => [f.path, f]))
-    expect(byPath.get('untracked.txt')).toBeDefined()
-    expect(byPath.has('fixture.txt')).toBe(false)
+    expect(status.value.files).toEqual([
+      { path: 'fixture.txt', staged: false, kind: 'modified' },
+      { path: 'kept.txt', staged: false, kind: 'untracked' },
+    ])
+  })
+
+  it('captures a checkpoint before the first commit', async () => {
+    const dir = await makeDir('ari-git-')
+    git(dir, 'init')
+    await writeFile(join(dir, 'draft.txt'), 'draft\n', 'utf8')
+    const cp = await service.captureCheckpoint(dir, 'sess-0', 'turn-01')
+    expect(cp).toEqual({ ok: true, value: 'refs/ari/sess-0/turn-01' })
+    await writeFile(join(dir, 'draft.txt'), 'changed\n', 'utf8')
+    expect((await service.revertToRef(dir, 'refs/ari/sess-0/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'draft.txt'), 'utf8')).toBe('draft\n')
+  })
+
+  it('revert drops what the agent staged and keeps the pre-turn staging', async () => {
+    const dir = await initRepo()
+    await writeFile(join(dir, 'extra.txt'), 'user staged edit\n', 'utf8')
+    await writeFile(join(dir, 'user.txt'), 'user staged file\n', 'utf8')
+    git(dir, 'add', 'extra.txt', 'user.txt')
+    const staged = gitOut(dir, 'diff', '--cached')
+    expect((await service.captureCheckpoint(dir, 'sess-i', 'turn-01')).ok).toBe(true)
+
+    await writeFile(join(dir, 'agent.txt'), 'agent work\n', 'utf8')
+    git(dir, 'add', 'agent.txt')
+
+    expect((await service.revertToRef(dir, 'refs/ari/sess-i/turn-01')).ok).toBe(true)
+
+    await expect(readFile(join(dir, 'agent.txt'), 'utf8')).rejects.toThrow()
+    expect(gitOut(dir, 'status', '--porcelain')).toBe('M  extra.txt\nA  user.txt\n')
+    expect(gitOut(dir, 'diff', '--cached')).toBe(staged)
+  })
+
+  it('revert of a legacy ref pointing at HEAD never stages HEAD^', async () => {
+    const dir = await initRepo()
+    await writeFile(join(dir, 'fixture.txt'), 'second commit\n', 'utf8')
+    git(dir, 'commit', '-am', 'second')
+    // Main pointed checkpoint refs straight at the HEAD commit.
+    git(dir, 'update-ref', 'refs/ari/sess-l/turn-01', 'HEAD')
+
+    await writeFile(join(dir, 'fixture.txt'), 'agent edit\n', 'utf8')
+
+    expect((await service.revertToRef(dir, 'refs/ari/sess-l/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('second commit\n')
+    expect(gitOut(dir, 'status', '--porcelain')).toBe('')
+  })
+
+  it('captures and reverts while the index has merge conflicts', async () => {
+    const dir = await initRepo()
+    git(dir, 'checkout', '-b', 'side')
+    await writeFile(join(dir, 'fixture.txt'), 'side\n', 'utf8')
+    git(dir, 'commit', '-am', 'side')
+    git(dir, 'checkout', '-')
+    await writeFile(join(dir, 'fixture.txt'), 'main\n', 'utf8')
+    git(dir, 'commit', '-am', 'main')
+    expect(() => git(dir, 'merge', 'side')).toThrow()
+    const conflicted = await readFile(join(dir, 'fixture.txt'), 'utf8')
+    expect((await service.captureCheckpoint(dir, 'sess-m', 'turn-01')).ok).toBe(true)
+
+    await writeFile(join(dir, 'fixture.txt'), 'resolved by agent\n', 'utf8')
+
+    expect((await service.revertToRef(dir, 'refs/ari/sess-m/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe(conflicted)
+  })
+
+  it('revert from a subdirectory workspace leaves the rest of the repo alone', async () => {
+    const dir = await initRepo()
+    const pkg = join(dir, 'pkg')
+    await mkdir(pkg)
+    await writeFile(join(pkg, 'a.txt'), 'pkg a\n', 'utf8')
+    await writeFile(join(dir, 'root.txt'), 'root\n', 'utf8')
+    git(dir, 'add', '.')
+    git(dir, 'commit', '-m', 'pkg')
+    expect((await service.captureCheckpoint(pkg, 'sess-p', 'turn-01')).ok).toBe(true)
+
+    await writeFile(join(pkg, 'a.txt'), 'agent edit\n', 'utf8')
+    await writeFile(join(pkg, 'new.txt'), 'agent file\n', 'utf8')
+    git(pkg, 'add', 'new.txt')
+    await writeFile(join(dir, 'user-notes.txt'), 'user notes\n', 'utf8')
+    await writeFile(join(dir, 'root.txt'), 'root user edit\n', 'utf8')
+    git(dir, 'add', 'root.txt')
+
+    expect((await service.revertToRef(pkg, 'refs/ari/sess-p/turn-01')).ok).toBe(true)
+
+    expect(await readFile(join(pkg, 'a.txt'), 'utf8')).toBe('pkg a\n')
+    await expect(readFile(join(pkg, 'new.txt'), 'utf8')).rejects.toThrow()
+    expect(await readFile(join(dir, 'user-notes.txt'), 'utf8')).toBe('user notes\n')
+    expect(await readFile(join(dir, 'root.txt'), 'utf8')).toBe('root user edit\n')
+    expect(gitOut(dir, 'status', '--porcelain')).toBe('M  root.txt\n?? user-notes.txt\n')
   })
 
   it('fails diffs beyond the 512KB cap with diff_too_large', async () => {
@@ -201,46 +313,92 @@ suite('GitService', () => {
     expect(!badList.ok && badList.error.code).toBe('invalid_ref')
   })
 
-  it('pruneCheckpoints keeps the newest N refs and deletes the excess', async () => {
+  it('pruneCheckpoints keeps the newest N by capture order and deletes the rest', async () => {
     const dir = await initRepo()
-    for (let i = 1; i <= 5; i++) {
-      await service.captureCheckpoint(dir, 'sess-gc', `turn-0${i}`)
+    const turnIds: string[] = []
+    const refs: string[] = []
+    for (let i = 0; i < 12; i++) {
+      const turnId = newTypedId('turn')
+      await writeFile(join(dir, 'a.txt'), `turn ${i}\n`)
+      turnIds.push(turnId)
+      refs.push(await capture(dir, 'sess-gc', turnId))
     }
 
-    const pruned = await service.pruneCheckpoints(dir, 'sess-gc', 3)
-    expect(pruned.ok).toBe(true)
-    if (pruned.ok) expect(pruned.value).toHaveLength(2)
+    const pruned = await service.pruneCheckpoints(dir, 'sess-gc', turnIds, 5)
+    expect(pruned.ok && [...pruned.value].sort()).toEqual(refs.slice(0, 7).sort())
+    expect(await listedRefs(dir, 'sess-gc')).toEqual(refs.slice(-5).sort())
+  }, 30000)
 
-    const list = await service.listCheckpoints(dir, 'sess-gc')
-    expect(list.ok).toBe(true)
-    if (list.ok) {
-      expect(list.value).toHaveLength(3)
-      // Newest survive (monotonic turn ids ⇒ refname sort is recency order).
-      expect(list.value.filter((c) => c.ref.endsWith('turn-03'))).toHaveLength(1)
-      expect(list.value.some((c) => c.ref.endsWith('turn-01'))).toBe(false)
-      expect(list.value.some((c) => c.ref.endsWith('turn-02'))).toBe(false)
-      expect(list.value.some((c) => c.ref.endsWith('turn-04'))).toBe(true)
-      expect(list.value.some((c) => c.ref.endsWith('turn-05'))).toBe(true)
+  it('pruneCheckpoints never deletes the just-captured ref', async () => {
+    const dir = await initRepo()
+    const turnIds: string[] = []
+    const refs: string[] = []
+    for (let round = 0; round < 20; round++) {
+      const turnId = newTypedId('turn')
+      turnIds.push(turnId)
+      const ref = await capture(dir, 'sess-gc-latest', turnId)
+      refs.push(ref)
+
+      expect((await service.pruneCheckpoints(dir, 'sess-gc-latest', turnIds, 3)).ok).toBe(true)
+      const listed = await listedRefs(dir, 'sess-gc-latest')
+      expect(listed).toContain(ref)
+      expect(listed).toEqual(refs.slice(-3).sort())
     }
   }, 30000)
 
+  it('pruneCheckpoints keeps capture order for identical back-to-back captures (same second)', async () => {
+    const dir = await initRepo()
+    // Checkpoints are commits, so pin their dates to keep every capture in one second.
+    vi.stubEnv('GIT_AUTHOR_DATE', '2026-01-01T00:00:00Z')
+    vi.stubEnv('GIT_COMMITTER_DATE', '2026-01-01T00:00:00Z')
+    const turnIds: string[] = []
+    const refs: string[] = []
+    for (let i = 0; i < 8; i++) {
+      const turnId = newTypedId('turn')
+      turnIds.push(turnId)
+      refs.push(await capture(dir, 'sess-gc-same', turnId))
+    }
+    const oids = await service.listCheckpoints(dir, 'sess-gc-same')
+    // Same tree, same object: nothing in git can tell these captures apart.
+    expect(oids.ok && new Set(oids.value.map((c) => c.oid)).size).toBe(1)
+
+    const pruned = await service.pruneCheckpoints(dir, 'sess-gc-same', turnIds, 3)
+    expect(pruned.ok && [...pruned.value].sort()).toEqual(refs.slice(0, 5).sort())
+    expect(await listedRefs(dir, 'sess-gc-same')).toEqual(refs.slice(-3).sort())
+  }, 30000)
+
+  it('pruneCheckpoints deletes an orphan ref missing from turnIds even under the cap', async () => {
+    const dir = await initRepo()
+    const [first, omitted, last] = [newTypedId('turn'), newTypedId('turn'), newTypedId('turn')]
+    const kept = [await capture(dir, 'sess-gc-orphan', first)]
+    const orphan = await capture(dir, 'sess-gc-orphan', omitted)
+    kept.push(await capture(dir, 'sess-gc-orphan', last))
+
+    const pruned = await service.pruneCheckpoints(dir, 'sess-gc-orphan', [first, last], 50)
+    expect(pruned.ok && pruned.value).toEqual([orphan])
+    expect(await listedRefs(dir, 'sess-gc-orphan')).toEqual(kept.sort())
+  })
+
   it('pruneCheckpoints is a no-op at or under the cap and rejects invalid caps', async () => {
     const dir = await initRepo()
-    await service.captureCheckpoint(dir, 'sess-gc2', 'turn-01')
-    await service.captureCheckpoint(dir, 'sess-gc2', 'turn-02')
+    const turnIds = [newTypedId('turn'), newTypedId('turn')]
+    for (const turnId of turnIds) await capture(dir, 'sess-gc2', turnId)
 
-    const underCap = await service.pruneCheckpoints(dir, 'sess-gc2', 5)
+    const underCap = await service.pruneCheckpoints(dir, 'sess-gc2', turnIds, 5)
     expect(underCap.ok && underCap.value).toEqual([])
 
-    const exactCap = await service.pruneCheckpoints(dir, 'sess-gc2', 2)
+    const exactCap = await service.pruneCheckpoints(dir, 'sess-gc2', turnIds, 2)
     expect(exactCap.ok && exactCap.value).toEqual([])
     const still = await service.listCheckpoints(dir, 'sess-gc2')
     if (still.ok) expect(still.value).toHaveLength(2)
 
-    const badCap = await service.pruneCheckpoints(dir, 'sess-gc2', -1)
+    const zeroCap = await service.pruneCheckpoints(dir, 'sess-gc2', turnIds, 0)
+    expect(!zeroCap.ok && zeroCap.error.code).toBe('invalid_ref')
+
+    const badCap = await service.pruneCheckpoints(dir, 'sess-gc2', turnIds, -1)
     expect(!badCap.ok && badCap.error.code).toBe('invalid_ref')
 
-    const fracCap = await service.pruneCheckpoints(dir, 'sess-gc2', 1.5)
+    const fracCap = await service.pruneCheckpoints(dir, 'sess-gc2', turnIds, 1.5)
     expect(!fracCap.ok && fracCap.error.code).toBe('invalid_ref')
   })
 
