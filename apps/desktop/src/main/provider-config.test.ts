@@ -1,5 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -7,6 +6,9 @@ import {
   readProviderConfig,
   writeProviderConfig,
 } from './provider-config'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 /**
  * The manifest reads the real environment, so every case relocates pi's agent
@@ -16,7 +18,7 @@ let dir = ''
 const original = process.env['PI_CODING_AGENT_DIR']
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'ari-pi-config-'))
+  dir = tempDir('ari-pi-config-')
   process.env['PI_CODING_AGENT_DIR'] = dir
 })
 

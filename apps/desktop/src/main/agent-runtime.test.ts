@@ -4,7 +4,7 @@ import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { delegationSettingsSchema } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
@@ -33,6 +33,7 @@ describe('control endpoint', () => {
   it('stays within it when bound in a short root', async () => {
     const { endpoint } = await controlEndpoint('darwin', tmpdir())
     expect(Buffer.byteLength(endpoint)).toBeLessThan(MACOS_SUN_PATH_BYTES)
+    await rm(dirname(endpoint), { recursive: true, force: true })
   })
 
   // `controlEndpoint` is exercised above with a caller-supplied root, so this
