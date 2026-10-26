@@ -34,6 +34,7 @@ import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
+import { createBot, createSession, type SessionCreateDeps } from './bots'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -1496,27 +1497,16 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('session.list', async () => getSessionStore().listSessions())
 
-  r.register('session.create', async (params) => {
-    // A session always runs inside a project: without one there is no workspace
-    // to jail the terminal and file tools against. The renderer resolves a
-    // project before it gets here, so a miss means a caller skipped that step —
-    // fail loudly rather than minting another Unfiled session.
-    await loadProject(params.projectId)
-    const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-    await engine.createSession({
-      id: sessionId,
-      projectId: params.projectId,
-      title: params.title,
-      driverKind: params.driverKind,
-      modelId: params.modelId,
-      permissionMode: params.permissionMode,
-      ...(params.effort !== undefined ? { effort: params.effort } : {}),
-      status: 'idle',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-    return { sessionId }
-  })
+  const sessionDeps: SessionCreateDeps = {
+    bots: getBotStore(),
+    loadProject,
+    createSession: (session) => engine.createSession(session),
+    defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
+  }
+
+  r.register('session.create', (params) => createSession(sessionDeps, params))
+  r.register('bots.create', (params) => createBot(sessionDeps, params))
+  r.register('bots.setHidden', ({ botId, hidden }) => getBotStore().update(botId, { hidden }))
 
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)
