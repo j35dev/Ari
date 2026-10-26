@@ -1159,6 +1159,9 @@ type SessionsUnderProjectsProps = SessionRowHandlers &
     /** Anchors the project picker the new session will run in, under the button. */
     onNewSession?: (anchor: MenuAnchor) => void
     searchInputRef?: Ref<HTMLInputElement>
+    /** Controlled search query; owned by the shell so it survives Hive view unmounting this list. */
+    searchQuery?: string
+    onSearchQueryChange?: (query: string) => void
   }
 
 /**
@@ -1191,10 +1194,14 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   onOpenProject,
   onNewSession,
   searchInputRef,
+  searchQuery,
+  onSearchQueryChange,
   knownProjectNames,
   ...actions
 }: SessionsUnderProjectsProps) {
-  const [query, setQuery] = useState('')
+  const [localQuery, setLocalQuery] = useState('')
+  const query = searchQuery ?? localQuery
+  const setQuery = onSearchQueryChange ?? setLocalQuery
   const trimmed = query.trim().toLowerCase()
   const { isExpanded, toggle } = useProjectExpand()
   const { view, setView } = useSidebarView()
