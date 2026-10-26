@@ -12,7 +12,10 @@ import { afterEach } from 'vitest'
 export function useTempDirs(): (prefix: string) => string {
   const dirs: string[] = []
   afterEach(async () => {
-    for (const dir of dirs) await rm(dir, { recursive: true, force: true })
+    // Windows returns EBUSY while a handle is still closing; retry like store.test.ts.
+    for (const dir of dirs) {
+      await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+    }
     dirs.length = 0
   })
   return (prefix: string) => {
