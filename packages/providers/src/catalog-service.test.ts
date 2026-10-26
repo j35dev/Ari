@@ -1,5 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DriverKind } from '@ari/contracts/common'
@@ -22,6 +21,9 @@ import {
   REGISTRY_PROVIDER,
 } from './catalog-service'
 import type { CatalogModel } from './catalogs'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 const ALL_KINDS: DriverKind[] = ['claude', 'codex', 'opencode', 'grok', 'pi', 'hermes', 'ari-core']
 
@@ -202,7 +204,7 @@ describe('CatalogService', () => {
 
   it('keeps the snapshot when a round carries no usable Claude rows', async () => {
     const before = modelsForBefore('claude')
-    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const dir = await tempDir('ari-catalog-')
     const cachePath = join(dir, 'cache', 'models.json')
     const service = new CatalogService({
       fetchImpl: vi.fn().mockResolvedValue(
@@ -330,7 +332,7 @@ describe('CatalogService', () => {
   })
 
   it('saves an agent that answered while another is still being asked', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const dir = await tempDir('ari-catalog-')
     const liveCachePath = join(dir, 'agent-catalogs.json')
     const gate: { release: (() => void) | null } = { release: null }
     const service = new CatalogService({
@@ -357,7 +359,7 @@ describe('CatalogService', () => {
   })
 
   it('opens on what each agent said last run, then asks it again', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const dir = await tempDir('ari-catalog-')
     const liveCachePath = join(dir, 'agent-catalogs.json')
     const offline = vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch
     const effort = { currentId: 'high', options: [{ id: 'high', label: 'High' }] }
@@ -406,7 +408,7 @@ describe('CatalogService', () => {
   })
 
   it('persists a successful round to the disk cache and reloads it cold', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const dir = await tempDir('ari-catalog-')
     const cachePath = join(dir, 'cache', 'models.json')
     const payload = {
       anthropic: { models: { 'claude-disk': { id: 'claude-disk', name: 'Disk Model' } } },
@@ -439,7 +441,7 @@ describe('CatalogService', () => {
   })
 
   it('never persists live probe output as registry data', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const dir = await tempDir('ari-catalog-')
     const cachePath = join(dir, 'cache', 'models.json')
     const service = new CatalogService({
       fetchImpl: vi.fn().mockResolvedValue(
@@ -467,7 +469,7 @@ describe('CatalogService', () => {
   })
 
   it('writes only the providers a round actually carried', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-catalog-'))
+    const dir = await tempDir('ari-catalog-')
     const cachePath = join(dir, 'cache', 'models.json')
     const service = new CatalogService({
       fetchImpl: vi.fn().mockResolvedValue(
