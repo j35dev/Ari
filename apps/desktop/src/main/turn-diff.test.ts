@@ -62,7 +62,7 @@ describe('turn checkpoints over a dirty working tree', () => {
     expect(await readFile(join(repo, 'b.txt'), 'utf8')).toBe('bee\nuser edit\n')
     expect(await readFile(join(repo, 'notes.txt'), 'utf8')).toBe('untracked user notes\n')
     expect(run('rev-parse', 'HEAD')).toBe(head)
-  }, 30_000)
+  })
 
   it('counts only the turn edits and reverts them while keeping pre-turn work', async () => {
     await dirtyRepo()
@@ -84,7 +84,7 @@ describe('turn checkpoints over a dirty working tree', () => {
     expect(run('rev-parse', 'HEAD')).toBe(head)
     // The user's staged b.txt is still staged; nothing else was added to the index.
     expect(run('diff', '--cached', '--name-only')).toBe('b.txt\n')
-  }, 30_000)
+  })
 
   it('bounds an earlier turn by the next turn checkpoint', async () => {
     await dirtyRepo()
@@ -98,7 +98,7 @@ describe('turn checkpoints over a dirty working tree', () => {
     expect(filesIn(one.diffText)).toEqual(['a.txt'])
     const two = await queryTurnDiff(git, { path: repo, turnId: 'turn_2', checkpoints })
     expect(filesIn(two.diffText)).toEqual(['created.txt'])
-  }, 30_000)
+  })
 
   it('reports a turn without a checkpoint as unavailable', async () => {
     await dirtyRepo()
