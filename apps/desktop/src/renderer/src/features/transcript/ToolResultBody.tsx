@@ -28,6 +28,8 @@ const BODY_CLASS = 'overflow-auto border-t border-border bg-surface-0 p-2 font-m
 
 type McpContentItem = { kind: 'text'; text: string } | { kind: 'placeholder'; label: string }
 
+const MCP_CONTENT_TYPES = new Set(['text', 'image', 'audio', 'resource', 'resource_link'])
+
 function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; text: string } {
   return block.type === 'text' && typeof block.text === 'string'
 }
@@ -44,9 +46,9 @@ function toContentItem(block: Record<string, unknown>): McpContentItem {
 }
 
 /**
- * MCP content result (`{ content: [...] }` or a bare block array) carrying at
- * least one non-text block, as renderable items; null for anything else, which
- * keeps text-only results on the plain JSON path.
+ * MCP content result (`{ content: [...] }` or a bare block array) whose blocks
+ * all have a known MCP type and at least one isn't valid text, as renderable
+ * items; null for anything else, which keeps it on the plain JSON path.
  */
 function mcpContentItems(parsed: unknown): McpContentItem[] | null {
   const blocks: unknown =
@@ -58,7 +60,8 @@ function mcpContentItems(parsed: unknown): McpContentItem[] | null {
     (block): block is Record<string, unknown> =>
       block !== null &&
       typeof block === 'object' &&
-      typeof (block as { type?: unknown }).type === 'string',
+      typeof (block as { type?: unknown }).type === 'string' &&
+      MCP_CONTENT_TYPES.has((block as { type: string }).type),
   )
   if (records.length !== blocks.length || records.every(isTextBlock)) {
     return null
