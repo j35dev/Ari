@@ -16,7 +16,7 @@ import type { DispatchIds } from '@ari/engine/dispatcher'
 import type { UnstampedEvent } from '@ari/engine/projection'
 import type { SessionStore } from '@ari/engine/session-store'
 import { resolveSessionWorkspace } from '@ari/engine/workspace'
-import { controlPreamble } from '@ari/engine/control-preamble'
+import { controlPreamble, sessionInstructions } from '@ari/engine/control-preamble'
 import { deterministicTitleStrategy, firstReply, isAutoTitle } from '@ari/engine/title'
 import type { TitleStrategy } from '@ari/engine/title'
 import { newTypedId } from '@ari/shared/ids'
@@ -85,6 +85,8 @@ export interface EngineDeps {
    */
   resolveWorkspace?: (projectId: string) => Promise<string | null>
   runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
+  /** A Hive bot's persona markdown, or null when the bot or its persona is gone. */
+  botPersona?: (botId: string) => Promise<string | null>
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
   /** Whether finished children are reported to their parent; told to the agent. */
@@ -574,22 +576,30 @@ export class Engine {
       if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) return
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
       hasControl = runtimeEnv?.ARI_ENV === '1'
-      // What Ari offers this session goes through the provider's system
+      // What Ari tells this session goes through the provider's system
       // channel when the driver has one. A note at the top of the user's
       // message is the fallback: providers treat instructions arriving there
       // as suspect, and Claude refuses them outright as an injection. That
       // fallback is only sent into a fresh provider context — a resumed
-      // thread still holds the copy from its first turn.
-      const viaSystem = runtimeEnv?.ARI_ENV === '1' && driver.systemInstructions === true
-      const preamble =
-        runtimeEnv?.ARI_ENV === '1' && (viaSystem || resumeOf === null)
-          ? controlPreamble(
-              session,
-              await this.#parentTitle(session),
-              viaSystem ? 'system' : 'prompt',
-              this.#deps.deliversResults?.() ?? true,
-            )
-          : null
+      // thread still holds the copy from its first turn. A Hive bot's persona
+      // leads either way, whether or not the control env is on.
+      const viaSystem = driver.systemInstructions === true
+      const fresh = viaSystem || resumeOf === null
+      const persona =
+        fresh && session.botId ? ((await this.#deps.botPersona?.(session.botId)) ?? null) : null
+      const preamble = fresh
+        ? sessionInstructions(
+            persona,
+            hasControl
+              ? controlPreamble(
+                  session,
+                  await this.#parentTitle(session),
+                  viaSystem ? 'system' : 'prompt',
+                  this.#deps.deliversResults?.() ?? true,
+                )
+              : null,
+          )
+        : null
       adapter = await driver.create({
         ...(runtimeEnv ? { runtimeEnv } : {}),
         sessionId: session.id,
