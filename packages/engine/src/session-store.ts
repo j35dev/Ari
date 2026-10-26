@@ -10,6 +10,7 @@ import {
   type RejectedLine,
   type ReplayDiagnostics,
 } from './journal-replay'
+import type { Message } from '@ari/contracts/message'
 import { applyEvent, type SessionReadModel, type UnstampedEvent } from './projection'
 
 const log = createLogger('engine:session-store')
@@ -31,7 +32,7 @@ export interface SessionStoreOptions {
  * feed `usageSummary()` from the same sidecar.
  */
 interface SessionIndex {
-  version: 3
+  version: 4
   hierarchy: SessionHierarchySummary
   lastSeq: number
   hasSession: boolean
@@ -39,6 +40,11 @@ interface SessionIndex {
   title: string
   updatedAt: number
   messageCount: number
+  /**
+   * Last text the session produced, whitespace-collapsed. The Hive roster
+   * shows one line per bot; null when the session has no text yet.
+   */
+  lastMessagePreview: string | null
   archived: boolean
   pinned: boolean
   driverKind: string
@@ -54,6 +60,7 @@ export interface SessionListEntry extends SessionHierarchySummary {
   title: string
   updatedAt: number
   messageCount: number
+  lastMessagePreview: string | null
   archived: boolean
   pinned: boolean
 }
@@ -75,7 +82,27 @@ export interface UsageSummary {
   totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
 }
 
-const INDEX_VERSION = 3
+const INDEX_VERSION = 4
+
+/** Longest preview stored in the index; the roster truncates again for width. */
+const PREVIEW_MAX_CHARS = 160
+
+/**
+ * Preview for a session row: the most recent text any message carries,
+ * whitespace-collapsed. Thinking parts and tool-only turns are skipped so a
+ * session that ended on a tool call still previews the last thing it said.
+ */
+function lastMessagePreview(messages: Message[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    let text = ''
+    for (const part of messages[index]?.parts ?? []) {
+      if (part.type === 'text') text += part.text
+    }
+    const collapsed = text.replace(/\s+/g, ' ').trim()
+    if (collapsed.length > 0) return collapsed.slice(0, PREVIEW_MAX_CHARS)
+  }
+  return null
+}
 
 function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex {
   return {
@@ -100,6 +127,7 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
     title: model.session?.title ?? '',
     updatedAt: model.session?.updatedAt ?? 0,
     messageCount: model.messages.length,
+    lastMessagePreview: lastMessagePreview(model.messages),
     archived: model.session?.archived ?? false,
     pinned: model.session?.pinned ?? false,
     driverKind: model.session?.driverKind ?? '',
@@ -118,6 +146,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   const cost = value['costUsd']
+  const preview = value['lastMessagePreview']
   const hierarchy = sessionHierarchySummarySchema.safeParse(value['hierarchy'])
   if (
     value['version'] !== INDEX_VERSION ||
@@ -128,6 +157,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     typeof value['title'] !== 'string' ||
     typeof value['updatedAt'] !== 'number' ||
     typeof value['messageCount'] !== 'number' ||
+    !(preview === null || typeof preview === 'string') ||
     typeof value['archived'] !== 'boolean' ||
     typeof value['pinned'] !== 'boolean' ||
     typeof value['driverKind'] !== 'string' ||
@@ -139,7 +169,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   return {
-    version: 3,
+    version: 4,
     hierarchy: hierarchy.data,
     lastSeq: value['lastSeq'],
     hasSession: value['hasSession'],
@@ -147,6 +177,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     title: value['title'],
     updatedAt: value['updatedAt'],
     messageCount: value['messageCount'],
+    lastMessagePreview: preview,
     archived: value['archived'],
     pinned: value['pinned'],
     driverKind: value['driverKind'],
@@ -541,6 +572,7 @@ export class SessionStore {
       title: entry.title,
       updatedAt: entry.updatedAt,
       messageCount: entry.messageCount,
+      lastMessagePreview: entry.lastMessagePreview,
       archived: entry.archived,
       pinned: entry.pinned,
     }
