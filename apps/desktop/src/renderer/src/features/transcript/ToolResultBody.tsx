@@ -35,10 +35,12 @@ type McpContentItem =
   | { kind: 'image'; url: string; mimeType: string }
   | { kind: 'placeholder'; label: string }
 
+function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; text: string } {
+  return block.type === 'text' && typeof block.text === 'string'
+}
+
 function toContentItem(block: Record<string, unknown>): McpContentItem {
-  if (block.type === 'text' && typeof block.text === 'string') {
-    return { kind: 'text', text: block.text }
-  }
+  if (isTextBlock(block)) return { kind: 'text', text: block.text }
   if (block.type !== 'image') return { kind: 'placeholder', label: 'Unsupported content' }
   const { data, mimeType } = block
   if (typeof data === 'string' && data.length > MAX_IMAGE_BASE64) {
@@ -57,7 +59,7 @@ function toContentItem(block: Record<string, unknown>): McpContentItem {
 
 /**
  * MCP content result (`{ content: [...] }` or a bare block array) carrying at
- * least one image block, as renderable items; null for anything else, which
+ * least one non-text block, as renderable items; null for anything else, which
  * keeps text-only results on the plain JSON path.
  */
 function mcpContentItems(parsed: unknown): McpContentItem[] | null {
@@ -67,9 +69,12 @@ function mcpContentItems(parsed: unknown): McpContentItem[] | null {
       : parsed
   if (!Array.isArray(blocks)) return null
   const records = blocks.filter(
-    (block): block is Record<string, unknown> => block !== null && typeof block === 'object',
+    (block): block is Record<string, unknown> =>
+      block !== null &&
+      typeof block === 'object' &&
+      typeof (block as { type?: unknown }).type === 'string',
   )
-  if (records.length !== blocks.length || !records.some((block) => block.type === 'image')) {
+  if (records.length !== blocks.length || records.every(isTextBlock)) {
     return null
   }
   return records.map(toContentItem)
