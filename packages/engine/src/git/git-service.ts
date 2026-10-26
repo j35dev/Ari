@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
-import { resolve } from 'node:path'
+import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { err, ok, type Result } from '@ari/shared/result'
 import { createLogger } from '@ari/shared/logger'
@@ -77,7 +79,8 @@ export interface GitServiceOptions {
  * All methods return typed Results; nothing throws for expected failures.
  *
  * Checkpoints are hidden refs under `refs/ari/<sessionId>/<turnId>` pinned to
- * HEAD at capture time, invisible to normal branch/ref listings.
+ * a tree of the working tree at capture time, invisible to normal branch/ref
+ * listings.
  */
 export class GitService {
   readonly #gitPath: string
@@ -105,9 +108,11 @@ export class GitService {
   }
 
   /**
-   * Captures a checkpoint: creates `refs/ari/<sessionId>/<turnId>` at the
-   * current HEAD. Resolves `null` outside a git repo so callers degrade
-   * gracefully; errors when HEAD does not resolve (e.g. no commits yet).
+   * Captures a checkpoint: creates `refs/ari/<sessionId>/<turnId>` pointing at
+   * a tree of the working tree as it is now (uncommitted and untracked changes
+   * included); HEAD, the index and the stash are untouched, and this works
+   * before the first commit. Resolves `null` outside a git repo so callers
+   * degrade gracefully.
    */
   async captureCheckpoint(
     cwd: string,
@@ -119,11 +124,43 @@ export class GitService {
     if (!inside.value) return ok(null)
     const ref = checkpointRef(sessionId, turnId)
     if (!ref.ok) return ref
-    const head = await this.#run(cwd, ['rev-parse', '--verify', 'HEAD'])
-    if (!head.ok) return head
-    const updated = await this.#run(cwd, ['update-ref', ref.value, head.value.stdout.trim()])
+    const tree = await this.worktreeTree(cwd)
+    if (!tree.ok) return tree
+    const updated = await this.#run(cwd, ['update-ref', ref.value, tree.value])
     if (!updated.ok) return updated
     return ok(ref.value)
+  }
+
+  /** Tree of the full working tree — tracked, untracked, minus ignored. */
+  async worktreeTree(cwd: string): Promise<Result<string, GitError>> {
+    const run = await this.#withWorktreeIndex(cwd, (env) =>
+      this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env }),
+    )
+    return run.ok ? ok(run.value.stdout.trim()) : run
+  }
+
+  /**
+   * Runs `use` with `GIT_INDEX_FILE` pointing at a scratch index that holds
+   * the whole working tree (`add --all`), so the user's index is never touched.
+   */
+  async #withWorktreeIndex<T>(
+    cwd: string,
+    use: (env: NodeJS.ProcessEnv) => Promise<Result<T, GitError>>,
+  ): Promise<Result<T, GitError>> {
+    const index = await this.#run(cwd, ['rev-parse', '--git-path', 'index'])
+    if (!index.ok) return index
+    const scratch = await mkdtemp(join(tmpdir(), 'ari-index-'))
+    try {
+      const scratchIndex = join(scratch, 'index')
+      const env: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: scratchIndex }
+      // Seeding from the real index only spares re-hashing unchanged files.
+      await copyFile(resolve(cwd, index.value.stdout.trim()), scratchIndex).catch(() => undefined)
+      const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+      if (!added.ok) return added
+      return await use(env)
+    } finally {
+      await rm(scratch, { recursive: true, force: true })
+    }
   }
 
   /** Lists captured checkpoints for a session in git's refname sort order. */
@@ -150,11 +187,16 @@ export class GitService {
   }
 
   /**
-   * Unified diff between a recorded revision and the current worktree
-   * (tracked files only). Output is capped at {@link DIFF_MAX_BYTES};
-   * larger diffs fail with code `diff_too_large`.
+   * Unified diff: against the current worktree (tracked files only) when only
+   * `gitRef` is given, or between `gitRef` and `against` when both revisions
+   * are supplied. Output is capped at {@link DIFF_MAX_BYTES}; larger diffs
+   * fail with code `diff_too_large`.
    */
-  async diffForRef(cwd: string, gitRef: string): Promise<Result<string, GitError>> {
+  async diffForRef(
+    cwd: string,
+    gitRef: string,
+    against?: string,
+  ): Promise<Result<string, GitError>> {
     const safe = assertSafeRev(gitRef)
     if (!safe.ok) return safe
     // Sessions on non-repo workspaces never have checkpoints; answer empty
@@ -162,7 +204,12 @@ export class GitService {
     const inside = await this.isRepo(cwd)
     if (!inside.ok) return inside
     if (!inside.value) return ok('')
-    const run = await this.#run(cwd, ['diff', gitRef], DIFF_MAX_BYTES)
+    if (against !== undefined) {
+      const safeAgainst = assertSafeRev(against)
+      if (!safeAgainst.ok) return safeAgainst
+    }
+    const args = against === undefined ? ['diff', gitRef] : ['diff', gitRef, against]
+    const run = await this.#run(cwd, args, DIFF_MAX_BYTES)
     if (!run.ok) {
       if (run.error.code === 'output_overflow') {
         return err({
@@ -176,16 +223,19 @@ export class GitService {
   }
 
   /**
-   * Restores every tracked file to its state at `gitRef` using
-   * `read-tree --reset -u`: index and worktree snap to the checkpoint tree,
-   * files deleted since the checkpoint reappear, later tracked edits vanish.
-   * Untracked files are intentionally left untouched (see tests).
+   * Restores the working tree to its state at `gitRef` using
+   * `read-tree --reset -u` against a scratch index seeded from the current
+   * working tree: changed files snap to the checkpoint, files created since
+   * are deleted, deleted ones reappear; HEAD and the user's real index are
+   * left alone. Ignored files are left untouched.
    */
   async revertToRef(cwd: string, gitRef: string): Promise<Result<void, GitError>> {
     const safe = assertSafeRev(gitRef)
     if (!safe.ok) return safe
-    const run = await this.#run(cwd, ['read-tree', '--reset', '-u', gitRef])
-    return run.ok ? ok(undefined) : run
+    const result = await this.#withWorktreeIndex(cwd, (env) =>
+      this.#run(cwd, ['read-tree', '--reset', '-u', gitRef], DEFAULT_MAX_BYTES, { env }),
+    )
+    return result.ok ? ok(undefined) : result
   }
 
   /**
