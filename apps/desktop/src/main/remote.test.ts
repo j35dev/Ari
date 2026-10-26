@@ -377,6 +377,31 @@ describe('remote service pairing decisions', () => {
     expect(afterRevoke.status).toBe(401)
   })
 
+  it("edits a paired device's grants, persisted across a restart, and refuses an unknown device", async () => {
+    const { service, dir } = makeService()
+    await service.start()
+    await pair(service, deviceKey(), ['proj_1'])
+    const deviceId = service.state().devices[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+
+    const updated = service.updateDeviceGrants(deviceId, ['proj_1', 'proj_2'], true)
+    expect(updated.devices[0]?.projectIds).toEqual(['proj_1', 'proj_2'])
+    expect(updated.devices[0]?.allowTerminal).toBe(true)
+
+    await service.stop()
+
+    // A restart: same records directory, a new process's worth of state.
+    const { service: second } = makeService({ dir })
+    expect(second.state().devices[0]).toMatchObject({
+      deviceId,
+      projectIds: ['proj_1', 'proj_2'],
+      allowTerminal: true,
+    })
+    expect(() => second.updateDeviceGrants('dev_missing', [], false)).toThrow()
+    second.revokeDevice(deviceId)
+    expect(() => second.updateDeviceGrants(deviceId, [], false)).toThrow()
+  })
+
   it('reports a revoked device as revoked when it comes back', async () => {
     const { service } = makeService()
     await service.start()

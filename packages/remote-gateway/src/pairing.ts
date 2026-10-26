@@ -446,6 +446,16 @@ export class PairingService {
     return true
   }
 
+  /** Replaces a paired device's grants; its tokens stay valid and carry the new grants. */
+  updateGrants(deviceId: string, projectIds: readonly string[], allowTerminal: boolean): boolean {
+    const device = this.#devices.get(deviceId)
+    if (device === undefined) return false
+    device.projectIds = [...new Set(projectIds)]
+    device.allowTerminal = allowTerminal
+    this.#save()
+    return true
+  }
+
   touch(deviceId: string): void {
     const device = this.#devices.get(deviceId)
     if (device === undefined) return

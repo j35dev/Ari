@@ -724,7 +724,10 @@ export function createRemoteHost(deps: RemoteHostDeps): RemoteHost {
           code: 'unsupported_capability',
           message: 'Terminal access is unavailable for this workspace.',
         }
-      return deps.terminals.execute(caller, command, workspace)
+      return deps.terminals.execute(caller, command, {
+        projectId: session.projectId,
+        workspace,
+      })
     }
     if (command.op === 'attachments.stage') {
       if (attachments === null)

@@ -810,6 +810,12 @@ export const rpcParams = {
   }),
   'remote.deny': z.object({ invitationId: z.string().min(1) }),
   'remote.revokeDevice': z.object({ deviceId: z.string().min(1) }),
+  /** Replaces a paired device's project and terminal grants; takes effect on its open connections. */
+  'remote.updateDeviceGrants': z.object({
+    deviceId: z.string().min(1),
+    projectIds: z.array(z.string().min(1)),
+    allowTerminal: z.boolean(),
+  }),
   /**
    * Tailscale Serve (P3). The desktop owns the mapping; these methods only
    * read its state and ask for it to be added or removed.
@@ -1179,6 +1185,7 @@ export interface RpcResults {
   'remote.approve': RemoteState
   'remote.deny': RemoteState
   'remote.revokeDevice': RemoteState
+  'remote.updateDeviceGrants': RemoteState
   'remote.tailscale.status': TailscaleState
   /**
    * Enabling Serve exposes the running gateway, so both fresh states come
