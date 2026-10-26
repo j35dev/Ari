@@ -11,5 +11,15 @@ export const botSchema = z.object({
   driverKind: driverKindSchema,
   modelId: z.string().nullable(),
   projectId: z.string().min(1).optional(),
+  /** Hidden from the Hive roster; the bot and its sessions are kept. */
+  hidden: z.boolean().optional(),
+  /** The session the Hive roster opens for this bot. */
+  mainSessionId: z.string().min(1).optional(),
 })
 export type Bot = z.infer<typeof botSchema>
+
+/** What `bots.create` takes: a new bot always gets a main session, so it needs a project. */
+export const botCreateParamsSchema = botSchema
+  .omit({ id: true, hidden: true, mainSessionId: true })
+  .extend({ projectId: z.string().min(1) })
+export type BotCreateParams = z.infer<typeof botCreateParamsSchema>
