@@ -152,29 +152,47 @@ suite('GitService', () => {
     expect(result).toEqual({ ok: true, value: '' })
   })
 
-  it('revert restores tracked state at the checkpoint and keeps untracked files', async () => {
+  it('revert restores the checkpointed working tree without moving HEAD or the index', async () => {
     const dir = await initRepo()
+    await writeFile(join(dir, 'fixture.txt'), 'uncommitted\n', 'utf8')
+    await writeFile(join(dir, 'kept.txt'), 'untracked before\n', 'utf8')
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' })
     const cp = await service.captureCheckpoint(dir, 'sess-r', 'turn-01')
     expect(cp.ok).toBe(true)
 
     await writeFile(join(dir, 'fixture.txt'), 'rewritten\n', 'utf8')
     await rm(join(dir, 'extra.txt'))
-    await writeFile(join(dir, 'untracked.txt'), 'keep me\n', 'utf8')
+    await rm(join(dir, 'kept.txt'))
+    await writeFile(join(dir, 'created.txt'), 'new since checkpoint\n', 'utf8')
 
     const reverted = await service.revertToRef(dir, 'refs/ari/sess-r/turn-01')
     expect(reverted.ok).toBe(true)
 
-    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('line-one\n')
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('uncommitted\n')
     expect(await readFile(join(dir, 'extra.txt'), 'utf8')).toBe('extra\n')
-    expect(await readFile(join(dir, 'untracked.txt'), 'utf8')).toBe('keep me\n')
+    expect(await readFile(join(dir, 'kept.txt'), 'utf8')).toBe('untracked before\n')
+    await expect(readFile(join(dir, 'created.txt'), 'utf8')).rejects.toThrow()
+    expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' })).toBe(head)
 
     const status = await service.status(dir)
     expect(status.ok).toBe(true)
     if (!status.ok) return
-    const byPath = new Map(status.value.files.map((f) => [f.path, f]))
-    expect(byPath.get('untracked.txt')).toBeDefined()
-    expect(byPath.has('fixture.txt')).toBe(false)
-  })
+    expect(status.value.files).toEqual([
+      { path: 'fixture.txt', staged: false, kind: 'modified' },
+      { path: 'kept.txt', staged: false, kind: 'untracked' },
+    ])
+  }, 30000)
+
+  it('captures a checkpoint before the first commit', async () => {
+    const dir = await makeDir('ari-git-')
+    git(dir, 'init')
+    await writeFile(join(dir, 'draft.txt'), 'draft\n', 'utf8')
+    const cp = await service.captureCheckpoint(dir, 'sess-0', 'turn-01')
+    expect(cp).toEqual({ ok: true, value: 'refs/ari/sess-0/turn-01' })
+    await writeFile(join(dir, 'draft.txt'), 'changed\n', 'utf8')
+    expect((await service.revertToRef(dir, 'refs/ari/sess-0/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'draft.txt'), 'utf8')).toBe('draft\n')
+  }, 30000)
 
   it('fails diffs beyond the 512KB cap with diff_too_large', async () => {
     const dir = await initRepo()

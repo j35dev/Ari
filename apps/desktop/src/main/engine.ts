@@ -246,6 +246,22 @@ export class Engine {
     if (!decision.accepted) {
       return { accepted: false, reason: decision.reason }
     }
+    if (command.type === 'checkpoint.revert') {
+      // Revert before journaling `checkpoint.reverted`: a failed revert keeps
+      // the checkpoint and reaches the caller as a rejection.
+      const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
+      const ws = model.session === null ? null : await this.workspace(model.session)
+      if (ref === undefined || ws === null) {
+        return { accepted: false, reason: 'checkpoint workspace is unavailable' }
+      }
+      const { GitService } = await import('@ari/engine/git')
+      const result = await new GitService().revertToRef(ws, ref)
+      if (!result.ok) {
+        log.error('checkpoint revert failed', { error: result.error.message })
+        return { accepted: false, reason: `revert failed: ${result.error.message}` }
+      }
+    }
+
     // A `message.enqueue` decided with no active turn is promoted to a turn
     // start (see decideCommand), so the turn lifecycle keys off the decision
     // and never off the command type.
@@ -357,19 +373,6 @@ export class Engine {
         }
       }
       await this.#recordSteered(command.sessionId, model.activeTurnId, queued)
-    }
-
-    if (command.type === 'checkpoint.revert') {
-      const ref = model.checkpoints.find((c) => c.turnId === command.turnId)?.gitRef
-      const session = model.session
-      const ws = session === null ? null : await this.workspace(session)
-      if (ref !== undefined && ws !== null) {
-        const { GitService } = await import('@ari/engine/git')
-        const result = await new GitService().revertToRef(ws, ref)
-        if (!result.ok) {
-          log.error('checkpoint revert failed', { error: result.error.message })
-        }
-      }
     }
 
     return { accepted: true }
