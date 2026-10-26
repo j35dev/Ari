@@ -292,6 +292,20 @@ describe('contracts', () => {
     expect(() => rpcParams['remote.approve'].parse({ ...params, confirmationCode: '' })).toThrow()
   })
 
+  it('validates a paired device grant edit', () => {
+    const params = { deviceId: 'dev_1', projectIds: ['proj_1'], allowTerminal: true }
+    expect(rpcParams['remote.updateDeviceGrants'].parse(params)).toEqual(params)
+    expect(() =>
+      rpcParams['remote.updateDeviceGrants'].parse({ ...params, deviceId: '' }),
+    ).toThrow()
+    expect(() =>
+      rpcParams['remote.updateDeviceGrants'].parse({
+        deviceId: 'dev_1',
+        projectIds: ['proj_1'],
+      }),
+    ).toThrow()
+  })
+
   it('validates fs.writeTextFile scope params and rejects malformed payloads', () => {
     const params = { projectId: 'proj_1', path: 'src/main.ts', content: 'export {}\n' }
     expect(rpcParams['fs.writeTextFile'].parse(params)).toEqual(params)

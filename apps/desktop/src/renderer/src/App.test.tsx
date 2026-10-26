@@ -1526,3 +1526,119 @@ describe('Shell live sidebar feed', () => {
     expect(listCalls).toBe(1)
   })
 })
+
+describe('Hive view switch', () => {
+  let stored = settingsSchema.parse({ version: 1 })
+
+  beforeEach(() => {
+    splitLayoutActions.reset()
+    invokeMock.mockReset()
+    localStorage.clear()
+    stored = settingsSchema.parse({ version: 1 })
+    invokeMock.mockImplementation(async (method, params) => {
+      switch (method) {
+        case 'settings.get':
+          return stored
+        case 'settings.update': {
+          const patch = params as { appearance: Partial<typeof stored.appearance> }
+          stored = { ...stored, appearance: { ...stored.appearance, ...patch.appearance } }
+          return stored
+        }
+        case 'session.list':
+          return [{ id: 'sess-alpha', projectId: 'adhoc', title: 'Alpha', updatedAt: 0 }]
+        case 'project.list':
+        case 'providers.detect':
+        case 'providers.models':
+        case 'endpoints.list':
+          return []
+        default:
+          return undefined
+      }
+    })
+  })
+
+  const hiveSwitch = () => screen.findByRole('switch', { name: 'Hive view' }, { timeout: 10_000 })
+
+  it('opens in the normal sidebar with no Hive roster', async () => {
+    render(<App />)
+
+    expect(await screen.findByText('Alpha', {}, { timeout: 10_000 })).toBeInTheDocument()
+    expect(await hiveSwitch()).toHaveAttribute('aria-checked', 'false')
+    expect(screen.queryByRole('region', { name: 'Hive roster' })).not.toBeInTheDocument()
+  })
+
+  it('swaps the session list for the empty roster and back', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+
+    await user.click(await hiveSwitch())
+
+    const roster = await screen.findByRole('region', { name: 'Hive roster' })
+    expect(roster).toHaveTextContent('No bots yet')
+    expect(screen.getByRole('switch', { name: 'Hive view' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('switch', { name: 'Hive view' }))
+
+    expect(await screen.findByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Hive roster' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the sidebar search across a Hive round trip', async () => {
+    const base = invokeMock.getMockImplementation()
+    if (base === undefined) throw new Error('missing invoke mock implementation')
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'session.list'
+        ? [
+            { id: 'sess-alpha', projectId: 'adhoc', title: 'Alpha', updatedAt: 0 },
+            { id: 'sess-beta', projectId: 'adhoc', title: 'Beta', updatedAt: 0 },
+          ]
+        : base(method, params),
+    )
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('Alpha', {}, { timeout: 10_000 })
+    await screen.findByText('Beta', {}, { timeout: 10_000 })
+
+    const search = screen.getByRole('searchbox', { name: 'Search sessions' })
+    await user.type(search, 'alp')
+
+    expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+
+    await user.click(await hiveSwitch())
+    await screen.findByRole('region', { name: 'Hive roster' })
+    expect(screen.queryByRole('searchbox', { name: 'Search sessions' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('switch', { name: 'Hive view' }))
+
+    const restored = await screen.findByRole('searchbox', { name: 'Search sessions' })
+    expect(restored).toHaveValue('alp')
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+  })
+
+  it('reopens in Hive view after a restart', async () => {
+    const user = userEvent.setup()
+    const first = render(<App />)
+    await user.click(await hiveSwitch())
+    await screen.findByRole('region', { name: 'Hive roster' })
+    first.unmount()
+
+    render(<App />)
+
+    expect(
+      await screen.findByRole('region', { name: 'Hive roster' }, { timeout: 10_000 }),
+    ).toHaveTextContent('No bots yet')
+    expect(screen.getByRole('switch', { name: 'Hive view' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
+  })
+})
