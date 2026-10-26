@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -441,6 +441,7 @@ describe('engine end-to-end with scripted driver', () => {
     const registry = new DriverRegistry()
     registry.register(scriptedDriver({ echo: 'gc run' }))
     const prunedRefs = ['refs/ari/sess_gc_e2e/turn_old1', 'refs/ari/sess_gc_e2e/turn_old2']
+    const pruneCalls: { turnIds: readonly string[]; maxPerSession: number }[] = []
     const engine = new Engine({
       store,
       registry,
@@ -450,7 +451,10 @@ describe('engine end-to-end with scripted driver', () => {
           ok: true,
           value: 'refs/ari/sess_gc_e2e/turn_new',
         }),
-        pruneCheckpoints: async () => ({ ok: true, value: [...prunedRefs] }),
+        pruneCheckpoints: async (_cwd, _sessionId, turnIds, maxPerSession) => {
+          pruneCalls.push({ turnIds, maxPerSession })
+          return { ok: true, value: [...prunedRefs] }
+        },
       },
     })
 
@@ -473,6 +477,8 @@ describe('engine end-to-end with scripted driver', () => {
     const events = published.filter((p) => p.sessionId === sessionId).map((p) => p.event)
     const captured = events.find((e) => e.type === 'checkpoint.captured')
     expect(captured).toBeDefined()
+    // GC is told the capture order, ending with the checkpoint just captured.
+    expect(pruneCalls).toEqual([{ turnIds: [captured?.turnId], maxPerSession: 50 }])
     const prunedEvents = events.filter((e) => e.type === 'checkpoint.pruned')
     expect(prunedEvents.map((e) => e.gitRef)).toEqual(prunedRefs)
     expect(prunedEvents[0]?.turnId).toBe('turn_old1')
@@ -481,6 +487,48 @@ describe('engine end-to-end with scripted driver', () => {
     const model = await store.load(sessionId)
     expect(model.checkpoints.some((c) => c.gitRef.includes('turn_old'))).toBe(false)
   }, 10000)
+
+  it('reports checkpoint.revert failures to the caller and keeps the checkpoint', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'ari-engine-revert-'))
+    dirs.push(repo)
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
+    git('init', '-q')
+    await writeFile(join(repo, 'a.txt'), 'committed\n')
+    git('add', '.')
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
+    await writeFile(join(repo, 'a.txt'), 'pre-turn work\n')
+    const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
+    const sessionId = 'sess_revert'
+    await seedSession(store, sessionId, repo)
+    const { GitService } = await import('@ari/engine/git')
+    for (const turnId of ['turn_ok', 'turn_gone']) {
+      const ref = await new GitService().captureCheckpoint(repo, sessionId, turnId)
+      if (!ref.ok || ref.value === null) throw new Error('checkpoint not captured')
+      await store.append(sessionId, { type: 'checkpoint.captured', turnId, gitRef: ref.value })
+    }
+    git('update-ref', '-d', `refs/ari/${sessionId}/turn_gone`)
+
+    const failed = await engine.dispatch({
+      type: 'checkpoint.revert',
+      sessionId,
+      turnId: 'turn_gone',
+    })
+    expect(failed.accepted).toBe(false)
+    expect(failed.reason).toMatch(/^revert failed: /)
+    expect((await store.load(sessionId)).checkpoints.map((c) => c.turnId)).toEqual([
+      'turn_ok',
+      'turn_gone',
+    ])
+
+    await writeFile(join(repo, 'a.txt'), 'agent edit\n')
+    const reverted = await engine.dispatch({
+      type: 'checkpoint.revert',
+      sessionId,
+      turnId: 'turn_ok',
+    })
+    expect(reverted).toEqual({ accepted: true })
+    expect(await readFile(join(repo, 'a.txt'), 'utf8')).toBe('pre-turn work\n')
+  }, 30000)
 
   it('skips GC silently when the capturer has no pruneCheckpoints', async () => {
     const registry = new DriverRegistry()
