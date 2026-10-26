@@ -163,7 +163,7 @@ export class GitService {
     }
   }
 
-  /** Lists captured checkpoints for a session in git's refname sort order. */
+  /** Lists captured checkpoints for a session in refname order, not capture order. */
   async listCheckpoints(
     cwd: string,
     sessionId: string,
@@ -239,26 +239,28 @@ export class GitService {
   }
 
   /**
-   * Deletes checkpoint refs so at most `maxPerSession` remain per session,
-   * keeping the newest by refname sort (turn ids are monotonic, so sort
-   * order is recency order). Returns the refs that were deleted. Failures
-   * on individual deletes are collected, not fatal — GC is best-effort.
+   * Deletes checkpoint refs so at most `maxPerSession` remain per session.
+   * `turnIds` lists the session's checkpointed turns in capture order, oldest
+   * first; the last `maxPerSession` are kept and every other ref of the
+   * session is deleted. Returns the refs that were deleted. Failures on
+   * individual deletes are collected, not fatal — GC is best-effort.
    */
   async pruneCheckpoints(
     cwd: string,
     sessionId: string,
+    turnIds: readonly string[],
     maxPerSession: number,
   ): Promise<Result<string[], GitError>> {
-    if (!Number.isInteger(maxPerSession) || maxPerSession < 0) {
+    if (!Number.isInteger(maxPerSession) || maxPerSession < 1) {
       return err({ code: 'invalid_ref', message: `invalid cap: ${maxPerSession}` })
     }
     const listed = await this.listCheckpoints(cwd, sessionId)
     if (!listed.ok) return listed
-    if (listed.value.length <= maxPerSession) return ok([])
-    // for-each-ref sorts by refname; turn ids are monotonic, so the tail is newest.
-    const excess = listed.value.slice(0, listed.value.length - maxPerSession)
+    const keep = new Set(turnIds.slice(-maxPerSession))
     const deleted: string[] = []
-    for (const { ref } of excess) {
+    for (const { ref } of listed.value) {
+      const turnId = ref.slice(ref.lastIndexOf('/') + 1)
+      if (keep.has(turnId)) continue
       const run = await this.#run(cwd, ['update-ref', '-d', ref])
       if (run.ok) {
         deleted.push(ref)
