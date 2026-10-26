@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { botSchema } from '@ari/contracts/bot'
 import type { Bot } from '@ari/contracts/bot'
@@ -26,11 +26,35 @@ export class BotStore {
   async create(input: Omit<Bot, 'id'>): Promise<Bot> {
     const bot = botSchema.parse({ ...input, id: newTypedId('bot') })
     const dir = join(this.#dir, bot.id)
+    // The record lands last: a crash mid-create leaves an incomplete folder
+    // without `bot.json`, which lists as no bot rather than a broken one.
+    await this.#writeRecord(dir, bot)
+    return bot
+  }
+
+  /**
+   * Writes a bot's persona and record, replacing the record at a temp path and
+   * renaming it into place so a crash can never leave a torn `bot.json` that
+   * would make the bot disappear (same shape as projects.ts `#persist`).
+   */
+  async #writeRecord(dir: string, bot: Bot): Promise<void> {
     await mkdir(dir, { recursive: true })
     const { personaMd, ...record } = bot
     await writeFile(join(dir, 'persona.md'), personaMd, 'utf8')
-    await writeFile(join(dir, 'bot.json'), JSON.stringify(record, null, 2), 'utf8')
-    return bot
+    const payload = JSON.stringify(record, null, 2)
+    const target = join(dir, 'bot.json')
+    const tmp = `${target}.tmp`
+    await writeFile(tmp, payload, 'utf8')
+    // Windows AV/indexers can hold the target briefly; retry a few times.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await rename(tmp, target)
+        return
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)))
+      }
+    }
+    await writeFile(target, payload, 'utf8')
   }
 
   async get(id: string): Promise<Bot | null> {
