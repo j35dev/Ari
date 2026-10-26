@@ -16,6 +16,13 @@ export const DIFF_MAX_BYTES = 512 * 1024
 const DEFAULT_MAX_BYTES = 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 10_000
 
+const CHECKPOINT_IDENTITY = {
+  GIT_AUTHOR_NAME: 'Ari',
+  GIT_AUTHOR_EMAIL: 'ari@localhost',
+  GIT_COMMITTER_NAME: 'Ari',
+  GIT_COMMITTER_EMAIL: 'ari@localhost',
+}
+
 const NAME_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SAFE_REV = /^[A-Za-z0-9._/-]+$/
 
@@ -78,9 +85,10 @@ export interface GitServiceOptions {
  * `execFile` (no shell), pinned to the workspace `cwd`, with a hard timeout.
  * All methods return typed Results; nothing throws for expected failures.
  *
- * Checkpoints are hidden refs under `refs/ari/<sessionId>/<turnId>` pinned to
- * a tree of the working tree at capture time, invisible to normal branch/ref
- * listings.
+ * Checkpoints are hidden refs under `refs/ari/<sessionId>/<turnId>`, invisible
+ * to normal branch/ref listings. Each ref is a commit whose tree is the working
+ * tree at capture time and whose parent (when the index has no conflicts) is a
+ * commit of the pre-turn index tree.
  */
 export class GitService {
   readonly #gitPath: string
@@ -109,10 +117,11 @@ export class GitService {
 
   /**
    * Captures a checkpoint: creates `refs/ari/<sessionId>/<turnId>` pointing at
-   * a tree of the working tree as it is now (uncommitted and untracked changes
-   * included); HEAD, the index and the stash are untouched, and this works
-   * before the first commit. Resolves `null` outside a git repo so callers
-   * degrade gracefully.
+   * a commit whose tree is the working tree as it is now (uncommitted and
+   * untracked changes included) and whose parent (when the index has no
+   * conflicts) is a commit of the pre-turn index tree. HEAD and the real index
+   * are never written, and this works before the first commit. Resolves `null`
+   * outside a git repo so callers degrade gracefully.
    */
   async captureCheckpoint(
     cwd: string,
@@ -124,26 +133,37 @@ export class GitService {
     if (!inside.value) return ok(null)
     const ref = checkpointRef(sessionId, turnId)
     if (!ref.ok) return ref
-    const tree = await this.worktreeTree(cwd)
-    if (!tree.ok) return tree
-    const updated = await this.#run(cwd, ['update-ref', ref.value, tree.value])
+    const trees = await this.#withScratchIndex(cwd, async (env) => {
+      // Fails on an unmerged index; such checkpoints restore the worktree only.
+      const index = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env, quiet: true })
+      const worktree = await this.#addAllAndWriteTree(cwd, env)
+      if (!worktree.ok) return worktree
+      return ok({ worktree: worktree.value, index: index.ok ? index.value.stdout.trim() : null })
+    })
+    if (!trees.ok) return trees
+    let parent: string | undefined
+    if (trees.value.index !== null) {
+      const indexCommit = await this.#commitTree(cwd, trees.value.index)
+      if (!indexCommit.ok) return indexCommit
+      parent = indexCommit.value
+    }
+    const checkpoint = await this.#commitTree(cwd, trees.value.worktree, parent)
+    if (!checkpoint.ok) return checkpoint
+    const updated = await this.#run(cwd, ['update-ref', ref.value, checkpoint.value])
     if (!updated.ok) return updated
     return ok(ref.value)
   }
 
   /** Tree of the full working tree — tracked, untracked, minus ignored. */
-  async worktreeTree(cwd: string): Promise<Result<string, GitError>> {
-    const run = await this.#withWorktreeIndex(cwd, (env) =>
-      this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env }),
-    )
-    return run.ok ? ok(run.value.stdout.trim()) : run
+  worktreeTree(cwd: string): Promise<Result<string, GitError>> {
+    return this.#withScratchIndex(cwd, (env) => this.#addAllAndWriteTree(cwd, env))
   }
 
   /**
-   * Runs `use` with `GIT_INDEX_FILE` pointing at a scratch index that holds
-   * the whole working tree (`add --all`), so the user's index is never touched.
+   * Runs `use` with `GIT_INDEX_FILE` pointing at a scratch copy of the real
+   * index, so the user's index is never touched.
    */
-  async #withWorktreeIndex<T>(
+  async #withScratchIndex<T>(
     cwd: string,
     use: (env: NodeJS.ProcessEnv) => Promise<Result<T, GitError>>,
   ): Promise<Result<T, GitError>> {
@@ -155,12 +175,29 @@ export class GitService {
       const env: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: scratchIndex }
       // Seeding from the real index only spares re-hashing unchanged files.
       await copyFile(resolve(cwd, index.value.stdout.trim()), scratchIndex).catch(() => undefined)
-      const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
-      if (!added.ok) return added
       return await use(env)
     } finally {
       await rm(scratch, { recursive: true, force: true })
     }
+  }
+
+  async #addAllAndWriteTree(
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<Result<string, GitError>> {
+    const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+    if (!added.ok) return added
+    const tree = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env })
+    return tree.ok ? ok(tree.value.stdout.trim()) : tree
+  }
+
+  async #commitTree(cwd: string, tree: string, parent?: string): Promise<Result<string, GitError>> {
+    const args = ['commit-tree', '--no-gpg-sign', '-m', 'ari checkpoint', tree]
+    if (parent !== undefined) args.push('-p', parent)
+    const run = await this.#run(cwd, args, DEFAULT_MAX_BYTES, {
+      env: { ...process.env, ...CHECKPOINT_IDENTITY },
+    })
+    return run.ok ? ok(run.value.stdout.trim()) : run
   }
 
   /** Lists captured checkpoints for a session in git's refname sort order. */
@@ -223,19 +260,59 @@ export class GitService {
   }
 
   /**
-   * Restores the working tree to its state at `gitRef` using
-   * `read-tree --reset -u` against a scratch index seeded from the current
-   * working tree: changed files snap to the checkpoint, files created since
-   * are deleted, deleted ones reappear; HEAD and the user's real index are
-   * left alone. Ignored files are left untouched.
+   * Restores the workspace directory `cwd` to its state at `gitRef`. Inside
+   * it, files snap back, files created since are deleted, deleted files
+   * reappear, and the real index is reset to the pre-turn staging; nothing
+   * outside `cwd` is touched and HEAD never moves. `gitRef` is a checkpoint
+   * commit whose tree is the captured working tree and whose parent (when the
+   * index had no conflicts) is a commit of the pre-turn index tree.
    */
   async revertToRef(cwd: string, gitRef: string): Promise<Result<void, GitError>> {
     const safe = assertSafeRev(gitRef)
     if (!safe.ok) return safe
-    const result = await this.#withWorktreeIndex(cwd, (env) =>
-      this.#run(cwd, ['read-tree', '--reset', '-u', gitRef], DEFAULT_MAX_BYTES, { env }),
+    const worktree = await this.#withScratchIndex(cwd, async (env) => {
+      const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+      if (!added.ok) return added
+      return this.#restoreScoped(cwd, gitRef, ['--staged', '--worktree'], env)
+    })
+    if (!worktree.ok) return worktree
+    const index = await this.#run(
+      cwd,
+      ['rev-parse', '--verify', '--quiet', `${gitRef}^`],
+      DEFAULT_MAX_BYTES,
+      { quiet: true },
     )
-    return result.ok ? ok(undefined) : result
+    if (!index.ok) return ok(undefined)
+    return this.#restoreScoped(cwd, index.value.stdout.trim(), ['--staged'])
+  }
+
+  /**
+   * `restore --source` limited to `cwd` (pathspec `.`). Skipped when nothing
+   * differs, which also covers a workspace with no entries on either side,
+   * where `restore` would reject the pathspec.
+   */
+  async #restoreScoped(
+    cwd: string,
+    source: string,
+    mode: string[],
+    env?: NodeJS.ProcessEnv,
+  ): Promise<Result<void, GitError>> {
+    // `diff-index --quiet` exits 1 when the index differs from `source`.
+    const diff = await this.#run(
+      cwd,
+      ['diff-index', '--cached', '--quiet', source, '--', '.'],
+      DEFAULT_MAX_BYTES,
+      { env, acceptConflict: true },
+    )
+    if (!diff.ok) return diff
+    if (diff.value.conflict !== true) return ok(undefined)
+    const restored = await this.#run(
+      cwd,
+      ['restore', `--source=${source}`, ...mode, '--', '.'],
+      DEFAULT_MAX_BYTES,
+      { env },
+    )
+    return restored.ok ? ok(undefined) : restored
   }
 
   /**
