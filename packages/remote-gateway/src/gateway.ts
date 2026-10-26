@@ -170,7 +170,8 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
     }
     const protocols = offeredProtocols(req)
     const token = bearerToken(protocols)
-    const device = token === undefined ? undefined : pairing.authenticate(token)
+    if (token === undefined) return refuseUpgrade(socket, 401)
+    const device = pairing.authenticate(token)
     if (device === undefined) return refuseUpgrade(socket, 401)
     pairing.touch(device.deviceId)
 
@@ -185,14 +186,19 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       head,
       protocols.includes(WIRE_PROTOCOL) ? WIRE_PROTOCOL : undefined,
     )
-    attachEvents(connection, lease?.caller ?? callerOf(device), token, lease?.expiresAt)
+    attachEvents(
+      connection,
+      token,
+      lease === undefined
+        ? undefined
+        : { projectIds: lease.caller.projectIds, expiresAt: lease.expiresAt },
+    )
   })
 
   function attachEvents(
     connection: ReturnType<typeof acceptUpgrade>,
-    caller: RemoteCaller,
-    token: string | undefined,
-    expiresAt?: number,
+    token: string,
+    lease?: { projectIds: readonly string[]; expiresAt: number },
   ): void {
     const subscriptions = new Map<string, () => void>()
 
@@ -201,38 +207,54 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
       subscriptions.clear()
       connection.close(1000, 'unsubscribed')
     }
+    const callerNow = (): RemoteCaller | undefined => {
+      const device = pairing.authenticate(token)
+      if (device === undefined) return undefined
+      const caller = callerOf(device)
+      return lease === undefined
+        ? caller
+        : { ...caller, projectIds: lease.projectIds.filter((id) => caller.projectIds.includes(id)) }
+    }
     const expiryTimer =
-      expiresAt === undefined
+      lease === undefined
         ? undefined
-        : setTimeout(teardown, Math.max(0, expiresAt - (options.now?.() ?? Date.now())))
+        : setTimeout(teardown, Math.max(0, lease.expiresAt - (options.now?.() ?? Date.now())))
     expiryTimer?.unref()
     const credentialTimer = setInterval(() => {
-      if (token === undefined || pairing.authenticate(token) === undefined) teardown()
+      if (callerNow() === undefined) teardown()
     }, 1000)
     credentialTimer.unref()
 
     const send = (message: unknown): void => connection.send(JSON.stringify(message))
 
     async function subscribe(sessionId: string, fromSeq?: number): Promise<void> {
+      const caller = callerNow()
+      if (caller === undefined) return teardown()
       if (subscriptions.size >= 8)
         return send(errorMessage('rate_limited', 'at most eight sessions may be streamed'))
       const buffered: JournalEvent[] = []
       let bytes = 0
       let ready = false
       let lastSeq = fromSeq ?? -1
+      let projectId: string | undefined
       let unsubscribe = (): void => {}
       const current = (): boolean =>
         subscriptions.get(sessionId) === unsubscribe &&
         connection.open &&
-        token !== undefined &&
-        pairing.authenticate(token) !== undefined &&
-        (expiresAt === undefined || expiresAt > (options.now?.() ?? Date.now()))
+        callerNow() !== undefined &&
+        (lease === undefined || lease.expiresAt > (options.now?.() ?? Date.now()))
       const stop = (): void => {
         unsubscribe()
         subscriptions.delete(sessionId)
       }
       const deliver = (event: JournalEvent, caughtUp?: boolean): void => {
         if (!current()) return teardown()
+        if (projectId !== undefined && !(callerNow()?.projectIds.includes(projectId) ?? false)) {
+          stop()
+          return send(
+            errorMessage('access_revoked', 'this device no longer has access to that project'),
+          )
+        }
         if (event.seq <= lastSeq) return
         lastSeq = event.seq
         send({
@@ -264,6 +286,7 @@ export async function createRemoteGateway(options: RemoteGatewayOptions): Promis
           stop()
           return send(errorMessage('not_found', 'no such session'))
         }
+        projectId = snapshot.session.projectId
         if (fromSeq !== undefined) {
           const events = await host.replay(caller, sessionId, fromSeq)
           if (!current()) return

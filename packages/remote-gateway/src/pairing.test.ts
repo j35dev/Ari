@@ -781,6 +781,30 @@ describe('pairing persistence', () => {
     expect(saved[saved.length - 1]?.devices).toHaveLength(1)
   })
 
+  it("edits a device's grants and keeps them across a restart", () => {
+    const { service, saved, token, deviceId } = pairedService()
+    expect(service.updateGrants(deviceId, ['proj_2', 'proj_2', 'proj_3'], true)).toBe(true)
+
+    const device = service.authenticate(token)
+    expect(device?.projectIds).toEqual(['proj_2', 'proj_3'])
+    expect(device?.allowTerminal).toBe(true)
+    expect(saved[saved.length - 1]?.devices[0]?.projectIds).toEqual(['proj_2', 'proj_3'])
+    expect(saved[saved.length - 1]?.devices[0]?.allowTerminal).toBe(true)
+
+    const second = restored(service.toPersisted())
+    expect(second.devices()[0]?.projectIds).toEqual(['proj_2', 'proj_3'])
+    expect(second.devices()[0]?.allowTerminal).toBe(true)
+  })
+
+  it('refuses to edit an unknown or revoked device', () => {
+    const { service, saved, deviceId } = pairedService()
+    expect(service.updateGrants('dev_missing', ['proj_1'], false)).toBe(false)
+    expect(service.revoke(deviceId)).toBe(true)
+    const before = saved.length
+    expect(service.updateGrants(deviceId, ['proj_1'], true)).toBe(false)
+    expect(saved.length).toBe(before)
+  })
+
   it('drops a restored record whose key is not usable', () => {
     // A truncated or hand-edited file must not produce a device that can never
     // authenticate and can never be explained.
