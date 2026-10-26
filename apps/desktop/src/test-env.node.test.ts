@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { globSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import defaultConfig, { nodeSuites } from '../vitest.config'
+import defaultConfig, { hasNodeDocblock, nodeSuites } from '../vitest.config'
 
 type InlineProject = {
   test?: {
@@ -27,16 +27,23 @@ describe('node test environment', () => {
   it('every node-docblock suite runs in the node project', () => {
     const cwd = fileURLToPath(new URL('../', import.meta.url))
     const testGlobs = ['src/**/*.test.{ts,tsx}', 'packaging/**/*.test.js']
-    const docblockSuites = testGlobs
+    const files = testGlobs
       .flatMap((pattern) => globSync(pattern, { cwd }))
-      .filter(
-        (file) =>
-          (readFileSync(join(cwd, file), 'utf8').split(/\r?\n/, 1)[0] ?? '') ===
-          '// @vitest-environment node',
-      )
+      .map((file) => file.split(sep).join('/'))
       .sort()
 
-    expect(docblockSuites).toEqual(nodeSuites)
+    // Deliberately form-independent: any mention of a node directive near the
+    // top of a file must have landed in the node project, so a docblock form
+    // the config misses fails here by file name instead of as "Element is not
+    // defined" inside the DOM setup at run time.
+    const mentionsNode = files.filter((file) =>
+      (readFileSync(join(cwd, file), 'utf8').split(/\r?\n/).slice(0, 3) ?? []).some(
+        (line) => /@vitest-environment[\s*]+node\b/.test(line),
+      ),
+    )
+
+    expect(mentionsNode).toEqual(nodeSuites)
+    expect(nodeSuites).toEqual(files.filter((file) => hasNodeDocblock(readFileSync(join(cwd, file), 'utf8'))))
     expect(nodeSuites).toContain('src/test-env.node.test.ts')
 
     const projects = (defaultConfig.test?.projects ?? []) as unknown as InlineProject[]
