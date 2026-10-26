@@ -34,6 +34,7 @@ function fakeGuest(): {
     isLoading: () => false,
     executeJavaScript: vi.fn(async () => null),
     capturePage: vi.fn(async () => null),
+    sendKey: vi.fn(),
     setBounds,
     setVisible,
     destroy,
@@ -100,6 +101,40 @@ describe('BrowserService', () => {
       expect(result.element.selector).toBe('button')
       expect(result.pngBase64).toBe(Buffer.from('png').toString('base64'))
     }
+  })
+
+  it('captures a JPEG still as a data URL', async () => {
+    const { guest } = fakeGuest()
+    guest.capturePage = vi.fn(async () => Buffer.from('jpeg'))
+    const service = new BrowserService(() => guest, vi.fn())
+    await service.open('tab1')
+    expect(await service.still('tab1')).toBe(
+      `data:image/jpeg;base64,${Buffer.from('jpeg').toString('base64')}`,
+    )
+  })
+
+  it('sends key down, waits, then key up', async () => {
+    vi.useFakeTimers()
+    try {
+      const { guest } = fakeGuest()
+      const sendKey = vi.fn()
+      guest.sendKey = sendKey
+      const service = new BrowserService(() => guest, vi.fn())
+      await service.open('tab1')
+      const pressed = service.key('tab1', 'ArrowRight', 300)
+      expect(sendKey).toHaveBeenCalledExactlyOnceWith('ArrowRight', 'down')
+      await vi.advanceTimersByTimeAsync(300)
+      await pressed
+      expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'up')
+      expect(sendKey).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects keys for an unknown tab', async () => {
+    const service = new BrowserService(() => fakeGuest().guest, vi.fn())
+    await expect(service.key('missing', 'a', 0)).rejects.toThrow('unknown browser tab missing')
   })
 
   it('hides every guest when the shell reloads or its renderer dies, keeping the pages', async () => {
