@@ -56,13 +56,14 @@ export interface CheckpointCapturer {
     turnId: string,
   ): Promise<{ ok: true; value: string | null } | { ok: false; error: { message: string } }>
   /**
-   * Best-effort GC of hidden checkpoint refs, keeping the newest
-   * `maxPerSession` per session. Returns the deleted refs. Optional so
-   * test doubles can omit it.
+   * Best-effort GC of hidden checkpoint refs: keeps the last `maxPerSession`
+   * of `turnIds` (capture order, oldest first) and deletes the session's
+   * other refs. Returns the deleted refs. Optional so test doubles can omit it.
    */
   pruneCheckpoints?(
     cwd: string,
     sessionId: string,
+    turnIds: readonly string[],
     maxPerSession: number,
   ): Promise<{ ok: true; value: string[] } | { ok: false; error: { message: string } }>
 }
@@ -544,10 +545,17 @@ export class Engine {
         gitRef: captured.value,
       })
       // M8.10: cap stored checkpoints per session. Pruning is event-sourced
-      // (checkpoint.pruned folds the projection) and best-effort.
+      // (checkpoint.pruned folds the projection) and best-effort. The
+      // projection lists checkpoints in capture order, so this turn's is last.
       const prune = git.pruneCheckpoints?.bind(git)
       if (prune) {
-        const pruned = await prune(workspacePath, session.id, MAX_CHECKPOINTS_PER_SESSION)
+        const model = await this.#deps.store.load(session.id)
+        const pruned = await prune(
+          workspacePath,
+          session.id,
+          model.checkpoints.map((c) => c.turnId),
+          MAX_CHECKPOINTS_PER_SESSION,
+        )
         if (pruned.ok) {
           for (const ref of pruned.value) {
             const turnId = ref.slice(ref.lastIndexOf('/') + 1)
