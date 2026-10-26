@@ -1967,6 +1967,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   }))
   r.register('browser.capture', async (params) => ({ dataUrl: await browsers.still(params.id) }))
 
+  r.register('bots.list', async () => getBotStore().list())
+
   r.register('project.list', async () => getProjectStore().load())
 
   r.register('project.add', async (params) => {

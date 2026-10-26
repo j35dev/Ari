@@ -16,6 +16,7 @@ import type {
   SessionEventFrame,
   SessionSummary,
 } from '@ari/contracts/rpc'
+import type { Bot } from '@ari/contracts/bot'
 import type { DriverKind, PermissionMode } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from './lib/rpc'
@@ -78,12 +79,7 @@ import {
   terminalIdsInPanes,
   type PaneEdge,
 } from './features/split/split-layout'
-import {
-  SidebarHeader,
-  HiveRoster,
-  SessionsUnderProjects,
-  type SidebarNavId,
-} from './shell/Sidebar'
+import { SidebarHeader, SidebarBody, type SidebarNavId } from './shell/Sidebar'
 import { isEditableTarget } from './shell/editable-target'
 import {
   ContextMenu,
@@ -273,8 +269,6 @@ function Shell() {
   )
   const sidebar = useSidebarWidth()
   const sidebarSearchRef = useRef<HTMLInputElement>(null)
-  // Lives here so switching to Hive view and back keeps the sidebar search.
-  const [sidebarQuery, setSidebarQuery] = useState('')
   const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -534,6 +528,14 @@ function Shell() {
   const engineSettings = useEngineSettings()
   const defaultPermissionMode = engineSettings.settings?.sessions.defaultPermissionMode
   const hiveView = engineSettings.settings?.appearance.hiveView === true
+  const [bots, setBots] = useState<Bot[]>([])
+  useEffect(() => {
+    if (!hiveView) return
+    void rpc
+      .invoke('bots.list')
+      .then(setBots)
+      .catch((error: unknown) => log.warn('bots.list failed', error))
+  }, [hiveView])
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
     setDefaults((prev) =>
@@ -1097,16 +1099,14 @@ function Shell() {
                     .catch((error: unknown) => log.warn('settings.update failed', error))
                 }}
               />
-              {hiveView ? (
-                <HiveRoster />
-              ) : (
-                <SessionsUnderProjects
+              {!engineSettings.loaded ? null : (
+                <SidebarBody
+                  hiveView={hiveView}
+                  bots={bots}
                   sessions={sessions}
                   projects={openProjects}
                   knownProjectNames={projects}
                   searchInputRef={sidebarSearchRef}
-                  searchQuery={sidebarQuery}
-                  onSearchQueryChange={setSidebarQuery}
                   onNewSession={beginNewSession}
                   onOpenProject={openProjectViaDialog}
                   onNewSessionInProject={(projectId) => createSession(projectId)}

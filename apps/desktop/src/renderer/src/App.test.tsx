@@ -1137,7 +1137,7 @@ describe('Starting a session with no project yet', () => {
     render(<App />)
     await screen.findByRole('button', { name: 'Add a project to start' }, { timeout: 10_000 })
 
-    fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New session' }))
 
     // No projects means no menu to pick from — the folder dialog *is* the
     // choice, so the button is never a dead end. The session lands in the
@@ -1187,7 +1187,7 @@ describe('Starting a session with no project yet', () => {
     render(<App />)
     await screen.findByRole('button', { name: 'Add a project to start' }, { timeout: 10_000 })
 
-    fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New session' }))
 
     await vi.waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('dialog.pickFolder', { defaultPath: undefined })
@@ -1550,6 +1550,7 @@ describe('Hive view switch', () => {
         case 'providers.detect':
         case 'providers.models':
         case 'endpoints.list':
+        case 'bots.list':
           return []
         default:
           return undefined
@@ -1621,6 +1622,75 @@ describe('Hive view switch', () => {
     expect(restored).toHaveValue('alp')
     expect(screen.getByText('Alpha')).toBeInTheDocument()
     expect(screen.queryByText('Beta')).not.toBeInTheDocument()
+  })
+
+  it('lists the bots from bots.list in the Hive roster', async () => {
+    stored = settingsSchema.parse({ version: 1, appearance: { hiveView: true } })
+    const base = invokeMock.getMockImplementation()
+    if (base === undefined) throw new Error('missing invoke mock implementation')
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'bots.list'
+        ? [
+            {
+              id: 'bot_forge',
+              name: 'Forge',
+              emoji: '🔧',
+              personaMd: '',
+              driverKind: 'codex',
+              modelId: null,
+            },
+            {
+              id: 'bot_pixel',
+              name: 'Pixel',
+              emoji: '🎨',
+              personaMd: '',
+              driverKind: 'claude',
+              modelId: null,
+            },
+          ]
+        : base(method, params),
+    )
+
+    render(<App />)
+
+    const roster = await screen.findByRole('region', { name: 'Hive roster' }, { timeout: 10_000 })
+    const bots = await within(roster).findByRole('list', { name: 'Bots' })
+    expect(
+      within(bots)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['🔧Forge', '🎨Pixel'])
+    expect(roster).not.toHaveTextContent('No bots yet')
+  })
+
+  it('shows no session list before settings load, even for one tick', async () => {
+    stored = settingsSchema.parse({ version: 1, appearance: { hiveView: true } })
+    const base = invokeMock.getMockImplementation()
+    if (base === undefined) throw new Error('missing invoke mock implementation')
+    let releaseSettings = (): void => undefined
+    const settingsGate = new Promise<void>((resolve) => {
+      releaseSettings = resolve
+    })
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'settings.get') await settingsGate
+      return base(method, params)
+    })
+
+    render(<App />)
+    await hiveSwitch()
+    await vi.waitFor(() => expect(invokeMock).toHaveBeenCalledWith('session.list'))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
+    expect(screen.queryByRole('searchbox', { name: 'Search sessions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Hive roster' })).not.toBeInTheDocument()
+
+    releaseSettings()
+
+    expect(await screen.findByRole('region', { name: 'Hive roster' })).toBeInTheDocument()
+    expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
   })
 
   it('reopens in Hive view after a restart', async () => {

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 import { Kbd } from '@ari/ui/kbd'
 import { transitions } from '@ari/ui/motion'
+import type { Bot } from '@ari/contracts/bot'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import { SessionActivityMark } from '../features/moment'
@@ -208,15 +209,37 @@ export function SidebarHeader({
   )
 }
 
-/** Empty state for the Hive roster. */
-export function HiveRoster() {
+/** Hive roster: every bot's emoji avatar and name, or an empty state. */
+export function HiveRoster({ bots }: { bots: readonly Bot[] }) {
   return (
     <section
       aria-label="Hive roster"
-      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center"
+      className={
+        bots.length === 0
+          ? 'flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center'
+          : 'ari-scroll flex min-h-0 flex-1 flex-col overflow-y-auto'
+      }
     >
-      <p className="text-sm text-fg-muted">No bots yet</p>
-      <p className="text-xs text-fg-subtle">Your bot team will appear here.</p>
+      {bots.length === 0 ? (
+        <>
+          <p className="text-sm text-fg-muted">No bots yet</p>
+          <p className="text-xs text-fg-subtle">Your bot team will appear here.</p>
+        </>
+      ) : (
+        <ul aria-label="Bots" className="flex flex-col gap-0.5 px-2 py-1">
+          {bots.map((bot) => (
+            <li key={bot.id} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+              <span
+                aria-hidden="true"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-2 text-sm"
+              >
+                {bot.emoji}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm text-fg">{bot.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }
@@ -1159,9 +1182,9 @@ type SessionsUnderProjectsProps = SessionRowHandlers &
     /** Anchors the project picker the new session will run in, under the button. */
     onNewSession?: (anchor: MenuAnchor) => void
     searchInputRef?: Ref<HTMLInputElement>
-    /** Controlled search query; owned by the shell so it survives Hive view unmounting this list. */
-    searchQuery?: string
-    onSearchQueryChange?: (query: string) => void
+    /** Controlled search query; owned by SidebarBody so it survives Hive view unmounting this list. */
+    searchQuery: string
+    onSearchQueryChange: (query: string) => void
   }
 
 /**
@@ -1176,6 +1199,27 @@ export function SessionsUnderProjects(props: SessionsUnderProjectsProps) {
   // passes inline handlers; every sidebar render re-measures each
   // drag-reorderable project group. Stable handlers let the memo hold.
   return <SessionsUnderProjectsBody {...useStableHandlers(props)} />
+}
+
+/** The sidebar under its header; owns the search query so typing re-renders only this subtree. */
+export function SidebarBody({
+  hiveView,
+  bots,
+  ...sessions
+}: Omit<SessionsUnderProjectsProps, 'searchQuery' | 'onSearchQueryChange'> & {
+  hiveView: boolean
+  bots: readonly Bot[]
+}) {
+  const [searchQuery, setSearchQuery] = useState('')
+  return hiveView ? (
+    <HiveRoster bots={bots} />
+  ) : (
+    <SessionsUnderProjects
+      {...sessions}
+      searchQuery={searchQuery}
+      onSearchQueryChange={setSearchQuery}
+    />
+  )
 }
 
 const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
@@ -1199,10 +1243,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   knownProjectNames,
   ...actions
 }: SessionsUnderProjectsProps) {
-  const [localQuery, setLocalQuery] = useState('')
-  const query = searchQuery ?? localQuery
-  const setQuery = onSearchQueryChange ?? setLocalQuery
-  const trimmed = query.trim().toLowerCase()
+  const trimmed = searchQuery.trim().toLowerCase()
   const { isExpanded, toggle } = useProjectExpand()
   const { view, setView } = useSidebarView()
   const [selectingGroupId, setSelectingGroupId] = useState<string | null>(null)
@@ -1417,7 +1458,7 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     trimmed !== '' ? (
       matches.length === 0 ? (
         <p className="px-2 py-6 text-center text-xs text-fg-subtle">
-          No sessions match “{query.trim()}”.
+          No sessions match “{searchQuery.trim()}”.
         </p>
       ) : (
         <SessionList
@@ -1525,7 +1566,12 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           Add project
         </button>
       </div>
-      <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />
+      <SidebarSearch
+        query={searchQuery}
+        onQueryChange={onSearchQueryChange}
+        inputRef={searchInputRef}
+        collapsed
+      />
       {trimmed === '' ? <SidebarViewSwitch view={view} onChange={setView} /> : null}
       <nav className="ari-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
         {body}
