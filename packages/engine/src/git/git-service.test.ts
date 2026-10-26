@@ -216,6 +216,20 @@ suite('GitService', () => {
     expect(gitOut(dir, 'diff', '--cached')).toBe(staged)
   })
 
+  it('revert of a legacy ref pointing at HEAD never stages HEAD^', async () => {
+    const dir = await initRepo()
+    await writeFile(join(dir, 'fixture.txt'), 'second commit\n', 'utf8')
+    git(dir, 'commit', '-am', 'second')
+    // Main pointed checkpoint refs straight at the HEAD commit.
+    git(dir, 'update-ref', 'refs/ari/sess-l/turn-01', 'HEAD')
+
+    await writeFile(join(dir, 'fixture.txt'), 'agent edit\n', 'utf8')
+
+    expect((await service.revertToRef(dir, 'refs/ari/sess-l/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('second commit\n')
+    expect(gitOut(dir, 'status', '--porcelain')).toBe('')
+  })
+
   it('captures and reverts while the index has merge conflicts', async () => {
     const dir = await initRepo()
     git(dir, 'checkout', '-b', 'side')
