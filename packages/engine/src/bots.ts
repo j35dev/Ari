@@ -7,10 +7,23 @@ import { newTypedId } from '@ari/shared/ids'
 
 const BOT_ID = /^bot_[\w-]+$/
 
+/**
+ * Replaces `path` atomically (temp file plus rename), so a crash mid-write can
+ * never leave a torn file that makes a bot disappear. Windows AV and indexers
+ * can hold the target briefly, so the rename retries like projects.ts.
+ */
 async function writeAtomic(path: string, data: string): Promise<void> {
   const tmp = `${path}.${randomUUID()}.tmp`
   await writeFile(tmp, data, 'utf8')
-  await rename(tmp, path)
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await rename(tmp, path)
+      return
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)))
+    }
+  }
+  await writeFile(path, data, 'utf8')
 }
 
 export interface BotStoreOptions {

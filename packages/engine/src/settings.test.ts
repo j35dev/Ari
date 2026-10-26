@@ -143,6 +143,15 @@ describe('SettingsStore', () => {
     expect(persisted.appearance.mode).toBe('nocturne')
   })
 
+  it('keeps the Hive view choice across a reload', async () => {
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).appearance.hiveView).toBeUndefined()
+    await store.update({ appearance: { hiveView: true } })
+
+    const persisted = await new SettingsStore({ dir }).load()
+    expect(persisted.appearance.hiveView).toBe(true)
+  })
+
   it('merges notification patches and defaults the settle sound for old files', async () => {
     const store = new SettingsStore({ dir })
     await store.load()

@@ -1,6 +1,5 @@
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RemoteState } from '@ari/contracts/rpc'
@@ -8,6 +7,9 @@ import type { DriverKind } from '@ari/contracts/common'
 import type { Engine } from './engine'
 import type { SessionStore } from '@ari/engine/session-store'
 import { RemoteService, type RemoteServiceDeps } from './remote'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 /**
  * The desktop end of remote access: the gateway's lifetime, the two decisions
@@ -67,7 +69,7 @@ const live: RemoteService[] = []
 let counter = 0
 
 function makeService(overrides: Partial<RemoteServiceDeps> = {}, port = 0): Harness {
-  const dir = mkdtempSync(join(tmpdir(), 'ari-remote-'))
+  const dir = tempDir('ari-remote-')
   const states: RemoteState[] = []
   const service = new RemoteService(
     {
@@ -377,6 +379,31 @@ describe('remote service pairing decisions', () => {
     expect(afterRevoke.status).toBe(401)
   })
 
+  it("edits a paired device's grants, persisted across a restart, and refuses an unknown device", async () => {
+    const { service, dir } = makeService()
+    await service.start()
+    await pair(service, deviceKey(), ['proj_1'])
+    const deviceId = service.state().devices[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+
+    const updated = service.updateDeviceGrants(deviceId, ['proj_1', 'proj_2'], true)
+    expect(updated.devices[0]?.projectIds).toEqual(['proj_1', 'proj_2'])
+    expect(updated.devices[0]?.allowTerminal).toBe(true)
+
+    await service.stop()
+
+    // A restart: same records directory, a new process's worth of state.
+    const { service: second } = makeService({ dir })
+    expect(second.state().devices[0]).toMatchObject({
+      deviceId,
+      projectIds: ['proj_1', 'proj_2'],
+      allowTerminal: true,
+    })
+    expect(() => second.updateDeviceGrants('dev_missing', [], false)).toThrow()
+    second.revokeDevice(deviceId)
+    expect(() => second.updateDeviceGrants(deviceId, [], false)).toThrow()
+  })
+
   it('reports a revoked device as revoked when it comes back', async () => {
     const { service } = makeService()
     await service.start()
@@ -540,7 +567,7 @@ describe('remote service host wiring', () => {
     expect(service.running).toBe(false)
   })
   it('serves the built PWA from the gateway, same-origin with the API', async () => {
-    const build = mkdtempSync(join(tmpdir(), 'ari-pwa-'))
+    const build = tempDir('ari-pwa-')
     writeFileSync(join(build, 'index.html'), '<!doctype html><title>Ari Remote</title>', 'utf8')
     const { service } = makeService({ webRoot: () => build })
     const started = await service.start()
