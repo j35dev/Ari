@@ -27,11 +27,14 @@ jobs:
     # macOS is where it breaks first: `sockaddr_un.sun_path` is 104 bytes there
     # against 108 on Linux, and Electron's userData prefix is far longer, so
     # platform-specific failures in the control transport only surface here.
-    # `fail-fast: false` so a macOS failure still reports the Linux result.
+    # Windows is a first-class target (NSIS installer, `%APPDATA%\Ari Dev`, the
+    # Git Bash handling for ARI_CLI), so path, socket and quoting regressions
+    # get caught here rather than by users. `fail-fast: false` so one OS
+    # failing still reports the others.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
