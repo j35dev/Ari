@@ -26,24 +26,92 @@ export function isClippable(text: string): boolean {
 
 const BODY_CLASS = 'overflow-auto border-t border-border bg-surface-0 p-2 font-mono text-2xs text-fg-muted'
 
+type McpContentItem = { kind: 'text'; text: string } | { kind: 'placeholder'; label: string }
+
+const MCP_CONTENT_TYPES = new Set(['text', 'image', 'audio'])
+
+function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; text: string } {
+  return block.type === 'text' && typeof block.text === 'string'
+}
+
+/**
+ * Image blocks (MCP `data`/`mimeType` or Anthropic `source`) are never decoded
+ * here, so no base64 reaches the DOM.
+ */
+function toContentItem(block: Record<string, unknown>): McpContentItem {
+  if (isTextBlock(block)) return { kind: 'text', text: block.text }
+  if (block.type === 'image') return { kind: 'placeholder', label: 'Image' }
+  return { kind: 'placeholder', label: 'Unsupported content' }
+}
+
+/**
+ * MCP content result (`{ content: [...] }` or a bare block array) whose blocks
+ * all have a known MCP type and at least one isn't valid text, as renderable
+ * items; null for anything else, which keeps it on the plain JSON path.
+ */
+function mcpContentItems(parsed: unknown): McpContentItem[] | null {
+  const blocks: unknown =
+    parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as { content?: unknown }).content
+      : parsed
+  if (!Array.isArray(blocks)) return null
+  const records = blocks.filter(
+    (block): block is Record<string, unknown> =>
+      block !== null &&
+      typeof block === 'object' &&
+      typeof (block as { type?: unknown }).type === 'string' &&
+      MCP_CONTENT_TYPES.has((block as { type: string }).type),
+  )
+  if (records.length !== blocks.length || records.every(isTextBlock)) {
+    return null
+  }
+  return records.map(toContentItem)
+}
+
 /**
  * Result card body: shared DiffViewer when the payload is a unified diff,
- * otherwise Shiki-highlighted JSON or plain terminal text — copyable, and
- * expandable past the collapsed clip when the output is long.
+ * text and placeholders for MCP content, otherwise Shiki-highlighted JSON or
+ * plain terminal text — copyable, and expandable past the collapsed clip when
+ * the output is long.
  */
 export function ToolResultBody({ resultJson }: { resultJson: string }) {
   const isDiff = useMemo(() => looksLikeUnifiedDiff(resultJson), [resultJson])
-  const { text, isJson } = useMemo(() => {
+  const parsed = useMemo(() => {
     try {
-      return { text: JSON.stringify(JSON.parse(resultJson), null, 2) ?? resultJson, isJson: true }
+      const value: unknown = JSON.parse(resultJson)
+      return {
+        text: JSON.stringify(value, null, 2) ?? resultJson,
+        isJson: true,
+        content: mcpContentItems(value),
+      }
     } catch {
-      return { text: resultJson, isJson: false }
+      return { text: resultJson, isJson: false, content: null }
     }
   }, [resultJson])
-  const [expanded, setExpanded] = useState(false)
 
   if (isDiff) return <DiffViewer diffText={resultJson} />
+  if (parsed.content) return <McpContentBody items={parsed.content} />
+  return <TextBody text={parsed.text} lang={parsed.isJson ? 'json' : 'text'} />
+}
 
+function McpContentBody({ items }: { items: McpContentItem[] }) {
+  return (
+    <div className="bg-surface-0">
+      {items.map((item, i) =>
+        item.kind === 'text' ? (
+          <TextBody key={i} text={item.text} lang="text" />
+        ) : (
+          <div key={i} className="border-t border-border p-2 text-2xs text-fg-subtle">
+            {item.label}
+          </div>
+        ),
+      )}
+    </div>
+  )
+}
+
+function TextBody({ text, lang }: { text: string; lang: string }) {
+  const [expanded, setExpanded] = useState(false)
   const clippable = isClippable(text)
   return (
     <div className="relative">
@@ -52,7 +120,7 @@ export function ToolResultBody({ resultJson }: { resultJson: string }) {
       </div>
       <CodeBlock
         code={text}
-        lang={isJson ? 'json' : 'text'}
+        lang={lang}
         className={`${BODY_CLASS} ${expanded ? 'max-h-[480px]' : 'max-h-40'} whitespace-pre-wrap break-all pr-8`}
       />
       {clippable ? (

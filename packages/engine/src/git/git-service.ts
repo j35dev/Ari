@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
-import { resolve } from 'node:path'
+import { copyFile, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { err, ok, type Result } from '@ari/shared/result'
 import { createLogger } from '@ari/shared/logger'
@@ -13,6 +15,16 @@ export const DIFF_MAX_BYTES = 512 * 1024
 
 const DEFAULT_MAX_BYTES = 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 10_000
+
+const CHECKPOINT_IDENTITY = {
+  GIT_AUTHOR_NAME: 'Ari',
+  GIT_AUTHOR_EMAIL: 'ari@localhost',
+  GIT_COMMITTER_NAME: 'Ari',
+  GIT_COMMITTER_EMAIL: 'ari@localhost',
+}
+
+const CHECKPOINT_MESSAGE = 'ari checkpoint'
+const CHECKPOINT_INDEX_MESSAGE = 'ari checkpoint index'
 
 const NAME_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SAFE_REV = /^[A-Za-z0-9._/-]+$/
@@ -76,8 +88,10 @@ export interface GitServiceOptions {
  * `execFile` (no shell), pinned to the workspace `cwd`, with a hard timeout.
  * All methods return typed Results; nothing throws for expected failures.
  *
- * Checkpoints are hidden refs under `refs/ari/<sessionId>/<turnId>` pinned to
- * HEAD at capture time, invisible to normal branch/ref listings.
+ * Checkpoints are hidden refs under `refs/ari/<sessionId>/<turnId>`, invisible
+ * to normal branch/ref listings. Each ref is a commit whose tree is the working
+ * tree at capture time and whose parent (when the index has no conflicts) is a
+ * commit of the pre-turn index tree.
  */
 export class GitService {
   readonly #gitPath: string
@@ -105,9 +119,13 @@ export class GitService {
   }
 
   /**
-   * Captures a checkpoint: creates `refs/ari/<sessionId>/<turnId>` at the
-   * current HEAD. Resolves `null` outside a git repo so callers degrade
-   * gracefully; errors when HEAD does not resolve (e.g. no commits yet).
+   * Captures a checkpoint: creates `refs/ari/<sessionId>/<turnId>` pointing at
+   * a commit whose tree is the working tree as it is now (uncommitted and
+   * untracked changes included) and whose parent (when the index has no
+   * conflicts) is a commit of the pre-turn index tree tagged
+   * `ari checkpoint index`. HEAD and the real index are never written, and this
+   * works before the first commit. Resolves `null` outside a git repo so
+   * callers degrade gracefully.
    */
   async captureCheckpoint(
     cwd: string,
@@ -119,14 +137,79 @@ export class GitService {
     if (!inside.value) return ok(null)
     const ref = checkpointRef(sessionId, turnId)
     if (!ref.ok) return ref
-    const head = await this.#run(cwd, ['rev-parse', '--verify', 'HEAD'])
-    if (!head.ok) return head
-    const updated = await this.#run(cwd, ['update-ref', ref.value, head.value.stdout.trim()])
+    const trees = await this.#withScratchIndex(cwd, async (env) => {
+      // Fails on an unmerged index; such checkpoints restore the worktree only.
+      const index = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env, quiet: true })
+      const worktree = await this.#addAllAndWriteTree(cwd, env)
+      if (!worktree.ok) return worktree
+      return ok({ worktree: worktree.value, index: index.ok ? index.value.stdout.trim() : null })
+    })
+    if (!trees.ok) return trees
+    let parent: string | undefined
+    if (trees.value.index !== null) {
+      const indexCommit = await this.#commitTree(cwd, trees.value.index, CHECKPOINT_INDEX_MESSAGE)
+      if (!indexCommit.ok) return indexCommit
+      parent = indexCommit.value
+    }
+    const checkpoint = await this.#commitTree(cwd, trees.value.worktree, CHECKPOINT_MESSAGE, parent)
+    if (!checkpoint.ok) return checkpoint
+    const updated = await this.#run(cwd, ['update-ref', ref.value, checkpoint.value])
     if (!updated.ok) return updated
     return ok(ref.value)
   }
 
-  /** Lists captured checkpoints for a session in git's refname sort order. */
+  /** Tree of the full working tree — tracked, untracked, minus ignored. */
+  worktreeTree(cwd: string): Promise<Result<string, GitError>> {
+    return this.#withScratchIndex(cwd, (env) => this.#addAllAndWriteTree(cwd, env))
+  }
+
+  /**
+   * Runs `use` with `GIT_INDEX_FILE` pointing at a scratch copy of the real
+   * index, so the user's index is never touched.
+   */
+  async #withScratchIndex<T>(
+    cwd: string,
+    use: (env: NodeJS.ProcessEnv) => Promise<Result<T, GitError>>,
+  ): Promise<Result<T, GitError>> {
+    const index = await this.#run(cwd, ['rev-parse', '--git-path', 'index'])
+    if (!index.ok) return index
+    const scratch = await mkdtemp(join(tmpdir(), 'ari-index-'))
+    try {
+      const scratchIndex = join(scratch, 'index')
+      const env: NodeJS.ProcessEnv = { ...process.env, GIT_INDEX_FILE: scratchIndex }
+      // Seeding from the real index only spares re-hashing unchanged files.
+      await copyFile(resolve(cwd, index.value.stdout.trim()), scratchIndex).catch(() => undefined)
+      return await use(env)
+    } finally {
+      await rm(scratch, { recursive: true, force: true })
+    }
+  }
+
+  async #addAllAndWriteTree(
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<Result<string, GitError>> {
+    const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+    if (!added.ok) return added
+    const tree = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env })
+    return tree.ok ? ok(tree.value.stdout.trim()) : tree
+  }
+
+  async #commitTree(
+    cwd: string,
+    tree: string,
+    message: string,
+    parent?: string,
+  ): Promise<Result<string, GitError>> {
+    const args = ['commit-tree', '--no-gpg-sign', '-m', message, tree]
+    if (parent !== undefined) args.push('-p', parent)
+    const run = await this.#run(cwd, args, DEFAULT_MAX_BYTES, {
+      env: { ...process.env, ...CHECKPOINT_IDENTITY },
+    })
+    return run.ok ? ok(run.value.stdout.trim()) : run
+  }
+
+  /** Lists captured checkpoints for a session in refname order, not capture order. */
   async listCheckpoints(
     cwd: string,
     sessionId: string,
@@ -150,11 +233,16 @@ export class GitService {
   }
 
   /**
-   * Unified diff between a recorded revision and the current worktree
-   * (tracked files only). Output is capped at {@link DIFF_MAX_BYTES};
-   * larger diffs fail with code `diff_too_large`.
+   * Unified diff: against the current worktree (tracked files only) when only
+   * `gitRef` is given, or between `gitRef` and `against` when both revisions
+   * are supplied. Output is capped at {@link DIFF_MAX_BYTES}; larger diffs
+   * fail with code `diff_too_large`.
    */
-  async diffForRef(cwd: string, gitRef: string): Promise<Result<string, GitError>> {
+  async diffForRef(
+    cwd: string,
+    gitRef: string,
+    against?: string,
+  ): Promise<Result<string, GitError>> {
     const safe = assertSafeRev(gitRef)
     if (!safe.ok) return safe
     // Sessions on non-repo workspaces never have checkpoints; answer empty
@@ -162,7 +250,12 @@ export class GitService {
     const inside = await this.isRepo(cwd)
     if (!inside.ok) return inside
     if (!inside.value) return ok('')
-    const run = await this.#run(cwd, ['diff', gitRef], DIFF_MAX_BYTES)
+    if (against !== undefined) {
+      const safeAgainst = assertSafeRev(against)
+      if (!safeAgainst.ok) return safeAgainst
+    }
+    const args = against === undefined ? ['diff', gitRef] : ['diff', gitRef, against]
+    const run = await this.#run(cwd, args, DIFF_MAX_BYTES)
     if (!run.ok) {
       if (run.error.code === 'output_overflow') {
         return err({
@@ -176,39 +269,105 @@ export class GitService {
   }
 
   /**
-   * Restores every tracked file to its state at `gitRef` using
-   * `read-tree --reset -u`: index and worktree snap to the checkpoint tree,
-   * files deleted since the checkpoint reappear, later tracked edits vanish.
-   * Untracked files are intentionally left untouched (see tests).
+   * Restores the workspace directory `cwd` to its state at `gitRef`. Inside
+   * it, files snap back, files created since are deleted, deleted files
+   * reappear, and the real index is reset to the pre-turn staging; nothing
+   * outside `cwd` is touched and HEAD never moves. The index is restored only
+   * when `gitRef` is an Ari checkpoint whose sole parent is an
+   * `ari checkpoint index` commit; refs from older versions skip that step.
    */
   async revertToRef(cwd: string, gitRef: string): Promise<Result<void, GitError>> {
     const safe = assertSafeRev(gitRef)
     if (!safe.ok) return safe
-    const run = await this.#run(cwd, ['read-tree', '--reset', '-u', gitRef])
-    return run.ok ? ok(undefined) : run
+    const worktree = await this.#withScratchIndex(cwd, async (env) => {
+      const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+      if (!added.ok) return added
+      return this.#restoreScoped(cwd, gitRef, ['--staged', '--worktree'], env)
+    })
+    if (!worktree.ok) return worktree
+    const index = await this.#checkpointIndexParent(cwd, gitRef)
+    if (index === null) {
+      log.warn('checkpoint has no Ari index parent; index left as is', { ref: gitRef })
+      return ok(undefined)
+    }
+    return this.#restoreScoped(cwd, index, ['--staged'])
   }
 
   /**
-   * Deletes checkpoint refs so at most `maxPerSession` remain per session,
-   * keeping the newest by refname sort (turn ids are monotonic, so sort
-   * order is recency order). Returns the refs that were deleted. Failures
-   * on individual deletes are collected, not fatal — GC is best-effort.
+   * Oid of the index-parent commit behind `gitRef`, or `null` when the ref is
+   * not an Ari checkpoint whose sole parent is an `ari checkpoint index` commit.
+   */
+  async #checkpointIndexParent(cwd: string, gitRef: string): Promise<string | null> {
+    const commit = await this.#run(cwd, ['cat-file', 'commit', gitRef], DEFAULT_MAX_BYTES, {
+      quiet: true,
+    })
+    if (!commit.ok) return null
+    const checkpoint = parseCommit(commit.value.stdout)
+    const [parent, ...extra] = checkpoint.parents
+    if (parent === undefined || extra.length > 0 || checkpoint.message !== CHECKPOINT_MESSAGE) {
+      return null
+    }
+    const index = await this.#run(cwd, ['cat-file', 'commit', parent], DEFAULT_MAX_BYTES, {
+      quiet: true,
+    })
+    if (!index.ok) return null
+    const indexCommit = parseCommit(index.value.stdout)
+    if (indexCommit.parents.length !== 0) return null
+    return indexCommit.message === CHECKPOINT_INDEX_MESSAGE ? parent : null
+  }
+
+  /**
+   * `restore --source` limited to `cwd` (pathspec `.`). Skipped when nothing
+   * differs, which also covers a workspace with no entries on either side,
+   * where `restore` would reject the pathspec.
+   */
+  async #restoreScoped(
+    cwd: string,
+    source: string,
+    mode: string[],
+    env?: NodeJS.ProcessEnv,
+  ): Promise<Result<void, GitError>> {
+    // `diff-index --quiet` exits 1 when the index differs from `source`.
+    const diff = await this.#run(
+      cwd,
+      ['diff-index', '--cached', '--quiet', source, '--', '.'],
+      DEFAULT_MAX_BYTES,
+      { env, acceptConflict: true },
+    )
+    if (!diff.ok) return diff
+    if (diff.value.conflict !== true) return ok(undefined)
+    const restored = await this.#run(
+      cwd,
+      ['restore', `--source=${source}`, ...mode, '--', '.'],
+      DEFAULT_MAX_BYTES,
+      { env },
+    )
+    return restored.ok ? ok(undefined) : restored
+  }
+
+  /**
+   * Deletes checkpoint refs so at most `maxPerSession` remain per session.
+   * `turnIds` lists the session's checkpointed turns in capture order, oldest
+   * first; the last `maxPerSession` are kept and every other ref of the
+   * session is deleted. Returns the refs that were deleted. Failures on
+   * individual deletes are collected, not fatal — GC is best-effort.
    */
   async pruneCheckpoints(
     cwd: string,
     sessionId: string,
+    turnIds: readonly string[],
     maxPerSession: number,
   ): Promise<Result<string[], GitError>> {
-    if (!Number.isInteger(maxPerSession) || maxPerSession < 0) {
+    if (!Number.isInteger(maxPerSession) || maxPerSession < 1) {
       return err({ code: 'invalid_ref', message: `invalid cap: ${maxPerSession}` })
     }
     const listed = await this.listCheckpoints(cwd, sessionId)
     if (!listed.ok) return listed
-    if (listed.value.length <= maxPerSession) return ok([])
-    // for-each-ref sorts by refname; turn ids are monotonic, so the tail is newest.
-    const excess = listed.value.slice(0, listed.value.length - maxPerSession)
+    const keep = new Set(turnIds.slice(-maxPerSession))
     const deleted: string[] = []
-    for (const { ref } of excess) {
+    for (const { ref } of listed.value) {
+      const turnId = ref.slice(ref.lastIndexOf('/') + 1)
+      if (keep.has(turnId)) continue
       const run = await this.#run(cwd, ['update-ref', '-d', ref])
       if (run.ok) {
         deleted.push(ref)
@@ -373,6 +532,18 @@ function assertSafeRev(rev: string): Result<string, GitError> {
     return err({ code: 'invalid_ref', message: `unsafe revision: ${rev}` })
   }
   return ok(rev)
+}
+
+/** Splits a `cat-file commit` payload into its header lines and trimmed message. */
+function parseCommit(stdout: string): { parents: string[]; message: string } {
+  const lines = stdout.split('\n')
+  const blank = lines.indexOf('')
+  const headers = blank === -1 ? lines : lines.slice(0, blank)
+  const message = (blank === -1 ? '' : lines.slice(blank + 1).join('\n')).trim()
+  const parents = headers
+    .filter((line) => line.startsWith('parent '))
+    .map((line) => line.slice('parent '.length))
+  return { parents, message }
 }
 
 function parseStatus(stdout: string): GitStatus {
