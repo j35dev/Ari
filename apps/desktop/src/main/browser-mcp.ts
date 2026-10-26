@@ -38,10 +38,19 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {}
 }
 
-function textResult(
-  text: string,
-  isError = false,
-): { content: { type: 'text'; text: string }[]; isError?: boolean } {
+type BrowserMcpContent =
+  { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+
+interface BrowserMcpResult {
+  content: BrowserMcpContent[]
+  isError?: boolean
+}
+
+const MAX_KEY_HOLD_MS = 5000
+const DEFAULT_KEY_HOLD_MS = 50
+const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,'
+
+function textResult(text: string, isError = false): BrowserMcpResult {
   return { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) }
 }
 
@@ -89,6 +98,32 @@ export const BROWSER_MCP_TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'browser_screenshot',
+    description:
+      'JPEG screenshot of the in-app browser page. Use it to see canvas, WebGL, or game content that browser_snapshot cannot read.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'browser_key',
+    description:
+      'Press a key in the in-app browser page: key down, hold for holdMs, key up. Use it to play or test games.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: {
+          type: 'string',
+          description: 'Key name, e.g. ArrowRight, ArrowUp, Space, Enter, Escape, a',
+        },
+        holdMs: {
+          type: 'number',
+          description: `How long to hold the key, 0-${String(MAX_KEY_HOLD_MS)} ms (default ${String(DEFAULT_KEY_HOLD_MS)})`,
+        },
+      },
+      required: ['key'],
+      additionalProperties: false,
+    },
+  },
 ] as const
 
 export async function dispatchBrowserMcpTool(
@@ -96,7 +131,7 @@ export async function dispatchBrowserMcpTool(
   name: string,
   args: Record<string, unknown>,
   tabId = DEFAULT_TAB,
-): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> {
+): Promise<BrowserMcpResult> {
   try {
     if (!browsers.has(tabId)) await browsers.open(tabId)
     if (name === 'browser_status') {
@@ -134,6 +169,23 @@ export async function dispatchBrowserMcpTool(
         `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.focus(); if ('value' in el) el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event('input', { bubbles: true })); return true })()`,
       )
       return typed === true ? textResult('typed') : textResult(`no element for ${selector}`, true)
+    }
+    if (name === 'browser_screenshot') {
+      const still = await browsers.still(tabId)
+      if (still === null) return textResult('screenshot failed: the page returned no image', true)
+      return {
+        content: [
+          { type: 'image', data: still.slice(JPEG_DATA_URL_PREFIX.length), mimeType: 'image/jpeg' },
+        ],
+      }
+    }
+    if (name === 'browser_key') {
+      const key = typeof args['key'] === 'string' ? args['key'] : ''
+      if (!key) return textResult('key is required', true)
+      const hold = typeof args['holdMs'] === 'number' ? args['holdMs'] : DEFAULT_KEY_HOLD_MS
+      const holdMs = Math.min(MAX_KEY_HOLD_MS, Math.max(0, Number.isFinite(hold) ? hold : 0))
+      await browsers.key(tabId, key, holdMs)
+      return textResult(`pressed ${key} for ${String(holdMs)}ms`)
     }
     return textResult(`unknown tool ${name}`, true)
   } catch (error: unknown) {
@@ -177,7 +229,7 @@ async function handleRpc(
         capabilities: { tools: {} },
         serverInfo: { name: 'ari-browser', version: '0.1.0' },
         instructions:
-          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task. Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
+          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_screenshot and browser_key to see and play canvas or game pages. Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
       },
     }
   }
