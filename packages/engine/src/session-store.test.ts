@@ -239,11 +239,48 @@ describe('SessionStore', () => {
     expect(summary.totals.inputTokens).toBe(7)
     expect(summary.totals.outputTokens).toBe(3)
 
-    // The repair persisted as a v2 index carrying the token pair.
+    // The repair persisted as a current index carrying the token pair.
     const migrated = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
-    expect(migrated['version']).toBe(3)
+    expect(migrated['version']).toBe(4)
     expect(migrated['inputTokens']).toBe(7)
     expect(migrated['outputTokens']).toBe(3)
+  })
+
+  it('indexes what a session last said as its one-line roster preview', async () => {
+    await store.append(session.id, { type: 'session.created', session })
+    // Nothing said yet: the roster has no line to show.
+    expect((await store.listSessions())[0]?.lastMessagePreview).toBeNull()
+
+    await store.append(session.id, { type: 'turn.started', turnId: 'turn_1' })
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'msg_1',
+      parts: [
+        { type: 'thinking', text: 'weighing options' },
+        { type: 'text', text: 'Read  the   file' },
+        { type: 'text', text: '\nand fixed it.' },
+      ],
+    })
+    expect((await store.listSessions())[0]?.lastMessagePreview).toBe(
+      'Read the file and fixed it.',
+    )
+
+    // A turn that adds only reasoning is not something the session "said".
+    await store.append(session.id, {
+      type: 'assistant.parts.appended',
+      messageId: 'msg_2',
+      parts: [{ type: 'thinking', text: 'considering the failure' }],
+    })
+    expect((await store.listSessions())[0]?.lastMessagePreview).toBe(
+      'Read the file and fixed it.',
+    )
+
+    // Cold reader: the preview lives in the index, so it survives a restart
+    // without replaying the journal behind it.
+    const cold = new SessionStore({ rootDir })
+    expect((await cold.listSessions())[0]?.lastMessagePreview).toBe(
+      'Read the file and fixed it.',
+    )
   })
 
   it('destroy removes the journal directory entirely', async () => {
@@ -311,7 +348,8 @@ describe('SessionStore', () => {
       'utf8',
     )
 
-    // The stale version forces one authoritative replay that repairs to v3.
+    // The stale version forces one authoritative replay that repairs to the
+    // current index version.
     const fresh = new SessionStore({ rootDir })
     const list = await fresh.listSessions()
     expect(list).toHaveLength(1)
