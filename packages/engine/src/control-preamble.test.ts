@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import type { Session } from '@ari/contracts/session'
-import { controlPreamble } from './control-preamble'
+import { controlPreamble, sessionInstructions } from './control-preamble'
 
 const root: Session = {
   id: 'root',
@@ -59,4 +59,13 @@ it('does not promise a wake-up when automatic delivery is switched off', () => {
   const delegate = controlPreamble(child, 'Ship settings', 'prompt', false)
   expect(delegate).not.toContain('Ari delivers that report')
   expect(delegate).toContain('The parent reads that report')
+})
+
+it('puts a persona ahead of the control note and drops whatever is absent', () => {
+  const note = controlPreamble(root, null, 'system')
+  expect(sessionInstructions('You are Forge.', note)).toBe(`You are Forge.\n\n${note}`)
+  expect(sessionInstructions('You are Forge.', null)).toBe('You are Forge.')
+  expect(sessionInstructions(null, note)).toBe(note)
+  expect(sessionInstructions('  \n', null)).toBeNull()
+  expect(sessionInstructions(null, null)).toBeNull()
 })

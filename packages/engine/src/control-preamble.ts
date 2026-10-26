@@ -30,6 +30,18 @@ export function controlPreamble(
   return `[${session.parentSessionId ? 'Ari delegated session' : 'Ari control surface'}: added automatically by the Ari desktop app, not written by the user. The \`ari\` command is on PATH in your shell; call it as \`ari\`. ${body} Never disclose ARI_CONTROL_TOKEN.]`
 }
 
+/**
+ * Everything Ari tells the agent up front. A Hive bot's persona comes first so
+ * it sets who the agent is before the control note says what it can do.
+ */
+export function sessionInstructions(
+  persona: string | null,
+  preamble: string | null,
+): string | null {
+  const parts = [persona?.trim() || null, preamble].filter((part): part is string => part !== null)
+  return parts.length === 0 ? null : parts.join('\n\n')
+}
+
 function parentNote(delivers: boolean): string {
   const collect = delivers
     ? 'Children report back to you automatically when they finish, so end your turn rather than polling for them.'

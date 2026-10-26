@@ -57,6 +57,7 @@ import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
 import { listHubItems, viewHubItem } from './github-hub'
 import {
+  getBotStore,
   getEndpointStore,
   getProjectStore,
   getSessionStore,
@@ -984,6 +985,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       ...(await controlReady).environment(session),
       ...providerEnvironment(session.driverKind),
     }),
+    botPersona: async (botId) => (await getBotStore().get(botId))?.personaMd ?? null,
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     deliversResults: () => {
