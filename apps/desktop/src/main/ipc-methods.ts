@@ -16,6 +16,7 @@ export const IPC_METHODS = [
   'app.update.install',
   'session.list',
   'session.create',
+  'bots.list',
   'bots.create',
   'bots.setHidden',
   'session.load',
