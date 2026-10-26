@@ -69,6 +69,23 @@ rl.on('line', (line) => {
       })
       return
     }
+    if (msg.params?.name === 'shot') {
+      send({
+        jsonrpc: '2.0',
+        id: msg.id,
+        result: {
+          content: [
+            { type: 'text', text: 'captured' },
+            { type: 'image', data: 'A'.repeat(400000), mimeType: 'image/jpeg' },
+            { type: 'audio', data: 'A'.repeat(8192), mimeType: 'audio/wav' },
+            { type: 'resource', resource: { uri: 'file:///a.png', mimeType: 'image/png', blob: 'A'.repeat(4096) } },
+            { type: 'resource', resource: { uri: 'file:///a.txt', mimeType: 'text/plain', text: 'file body' } },
+            { type: 'resource_link', uri: 'file:///b.bin', name: 'b' },
+          ],
+        },
+      })
+      return
+    }
     const text = msg.params?.arguments?.text ?? ''
     send({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'echo: ' + text }] } })
     return
@@ -117,6 +134,31 @@ describe('McpConnection', () => {
       const script = await writeFakeServer(dir)
       connection = await McpConnection.connect(serverConfig(script), { cwd: dir })
       await expect(connection.callTool('boom', {})).rejects.toThrow(/kaboom/)
+    } finally {
+      await connection?.dispose()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('replaces non-text parts with short placeholders instead of base64', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-mcp-img-'))
+    let connection: McpConnection | null = null
+    try {
+      const script = await writeFakeServer(dir)
+      connection = await McpConnection.connect(serverConfig(script), { cwd: dir })
+      const result = await connection.callTool('shot', {})
+      expect(result).toBe(
+        [
+          'captured',
+          '[image: image/jpeg, 293 KB, not shown]',
+          '[audio: audio/wav, 6 KB, not shown]',
+          '[resource: image/png, 3 KB, not shown, uri=file:///a.png]',
+          'file body',
+          '[resource_link: unknown, not shown, uri=file:///b.bin]',
+        ].join('\n'),
+      )
+      expect(result).not.toContain('AAAA')
+      expect(result.length).toBeLessThan(250)
     } finally {
       await connection?.dispose()
       await rm(dir, { recursive: true, force: true })
