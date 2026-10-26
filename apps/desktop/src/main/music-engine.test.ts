@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { MusicEngine, classifyHelperError, errorCodeOf, videoIdFromUrl } from './music-engine'
 import { MusicRuntime, musicRuntimeTargetKey } from './music-runtime'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 const TRACK_URL = 'https://www.youtube.com/watch?v=abc123'
 
@@ -136,7 +138,7 @@ describe('MusicEngine', () => {
   })
 
   it('persists playlists as tiny source records across instances', async () => {
-    const data = await mkdtemp(join(tmpdir(), 'ari-music-playlists-'))
+    const data = tempDir('ari-music-playlists-')
     const env = { appPath: '/none', resourcesPath: '', userDataPath: data }
     const first = new MusicEngine({ env, runHelper: async () => ({ stdout: '{}' }) })
     const created = await first.createPlaylist('Evening', [
@@ -210,7 +212,7 @@ describe('MusicEngine runtime self-heal', () => {
   }
 
   async function setup() {
-    const root = await mkdtemp(join(tmpdir(), 'ari-music-heal-'))
+    const root = tempDir('ari-music-heal-')
     await mkdir(join(root, 'resources'), { recursive: true })
     await writeFile(
       join(root, 'resources', 'music-runtime.json'),
