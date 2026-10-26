@@ -429,4 +429,27 @@ describe('SessionStore', () => {
   it('rejects destroy of a missing session', async () => {
     await expect(store.destroy('sess_missing')).rejects.toMatchObject({ code: 'session_not_found' })
   })
+
+  // Two overlapping first opens used to build two journals for one session and
+  // leak the loser's file handle until GC (Node's fd-close warning, #332).
+  it('hands concurrent callers of a first open the same journal', async () => {
+    const [a, b] = await Promise.all([store.openJournal(session.id), store.openJournal(session.id)])
+    expect(a).toBe(b)
+    expect(await store.openJournal(session.id)).toBe(a)
+
+    await store.append(session.id, { type: 'session.created', session })
+    expect((await store.load(session.id)).session?.id).toBe(session.id)
+  })
+
+  it('closes a journal whose first open was still in flight', async () => {
+    const opening = store.openJournal(session.id)
+    const closing = store.closeJournal(session.id)
+    await Promise.all([opening, closing])
+
+    // The closed journal cannot append, so a later append must open a fresh one.
+    const reopened = await store.openJournal(session.id)
+    expect(reopened).not.toBe(await opening)
+    await store.append(session.id, { type: 'session.created', session })
+    expect((await store.load(session.id)).session?.id).toBe(session.id)
+  })
 })
