@@ -135,6 +135,8 @@ export const settingsSchema = z.object({
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
+      /** Shell shows the Hive roster instead of the session sidebar. */
+      hiveView: z.boolean().optional(),
     })
     .default(defaultAppearance),
   sessions: z
@@ -202,6 +204,7 @@ export const settingsUpdateSchema = z.object({
       mode: themeModeSchema,
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
+      hiveView: z.boolean(),
     })
     .partial()
     .optional(),
