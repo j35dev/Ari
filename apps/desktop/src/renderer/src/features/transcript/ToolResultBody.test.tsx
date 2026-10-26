@@ -201,6 +201,22 @@ describe('ToolResultBody MCP content', () => {
     expect(screen.getByText(/"path": "src\/a.ts"/)).toBeInTheDocument()
   })
 
+  it('keeps Codex inputText results on the JSON path', () => {
+    render(
+      <ToolResultBody
+        resultJson={JSON.stringify([{ type: 'inputText', text: 'hello from dynamic tool' }])}
+      />,
+    )
+    expect(screen.queryByText('Unsupported content')).toBeNull()
+    expect(screen.getByText(/"text": "hello from dynamic tool"/)).toBeInTheDocument()
+  })
+
+  it('keeps typed JSON arrays with non-MCP types on the JSON path', () => {
+    render(<ToolResultBody resultJson={JSON.stringify([{ type: 'file', path: 'src/a.ts' }])} />)
+    expect(screen.queryByText('Unsupported content')).toBeNull()
+    expect(screen.getByText(/"path": "src\/a.ts"/)).toBeInTheDocument()
+  })
+
   it('keeps text-only content results on the JSON path', () => {
     render(
       <ToolResultBody
