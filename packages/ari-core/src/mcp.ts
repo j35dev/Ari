@@ -68,9 +68,18 @@ function textFromContent(content: unknown): string {
   if (!Array.isArray(content)) return ''
   const parts: string[] = []
   for (const part of content) {
-    const record = asRecord(part)
-    if (record && typeof record['text'] === 'string') parts.push(record['text'])
-    else parts.push(JSON.stringify(part))
+    const record = asRecord(part) ?? {}
+    const inner = asRecord(record['resource']) ?? record
+    if (typeof record['text'] === 'string') parts.push(record['text'])
+    else if (typeof inner['text'] === 'string') parts.push(inner['text'])
+    else {
+      const mime = typeof inner['mimeType'] === 'string' ? inner['mimeType'] : 'unknown'
+      const blob = inner['data'] ?? inner['blob']
+      const size =
+        typeof blob === 'string' ? `, ${Math.round((blob.length * 3) / 4 / 1024)} KB` : ''
+      const type = typeof record['type'] === 'string' ? record['type'] : 'unknown'
+      parts.push(`[${type}: ${mime}${size}, not shown]`)
+    }
   }
   return parts.join('\n')
 }
