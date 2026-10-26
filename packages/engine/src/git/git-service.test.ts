@@ -3,7 +3,7 @@ import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { newTypedId } from '@ari/shared/ids'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DIFF_MAX_BYTES, GitService } from './git-service'
 
 let gitAvailable = true
@@ -24,6 +24,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
@@ -333,6 +334,9 @@ suite('GitService', () => {
 
   it('pruneCheckpoints keeps capture order for identical back-to-back captures (same second)', async () => {
     const dir = await initRepo()
+    // Checkpoints are commits, so pin their dates to keep every capture in one second.
+    vi.stubEnv('GIT_AUTHOR_DATE', '2026-01-01T00:00:00Z')
+    vi.stubEnv('GIT_COMMITTER_DATE', '2026-01-01T00:00:00Z')
     const turnIds: string[] = []
     const refs: string[] = []
     for (let i = 0; i < 8; i++) {
