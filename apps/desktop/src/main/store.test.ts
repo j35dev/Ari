@@ -2,10 +2,11 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let userData: string
 let folder: string
+const created: string[] = []
 
 const mocks = vi.hoisted(() => ({ getPath: vi.fn() }))
 
@@ -18,6 +19,7 @@ const { getProjectStore, loadProject } = await import('./store')
 
 beforeEach(async () => {
   userData = await mkdtemp(join(tmpdir(), 'ari-store-'))
+  created.push(userData)
   folder = join(userData, 'checkout')
   await mkdir(folder)
   mocks.getPath.mockReturnValue(userData)
@@ -25,6 +27,14 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+})
+
+// getProjectStore() is a module singleton, so it keeps the first test's
+// userData dir; later tests' add() recreate that dir after afterEach removes it.
+afterAll(async () => {
+  for (const dir of created) {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  }
 })
 
 describe('loadProject', () => {

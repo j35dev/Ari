@@ -273,6 +273,8 @@ function Shell() {
   )
   const sidebar = useSidebarWidth()
   const sidebarSearchRef = useRef<HTMLInputElement>(null)
+  // Lives here so switching to Hive view and back keeps the sidebar search.
+  const [sidebarQuery, setSidebarQuery] = useState('')
   const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -1103,6 +1105,8 @@ function Shell() {
                   projects={openProjects}
                   knownProjectNames={projects}
                   searchInputRef={sidebarSearchRef}
+                  searchQuery={sidebarQuery}
+                  onSearchQueryChange={setSidebarQuery}
                   onNewSession={beginNewSession}
                   onOpenProject={openProjectViaDialog}
                   onNewSessionInProject={(projectId) => createSession(projectId)}
