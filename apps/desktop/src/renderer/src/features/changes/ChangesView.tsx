@@ -33,6 +33,7 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
   const [scope, setScope] = useState<GitScope | null>(null)
   const [status, setStatus] = useState<StatusState | null>(null)
   const [diffText, setDiffText] = useState<string>('')
+  const [diffError, setDiffError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -69,8 +70,14 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
       .finally(() => setLoading(false))
     void rpc
       .invoke('git.diffWorktree', scope)
-      .then((r) => setDiffText(r.diffText))
-      .catch(() => undefined)
+      .then((r) => {
+        setDiffText(r.diffText)
+        setDiffError(r.error ?? null)
+      })
+      .catch((e: unknown) => {
+        setDiffError(e instanceof Error ? e.message : String(e))
+        setDiffText('')
+      })
   }, [scope])
 
   useEffect(refresh, [refresh])
@@ -128,7 +135,13 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
                 </li>
               ))}
             </ul>
-            {diffText.length > 0 ? <DiffViewer diffText={diffText} /> : null}
+            {diffError !== null ? (
+              <p role="alert" className="break-words text-xs text-danger">
+                Couldn't load the diff: {diffError}
+              </p>
+            ) : diffText.length > 0 ? (
+              <DiffViewer diffText={diffText} />
+            ) : null}
           </>
         )}
 
