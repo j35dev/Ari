@@ -10,8 +10,7 @@ import {
   type WheelEvent,
 } from 'react'
 import { flushSync } from 'react-dom'
-import { Check, Copy, Download, Maximize2, Pencil, X } from 'lucide-react'
-import { Dialog } from '@ari/ui/dialog'
+import { Check, Copy, Maximize2, Pencil } from 'lucide-react'
 import { Skeleton } from '@ari/ui/skeleton'
 import { pinnedAfterScroll } from './transcript-pin'
 import { splitBlocks } from './splitBlocks'
@@ -29,6 +28,7 @@ import { DelegationNotice } from './DelegationNotice'
 import { insertDelegationRows } from './delegation-rows'
 import { useLazyRows } from './use-lazy-rows'
 import { attachmentDataUrl } from './attachment-urls'
+import { ImagePreviewDialog } from './ImagePreviewDialog'
 import type {
   DelegatedChild,
   GroupedRow,
@@ -776,41 +776,14 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
         </div>
       </div>
 
-      <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
-        <Dialog.Content size="lg" className="overflow-hidden bg-surface-0">
-          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
-            <div className="min-w-0 flex-1">
-              <Dialog.Title className="truncate text-sm">{selected?.name ?? 'Image'}</Dialog.Title>
-              <Dialog.Description className="sr-only">Full-size image preview</Dialog.Description>
-            </div>
-            {selected !== null && typeof selectedUrl === 'string' ? (
-              <a
-                href={selectedUrl}
-                download={selected.name}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 text-xs font-medium text-fg transition-colors hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-              >
-                <Download size={13} aria-hidden="true" />
-                Download
-              </a>
-            ) : null}
-            <Dialog.Close
-              aria-label="Close image preview"
-              className="flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <X size={15} aria-hidden="true" />
-            </Dialog.Close>
-          </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-surface-0 p-4">
-            {selected !== null && typeof selectedUrl === 'string' ? (
-              <img
-                src={selectedUrl}
-                alt={`Full-size ${selected.name}`}
-                className="max-h-full max-w-full object-contain shadow-2"
-              />
-            ) : null}
-          </div>
-        </Dialog.Content>
-      </Dialog>
+      <ImagePreviewDialog
+        image={
+          selected !== null && typeof selectedUrl === 'string'
+            ? { name: selected.name, url: selectedUrl }
+            : null
+        }
+        onClose={() => setSelected(null)}
+      />
     </>
   )
 }
