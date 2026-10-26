@@ -28,7 +28,7 @@ const BODY_CLASS = 'overflow-auto border-t border-border bg-surface-0 p-2 font-m
 
 type McpContentItem = { kind: 'text'; text: string } | { kind: 'placeholder'; label: string }
 
-const MCP_CONTENT_TYPES = new Set(['text', 'image', 'audio', 'resource', 'resource_link'])
+const MCP_CONTENT_TYPES = new Set(['text', 'image', 'audio'])
 
 function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; text: string } {
   return block.type === 'text' && typeof block.text === 'string'
@@ -36,12 +36,11 @@ function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; t
 
 /**
  * Image blocks (MCP `data`/`mimeType` or Anthropic `source`) are never decoded
- * here: the provider pipeline promotes them to the transcript image row, so
- * the card only points at it and no base64 reaches the DOM.
+ * here, so no base64 reaches the DOM.
  */
 function toContentItem(block: Record<string, unknown>): McpContentItem {
   if (isTextBlock(block)) return { kind: 'text', text: block.text }
-  if (block.type === 'image') return { kind: 'placeholder', label: 'Image shown below' }
+  if (block.type === 'image') return { kind: 'placeholder', label: 'Image' }
   return { kind: 'placeholder', label: 'Unsupported content' }
 }
 
@@ -71,9 +70,9 @@ function mcpContentItems(parsed: unknown): McpContentItem[] | null {
 
 /**
  * Result card body: shared DiffViewer when the payload is a unified diff,
- * text and placeholders for MCP content (images show in the image row), otherwise
- * Shiki-highlighted JSON or plain terminal text — copyable, and expandable
- * past the collapsed clip when the output is long.
+ * text and placeholders for MCP content, otherwise Shiki-highlighted JSON or
+ * plain terminal text — copyable, and expandable past the collapsed clip when
+ * the output is long.
  */
 export function ToolResultBody({ resultJson }: { resultJson: string }) {
   const isDiff = useMemo(() => looksLikeUnifiedDiff(resultJson), [resultJson])

@@ -93,7 +93,7 @@ describe('ToolResultBody MCP content', () => {
         })}
       />,
     )
-    expect(screen.getByText('Image shown below')).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
     expect(container.textContent).not.toContain(PNG_BASE64)
@@ -113,7 +113,7 @@ describe('ToolResultBody MCP content', () => {
         })}
       />,
     )
-    expect(screen.getByText('Image shown below')).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
     expect(container.textContent).not.toContain(PNG_BASE64)
@@ -132,7 +132,7 @@ describe('ToolResultBody MCP content', () => {
       />,
     )
     expect(screen.getByText('Captured https://example.com')).toBeInTheDocument()
-    expect(screen.getByText('Image shown below')).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
     expect(container.textContent).not.toContain(PNG_BASE64)
@@ -143,33 +143,49 @@ describe('ToolResultBody MCP content', () => {
     const { container } = render(
       <ToolResultBody
         resultJson={JSON.stringify([
-          { type: 'resource', resource: { uri: 'file:///a.txt' } },
+          { type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' },
           { type: 'image', data: PNG_BASE64, mimeType: 'image/jpeg' },
         ])}
       />,
     )
     expect(screen.getByText('Unsupported content')).toBeInTheDocument()
-    expect(screen.getByText('Image shown below')).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
     expect(document.body.innerHTML).not.toContain(PNG_BASE64)
   })
 
-  it.each([
-    ['audio-only', [{ type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' }]],
-    [
-      'resource-blob',
-      [
-        {
-          type: 'resource',
-          resource: { uri: 'file:///a.png', mimeType: 'image/png', blob: PNG_BASE64 },
-        },
-      ],
-    ],
-  ])('shows a placeholder for an %s result without leaking base64', (_, content) => {
-    const { container } = render(<ToolResultBody resultJson={JSON.stringify({ content })} />)
+  it('shows a placeholder for an audio-only result without leaking base64', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [{ type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' }],
+        })}
+      />,
+    )
     expect(screen.getByText('Unsupported content')).toBeInTheDocument()
     expect(container.textContent).not.toContain(PNG_BASE64)
+  })
+
+  it('keeps text resources and resource links on the JSON path', () => {
+    render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [
+            { type: 'text', text: 'see link' },
+            {
+              type: 'resource',
+              resource: { uri: 'file:///a.ts', mimeType: 'text/plain', text: 'FILE_BODY' },
+            },
+            { type: 'resource_link', uri: 'file:///b.md', name: 'b.md' },
+          ],
+        })}
+      />,
+    )
+    expect(screen.queryByText('Unsupported content')).toBeNull()
+    expect(screen.getByText(/FILE_BODY/)).toBeInTheDocument()
+    expect(screen.getByText(/file:\/\/\/a.ts/)).toBeInTheDocument()
+    expect(screen.getByText(/file:\/\/\/b.md/)).toBeInTheDocument()
   })
 
   it('shows text beside a placeholder for mixed text and audio content', () => {
