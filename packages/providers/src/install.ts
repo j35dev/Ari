@@ -156,18 +156,28 @@ function sanitizeNpmEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return next
 }
 
-/** A bounded ring of the most recent N bytes, with overflow tracking. */
-function ringTail(maxBytes: number) {
+/**
+ * A bounded ring of the most recent N bytes, with overflow tracking.
+ *
+ * Exported so its contract can be pinned without a child process: whether the
+ * stream overflowed is a property of the bytes it produced, never of the reads
+ * that happened to carry them.
+ */
+export function ringTail(maxBytes: number) {
   let buffer = ''
+  let totalBytes = 0
   let overflowed = false
   return {
     overflowed: (): boolean => overflowed,
     push(chunk: string, emit: (event: InstallEvent) => void, stream: 'stdout' | 'stderr'): void {
       buffer += chunk
-      if (buffer.length > maxBytes) {
-        overflowed = true
-        buffer = buffer.slice(buffer.length - maxBytes)
-      }
+      // Count the whole stream, not the current read. A pipe coalesces writes
+      // per platform — one large read on Linux, one read per line on Windows —
+      // so comparing the buffer alone made this flag, and the "output
+      // truncated" the UI shows with it, depend on the chunk size.
+      totalBytes += chunk.length
+      if (totalBytes > maxBytes) overflowed = true
+      if (buffer.length > maxBytes) buffer = buffer.slice(buffer.length - maxBytes)
       // Emit line-by-line so the UI gets progress, not raw chunks.
       let index = buffer.indexOf('\n')
       let cursor = 0
