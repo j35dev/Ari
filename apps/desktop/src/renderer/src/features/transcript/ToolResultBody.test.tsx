@@ -80,3 +80,165 @@ describe('ToolResultBody', () => {
     expect(screen.queryByText(/Show more/)).not.toBeInTheDocument()
   })
 })
+
+describe('ToolResultBody MCP content', () => {
+  const PNG_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+  it('shows a placeholder for an MCP image block without rendering its data', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [{ type: 'image', data: PNG_BASE64, mimeType: 'image/png' }],
+        })}
+      />,
+    )
+    expect(screen.getByText('Image')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+  })
+
+  it('shows a placeholder for an Anthropic image block without rendering its data', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: 'image/png', data: PNG_BASE64 },
+            },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText('Image')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+  })
+
+  it('shows text beside an MCP image placeholder without rendering an image', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [
+            { type: 'text', text: 'Captured https://example.com' },
+            { type: 'image', data: PNG_BASE64, mimeType: 'image/png' },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText('Captured https://example.com')).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+  })
+
+  it('shows a placeholder for non-text, non-image blocks beside an image', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify([
+          { type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' },
+          { type: 'image', data: PNG_BASE64, mimeType: 'image/jpeg' },
+        ])}
+      />,
+    )
+    expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(screen.getByText('Image')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+  })
+
+  it('shows a placeholder for an audio-only result without leaking base64', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [{ type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' }],
+        })}
+      />,
+    )
+    expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+  })
+
+  it('keeps text resources and resource links on the JSON path', () => {
+    render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [
+            { type: 'text', text: 'see link' },
+            {
+              type: 'resource',
+              resource: { uri: 'file:///a.ts', mimeType: 'text/plain', text: 'FILE_BODY' },
+            },
+            { type: 'resource_link', uri: 'file:///b.md', name: 'b.md' },
+          ],
+        })}
+      />,
+    )
+    expect(screen.queryByText('Unsupported content')).toBeNull()
+    expect(screen.getByText(/FILE_BODY/)).toBeInTheDocument()
+    expect(screen.getByText(/file:\/\/\/a.ts/)).toBeInTheDocument()
+    expect(screen.getByText(/file:\/\/\/b.md/)).toBeInTheDocument()
+  })
+
+  it('shows text beside a placeholder for mixed text and audio content', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify([
+          { type: 'text', text: 'Recorded clip' },
+          { type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' },
+        ])}
+      />,
+    )
+    expect(screen.getByText('Recorded clip')).toBeInTheDocument()
+    expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+  })
+
+  it('treats a text-typed block without string text as unsupported', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({ content: [{ type: 'text', data: PNG_BASE64 }] })}
+      />,
+    )
+    expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+  })
+
+  it('keeps plain JSON arrays of untyped objects on the JSON path', () => {
+    render(<ToolResultBody resultJson={JSON.stringify([{ path: 'src/a.ts' }])} />)
+    expect(screen.getByText(/"path": "src\/a.ts"/)).toBeInTheDocument()
+  })
+
+  it('keeps Codex inputText results on the JSON path', () => {
+    render(
+      <ToolResultBody
+        resultJson={JSON.stringify([{ type: 'inputText', text: 'hello from dynamic tool' }])}
+      />,
+    )
+    expect(screen.queryByText('Unsupported content')).toBeNull()
+    expect(screen.getByText(/"text": "hello from dynamic tool"/)).toBeInTheDocument()
+  })
+
+  it('keeps typed JSON arrays with non-MCP types on the JSON path', () => {
+    render(<ToolResultBody resultJson={JSON.stringify([{ type: 'file', path: 'src/a.ts' }])} />)
+    expect(screen.queryByText('Unsupported content')).toBeNull()
+    expect(screen.getByText(/"path": "src\/a.ts"/)).toBeInTheDocument()
+  })
+
+  it('keeps text-only content results on the JSON path', () => {
+    render(
+      <ToolResultBody
+        resultJson={JSON.stringify({ content: [{ type: 'text', text: 'hello' }] })}
+      />,
+    )
+    expect(screen.getByText(/"text": "hello"/)).toBeInTheDocument()
+  })
+})
