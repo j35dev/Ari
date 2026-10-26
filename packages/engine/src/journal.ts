@@ -48,8 +48,12 @@ export class Journal<T> {
     }
   }
 
-  /** Opens (or creates) the journal and positions the active segment. */
+  /**
+   * Opens (or creates) the journal and positions the active segment. A second
+   * call closes the handle it already holds, so reopening never leaks one.
+   */
   async open(): Promise<void> {
+    await this.close()
     await mkdir(this.#opts.dir, { recursive: true })
     const segments = await this.#listSegments()
     if (segments.length === 0) {
