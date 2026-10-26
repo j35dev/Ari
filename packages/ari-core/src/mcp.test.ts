@@ -152,13 +152,13 @@ describe('McpConnection', () => {
           'captured',
           '[image: image/jpeg, 293 KB, not shown]',
           '[audio: audio/wav, 6 KB, not shown]',
-          '[resource: image/png, 3 KB, not shown]',
+          '[resource: image/png, 3 KB, not shown, uri=file:///a.png]',
           'file body',
-          '[resource_link: unknown, not shown]',
+          '[resource_link: unknown, not shown, uri=file:///b.bin]',
         ].join('\n'),
       )
       expect(result).not.toContain('AAAA')
-      expect(result.length).toBeLessThan(200)
+      expect(result.length).toBeLessThan(250)
     } finally {
       await connection?.dispose()
       await rm(dir, { recursive: true, force: true })
