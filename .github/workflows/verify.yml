@@ -36,11 +36,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No `packageManager` field in root package.json, so pin explicitly.
-      # Lockfile is lockfileVersion 9.0 (pnpm >= 9); local dev runs pnpm 10.x.
+      # The version comes from `packageManager` in the root package.json, so CI
+      # and a contributor's machine resolve the same pnpm. Naming it here too
+      # makes pnpm/action-setup fail on a mismatch instead.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
