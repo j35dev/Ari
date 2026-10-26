@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -10,6 +9,9 @@ import {
   resolveAcpLaunch,
 } from './launches'
 import type { DetectEnvironment } from '../types'
+import { useTempDirs } from '../testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 const ENV: DetectEnvironment = {
   platform: process.platform === 'win32' ? 'win32' : 'linux',
@@ -105,7 +107,7 @@ describe('resolveAcpLaunch', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' })
       const npxPath = await makeFakeNpx()
       const env = { ...ENV, pathEnv: dirname(npxPath) }
-      const npmDir = await mkdtemp(join(tmpdir(), 'ari-claude-shim-'))
+      const npmDir = await tempDir('ari-claude-shim-')
       const packaged = join(npmDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin')
       await mkdir(packaged, { recursive: true })
       await writeFile(join(packaged, 'claude.exe'), '')
@@ -267,7 +269,7 @@ describe('findNpxCommand', () => {
 
 /** Creates a temp dir containing a fake npx so resolution has a real hit. */
 async function makeFakeNpx(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'ari-npx-'))
+  const dir = await tempDir('ari-npx-')
   const name = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   const path = join(dir, name)
   await writeFile(path, '@echo off\n', 'utf8')
