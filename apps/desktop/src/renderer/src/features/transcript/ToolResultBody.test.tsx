@@ -158,6 +158,52 @@ describe('ToolResultBody MCP content', () => {
     expect(screen.getByAltText('Tool result image 2')).toBeInTheDocument()
   })
 
+  it.each([
+    ['audio-only', [{ type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' }]],
+    [
+      'resource-blob',
+      [
+        {
+          type: 'resource',
+          resource: { uri: 'file:///a.png', mimeType: 'image/png', blob: PNG_BASE64 },
+        },
+      ],
+    ],
+  ])('shows a placeholder for an %s result without leaking base64', (_, content) => {
+    const { container } = render(<ToolResultBody resultJson={JSON.stringify({ content })} />)
+    expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+  })
+
+  it('shows text beside a placeholder for mixed text and audio content', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify([
+          { type: 'text', text: 'Recorded clip' },
+          { type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' },
+        ])}
+      />,
+    )
+    expect(screen.getByText('Recorded clip')).toBeInTheDocument()
+    expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+  })
+
+  it('treats a text-typed block without string text as unsupported', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({ content: [{ type: 'text', data: PNG_BASE64 }] })}
+      />,
+    )
+    expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(container.textContent).not.toContain(PNG_BASE64)
+  })
+
+  it('keeps plain JSON arrays of untyped objects on the JSON path', () => {
+    render(<ToolResultBody resultJson={JSON.stringify([{ path: 'src/a.ts' }])} />)
+    expect(screen.getByText(/"path": "src\/a.ts"/)).toBeInTheDocument()
+  })
+
   it('keeps text-only content results on the JSON path', () => {
     render(
       <ToolResultBody
