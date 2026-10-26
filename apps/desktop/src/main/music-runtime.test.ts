@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -12,6 +11,9 @@ import {
   type MusicRuntimeEnvironment,
   type MusicRuntimeManifest,
 } from './music-runtime'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 const PAYLOAD = Buffer.from('fake-helper-binary')
 const PAYLOAD_SHA = createHash('sha256').update(PAYLOAD).digest('hex')
@@ -30,7 +32,7 @@ function manifestDoc(version: string, sha: string, url = 'https://example.invali
 }
 
 async function fixtureRoot(bundled: MusicRuntimeManifest = manifestDoc('9.9.9', PAYLOAD_SHA)): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'ari-music-runtime-'))
+  const root = tempDir('ari-music-runtime-')
   await mkdir(join(root, 'resources'), { recursive: true })
   await writeFile(join(root, 'resources', 'music-runtime.json'), JSON.stringify(bundled))
   return root
@@ -119,7 +121,7 @@ describe('MusicRuntime', () => {
   })
 
   it('returns null for a malformed manifest', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ari-music-bad-'))
+    const root = tempDir('ari-music-bad-')
     await mkdir(join(root, 'resources'), { recursive: true })
     await writeFile(join(root, 'resources', 'music-runtime.json'), '{oops')
     const runtime = new MusicRuntime({ resourcesPath: '', appPath: root, userDataPath: join(root, 'data') })

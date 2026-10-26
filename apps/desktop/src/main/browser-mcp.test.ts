@@ -1,9 +1,10 @@
-import { mkdtemp, readFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BrowserService, type BrowserGuest } from './browser-service'
 import { dispatchBrowserMcpTool, startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
+import { useTempDirs } from './testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 function guest(): BrowserGuest {
   let url = 'about:blank'
@@ -131,7 +132,7 @@ describe('dispatchBrowserMcpTool', () => {
 
 describe('writeBrowserMcpProxy', () => {
   it('writes a stdio proxy the ACP agent can spawn', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-mcp-'))
+    const dir = tempDir('ari-mcp-')
     const path = await writeBrowserMcpProxy(dir)
     const source = await readFile(path, 'utf8')
     expect(source).toContain('ARI_BROWSER_MCP_URL')
