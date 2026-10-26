@@ -78,7 +78,13 @@ function textFromContent(content: unknown): string {
       const size =
         typeof blob === 'string' ? `, ${Math.round((blob.length * 3) / 4 / 1024)} KB` : ''
       const type = typeof record['type'] === 'string' ? record['type'] : 'unknown'
-      parts.push(`[${type}: ${mime}${size}, not shown]`)
+      const uri =
+        typeof inner['uri'] === 'string'
+          ? `, uri=${inner['uri']}`
+          : typeof record['uri'] === 'string'
+            ? `, uri=${record['uri']}`
+            : ''
+      parts.push(`[${type}: ${mime}${size}, not shown${uri}]`)
     }
   }
   return parts.join('\n')
