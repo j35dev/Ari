@@ -441,6 +441,7 @@ describe('engine end-to-end with scripted driver', () => {
     const registry = new DriverRegistry()
     registry.register(scriptedDriver({ echo: 'gc run' }))
     const prunedRefs = ['refs/ari/sess_gc_e2e/turn_old1', 'refs/ari/sess_gc_e2e/turn_old2']
+    const pruneCalls: { turnIds: readonly string[]; maxPerSession: number }[] = []
     const engine = new Engine({
       store,
       registry,
@@ -450,7 +451,10 @@ describe('engine end-to-end with scripted driver', () => {
           ok: true,
           value: 'refs/ari/sess_gc_e2e/turn_new',
         }),
-        pruneCheckpoints: async () => ({ ok: true, value: [...prunedRefs] }),
+        pruneCheckpoints: async (_cwd, _sessionId, turnIds, maxPerSession) => {
+          pruneCalls.push({ turnIds, maxPerSession })
+          return { ok: true, value: [...prunedRefs] }
+        },
       },
     })
 
@@ -473,6 +477,8 @@ describe('engine end-to-end with scripted driver', () => {
     const events = published.filter((p) => p.sessionId === sessionId).map((p) => p.event)
     const captured = events.find((e) => e.type === 'checkpoint.captured')
     expect(captured).toBeDefined()
+    // GC is told the capture order, ending with the checkpoint just captured.
+    expect(pruneCalls).toEqual([{ turnIds: [captured?.turnId], maxPerSession: 50 }])
     const prunedEvents = events.filter((e) => e.type === 'checkpoint.pruned')
     expect(prunedEvents.map((e) => e.gitRef)).toEqual(prunedRefs)
     expect(prunedEvents[0]?.turnId).toBe('turn_old1')
