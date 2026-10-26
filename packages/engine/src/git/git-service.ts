@@ -23,6 +23,9 @@ const CHECKPOINT_IDENTITY = {
   GIT_COMMITTER_EMAIL: 'ari@localhost',
 }
 
+const CHECKPOINT_MESSAGE = 'ari checkpoint'
+const CHECKPOINT_INDEX_MESSAGE = 'ari checkpoint index'
+
 const NAME_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 const SAFE_REV = /^[A-Za-z0-9._/-]+$/
 
@@ -119,9 +122,10 @@ export class GitService {
    * Captures a checkpoint: creates `refs/ari/<sessionId>/<turnId>` pointing at
    * a commit whose tree is the working tree as it is now (uncommitted and
    * untracked changes included) and whose parent (when the index has no
-   * conflicts) is a commit of the pre-turn index tree. HEAD and the real index
-   * are never written, and this works before the first commit. Resolves `null`
-   * outside a git repo so callers degrade gracefully.
+   * conflicts) is a commit of the pre-turn index tree tagged
+   * `ari checkpoint index`. HEAD and the real index are never written, and this
+   * works before the first commit. Resolves `null` outside a git repo so
+   * callers degrade gracefully.
    */
   async captureCheckpoint(
     cwd: string,
@@ -143,11 +147,11 @@ export class GitService {
     if (!trees.ok) return trees
     let parent: string | undefined
     if (trees.value.index !== null) {
-      const indexCommit = await this.#commitTree(cwd, trees.value.index)
+      const indexCommit = await this.#commitTree(cwd, trees.value.index, CHECKPOINT_INDEX_MESSAGE)
       if (!indexCommit.ok) return indexCommit
       parent = indexCommit.value
     }
-    const checkpoint = await this.#commitTree(cwd, trees.value.worktree, parent)
+    const checkpoint = await this.#commitTree(cwd, trees.value.worktree, CHECKPOINT_MESSAGE, parent)
     if (!checkpoint.ok) return checkpoint
     const updated = await this.#run(cwd, ['update-ref', ref.value, checkpoint.value])
     if (!updated.ok) return updated
@@ -191,8 +195,13 @@ export class GitService {
     return tree.ok ? ok(tree.value.stdout.trim()) : tree
   }
 
-  async #commitTree(cwd: string, tree: string, parent?: string): Promise<Result<string, GitError>> {
-    const args = ['commit-tree', '--no-gpg-sign', '-m', 'ari checkpoint', tree]
+  async #commitTree(
+    cwd: string,
+    tree: string,
+    message: string,
+    parent?: string,
+  ): Promise<Result<string, GitError>> {
+    const args = ['commit-tree', '--no-gpg-sign', '-m', message, tree]
     if (parent !== undefined) args.push('-p', parent)
     const run = await this.#run(cwd, args, DEFAULT_MAX_BYTES, {
       env: { ...process.env, ...CHECKPOINT_IDENTITY },
@@ -263,9 +272,9 @@ export class GitService {
    * Restores the workspace directory `cwd` to its state at `gitRef`. Inside
    * it, files snap back, files created since are deleted, deleted files
    * reappear, and the real index is reset to the pre-turn staging; nothing
-   * outside `cwd` is touched and HEAD never moves. `gitRef` is a checkpoint
-   * commit whose tree is the captured working tree and whose parent (when the
-   * index had no conflicts) is a commit of the pre-turn index tree.
+   * outside `cwd` is touched and HEAD never moves. The index is restored only
+   * when `gitRef` is an Ari checkpoint whose sole parent is an
+   * `ari checkpoint index` commit; refs from older versions skip that step.
    */
   async revertToRef(cwd: string, gitRef: string): Promise<Result<void, GitError>> {
     const safe = assertSafeRev(gitRef)
@@ -276,14 +285,35 @@ export class GitService {
       return this.#restoreScoped(cwd, gitRef, ['--staged', '--worktree'], env)
     })
     if (!worktree.ok) return worktree
-    const index = await this.#run(
-      cwd,
-      ['rev-parse', '--verify', '--quiet', `${gitRef}^`],
-      DEFAULT_MAX_BYTES,
-      { quiet: true },
-    )
-    if (!index.ok) return ok(undefined)
-    return this.#restoreScoped(cwd, index.value.stdout.trim(), ['--staged'])
+    const index = await this.#checkpointIndexParent(cwd, gitRef)
+    if (index === null) {
+      log.warn('checkpoint has no Ari index parent; index left as is', { ref: gitRef })
+      return ok(undefined)
+    }
+    return this.#restoreScoped(cwd, index, ['--staged'])
+  }
+
+  /**
+   * Oid of the index-parent commit behind `gitRef`, or `null` when the ref is
+   * not an Ari checkpoint whose sole parent is an `ari checkpoint index` commit.
+   */
+  async #checkpointIndexParent(cwd: string, gitRef: string): Promise<string | null> {
+    const commit = await this.#run(cwd, ['cat-file', 'commit', gitRef], DEFAULT_MAX_BYTES, {
+      quiet: true,
+    })
+    if (!commit.ok) return null
+    const checkpoint = parseCommit(commit.value.stdout)
+    const [parent, ...extra] = checkpoint.parents
+    if (parent === undefined || extra.length > 0 || checkpoint.message !== CHECKPOINT_MESSAGE) {
+      return null
+    }
+    const index = await this.#run(cwd, ['cat-file', 'commit', parent], DEFAULT_MAX_BYTES, {
+      quiet: true,
+    })
+    if (!index.ok) return null
+    const indexCommit = parseCommit(index.value.stdout)
+    if (indexCommit.parents.length !== 0) return null
+    return indexCommit.message === CHECKPOINT_INDEX_MESSAGE ? parent : null
   }
 
   /**
@@ -502,6 +532,18 @@ function assertSafeRev(rev: string): Result<string, GitError> {
     return err({ code: 'invalid_ref', message: `unsafe revision: ${rev}` })
   }
   return ok(rev)
+}
+
+/** Splits a `cat-file commit` payload into its header lines and trimmed message. */
+function parseCommit(stdout: string): { parents: string[]; message: string } {
+  const lines = stdout.split('\n')
+  const blank = lines.indexOf('')
+  const headers = blank === -1 ? lines : lines.slice(0, blank)
+  const message = (blank === -1 ? '' : lines.slice(blank + 1).join('\n')).trim()
+  const parents = headers
+    .filter((line) => line.startsWith('parent '))
+    .map((line) => line.slice('parent '.length))
+  return { parents, message }
 }
 
 function parseStatus(stdout: string): GitStatus {
