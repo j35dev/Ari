@@ -1,9 +1,11 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { listPiSessions, piCwdFolder, piSessionsDir, readPiTranscript } from './sessions'
 import type { DetectEnvironment } from '../types'
+import { useTempDirs } from '../testing/temp-dirs'
+
+const tempDir = useTempDirs()
 
 const FIXTURE = join(__dirname, '__fixtures__', 'session-tree.jsonl')
 
@@ -79,7 +81,7 @@ describe('readPiTranscript', () => {
   })
 
   it('falls back to the first user message when the session is unnamed', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-pi-sess-'))
+    const dir = await tempDir('ari-pi-sess-')
     const path = join(dir, 'x.jsonl')
     await writeFile(
       path,
@@ -93,7 +95,7 @@ describe('readPiTranscript', () => {
   })
 
   it('maps a user-run bash execution to a call plus its result', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-pi-sess-'))
+    const dir = await tempDir('ari-pi-sess-')
     const path = join(dir, 'bash.jsonl')
     await writeFile(
       path,
@@ -109,7 +111,7 @@ describe('readPiTranscript', () => {
   })
 
   it('survives a truncated final line and answers null for a non-session file', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ari-pi-sess-'))
+    const dir = await tempDir('ari-pi-sess-')
     const truncated = join(dir, 'partial.jsonl')
     await writeFile(
       truncated,
@@ -131,7 +133,7 @@ describe('readPiTranscript', () => {
 
 describe('listPiSessions', () => {
   it('lists sessions newest first and filters by working directory', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ari-pi-root-'))
+    const root = await tempDir('ari-pi-root-')
     const env: DetectEnvironment = { ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: root } }
 
     await writeSession(root, '--D--Projects-Ari--', 'one.jsonl', 'D:\\Projects\\Ari', 'first')
@@ -147,7 +149,7 @@ describe('listPiSessions', () => {
   })
 
   it('treats Pi folder encoding as a hint rather than a filter', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ari-pi-root-'))
+    const root = await tempDir('ari-pi-root-')
     const env: DetectEnvironment = { ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: root } }
     await writeSession(root, '--future-encoding--', 'one.jsonl', '/workspace', 'still found')
 
@@ -157,7 +159,7 @@ describe('listPiSessions', () => {
   })
 
   it('skips a corrupt file instead of hiding the rest of the history', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ari-pi-root-'))
+    const root = await tempDir('ari-pi-root-')
     const env: DetectEnvironment = { ...ENV, vars: { PI_CODING_AGENT_SESSION_DIR: root } }
     await writeSession(root, '--w--', 'good.jsonl', '/w', 'kept')
     await writeFile(join(root, '--w--', 'bad.jsonl'), 'not json at all\n', 'utf8')
