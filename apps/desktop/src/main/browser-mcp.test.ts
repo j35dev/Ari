@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BrowserService, type BrowserGuest } from './browser-service'
 import { dispatchBrowserMcpTool, startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
 import { useTempDirs } from './testing/temp-dirs'
@@ -25,22 +25,108 @@ function guest(): BrowserGuest {
       return { url, title: 'Example', text: 'hi', elements: [] }
     }),
     capturePage: vi.fn(async () => null),
+    sendKey: vi.fn(),
     setBounds: vi.fn(),
     setVisible: vi.fn(),
     destroy: vi.fn(),
   }
 }
 
+function text(result: Awaited<ReturnType<typeof dispatchBrowserMcpTool>>): string {
+  const first = result.content[0]
+  return first?.type === 'text' ? first.text : ''
+}
+
 describe('dispatchBrowserMcpTool', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('navigates and snapshots the shared guest', async () => {
     const service = new BrowserService(() => guest(), vi.fn())
     const nav = await dispatchBrowserMcpTool(service, 'browser_navigate', { url: 'example.com' })
     expect(nav.isError).toBeUndefined()
-    expect(nav.content[0]?.text).toContain('https://example.com')
+    expect(text(nav)).toContain('https://example.com')
     const snap = await dispatchBrowserMcpTool(service, 'browser_snapshot', {})
-    expect(snap.content[0]?.text).toContain('Example')
+    expect(text(snap)).toContain('Example')
     const bad = await dispatchBrowserMcpTool(service, 'browser_navigate', { url: 'file:///x' })
     expect(bad.isError).toBe(true)
+  })
+
+  it('returns a screenshot as a bare base64 image block', async () => {
+    const g = guest()
+    const capturePage = vi.fn(async () => Buffer.from('jpeg'))
+    g.capturePage = capturePage
+    const service = new BrowserService(() => g, vi.fn())
+    const shot = await dispatchBrowserMcpTool(service, 'browser_screenshot', {})
+    expect(shot.isError).toBeUndefined()
+    expect(shot.content).toEqual([
+      { type: 'image', data: Buffer.from('jpeg').toString('base64'), mimeType: 'image/jpeg' },
+    ])
+    expect(capturePage).toHaveBeenCalledWith(undefined, 'jpeg')
+  })
+
+  it('reports an error when the screenshot captures nothing', async () => {
+    const service = new BrowserService(() => guest(), vi.fn())
+    const shot = await dispatchBrowserMcpTool(service, 'browser_screenshot', {})
+    expect(shot.isError).toBe(true)
+    expect(shot.content[0]?.type).toBe('text')
+  })
+
+  it('holds a key for holdMs, clamped to 0-5000', async () => {
+    vi.useFakeTimers()
+    const g = guest()
+    const sendKey = vi.fn()
+    g.sendKey = sendKey
+    const service = new BrowserService(() => g, vi.fn())
+
+    const held = dispatchBrowserMcpTool(service, 'browser_key', { key: 'ArrowRight', holdMs: 500 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sendKey).toHaveBeenCalledTimes(1)
+    expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'down')
+    await vi.advanceTimersByTimeAsync(499)
+    expect(sendKey).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'up')
+    expect(text(await held)).toBe('pressed ArrowRight for 500ms')
+
+    const long = dispatchBrowserMcpTool(service, 'browser_key', { key: 'a', holdMs: 60_000 })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(text(await long)).toBe('pressed a for 5000ms')
+
+    const negative = dispatchBrowserMcpTool(service, 'browser_key', { key: 'a', holdMs: -10 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(text(await negative)).toBe('pressed a for 0ms')
+  })
+
+  it('still sends key up when key down fails, and reports the error', async () => {
+    const g = guest()
+    const sendKey = vi.fn((_key: string, phase: 'down' | 'up') => {
+      if (phase === 'down') throw new Error('guest gone')
+    })
+    g.sendKey = sendKey
+    const service = new BrowserService(() => g, vi.fn())
+    const missing = await dispatchBrowserMcpTool(service, 'browser_key', {})
+    expect(missing.isError).toBe(true)
+    expect(sendKey).not.toHaveBeenCalled()
+    const failed = await dispatchBrowserMcpTool(service, 'browser_key', { key: 'a', holdMs: 0 })
+    expect(failed.isError).toBe(true)
+    expect(text(failed)).toBe('guest gone')
+    expect(sendKey.mock.calls).toEqual([
+      ['a', 'down'],
+      ['a', 'up'],
+    ])
+  })
+
+  it('reports an error when the guest is gone before key up', async () => {
+    const g = guest()
+    g.sendKey = vi.fn((_key: string, phase: 'down' | 'up') => {
+      if (phase === 'up') throw new Error('Object has been destroyed')
+    })
+    const service = new BrowserService(() => g, vi.fn())
+    const failed = await dispatchBrowserMcpTool(service, 'browser_key', { key: 'a', holdMs: 0 })
+    expect(failed.isError).toBe(true)
+    expect(text(failed)).toBe('Object has been destroyed')
   })
 })
 
@@ -72,7 +158,9 @@ describe('startBrowserMcpServer', () => {
       })
       expect(ok.status).toBe(200)
       const body = (await ok.json()) as { result?: { tools?: { name: string }[] } }
-      expect(body.result?.tools?.map((t) => t.name)).toContain('browser_navigate')
+      expect(body.result?.tools?.map((t) => t.name)).toEqual(
+        expect.arrayContaining(['browser_navigate', 'browser_screenshot', 'browser_key']),
+      )
     } finally {
       handle.close()
     }
