@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { appendFile, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -34,6 +34,10 @@ async function makeDir(prefix: string): Promise<string> {
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, { cwd, stdio: 'ignore' })
+}
+
+function gitOut(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' })
 }
 
 async function initRepo(): Promise<string> {
@@ -152,28 +156,122 @@ suite('GitService', () => {
     expect(result).toEqual({ ok: true, value: '' })
   })
 
-  it('revert restores tracked state at the checkpoint and keeps untracked files', async () => {
+  it('revert restores the checkpointed working tree without moving HEAD or the index', async () => {
     const dir = await initRepo()
+    await writeFile(join(dir, 'fixture.txt'), 'uncommitted\n', 'utf8')
+    await writeFile(join(dir, 'kept.txt'), 'untracked before\n', 'utf8')
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' })
     const cp = await service.captureCheckpoint(dir, 'sess-r', 'turn-01')
     expect(cp.ok).toBe(true)
 
     await writeFile(join(dir, 'fixture.txt'), 'rewritten\n', 'utf8')
     await rm(join(dir, 'extra.txt'))
-    await writeFile(join(dir, 'untracked.txt'), 'keep me\n', 'utf8')
+    await rm(join(dir, 'kept.txt'))
+    await writeFile(join(dir, 'created.txt'), 'new since checkpoint\n', 'utf8')
 
     const reverted = await service.revertToRef(dir, 'refs/ari/sess-r/turn-01')
     expect(reverted.ok).toBe(true)
 
-    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('line-one\n')
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('uncommitted\n')
     expect(await readFile(join(dir, 'extra.txt'), 'utf8')).toBe('extra\n')
-    expect(await readFile(join(dir, 'untracked.txt'), 'utf8')).toBe('keep me\n')
+    expect(await readFile(join(dir, 'kept.txt'), 'utf8')).toBe('untracked before\n')
+    await expect(readFile(join(dir, 'created.txt'), 'utf8')).rejects.toThrow()
+    expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' })).toBe(head)
 
     const status = await service.status(dir)
     expect(status.ok).toBe(true)
     if (!status.ok) return
-    const byPath = new Map(status.value.files.map((f) => [f.path, f]))
-    expect(byPath.get('untracked.txt')).toBeDefined()
-    expect(byPath.has('fixture.txt')).toBe(false)
+    expect(status.value.files).toEqual([
+      { path: 'fixture.txt', staged: false, kind: 'modified' },
+      { path: 'kept.txt', staged: false, kind: 'untracked' },
+    ])
+  })
+
+  it('captures a checkpoint before the first commit', async () => {
+    const dir = await makeDir('ari-git-')
+    git(dir, 'init')
+    await writeFile(join(dir, 'draft.txt'), 'draft\n', 'utf8')
+    const cp = await service.captureCheckpoint(dir, 'sess-0', 'turn-01')
+    expect(cp).toEqual({ ok: true, value: 'refs/ari/sess-0/turn-01' })
+    await writeFile(join(dir, 'draft.txt'), 'changed\n', 'utf8')
+    expect((await service.revertToRef(dir, 'refs/ari/sess-0/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'draft.txt'), 'utf8')).toBe('draft\n')
+  })
+
+  it('revert drops what the agent staged and keeps the pre-turn staging', async () => {
+    const dir = await initRepo()
+    await writeFile(join(dir, 'extra.txt'), 'user staged edit\n', 'utf8')
+    await writeFile(join(dir, 'user.txt'), 'user staged file\n', 'utf8')
+    git(dir, 'add', 'extra.txt', 'user.txt')
+    const staged = gitOut(dir, 'diff', '--cached')
+    expect((await service.captureCheckpoint(dir, 'sess-i', 'turn-01')).ok).toBe(true)
+
+    await writeFile(join(dir, 'agent.txt'), 'agent work\n', 'utf8')
+    git(dir, 'add', 'agent.txt')
+
+    expect((await service.revertToRef(dir, 'refs/ari/sess-i/turn-01')).ok).toBe(true)
+
+    await expect(readFile(join(dir, 'agent.txt'), 'utf8')).rejects.toThrow()
+    expect(gitOut(dir, 'status', '--porcelain')).toBe('M  extra.txt\nA  user.txt\n')
+    expect(gitOut(dir, 'diff', '--cached')).toBe(staged)
+  })
+
+  it('revert of a legacy ref pointing at HEAD never stages HEAD^', async () => {
+    const dir = await initRepo()
+    await writeFile(join(dir, 'fixture.txt'), 'second commit\n', 'utf8')
+    git(dir, 'commit', '-am', 'second')
+    // Main pointed checkpoint refs straight at the HEAD commit.
+    git(dir, 'update-ref', 'refs/ari/sess-l/turn-01', 'HEAD')
+
+    await writeFile(join(dir, 'fixture.txt'), 'agent edit\n', 'utf8')
+
+    expect((await service.revertToRef(dir, 'refs/ari/sess-l/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe('second commit\n')
+    expect(gitOut(dir, 'status', '--porcelain')).toBe('')
+  })
+
+  it('captures and reverts while the index has merge conflicts', async () => {
+    const dir = await initRepo()
+    git(dir, 'checkout', '-b', 'side')
+    await writeFile(join(dir, 'fixture.txt'), 'side\n', 'utf8')
+    git(dir, 'commit', '-am', 'side')
+    git(dir, 'checkout', '-')
+    await writeFile(join(dir, 'fixture.txt'), 'main\n', 'utf8')
+    git(dir, 'commit', '-am', 'main')
+    expect(() => git(dir, 'merge', 'side')).toThrow()
+    const conflicted = await readFile(join(dir, 'fixture.txt'), 'utf8')
+    expect((await service.captureCheckpoint(dir, 'sess-m', 'turn-01')).ok).toBe(true)
+
+    await writeFile(join(dir, 'fixture.txt'), 'resolved by agent\n', 'utf8')
+
+    expect((await service.revertToRef(dir, 'refs/ari/sess-m/turn-01')).ok).toBe(true)
+    expect(await readFile(join(dir, 'fixture.txt'), 'utf8')).toBe(conflicted)
+  })
+
+  it('revert from a subdirectory workspace leaves the rest of the repo alone', async () => {
+    const dir = await initRepo()
+    const pkg = join(dir, 'pkg')
+    await mkdir(pkg)
+    await writeFile(join(pkg, 'a.txt'), 'pkg a\n', 'utf8')
+    await writeFile(join(dir, 'root.txt'), 'root\n', 'utf8')
+    git(dir, 'add', '.')
+    git(dir, 'commit', '-m', 'pkg')
+    expect((await service.captureCheckpoint(pkg, 'sess-p', 'turn-01')).ok).toBe(true)
+
+    await writeFile(join(pkg, 'a.txt'), 'agent edit\n', 'utf8')
+    await writeFile(join(pkg, 'new.txt'), 'agent file\n', 'utf8')
+    git(pkg, 'add', 'new.txt')
+    await writeFile(join(dir, 'user-notes.txt'), 'user notes\n', 'utf8')
+    await writeFile(join(dir, 'root.txt'), 'root user edit\n', 'utf8')
+    git(dir, 'add', 'root.txt')
+
+    expect((await service.revertToRef(pkg, 'refs/ari/sess-p/turn-01')).ok).toBe(true)
+
+    expect(await readFile(join(pkg, 'a.txt'), 'utf8')).toBe('pkg a\n')
+    await expect(readFile(join(pkg, 'new.txt'), 'utf8')).rejects.toThrow()
+    expect(await readFile(join(dir, 'user-notes.txt'), 'utf8')).toBe('user notes\n')
+    expect(await readFile(join(dir, 'root.txt'), 'utf8')).toBe('root user edit\n')
+    expect(gitOut(dir, 'status', '--porcelain')).toBe('M  root.txt\n?? user-notes.txt\n')
   })
 
   it('fails diffs beyond the 512KB cap with diff_too_large', async () => {
