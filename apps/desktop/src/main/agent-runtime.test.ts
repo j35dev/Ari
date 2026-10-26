@@ -65,20 +65,22 @@ it('removes the socket directory when startup fails after creating it', async ()
     resolveWorkspace: async () => dir,
     git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
   })
-  await expect(
-    startAgentRuntime({
-      engine,
-      store,
-      userData: dir,
-      cliPath,
-      executable: process.execPath,
-      version: 'test',
-      policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
-      providers: async () => [],
-      socketRoot,
-    }),
-  ).rejects.toThrow()
+  // The cleanup wraps the assertion so a startup that resolves — the regression
+  // this guards — still removes both temp roots before the failure surfaces.
   try {
+    await expect(
+      startAgentRuntime({
+        engine,
+        store,
+        userData: dir,
+        cliPath,
+        executable: process.execPath,
+        version: 'test',
+        policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+        providers: async () => [],
+        socketRoot,
+      }),
+    ).rejects.toThrow()
     expect(await readdir(socketRoot)).toEqual([])
   } finally {
     await rm(socketRoot, { recursive: true, force: true })
