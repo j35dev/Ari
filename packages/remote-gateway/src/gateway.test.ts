@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RemoteCommand, RemoteOperation } from '@ari/contracts/remote'
 import { REMOTE_PROTOCOL_VERSION } from '@ari/contracts/remote'
 import type { RemoteCaller, RemoteHost } from './host'
@@ -921,6 +921,39 @@ describe('isolated managed gateway', () => {
       ).statusLine,
     ).toContain('403')
   })
+
+  it('narrows an already open managed stream to the edited device grants', async () => {
+    let emit: ((event: unknown) => void) | null = null
+    const host = fakeHost({
+      subscribe: (_caller, _sessionId, onEvent) => {
+        emit = onEvent as (event: unknown) => void
+        return () => {
+          emit = null
+        }
+      },
+    })
+    const h = await managed(host)
+    const deviceId = h.gateway.pairing.devices()[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+    const client = await RawWebSocket.open(h.gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${h.token}`, `lease.${h.lease}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1' }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    emit!({ type: 'turn.started', seq: 11, at: 1, sessionId: 'sess_1', turnId: 't1' })
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({ type: 'events.frame' })
+
+    // The lease still names proj_1; the device record no longer grants it.
+    h.gateway.pairing.updateGrants(deviceId, ['proj_2'], false)
+    emit!({ type: 'turn.started', seq: 12, at: 1, sessionId: 'sess_1', turnId: 't2' })
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'error',
+      error: { code: 'access_revoked' },
+    })
+    expect(emit).toBeNull()
+    client.close()
+  })
 })
 
 describe('remote gateway queries', () => {
@@ -1115,6 +1148,145 @@ describe('remote gateway event stream', () => {
     // Neither message is a well-formed subscribe, so the host is never asked
     // to hand over a session.
     expect(subscribed).toEqual([])
+    client.close()
+  })
+})
+
+describe('remote gateway grant edits', () => {
+  it('reads edited grants on the next request', async () => {
+    const host = fakeHost({ query: async (caller) => caller.projectIds })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), ['proj_1'])
+    const deviceId = gateway.pairing.devices()[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+
+    const before = await call(gateway, '/query', { op: 'session.list' }, { token })
+    expect(before.body['result']).toEqual(['proj_1'])
+
+    gateway.pairing.updateGrants(deviceId, ['proj_2'], false)
+    const after = await call(gateway, '/query', { op: 'session.list' }, { token })
+    expect(after.body['result']).toEqual(['proj_2'])
+
+    await call(gateway, '/command', COMMAND, { token })
+    expect(host.callers.at(-1)?.projectIds).toEqual(['proj_2'])
+    expect(host.callers.at(-1)?.allowTerminal).toBe(false)
+
+    gateway.pairing.updateGrants(deviceId, ['proj_2'], true)
+    await call(
+      gateway,
+      '/command',
+      { ...COMMAND, clientCommandId: 'c-2', idempotencyKey: 'key-0123456789-2' },
+      { token },
+    )
+    expect(host.callers.at(-1)?.allowTerminal).toBe(true)
+  })
+
+  it('stops streaming a project the device lost, on an open socket', async () => {
+    let emit: ((event: unknown) => void) | null = null
+    let unsubscribed = false
+    const host = fakeHost({
+      subscribe: (_caller, _sessionId, onEvent) => {
+        emit = onEvent as (event: unknown) => void
+        return () => {
+          unsubscribed = true
+          emit = null
+        }
+      },
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), ['proj_1'])
+    const deviceId = gateway.pairing.devices()[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1' }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    emit!({ type: 'turn.started', seq: 11, at: 1, sessionId: 'sess_1', turnId: 't1' })
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'events.frame',
+      events: [{ seq: 11 }],
+    })
+
+    gateway.pairing.updateGrants(deviceId, ['proj_2'], false)
+    emit!({ type: 'turn.started', seq: 12, at: 1, sessionId: 'sess_1', turnId: 't2' })
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'error',
+      error: { code: 'access_revoked' },
+    })
+    expect(unsubscribed).toBe(true)
+    client.close()
+  })
+
+  it('authenticates the device once per delivered event', async () => {
+    let emit: ((event: unknown) => void) | null = null
+    const host = fakeHost({
+      subscribe: (_caller, _sessionId, onEvent) => {
+        emit = onEvent as (event: unknown) => void
+        return () => {
+          emit = null
+        }
+      },
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), ['proj_1'])
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1' }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const authenticate = vi.spyOn(gateway.pairing, 'authenticate')
+    emit!({ type: 'turn.started', seq: 11, at: 1, sessionId: 'sess_1', turnId: 't1' })
+    // Delivery is synchronous, so the once-a-second credential sweep cannot land in between.
+    expect(authenticate).toHaveBeenCalledTimes(1)
+    authenticate.mockRestore()
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'events.frame',
+      events: [{ seq: 11 }],
+    })
+    client.close()
+  })
+
+  it('lets an open socket subscribe to a project granted after it connected', async () => {
+    const base = fakeHost()
+    let emit: ((event: unknown) => void) | null = null
+    const callers: RemoteCaller[] = []
+    const host = fakeHost({
+      getSession: async (caller, sessionId) =>
+        caller.projectIds.includes('proj_1') ? base.getSession(caller, sessionId) : undefined,
+      subscribe: (caller, _sessionId, onEvent) => {
+        callers.push(caller)
+        emit = onEvent as (event: unknown) => void
+        return () => {
+          emit = null
+        }
+      },
+    })
+    const gateway = await start(host)
+    const token = await paired(gateway, deviceKey(), ['proj_2'])
+    const deviceId = gateway.pairing.devices()[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+
+    const client = await RawWebSocket.open(gateway.port, '/events', {
+      origin: ALLOWED,
+      protocols: ['ari-remote.v1', `bearer.${token}`],
+    })
+    gateway.pairing.updateGrants(deviceId, ['proj_1'], false)
+    client.send(JSON.stringify({ type: 'events.subscribe', sessionId: 'sess_1' }))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(emit).not.toBeNull()
+    emit!({ type: 'turn.started', seq: 11, at: 1, sessionId: 'sess_1', turnId: 't1' })
+    expect(JSON.parse(await client.nextMessage())).toMatchObject({
+      type: 'events.frame',
+      events: [{ seq: 11 }],
+    })
+    expect(callers[0]?.projectIds).toEqual(['proj_1'])
     client.close()
   })
 })

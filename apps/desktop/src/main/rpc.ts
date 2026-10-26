@@ -1452,6 +1452,9 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   )
   r.register('remote.deny', (params) => remote.deny(params.invitationId))
   r.register('remote.revokeDevice', (params) => remote.revokeDevice(params.deviceId))
+  r.register('remote.updateDeviceGrants', (params) =>
+    remote.updateDeviceGrants(params.deviceId, params.projectIds, params.allowTerminal),
+  )
 
   r.register('remote.tailscale.status', () => refreshTailscale())
   r.register('remote.tailscale.enable', async () => {
@@ -2231,19 +2234,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { diffText: result.value }
   })
 
-  // Per-turn diff (M8.4): worktree vs the turn's hidden checkpoint ref. The
-  // checkpoint lives in the session's own workspace, so the session id is
-  // both the scope and the ref namespace — no working directory crosses IPC.
+  // Per-turn diff (M8.4): diffs the turn's checkpoint against the next one —
+  // including the live worktree tree for the newest turn — inside the
+  // session's own workspace, so no working directory crosses IPC.
   r.register('git.turnDiff', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    const { session } = await getSessionStore().load(params.sessionId)
+    const { session, checkpoints } = await getSessionStore().load(params.sessionId)
     if (!session) return { diffText: null, error: 'unknown session' }
     const workspace = await engine.workspace(session)
     if (!workspace) return { diffText: null, error: 'session workspace is unavailable' }
-    return queryTurnDiff((cwd, gitRef) => new GitService().diffForRef(cwd, gitRef), {
+    return queryTurnDiff(new GitService(), {
       path: workspace,
-      sessionId: params.sessionId,
       turnId: params.turnId,
+      checkpoints,
     })
   })
 

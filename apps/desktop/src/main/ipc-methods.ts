@@ -124,6 +124,7 @@ export const IPC_METHODS = [
   'remote.approve',
   'remote.deny',
   'remote.revokeDevice',
+  'remote.updateDeviceGrants',
   'remote.tailscale.status',
   'remote.tailscale.enable',
   'remote.tailscale.disable',

@@ -39,6 +39,12 @@ export interface AgentRuntimeOptions {
    * an engine whose turns are still running, and must not call them dead.
    */
   recover?: boolean
+  /**
+   * Directory the POSIX control socket's private `ari-*` directory is created
+   * in. Defaults to {@link SOCKET_ROOT}; tests pass their own so they never
+   * read or race the shared root.
+   */
+  socketRoot?: string
 }
 
 /**
@@ -74,7 +80,10 @@ export async function controlEndpoint(
 
 /** Hosts the transport and injects private CLI launchers without changing global PATH. */
 export async function startAgentRuntime(options: AgentRuntimeOptions) {
-  const { endpoint, dir: socketDir } = await controlEndpoint(process.platform, SOCKET_ROOT)
+  const { endpoint, dir: socketDir } = await controlEndpoint(
+    process.platform,
+    options.socketRoot ?? SOCKET_ROOT,
+  )
   try {
     return await startControlTransport(options, endpoint, socketDir)
   } catch (error) {
