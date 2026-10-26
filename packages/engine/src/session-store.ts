@@ -188,6 +188,8 @@ export class SessionStore {
   }
   readonly #rootDir: string
   readonly #journals = new Map<string, Journal<JournalEvent>>()
+  /** First opens still in flight, so concurrent callers share one handle. */
+  readonly #openingJournals = new Map<string, Promise<Journal<JournalEvent>>>()
   /** In-memory mirror of the sidecar index; disk copy stays authoritative. */
   readonly #indexCache = new Map<string, SessionIndex>()
   /** Last replay diagnostic per session, surfaced to the UI. */
@@ -215,9 +217,26 @@ export class SessionStore {
     return join(this.#rootDir, sessionId)
   }
 
+  /**
+   * The session's journal, opened once. Callers that arrive while the first
+   * open is still in flight await that same one: a check-then-open race used to
+   * hand out two journals, and the loser's file handle leaked until GC.
+   */
   async openJournal(sessionId: string): Promise<Journal<JournalEvent>> {
     const existing = this.#journals.get(sessionId)
     if (existing) return existing
+    const inFlight = this.#openingJournals.get(sessionId)
+    if (inFlight) return inFlight
+    const opening = this.#openJournal(sessionId)
+    this.#openingJournals.set(sessionId, opening)
+    try {
+      return await opening
+    } finally {
+      if (this.#openingJournals.get(sessionId) === opening) this.#openingJournals.delete(sessionId)
+    }
+  }
+
+  async #openJournal(sessionId: string): Promise<Journal<JournalEvent>> {
     // Batched fsync: `#append` places the durability barrier itself.
     const journal = new Journal<JournalEvent>({
       dir: this.#dirFor(sessionId),
@@ -240,6 +259,10 @@ export class SessionStore {
   }
 
   async #closeJournal(sessionId: string): Promise<void> {
+    // An open still in flight would land in the cache after this ran and never
+    // be closed; wait for it so the caller's close is the last word.
+    const opening = this.#openingJournals.get(sessionId)
+    if (opening) await opening.catch(() => undefined)
     const journal = this.#journals.get(sessionId)
     if (!journal) return
     const entry = this.#indexCache.get(sessionId)
