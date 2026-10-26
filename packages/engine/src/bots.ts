@@ -1,10 +1,17 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { botSchema } from '@ari/contracts/bot'
 import type { Bot } from '@ari/contracts/bot'
 import { newTypedId } from '@ari/shared/ids'
 
 const BOT_ID = /^bot_[\w-]+$/
+
+async function writeAtomic(path: string, data: string): Promise<void> {
+  const tmp = `${path}.${randomUUID()}.tmp`
+  await writeFile(tmp, data, 'utf8')
+  await rename(tmp, path)
+}
 
 export interface BotStoreOptions {
   /** Directory holding one folder per bot (typically <userData>/bots). */
@@ -25,12 +32,25 @@ export class BotStore {
 
   async create(input: Omit<Bot, 'id'>): Promise<Bot> {
     const bot = botSchema.parse({ ...input, id: newTypedId('bot') })
+    await this.#write(bot)
+    return bot
+  }
+
+  /** Applies `patch` to an existing bot; the id is always the folder's. */
+  async update(id: string, patch: Partial<Omit<Bot, 'id'>>): Promise<Bot> {
+    const current = await this.get(id)
+    if (current === null) throw new Error(`unknown bot: ${id}`)
+    const bot = botSchema.parse({ ...current, ...patch, id: current.id })
+    await this.#write(bot)
+    return bot
+  }
+
+  async #write(bot: Bot): Promise<void> {
     const dir = join(this.#dir, bot.id)
     await mkdir(dir, { recursive: true })
     const { personaMd, ...record } = bot
-    await writeFile(join(dir, 'persona.md'), personaMd, 'utf8')
-    await writeFile(join(dir, 'bot.json'), JSON.stringify(record, null, 2), 'utf8')
-    return bot
+    await writeAtomic(join(dir, 'persona.md'), personaMd)
+    await writeAtomic(join(dir, 'bot.json'), JSON.stringify(record, null, 2))
   }
 
   async get(id: string): Promise<Bot | null> {
@@ -49,7 +69,7 @@ export class BotStore {
       // A missing persona leaves the bot without instructions, not missing.
     }
     const parsed = botSchema.safeParse({ ...(record as object), personaMd })
-    return parsed.success ? parsed.data : null
+    return parsed.success && parsed.data.id === id ? parsed.data : null
   }
 
   async list(): Promise<Bot[]> {

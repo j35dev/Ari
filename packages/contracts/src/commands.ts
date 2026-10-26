@@ -32,6 +32,7 @@ export const commandSchema = z.discriminatedUnion('type', [
     driverKind: driverKindSchema,
     modelId: z.string().nullable(),
     permissionMode: permissionModeSchema,
+    botId: z.string().min(1).optional(),
   }),
   z
     .object({
