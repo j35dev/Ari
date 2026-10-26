@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
+import { botCreateParamsSchema } from './bot'
+import type { Bot } from './bot'
 import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
@@ -209,6 +211,7 @@ export const sessionCreateParamsSchema = z.object({
   modelId: z.string().nullable(),
   permissionMode: permissionModeSchema,
   effort: z.string().min(1).nullable().optional(),
+  botId: z.string().min(1).optional(),
 })
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 
@@ -522,6 +525,9 @@ export const rpcParams = {
   'app.update.install': z.undefined(),
   'session.list': z.undefined(),
   'session.create': sessionCreateParamsSchema,
+  /** Creates a Hive bot and its main session; returns the bot with `mainSessionId` set. */
+  'bots.create': botCreateParamsSchema,
+  'bots.setHidden': z.object({ botId: z.string().min(1), hidden: z.boolean() }),
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
   /** The children this session delegated to, with their state and last report. */
@@ -850,6 +856,8 @@ export interface RpcResults {
   'app.update.install': UpdateStart
   'session.list': SessionSummary[]
   'session.create': { sessionId: string }
+  'bots.create': Bot
+  'bots.setHidden': Bot
   'session.load': unknown
   'session.workspace': { path: string | null }
   'session.tasks': ChildTask[]

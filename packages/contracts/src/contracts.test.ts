@@ -496,3 +496,39 @@ describe('approval decisions', () => {
     expect(cmd.optionId).toBe('allow_prefix')
   })
 })
+
+describe('bot RPC params', () => {
+  it('requires a project when creating a bot', () => {
+    const params = {
+      name: 'Forge',
+      emoji: '🔨',
+      personaMd: '# Forge\n',
+      driverKind: 'claude',
+      modelId: null,
+      projectId: 'proj_1',
+    }
+    expect(rpcParams['bots.create'].parse(params)).toEqual(params)
+    expect(() => rpcParams['bots.create'].parse({ ...params, projectId: undefined })).toThrow()
+  })
+
+  it('requires a hidden flag when setting visibility', () => {
+    expect(rpcParams['bots.setHidden'].parse({ botId: 'bot_1', hidden: true })).toEqual({
+      botId: 'bot_1',
+      hidden: true,
+    })
+    expect(() => rpcParams['bots.setHidden'].parse({ botId: 'bot_1' })).toThrow()
+  })
+
+  it('accepts a bot on session.create and rejects an empty one', () => {
+    const params = {
+      projectId: 'proj_1',
+      title: 'Hive',
+      driverKind: 'claude',
+      modelId: null,
+      permissionMode: 'ask',
+      botId: 'bot_1',
+    }
+    expect(rpcParams['session.create'].parse(params)).toEqual(params)
+    expect(() => rpcParams['session.create'].parse({ ...params, botId: '' })).toThrow()
+  })
+})
