@@ -3,7 +3,6 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import { DiffViewer } from '../diffs'
 import { CodeBlock } from './CodeBlock'
 import { CopyButton } from './CopyButton'
-import { ImagePreviewDialog } from './ImagePreviewDialog'
 
 /**
  * Heuristic for diff-shaped tool results: a real unified diff has at least one
@@ -27,34 +26,21 @@ export function isClippable(text: string): boolean {
 
 const BODY_CLASS = 'overflow-auto border-t border-border bg-surface-0 p-2 font-mono text-2xs text-fg-muted'
 
-const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
-const MAX_IMAGE_BASE64 = 5 * 1024 * 1024
-
-type McpContentItem =
-  | { kind: 'text'; text: string }
-  | { kind: 'image'; url: string; mimeType: string }
-  | { kind: 'placeholder'; label: string }
+type McpContentItem = { kind: 'text'; text: string } | { kind: 'placeholder'; label: string }
 
 function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; text: string } {
   return block.type === 'text' && typeof block.text === 'string'
 }
 
+/**
+ * Image blocks (MCP `data`/`mimeType` or Anthropic `source`) are never decoded
+ * here: the provider pipeline promotes them to the transcript image row, so
+ * the card only points at it and no base64 reaches the DOM.
+ */
 function toContentItem(block: Record<string, unknown>): McpContentItem {
   if (isTextBlock(block)) return { kind: 'text', text: block.text }
-  if (block.type !== 'image') return { kind: 'placeholder', label: 'Unsupported content' }
-  const { data, mimeType } = block
-  if (typeof data === 'string' && data.length > MAX_IMAGE_BASE64) {
-    return { kind: 'placeholder', label: 'Image too large to preview' }
-  }
-  if (
-    typeof data !== 'string' ||
-    typeof mimeType !== 'string' ||
-    !IMAGE_MIME_TYPES.has(mimeType) ||
-    !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
-  ) {
-    return { kind: 'placeholder', label: 'Image unavailable' }
-  }
-  return { kind: 'image', url: `data:${mimeType};base64,${data}`, mimeType }
+  if (block.type === 'image') return { kind: 'placeholder', label: 'Image shown below' }
+  return { kind: 'placeholder', label: 'Unsupported content' }
 }
 
 /**
@@ -82,7 +68,7 @@ function mcpContentItems(parsed: unknown): McpContentItem[] | null {
 
 /**
  * Result card body: shared DiffViewer when the payload is a unified diff,
- * image thumbnails beside text for MCP image content, otherwise
+ * text and placeholders for MCP content (images show in the image row), otherwise
  * Shiki-highlighted JSON or plain terminal text — copyable, and expandable
  * past the collapsed clip when the output is long.
  */
@@ -107,36 +93,17 @@ export function ToolResultBody({ resultJson }: { resultJson: string }) {
 }
 
 function McpContentBody({ items }: { items: McpContentItem[] }) {
-  const [preview, setPreview] = useState<{ name: string; url: string } | null>(null)
   return (
     <div className="bg-surface-0">
       {items.map((item, i) =>
         item.kind === 'text' ? (
           <TextBody key={i} text={item.text} lang="text" />
-        ) : item.kind === 'image' ? (
-          <div key={i} className="border-t border-border p-2">
-            <button
-              type="button"
-              onClick={() =>
-                setPreview({ name: `image-${i + 1}.${item.mimeType.slice(6)}`, url: item.url })
-              }
-              aria-label={`Open image ${i + 1}`}
-              className="block overflow-hidden rounded-md border border-border bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-            >
-              <img
-                src={item.url}
-                alt={`Tool result image ${i + 1}`}
-                className="max-h-60 max-w-full object-contain"
-              />
-            </button>
-          </div>
         ) : (
           <div key={i} className="border-t border-border p-2 text-2xs text-fg-subtle">
             {item.label}
           </div>
         ),
       )}
-      <ImagePreviewDialog image={preview} onClose={() => setPreview(null)} />
     </div>
   )
 }
