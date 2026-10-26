@@ -78,7 +78,12 @@ import {
   terminalIdsInPanes,
   type PaneEdge,
 } from './features/split/split-layout'
-import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
+import {
+  SidebarHeader,
+  HiveRoster,
+  SessionsUnderProjects,
+  type SidebarNavId,
+} from './shell/Sidebar'
 import { isEditableTarget } from './shell/editable-target'
 import {
   ContextMenu,
@@ -268,6 +273,8 @@ function Shell() {
   )
   const sidebar = useSidebarWidth()
   const sidebarSearchRef = useRef<HTMLInputElement>(null)
+  // Lives here so switching to Hive view and back keeps the sidebar search.
+  const [sidebarQuery, setSidebarQuery] = useState('')
   const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -524,7 +531,9 @@ function Shell() {
 
   // New sessions start in the mode Settings → Permissions names; without this
   // the seed above never left `ask`, whatever the setting said.
-  const defaultPermissionMode = useEngineSettings().settings?.sessions.defaultPermissionMode
+  const engineSettings = useEngineSettings()
+  const defaultPermissionMode = engineSettings.settings?.sessions.defaultPermissionMode
+  const hiveView = engineSettings.settings?.appearance.hiveView === true
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
     setDefaults((prev) =>
@@ -1079,83 +1088,95 @@ function Shell() {
               style={{ '--ari-sidebar-motion-width': `${sidebar.width}px` } as React.CSSProperties}
             >
               <SidebarHeader
-                onSearch={() => sidebarSearchRef.current?.focus()}
+                onSearch={hiveView ? undefined : () => sidebarSearchRef.current?.focus()}
                 onCollapse={toggleSidebar}
+                hiveView={hiveView}
+                onHiveViewChange={(next) => {
+                  void engineSettings
+                    .update({ appearance: { hiveView: next } })
+                    .catch((error: unknown) => log.warn('settings.update failed', error))
+                }}
               />
-              <SessionsUnderProjects
-                sessions={sessions}
-                projects={openProjects}
-                knownProjectNames={projects}
-                searchInputRef={sidebarSearchRef}
-                onNewSession={beginNewSession}
-                onOpenProject={openProjectViaDialog}
-                onNewSessionInProject={(projectId) => createSession(projectId)}
-                onImportSessions={setImportProjectId}
-                onRevealProject={(projectId) => {
-                  const path = projects.find((p) => p.id === projectId)?.path
-                  if (path === undefined) return
-                  void rpc
-                    .invoke('shell.revealPath', { path })
-                    .catch((error: unknown) => log.warn('rpc call failed', error))
-                }}
-                onCloseProject={(projectId) => {
-                  void rpc
-                    .invoke('project.close', { id: projectId })
-                    .then(refreshProjects)
-                    .catch((error: unknown) => log.warn('rpc call failed', error))
-                }}
-                onRemoveProject={(projectId) => {
-                  void rpc
-                    .invoke('project.remove', { id: projectId })
-                    .then(refreshProjects)
-                    .catch((error: unknown) => log.warn('rpc call failed', error))
-                }}
-                onReorderProject={moveProject}
-                onMoveProject={(projectId, delta) => {
-                  const move = projectMoveForDelta(
-                    openProjects.map((p) => p.id),
-                    projectId,
-                    delta,
-                  )
-                  if (move) moveProject(move.id, move.beforeId)
-                }}
-                onLocateProject={openProjectViaDialog}
-                activeSessionId={activeSessionId}
-                activityOf={activityOf}
-                onSelect={selectSession}
-                onOpenInSplit={splitLayoutActions.openInSplit}
-                onRename={(id, title) => patchSessions([id], { title })}
-                onDelete={(id) => {
-                  const dropped = new Set([id, ...descendantIds(sessions, id)])
-                  for (const gone of dropped) forget(gone)
-                  void rpc
-                    .invoke('session.destroy', { sessionId: id })
-                    // The refreshed list blanks the panes those sessions were in.
-                    .then(refreshSessions)
-                    .catch((error: unknown) => log.warn('rpc call failed', error))
-                }}
-                onTogglePin={(id, pinned) => patchSessions([id], { pinned })}
-                onToggleArchive={(id, archived) => patchSessions([id], { archived })}
-                onArchiveMany={(ids) => patchSessions(ids, { archived: true })}
-                onDeleteMany={(ids) => {
-                  const dropped = new Set<string>()
-                  for (const id of ids) {
-                    dropped.add(id)
-                    for (const child of descendantIds(sessions, id)) dropped.add(child)
-                  }
-                  for (const gone of dropped) forget(gone)
-                  void (async () => {
+              {hiveView ? (
+                <HiveRoster />
+              ) : (
+                <SessionsUnderProjects
+                  sessions={sessions}
+                  projects={openProjects}
+                  knownProjectNames={projects}
+                  searchInputRef={sidebarSearchRef}
+                  searchQuery={sidebarQuery}
+                  onSearchQueryChange={setSidebarQuery}
+                  onNewSession={beginNewSession}
+                  onOpenProject={openProjectViaDialog}
+                  onNewSessionInProject={(projectId) => createSession(projectId)}
+                  onImportSessions={setImportProjectId}
+                  onRevealProject={(projectId) => {
+                    const path = projects.find((p) => p.id === projectId)?.path
+                    if (path === undefined) return
+                    void rpc
+                      .invoke('shell.revealPath', { path })
+                      .catch((error: unknown) => log.warn('rpc call failed', error))
+                  }}
+                  onCloseProject={(projectId) => {
+                    void rpc
+                      .invoke('project.close', { id: projectId })
+                      .then(refreshProjects)
+                      .catch((error: unknown) => log.warn('rpc call failed', error))
+                  }}
+                  onRemoveProject={(projectId) => {
+                    void rpc
+                      .invoke('project.remove', { id: projectId })
+                      .then(refreshProjects)
+                      .catch((error: unknown) => log.warn('rpc call failed', error))
+                  }}
+                  onReorderProject={moveProject}
+                  onMoveProject={(projectId, delta) => {
+                    const move = projectMoveForDelta(
+                      openProjects.map((p) => p.id),
+                      projectId,
+                      delta,
+                    )
+                    if (move) moveProject(move.id, move.beforeId)
+                  }}
+                  onLocateProject={openProjectViaDialog}
+                  activeSessionId={activeSessionId}
+                  activityOf={activityOf}
+                  onSelect={selectSession}
+                  onOpenInSplit={splitLayoutActions.openInSplit}
+                  onRename={(id, title) => patchSessions([id], { title })}
+                  onDelete={(id) => {
+                    const dropped = new Set([id, ...descendantIds(sessions, id)])
+                    for (const gone of dropped) forget(gone)
+                    void rpc
+                      .invoke('session.destroy', { sessionId: id })
+                      // The refreshed list blanks the panes those sessions were in.
+                      .then(refreshSessions)
+                      .catch((error: unknown) => log.warn('rpc call failed', error))
+                  }}
+                  onTogglePin={(id, pinned) => patchSessions([id], { pinned })}
+                  onToggleArchive={(id, archived) => patchSessions([id], { archived })}
+                  onArchiveMany={(ids) => patchSessions(ids, { archived: true })}
+                  onDeleteMany={(ids) => {
+                    const dropped = new Set<string>()
                     for (const id of ids) {
-                      try {
-                        await rpc.invoke('session.destroy', { sessionId: id })
-                      } catch (error: unknown) {
-                        log.warn('rpc call failed', error)
-                      }
+                      dropped.add(id)
+                      for (const child of descendantIds(sessions, id)) dropped.add(child)
                     }
-                    refreshSessions()
-                  })()
-                }}
-              />
+                    for (const gone of dropped) forget(gone)
+                    void (async () => {
+                      for (const id of ids) {
+                        try {
+                          await rpc.invoke('session.destroy', { sessionId: id })
+                        } catch (error: unknown) {
+                          log.warn('rpc call failed', error)
+                        }
+                      }
+                      refreshSessions()
+                    })()
+                  }}
+                />
+              )}
             </motion.aside>
           ) : null}
         </AnimatePresence>

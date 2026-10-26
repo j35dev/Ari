@@ -11,6 +11,7 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  Hexagon,
   Import as ImportIcon,
   MoreHorizontal,
   PanelBottom,
@@ -143,9 +144,13 @@ function SelectMark({ checked }: { checked: boolean }) {
 export function SidebarHeader({
   onSearch,
   onCollapse,
+  hiveView = false,
+  onHiveViewChange,
 }: {
   onSearch?: () => void
   onCollapse?: () => void
+  hiveView?: boolean
+  onHiveViewChange?: (next: boolean) => void
 }) {
   return (
     <header className="flex h-12 shrink-0 items-center px-3">
@@ -159,6 +164,23 @@ export function SidebarHeader({
       </div>
 
       <div className="flex items-center gap-0.5">
+        {onHiveViewChange !== undefined ? (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={hiveView}
+            aria-label="Hive view"
+            title="Hive view"
+            onClick={() => onHiveViewChange(!hiveView)}
+            className={`flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+              hiveView
+                ? 'bg-accent/15 text-accent'
+                : 'text-fg-subtle hover:bg-surface-2 hover:text-fg'
+            }`}
+          >
+            <Hexagon size={14} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        ) : null}
         {onSearch !== undefined ? (
           <button
             type="button"
@@ -183,6 +205,19 @@ export function SidebarHeader({
         ) : null}
       </div>
     </header>
+  )
+}
+
+/** Empty state for the Hive roster. */
+export function HiveRoster() {
+  return (
+    <section
+      aria-label="Hive roster"
+      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center"
+    >
+      <p className="text-sm text-fg-muted">No bots yet</p>
+      <p className="text-xs text-fg-subtle">Your bot team will appear here.</p>
+    </section>
   )
 }
 
@@ -1124,6 +1159,9 @@ type SessionsUnderProjectsProps = SessionRowHandlers &
     /** Anchors the project picker the new session will run in, under the button. */
     onNewSession?: (anchor: MenuAnchor) => void
     searchInputRef?: Ref<HTMLInputElement>
+    /** Controlled search query; owned by the shell so it survives Hive view unmounting this list. */
+    searchQuery?: string
+    onSearchQueryChange?: (query: string) => void
   }
 
 /**
@@ -1156,10 +1194,14 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
   onOpenProject,
   onNewSession,
   searchInputRef,
+  searchQuery,
+  onSearchQueryChange,
   knownProjectNames,
   ...actions
 }: SessionsUnderProjectsProps) {
-  const [query, setQuery] = useState('')
+  const [localQuery, setLocalQuery] = useState('')
+  const query = searchQuery ?? localQuery
+  const setQuery = onSearchQueryChange ?? setLocalQuery
   const trimmed = query.trim().toLowerCase()
   const { isExpanded, toggle } = useProjectExpand()
   const { view, setView } = useSidebarView()
