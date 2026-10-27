@@ -10,6 +10,7 @@ import { rpc } from '../../lib/rpc'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
 import { RemotePairingApproval } from './RemotePairingApproval'
+import { DeviceAccessPicker } from './DeviceAccessPicker'
 import { RemoteConnectSetup } from './RemoteConnectSetup'
 import { useRemoteAccess } from './use-remote-access'
 
@@ -34,6 +35,11 @@ export function RemoteSettings() {
   const [qr, setQr] = useState<string | null>(null)
   const [qrError, setQrError] = useState(false)
   const [confirmingRevoke, setConfirmingRevoke] = useState<string | null>(null)
+  const [editing, setEditing] = useState<{
+    deviceId: string
+    projectIds: string[]
+    allowTerminal: boolean
+  } | null>(null)
   const [now, setNow] = useState(Date.now)
   const initialMethod = useRef(false)
   const disabled = busy !== null
@@ -100,6 +106,14 @@ export function RemoteSettings() {
 
   const mutate = (label: string, operation: () => Promise<RemoteState>): void => {
     run(label, async () => setRemote(await operation()))
+  }
+  const saveGrants = (deviceId: string, projectIds: string[], allowTerminal: boolean): void => {
+    run('Save device access', async () => {
+      setRemote(
+        await rpc.invoke('remote.updateDeviceGrants', { deviceId, projectIds, allowTerminal }),
+      )
+      setEditing(null)
+    })
   }
   const toggleAccess = (enabled: boolean): void => {
     run(enabled ? 'Enable mobile access' : 'Disable mobile access', async () => {
@@ -488,7 +502,46 @@ export function RemoteSettings() {
                     Terminal: {device.allowTerminal === true ? 'enabled' : 'not granted'}
                   </p>
                 </div>
-                {confirmingRevoke === device.deviceId ? (
+                {editing?.deviceId === device.deviceId ? (
+                  <div className="w-full space-y-3 border-t border-border pt-3">
+                    <p className="text-sm font-medium">Access for {device.displayName}</p>
+                    <DeviceAccessPicker
+                      projects={projects}
+                      projectIds={editing.projectIds}
+                      allowTerminal={editing.allowTerminal}
+                      disabled={disabled}
+                      onChange={(projectIds, allowTerminal) =>
+                        setEditing({ deviceId: device.deviceId, projectIds, allowTerminal })
+                      }
+                    />
+                    <p className="text-xs leading-relaxed text-fg-muted">
+                      Changes apply the next time this phone connects. It does not need to pair
+                      again.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="primary"
+                        disabled={disabled}
+                        onClick={() =>
+                          saveGrants(device.deviceId, editing.projectIds, editing.allowTerminal)
+                        }
+                        aria-label={`Save access for ${device.displayName}`}
+                        className="min-h-11"
+                      >
+                        Save access
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={disabled}
+                        onClick={() => setEditing(null)}
+                        aria-label={`Cancel access for ${device.displayName}`}
+                        className="min-h-11"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : confirmingRevoke === device.deviceId ? (
                   <div className="space-y-2">
                     <p className="text-xs text-fg-muted">This phone will need to pair again.</p>
                     <div className="flex gap-2">
@@ -522,15 +575,33 @@ export function RemoteSettings() {
                     </div>
                   </div>
                 ) : (
-                  <Button
-                    variant="ghost"
-                    disabled={disabled}
-                    onClick={() => setConfirmingRevoke(device.deviceId)}
-                    aria-label={`Revoke ${device.displayName}`}
-                    className="min-h-11 text-danger"
-                  >
-                    Revoke
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      disabled={disabled}
+                      onClick={() => {
+                        setConfirmingRevoke(null)
+                        setEditing({
+                          deviceId: device.deviceId,
+                          projectIds: [...device.projectIds],
+                          allowTerminal: device.allowTerminal === true,
+                        })
+                      }}
+                      aria-label={`Edit access for ${device.displayName}`}
+                      className="min-h-11"
+                    >
+                      Edit access
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={disabled}
+                      onClick={() => setConfirmingRevoke(device.deviceId)}
+                      aria-label={`Revoke ${device.displayName}`}
+                      className="min-h-11 text-danger"
+                    >
+                      Revoke
+                    </Button>
+                  </div>
                 )}
               </li>
             ))}

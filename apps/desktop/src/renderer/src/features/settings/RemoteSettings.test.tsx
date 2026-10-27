@@ -153,6 +153,139 @@ describe('RemoteSettings', () => {
     },
   )
 
+  it("edits a paired device's grants without asking it to pair again", async () => {
+    const other = { ...PROJECT, id: 'proj_other', name: 'Other project' }
+    const device = {
+      deviceId: 'dev_1',
+      displayName: 'Pixel 9',
+      projectIds: [PROJECT.id],
+      pairedAt: 1,
+      lastSeenAt: null,
+      allowTerminal: true,
+    }
+    remoteState = remote({ devices: [device] })
+    const normal = invokeMock.getMockImplementation()
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'project.list') return [PROJECT, other]
+      if (method === 'remote.updateDeviceGrants') {
+        const next = params as {
+          deviceId: string
+          projectIds: string[]
+          allowTerminal: boolean
+        }
+        remoteState = remote({
+          devices: [{ ...device, projectIds: next.projectIds, allowTerminal: next.allowTerminal }],
+        })
+        return remoteState
+      }
+      return normal!(method, params)
+    })
+    const user = userEvent.setup()
+    render(<RemoteSettings />)
+
+    await user.click(await screen.findByRole('button', { name: 'Edit access for Pixel 9' }))
+    expect(screen.getByRole('checkbox', { name: 'Ari' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Other project' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Allow terminal access' })).toBeChecked()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Other project' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Allow terminal access' }))
+    await user.click(screen.getByRole('button', { name: 'Save access for Pixel 9' }))
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('remote.updateDeviceGrants', {
+        deviceId: 'dev_1',
+        projectIds: ['proj_ari', 'proj_other'],
+        allowTerminal: false,
+      }),
+    )
+    expect(await screen.findByText('Projects: Ari, Other project')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Save access for Pixel 9' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("leaves a paired device's grants untouched when editing is cancelled", async () => {
+    remoteState = remote({
+      devices: [
+        {
+          deviceId: 'dev_1',
+          displayName: 'Pixel 9',
+          projectIds: [PROJECT.id],
+          pairedAt: 1,
+          lastSeenAt: null,
+        },
+      ],
+    })
+    const user = userEvent.setup()
+    render(<RemoteSettings />)
+
+    await user.click(await screen.findByRole('button', { name: 'Edit access for Pixel 9' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Ari' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel access for Pixel 9' }))
+
+    expect(
+      screen.queryByRole('button', { name: 'Save access for Pixel 9' }),
+    ).not.toBeInTheDocument()
+    expect(invokeMock).not.toHaveBeenCalledWith('remote.updateDeviceGrants', expect.anything())
+    expect(screen.getByText('Projects: Ari')).toBeInTheDocument()
+  })
+
+  it('keeps the editor open when saving device access fails', async () => {
+    remoteState = remote({
+      devices: [
+        {
+          deviceId: 'dev_1',
+          displayName: 'Pixel 9',
+          projectIds: [PROJECT.id],
+          pairedAt: 1,
+          lastSeenAt: null,
+        },
+      ],
+    })
+    const normal = invokeMock.getMockImplementation()
+    invokeMock.mockImplementation((method, params) =>
+      method === 'remote.updateDeviceGrants'
+        ? Promise.reject(new Error('Could not save grants'))
+        : normal!(method, params),
+    )
+    const user = userEvent.setup()
+    render(<RemoteSettings />)
+
+    await user.click(await screen.findByRole('button', { name: 'Edit access for Pixel 9' }))
+    await user.click(screen.getByRole('button', { name: 'Save access for Pixel 9' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Save device access failed. Error: Could not save grants',
+    )
+    expect(screen.getByRole('button', { name: 'Save access for Pixel 9' })).toBeEnabled()
+  })
+
+  it('shows a path when two projects share a name, so an edit picks the right one', async () => {
+    const copy = { ...PROJECT, id: 'proj_copy', path: 'D:\\Projects\\Ari-copy' }
+    const normal = invokeMock.getMockImplementation()
+    invokeMock.mockImplementation((method, params) =>
+      method === 'project.list' ? Promise.resolve([PROJECT, copy]) : normal!(method, params),
+    )
+    remoteState = remote({
+      devices: [
+        {
+          deviceId: 'dev_1',
+          displayName: 'Pixel 9',
+          projectIds: [PROJECT.id],
+          pairedAt: 1,
+          lastSeenAt: null,
+        },
+      ],
+    })
+    const user = userEvent.setup()
+    render(<RemoteSettings />)
+
+    await user.click(await screen.findByRole('button', { name: 'Edit access for Pixel 9' }))
+    expect(screen.getByText(PROJECT.path)).toBeInTheDocument()
+    expect(screen.getByText(copy.path)).toBeInTheDocument()
+  })
+
   it('grants terminal only when the user explicitly enables it while approving this device', async () => {
     remoteState = remote({ enabled: true, clientUrl: TAILNET, pending: PENDING })
     const user = userEvent.setup()
