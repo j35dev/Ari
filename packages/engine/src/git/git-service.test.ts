@@ -303,6 +303,47 @@ suite('GitService', () => {
     if (!result.ok) expect(result.error.code).toBe('diff_too_large')
   })
 
+  it('diffs untracked files without staging them in the real index', async () => {
+    const dir = await initRepo()
+    await writeFile(join(dir, 'new.txt'), 'new file content\n', 'utf8')
+
+    const result = await service.diffWorktree(dir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toContain('diff --git a/new.txt b/new.txt')
+    expect(result.value).toContain('new file mode')
+    expect(result.value).toContain('+new file content')
+    // The scratch index is a copy: the user's index knows nothing about it.
+    expect(gitOut(dir, 'status', '--porcelain')).toContain('?? new.txt')
+    expect(gitOut(dir, 'diff', '--cached', '--name-only')).toBe('')
+  }, 20_000)
+
+  it('diffs a repo with no commits against the empty tree', async () => {
+    const dir = await makeDir('ari-git-empty-')
+    git(dir, 'init')
+    git(dir, 'config', 'core.autocrlf', 'false')
+    await writeFile(join(dir, 'first.txt'), 'first file\n', 'utf8')
+
+    const result = await service.diffWorktree(dir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toContain('diff --git a/first.txt b/first.txt')
+    expect(result.value).toContain('+first file')
+  }, 20_000)
+
+  it('leaves ignored files out of the worktree diff', async () => {
+    const dir = await initRepo()
+    await writeFile(join(dir, '.gitignore'), 'secret.txt\n', 'utf8')
+    await writeFile(join(dir, 'secret.txt'), 'do not show\n', 'utf8')
+
+    const result = await service.diffWorktree(dir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toContain('b/.gitignore')
+    // The rule text mentions the file; its own diff header must not appear.
+    expect(result.value).not.toContain('diff --git a/secret.txt')
+  }, 20_000)
+
   it('rejects unsafe revisions and malformed checkpoint ids', async () => {
     const dir = await initRepo()
 

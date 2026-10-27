@@ -2218,7 +2218,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('git.diffWorktree', async (params) => {
     const { GitService } = await import('@ari/engine/git')
-    const result = await new GitService().diffForRef(await resolveScopeRoot(params), 'HEAD')
+    const result = await new GitService().diffWorktree(await resolveScopeRoot(params))
     if (!result.ok) return { diffText: '', error: result.error.message }
     return { diffText: result.value }
   })

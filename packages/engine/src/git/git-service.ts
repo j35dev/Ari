@@ -13,6 +13,9 @@ const execFileP = promisify(execFile)
 /** Hard cap for diff payloads returned by {@link GitService.diffForRef}. */
 export const DIFF_MAX_BYTES = 512 * 1024
 
+/** Git's hash of the empty tree; the base for a repo that has no commits yet. */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
 const DEFAULT_MAX_BYTES = 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 10_000
 
@@ -233,6 +236,39 @@ export class GitService {
   }
 
   /**
+   * Unified diff of the whole working tree against HEAD, untracked files
+   * included, so a new file the agent created is reviewable before it is
+   * staged. A scratch index stages everything (`git add --all`); the user's
+   * real index is never touched, and ignored files stay out. A repo with no
+   * commits diffs against the empty tree instead of failing on HEAD. Output
+   * is capped at {@link DIFF_MAX_BYTES}.
+   */
+  async diffWorktree(cwd: string): Promise<Result<string, GitError>> {
+    const inside = await this.isRepo(cwd)
+    if (!inside.ok) return inside
+    if (!inside.value) return ok('')
+    const head = await this.#run(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD'], DEFAULT_MAX_BYTES, {
+      quiet: true,
+    })
+    const against = head.ok ? 'HEAD' : EMPTY_TREE
+    return this.#withScratchIndex(cwd, async (env) => {
+      const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+      if (!added.ok) return added
+      const diff = await this.#run(cwd, ['diff', against], DIFF_MAX_BYTES, { env })
+      if (!diff.ok) {
+        if (diff.error.code === 'output_overflow') {
+          return err({
+            code: 'diff_too_large',
+            message: `diff exceeds ${DIFF_MAX_BYTES} byte cap`,
+          })
+        }
+        return diff
+      }
+      return ok(diff.value.stdout.slice(0, DIFF_MAX_BYTES))
+    })
+  }
+
+  /**
    * Unified diff: against the current worktree (tracked files only) when only
    * `gitRef` is given, or between `gitRef` and `against` when both revisions
    * are supplied. Output is capped at {@link DIFF_MAX_BYTES}; larger diffs
@@ -254,6 +290,8 @@ export class GitService {
       const safeAgainst = assertSafeRev(against)
       if (!safeAgainst.ok) return safeAgainst
     }
+    // Untracked files are not in the index, so a plain `git diff` omits them;
+    // `diffWorktree` is the worktree view that includes them.
     const args = against === undefined ? ['diff', gitRef] : ['diff', gitRef, against]
     const run = await this.#run(cwd, args, DIFF_MAX_BYTES)
     if (!run.ok) {
