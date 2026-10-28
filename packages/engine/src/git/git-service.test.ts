@@ -75,12 +75,12 @@ async function listedRefs(dir: string, sessionId: string): Promise<string[]> {
   return list.value.map((c) => c.ref).sort()
 }
 
-suite('GitService', () => {
-  // Every test here shells out to real git; under a fully parallel verify the
-  // machine saturates and 5s (vitest default) is not enough for even `init`.
-  const GIT_TIMEOUT = 30_000
+// Every test here shells out to real git; under a fully parallel verify the
+// machine saturates and 5s (vitest default) is not enough for even `init`.
+const GIT_TIMEOUT = 30_000
 
-  it('detects repos vs plain directories', { timeout: GIT_TIMEOUT }, async () => {
+suite('GitService', { timeout: GIT_TIMEOUT }, () => {
+  it('detects repos vs plain directories', async () => {
     const repo = await initRepo()
     const plain = await makeDir('ari-plain-')
 
