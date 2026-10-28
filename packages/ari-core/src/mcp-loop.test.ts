@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { runAgentLoop } from './agent-loop'
+import type { ChatMessage } from './protocols/openai-chat'
 import type { Tool } from './tools'
 import { AriCoreDriver, type AriCoreDriverOptions } from './ari-core-driver'
 import { EndpointStore } from './endpoints'
@@ -127,6 +128,46 @@ describe('agent loop with extra tools', () => {
     expect(completed.resultJson).toContain('ran:hello')
     expect(tool.calls).toEqual([{ text: 'hello' }])
     expect(events.at(-1)).toEqual({ type: 'done' })
+  })
+
+  it('keeps a tool result\u2019s text and image, and delivers the image to the next round', async () => {
+    const image = { dataBase64: 'AAAA', mimeType: 'image/jpeg' }
+    const shot: Tool = {
+      name: 'mcp_tester_shot',
+      description: 'test double',
+      parameters: { type: 'object', properties: {} },
+      execute: async () => ({ text: 'captured', images: [image] }),
+    }
+    const rounds: ChatMessage[][] = []
+    let call = 0
+    const round = async function* (messages: ChatMessage[]): AsyncGenerator<AgentEvent> {
+      rounds.push(structuredClone(messages))
+      if (call++ === 0)
+        yield { type: 'tool-started', callId: 'c1', name: shot.name, argsJson: '{}' }
+      else yield { type: 'text-delta', text: 'finished' }
+      yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+      yield { type: 'done' }
+    }
+    const events = await collect({
+      round,
+      systemPrompt: 's',
+      userPrompt: 'u',
+      workspacePath: '.',
+      permissionMode: 'full',
+      extraTools: [shot],
+    })
+    const completed = events.find((e) => e.type === 'tool-completed')
+    if (completed?.type !== 'tool-completed') throw new Error('expected tool-completed')
+    expect(JSON.parse(completed.resultJson)).toEqual({
+      content: [
+        { type: 'text', text: 'captured' },
+        { type: 'image', data: 'AAAA', mimeType: 'image/jpeg' },
+      ],
+    })
+    expect(completed.resultJson).not.toContain('(no output)')
+    const toolMessage = rounds[1]?.find((message) => message.role === 'tool')
+    expect(toolMessage?.images).toEqual([image])
+    expect(toolMessage?.content).toBe(JSON.stringify('captured'))
   })
 
   it('ask mode blocks extra tools like bash', async () => {
@@ -299,10 +340,7 @@ describe('ari core driver MCP mounting', () => {
         env: {},
         disabled: false,
       }
-      const driver = driverWithRounds(endpoints, { mcpServers: [config] }, [
-        ['mcp_fake_echo'],
-        [],
-      ])
+      const driver = driverWithRounds(endpoints, { mcpServers: [config] }, [['mcp_fake_echo'], []])
       const adapter = await driver.create(session(dir))
       const events = await collectStream(adapter.start())
 
@@ -328,10 +366,7 @@ describe('ari core driver MCP mounting', () => {
         env: {},
         disabled: false,
       }
-      const driver = driverWithRounds(endpoints, { mcpServers: [config] }, [
-        ['mcp_dead_echo'],
-        [],
-      ])
+      const driver = driverWithRounds(endpoints, { mcpServers: [config] }, [['mcp_dead_echo'], []])
       const adapter = await driver.create(session(dir))
       const events = await collectStream(adapter.start())
 
@@ -352,15 +387,17 @@ describe('ari core driver MCP mounting', () => {
     try {
       const endpoints = await makeEndpoints(dir)
       let connects = 0
-      const driver = driverWithRounds(endpoints, {
-        mcpServers: [
-          { id: 'off', name: 'off', command: 'x', args: [], env: {}, disabled: true },
-        ],
-        mcpConnect: async () => {
-          connects++
-          throw new Error('should not connect')
+      const driver = driverWithRounds(
+        endpoints,
+        {
+          mcpServers: [{ id: 'off', name: 'off', command: 'x', args: [], env: {}, disabled: true }],
+          mcpConnect: async () => {
+            connects++
+            throw new Error('should not connect')
+          },
         },
-      }, [[]])
+        [[]],
+      )
       const adapter = await driver.create(session(dir))
       const events = await collectStream(adapter.start())
       expect(connects).toBe(0)
@@ -384,7 +421,7 @@ describe('ari core driver MCP mounting', () => {
           listTools: async () => [
             { name: 'echo', description: 'stub', inputSchema: { type: 'object' } },
           ],
-          callTool: async () => 'stub ran',
+          callTool: async () => ({ text: 'stub ran', images: [] }),
           dispose: async () => {
             disposes++
           },
@@ -394,10 +431,14 @@ describe('ari core driver MCP mounting', () => {
 
       // Natural end of turn disposes exactly once.
       const a = fakeConnection()
-      const driverA = driverWithRounds(endpoints, {
-        mcpServers: [{ id: 'a', name: 'a', command: 'x', args: [], env: {}, disabled: false }],
-        mcpConnect: async () => a.connection,
-      }, [['mcp_a_echo'], []])
+      const driverA = driverWithRounds(
+        endpoints,
+        {
+          mcpServers: [{ id: 'a', name: 'a', command: 'x', args: [], env: {}, disabled: false }],
+          mcpConnect: async () => a.connection,
+        },
+        [['mcp_a_echo'], []],
+      )
       const adapterA = await driverA.create(session(dir))
       await collectStream(adapterA.start())
       await adapterA.dispose()
@@ -405,10 +446,14 @@ describe('ari core driver MCP mounting', () => {
 
       // Dispose while the loop is running also disposes the connection.
       const b = fakeConnection()
-      const driverB = driverWithRounds(endpoints, {
-        mcpServers: [{ id: 'b', name: 'b', command: 'x', args: [], env: {}, disabled: false }],
-        mcpConnect: async () => b.connection,
-      }, [['mcp_b_echo'], []])
+      const driverB = driverWithRounds(
+        endpoints,
+        {
+          mcpServers: [{ id: 'b', name: 'b', command: 'x', args: [], env: {}, disabled: false }],
+          mcpConnect: async () => b.connection,
+        },
+        [['mcp_b_echo'], []],
+      )
       const adapterB = await driverB.create(session(dir))
       const iterator = adapterB.start()[Symbol.asyncIterator]()
       for (;;) {

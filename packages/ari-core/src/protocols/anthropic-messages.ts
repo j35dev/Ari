@@ -34,14 +34,12 @@ export interface AnthropicToolUseBlock {
 export interface AnthropicToolResultBlock {
   type: 'tool_result'
   tool_use_id: string
-  content: string
+  /** Text for a text result; blocks when the tool also returned images. */
+  content: string | AnthropicContentBlock[]
 }
 
 export type AnthropicContentBlock =
-  | AnthropicTextBlock
-  | AnthropicImageBlock
-  | AnthropicToolUseBlock
-  | AnthropicToolResultBlock
+  AnthropicTextBlock | AnthropicImageBlock | AnthropicToolUseBlock | AnthropicToolResultBlock
 
 /** Content is a plain string, or an array of blocks once tools/images exist. */
 export type AnthropicContent = string | AnthropicContentBlock[]
