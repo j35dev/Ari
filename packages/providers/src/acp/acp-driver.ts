@@ -28,7 +28,12 @@ import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { CatalogModel } from '../catalogs'
-import { resolveOfferedModel, setDynamicEfforts, setDynamicModels } from '../catalogs'
+import {
+  liveCatalogOf,
+  resolveOfferedModel,
+  setDynamicEfforts,
+  setDynamicModels,
+} from '../catalogs'
 import {
   AcpUpdateFolder,
   configOptionsFromUpdate,
@@ -614,6 +619,76 @@ export function modelsFromConfigOptions(configOptions: AcpConfigOption[]): Catal
 }
 
 /**
+ * Reads the reasoning levels each advertised model accepts in the probe's own
+ * session, one `session/set_config_option` at a time, then restores the model
+ * the session started on. The default row reuses the initial answer; agents
+ * that gate the effort selector per model cannot be enumerated any other way.
+ * A refused switch leaves that row unresolved so the picker can still ask the
+ * agent on demand; a timeout or lost connection ends the probe with what it
+ * has, since every remaining row would wait out the same deadline.
+ */
+export async function attachModelEfforts(
+  connection: AcpConnection,
+  created: AcpNewSessionResult,
+  models: CatalogModel[],
+  defaultEfforts: EffortCatalog,
+): Promise<void> {
+  const sessionId = created.sessionId
+  const configOptions = created.configOptions ?? []
+  const modelOption = findModelOption(configOptions)
+  const defaultId = currentModelId(configOptions)
+  const initial = rowEfforts(defaultEfforts)
+  const defaultRow = models.find((model) => model.id === defaultId)
+  if (initial !== undefined && defaultRow !== undefined) {
+    defaultRow.efforts = initial
+    defaultRow.effortsSource = 'agent'
+  }
+  const configId = modelOption?.id
+  if (sessionId === undefined || configId === undefined || models.length < 2) return
+
+  let refreshed = configOptions
+  let probed = 0
+  for (const model of models) {
+    if (probed >= MAX_MODEL_EFFORT_PROBES) break
+    if (model.id === defaultId || model.efforts !== undefined) continue
+    probed += 1
+    try {
+      const next = (await connection.setConfigOption(sessionId, configId, model.id)) ?? []
+      const efforts = rowEfforts(thoughtEffortsFromSession({ configOptions: next }))
+      if (efforts !== undefined) {
+        model.efforts = efforts
+        model.effortsSource = 'agent'
+      }
+      refreshed = next
+    } catch (error) {
+      log.debug('model effort probe skipped', { model: model.id, error: String(error) })
+      // Only an agent's JSON-RPC refusal carries a code.
+      if (!(error instanceof AcpConnectionError) || error.code === null) return
+    }
+  }
+  if (defaultId !== null && refreshed !== configOptions) {
+    try {
+      await connection.setConfigOption(sessionId, configId, defaultId)
+    } catch (error) {
+      log.debug('could not restore the probe session model', {
+        model: defaultId,
+        error: String(error),
+      })
+    }
+  }
+}
+
+const MAX_MODEL_EFFORT_PROBES = 24
+
+function rowEfforts(catalog: EffortCatalog): CatalogModel['efforts'] {
+  if (catalog.options.length === 0) return undefined
+  return catalog.options.map((option) => ({
+    ...option,
+    ...(catalog.currentId === option.id ? { current: true } : {}),
+  }))
+}
+
+/**
  * Turns one advertised option into a picker row. Claude names its rows by
  * family alone (`Opus`) and puts the version in the description
  * (`Opus 5.5 · Best for everyday, complex tasks`), so a description built as
@@ -1023,8 +1098,26 @@ export function shouldFallBack(error: unknown): boolean {
  */
 export function publishAdvertisedModels(kind: DriverKind, models: CatalogModel[]): void {
   if (models.length === 0) return
-  setDynamicModels(kind, 'live', models)
+  setDynamicModels(kind, 'live', withKnownEfforts(models, liveCatalogOf(kind)?.models ?? []))
   log.info('catalog taken from the session agent', { kind, count: models.length })
+}
+
+/**
+ * A turn's selector reports levels for the model it runs on only, so rows the
+ * catalog probe already resolved keep theirs; otherwise the first turn would
+ * erase them and the live cache would persist the loss.
+ */
+function withKnownEfforts(models: CatalogModel[], known: CatalogModel[]): CatalogModel[] {
+  const byId = new Map(known.map((model) => [model.id, model]))
+  return models.map((model) => {
+    const prior = byId.get(model.id)
+    if (model.efforts !== undefined || prior?.efforts === undefined) return model
+    return {
+      ...model,
+      efforts: prior.efforts,
+      ...(prior.effortsSource !== undefined ? { effortsSource: prior.effortsSource } : {}),
+    }
+  })
 }
 
 /**

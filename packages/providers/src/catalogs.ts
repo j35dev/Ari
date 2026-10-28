@@ -1,6 +1,6 @@
 import type { DriverKind } from '@ari/contracts/common'
 import snapshot from './catalog-snapshot.json'
-import type { EffortCatalog } from './acp/thought'
+import type { CatalogEffort, EffortCatalog } from './acp/thought'
 import type { AgentModeCatalog } from './acp/modes'
 
 export type { CatalogEffort, EffortCatalog } from './acp/thought'
@@ -30,6 +30,14 @@ export interface CatalogModel {
    * Absent on catalogs that predate it; those fall back to id prefixes.
    */
   family?: string
+  /**
+   * Thought/reasoning levels this model accepts, when the source knows them.
+   * A live probe or Codex's own model list fills these; a static table marks
+   * them `fallback` so the picker still refines against the agent.
+   */
+  efforts?: CatalogEffort[]
+  /** Where `efforts` came from. `fallback` is provisional until the agent answers. */
+  effortsSource?: 'agent' | 'fallback'
 }
 
 /** Where the current catalog for a kind came from. */
@@ -252,6 +260,20 @@ const FALLBACK_EFFORTS: Partial<Record<DriverKind, EffortCatalog>> = {
   grok: GROK_EFFORTS,
   'ari-core': ARI_CORE_EFFORTS,
 }
+
+/**
+ * Claude reasoning levels a picker can show before the CLI answers. The live
+ * probe replaces these with the model's own advertised set; they exist so the
+ * first paint after an install, an offline start or a failed probe still has a
+ * usable chip instead of hiding it.
+ */
+const CLAUDE_FALLBACK_EFFORTS: CatalogEffort[] = [
+  { id: 'low', label: 'Low', description: 'Fastest reasoning' },
+  { id: 'medium', label: 'Medium', description: 'Balanced reasoning' },
+  { id: 'high', label: 'High', description: 'Deeper reasoning' },
+  { id: 'xhigh', label: 'Extra high', description: 'Maximum reasoning depth' },
+  { id: 'max', label: 'Max', description: 'Highest reasoning depth' },
+]
 
 /** Where {@link modelsFor} data currently comes from for a kind. */
 export function catalogSource(kind: DriverKind): CatalogSource {
@@ -512,5 +534,23 @@ export function resolveOfferedModel(
  */
 export function modelsFor(kind: DriverKind): CatalogModel[] {
   const models = dynamic.get(kind)?.models ?? snapshotFor(kind) ?? MODEL_CATALOGS[kind]
-  return collapseCatalog(kind, models)
+  return withFallbackEfforts(kind, collapseCatalog(kind, models))
+}
+
+/**
+ * Claude rows from a registry or the bundled snapshot carry no reasoning
+ * levels. Attach a provisional set so the effort chip is present on first
+ * paint; a live catalog is the agent's own word and is left alone.
+ */
+function withFallbackEfforts(kind: DriverKind, models: CatalogModel[]): CatalogModel[] {
+  if (kind !== 'claude' || catalogSource(kind) === 'live') return models
+  return models.map((model) =>
+    model.efforts !== undefined || !model.id.startsWith('claude-')
+      ? model
+      : {
+          ...model,
+          efforts: CLAUDE_FALLBACK_EFFORTS.map((effort) => ({ ...effort })),
+          effortsSource: 'fallback' as const,
+        },
+  )
 }

@@ -9,6 +9,8 @@ export interface CatalogEffort {
   id: string
   label: string
   description?: string
+  /** The level the agent uses when the session names none. */
+  current?: boolean
 }
 
 export interface EffortCatalog {

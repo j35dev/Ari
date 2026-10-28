@@ -507,6 +507,10 @@ export const remoteModelCatalogSchema = z.object({
           aliases: z.array(z.string()).optional(),
           contextHint: z.string().optional(),
           isLegacy: z.boolean().optional(),
+          /** This model's own levels; absent from a desktop too old to say. */
+          efforts: z.array(remoteEffortOptionSchema).optional(),
+          /** `fallback` is a static guess the desktop has not confirmed with the agent. */
+          effortsSource: z.enum(['agent', 'fallback']).optional(),
         }),
       ),
     }),
