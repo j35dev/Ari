@@ -57,6 +57,18 @@ export interface ToolContext {
   }) => Promise<string>
 }
 
+/** One image a tool returns alongside its text, base64-encoded for the provider. */
+export interface ToolImage {
+  dataBase64: string
+  mimeType: string
+}
+
+/** A tool result that is more than text; `text` is always what the model reads. */
+export interface ToolOutput {
+  text: string
+  images?: ToolImage[]
+}
+
 export interface Tool {
   name: string
   description: string
@@ -68,7 +80,7 @@ export interface Tool {
    * stays strictly ordered.
    */
   readOnly?: boolean
-  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<string>
+  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<string | ToolOutput>
 }
 
 /** Resolves a user-supplied path inside the jail; throws on escape. */
@@ -129,11 +141,7 @@ const GUARDED_TOOLS = new Set(['bash', 'write', 'edit'])
  * the permission mode (an explicit approval clears the mode gate only —
  * the allowlist still binds even approved calls).
  */
-function assertAllowed(
-  ctx: ToolContext,
-  toolName: string,
-  args: Record<string, unknown>,
-): void {
+function assertAllowed(ctx: ToolContext, toolName: string, args: Record<string, unknown>): void {
   if (!GUARDED_TOOLS.has(toolName)) return
   const hasRules = (ctx.allowlist ?? []).some((r) => r.tool === toolName)
   if (hasRules && !matchesAllowlist(toolName, JSON.stringify(args), ctx.allowlist ?? [])) {
@@ -174,9 +182,7 @@ async function executeRead(args: ReadArgs, ctx: ToolContext): Promise<string> {
     throw new Error(`offset ${args.offset} is beyond end of file (${lastIndex} lines)`)
   }
   const endIndex =
-    args.limit !== undefined && args.limit > 0
-      ? Math.min(start + args.limit, lastIndex)
-      : lastIndex
+    args.limit !== undefined && args.limit > 0 ? Math.min(start + args.limit, lastIndex) : lastIndex
   const numbered = rawLines
     .slice(start, endIndex)
     .map((line, index) => `${start + index + 1}\t${line}`)
@@ -307,9 +313,10 @@ async function executeGrep(args: GrepArgs, ctx: ToolContext): Promise<string> {
   }
 
   const flags = (args.ignoreCase ?? false) ? 'gi' : 'g'
-  const regex = args.literal === true
-    ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
-    : new RegExp(pattern, flags)
+  const regex =
+    args.literal === true
+      ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags)
+      : new RegExp(pattern, flags)
   const out: string[] = []
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 12 || out.length >= limit) return
@@ -365,10 +372,7 @@ async function executeGlob(args: Record<string, unknown>, ctx: ToolContext): Pro
   const pattern = str(args, 'pattern')
   if (pattern.length === 0) throw new Error('glob requires a pattern')
   const rel = pathArg(args)
-  const base =
-    rel === '' || rel === '.'
-      ? ctx.workspacePath
-      : await jailed(ctx, rel)
+  const base = rel === '' || rel === '.' ? ctx.workspacePath : await jailed(ctx, rel)
   const { glob } = await import('node:fs/promises')
   const results: string[] = []
   for await (const entry of glob(pattern, { cwd: base })) {
@@ -376,7 +380,8 @@ async function executeGlob(args: Record<string, unknown>, ctx: ToolContext): Pro
     if (results.length >= GLOB_MAX_RESULTS) break
   }
   if (results.length === 0) return '(no matches)'
-  const suffix = results.length >= GLOB_MAX_RESULTS ? `\n[stopped at ${GLOB_MAX_RESULTS} results]` : ''
+  const suffix =
+    results.length >= GLOB_MAX_RESULTS ? `\n[stopped at ${GLOB_MAX_RESULTS} results]` : ''
   return results.join('\n') + suffix
 }
 
@@ -392,7 +397,9 @@ async function executeLs(args: Record<string, unknown>, ctx: ToolContext): Promi
     const bDir = b.isDirectory() ? 0 : 1
     return aDir !== bDir ? aDir - bDir : a.name.localeCompare(b.name)
   })
-  const lines = entries.slice(0, LS_MAX_ENTRIES).map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+  const lines = entries
+    .slice(0, LS_MAX_ENTRIES)
+    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
   if (lines.length === 0) return '(empty directory)'
   const suffix =
     entries.length > LS_MAX_ENTRIES ? `\n[${entries.length - LS_MAX_ENTRIES} more entries]` : ''
@@ -427,7 +434,13 @@ async function executeBash(args: BashArgs, ctx: ToolContext): Promise<string> {
       execFile(
         shell,
         shellArg,
-        { cwd: ctx.workspacePath, env: ctx.runtimeEnv, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+        {
+          cwd: ctx.workspacePath,
+          env: ctx.runtimeEnv,
+          timeout: timeoutMs,
+          maxBuffer: 4 * 1024 * 1024,
+          windowsHide: true,
+        },
         (error, stdout, stderr) => {
           const raw = [stdout.toString(), stderr.toString()].filter(Boolean).join('\n')
           const truncation = truncateTail(raw)
@@ -558,10 +571,16 @@ export const BUILT_IN_TOOLS: Tool[] = [
       type: 'object',
       properties: {
         pattern: { type: 'string', description: 'Regex pattern to search for' },
-        path: { type: 'string', description: 'Directory or file to search (default: workspace root)' },
+        path: {
+          type: 'string',
+          description: 'Directory or file to search (default: workspace root)',
+        },
         glob: { type: 'string', description: "Filter files by glob, e.g. '*.ts'" },
         ignoreCase: { type: 'boolean', description: 'Case-insensitive search' },
-        literal: { type: 'boolean', description: 'Treat the pattern as a literal string, not a regex' },
+        literal: {
+          type: 'boolean',
+          description: 'Treat the pattern as a literal string, not a regex',
+        },
         limit: { type: 'number', description: 'Maximum number of matches (default 100)' },
       },
       required: ['pattern'],
@@ -739,7 +758,9 @@ export function formatAskUserResult(questions: AskUserToolQuestion[], value: str
     const lines = questions.map(
       (q) => `${q.question}: (dismissed by the user — proceed with your best judgment)`,
     )
-    return lines.length > 0 ? lines.join('\n') : '(dismissed by the user — proceed with your best judgment)'
+    return lines.length > 0
+      ? lines.join('\n')
+      : '(dismissed by the user — proceed with your best judgment)'
   }
   let answers: Record<string, string> = {}
   try {
@@ -756,10 +777,12 @@ export function formatAskUserResult(questions: AskUserToolQuestion[], value: str
       }
     }
   } catch {
-    answers = questions.length === 1 && questions[0] !== undefined ? { [questions[0].id]: value } : {}
+    answers =
+      questions.length === 1 && questions[0] !== undefined ? { [questions[0].id]: value } : {}
   }
   const lines = questions.map((q) => {
-    const answer = answers[q.id] ?? answers[q.question] ?? (questions.length === 1 ? value : '(no answer)')
+    const answer =
+      answers[q.id] ?? answers[q.question] ?? (questions.length === 1 ? value : '(no answer)')
     return `${q.question}: ${answer}`
   })
   return lines.length > 0 ? lines.join('\n') : value

@@ -143,6 +143,55 @@ describe('openai chat streaming client', () => {
     })
   })
 
+  it('moves tool images after the whole run of parallel tool results', async () => {
+    const box: { body?: string } = {}
+    const fetcher: SseFetch = async (_url, init) => {
+      box.body = String(init.body as string)
+      return { body: (async function* () { yield 'data: [DONE]' })(), status: 200, statusText: 'OK' }
+    }
+    for await (const _ of streamChatCompletion(
+      {
+        ...base,
+        messages: [
+          { role: 'user', content: 'shoot both' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              { id: 'a', name: 'shot', argsJson: '{}' },
+              { id: 'b', name: 'shot', argsJson: '{}' },
+            ],
+          },
+          {
+            role: 'tool',
+            content: '"[image: image/png, 1 KB]"',
+            toolCallId: 'a',
+            images: [{ dataBase64: 'aGk=', mimeType: 'image/png' }],
+          },
+          { role: 'tool', content: '"no image"', toolCallId: 'b' },
+        ],
+      },
+      fetcher,
+    )) {
+      void _
+    }
+    const body = JSON.parse(box.body ?? '{}') as {
+      messages: { role: string; content: unknown; tool_call_id?: string }[]
+    }
+    expect(body.messages.map((m) => [m.role, m.tool_call_id])).toEqual([
+      ['user', undefined],
+      ['assistant', undefined],
+      ['tool', 'a'],
+      ['tool', 'b'],
+      ['user', undefined],
+    ])
+    expect(body.messages[2]?.content).toBe('"[image: image/png, 1 KB]"')
+    expect(body.messages[4]?.content).toEqual([
+      { type: 'text', text: 'Image returned by tool call a.' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aGk=' } },
+    ])
+  })
+
   it('sends reasoning_effort when the session picked a level', async () => {
     const box: { body?: string } = {}
     const fetcher: SseFetch = async (_url, init) => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CONTEXT_WINDOW_CHARS,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
+  MAX_TOOL_IMAGE_RESULTS,
   TRIMMED_TOOL_RESULTS_PLACEHOLDER,
   trimMessages,
 } from './context-manager'
@@ -139,6 +140,24 @@ describe('trimMessages', () => {
     expect(trimmed).toContain(system)
     expect(trimmed).toContainEqual(assistant('b'.repeat(400)))
     expect(trimmed).not.toContainEqual(assistant('a'.repeat(400)))
+  })
+
+  it('keeps images only on the newest tool results, leaving their text', () => {
+    const image = { dataBase64: 'AAAA', mimeType: 'image/png' }
+    const messages: ChatMessage[] = [system, { ...user, images: [image] }]
+    for (let round = 0; round < 5; round++) {
+      messages.push(assistantWithCalls(`s${round}`, 'shot'))
+      messages.push({ ...tool(`s${round}_0`, '"[image: image/png, 1 KB]"'), images: [image] })
+    }
+    const trimmed = trimMessages(messages, 100_000)
+    const withImages = trimmed.filter((m) => m.role === 'tool' && m.images !== undefined)
+    expect(withImages.map((m) => m.toolCallId)).toEqual(['s2_0', 's3_0', 's4_0'])
+    expect(withImages).toHaveLength(MAX_TOOL_IMAGE_RESULTS)
+    expect(trimmed.find((m) => m.toolCallId === 's0_0')).toEqual(
+      tool('s0_0', '"[image: image/png, 1 KB]"'),
+    )
+    expect(trimmed[1]?.images).toEqual([image])
+    expect(messages[3]?.images).toEqual([image])
   })
 
   it('exposes the driver default budget constant', () => {

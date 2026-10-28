@@ -77,6 +77,7 @@ rl.on('line', (line) => {
           content: [
             { type: 'text', text: 'captured' },
             { type: 'image', data: 'A'.repeat(400000), mimeType: 'image/jpeg' },
+            { type: 'image', data: 'A'.repeat(1365), mimeType: 'image/svg+xml' },
             { type: 'audio', data: 'A'.repeat(8192), mimeType: 'audio/wav' },
             { type: 'resource', resource: { uri: 'file:///a.png', mimeType: 'image/png', blob: 'A'.repeat(4096) } },
             { type: 'resource', resource: { uri: 'file:///a.txt', mimeType: 'text/plain', text: 'file body' } },
@@ -120,7 +121,7 @@ describe('McpConnection', () => {
       expect(tools[0]?.description).toContain('Echoes')
 
       const result = await connection.callTool('echo', { text: 'ping' })
-      expect(result).toBe('echo: ping')
+      expect(result).toEqual({ text: 'echo: ping', images: [] })
     } finally {
       await connection?.dispose()
       await rm(dir, { recursive: true, force: true })
@@ -147,18 +148,22 @@ describe('McpConnection', () => {
       const script = await writeFakeServer(dir)
       connection = await McpConnection.connect(serverConfig(script), { cwd: dir })
       const result = await connection.callTool('shot', {})
-      expect(result).toBe(
+      expect(result.text).toBe(
         [
           'captured',
-          '[image: image/jpeg, 293 KB, not shown]',
+          '[image: image/jpeg, 293 KB]',
+          '[image: image/svg+xml, 1 KB, not shown]',
           '[audio: audio/wav, 6 KB, not shown]',
           '[resource: image/png, 3 KB, not shown, uri=file:///a.png]',
           'file body',
           '[resource_link: unknown, not shown, uri=file:///b.bin]',
         ].join('\n'),
       )
-      expect(result).not.toContain('AAAA')
-      expect(result.length).toBeLessThan(250)
+      expect(result.text).not.toContain('AAAA')
+      expect(result.text.length).toBeLessThan(250)
+      expect(result.images).toHaveLength(1)
+      expect(result.images[0]?.mimeType).toBe('image/jpeg')
+      expect(result.images[0]?.dataBase64.startsWith('AAAA')).toBe(true)
     } finally {
       await connection?.dispose()
       await rm(dir, { recursive: true, force: true })
@@ -175,9 +180,9 @@ describe('McpConnection', () => {
         args: [script, '--silent'],
         env: {},
       }
-      await expect(
-        McpConnection.connect(config, { cwd: dir, timeoutMs: 250 }),
-      ).rejects.toThrow(/timed out after 250ms/)
+      await expect(McpConnection.connect(config, { cwd: dir, timeoutMs: 250 })).rejects.toThrow(
+        /timed out after 250ms/,
+      )
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -192,9 +197,7 @@ describe('McpConnection', () => {
         args: [],
         env: {},
       }
-      await expect(McpConnection.connect(config, { timeoutMs: 1_000 })).rejects.toThrow(
-        /ghost/,
-      )
+      await expect(McpConnection.connect(config, { timeoutMs: 1_000 })).rejects.toThrow(/ghost/)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -221,9 +224,14 @@ describe('mountMcpTools', () => {
       expect(tool?.name).toBe('mcp_fake_echo')
       expect(tool?.description).toContain('Echoes')
       expect(tool?.parameters).toMatchObject({ type: 'object' })
-      expect(await tool?.execute({ text: 'through the loop' }, {
-        workspacePath: dir,
-      })).toBe('echo: through the loop')
+      expect(
+        await tool?.execute(
+          { text: 'through the loop' },
+          {
+            workspacePath: dir,
+          },
+        ),
+      ).toBe('echo: through the loop')
     } finally {
       await connection?.dispose()
       await rm(dir, { recursive: true, force: true })

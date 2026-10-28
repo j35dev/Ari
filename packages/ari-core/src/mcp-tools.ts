@@ -66,7 +66,12 @@ export async function mountMcpTools(servers: MountedMcpServer[]): Promise<Tool[]
         description:
           info.description ?? `MCP tool '${info.name}' provided by the ${server.name} server.`,
         parameters: info.inputSchema ?? { type: 'object', properties: {} },
-        execute: async (args) => await server.connection.callTool(info.name, args),
+        execute: async (args) => {
+          const result = await server.connection.callTool(info.name, args)
+          return result.images.length > 0
+            ? { text: result.text, images: result.images }
+            : result.text
+        },
       })
     }
   }

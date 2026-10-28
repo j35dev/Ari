@@ -72,7 +72,10 @@ describe('ToolResultBody', () => {
     const toggle = screen.getByRole('button', { name: /Show more/ })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await user.click(toggle)
-    expect(screen.getByRole('button', { name: /Show less/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: /Show less/ })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
   })
 
   it('shows no toggle for short output', () => {
@@ -85,7 +88,8 @@ describe('ToolResultBody MCP content', () => {
   const PNG_BASE64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
 
-  it('shows a placeholder for an MCP image block without rendering its data', () => {
+  it('renders an MCP image as a thumbnail that opens a larger preview', async () => {
+    const user = userEvent.setup()
     const { container } = render(
       <ToolResultBody
         resultJson={JSON.stringify({
@@ -93,15 +97,18 @@ describe('ToolResultBody MCP content', () => {
         })}
       />,
     )
-    expect(screen.getByText('Image')).toBeInTheDocument()
-    expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    expect(container.querySelector('img')).toBeNull()
+    const thumbnail = screen.getByRole('img', { name: 'Image' })
+    expect(thumbnail).toHaveAttribute('src', `data:image/png;base64,${PNG_BASE64}`)
+    expect(thumbnail.className).toContain('max-h-60')
     expect(container.textContent).not.toContain(PNG_BASE64)
-    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+
+    await user.click(screen.getByRole('button', { name: 'Open image' }))
+    expect(screen.getByRole('button', { name: 'Close image preview' })).toBeInTheDocument()
+    expect(screen.getAllByRole('img', { name: 'Image' })).toHaveLength(2)
   })
 
-  it('shows a placeholder for an Anthropic image block without rendering its data', () => {
-    const { container } = render(
+  it('renders an Anthropic-shaped image block the same way', () => {
+    render(
       <ToolResultBody
         resultJson={JSON.stringify({
           content: [
@@ -113,14 +120,13 @@ describe('ToolResultBody MCP content', () => {
         })}
       />,
     )
-    expect(screen.getByText('Image')).toBeInTheDocument()
-    expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    expect(container.querySelector('img')).toBeNull()
-    expect(container.textContent).not.toContain(PNG_BASE64)
-    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+    expect(screen.getByRole('img', { name: 'Image' })).toHaveAttribute(
+      'src',
+      `data:image/png;base64,${PNG_BASE64}`,
+    )
   })
 
-  it('shows text beside an MCP image placeholder without rendering an image', () => {
+  it('shows text beside an image without rendering base64 as text', () => {
     const { container } = render(
       <ToolResultBody
         resultJson={JSON.stringify({
@@ -132,15 +138,12 @@ describe('ToolResultBody MCP content', () => {
       />,
     )
     expect(screen.getByText('Captured https://example.com')).toBeInTheDocument()
-    expect(screen.getByText('Image')).toBeInTheDocument()
-    expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    expect(container.querySelector('img')).toBeNull()
+    expect(screen.getByRole('img', { name: 'Image' })).toBeInTheDocument()
     expect(container.textContent).not.toContain(PNG_BASE64)
-    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
   })
 
   it('shows a placeholder for non-text, non-image blocks beside an image', () => {
-    const { container } = render(
+    render(
       <ToolResultBody
         resultJson={JSON.stringify([
           { type: 'audio', data: PNG_BASE64, mimeType: 'audio/wav' },
@@ -149,10 +152,34 @@ describe('ToolResultBody MCP content', () => {
       />,
     )
     expect(screen.getByText('Unsupported content')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Image' })).toBeInTheDocument()
+  })
+
+  it('shows a placeholder for a malformed image block', () => {
+    const { container } = render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [{ type: 'image', data: 'not-an-image', mimeType: 'text/plain' }],
+        })}
+      />,
+    )
     expect(screen.getByText('Image')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    expect(container.querySelector('img')).toBeNull()
-    expect(document.body.innerHTML).not.toContain(PNG_BASE64)
+    expect(container.textContent).not.toContain('not-an-image')
+  })
+
+  it('shows a placeholder for an image over the size cap', () => {
+    render(
+      <ToolResultBody
+        resultJson={JSON.stringify({
+          content: [
+            { type: 'image', data: 'A'.repeat(5 * 1024 * 1024 + 1), mimeType: 'image/png' },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText('Image too large')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
   it('shows a placeholder for an audio-only result without leaking base64', () => {

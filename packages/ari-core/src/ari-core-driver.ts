@@ -118,7 +118,7 @@ function renderAsTextTurns(messages: ChatMessage[]): RenderedTurn[] {
   for (const message of messages) {
     if (message.role === 'tool') {
       const id = message.toolCallId ? ` ${message.toolCallId}` : ''
-      push('user', `[tool result${id}]\n${message.content}`)
+      push('user', `[tool result${id}]\n${message.content}`, message.images)
     } else if (message.role === 'assistant' && message.toolCalls?.length) {
       const calls = message.toolCalls.map((c) => `[tool call ${c.name}] ${c.argsJson}`).join('\n')
       push('assistant', message.content ? `${message.content}\n${calls}` : calls)
@@ -203,7 +203,20 @@ function anthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
       results.push({
         type: 'tool_result',
         tool_use_id: message.toolCallId ?? '',
-        content: message.content,
+        content:
+          message.images && message.images.length > 0
+            ? [
+                { type: 'text', text: message.content },
+                ...message.images.map((image): AnthropicContentBlock => ({
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: image.mimeType,
+                    data: image.dataBase64,
+                  },
+                })),
+              ]
+            : message.content,
       })
       continue
     }
