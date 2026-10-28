@@ -168,6 +168,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     origin: messageOriginSchema.optional(),
     text: z.string(),
     attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+    held: z.boolean().optional(),
   }),
   eventBase.extend({
     type: z.literal('message.dequeued'),

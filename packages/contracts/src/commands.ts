@@ -1,8 +1,5 @@
 import { z } from 'zod'
-import {
-  driverKindSchema,
-  permissionModeSchema,
-} from './common'
+import { driverKindSchema, permissionModeSchema } from './common'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 
 /**
@@ -48,6 +45,12 @@ export const commandSchema = z.discriminatedUnion('type', [
       sessionId: z.string(),
       text: z.string(),
       attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+      /**
+       * Delegated work: the message waits even when the session is idle, and
+       * starts only when the root has a free child slot. It also survives a
+       * non-completed settle, unlike a message the user sent.
+       */
+      hold: z.boolean().optional(),
     })
     .superRefine(requiresTextOrAttachments),
   /**

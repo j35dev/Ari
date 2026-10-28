@@ -375,6 +375,16 @@ export class AgentControlService {
           await this.#acknowledge(caller.id, target.id, state.activeTurnId, 'disposed')
         if (state.activeTurnId)
           await this.host.dispatch({ type: 'turn.interrupt', sessionId: target.id })
+        // Stopping a child cancels its delegated work too: a held message must
+        // not start after the turn it was waiting behind is interrupted.
+        for (const queued of state.queuedMessages.filter((message) => message.held === true)) {
+          await this.host.dispatch({
+            type: 'message.dequeue',
+            sessionId: target.id,
+            text: queued.text,
+            attachments: queued.attachments,
+          })
+        }
         if (target.id !== caller.id && state.activeTurnId)
           await this.host.record(caller.id, {
             type: 'child.session.stopped',
@@ -572,7 +582,6 @@ export class AgentControlService {
       policy,
       chain.length - 1,
       rows.filter((s) => s.parentSessionId === caller.id).length,
-      await this.#active(root.id),
     )
     const provider = (await this.host.providers()).find(
       (v) => v.driverKind === p.driverKind && v.available,
@@ -678,18 +687,10 @@ export class AgentControlService {
     const state = await this.host.store.load(target.id)
     if (state.queuedMessages.length >= 32)
       throw new ControlFailure('delegation_limit', 'Target message queue is full.')
-    if (!state.activeTurnId && target.parentSessionId) {
-      const root = (await this.#lineage(target)).at(-1) as Session
-      if ((await this.#active(root.id)) >= this.host.policy().maxConcurrentChildren)
-        throw new ControlFailure('delegation_limit', 'Maximum concurrent children reached.')
-    }
+    // Even an idle child takes the held queue: the root's gate decides when a
+    // slot is free, and the same path survives a restart.
     const outcome = await this.host.dispatch(
-      {
-        type: state.activeTurnId ? 'message.enqueue' : 'turn.start',
-        sessionId: target.id,
-        text,
-        attachments: [],
-      },
+      { type: 'message.enqueue', sessionId: target.id, text, attachments: [], hold: true },
       { kind: 'session', sessionId: caller.id },
     )
     if (!outcome.accepted)
@@ -697,7 +698,7 @@ export class AgentControlService {
     return {
       sessionId: target.id,
       turnId: (await this.host.store.load(target.id)).activeTurnId,
-      queued: state.activeTurnId !== null,
+      queued: true,
     }
   }
 
@@ -834,6 +835,7 @@ export class AgentControlService {
         waitingForChildren: count('waiting_for_children'),
         resultAvailable: count('result_available'),
         notStarted: count('not_started'),
+        queued: count('queued'),
       },
     }
   }

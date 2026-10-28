@@ -67,7 +67,12 @@ export const delegationSettingsPatchSchema = z.object(delegationFields).partial(
 
 /** Where a delegated child stands, from its parent's point of view. */
 export type ChildWorkState =
-  'not_started' | 'working' | 'blocked_on_user' | 'waiting_for_children' | 'result_available'
+  | 'not_started'
+  | 'queued'
+  | 'working'
+  | 'blocked_on_user'
+  | 'waiting_for_children'
+  | 'result_available'
 
 /** One delegated child as `session status` and the transcript's task cards report it. */
 export interface ChildTask {

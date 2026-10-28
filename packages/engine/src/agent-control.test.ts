@@ -14,6 +14,8 @@ let store: SessionStore
 let host: ControlHost
 let service: AgentControlService
 let seq = 0
+/** The unit host has no engine drain; tests turn this off to observe the hold. */
+let drainHeld = true
 let botMemory: BotMemoryStore
 const root: Session = {
   id: 'root',
@@ -59,6 +61,31 @@ beforeEach(async () => {
         origin,
       )
       for (const event of decision.events) await store.append(command.sessionId, event)
+      if (drainHeld && command.type === 'message.enqueue' && command.hold === true) {
+        const fresh = await store.load(command.sessionId)
+        if (fresh.session && fresh.activeTurnId === null) {
+          // Starting a queued message consumes it, as the engine's drain does.
+          await store.append(command.sessionId, {
+            type: 'message.dequeued',
+            text: command.text,
+            attachments: command.attachments ?? [],
+            ...(origin ? { origin } : {}),
+          })
+          const drained = await store.load(command.sessionId)
+          const started = decideCommand(
+            drained,
+            {
+              type: 'turn.start',
+              sessionId: command.sessionId,
+              text: command.text,
+              attachments: command.attachments ?? [],
+            },
+            { turnId: `t${++seq}`, messageId: `m${seq}` },
+            origin,
+          )
+          for (const event of started.events) await store.append(command.sessionId, event)
+        }
+      }
       return decision
     },
     record: (id, event) => store.append(id, event),
@@ -93,6 +120,7 @@ beforeEach(async () => {
     },
   }
   routines.length = 0
+  drainHeld = true
   botMemory = new BotMemoryStore({ dir: join(dir, 'bots') })
   host.memory = {
     read: (botId) => botMemory.read(botId),
@@ -122,7 +150,8 @@ it('deduplicates concurrent spawn retries and sends the assignment exactly once'
   ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
 })
 
-it('reserves root-wide slots atomically and prevents recursive delegation and escalation', async () => {
+it('queues delegated work at the cap and prevents recursion and escalation', async () => {
+  drainHeld = false
   host.policy = () =>
     delegationSettingsSchema.parse({
       approvalMode: 'never',
@@ -134,15 +163,23 @@ it('reserves root-wide slots atomically and prevents recursive delegation and es
       service.invoke('root', 'session.spawn', { ...spawn, idempotencyKey }),
     ),
   )
-  expect(replies.filter((r) => r.ok)).toHaveLength(1)
-  expect(replies.find((r) => !r.ok)).toMatchObject({ error: { code: 'delegation_limit' } })
-  const child = (await store.listSessions()).find((s) => s.parentSessionId === 'root')!
+  expect(replies.every((reply) => reply.ok)).toBe(true)
+  const children = (await store.listSessions()).filter((s) => s.parentSessionId === 'root')
+  expect(children).toHaveLength(2)
+  for (const child of children) {
+    const model = await store.load(child.id)
+    expect(model.activeTurnId).toBeNull()
+    expect(model.queuedMessages).toMatchObject([{ text: 'Implement', held: true }])
+  }
+  // Stopping a child that never got a slot drops its held work for good.
+  await service.invoke('root', 'session.stop', {
+    targetSessionId: children[0]!.id,
+    idempotencyKey: 'stop',
+  })
+  expect((await store.load(children[0]!.id)).queuedMessages).toHaveLength(0)
+  const child = children[0]!
   expect(await service.invoke(child.id, 'session.spawn', spawn)).toMatchObject({
     error: { code: 'max_depth' },
-  })
-  await service.invoke('root', 'session.stop', {
-    targetSessionId: child.id,
-    idempotencyKey: 'stop',
   })
   expect(
     await service.invoke('root', 'session.spawn', {

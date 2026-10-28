@@ -1075,6 +1075,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   )
   void controlReady.catch(() => log.error('Agent control runtime failed to start'))
+  // Delegated work queued before a restart runs now that the gate is up.
+  void controlReady
+    .then(() => engine.drainHeld())
+    .catch((error: unknown) =>
+      log.warn('held delegated work did not resume', { error: String(error) }),
+    )
   app.once('before-quit', () => {
     resumeSchedule.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
