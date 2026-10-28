@@ -20,6 +20,7 @@
     "./projects": "./src/projects.ts",
     "./bots": "./src/bots.ts",
     "./bot-memory": "./src/bot-memory.ts",
+    "./bot-routines": "./src/bot-routines.ts",
     "./watcher": "./src/watcher.ts",
     "./tree-budget": "./src/tree-budget.ts",
     "./git": "./src/git/index.ts"
