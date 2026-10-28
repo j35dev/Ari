@@ -2457,23 +2457,26 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (params.name === 'session.events') {
       const sessionId = params.params['sessionId']
       if (typeof sessionId === 'string') {
+        // History streams out as bounded replay frames, each laid on the wire
+        // alone: a whole-session frame both blocks the main process while it
+        // serializes and hands the renderer a jank-sized clone in one go.
+        // Frame order plus the final sentinel preserve the burst contract the
+        // renderer already relies on (seq-ordered, terminated by replayDone).
+        const sendChunk = (events: JournalEvent[]): void => {
+          rpcRegistry.sendTo(params.id, {
+            sessionId,
+            events,
+            replay: true,
+          } satisfies SessionEventFrame)
+        }
         void engine
-          .replaySession(sessionId)
-          .then((events) => {
-            rpcRegistry.sendTo(params.id, {
-              sessionId,
-              events,
-              replay: true,
-            } satisfies SessionEventFrame)
-            rpcRegistry.sendTo(params.id, {
-              sessionId,
-              replayDone: true,
-            } satisfies SessionEventFrame)
-          })
+          .replaySessionChunks(sessionId, sendChunk)
           // The sentinel still goes out: the renderer holds live frames, and
           // its loading state, until it arrives.
           .catch((error: unknown) => {
             log.warn('journal replay failed', { sessionId, error: String(error) })
+          })
+          .finally(() => {
             rpcRegistry.sendTo(params.id, {
               sessionId,
               replayDone: true,

@@ -296,8 +296,8 @@ export interface SessionEventFrame {
   event?: unknown
   /**
    * The journal replay a (re)subscribe asked for, in seq order. It goes to
-   * that subscriber alone, as one frame: a long session is thousands of
-   * events, and a frame apiece to every open pane swamped the renderer.
+   * that subscriber alone, usually split across several bounded frames for
+   * long sessions so neither side of the pipe serializes in bulk.
    */
   events?: unknown[]
   /** True on the frame carrying `events`. */
