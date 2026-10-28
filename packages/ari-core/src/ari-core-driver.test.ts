@@ -200,6 +200,60 @@ describe('ari core driver flavor routing', () => {
     }
   })
 
+  it('sends and stores images only for the newest tool results', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-driver-shots-'))
+    try {
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep-an',
+        name: 'Anthropic',
+        baseUrl: 'https://an.test',
+        flavor: 'anthropic-messages',
+        model: 'claude-test',
+        headers: {},
+      })
+      const image = { dataBase64: 'AAAA', mimeType: 'image/png' }
+      const conversations = new MemoryConversationStore()
+      await conversations.save('s1', [
+        { role: 'user', content: 'take five screenshots' },
+        ...Array.from({ length: 5 }, (_, i) => [
+          {
+            role: 'assistant' as const,
+            content: '',
+            toolCalls: [{ id: `c${i}`, name: 'shot', argsJson: '{}' }],
+          },
+          { role: 'tool' as const, content: '[image]', toolCallId: `c${i}`, images: [image] },
+        ]).flat(),
+        { role: 'assistant', content: 'done' },
+      ])
+      const requests: AnthropicChatRequest[] = []
+      const driver = new AriCoreDriver(endpoints, {
+        conversations,
+        compaction: false,
+        clients: {
+          anthropic: async function* (request) {
+            requests.push(request)
+            yield { type: 'text-delta', text: 'ok' }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const adapter = await driver.create(makeSession(dir, 'and now?', 'ep-an'))
+      await collect(adapter.start())
+
+      const wire = JSON.stringify(requests[0]?.messages)
+      expect(wire.match(/"type":"image"/g)).toHaveLength(3)
+      const stored = await conversations.load('s1')
+      expect(stored.filter((m) => m.images !== undefined).map((m) => m.toolCallId)).toEqual([
+        'c2',
+        'c3',
+        'c4',
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('routes ollama endpoints keeping the system role inline', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ari-driver-ol-'))
     try {
