@@ -2699,21 +2699,20 @@ describe('streamed journal replay', () => {
       }
     }
 
-    const all = await engine.replaySession(sessionId)
+    // Parsed straight off disk so the expectation doesn't share the journal
+    // reader under test.
+    const raw = await readFile(join(dir, sessionId, 'journal.0000.jsonl'), 'utf8')
+    const onDisk = raw
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as JournalEvent)
     const chunks: JournalEvent[][] = []
     await engine.replaySessionChunks(sessionId, (chunk) => {
       chunks.push(chunk)
     })
     expect(chunks.length).toBeGreaterThan(1)
-    // Chunks tile the history exactly: concat equals the full replay.
-    const joined = chunks.flatMap((chunk) => chunk)
-    expect(joined).toEqual(all)
-    let offset = 0
-    for (const chunk of chunks) {
-      expect(chunk).toEqual(all.slice(offset, offset + chunk.length))
-      offset += chunk.length
-    }
-    expect(offset).toBe(all.length)
+    expect(chunks.flat()).toEqual(onDisk)
+    expect(await engine.replaySession(sessionId)).toEqual(onDisk)
   }, 30000)
 
   it('replaySession still returns the same ordered events as before chunking', async () => {
