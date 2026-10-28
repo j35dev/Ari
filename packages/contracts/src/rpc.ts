@@ -217,6 +217,7 @@ export const sessionCreateParamsSchema = z.object({
   permissionMode: permissionModeSchema,
   effort: z.string().min(1).nullable().optional(),
   botId: z.string().min(1).optional(),
+  lead: z.boolean().optional(),
 })
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
 

@@ -86,6 +86,28 @@ it('creates a session without a bot as before', async () => {
   expect(session && Object.prototype.hasOwnProperty.call(session, 'botId')).toBe(false)
 })
 
+it('creates a lead session that says so, and only when asked', async () => {
+  const lead = await createSession(deps, {
+    projectId: 'proj_1',
+    title: 'Lead',
+    driverKind: 'claude',
+    modelId: null,
+    permissionMode: 'ask',
+    lead: true,
+  })
+  expect((await sessions.load(lead.sessionId)).session?.lead).toBe(true)
+
+  const plain = await createSession(deps, {
+    projectId: 'proj_1',
+    title: 'Plain',
+    driverKind: 'claude',
+    modelId: null,
+    permissionMode: 'ask',
+  })
+  const { session } = await sessions.load(plain.sessionId)
+  expect(session && Object.prototype.hasOwnProperty.call(session, 'lead')).toBe(false)
+})
+
 it('creates a bot whose main session runs as that bot', async () => {
   const bot = await createBot(deps, botInput)
 
