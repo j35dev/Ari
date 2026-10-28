@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { request } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BrowserService, type BrowserGuest } from './browser-service'
 import { dispatchBrowserMcpTool, startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
@@ -215,6 +216,67 @@ describe('startBrowserMcpServer', () => {
       })
       expect(revoked.status).toBe(401)
       expect(destroyed).toBe(1)
+    } finally {
+      handle.close()
+    }
+  })
+
+  it('reveals the pane only for inspector navigation, never for an agent tab', async () => {
+    const onUpdated = vi.fn()
+    const service = new BrowserService(() => guest(), onUpdated)
+    const handle = await startBrowserMcpServer(service)
+    try {
+      await callTool(handle.url, handle.tokenFor('sess-a'), 'browser_navigate', {
+        url: 'a.example',
+      })
+      expect(onUpdated).not.toHaveBeenCalledWith(expect.objectContaining({ reveal: true }))
+      await callTool(handle.url, handle.token, 'browser_navigate', { url: 'b.example' })
+      expect(onUpdated).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'inspector', reveal: true }),
+      )
+    } finally {
+      handle.close()
+    }
+  })
+
+  it('refuses a request whose token was revoked while its body was in flight', async () => {
+    const opened: string[] = []
+    const service = new BrowserService((id) => {
+      opened.push(id)
+      return guest()
+    }, vi.fn())
+    const handle = await startBrowserMcpServer(service)
+    const token = handle.tokenFor('sess-a')
+    try {
+      await callTool(handle.url, token, 'browser_status')
+      expect(opened).toEqual(['agent:sess-a'])
+      const status = new Promise<number>((resolve, reject) => {
+        const req = request(handle.url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        })
+        req.on('response', (res) => {
+          res.resume()
+          resolve(res.statusCode ?? 0)
+        })
+        req.on('error', reject)
+        req.flushHeaders()
+        // Headers first: the server authorizes on them, then waits for the body.
+        setTimeout(() => {
+          handle.revoke('sess-a')
+          req.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'tools/call',
+              params: { name: 'browser_status', arguments: {} },
+            }),
+          )
+        }, 50)
+      })
+      expect(await status).toBe(401)
+      expect(opened).toEqual(['agent:sess-a'])
+      expect(service.has('agent:sess-a')).toBe(false)
     } finally {
       handle.close()
     }
