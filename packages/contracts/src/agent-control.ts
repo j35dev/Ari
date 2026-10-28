@@ -104,6 +104,8 @@ export interface ChildTask {
   reportTruncated: boolean
   /** Whether the parent has seen the latest outcome; null below direct children. */
   delivered: boolean | null
+  /** The child's own spend; cost is null when its provider reported no price. */
+  usage: { inputTokens: number; outputTokens: number; costUsd: number | null }
   workspaceKind: 'project' | 'managed-worktree'
   branch: string | null
 }
