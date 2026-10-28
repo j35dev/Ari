@@ -208,19 +208,6 @@ export function SidebarHeader({
   )
 }
 
-/** Empty state for the Hive roster. */
-export function HiveRoster() {
-  return (
-    <section
-      aria-label="Hive roster"
-      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center"
-    >
-      <p className="text-sm text-fg-muted">No bots yet</p>
-      <p className="text-xs text-fg-subtle">Your bot team will appear here.</p>
-    </section>
-  )
-}
-
 /** Compact relative time for session rows: now · 5m · 3h · 2d · date. */
 export function formatRelativeTime(timestamp: number, now = Date.now()): string {
   const deltaMs = Math.max(0, now - timestamp)
