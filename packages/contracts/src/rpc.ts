@@ -39,6 +39,24 @@ export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
+/** A Hive team room as the shell sees it: roster, window, and round state. */
+export interface TeamRoomSummary {
+  id: string
+  title: string
+  bots: { botId: string; name: string; sessionId: string }[]
+  leadBotId: string | null
+  activeBotId: string | null
+  needsUser: boolean
+  window: { botId: string | null; text: string }[]
+  round: {
+    rounds: number
+    messages: number
+    followUps: number
+    awaiting: string[]
+    passed: string[]
+  } | null
+}
+
 /** One redeemable reset. Several can be banked with different expiries. */
 export interface ProviderResetCredit {
   /** Epoch ms, or null when this reset has no reported expiry. */
@@ -561,6 +579,17 @@ export const rpcParams = {
     enabled: z.boolean(),
   }),
   'routines.remove': z.object({ routineId: z.string().min(1) }),
+  'rooms.list': z.undefined(),
+  'rooms.create': z.object({
+    title: z.string().trim().min(1).max(80),
+    botIds: z.array(z.string().min(1)).min(1).max(8),
+    leadBotId: z.string().min(1).nullish(),
+  }),
+  /** A human message to the room; the host decides who (if anyone) wakes. */
+  'rooms.send': z.object({
+    roomId: z.string().min(1),
+    text: z.string().trim().min(1).max(64_000),
+  }),
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
   /** The children this session delegated to, with their state and last report. */
@@ -902,6 +931,9 @@ export interface RpcResults {
   'routines.add': BotRoutine
   'routines.setEnabled': BotRoutine
   'routines.remove': { removed: boolean }
+  'rooms.list': TeamRoomSummary[]
+  'rooms.create': TeamRoomSummary
+  'rooms.send': { targets: string[]; pick: boolean }
   'session.load': unknown
   'session.workspace': { path: string | null }
   'session.tasks': ChildTask[]
