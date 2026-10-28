@@ -41,6 +41,7 @@ describe('agentState', () => {
     expect(agentState(task({ workState: 'working' }))).toBe('working')
     expect(agentState(task({ workState: 'blocked_on_user' }))).toBe('needs-you')
     expect(agentState(task({ workState: 'waiting_for_children' }))).toBe('waiting')
+    expect(agentState(task({ workState: 'queued' }))).toBe('waiting')
     expect(agentState(task({ workState: 'not_started' }))).toBe('idle')
     expect(['working', 'needs-you', 'waiting'].every((state) => isLive(state as never))).toBe(true)
     expect(isLive('done')).toBe(false)
