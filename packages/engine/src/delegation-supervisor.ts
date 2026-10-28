@@ -6,6 +6,7 @@ import type { MessageOrigin } from '@ari/contracts/message'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel, UnstampedEvent } from './projection'
 import {
+  CONTINUATION_PROMPT,
   completionNotice,
   finalAssistantText,
   pendingCompletions,
@@ -228,9 +229,29 @@ export class DelegationSupervisor {
         await this.#acknowledge(parentId, pending.childSessionId, pending.turnId, 'disposed')
     }
     for (const row of rows) {
-      if (!row.parentSessionId || isRunning(row.id)) continue
-      if ((await this.host.store.load(row.id)).activeTurnId === null) continue
+      const parentId = row.parentSessionId
+      if (!parentId || isRunning(row.id)) continue
+      const model = await this.host.store.load(row.id)
+      if (model.activeTurnId === null) continue
+      // A turn its parent started is delegated work the tree still owes: put
+      // it back in the queue behind the same gate, with the parent's origin so
+      // its report reaches the parent. A person's own turn stays stopped.
+      const asked = model.messages.find(
+        (message) => message.role === 'user' && message.turnId === model.activeTurnId,
+      )
+      const delegated = asked?.origin?.kind === 'session'
       await this.host.dispatch({ type: 'turn.interrupt', sessionId: row.id })
+      if (!delegated) continue
+      await this.host.dispatch(
+        {
+          type: 'message.enqueue',
+          sessionId: row.id,
+          text: CONTINUATION_PROMPT,
+          attachments: [],
+          hold: true,
+        },
+        { kind: 'session', sessionId: parentId },
+      )
     }
   }
 
