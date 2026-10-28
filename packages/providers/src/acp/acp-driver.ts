@@ -1070,7 +1070,7 @@ export class AcpDriver implements Driver {
     private readonly fallback: Driver | null,
     /** Notified whenever the agent refuses for want of a login. */
     private readonly onAuthRequired: AcpAuthRequiredHandler | null = null,
-    private readonly mcpServers: () => AcpMcpServer[] = () => [],
+    private readonly mcpServers: (session: AdapterSession) => AcpMcpServer[] = () => [],
   ) {
     this.kind = kind
     // Both paths must take them: a turn may start over ACP or fall back to the CLI.
@@ -1086,7 +1086,7 @@ export class AcpDriver implements Driver {
           session,
           undefined,
           this.onAuthRequired ?? undefined,
-          this.mcpServers(),
+          this.mcpServers(session),
           systemInstructionsMeta(this.kind, session.instructions),
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })

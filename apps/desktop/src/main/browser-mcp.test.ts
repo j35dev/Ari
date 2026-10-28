@@ -159,7 +159,94 @@ describe('writeBrowserMcpProxy', () => {
   })
 })
 
+async function callTool(
+  url: string,
+  token: string,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<{ content: { type: string; text?: string }[] }> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    }),
+  })
+  const body = (await response.json()) as { result: { content: { type: string; text?: string }[] } }
+  return body.result
+}
+
 describe('startBrowserMcpServer', () => {
+  it('gives two sessions their own tab', async () => {
+    const guests = new Map<string, BrowserGuest>()
+    const service = new BrowserService((id) => {
+      const created = guest()
+      guests.set(id, created)
+      return created
+    }, vi.fn())
+    const handle = await startBrowserMcpServer(service)
+    const first = handle.tokenFor('sess-a')
+    const second = handle.tokenFor('sess-b')
+    try {
+      expect(first).not.toBe(handle.token)
+      expect(first).not.toBe(second)
+      const navA = await callTool(handle.url, first, 'browser_navigate', { url: 'a.example' })
+      expect(navA.content[0]?.text).toContain('a.example')
+      const navB = await callTool(handle.url, second, 'browser_navigate', { url: 'b.example' })
+      expect(navB.content[0]?.text).toContain('b.example')
+      const statusA = await callTool(handle.url, first, 'browser_status')
+      expect(statusA.content[0]?.text).toContain('a.example')
+      const statusB = await callTool(handle.url, second, 'browser_status')
+      expect(statusB.content[0]?.text).toContain('b.example')
+      expect([...guests.keys()].sort()).toEqual(['agent:sess-a', 'agent:sess-b'])
+
+      handle.revoke('sess-a')
+      const revoked = await fetch(handle.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${first}` },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list' }),
+      })
+      expect(revoked.status).toBe(401)
+      expect(guests.get('agent:sess-a')?.destroy).toHaveBeenCalled()
+    } finally {
+      handle.close()
+    }
+  })
+
+  it('keeps the legacy app-wide token on the inspector tab', async () => {
+    const ids: string[] = []
+    const service = new BrowserService((id) => {
+      ids.push(id)
+      return guest()
+    }, vi.fn())
+    const handle = await startBrowserMcpServer(service)
+    try {
+      const status = await callTool(handle.url, handle.token, 'browser_status')
+      expect(status.content[0]?.text).toContain('about:blank')
+      expect(ids).toEqual(['inspector'])
+    } finally {
+      handle.close()
+    }
+  })
+
+  it('rejects an unknown bearer token', async () => {
+    const service = new BrowserService(() => guest(), vi.fn())
+    const handle = await startBrowserMcpServer(service)
+    try {
+      const response = await fetch(handle.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer nope' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      })
+      expect(response.status).toBe(401)
+    } finally {
+      handle.close()
+    }
+  })
+
   it('serves tools/list over authorized HTTP', async () => {
     const service = new BrowserService(() => guest(), vi.fn())
     const handle = await startBrowserMcpServer(service)

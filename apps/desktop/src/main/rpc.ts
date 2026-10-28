@@ -77,7 +77,7 @@ import {
 } from './terminal-service'
 import { BrowserService, hideGuestsOnShellReset } from './browser-service'
 import { createElectronBrowserGuest } from './browser-electron'
-import { startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
+import { startBrowserMcpServer, writeBrowserMcpProxy, type BrowserMcpHandle } from './browser-mcp'
 import { buildExtensionInventory, readInventoriedSkill } from './extension-inventory'
 import {
   ensureProjectWatched,
@@ -706,8 +706,57 @@ function publishAuthWall(
   } satisfies ProvidersUpdateFrame)
 }
 
-let browserMcpServers: AcpMcpServer[] = []
-let browserCoreMcpServers: McpServerConfig[] = []
+let browserMcpHandle: BrowserMcpHandle | null = null
+let browserMcpProxyPath: string | null = null
+
+/** ACP entries for one session: its own bearer token, so it drives its own tab. */
+function browserAcpServers(session: { sessionId: string }): AcpMcpServer[] {
+  const handle = browserMcpHandle
+  const proxyPath = browserMcpProxyPath
+  if (handle === null || proxyPath === null) return []
+  const token = handle.tokenFor(session.sessionId)
+  return [
+    {
+      type: 'http',
+      name: 'ari-browser',
+      url: handle.url,
+      headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
+    },
+    {
+      name: 'ari-browser',
+      command: process.execPath,
+      args: [proxyPath],
+      env: [
+        { name: 'ELECTRON_RUN_AS_NODE', value: '1' },
+        { name: 'ARI_BROWSER_MCP_URL', value: handle.url },
+        { name: 'ARI_BROWSER_MCP_TOKEN', value: token },
+        { name: 'ARI_SESSION_ID', value: session.sessionId },
+      ],
+    },
+  ]
+}
+
+/** Ari Core gets the same per-session stdio entry. */
+function browserCoreServers(session: { sessionId: string }): McpServerConfig[] {
+  const handle = browserMcpHandle
+  const proxyPath = browserMcpProxyPath
+  if (handle === null || proxyPath === null) return []
+  return [
+    {
+      id: 'ari-browser',
+      name: 'ari-browser',
+      command: process.execPath,
+      args: [proxyPath],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        ARI_BROWSER_MCP_URL: handle.url,
+        ARI_BROWSER_MCP_TOKEN: handle.tokenFor(session.sessionId),
+        ARI_SESSION_ID: session.sessionId,
+      },
+      disabled: false,
+    },
+  ]
+}
 
 const hydrateGenerations = new Map<DriverKind, number>()
 
@@ -766,7 +815,7 @@ function hydrateDrivers(registry: DriverRegistry, only?: readonly DriverKind[]):
               launch,
               candidate.make(detection.binaryPath),
               (wall) => publishAuthWall(candidate.kind, wall),
-              () => browserMcpServers,
+              (session) => browserAcpServers(session),
             ),
           )
           log.info('driver registered', {
@@ -874,7 +923,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       // resume), so conversation memory is persisted per session on disk.
       conversations: new FileConversationStore(join(coreDir, 'conversations')),
       skills: { homeDir: homedir(), trustDir: coreDir },
-      mcpServers: () => {
+      mcpServers: (session) => {
         for (const server of mcpStore.list()) {
           if (!server.disabled && sanitizeMcpSegment(server.name) === 'ari_browser') {
             log.warn('mcp server name is reserved', {
@@ -883,7 +932,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             })
           }
         }
-        return mergeCoreMcp(mcpStore.list(), browserCoreMcpServers)
+        return mergeCoreMcp(mcpStore.list(), browserCoreServers(session))
       },
     }),
   )
@@ -1143,46 +1192,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   hideGuestsOnShellReset(contents, browsers)
   contents.once('destroyed', () => {
     browsers.dispose()
-    browserMcpServers = []
-    browserCoreMcpServers = []
+    browserMcpHandle = null
+    browserMcpProxyPath = null
   })
   void backgroundReady
     .then(() => startBrowserMcpServer(browsers))
     .then(async (handle) => {
-      const proxyPath = await writeBrowserMcpProxy(app.getPath('userData'))
-      const stdioEnv = [
-        { name: 'ELECTRON_RUN_AS_NODE', value: '1' },
-        { name: 'ARI_BROWSER_MCP_URL', value: handle.url },
-        { name: 'ARI_BROWSER_MCP_TOKEN', value: handle.token },
-      ]
-      browserMcpServers = [
-        {
-          type: 'http',
-          name: 'ari-browser',
-          url: handle.url,
-          headers: [{ name: 'Authorization', value: `Bearer ${handle.token}` }],
-        },
-        {
-          name: 'ari-browser',
-          command: process.execPath,
-          args: [proxyPath],
-          env: stdioEnv,
-        },
-      ]
-      browserCoreMcpServers = [
-        {
-          id: 'ari-browser',
-          name: 'ari-browser',
-          command: process.execPath,
-          args: [proxyPath],
-          env: {
-            ELECTRON_RUN_AS_NODE: '1',
-            ARI_BROWSER_MCP_URL: handle.url,
-            ARI_BROWSER_MCP_TOKEN: handle.token,
-          },
-          disabled: false,
-        },
-      ]
+      browserMcpProxyPath = await writeBrowserMcpProxy(app.getPath('userData'))
+      browserMcpHandle = handle
       contents.once('destroyed', () => handle.close())
     })
     .catch((error: unknown) => log.warn('browser mcp failed to start', { error: String(error) }))
@@ -1602,6 +1619,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
       await store.destroy(id)
       await runtime?.release(id)
+      browserMcpHandle?.revoke(id)
     }
     // The parent's transcript still holds this child's task card. Without the
     // event the CLI's own destroy journals, the card went on reading "Done"
@@ -1712,7 +1730,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         }
       }
       if (command.archived) {
-        for (const id of parents) runtime?.revoke(id)
+        for (const id of parents) {
+          runtime?.revoke(id)
+          browserMcpHandle?.revoke(id)
+        }
       }
     }
     return result
