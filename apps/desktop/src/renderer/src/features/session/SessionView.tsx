@@ -1384,6 +1384,13 @@ interface EffortOption {
   current?: boolean
 }
 
+interface CatalogModelEfforts {
+  id: string
+  aliases?: string[]
+  efforts?: EffortOption[]
+  effortsSource?: 'agent' | 'fallback'
+}
+
 /**
  * Thought/reasoning chip backed by the harness's own ACP selector
  * (`thought_level`, `effort`, `reasoning_effort`, or a thinking-shaped mode
@@ -1421,13 +1428,28 @@ export function EffortChip({
     // advertises.
     setLoaded(false)
     const probesModel = modelId !== undefined && modelId !== null && modelId.length > 0
-    const apply = (rows: { kind: string; efforts?: EffortOption[] }[]): void => {
+    let agentEfforts = false
+    let provisional = false
+    const apply = (
+      rows: { kind: string; models?: CatalogModelEfforts[]; efforts?: EffortOption[] }[],
+    ): void => {
       if (cancelled) return
       const row = rows.find((r) => r.kind === driverKind)
-      setOptions(row?.efforts ?? [])
-      if (!probesModel) setLoaded(true)
+      const model = probesModel
+        ? row?.models?.find((entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''))
+        : undefined
+      const modelEfforts = model?.efforts ?? []
+      agentEfforts = modelEfforts.length > 0 && model?.effortsSource === 'agent'
+      // The kind-level list was read against another model; only the agent's
+      // answer for this one may judge a saved level.
+      provisional = probesModel && !agentEfforts
+      setOptions(modelEfforts.length > 0 ? modelEfforts : (row?.efforts ?? []))
+      if (!probesModel || agentEfforts) setLoaded(true)
     }
     const load = (): void => {
+      setLoaded(false)
+      agentEfforts = false
+      provisional = false
       const base = rpc
         .invoke('providers.models')
         .then(apply)
@@ -1442,16 +1464,19 @@ export function EffortChip({
       // keeps whatever the catalog reported.
       if (probesModel) {
         void base.finally(() => {
-          if (cancelled) return
+          if (cancelled || agentEfforts) return
           void rpc
             .invoke('providers.efforts', { kind: driverKind, modelId })
             .then((result) => {
               if (cancelled) return
-              if (result.efforts.length > 0) setOptions(result.efforts)
+              if (result.efforts.length > 0) {
+                setOptions(result.efforts)
+                setLoaded(true)
+              }
             })
             .catch(() => undefined)
             .finally(() => {
-              if (!cancelled) setLoaded(true)
+              if (!cancelled && !provisional) setLoaded(true)
             })
         })
       }

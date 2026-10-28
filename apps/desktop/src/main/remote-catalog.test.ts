@@ -74,6 +74,26 @@ describe('authoritative remote provider catalogs', () => {
     expect(remoteModelCatalogSchema.safeParse({ providers }).success).toBe(true)
   })
 
+  it('carries per-model efforts and their provenance to the phone', () => {
+    const providers = remoteCatalogProviders({
+      ...inputs(),
+      models: (kind: DriverKind) => [
+        {
+          id: `${kind}-current`,
+          label: 'Current',
+          efforts: [{ id: 'high', label: 'High', current: true }],
+          effortsSource: 'agent' as const,
+        },
+      ],
+    })
+    const claude = providers.find((provider) => provider.driverKind === 'claude')
+    expect(claude?.models[0]).toMatchObject({
+      efforts: [{ id: 'high', label: 'High', current: true }],
+      effortsSource: 'agent',
+    })
+    expect(remoteModelCatalogSchema.safeParse({ providers }).success).toBe(true)
+  })
+
   it('projects every desktop provider, native model metadata and endpoint defaults without secrets', () => {
     const providers = remoteCatalogProviders(inputs())
     expect(providers.map((provider) => provider.driverKind)).toEqual(driverKindSchema.options)

@@ -107,6 +107,10 @@ export function remoteCatalogProviders(inputs: CatalogInputs): RemoteModelCatalo
             ...(model.aliases === undefined ? {} : { aliases: model.aliases }),
             ...(model.contextHint === undefined ? {} : { contextHint: model.contextHint }),
             ...(model.isLegacy === undefined ? {} : { isLegacy: model.isLegacy }),
+            ...(model.efforts === undefined ? {} : { efforts: model.efforts }),
+            ...(model.effortsSource === undefined
+              ? {}
+              : { effortsSource: model.effortsSource }),
           })),
     }
   })
