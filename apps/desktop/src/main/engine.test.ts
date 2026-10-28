@@ -872,6 +872,72 @@ describe('engine end-to-end with scripted driver', () => {
     expect((await store.load(sessionId)).queuedMessages).toEqual([])
   }, 10_000)
 
+  it('starts a human message ahead of room and routine work queued before it', async () => {
+    let allowed = false
+    const registry = new DriverRegistry()
+    registry.register({
+      kind: 'claude',
+      create: () =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }),
+    })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      authorizeTurn: async () => (allowed ? null : 'Maximum concurrent child sessions reached.'),
+    })
+    const sessionId = 'sess_wake_priority'
+    await seedSession(store, sessionId)
+
+    for (const [text, priority] of [
+      ['nightly sweep', 'routine'],
+      ['room aside', 'room'],
+    ] as const) {
+      await engine.dispatch({
+        type: 'message.enqueue',
+        sessionId,
+        text,
+        attachments: [],
+        hold: true,
+        priority,
+      })
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    allowed = true
+    await engine.dispatch({
+      type: 'message.enqueue',
+      sessionId,
+      text: 'fix the build',
+      attachments: [],
+      hold: true,
+      priority: 'human',
+    })
+    await engine.drainHeld()
+    for (let i = 0; i < 150; i++) {
+      const model = await store.load(sessionId)
+      const users = model.messages.filter((message) => message.role === 'user').length
+      if (model.activeTurnId === null && model.queuedMessages.length === 0 && users === 3) break
+      if (i === 149) throw new Error('priority queue never drained')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+
+    const model = await store.load(sessionId)
+    const texts = model.messages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.parts.find((part) => part.type === 'text')?.text)
+    expect(texts).toEqual(['fix the build', 'room aside', 'nightly sweep'])
+  }, 10_000)
+
   it('keeps an enqueue queued even when the provider can steer', async () => {
     const steered: string[] = []
     const releaseTurnRef = { current: null as (() => void) | null }

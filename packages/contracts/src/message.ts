@@ -18,6 +18,13 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
 ])
 export type MessageOrigin = z.infer<typeof messageOriginSchema>
 
+/**
+ * Why a queued turn exists. A person outranks the room, which outranks
+ * automation, so a routine never makes someone wait for their own turn.
+ */
+export const wakePrioritySchema = z.enum(['human', 'room', 'routine'])
+export type WakePriority = z.infer<typeof wakePrioritySchema>
+
 export const textPartSchema = z.object({
   type: z.literal('text'),
   text: z.string(),

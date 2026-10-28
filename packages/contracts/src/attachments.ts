@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { messageOriginSchema } from './message'
+import { messageOriginSchema, wakePrioritySchema } from './message'
 
 /** Maximum images carried by one message (mirrors the composer's cap). */
 export const MAX_ATTACHMENTS = 4
@@ -34,5 +34,7 @@ export const queuedMessageSchema = z.object({
   attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
   /** Delegated work waiting for a free slot; it survives a stop and an error. */
   held: z.boolean().optional(),
+  /** Who the turn is for; absent on journals written before wake priority. */
+  priority: wakePrioritySchema.optional(),
 })
 export type QueuedMessage = z.infer<typeof queuedMessageSchema>
