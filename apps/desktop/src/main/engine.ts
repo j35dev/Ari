@@ -49,6 +49,18 @@ function inputKey(
   return JSON.stringify([text, origin ?? null, attachments.map((a) => a.id)])
 }
 
+/** Lower wins: a person's message outranks the room, which outranks routines. */
+function wakeRank(priority: QueuedMessage['priority']): number {
+  switch (priority) {
+    case 'routine':
+      return 2
+    case 'room':
+      return 1
+    default:
+      return 0
+  }
+}
+
 export interface CheckpointCapturer {
   captureCheckpoint(
     cwd: string,
@@ -1001,16 +1013,25 @@ export class Engine {
     const pending = this.#pendingSteered(sessionId, fresh.lastSeq)
     const skip = new Map<string, number>()
     for (const guard of pending) skip.set(guard.key, (skip.get(guard.key) ?? 0) + 1)
-    const next = fresh.queuedMessages.find((queued) => {
-      if (heldOnly && queued.held !== true) return false
+    let next: QueuedMessage | undefined
+    let nextRank = Number.POSITIVE_INFINITY
+    for (const queued of fresh.queuedMessages) {
+      if (heldOnly && queued.held !== true) continue
       const key = inputKey(queued.text, queued.origin, queued.attachments)
       const remaining = skip.get(key) ?? 0
-      if (remaining === 0) return true
-      // Consume one occurrence per guard: identical rows are indistinguishable,
-      // so the oldest matching one is the one the steer dequeued.
-      skip.set(key, remaining - 1)
-      return false
-    })
+      if (remaining > 0) {
+        // Consume one occurrence per guard: identical rows are indistinguishable,
+        // so the oldest matching one is the one the steer dequeued.
+        skip.set(key, remaining - 1)
+        continue
+      }
+      const rank = wakeRank(queued.priority)
+      // Strictly lower only, so equal priorities keep enqueue (FIFO) order.
+      if (rank < nextRank) {
+        next = queued
+        nextRank = rank
+      }
+    }
     if (next === undefined) return
     if (this.#deps.authorizeTurn) {
       const reason = await this.#deps.authorizeTurn(session)
