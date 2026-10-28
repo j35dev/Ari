@@ -450,6 +450,38 @@ describe('CatalogService', () => {
     expect(probeModels).not.toHaveBeenCalled()
   })
 
+  it('asks again when the cached catalog came from another Ari build', async () => {
+    const dir = await tempDir('ari-catalog-')
+    const liveCachePath = join(dir, 'agent-catalogs.json')
+    const offline = vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch
+    const cliVersion = vi.fn(async () => '1.2.3')
+    const first = new CatalogService({
+      fetchImpl: offline,
+      liveCachePath,
+      cliVersion,
+      appVersion: '0.3.7',
+      probeModels: vi.fn(async () => [{ id: 'opus', label: 'Opus 5.5' }]),
+      probeKinds: ['claude'],
+    })
+    await first.refresh()
+    for (const kind of ALL_KINDS) clearDynamicModels(kind)
+
+    const probeModels = vi.fn(async () => [{ id: 'opus', label: 'Opus 5.6' }])
+    const second = new CatalogService({
+      fetchImpl: offline,
+      liveCachePath,
+      cliVersion,
+      appVersion: '0.3.8',
+      probeModels,
+      probeKinds: ['claude'],
+    })
+    second.start()
+    await second.ready
+
+    expect(probeModels).toHaveBeenCalledTimes(1)
+    expect(modelsFor('claude')).toEqual([{ id: 'opus', label: 'Opus 5.6' }])
+  })
+
   it('persists a successful round to the disk cache and reloads it cold', async () => {
     const dir = await tempDir('ari-catalog-')
     const cachePath = join(dir, 'cache', 'models.json')
