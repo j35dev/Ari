@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { ControlFailure, ROUTINE_MIN_EVERY_MS } from '@ari/contracts/agent-control'
 import type { Command } from '@ari/contracts/commands'
+import type { ControlHost } from '@ari/engine/agent-control'
 import type { SessionStore } from '@ari/engine/session-store'
 import { createLogger } from '@ari/shared/logger'
 
@@ -15,7 +17,7 @@ const MAX_DELAY_MS = 8 * 24 * 60 * 60 * 1000
 const SWEEP_INTERVAL_MS = 20_000
 
 /** A repeating prompt firing more often than this is a mistake, not a routine. */
-export const MIN_EVERY_MS = 5 * 60 * 1000
+export const MIN_EVERY_MS = ROUTINE_MIN_EVERY_MS
 
 /**
  * One timed prompt. A resume is the special case with `turnId`: it may only
@@ -288,5 +290,48 @@ export class ResumeSchedule {
         log.warn('scheduled prompt failed', { sessionId: entry.sessionId, error: String(error) })
       }
     }
+  }
+}
+
+/**
+ * The agent-control view of one schedule. A refusal from the store (an empty
+ * prompt, a bad time, an archived session) is the caller's mistake, so it
+ * reaches the CLI as `invalid_request` with the store's own wording.
+ */
+export function routineHost(
+  schedule: Pick<ResumeSchedule, 'add' | 'list' | 'remove'>,
+): NonNullable<ControlHost['routines']> {
+  return {
+    add: async (input) => {
+      try {
+        const entry = await schedule.add({
+          sessionId: input.sessionId,
+          prompt: input.prompt,
+          at: input.at,
+          ...(input.everyMs === undefined ? {} : { every: input.everyMs }),
+        })
+        return {
+          id: entry.id,
+          sessionId: entry.sessionId,
+          prompt: entry.prompt,
+          at: entry.at,
+          everyMs: entry.every ?? null,
+        }
+      } catch (error) {
+        throw new ControlFailure(
+          'invalid_request',
+          error instanceof Error ? error.message : 'Invalid schedule.',
+        )
+      }
+    },
+    list: () =>
+      schedule.list().map((entry) => ({
+        id: entry.id,
+        sessionId: entry.sessionId,
+        prompt: entry.prompt,
+        at: entry.at,
+        everyMs: entry.every ?? null,
+      })),
+    remove: (id) => schedule.remove(id),
   }
 }

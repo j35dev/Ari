@@ -46,7 +46,7 @@ import { writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
-import { ResumeSchedule } from './resume-schedule'
+import { ResumeSchedule, routineHost } from './resume-schedule'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
@@ -540,7 +540,8 @@ function redetect(kinds?: readonly DriverKind[]): Promise<RpcResults['providers.
       detections = previous.map((row) => fresh.find((next) => next.kind === row.kind) ?? row)
       detectionCache = { at: Date.now(), value: Promise.resolve(detections) }
     }
-    const known = updateCache === null ? detections : mergeUpdateFields(detections, updateCache.value)
+    const known =
+      updateCache === null ? detections : mergeUpdateFields(detections, updateCache.value)
     publishDetections(known, kinds)
     void startEnrichment(detections)
     return known
@@ -597,7 +598,9 @@ function providerAccounts(userData: string): ProviderAccounts {
       const engine = engineRef
       if (engine === null) return false
       const sessions = await getSessionStore().listSessions()
-      return sessions.some((session) => session.driverKind === kind && engine.hasLiveTurn(session.id))
+      return sessions.some(
+        (session) => session.driverKind === kind && engine.hasLiveTurn(session.id),
+      )
     },
     changed: (kind, what) => {
       if (what === 'active') {
@@ -1007,11 +1010,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   engineRef = engine
+  // Timed prompts outlive a session turn and a restart: they are journaled in
+  // their own file, and the control runtime schedules into the same store.
+  const resumeSchedule: ResumeSchedule = new ResumeSchedule({
+    path: join(app.getPath('userData'), 'resume-schedule.json'),
+    store: getSessionStore(),
+    dispatch: (command) => engine.dispatch(command),
+  })
+  const resumeReady: Promise<void> = resumeSchedule.load().then(() => resumeSchedule.start())
   const backgroundReady = options.backgroundReady ?? Promise.resolve()
   // The runtime's start-up recovery replays every delegated session; turns
   // and agent-control calls wait on it, the first paint does not.
   const environmentReady = backgroundReady.then(() => resolveDetectionEnvironment())
-  const controlReady = Promise.all([environmentReady, getSettingsStore().load()]).then(
+  const controlReady = Promise.all([environmentReady, getSettingsStore().load(), resumeReady]).then(
     async ([environment]) => {
       runtime = await startAgentRuntime({
         userData: app.getPath('userData'),
@@ -1025,6 +1036,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         baseEnv: processEnvWithPath(environment.pathEnv),
         policy: () => getSettingsStore().current.delegation,
         recover: firstRuntime,
+        routines: routineHost(resumeSchedule),
         providers: async () => {
           const detections = await probeAllDetections()
           const endpoints = await getEndpointStore().load()
@@ -1051,13 +1063,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   )
   void controlReady.catch(() => log.error('Agent control runtime failed to start'))
-  // Sessions the user asked to continue once a usage window reopens.
-  const resumeSchedule = new ResumeSchedule({
-    path: join(app.getPath('userData'), 'resume-schedule.json'),
-    store: getSessionStore(),
-    dispatch: (command) => engine.dispatch(command),
-  })
-  const resumeReady = resumeSchedule.load().then(() => resumeSchedule.start())
   app.once('before-quit', () => {
     resumeSchedule.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))

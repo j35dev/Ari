@@ -9,6 +9,20 @@ const key = z.string().min(1).max(128)
 const text = z.string().trim().min(1).max(64_000)
 const timeout = z.number().int().min(1).max(3_600_000).default(60_000)
 
+/** A running Ari process is woken at most this often; shorter repeats are a typo, not a plan. */
+export const ROUTINE_MIN_EVERY_MS = 5 * 60_000
+
+/** One scheduled prompt, as the control surface reports it. */
+export interface ScheduledRoutine {
+  id: string
+  sessionId: string
+  prompt: string
+  /** Epoch ms of the next fire. */
+  at: number
+  /** Repeat interval, or null for a one-shot. */
+  everyMs: number | null
+}
+
 const delegationFields = {
   enabled: z.boolean(),
   maxConcurrentChildren: z.number().int().min(1).max(32),
@@ -134,6 +148,19 @@ export const controlParams = {
       idempotencyKey: key,
     })
     .strict(),
+  'routine.add': z
+    .object({
+      targetSessionId: target.default('self'),
+      prompt: text,
+      at: z.number().int().min(0),
+      everyMs: z.number().int().min(ROUTINE_MIN_EVERY_MS).nullish(),
+      idempotencyKey: key,
+    })
+    .strict(),
+  'routine.list': z
+    .object({ targetSessionId: target.default('self'), recursive: z.boolean().default(false) })
+    .strict(),
+  'routine.remove': z.object({ routineId: target, idempotencyKey: key }).strict(),
 } as const
 export type ControlMethod = keyof typeof controlParams
 export type ControlParams<M extends ControlMethod> = z.output<(typeof controlParams)[M]>
