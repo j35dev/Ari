@@ -88,16 +88,6 @@ const INDEX_VERSION = 4
 const PREVIEW_MAX_CHARS = 160
 
 /**
- * Read models kept warm per session. Every materialized one holds the whole
- * folded transcript (messages, parts, approvals) for as long as it stays
- * cached, so the cap keeps resident memory proportional to recently viewed
- * sessions instead of every session the process ever touched. Sessions with
- * work in flight are never dropped — their next flush would pay a full replay
- * to re-fold the model.
- */
-const MODEL_WARM_MAX = 6
-
-/**
  * Preview for a session row: the most recent text any message carries,
  * whitespace-collapsed. Thinking parts and tool-only turns are skipped so a
  * session that ended on a tool call still previews the last thing it said.
@@ -334,38 +324,7 @@ export class SessionStore {
   /** Cached read model when fresh in this process; otherwise a full replay. */
   async #modelFor(sessionId: string): Promise<SessionReadModel> {
     const cached = this.#models.get(sessionId)
-    if (cached === undefined) return this.#load(sessionId)
-    this.#touchModel(sessionId)
-    return cached
-  }
-
-  /** Re-keys a cached model to the most-recent position; Map.set would not. */
-  #touchModel(sessionId: string): void {
-    const value = this.#models.get(sessionId)
-    if (value === undefined) return
-    this.#models.delete(sessionId)
-    this.#models.set(sessionId, value)
-  }
-
-  /**
-   * Stores a read model and trims the cache down to the warm cap. Anything
-   * entered for a session with operations queued is skipped, so a cache drop
-   * can never race the very append that re-folds from it.
-   */
-  #keepModel(sessionId: string, model: SessionReadModel): void {
-    this.#models.delete(sessionId)
-    this.#models.set(sessionId, model)
-    if (this.#models.size <= MODEL_WARM_MAX) return
-    for (const id of this.#models.keys()) {
-      if (this.#models.size <= MODEL_WARM_MAX) break
-      if (id === sessionId || this.#operations.has(id)) continue
-      this.#models.delete(id)
-    }
-  }
-
-  /** Whether one session's folded read model is currently warm in memory. */
-  hasWarmedModel(sessionId: string): boolean {
-    return this.#models.has(sessionId)
+    return cached ?? this.#load(sessionId)
   }
 
   /** Next sequence number for a session (max known seq + 1). */
@@ -424,7 +383,7 @@ export class SessionStore {
     await journal.append(stamped, line)
     if (!streamed) await journal.flush()
     this.#indexCache.set(sessionId, entry)
-    this.#keepModel(sessionId, post)
+    this.#models.set(sessionId, post)
     for (const listener of this.#listeners) {
       try {
         listener(stamped)
@@ -457,7 +416,7 @@ export class SessionStore {
     const { model, rejected } = replayEntries(entries)
     this.#diagnostics.set(sessionId, diagnosticsOf(rejected))
     if (rejected.length > 0) await this.#quarantine(sessionId, rejected)
-    this.#keepModel(sessionId, model)
+    this.#models.set(sessionId, model)
     return model
   }
 
