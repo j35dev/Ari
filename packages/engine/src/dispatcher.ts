@@ -167,7 +167,14 @@ export function decideCommand(
       if (!model.activeTurnId) return reject('no active turn awaiting input')
       const pending = model.pendingInputs.find((i) => i.inputId === command.inputId)
       if (!pending) return reject('unknown or already-answered input')
-      return accept([{ type: 'input.responded', inputId: command.inputId, value: command.value }])
+      return accept([
+        {
+          type: 'input.responded',
+          inputId: command.inputId,
+          value: command.value,
+          ...(origin ? { origin } : {}),
+        },
+      ])
     }
 
     case 'checkpoint.revert': {

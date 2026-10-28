@@ -27,11 +27,18 @@ export function pendingCompletions(parent: SessionReadModel): PendingCompletion[
  * Classifies a child from its journal alone. `liveDescendants` counts sessions
  * below it that are still mid-turn.
  */
-export function childWorkState(model: SessionReadModel, liveDescendants = 0): ChildWorkState {
+export function childWorkState(
+  model: SessionReadModel,
+  liveDescendants = 0,
+  delegatedTurn = false,
+): ChildWorkState {
   if (model.activeTurnId !== null) {
-    return model.pendingApprovals.length > 0 || model.pendingInputs.length > 0
-      ? 'blocked_on_user'
-      : 'working'
+    // An approval always belongs to the person. A question on a turn its parent
+    // started belongs to the parent, who can answer it with `session.answer`.
+    if (model.pendingApprovals.length > 0) return 'blocked_on_user'
+    if (model.pendingInputs.length > 0)
+      return delegatedTurn ? 'blocked_on_parent' : 'blocked_on_user'
+    return 'working'
   }
   if (model.lastTurn === undefined) return 'not_started'
   // Delegated work waits for a root-wide slot even when this child is idle.
@@ -80,6 +87,34 @@ export function finalAssistantText(
   return text.length > maxChars
     ? { text: text.slice(0, maxChars), truncated: true }
     : { text, truncated: false }
+}
+
+export interface DelegatedQuestion {
+  childSessionId: string
+  title: string
+  prompt: string
+  choicesJson: string | null
+  inputId: string
+}
+
+/** The wake a lead gets when a child running its work blocks on a question. */
+export function questionNotice(question: DelegatedQuestion): string {
+  let choices = ''
+  if (question.choicesJson !== null) {
+    try {
+      const parsed: unknown = JSON.parse(question.choicesJson)
+      if (Array.isArray(parsed) && parsed.every((choice) => typeof choice === 'string'))
+        choices = `\nChoices: ${parsed.join(' / ')}`
+    } catch {
+      // A provider sent choices that are not JSON strings; the prompt stands alone.
+    }
+  }
+  return [
+    `[Ari delegation question: child session "${question.title}" (${question.childSessionId}) is waiting for you, not the user.]`,
+    question.prompt + choices,
+    `Answer with: ari session answer ${question.childSessionId} --input ${question.inputId} "your answer"`,
+    'If only the user can decide, ask them in your own turn and answer after they reply.',
+  ].join('\n\n')
 }
 
 export interface CompletionReport {
