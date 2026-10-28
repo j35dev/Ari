@@ -182,8 +182,12 @@ async function callTool(
 describe('startBrowserMcpServer', () => {
   it('gives two sessions their own tab', async () => {
     const guests = new Map<string, BrowserGuest>()
+    let destroyed = 0
     const service = new BrowserService((id) => {
       const created = guest()
+      created.destroy = vi.fn(() => {
+        destroyed += 1
+      })
       guests.set(id, created)
       return created
     }, vi.fn())
@@ -210,7 +214,7 @@ describe('startBrowserMcpServer', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list' }),
       })
       expect(revoked.status).toBe(401)
-      expect(guests.get('agent:sess-a')?.destroy).toHaveBeenCalled()
+      expect(destroyed).toBe(1)
     } finally {
       handle.close()
     }
