@@ -78,12 +78,8 @@ import {
   terminalIdsInPanes,
   type PaneEdge,
 } from './features/split/split-layout'
-import {
-  SidebarHeader,
-  HiveRoster,
-  SessionsUnderProjects,
-  type SidebarNavId,
-} from './shell/Sidebar'
+import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
+import { HiveRoster } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
 import {
   ContextMenu,
@@ -1098,7 +1094,14 @@ function Shell() {
                 }}
               />
               {hiveView ? (
-                <HiveRoster />
+                <HiveRoster
+                  sessions={sessions}
+                  projects={projects}
+                  activityOf={activityOf}
+                  defaults={defaults}
+                  onOpenSession={selectSession}
+                  onSessionsChanged={refreshSessions}
+                />
               ) : (
                 <SessionsUnderProjects
                   sessions={sessions}

@@ -26,6 +26,11 @@ export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
   updatedAt: z.number(),
   /** Messages in the session; 0 marks a pristine, reusable session. */
   messageCount: z.number().int().nonnegative(),
+  /**
+   * One-line preview of the session's last text, for the Hive roster's bot
+   * rows. Null until the session says something; absent from older producers.
+   */
+  lastMessagePreview: z.string().nullable().optional(),
   /** Sidebar flags; treat missing as false. The engine always reports them. */
   archived: z.boolean().optional(),
   pinned: z.boolean().optional(),
@@ -525,6 +530,9 @@ export const rpcParams = {
   'app.update.install': z.undefined(),
   'session.list': z.undefined(),
   'session.create': sessionCreateParamsSchema,
+  /** Every bot on disk, hidden ones included — the roster filters, so hiding
+   * stays trivially reversible and never needs a second source of truth. */
+  'bots.list': z.undefined(),
   /** Creates a Hive bot and its main session; returns the bot with `mainSessionId` set. */
   'bots.create': botCreateParamsSchema,
   'bots.setHidden': z.object({ botId: z.string().min(1), hidden: z.boolean() }),
@@ -862,6 +870,7 @@ export interface RpcResults {
   'app.update.install': UpdateStart
   'session.list': SessionSummary[]
   'session.create': { sessionId: string }
+  'bots.list': Bot[]
   'bots.create': Bot
   'bots.setHidden': Bot
   'session.load': unknown
