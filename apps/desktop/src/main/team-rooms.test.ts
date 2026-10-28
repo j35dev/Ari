@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Bot } from '@ari/contracts/bot'
 import type { Command } from '@ari/contracts/commands'
 import type { MessageOrigin } from '@ari/contracts/message'
@@ -218,4 +218,36 @@ it('records a room reply even when a human turn starts before the settle is read
   await service.onSettled('sess_ada', roomTurnId)
   expect(sent).toHaveLength(2)
   expect(sent[1]?.origin).toEqual({ kind: 'room', roomId: room.id, botId: 'bot_bea' })
+})
+
+it('logs a corrupt rooms file instead of dropping it silently', async () => {
+  const path = join(dir, 'corrupt-rooms.json')
+  await writeFile(path, '{not json', 'utf8')
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    const corrupt = new TeamRoomService({
+      path,
+      bots: { get: async () => null },
+      store,
+      dispatch: async () => ({ accepted: true }),
+    })
+    await corrupt.load()
+    expect(await corrupt.list()).toEqual([])
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('team rooms file unreadable'),
+      expect.objectContaining({ path }),
+    )
+
+    warn.mockClear()
+    const missing = new TeamRoomService({
+      path: join(dir, 'missing-rooms.json'),
+      bots: { get: async () => null },
+      store,
+      dispatch: async () => ({ accepted: true }),
+    })
+    await missing.load()
+    expect(warn).not.toHaveBeenCalled()
+  } finally {
+    warn.mockRestore()
+  }
 })
