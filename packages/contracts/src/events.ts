@@ -132,6 +132,8 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     type: z.literal('input.responded'),
     inputId: z.string(),
     value: z.string(),
+    /** Who answered; absent on human answers and pre-origin journals. */
+    origin: messageOriginSchema.optional(),
   }),
   eventBase.extend({
     type: z.literal('checkpoint.captured'),

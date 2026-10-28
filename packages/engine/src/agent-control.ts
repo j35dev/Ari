@@ -354,6 +354,35 @@ export class AgentControlService {
           )
         return this.#prompt(caller, target, p.text)
       }
+      case 'session.answer': {
+        const p = raw as ControlParams<'session.answer'>
+        const child = await this.#target(caller, p.targetSessionId)
+        if (child.parentSessionId !== caller.id)
+          throw new ControlFailure(
+            'scope_denied',
+            'Only the direct parent can answer a child question.',
+          )
+        const model = await this.host.store.load(child.id)
+        if (model.pendingApprovals.some((approval) => approval.approvalId === p.inputId))
+          throw new ControlFailure(
+            'invalid_request',
+            'Approvals are answered by the user, not by the lead.',
+          )
+        if (!model.pendingInputs.some((input) => input.inputId === p.inputId))
+          throw new ControlFailure('invalid_request', 'That question is no longer pending.')
+        const outcome = await this.host.dispatch(
+          {
+            type: 'input.respond',
+            sessionId: child.id,
+            inputId: p.inputId,
+            value: p.value,
+          },
+          { kind: 'session', sessionId: caller.id },
+        )
+        if (!outcome.accepted)
+          throw new ControlFailure('invalid_request', outcome.reason ?? 'The answer was refused.')
+        return { inputId: p.inputId, answered: true }
+      }
       case 'session.read':
         return this.#read(
           caller,
@@ -862,9 +891,13 @@ export class AgentControlService {
       const model = await this.host.store.load(id)
       const session = model.session
       if (!session) continue
+      const asked = model.messages.find(
+        (message) => message.role === 'user' && message.turnId === model.activeTurnId,
+      )
       const workState = childWorkState(
         model,
         descendantIds(rows, id).filter((nested) => live.has(nested)).length,
+        asked?.origin?.kind === 'session',
       )
       const settled = workState === 'result_available' || workState === 'waiting_for_children'
       const report =

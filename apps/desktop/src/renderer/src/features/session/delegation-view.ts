@@ -37,6 +37,7 @@ export function delegatedChildState(
     case 'blocked_on_user':
       return 'needs-you'
     case 'waiting_for_children':
+    case 'blocked_on_parent':
     case 'queued':
       return 'waiting'
     case 'not_started':

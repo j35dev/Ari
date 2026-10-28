@@ -15,6 +15,12 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
     kind: z.literal('completion'),
     sessionIds: z.array(z.string().min(1)).min(1).max(32),
   }),
+  /** A child's provider asked a question that its lead is being woken for. */
+  z.object({
+    kind: z.literal('question'),
+    sessionId: z.string().min(1),
+    inputId: z.string().min(1),
+  }),
 ])
 export type MessageOrigin = z.infer<typeof messageOriginSchema>
 
