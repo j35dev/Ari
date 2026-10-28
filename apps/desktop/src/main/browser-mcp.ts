@@ -12,7 +12,12 @@ const DEFAULT_TAB = 'inspector'
 
 export interface BrowserMcpHandle {
   url: string
+  /** App-wide token; still drives the shared inspector tab. */
   token: string
+  /** A token whose tool calls act on this session's own tab. */
+  tokenFor: (sessionId: string) => string
+  /** Forgets a session's token and closes its tab. */
+  revoke: (sessionId: string) => void
   close: () => void
 }
 
@@ -142,7 +147,8 @@ export async function dispatchBrowserMcpTool(
       const resolved = resolveBrowserUrl(url)
       if (!resolved.ok) return textResult(resolved.error, true)
       const result = await browsers.navigate(tabId, resolved.url)
-      browsers.reveal(tabId)
+      // The pane shows only the inspector; an agent tab revealing would open it on the wrong page.
+      if (tabId === DEFAULT_TAB) browsers.reveal(tabId)
       return result.ok ? textResult(JSON.stringify(result.tab)) : textResult(result.error, true)
     }
     if (name === 'browser_snapshot') {
@@ -202,11 +208,16 @@ export async function dispatchBrowserMcpTool(
   }
 }
 
-function authorized(req: IncomingMessage, token: string): boolean {
+/** The tab a bearer token may drive; null when the token is not ours. */
+function authorizedTab(req: IncomingMessage, tabs: ReadonlyMap<string, string>): string | null {
   const header = req.headers['authorization']
-  if (typeof header === 'string' && header === `Bearer ${token}`) return true
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    const tab = tabs.get(header.slice('Bearer '.length))
+    if (tab !== undefined) return tab
+  }
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-  return url.searchParams.get('token') === token
+  const query = url.searchParams.get('token')
+  return query === null ? null : (tabs.get(query) ?? null)
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -221,6 +232,7 @@ function readBody(req: IncomingMessage): Promise<string> {
 async function handleRpc(
   browsers: BrowserService,
   message: JsonRpc,
+  tabId = DEFAULT_TAB,
 ): Promise<{
   jsonrpc: '2.0'
   id?: number | string
@@ -253,7 +265,7 @@ async function handleRpc(
     const params = asRecord(message.params)
     const name = typeof params['name'] === 'string' ? params['name'] : ''
     const args = asRecord(params['arguments'])
-    const result = await dispatchBrowserMcpTool(browsers, name, args)
+    const result = await dispatchBrowserMcpTool(browsers, name, args, tabId)
     return { jsonrpc: '2.0', id, result }
   }
   return { jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } }
@@ -262,6 +274,25 @@ async function handleRpc(
 /** Loopback Streamable HTTP MCP for the in-app browser. */
 export function startBrowserMcpServer(browsers: BrowserService): Promise<BrowserMcpHandle> {
   const token = randomBytes(24).toString('base64url')
+  // token -> tab. The app-wide token keeps the shared inspector tab; every
+  // session gets its own token, so two agents never drive the same page.
+  const tabs = new Map<string, string>([[token, DEFAULT_TAB]])
+  const sessionTokens = new Map<string, string>()
+  const tokenFor = (sessionId: string): string => {
+    const existing = sessionTokens.get(sessionId)
+    if (existing !== undefined) return existing
+    const next = randomBytes(24).toString('base64url')
+    tabs.set(next, `agent:${sessionId}`)
+    sessionTokens.set(sessionId, next)
+    return next
+  }
+  const revoke = (sessionId: string): void => {
+    const existing = sessionTokens.get(sessionId)
+    if (existing === undefined) return
+    tabs.delete(existing)
+    sessionTokens.delete(sessionId)
+    browsers.close(`agent:${sessionId}`)
+  }
   const server = createServer((req, res) => {
     void (async () => {
       if (req.method === 'OPTIONS') {
@@ -269,7 +300,8 @@ export function startBrowserMcpServer(browsers: BrowserService): Promise<Browser
         res.end()
         return
       }
-      if (!authorized(req, token)) {
+      const tabId = authorizedTab(req, tabs)
+      if (tabId === null) {
         json(res, 401, { error: 'unauthorized' })
         return
       }
@@ -284,13 +316,18 @@ export function startBrowserMcpServer(browsers: BrowserService): Promise<Browser
         json(res, 400, { error: 'invalid json' })
         return
       }
+      // A revoke while the body was in flight must not reopen the closed tab.
+      if (authorizedTab(req, tabs) !== tabId) {
+        json(res, 401, { error: 'unauthorized' })
+        return
+      }
       if (parsed.id === undefined) {
-        void handleRpc(browsers, parsed)
+        void handleRpc(browsers, parsed, tabId)
         res.writeHead(202)
         res.end()
         return
       }
-      json(res, 200, await handleRpc(browsers, parsed))
+      json(res, 200, await handleRpc(browsers, parsed, tabId))
     })().catch((error: unknown) => {
       log.warn('browser mcp request failed', { error: String(error) })
       if (!res.headersSent) json(res, 500, { error: 'internal' })
@@ -307,6 +344,8 @@ export function startBrowserMcpServer(browsers: BrowserService): Promise<Browser
       resolve({
         url: `http://127.0.0.1:${String(address.port)}/mcp`,
         token,
+        tokenFor,
+        revoke,
         close: () => server.close(),
       })
     })

@@ -6,11 +6,7 @@ import type {
   ProviderAdapter,
 } from '@ari/providers/driver'
 import { runAgentLoop, type ApprovalRequest } from './agent-loop'
-import {
-  streamChatCompletion,
-  type ChatImage,
-  type ChatMessage,
-} from './protocols/openai-chat'
+import { streamChatCompletion, type ChatImage, type ChatMessage } from './protocols/openai-chat'
 import {
   streamChatAnthropic,
   type AnthropicChatRequest,
@@ -45,10 +41,7 @@ import {
   readSkillBody,
   readTrustedSkillRoots,
 } from './skills'
-import {
-  MemoryConversationStore,
-  type ConversationStore,
-} from './conversation-store'
+import { MemoryConversationStore, type ConversationStore } from './conversation-store'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('ari-core:driver')
@@ -71,11 +64,12 @@ export interface AriCoreDriverOptions {
    */
   allowlist?: AllowRule[]
   /**
-   * MCP servers mounted for every turn created by this driver. Disabled
-   * entries are skipped; a server that fails to start is logged and
-   * omitted so the turn always runs.
+   * MCP servers mounted for every turn created by this driver. The callback
+   * sees the session, so a server can carry its identity. Disabled entries
+   * are skipped; a server that fails to start is logged and omitted so the
+   * turn always runs.
    */
-  mcpServers?: McpServerConfig[] | (() => McpServerConfig[])
+  mcpServers?: McpServerConfig[] | ((session: AdapterSession) => McpServerConfig[])
   /** Connection seam for tests; production connects over real stdio. */
   mcpConnect?: (server: McpServerConfig) => Promise<McpConnection>
   /**
@@ -218,7 +212,12 @@ function anthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
       const blocks: AnthropicContentBlock[] = []
       if (message.content.length > 0) blocks.push({ type: 'text', text: message.content })
       for (const call of message.toolCalls ?? []) {
-        blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: parseToolInput(call.argsJson) })
+        blocks.push({
+          type: 'tool_use',
+          id: call.id,
+          name: call.name,
+          input: parseToolInput(call.argsJson),
+        })
       }
       // A turn with neither text nor tool calls has no valid wire form — the
       // API rejects empty content — and carries nothing the model needs, so it
@@ -319,7 +318,7 @@ export class AriCoreDriver implements Driver {
   readonly #clients: AriCoreDriverClients
   readonly #contextCharLimit: number
   readonly #allowlist: AllowRule[] | undefined
-  readonly #mcpServers: McpServerConfig[] | (() => McpServerConfig[])
+  readonly #mcpServers: McpServerConfig[] | ((session: AdapterSession) => McpServerConfig[])
   readonly #mcpConnectOverride?: (server: McpServerConfig) => Promise<McpConnection>
   readonly #conversations: ConversationStore
   readonly #compaction: boolean
@@ -362,7 +361,7 @@ export class AriCoreDriver implements Driver {
     const conversations = this.#conversations
     const compaction = this.#compaction
     const configured =
-      typeof this.#mcpServers === 'function' ? this.#mcpServers() : this.#mcpServers
+      typeof this.#mcpServers === 'function' ? this.#mcpServers(session) : this.#mcpServers
     const mcpServers = configured.filter((s) => !s.disabled)
     const mcpConnect =
       this.#mcpConnectOverride ??
@@ -653,7 +652,7 @@ async function prepareSkills(
   if (toolSkills.length === 0) return { suffix }
   const tool: Tool = {
     name: 'skill',
-    description: "Read one enabled skill by name. Returns its SKILL.md body.",
+    description: 'Read one enabled skill by name. Returns its SKILL.md body.',
     parameters: {
       type: 'object',
       properties: { name: { type: 'string' } },
