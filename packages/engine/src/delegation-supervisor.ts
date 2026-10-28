@@ -9,6 +9,7 @@ import {
   completionNotice,
   finalAssistantText,
   pendingCompletions,
+  questionNotice,
   type CompletionReport,
 } from './delegation-state'
 
@@ -89,6 +90,8 @@ export class DelegationSupervisor {
   readonly #chains = new Map<string, Promise<void>>()
   /** Parents whose wake-up was refused; any settle may have freed the capacity they need. */
   readonly #refused = new Set<string>()
+  /** Questions already delivered, so a replayed request does not wake twice. */
+  readonly #asked = new Set<string>()
   #unsubscribe: (() => void) | null = null
   constructor(readonly host: SupervisorHost) {}
 
@@ -130,6 +133,10 @@ export class DelegationSupervisor {
   #observe(event: JournalEvent): void {
     if (event.type === 'child.session.settled' || event.type === 'child.session.acknowledged')
       this.schedule(event.sessionId)
+    else if (event.type === 'input.requested')
+      void this.#serial(event.sessionId, () => this.#askParent(event.sessionId, event))
+    else if (event.type === 'input.responded')
+      this.#asked.delete(`${event.sessionId}:${event.inputId}`)
     else if (event.type === 'turn.settled') {
       for (const parentId of this.#refused) this.schedule(parentId)
       if (event.stopReason === 'completed') this.schedule(event.sessionId)
@@ -138,6 +145,41 @@ export class DelegationSupervisor {
           await this.#stopped(event.sessionId)
         })
     }
+  }
+
+  async #askParent(
+    childId: string,
+    event: { inputId: string; prompt: string; choicesJson: string | null },
+  ): Promise<void> {
+    const child = await this.host.store.load(childId)
+    const parentId = child.session?.parentSessionId
+    if (!parentId) return
+    // A question on a turn a person started is theirs to answer; only work the
+    // parent delegated routes back to the parent.
+    const asked = child.messages.find(
+      (message) => message.role === 'user' && message.turnId === child.activeTurnId,
+    )
+    if (asked?.origin?.kind !== 'session') return
+    const key = `${childId}:${event.inputId}`
+    if (this.#asked.has(key)) return
+    this.#asked.add(key)
+    const outcome = await this.host.dispatch(
+      {
+        type: 'message.enqueue',
+        sessionId: parentId,
+        text: questionNotice({
+          childSessionId: childId,
+          title: child.session?.title ?? 'Child session',
+          prompt: event.prompt,
+          choicesJson: event.choicesJson,
+          inputId: event.inputId,
+        }),
+        attachments: [],
+        hold: true,
+      },
+      { kind: 'question', sessionId: childId, inputId: event.inputId },
+    )
+    if (!outcome.accepted) this.#asked.delete(key)
   }
 
   #serial(parentId: string, run: () => Promise<void>): Promise<void> {

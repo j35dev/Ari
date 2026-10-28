@@ -63,6 +63,7 @@ function parse(argv) {
     'session',
     'find',
     'text',
+    'input',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -112,6 +113,15 @@ function parse(argv) {
       case 'prompt':
       case 'message':
         params = { targetSessionId: target, text: rest.join(' '), idempotencyKey: key }
+        break
+      case 'answer':
+        if (!target || !flags.input) throw new Error('session answer needs a child id and --input')
+        params = {
+          targetSessionId: target,
+          inputId: flags.input,
+          value: rest.join(' '),
+          idempotencyKey: key,
+        }
         break
       case 'read':
         params = {
