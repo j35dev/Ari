@@ -25,6 +25,7 @@ function guest(): BrowserGuest {
       return { url, title: 'Example', text: 'hi', elements: [] }
     }),
     capturePage: vi.fn(async () => null),
+    consoleEntries: () => [],
     sendKey: vi.fn(),
     setBounds: vi.fn(),
     setVisible: vi.fn(),
@@ -51,6 +52,24 @@ describe('dispatchBrowserMcpTool', () => {
     expect(text(snap)).toContain('Example')
     const bad = await dispatchBrowserMcpTool(service, 'browser_navigate', { url: 'file:///x' })
     expect(bad.isError).toBe(true)
+  })
+
+  it('adds console warnings and errors to a snapshot, not ordinary logs', async () => {
+    const g = guest()
+    g.consoleEntries = () => [
+      { level: 'info', text: 'hello', timestamp: 1 },
+      { level: 'warning', text: 'slow frame', timestamp: 2 },
+      { level: 'error', text: 'boom', timestamp: 3 },
+    ]
+    const service = new BrowserService(() => g, vi.fn())
+
+    const snap = await dispatchBrowserMcpTool(service, 'browser_snapshot', {})
+    const payload = JSON.parse(text(snap)) as {
+      text: string
+      consoleEntries: { level: string; text: string }[]
+    }
+    expect(payload.text).toBe('hi')
+    expect(payload.consoleEntries.map((entry) => entry.text)).toEqual(['slow frame', 'boom'])
   })
 
   it('returns a screenshot as a bare base64 image block', async () => {
