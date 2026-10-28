@@ -116,8 +116,30 @@ export class Journal<T> {
    * absolute line number within their segment, never thrown.
    */
   async readAll(): Promise<ParsedLine<T>[]> {
-    const segments = await this.#listSegments()
     const out: ParsedLine<T>[] = []
+    for await (const chunk of this.readByChunk()) out.push(...chunk)
+    return out
+  }
+
+  /**
+   * Reads every entry as bounded chunks, parsed one segment at a time. A
+   * long session replays without holding the whole journal (and a split of
+   * it) resident at once, and the event loop is pumped between segments so
+   * pending IPC and timers are served instead of one multi-second block.
+   * Chunk boundaries follow `raw` text length, so they stay near
+   * `maxChunkChars` and only split between lines.
+   */
+  async *readByChunk(maxChunkChars = 256 * 1024): AsyncGenerator<ParsedLine<T>[]> {
+    const segments = await this.#listSegments()
+    let chunk: ParsedLine<T>[] = []
+    let bytes = 0
+    const take = (): ParsedLine<T>[] => {
+      if (chunk.length === 0) return []
+      const taken = chunk
+      chunk = []
+      bytes = 0
+      return taken
+    }
     for (const segment of segments) {
       let content: string
       try {
@@ -126,11 +148,20 @@ export class Journal<T> {
         log.warn('segment unreadable, skipping', { path: segment.path, error: String(e) })
         continue
       }
-      for (const parsed of parseJsonLines<T>(content)) {
-        out.push(parsed)
+      const parsed = parseJsonLines<T>(content)
+      if (parsed.length === 0) continue
+      for (let i = 0; i < parsed.length; i++) {
+        const line = parsed[i] as ParsedLine<T>
+        chunk.push(line)
+        bytes += line.raw.length
+        if (bytes >= maxChunkChars || i === parsed.length - 1) {
+          const taken = take()
+          if (taken.length > 0) yield taken
+        }
+        if (i === parsed.length - 1) await new Promise<void>((resolve) => setImmediate(resolve))
       }
     }
-    return out
+    if (chunk.length > 0) yield take()
   }
 
   /**
