@@ -412,6 +412,24 @@ it('wakes a lead with a delegated child question, once, and never for a personâ€
   expect((await store.load('root')).queuedMessages).toHaveLength(1)
 })
 
+it('continues a delegated turn after a restart, but leaves a personâ€™s turn stopped', async () => {
+  await start('root')
+  await start('a')
+  await start('b', 'mine', 'person')
+  host.isRunning = () => false
+  supervisor.start()
+  await expect.poll(async () => (await store.load('a')).lastTurn?.stopReason).toBe('interrupted')
+  await expect.poll(async () => (await store.load('b')).lastTurn?.stopReason).toBe('interrupted')
+
+  const [continuation] = (await store.load('a')).queuedMessages
+  expect(continuation).toMatchObject({
+    text: 'Continue where you left off.',
+    held: true,
+    origin: { kind: 'session', sessionId: 'root' },
+  })
+  expect((await store.load('b')).queuedMessages).toEqual([])
+})
+
 it('does not deliver at start-up what settled before the launch', async () => {
   // Also the shape every journal from before delivery existed is in: a
   // settled child and nothing that says the parent has seen it.

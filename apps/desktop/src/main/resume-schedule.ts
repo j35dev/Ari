@@ -5,12 +5,13 @@ import { ControlFailure, ROUTINE_MIN_EVERY_MS } from '@ari/contracts/agent-contr
 import type { Command } from '@ari/contracts/commands'
 import type { ControlHost } from '@ari/engine/agent-control'
 import type { SessionStore } from '@ari/engine/session-store'
+import { CONTINUATION_PROMPT } from '@ari/engine/delegation-state'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('desktop:resume')
 
 /** What a resumed session is told; it still holds the whole conversation. */
-export const RESUME_PROMPT = 'Continue where you left off.'
+export const RESUME_PROMPT = CONTINUATION_PROMPT
 
 /** A usage window resets within days, so anything later is a bad clock or a bad caller. */
 const MAX_DELAY_MS = 8 * 24 * 60 * 60 * 1000
