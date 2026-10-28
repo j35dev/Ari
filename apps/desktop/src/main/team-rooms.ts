@@ -87,7 +87,10 @@ export class TeamRoomService {
       const state: RoomState = {
         ...room.state,
         bots,
-        leadBotId: room.state.leadBotId !== null && known.has(room.state.leadBotId) ? room.state.leadBotId : null,
+        leadBotId:
+          room.state.leadBotId !== null && known.has(room.state.leadBotId)
+            ? room.state.leadBotId
+            : null,
         activeBotId:
           room.state.activeBotId !== null && known.has(room.state.activeBotId)
             ? room.state.activeBotId
@@ -167,11 +170,11 @@ export class TeamRoomService {
    * Called after every settle. Only a room turn can move the room on: a human
    * turn in the bot's own thread, or a turn from another room, is ignored.
    */
-  onSettled(sessionId: string): Promise<void> {
-    return this.#serialize(() => this.#onSettled(sessionId))
+  onSettled(sessionId: string, turnId: string): Promise<void> {
+    return this.#serialize(() => this.#onSettled(sessionId, turnId))
   }
 
-  async #onSettled(sessionId: string): Promise<void> {
+  async #onSettled(sessionId: string, turnId: string): Promise<void> {
     await this.#ready
     for (const room of this.#rooms.values()) {
       const waiting = room.round?.awaiting[0]
@@ -179,19 +182,17 @@ export class TeamRoomService {
       const bot = room.bots.find((entry) => entry.botId === waiting)
       if (bot === undefined || bot.sessionId !== sessionId) continue
       const model = await this.#deps.store.load(sessionId)
-      const lastUser = [...model.messages].reverse().find((message) => message.role === 'user')
-      if (lastUser?.origin?.kind !== 'room' || lastUser.origin.roomId !== room.id) continue
-      const turnId = model.lastTurn?.turnId
-      const text =
-        turnId === undefined || turnId === null
-          ? ''
-          : model.messages
-              .filter((message) => message.role === 'assistant' && message.turnId === turnId)
-              .flatMap((message) =>
-                message.parts.filter((part) => part.type === 'text').map((part) => part.text),
-              )
-              .join('\n')
-              .trim()
+      const prompt = model.messages.find(
+        (message) => message.role === 'user' && message.turnId === turnId,
+      )
+      if (prompt?.origin?.kind !== 'room' || prompt.origin.roomId !== room.id) continue
+      const text = model.messages
+        .filter((message) => message.role === 'assistant' && message.turnId === turnId)
+        .flatMap((message) =>
+          message.parts.filter((part) => part.type === 'text').map((part) => part.text),
+        )
+        .join('\n')
+        .trim()
       await this.#record(room.id, waiting, text)
       return
     }
