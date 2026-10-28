@@ -50,6 +50,8 @@ export interface AgentRuntimeOptions {
    * read or race the shared root.
    */
   socketRoot?: string
+  /** Called whenever a session loses its access: destroyed, released, or archived. */
+  onDrop?: (id: string) => void
 }
 
 /**
@@ -241,6 +243,7 @@ async function startControlTransport(
   dropSession = (id) => {
     approvals.cancel(id)
     server.revoke(id)
+    options.onDrop?.(id)
   }
   try {
     await server.listen()
@@ -253,6 +256,8 @@ async function startControlTransport(
   }
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'turn.settled') approvals.cancel(event.sessionId)
+    // Archives that bypass the desktop RPC (mobile) still have to drop access.
+    if (event.type === 'session.updated' && event.archived === true) dropSession(event.sessionId)
   })
   supervisor.start()
   return {

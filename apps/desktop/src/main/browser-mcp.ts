@@ -147,7 +147,8 @@ export async function dispatchBrowserMcpTool(
       const resolved = resolveBrowserUrl(url)
       if (!resolved.ok) return textResult(resolved.error, true)
       const result = await browsers.navigate(tabId, resolved.url)
-      browsers.reveal(tabId)
+      // The pane shows only the inspector; an agent tab revealing would open it on the wrong page.
+      if (tabId === DEFAULT_TAB) browsers.reveal(tabId)
       return result.ok ? textResult(JSON.stringify(result.tab)) : textResult(result.error, true)
     }
     if (name === 'browser_snapshot') {
@@ -313,6 +314,11 @@ export function startBrowserMcpServer(browsers: BrowserService): Promise<Browser
         parsed = JSON.parse(await readBody(req)) as JsonRpc
       } catch {
         json(res, 400, { error: 'invalid json' })
+        return
+      }
+      // A revoke while the body was in flight must not reopen the closed tab.
+      if (authorizedTab(req, tabs) !== tabId) {
+        json(res, 401, { error: 'unauthorized' })
         return
       }
       if (parsed.id === undefined) {
