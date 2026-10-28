@@ -30,6 +30,8 @@ export interface AgentRuntimeOptions {
   store: SessionStore
   policy(): DelegationSettings
   providers: ControlHost['providers']
+  /** Durable scheduled prompts; a runtime started without one cannot schedule. */
+  routines?: ControlHost['routines']
   baseEnv?: NodeJS.ProcessEnv
   /** How long finished children are batched before their parent is woken. */
   deliveryDelayMs?: number
@@ -147,6 +149,7 @@ async function startControlTransport(
     version: options.version,
     policy: () => options.policy(),
     providers: options.providers,
+    ...(options.routines === undefined ? {} : { routines: options.routines }),
     create: (session) => engine.createSession(session),
     dispatch: (command, origin) => engine.dispatch(command, origin),
     record: (id, event) => engine.record(id, event),

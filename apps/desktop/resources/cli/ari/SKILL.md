@@ -110,6 +110,22 @@ child (and any of its descendants) from Ari when you are done with it. Do not as
 the human to delete workers you spawned. You cannot destroy yourself. If the
 human stops you, your running children are stopped too.
 
+## Scheduled prompts
+
+Schedule a prompt to run once or repeatedly. `--in` and `--every` are minutes;
+`--at` is a timestamp. No user is present when a routine fires, so make the
+prompt self-contained and never ask a question in it.
+
+```sh
+ari routine add --prompt "Check CI and report failing tests." --in 30 --every 120 --json
+ari routine add --session CHILD_ID --prompt "Rerun the flaky test." --at 2026-11-01T09:00:00Z --key once-1 --json
+ari routine list --json
+ari routine rm ROUTINE_ID --key rm-1 --json
+```
+
+A routine belongs to the session that scheduled it. Repeats are at least five
+minutes apart; missed windows are skipped, not replayed in a burst.
+
 ## Integrating changes
 
 ```sh
