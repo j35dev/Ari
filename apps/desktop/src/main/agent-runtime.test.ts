@@ -13,6 +13,7 @@ import { DriverRegistry } from '@ari/providers/registry'
 import type { AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
 import { controlEndpoint, SOCKET_ROOT, startAgentRuntime } from './agent-runtime'
+import { ResumeSchedule, routineHost } from './resume-schedule'
 
 const execute = promisify(execFile)
 const cliPath = resolve('resources/cli/ari.cjs')
@@ -132,6 +133,13 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     respondControlApproval: (id, decision) => runtime.approvals.respond(id, decision),
     git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
   })
+  const schedule = new ResumeSchedule({
+    path: join(dir, 'routines.json'),
+    store,
+    dispatch: (command) => engine.dispatch(command),
+  })
+  await schedule.load()
+  schedule.start()
   const runtime = await startAgentRuntime({
     engine,
     store,
@@ -140,6 +148,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     executable: process.execPath,
     version: 'test',
     policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
+    routines: routineHost(schedule),
     providers: async () => [
       { driverKind: 'claude', available: true, models: [{ id: 'fixture', label: 'Fixture' }] },
     ],
@@ -168,6 +177,29 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
   try {
     expect(await cli('env')).toMatchObject({ ok: true, result: { caller: { sessionId: 'root' } } })
     expect(await cli('agents')).toMatchObject({ ok: true, result: [{ driverKind: 'claude' }] })
+    const scheduled = (await cli(
+      'routine',
+      'add',
+      '--prompt',
+      'Check CI.',
+      '--in',
+      '30',
+      '--every',
+      '60',
+      '--key',
+      'routine-1',
+    )) as { result: { id: string; everyMs: number; at: number } }
+    expect(scheduled.result.everyMs).toBe(3_600_000)
+    expect(scheduled.result.at).toBeGreaterThan(Date.now())
+    expect(await cli('routine', 'list')).toMatchObject({
+      ok: true,
+      result: { routines: [{ id: scheduled.result.id, prompt: 'Check CI.', sessionId: 'root' }] },
+    })
+    expect(await cli('routine', 'rm', scheduled.result.id, '--key', 'routine-rm')).toMatchObject({
+      ok: true,
+      result: { removed: true },
+    })
+    expect(await cli('routine', 'list')).toMatchObject({ ok: true, result: { routines: [] } })
     const args = [
       'session',
       'spawn',
@@ -254,6 +286,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     const replay = new SessionStore({ rootDir: join(dir, 'sessions') })
     expect((await replay.load(child.id)).session).toBeNull()
   } finally {
+    schedule.close()
     await runtime.close()
     for (const session of await store.listSessions()) {
       await engine.quiesce(session.id)

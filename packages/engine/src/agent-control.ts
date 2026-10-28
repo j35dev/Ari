@@ -9,6 +9,7 @@ import {
   type ControlParams,
   type ControlResult,
   type DelegationSettings,
+  type ScheduledRoutine,
 } from '@ari/contracts/agent-control'
 import type { Session, SessionWorkspace } from '@ari/contracts/session'
 import type { Message } from '@ari/contracts/message'
@@ -40,7 +41,9 @@ const APPROVAL_PENDING_MESSAGE =
 function raceApproval(pending: Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
   if (signal === undefined) return pending
   if (signal.aborted)
-    return Promise.reject(new ControlFailure('delegation_approval_pending', APPROVAL_PENDING_MESSAGE))
+    return Promise.reject(
+      new ControlFailure('delegation_approval_pending', APPROVAL_PENDING_MESSAGE),
+    )
   return new Promise<boolean>((resolve, reject) => {
     const onAbort = (): void => {
       reject(new ControlFailure('delegation_approval_pending', APPROVAL_PENDING_MESSAGE))
@@ -91,6 +94,17 @@ export interface ControlHost {
   release(child: Session): Promise<void>
   /** A `session wait` by this caller ended; undelivered results may now be due. */
   waitEnded?(callerId: string): void
+  /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
+  routines?: {
+    add(input: {
+      sessionId: string
+      prompt: string
+      at: number
+      everyMs?: number
+    }): Promise<ScheduledRoutine>
+    list(): ScheduledRoutine[]
+    remove(id: string): Promise<boolean>
+  }
 }
 
 /** Scoped control primitives shared by the desktop host, local CLI and deterministic tests. */
@@ -233,9 +247,7 @@ export class AgentControlService {
 
   async #chain(caller: Session, run: () => Promise<unknown>): Promise<unknown> {
     const root = (await this.#lineage(caller)).at(-1) as Session
-    const next = (this.#roots.get(root.id) ?? Promise.resolve())
-      .catch(() => undefined)
-      .then(run)
+    const next = (this.#roots.get(root.id) ?? Promise.resolve()).catch(() => undefined).then(run)
     this.#roots.set(root.id, next)
     void next
       .finally(() => {
@@ -381,14 +393,12 @@ export class AgentControlService {
           try {
             await this.host.store.destroy(id)
           } catch (error) {
-            if (
-              !(
-                error &&
-                typeof error === 'object' &&
-                'code' in error &&
-                error.code === 'session_not_found'
-              )
-            )
+            if (!(
+              error &&
+              typeof error === 'object' &&
+              'code' in error &&
+              error.code === 'session_not_found'
+            ))
               throw error
           }
           await this.host.release({ ...target, id }).catch(() => undefined)
@@ -418,6 +428,43 @@ export class AgentControlService {
         return method === 'session.diff'
           ? this.host.diff(child, p.patch)
           : this.host.integrate(caller, child, p.snapshotCommit, { allowStale: p.allowStale })
+      }
+      case 'routine.add': {
+        const p = raw as ControlParams<'routine.add'>
+        const routines = this.host.routines
+        if (!routines)
+          throw new ControlFailure('routines_unavailable', 'Scheduled prompts are unavailable.')
+        const target = await this.#target(caller, p.targetSessionId)
+        if (target.archived)
+          throw new ControlFailure('scope_denied', 'Restore the session before scheduling it.')
+        return routines.add({
+          sessionId: target.id,
+          prompt: p.prompt,
+          at: p.at,
+          ...(p.everyMs == null ? {} : { everyMs: p.everyMs }),
+        })
+      }
+      case 'routine.list': {
+        const p = raw as ControlParams<'routine.list'>
+        const routines = this.host.routines
+        if (!routines)
+          throw new ControlFailure('routines_unavailable', 'Scheduled prompts are unavailable.')
+        const parent = await this.#target(caller, p.targetSessionId)
+        const allowed = new Set([
+          parent.id,
+          ...(p.recursive ? descendantIds(await this.host.store.listSessions(), parent.id) : []),
+        ])
+        return { routines: routines.list().filter((entry) => allowed.has(entry.sessionId)) }
+      }
+      case 'routine.remove': {
+        const p = raw as ControlParams<'routine.remove'>
+        const routines = this.host.routines
+        if (!routines)
+          throw new ControlFailure('routines_unavailable', 'Scheduled prompts are unavailable.')
+        const entry = routines.list().find((other) => other.id === p.routineId)
+        if (!entry) throw new ControlFailure('routine_not_found', 'Scheduled prompt not found.')
+        await this.#target(caller, entry.sessionId)
+        return { routineId: entry.id, removed: await routines.remove(entry.id) }
       }
     }
   }
@@ -464,13 +511,10 @@ export class AgentControlService {
       const cleanup = (): void => {
         if (this.#approving.get(root.id) === request) this.#approving.delete(root.id)
       }
-      void request.then(
-        (allowed) => {
-          if (allowed) this.#approved.add(root.id)
-          cleanup()
-        },
-        cleanup,
-      )
+      void request.then((allowed) => {
+        if (allowed) this.#approved.add(root.id)
+        cleanup()
+      }, cleanup)
       pending = request
     }
     return raceApproval(pending, signal)
@@ -744,8 +788,7 @@ export class AgentControlService {
           !task.reportTruncated
         )
           await this.#acknowledge(caller.id, task.sessionId, task.latestTurn.turnId, 'read')
-    const count = (state: string): number =>
-      tasks.filter((task) => task.workState === state).length
+    const count = (state: string): number => tasks.filter((task) => task.workState === state).length
     return {
       sessionId: parent.id,
       tasks,
