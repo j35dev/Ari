@@ -94,6 +94,13 @@ export interface ControlHost {
   release(child: Session): Promise<void>
   /** A `session wait` by this caller ended; undelivered results may now be due. */
   waitEnded?(callerId: string): void
+  /** The caller's Hive bot memory; absent runtimes or plain sessions have none. */
+  memory?: {
+    read(botId: string): Promise<string>
+    add(botId: string, text: string): Promise<string>
+    patch(botId: string, find: string, text: string): Promise<string>
+    remove(botId: string, find: string): Promise<string>
+  }
   /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
   routines?: {
     add(input: {
@@ -455,6 +462,34 @@ export class AgentControlService {
           ...(p.recursive ? descendantIds(await this.host.store.listSessions(), parent.id) : []),
         ])
         return { routines: routines.list().filter((entry) => allowed.has(entry.sessionId)) }
+      }
+      case 'memory.read':
+      case 'memory.add':
+      case 'memory.patch':
+      case 'memory.remove': {
+        const memory = this.host.memory
+        if (!memory) throw new ControlFailure('memory_unavailable', 'Bot memory is unavailable.')
+        const botId = caller.botId
+        if (!botId)
+          throw new ControlFailure('bot_not_found', 'This session does not belong to a Hive bot.')
+        try {
+          if (method === 'memory.read') return { memory: await memory.read(botId) }
+          if (method === 'memory.add') {
+            const p = raw as ControlParams<'memory.add'>
+            return { memory: await memory.add(botId, p.text) }
+          }
+          if (method === 'memory.patch') {
+            const p = raw as ControlParams<'memory.patch'>
+            return { memory: await memory.patch(botId, p.find, p.text) }
+          }
+          const p = raw as ControlParams<'memory.remove'>
+          return { memory: await memory.remove(botId, p.find) }
+        } catch (error) {
+          throw new ControlFailure(
+            'invalid_request',
+            error instanceof Error ? error.message : 'Memory edit failed.',
+          )
+        }
       }
       case 'routine.remove': {
         const p = raw as ControlParams<'routine.remove'>

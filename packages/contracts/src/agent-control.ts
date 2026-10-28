@@ -161,6 +161,10 @@ export const controlParams = {
     .object({ targetSessionId: target.default('self'), recursive: z.boolean().default(false) })
     .strict(),
   'routine.remove': z.object({ routineId: target, idempotencyKey: key }).strict(),
+  'memory.read': z.object({}).strict(),
+  'memory.add': z.object({ text, idempotencyKey: key }).strict(),
+  'memory.patch': z.object({ find: text, text, idempotencyKey: key }).strict(),
+  'memory.remove': z.object({ find: text, idempotencyKey: key }).strict(),
 } as const
 export type ControlMethod = keyof typeof controlParams
 export type ControlParams<M extends ControlMethod> = z.output<(typeof controlParams)[M]>

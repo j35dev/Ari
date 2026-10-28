@@ -110,6 +110,22 @@ child (and any of its descendants) from Ari when you are done with it. Do not as
 the human to delete workers you spawned. You cannot destroy yourself. If the
 human stops you, your running children are stopped too.
 
+## Bot memory
+
+A Hive bot's sessions start with a short memory file you can edit. Keep durable
+preferences there; the edit reaches the bot's next session, not the one you are
+running in.
+
+```sh
+ari memory list --json
+ari memory add "Prefer pnpm verify before reporting." --json
+ari memory patch --find "small commits" --text "one commit per task" --json
+ari memory remove --find "Prefer pnpm verify before reporting." --json
+```
+
+There is a hard character cap; an over-cap edit is refused with the current
+size. Only a session that belongs to a bot can read or edit its memory.
+
 ## Scheduled prompts
 
 Schedule a prompt to run once or repeatedly. `--in` and `--every` are minutes;
