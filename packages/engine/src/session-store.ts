@@ -94,7 +94,8 @@ const PREVIEW_MAX_CHARS = 160
  *
  * Candidates are truncated before collapsing: the streaming append path runs
  * here on every part flush, and a candidate can be megabytes of transcript —
- * the regex would then sweep megabytes fifty times a second.
+ * the regex would then sweep megabytes fifty times a second. Leading
+ * whitespace is dropped as parts accumulate so it can't use up that window.
  */
 function lastMessagePreview(messages: Message[]): string | null {
   const collapseTail = (text: string): string | null => {
@@ -109,7 +110,7 @@ function lastMessagePreview(messages: Message[]): string | null {
   for (let index = messages.length - 1; index >= 0; index--) {
     let text = ''
     for (const part of messages[index]?.parts ?? []) {
-      if (part.type === 'text') text += part.text
+      if (part.type === 'text') text += text.length === 0 ? part.text.trimStart() : part.text
       // Candidates stop scanning parts early too once the cap is sure; carry
       // on reading a long already-capped text's parts would add nothing.
       if (text.length >= PREVIEW_MAX_CHARS * 2) break
