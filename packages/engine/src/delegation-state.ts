@@ -1,6 +1,9 @@
 import type { ChildWorkState } from '@ari/contracts/agent-control'
 import type { SessionReadModel } from './projection'
 
+/** What a turn that a restart cut off is told when it is resumed. */
+export const CONTINUATION_PROMPT = 'Continue where you left off.'
+
 export interface PendingCompletion {
   childSessionId: string
   turnId: string
