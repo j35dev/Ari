@@ -194,8 +194,20 @@ describe('CatalogService', () => {
     )
     const service = new CatalogService({ fetchImpl: fetchImpl as unknown as typeof fetch })
     await service.refresh()
-    expect(modelsFor('claude')).toEqual([
-      { id: 'claude-x', label: 'Claude X', contextHint: '200k' },
+    expect(modelsFor('claude')).toMatchObject([
+      {
+        id: 'claude-x',
+        label: 'Claude X',
+        contextHint: '200k',
+        effortsSource: 'fallback',
+      },
+    ])
+    expect(modelsFor('claude')[0]?.efforts?.map((effort) => effort.id)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
     ])
     expect(catalogSource('claude')).toBe('cache')
     // grok has no registry payload in this round; its bundled snapshot stays.
@@ -407,6 +419,37 @@ describe('CatalogService', () => {
     expect(modelsFor('claude')).toEqual([{ id: 'opus', label: 'Opus 5.5' }])
   })
 
+  it('does not ask again when the cached catalog came from the same CLI version', async () => {
+    const dir = await tempDir('ari-catalog-')
+    const liveCachePath = join(dir, 'agent-catalogs.json')
+    const offline = vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch
+    const cliVersion = vi.fn(async () => '1.2.3')
+    const first = new CatalogService({
+      fetchImpl: offline,
+      liveCachePath,
+      cliVersion,
+      probeModels: vi.fn(async () => [{ id: 'opus', label: 'Opus 5.5' }]),
+      probeKinds: ['claude'],
+    })
+    await first.refresh()
+    for (const kind of ALL_KINDS) clearDynamicModels(kind)
+    expect(catalogSource('claude')).not.toBe('live')
+
+    const probeModels = vi.fn(async () => [{ id: 'opus', label: 'Opus 5.5' }])
+    const second = new CatalogService({
+      fetchImpl: offline,
+      liveCachePath,
+      cliVersion,
+      probeModels,
+      probeKinds: ['claude'],
+    })
+    second.start()
+    await second.ready
+
+    expect(catalogSource('claude')).toBe('live')
+    expect(probeModels).not.toHaveBeenCalled()
+  })
+
   it('persists a successful round to the disk cache and reloads it cold', async () => {
     const dir = await tempDir('ari-catalog-')
     const cachePath = join(dir, 'cache', 'models.json')
@@ -436,7 +479,9 @@ describe('CatalogService', () => {
     })
     second.start()
     await second.ready
-    expect(modelsFor('claude')).toEqual([{ id: 'claude-disk', label: 'Disk Model' }])
+    expect(modelsFor('claude')).toMatchObject([
+      { id: 'claude-disk', label: 'Disk Model', effortsSource: 'fallback' },
+    ])
     expect(second.lastRefreshAt).toBe(cached.at)
   })
 

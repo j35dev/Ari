@@ -76,6 +76,37 @@ describe('modelsFor fallback chain', () => {
     expect(catalogSource('claude')).toBe('live')
   })
 
+  it('gives Claude rows a provisional effort set until the agent answers', () => {
+    const row = modelsFor('claude').find((model) => model.id.startsWith('claude-'))
+    expect(row?.effortsSource).toBe('fallback')
+    expect(row?.efforts?.map((effort) => effort.id)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ])
+  })
+
+  it("leaves a live catalog's own per-model levels alone", () => {
+    setDynamicModels('claude', 'live', [
+      {
+        id: 'claude-opus-5-5',
+        label: 'Opus 5.5',
+        efforts: [{ id: 'high', label: 'High', current: true }],
+        effortsSource: 'agent',
+      },
+    ])
+    expect(modelsFor('claude')).toMatchObject([
+      {
+        id: 'claude-opus-5-5',
+        label: 'Opus 5.5',
+        efforts: [{ id: 'high', label: 'High', current: true }],
+        effortsSource: 'agent',
+      },
+    ])
+  })
+
   it('ignores empty dynamic overlays instead of blanking a kind', () => {
     setDynamicModels('codex', 'live', [])
     expect(modelsFor('codex').length).toBeGreaterThan(1)

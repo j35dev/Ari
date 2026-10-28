@@ -614,6 +614,73 @@ export function modelsFromConfigOptions(configOptions: AcpConfigOption[]): Catal
 }
 
 /**
+ * Reads the reasoning levels each advertised model accepts in the probe's own
+ * session, one `session/set_config_option` at a time, then restores the model
+ * the session started on. The default row reuses the initial answer; agents
+ * that gate the effort selector per model cannot be enumerated any other way.
+ * A failed switch leaves that row unresolved so the picker can still ask the
+ * agent on demand.
+ */
+export async function attachModelEfforts(
+  connection: AcpConnection,
+  created: AcpNewSessionResult,
+  models: CatalogModel[],
+  defaultEfforts: EffortCatalog,
+): Promise<void> {
+  const sessionId = created.sessionId
+  const configOptions = created.configOptions ?? []
+  const modelOption = findModelOption(configOptions)
+  const defaultId = currentModelId(configOptions)
+  const initial = rowEfforts(defaultEfforts)
+  const defaultRow = models.find((model) => model.id === defaultId)
+  if (initial !== undefined && defaultRow !== undefined) {
+    defaultRow.efforts = initial
+    defaultRow.effortsSource = 'agent'
+  }
+  const configId = modelOption?.id
+  if (sessionId === undefined || configId === undefined || models.length < 2) return
+
+  let refreshed = configOptions
+  let probed = 0
+  for (const model of models) {
+    if (probed >= MAX_MODEL_EFFORT_PROBES) break
+    if (model.id === defaultId || model.efforts !== undefined) continue
+    probed += 1
+    try {
+      const next = (await connection.setConfigOption(sessionId, configId, model.id)) ?? []
+      const efforts = rowEfforts(thoughtEffortsFromSession({ configOptions: next }))
+      if (efforts !== undefined) {
+        model.efforts = efforts
+        model.effortsSource = 'agent'
+      }
+      refreshed = next
+    } catch (error) {
+      log.debug('model effort probe skipped', { model: model.id, error: String(error) })
+    }
+  }
+  if (defaultId !== null && refreshed !== configOptions) {
+    try {
+      await connection.setConfigOption(sessionId, configId, defaultId)
+    } catch (error) {
+      log.debug('could not restore the probe session model', {
+        model: defaultId,
+        error: String(error),
+      })
+    }
+  }
+}
+
+const MAX_MODEL_EFFORT_PROBES = 24
+
+function rowEfforts(catalog: EffortCatalog): CatalogModel['efforts'] {
+  if (catalog.options.length === 0) return undefined
+  return catalog.options.map((option) => ({
+    ...option,
+    ...(catalog.currentId === option.id ? { current: true } : {}),
+  }))
+}
+
+/**
  * Turns one advertised option into a picker row. Claude names its rows by
  * family alone (`Opus`) and puts the version in the description
  * (`Opus 5.5 · Best for everyday, complex tasks`), so a description built as

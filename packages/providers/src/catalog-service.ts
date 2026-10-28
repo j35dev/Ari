@@ -70,6 +70,8 @@ interface DiskCache {
 interface LiveDiskCache {
   at: number
   kinds: Partial<Record<DriverKind, LiveCatalog>>
+  /** The CLI each live catalog was read from, when the host can tell. */
+  versions?: Partial<Record<DriverKind, string | null>>
 }
 
 export interface ModelProbe {
@@ -401,17 +403,24 @@ export class CatalogService {
       return // First run: nothing saved yet, the round below asks.
     }
     let restored = 0
-    for (const [kind, catalog] of Object.entries(raw.kinds ?? {})) {
+    for (const [name, catalog] of Object.entries(raw.kinds ?? {})) {
       if (!Array.isArray(catalog?.models) || catalog.models.length === 0) continue
       // A kind a session already answered for this run keeps its fresher list.
-      if (catalogSource(kind as DriverKind) === 'live') continue
-      restoreLiveCatalog(kind as DriverKind, {
+      const kind = name as DriverKind
+      if (catalogSource(kind) === 'live') continue
+      restoreLiveCatalog(kind, {
         models: catalog.models,
         efforts: catalog.efforts ?? { currentId: null, options: [] },
         modes: catalog.modes ?? { currentId: null, options: [] },
         defaultModelId: catalog.defaultModelId ?? null,
       })
-      this.#unconfirmed.add(kind as DriverKind)
+      // A saved version lets the first round skip a probe that would only
+      // repeat what the same CLI already said; without one, confirm it.
+      if (raw.versions !== undefined && Object.prototype.hasOwnProperty.call(raw.versions, kind)) {
+        this.#liveVersions.set(kind, raw.versions[kind] ?? null)
+      } else {
+        this.#unconfirmed.add(kind)
+      }
       restored += 1
     }
     if (restored === 0) return
@@ -433,11 +442,17 @@ export class CatalogService {
       const catalog = liveCatalogOf(kind)
       if (catalog !== null) kinds[kind] = catalog
     }
+    const versions: Partial<Record<DriverKind, string | null>> | undefined =
+      this.#cliVersion === null ? undefined : Object.fromEntries(this.#liveVersions)
     try {
       await mkdir(dirname(this.#liveCachePath), { recursive: true })
       await writeFile(
         this.#liveCachePath,
-        JSON.stringify({ at: Date.now(), kinds } satisfies LiveDiskCache),
+        JSON.stringify({
+          at: Date.now(),
+          kinds,
+          ...(versions === undefined ? {} : { versions }),
+        } satisfies LiveDiskCache),
         'utf8',
       )
     } catch (error) {

@@ -121,7 +121,7 @@ import {
 import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
-import { AcpDriver, modelsFromConfigOptions } from '@ari/providers/acp'
+import { AcpDriver, attachModelEfforts, modelsFromConfigOptions } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
 import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
@@ -246,13 +246,14 @@ async function probeAcpModels(
     const models = modelsFromConfigOptions(created.configOptions ?? [])
     // Same throwaway session: thought_level / effort, plus Grok's
     // initialize `_meta.modelState` reasoningEfforts when configOptions omit them.
-    setDynamicEfforts(
-      kind,
-      mergeEffortCatalogs(
-        thoughtEffortsFromSession(created),
-        thoughtEffortsFromMeta(connection.initialize._meta),
-      ),
+    const efforts = mergeEffortCatalogs(
+      thoughtEffortsFromSession(created),
+      thoughtEffortsFromMeta(connection.initialize._meta),
     )
+    setDynamicEfforts(kind, efforts)
+    // Per-model levels are gated by the agent, so read them while the session
+    // is open; the picker can then switch models without a second handshake.
+    await attachModelEfforts(connection, created, models, efforts)
     // And the permission-mode selector, so the picker can offer the harness's
     // own modes (codex `yolo`, claude `bypassPermissions`) instead of guessing.
     setDynamicModes(kind, agentModesFromSession(created))

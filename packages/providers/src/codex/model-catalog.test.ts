@@ -53,7 +53,15 @@ describe('probeCodexModelCatalog', () => {
     expect(request).toHaveBeenNthCalledWith(3, 'model/list', expect.anything(), 15_000)
     expect(request.mock.calls[2]?.[1]).toMatchObject({ cursor: 'next' })
     expect(catalog.models).toEqual([
-      { id: 'gpt-6-astra', label: 'GPT-6 Astra' },
+      {
+        id: 'gpt-6-astra',
+        label: 'GPT-6 Astra',
+        efforts: [
+          { id: 'low', label: 'Low', description: 'Faster' },
+          { id: 'high', label: 'High', description: 'Deeper', current: true },
+        ],
+        effortsSource: 'agent',
+      },
       { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
     ])
     expect(catalog.efforts).toEqual({
