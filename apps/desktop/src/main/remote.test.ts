@@ -1,11 +1,13 @@
 import { generateKeyPairSync, sign } from 'node:crypto'
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { RemoteState } from '@ari/contracts/rpc'
 import type { DriverKind } from '@ari/contracts/common'
 import type { Engine } from './engine'
 import type { SessionStore } from '@ari/engine/session-store'
+import type { PtyFactory } from './terminal-service'
 import { RemoteService, type RemoteServiceDeps } from './remote'
 import { useTempDirs } from './testing/temp-dirs'
 
@@ -69,7 +71,7 @@ const live: RemoteService[] = []
 let counter = 0
 
 function makeService(overrides: Partial<RemoteServiceDeps> = {}, port = 0): Harness {
-  const dir = tempDir('ari-remote-')
+  const dir = overrides.dir ?? tempDir('ari-remote-')
   const states: RemoteState[] = []
   const service = new RemoteService(
     {
@@ -607,5 +609,96 @@ describe('remote service host wiring', () => {
     // reported exactly as a session that does not exist.
     expect(refused.status).toBe(404)
     expect(dispatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('remote service terminals', () => {
+  function terminalService() {
+    const root = mkdtempSync(join(tmpdir(), 'ari-remote-terminal-'))
+    onTestFinished(() => rmSync(root, { recursive: true, force: true }))
+    const sessions: Record<string, string> = { sess_one: 'proj_1', sess_two: 'proj_2' }
+    const store = {
+      ...fakeStore(),
+      load: async (id: string) => ({
+        session: id in sessions ? { id, projectId: sessions[id] } : null,
+        messages: [],
+        lastSeq: -1,
+      }),
+    } as unknown as SessionStore
+    const engine = { ...fakeEngine(), workspace: async () => root } as unknown as Engine
+    const kills: ReturnType<typeof vi.fn>[] = []
+    const terminalFactory: PtyFactory = () => {
+      const kill = vi.fn()
+      kills.push(kill)
+      return {
+        pid: 2147483647,
+        write: () => undefined,
+        resize: () => undefined,
+        kill,
+        onData: () => undefined,
+        onExit: () => undefined,
+      }
+    }
+    return { ...makeService({ dir: join(root, 'remote'), store, engine, terminalFactory }), kills }
+  }
+
+  let key = 0
+  function open(origin: string, token: string, sessionId: string) {
+    return call(
+      origin,
+      '/command',
+      {
+        op: 'terminal.create',
+        sessionId,
+        cols: 80,
+        rows: 24,
+        clientCommandId: `c-${++key}`,
+        idempotencyKey: `terminal-key-${key}-0123456789`,
+      },
+      { authorization: `Bearer ${token}` },
+    )
+  }
+
+  it('opens a terminal on a granted project and refuses one outside the grant', async () => {
+    const { service, kills } = terminalService()
+    const origin = (await service.start()).origin
+    if (origin === null) throw new Error('expected a running gateway')
+    const token = await pair(service, deviceKey(), ['proj_1'])
+    const deviceId = service.state().devices[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+    service.updateDeviceGrants(deviceId, ['proj_1'], true)
+
+    const opened = await open(origin, token, 'sess_one')
+    expect(opened.status).toBe(200)
+    expect((opened.body['result'] as Record<string, unknown>)['terminalId']).toMatch(/^term_/)
+
+    const refused = await open(origin, token, 'sess_two')
+    expect(refused.status).toBe(404)
+    expect(refused.body['error']).toMatchObject({ code: 'not_found' })
+    expect(kills).toHaveLength(1)
+  })
+
+  it('kills an open terminal once its project is removed from the device grants', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const { service, kills } = terminalService()
+    const origin = (await service.start()).origin
+    if (origin === null) throw new Error('expected a running gateway')
+    const token = await pair(service, deviceKey(), ['proj_1'])
+    const deviceId = service.state().devices[0]?.deviceId
+    if (deviceId === undefined) throw new Error('expected a paired device')
+    service.updateDeviceGrants(deviceId, ['proj_1'], true)
+    expect((await open(origin, token, 'sess_one')).status).toBe(200)
+
+    vi.advanceTimersByTime(1000)
+    expect(kills[0]).not.toHaveBeenCalled()
+
+    service.updateDeviceGrants(deviceId, ['proj_2'], true)
+    vi.advanceTimersByTime(1000)
+    expect(kills[0]).toHaveBeenCalledOnce()
+    expect((await open(origin, token, 'sess_one')).status).toBe(404)
+    expect((await open(origin, token, 'sess_two')).status).toBe(200)
   })
 })
