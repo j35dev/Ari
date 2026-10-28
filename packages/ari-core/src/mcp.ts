@@ -99,39 +99,52 @@ function textFromContent(content: unknown): string {
           : typeof record['uri'] === 'string'
             ? `, uri=${record['uri']}`
             : ''
-      // An image travels beside this marker as real image input, so it is not
-      // "not shown" — only the bytes stay out of the text.
+      // A sendable image travels beside this marker as real image input, so it
+      // is not "not shown" — only the bytes stay out of the text.
       parts.push(
-        type === 'image' ? `[image: ${mime}${size}]` : `[${type}: ${mime}${size}, not shown${uri}]`,
+        imageFromPart(record) !== null
+          ? `[image: ${mime}${size}]`
+          : `[${type}: ${mime}${size}, not shown${uri}]`,
       )
     }
   }
   return parts.join('\n')
 }
 
+/** The only image types Anthropic and OpenAI accept as input. */
+const SENDABLE_IMAGE_MIME = /^image\/(png|jpeg|webp|gif)$/
+
 /**
- * Image content blocks, in the MCP shape or Anthropic's `source` shape.
- * Malformed, non-image, and oversized blocks are left out; the text marker
- * from {@link textFromContent} still tells the model something was there.
+ * One image content block, in the MCP shape or Anthropic's `source` shape.
+ * Malformed, unsupported-type, and oversized blocks yield null.
+ */
+function imageFromPart(record: Record<string, unknown>): McpImage | null {
+  if (record['type'] !== 'image') return null
+  const source = asRecord(record['source']) ?? record
+  const data = source['data']
+  const mimeType = source['media_type'] ?? source['mimeType']
+  if (
+    typeof data !== 'string' ||
+    data.length === 0 ||
+    data.length > MAX_TOOL_IMAGE_BASE64_CHARS ||
+    typeof mimeType !== 'string' ||
+    !SENDABLE_IMAGE_MIME.test(mimeType)
+  )
+    return null
+  return { dataBase64: data, mimeType }
+}
+
+/**
+ * The sendable images among a result's content blocks. The rest are left out;
+ * the text marker from {@link textFromContent} still tells the model they were there.
  */
 function imagesFromContent(content: unknown): McpImage[] {
   if (!Array.isArray(content)) return []
   const images: McpImage[] = []
   for (const part of content) {
     const record = asRecord(part)
-    if (!record || record['type'] !== 'image') continue
-    const source = asRecord(record['source']) ?? record
-    const data = source['data']
-    const mimeType = source['media_type'] ?? source['mimeType']
-    if (
-      typeof data !== 'string' ||
-      data.length === 0 ||
-      data.length > MAX_TOOL_IMAGE_BASE64_CHARS ||
-      typeof mimeType !== 'string' ||
-      !mimeType.startsWith('image/')
-    )
-      continue
-    images.push({ dataBase64: data, mimeType })
+    const image = record ? imageFromPart(record) : null
+    if (image) images.push(image)
   }
   return images
 }
