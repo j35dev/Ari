@@ -1,3 +1,4 @@
+import type { ConsoleEntry } from './browser-console'
 import { isPickedElement, type PickedElement } from './browser-element'
 import { CANCEL_PICK_SOURCE, PICKER_SOURCE, SNAPSHOT_SOURCE } from './browser-pick-script'
 import { resolveBrowserUrl } from './browser-url'
@@ -34,6 +35,8 @@ export interface BrowserGuest {
   isLoading(): boolean
   executeJavaScript(code: string): Promise<unknown>
   capturePage(rect?: BrowserBounds, format?: 'png' | 'jpeg'): Promise<Buffer | null>
+  /** Console history for this tab, oldest first; cleared when the page navigates. */
+  consoleEntries(): ConsoleEntry[]
   sendKey(key: string, phase: 'down' | 'up'): void
   setBounds(bounds: BrowserBounds): void
   setVisible(visible: boolean): void
@@ -189,6 +192,10 @@ export class BrowserService {
   async pageSnapshot(id: string): Promise<unknown> {
     const tab = this.#tab(id)
     return tab.guest.executeJavaScript(SNAPSHOT_SOURCE)
+  }
+
+  consoleEntries(id: string): ConsoleEntry[] {
+    return this.#tab(id).guest.consoleEntries()
   }
 
   async runScript(id: string, code: string): Promise<unknown> {
