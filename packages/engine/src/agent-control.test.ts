@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { delegationSettingsSchema, type ScheduledRoutine } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
+import { BotMemoryStore } from './bot-memory'
 import { SessionStore } from './session-store'
 import { decideCommand } from './dispatcher'
 
@@ -13,6 +14,7 @@ let store: SessionStore
 let host: ControlHost
 let service: AgentControlService
 let seq = 0
+let botMemory: BotMemoryStore
 const root: Session = {
   id: 'root',
   projectId: 'p',
@@ -91,6 +93,13 @@ beforeEach(async () => {
     },
   }
   routines.length = 0
+  botMemory = new BotMemoryStore({ dir: join(dir, 'bots') })
+  host.memory = {
+    read: (botId) => botMemory.read(botId),
+    add: (botId, text) => botMemory.add(botId, text),
+    patch: (botId, find, text) => botMemory.patch(botId, find, text),
+    remove: (botId, find) => botMemory.remove(botId, find),
+  }
   service = new AgentControlService(host)
 })
 afterEach(async () => {
@@ -595,6 +604,39 @@ it('schedules, lists and removes prompts within the caller subtree only', async 
       idempotencyKey: 'r5',
     }),
   ).toMatchObject({ ok: false, error: { code: 'routine_not_found' } })
+})
+
+it('edits the memory of the bot that owns the calling session', async () => {
+  const botSession: Session = { ...root, id: 'bot_sess', botId: 'bot_a' }
+  await store.append('bot_sess', { type: 'session.created', session: botSession })
+  expect(
+    await service.invoke('bot_sess', 'memory.add', {
+      text: 'Prefer small commits.',
+      idempotencyKey: 'm1',
+    }),
+  ).toMatchObject({ ok: true, result: { memory: 'Prefer small commits.\n' } })
+  expect(
+    await service.invoke('bot_sess', 'memory.patch', {
+      find: 'small commits',
+      text: 'one commit per task',
+      idempotencyKey: 'm2',
+    }),
+  ).toMatchObject({ ok: true, result: { memory: 'Prefer one commit per task.\n' } })
+  expect(await service.invoke('bot_sess', 'memory.read', {})).toMatchObject({
+    ok: true,
+    result: { memory: 'Prefer one commit per task.\n' },
+  })
+  expect(
+    await service.invoke('bot_sess', 'memory.patch', {
+      find: 'missing',
+      text: 'x',
+      idempotencyKey: 'm3',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
+  expect(await service.invoke('root', 'memory.read', {})).toMatchObject({
+    ok: false,
+    error: { code: 'bot_not_found' },
+  })
 })
 
 it('refuses a repeat faster than the floor', async () => {
