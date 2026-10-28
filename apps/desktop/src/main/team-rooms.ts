@@ -65,7 +65,13 @@ export class TeamRoomService {
     try {
       const parsed: unknown = JSON.parse(await readFile(this.#deps.path, 'utf8'))
       stored = Array.isArray(parsed) ? (parsed as StoredRoom[]) : []
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.warn('team rooms file unreadable; starting empty', {
+          path: this.#deps.path,
+          error: String(error),
+        })
+      }
       stored = []
     }
     for (const room of stored) {

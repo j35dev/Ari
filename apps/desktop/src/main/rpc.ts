@@ -963,7 +963,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       options.onRunningCount(runningTurns.count)
     }
     void notifier.observe(sessionId, event)
-    if (event.type === 'turn.settled') void teamRooms?.onSettled(sessionId, event.turnId)
+    if (event.type === 'turn.settled' && teamRooms !== null) {
+      teamRooms
+        .onSettled(sessionId, event.turnId)
+        .catch((error: unknown) =>
+          log.warn('team room settle failed', { sessionId, error: String(error) }),
+        )
+    }
   }
   // Composer image staging: pasted/dropped bytes land here keyed by id; only
   // refs cross IPC and journals, so history replay never replays megabytes.
