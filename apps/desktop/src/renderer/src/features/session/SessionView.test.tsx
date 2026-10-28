@@ -2452,6 +2452,7 @@ describe('SessionView delegated work', () => {
     workState: 'result_available',
     blockedOn: null,
     queuedMessages: 0,
+    usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
     latestTurn: { turnId: 'turn_c', stopReason: 'completed', settledAt: 9 },
     report: 'Parser fixed and tested.',
     reportTruncated: false,
