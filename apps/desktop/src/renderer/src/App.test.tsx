@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -1632,9 +1632,11 @@ describe('Hive view switch', () => {
 
     render(<App />)
 
-    expect(
-      await screen.findByRole('region', { name: 'Hive roster' }, { timeout: 10_000 }),
-    ).toHaveTextContent('No bots yet')
+    const roster = await screen.findByRole('region', { name: 'Hive roster' }, { timeout: 10_000 })
+    // The roster paints before its bots arrive — the region is up as soon as
+    // the view is, and the empty state is what it settles on once the list
+    // comes back empty, not what it starts as.
+    await waitFor(() => expect(roster).toHaveTextContent('No bots yet'))
     expect(screen.getByRole('switch', { name: 'Hive view' })).toHaveAttribute(
       'aria-checked',
       'true',
