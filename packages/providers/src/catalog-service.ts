@@ -72,6 +72,8 @@ interface LiveDiskCache {
   kinds: Partial<Record<DriverKind, LiveCatalog>>
   /** The CLI each live catalog was read from, when the host can tell. */
   versions?: Partial<Record<DriverKind, string | null>>
+  /** The Ari build that wrote the file; its adapter pins and parsing shaped the rows. */
+  appVersion?: string
 }
 
 export interface ModelProbe {
@@ -103,6 +105,12 @@ export interface CatalogServiceOptions {
    * itself can serve new models long before the recheck window runs out.
    */
   cliVersion?: (kind: DriverKind) => Promise<string | null>
+  /**
+   * The running Ari build. A saved live catalog from another build is asked
+   * again even when the CLI is unchanged: it was read through that build's
+   * adapters and parsing.
+   */
+  appVersion?: string
   /** Called after registry refresh and live ACP probes have settled. */
   onUpdated?: (at: number) => void
 }
@@ -190,6 +198,7 @@ export class CatalogService {
   readonly #cliVersion: ((kind: DriverKind) => Promise<string | null>) | null
   /** The CLI version each kind's live catalog was read from. */
   readonly #liveVersions = new Map<DriverKind, string | null>()
+  readonly #appVersion: string | null
   readonly #onUpdated: ((at: number) => void) | null
   #lastRefreshAt = 0
   #lastAttemptAt: number | null = null
@@ -208,6 +217,7 @@ export class CatalogService {
     this.#probeModels = options.probeModels ?? null
     this.#probeKinds = options.probeKinds ?? []
     this.#cliVersion = options.cliVersion ?? null
+    this.#appVersion = options.appVersion ?? null
     this.#onUpdated = options.onUpdated ?? null
   }
 
@@ -403,6 +413,7 @@ export class CatalogService {
       return // First run: nothing saved yet, the round below asks.
     }
     let restored = 0
+    const sameBuild = (raw.appVersion ?? null) === this.#appVersion
     for (const [name, catalog] of Object.entries(raw.kinds ?? {})) {
       if (!Array.isArray(catalog?.models) || catalog.models.length === 0) continue
       // A kind a session already answered for this run keeps its fresher list.
@@ -414,9 +425,13 @@ export class CatalogService {
         modes: catalog.modes ?? { currentId: null, options: [] },
         defaultModelId: catalog.defaultModelId ?? null,
       })
-      // A saved version lets the first round skip a probe that would only
-      // repeat what the same CLI already said; without one, confirm it.
-      if (raw.versions !== undefined && Object.prototype.hasOwnProperty.call(raw.versions, kind)) {
+      // A CLI version saved by this build lets the first round skip a probe
+      // that would only repeat what the same CLI already said; else confirm it.
+      if (
+        sameBuild &&
+        raw.versions !== undefined &&
+        Object.prototype.hasOwnProperty.call(raw.versions, kind)
+      ) {
         this.#liveVersions.set(kind, raw.versions[kind] ?? null)
       } else {
         this.#unconfirmed.add(kind)
@@ -452,6 +467,7 @@ export class CatalogService {
           at: Date.now(),
           kinds,
           ...(versions === undefined ? {} : { versions }),
+          ...(this.#appVersion === null ? {} : { appVersion: this.#appVersion }),
         } satisfies LiveDiskCache),
         'utf8',
       )

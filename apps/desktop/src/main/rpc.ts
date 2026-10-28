@@ -902,6 +902,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // Shares the 30 s detection cache, so this adds no `--version` spawns of its own.
     cliVersion: async (kind) =>
       (await rawDetections()).find((detection) => detection.kind === kind)?.version ?? null,
+    appVersion: app.getVersion(),
     // The composer mounts before the six background ACP handshakes finish.
     // Invalidate its first empty read when those config options land.
     onUpdated: (at) =>
