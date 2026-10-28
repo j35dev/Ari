@@ -58,6 +58,7 @@ import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
 import { listHubItems, viewHubItem } from './github-hub'
 import {
+  getBotMemoryStore,
   getBotStore,
   getEndpointStore,
   getProjectStore,
@@ -989,7 +990,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       ...(await controlReady).environment(session),
       ...providerEnvironment(session.driverKind),
     }),
-    botPersona: async (botId) => (await getBotStore().get(botId))?.personaMd ?? null,
+    botPersona: async (botId, sessionId) => {
+      const bot = await getBotStore().get(botId)
+      if (!bot) return null
+      const memory = (await getBotMemoryStore().snapshot(botId, sessionId)).trim()
+      return memory.length === 0 ? bot.personaMd : `${bot.personaMd}\n\n## Memory\n\n${memory}`
+    },
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     deliversResults: () => {
@@ -1037,6 +1043,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         policy: () => getSettingsStore().current.delegation,
         recover: firstRuntime,
         routines: routineHost(resumeSchedule),
+        memory: {
+          read: (botId) => getBotMemoryStore().read(botId),
+          add: (botId, text) => getBotMemoryStore().add(botId, text),
+          patch: (botId, find, text) => getBotMemoryStore().patch(botId, find, text),
+          remove: (botId, find) => getBotMemoryStore().remove(botId, find),
+        },
         providers: async () => {
           const detections = await probeAllDetections()
           const endpoints = await getEndpointStore().load()
@@ -1063,6 +1075,12 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   )
   void controlReady.catch(() => log.error('Agent control runtime failed to start'))
+  // Delegated work queued before a restart runs now that the gate is up.
+  void controlReady
+    .then(() => engine.drainHeld())
+    .catch((error: unknown) =>
+      log.warn('held delegated work did not resume', { error: String(error) }),
+    )
   app.once('before-quit', () => {
     resumeSchedule.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))

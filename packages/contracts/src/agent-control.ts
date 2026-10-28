@@ -67,7 +67,12 @@ export const delegationSettingsPatchSchema = z.object(delegationFields).partial(
 
 /** Where a delegated child stands, from its parent's point of view. */
 export type ChildWorkState =
-  'not_started' | 'working' | 'blocked_on_user' | 'waiting_for_children' | 'result_available'
+  | 'not_started'
+  | 'queued'
+  | 'working'
+  | 'blocked_on_user'
+  | 'waiting_for_children'
+  | 'result_available'
 
 /** One delegated child as `session status` and the transcript's task cards report it. */
 export interface ChildTask {
@@ -161,6 +166,10 @@ export const controlParams = {
     .object({ targetSessionId: target.default('self'), recursive: z.boolean().default(false) })
     .strict(),
   'routine.remove': z.object({ routineId: target, idempotencyKey: key }).strict(),
+  'memory.read': z.object({}).strict(),
+  'memory.add': z.object({ text, idempotencyKey: key }).strict(),
+  'memory.patch': z.object({ find: text, text, idempotencyKey: key }).strict(),
+  'memory.remove': z.object({ find: text, idempotencyKey: key }).strict(),
 } as const
 export type ControlMethod = keyof typeof controlParams
 export type ControlParams<M extends ControlMethod> = z.output<(typeof controlParams)[M]>

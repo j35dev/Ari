@@ -14,6 +14,7 @@ import type { AdapterSession } from '@ari/providers/driver'
 import { Engine } from './engine'
 import { controlEndpoint, SOCKET_ROOT, startAgentRuntime } from './agent-runtime'
 import { ResumeSchedule, routineHost } from './resume-schedule'
+import { BotMemoryStore } from '@ari/engine/bot-memory'
 
 const execute = promisify(execFile)
 const cliPath = resolve('resources/cli/ari.cjs')
@@ -140,6 +141,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
   })
   await schedule.load()
   schedule.start()
+  const botMemory = new BotMemoryStore({ dir: join(dir, 'bots') })
   const runtime = await startAgentRuntime({
     engine,
     store,
@@ -149,6 +151,12 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
     version: 'test',
     policy: () => delegationSettingsSchema.parse({ approvalMode: 'never' }),
     routines: routineHost(schedule),
+    memory: {
+      read: (botId) => botMemory.read(botId),
+      add: (botId, text) => botMemory.add(botId, text),
+      patch: (botId, find, text) => botMemory.patch(botId, find, text),
+      remove: (botId, find) => botMemory.remove(botId, find),
+    },
     providers: async () => [
       { driverKind: 'claude', available: true, models: [{ id: 'fixture', label: 'Fixture' }] },
     ],
@@ -156,6 +164,7 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
   const root: Session = {
     id: 'root',
     projectId: 'project',
+    botId: 'bot_a',
     title: 'Root',
     driverKind: 'claude',
     modelId: null,
@@ -200,6 +209,26 @@ it('runs the shipped CLI through scoped transport, a real isolated worker and ex
       result: { removed: true },
     })
     expect(await cli('routine', 'list')).toMatchObject({ ok: true, result: { routines: [] } })
+    expect(await cli('memory', 'add', 'Prefer small commits.', '--key', 'm1')).toMatchObject({
+      ok: true,
+      result: { memory: 'Prefer small commits.\n' },
+    })
+    expect(await cli('memory', 'list')).toMatchObject({
+      ok: true,
+      result: { memory: 'Prefer small commits.\n' },
+    })
+    expect(
+      await cli(
+        'memory',
+        'patch',
+        '--find',
+        'small commits',
+        '--text',
+        'one commit per task',
+        '--key',
+        'm2',
+      ),
+    ).toMatchObject({ ok: true, result: { memory: 'Prefer one commit per task.\n' } })
     const args = [
       'session',
       'spawn',
