@@ -117,6 +117,30 @@ describe('decideCommand', () => {
     expect(previewDispatch(running, result).lastSeq).toBeGreaterThan(running.lastSeq)
   })
 
+  it('carries the wake priority of a queued turn', () => {
+    const running = previewDispatch(modelWithSession(), {
+      accepted: true,
+      events: [{ type: 'turn.started', turnId: 'turn_1' }],
+    })
+    const result = decideCommand(
+      running,
+      {
+        type: 'message.enqueue',
+        sessionId: 'sess_1',
+        text: 'nightly sweep',
+        attachments: [],
+        hold: true,
+        priority: 'routine',
+      },
+      ids,
+    )
+    expect(result.events[0]).toMatchObject({
+      type: 'message.enqueued',
+      held: true,
+      priority: 'routine',
+    })
+  })
+
   it('starts a turn when an enqueue arrives with no active turn', () => {
     const result = decideCommand(
       modelWithSession(),

@@ -68,6 +68,7 @@ export function decideCommand(
             attachments: command.attachments ?? [],
             ...(origin ? { origin } : {}),
             held: true,
+            ...(command.priority ? { priority: command.priority } : {}),
           },
         ])
       }
@@ -83,6 +84,7 @@ export function decideCommand(
           text: command.text,
           attachments: command.attachments ?? [],
           ...(origin ? { origin } : {}),
+          ...(command.priority ? { priority: command.priority } : {}),
         },
       ])
     }

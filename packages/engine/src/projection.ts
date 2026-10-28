@@ -221,6 +221,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
           attachments: event.attachments ?? [],
           ...(event.origin ? { origin: event.origin } : {}),
           ...(event.held === true ? { held: true } : {}),
+          ...(event.priority ? { priority: event.priority } : {}),
         },
       ]
       break
