@@ -75,7 +75,7 @@ export const BROWSER_MCP_TOOLS = [
   {
     name: 'browser_snapshot',
     description:
-      'Page text plus interactive elements (tag, selector, label) from the in-app browser.',
+      'Page text, interactive elements (tag, selector, label), and recent console warnings/errors from the in-app browser.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -147,7 +147,16 @@ export async function dispatchBrowserMcpTool(
     }
     if (name === 'browser_snapshot') {
       const snap = await browsers.pageSnapshot(tabId)
-      return textResult(JSON.stringify(snap))
+      // A playtest rarely needs `console.log`, but a warning or an uncaught
+      // error is often the only visible sign that a page broke.
+      const consoleEntries = browsers
+        .consoleEntries(tabId)
+        .filter((entry) => entry.level === 'warning' || entry.level === 'error')
+      const page =
+        snap !== null && typeof snap === 'object' && !Array.isArray(snap)
+          ? snap
+          : { snapshot: snap }
+      return textResult(JSON.stringify({ ...page, consoleEntries }))
     }
     if (name === 'browser_click') {
       const selector = typeof args['selector'] === 'string' ? args['selector'] : ''
@@ -311,29 +320,29 @@ export function startBrowserMcpServer(browsers: BrowserService): Promise<Browser
 const MCP_PROXY_SOURCE = [
   "import { createInterface } from 'node:readline'",
   "import { stdin, stdout } from 'node:process'",
-  "const url = process.env.ARI_BROWSER_MCP_URL",
-  "const token = process.env.ARI_BROWSER_MCP_TOKEN",
-  "async function rpc(msg) {",
-  "  const res = await fetch(url, {",
+  'const url = process.env.ARI_BROWSER_MCP_URL',
+  'const token = process.env.ARI_BROWSER_MCP_TOKEN',
+  'async function rpc(msg) {',
+  '  const res = await fetch(url, {',
   "    method: 'POST',",
   "    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },",
-  "    body: JSON.stringify(msg),",
-  "  })",
-  "  if (res.status === 202) return null",
-  "  return await res.json()",
-  "}",
-  "const rl = createInterface({ input: stdin })",
+  '    body: JSON.stringify(msg),',
+  '  })',
+  '  if (res.status === 202) return null',
+  '  return await res.json()',
+  '}',
+  'const rl = createInterface({ input: stdin })',
   "rl.on('line', (line) => {",
-  "  if (!line.trim()) return",
-  "  const msg = JSON.parse(line)",
-  "  rpc(msg).then((out) => {",
+  '  if (!line.trim()) return',
+  '  const msg = JSON.parse(line)',
+  '  rpc(msg).then((out) => {',
   "    if (out && msg.id !== undefined) stdout.write(JSON.stringify(out) + '\\n')",
-  "  }).catch((err) => {",
-  "    if (msg.id !== undefined) {",
+  '  }).catch((err) => {',
+  '    if (msg.id !== undefined) {',
   "      stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: String(err) } }) + '\\n')",
-  "    }",
-  "  })",
-  "})",
+  '    }',
+  '  })',
+  '})',
 ].join('\n')
 
 export async function writeBrowserMcpProxy(dir: string): Promise<string> {
