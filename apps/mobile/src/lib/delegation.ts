@@ -1,7 +1,8 @@
 import type { ChildTask } from '@ari/contracts/agent-control'
 
 /** How one delegated child reads on a phone; the desktop's task cards use the same words. */
-export type AgentState = 'working' | 'needs-you' | 'waiting' | 'done' | 'failed' | 'stopped' | 'idle'
+export type AgentState =
+  'working' | 'needs-you' | 'waiting' | 'done' | 'failed' | 'stopped' | 'idle'
 
 export const AGENT_LABEL: Record<AgentState, string> = {
   working: 'Working',
@@ -20,6 +21,7 @@ export function agentState(task: ChildTask): AgentState {
     case 'blocked_on_user':
       return 'needs-you'
     case 'waiting_for_children':
+    case 'blocked_on_parent':
     case 'queued':
       return 'waiting'
     case 'not_started':
@@ -48,9 +50,7 @@ const PHRASE: Record<AgentState, string> = {
 
 /** Agents in the order a person should look at them: the one that needs them first. */
 export function byUrgency(tasks: readonly ChildTask[]): ChildTask[] {
-  return [...tasks].sort(
-    (a, b) => ORDER.indexOf(agentState(a)) - ORDER.indexOf(agentState(b)),
-  )
+  return [...tasks].sort((a, b) => ORDER.indexOf(agentState(a)) - ORDER.indexOf(agentState(b)))
 }
 
 /**

@@ -70,6 +70,8 @@ export type ChildWorkState =
   | 'not_started'
   | 'queued'
   | 'working'
+  /** A turn its lead started is waiting on a question the lead can answer. */
+  | 'blocked_on_parent'
   | 'blocked_on_user'
   | 'waiting_for_children'
   | 'result_available'
@@ -125,6 +127,10 @@ export const controlParams = {
     .strict(),
   'session.prompt': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
   'session.message': z.object({ targetSessionId: target, text, idempotencyKey: key }).strict(),
+  /** A direct parent answers a provider question its child is blocked on. */
+  'session.answer': z
+    .object({ targetSessionId: target, inputId: target, value: text, idempotencyKey: key })
+    .strict(),
   'session.read': z
     .object({
       targetSessionId: target,
