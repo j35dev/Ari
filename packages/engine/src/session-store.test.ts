@@ -199,6 +199,27 @@ describe('SessionStore', () => {
       expect(preview?.includes('\n')).toBe(false)
       expect(preview?.trim()).toBe(preview)
     }, 20000)
+
+    it('skips leading whitespace before the preview window, across parts', async () => {
+      const body = 'b'.repeat(200)
+      await store.append(session.id, { type: 'session.created', session })
+      await store.append(session.id, {
+        type: 'user.message.added',
+        message: {
+          id: 'm_indent',
+          sessionId: session.id,
+          turnId: 'turn_1',
+          role: 'user',
+          parts: [
+            { type: 'text', text: ' \n'.repeat(400) },
+            { type: 'text', text: `\t\t${body}` },
+          ],
+          createdAt: 1003,
+        },
+      })
+      const preview = (await store.listSessions())[0]?.lastMessagePreview
+      expect(preview).toBe(body.slice(0, 160))
+    })
   })
 
   it('repairs a corrupt or missing sidecar index via replay', async () => {
