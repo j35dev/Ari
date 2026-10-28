@@ -922,6 +922,7 @@ export class AgentControlService {
         report: report?.text ?? null,
         reportTruncated: report?.truncated ?? false,
         delivered: direct ? (completions[id]?.acknowledged ?? false) : null,
+        usage: model.usage,
         workspaceKind: session.workspace?.kind ?? 'project',
         branch: session.workspace?.kind === 'managed-worktree' ? session.workspace.branch : null,
       })

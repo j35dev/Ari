@@ -544,6 +544,12 @@ it('reports each child with its work state and final report', async () => {
     ],
   })
   await settleChild(done.id)
+  await store.append(done.id, {
+    type: 'usage.recorded',
+    inputTokens: 1_200,
+    outputTokens: 300,
+    costUsd: 0.02,
+  })
   // The desktop UI reads the same rows without marking them seen by the agent.
   expect(await service.tasks('root')).toHaveLength(2)
   expect((await store.load('root')).childCompletions?.[done.id]?.acknowledged).toBe(false)
@@ -558,6 +564,7 @@ it('reports each child with its work state and final report', async () => {
     workState: 'result_available',
     report: 'Two findings.',
     delivered: false,
+    usage: { inputTokens: 1_200, outputTokens: 300, costUsd: 0.02 },
   })
   expect(tasks.find((task) => task.sessionId === busy.id)).toMatchObject({
     workState: 'working',
