@@ -6,11 +6,7 @@ import type {
   ProviderAdapter,
 } from '@ari/providers/driver'
 import { runAgentLoop, type ApprovalRequest } from './agent-loop'
-import {
-  streamChatCompletion,
-  type ChatImage,
-  type ChatMessage,
-} from './protocols/openai-chat'
+import { streamChatCompletion, type ChatImage, type ChatMessage } from './protocols/openai-chat'
 import {
   streamChatAnthropic,
   type AnthropicChatRequest,
@@ -45,10 +41,7 @@ import {
   readSkillBody,
   readTrustedSkillRoots,
 } from './skills'
-import {
-  MemoryConversationStore,
-  type ConversationStore,
-} from './conversation-store'
+import { MemoryConversationStore, type ConversationStore } from './conversation-store'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('ari-core:driver')
@@ -124,7 +117,7 @@ function renderAsTextTurns(messages: ChatMessage[]): RenderedTurn[] {
   for (const message of messages) {
     if (message.role === 'tool') {
       const id = message.toolCallId ? ` ${message.toolCallId}` : ''
-      push('user', `[tool result${id}]\n${message.content}`)
+      push('user', `[tool result${id}]\n${message.content}`, message.images)
     } else if (message.role === 'assistant' && message.toolCalls?.length) {
       const calls = message.toolCalls.map((c) => `[tool call ${c.name}] ${c.argsJson}`).join('\n')
       push('assistant', message.content ? `${message.content}\n${calls}` : calls)
@@ -209,7 +202,20 @@ function anthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
       results.push({
         type: 'tool_result',
         tool_use_id: message.toolCallId ?? '',
-        content: message.content,
+        content:
+          message.images && message.images.length > 0
+            ? [
+                { type: 'text', text: message.content },
+                ...message.images.map((image): AnthropicContentBlock => ({
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: image.mimeType,
+                    data: image.dataBase64,
+                  },
+                })),
+              ]
+            : message.content,
       })
       continue
     }
@@ -218,7 +224,12 @@ function anthropicMessages(messages: ChatMessage[]): AnthropicMessage[] {
       const blocks: AnthropicContentBlock[] = []
       if (message.content.length > 0) blocks.push({ type: 'text', text: message.content })
       for (const call of message.toolCalls ?? []) {
-        blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: parseToolInput(call.argsJson) })
+        blocks.push({
+          type: 'tool_use',
+          id: call.id,
+          name: call.name,
+          input: parseToolInput(call.argsJson),
+        })
       }
       // A turn with neither text nor tool calls has no valid wire form — the
       // API rejects empty content — and carries nothing the model needs, so it
@@ -653,7 +664,7 @@ async function prepareSkills(
   if (toolSkills.length === 0) return { suffix }
   const tool: Tool = {
     name: 'skill',
-    description: "Read one enabled skill by name. Returns its SKILL.md body.",
+    description: 'Read one enabled skill by name. Returns its SKILL.md body.',
     parameters: {
       type: 'object',
       properties: { name: { type: 'string' } },

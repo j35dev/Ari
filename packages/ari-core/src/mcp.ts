@@ -58,6 +58,21 @@ export interface McpConnectOptions {
   baseEnv?: NodeJS.ProcessEnv
 }
 
+/** Larger than this is not worth pushing into a model request. */
+export const MAX_TOOL_IMAGE_BASE64_CHARS = 5 * 1024 * 1024
+
+/** One image returned by a tool, ready to become provider image input. */
+export interface McpImage {
+  dataBase64: string
+  mimeType: string
+}
+
+/** A tool result: the text the model reads plus any images it should see. */
+export interface McpToolResult {
+  text: string
+  images: McpImage[]
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -84,10 +99,41 @@ function textFromContent(content: unknown): string {
           : typeof record['uri'] === 'string'
             ? `, uri=${record['uri']}`
             : ''
-      parts.push(`[${type}: ${mime}${size}, not shown${uri}]`)
+      // An image travels beside this marker as real image input, so it is not
+      // "not shown" — only the bytes stay out of the text.
+      parts.push(
+        type === 'image' ? `[image: ${mime}${size}]` : `[${type}: ${mime}${size}, not shown${uri}]`,
+      )
     }
   }
   return parts.join('\n')
+}
+
+/**
+ * Image content blocks, in the MCP shape or Anthropic's `source` shape.
+ * Malformed, non-image, and oversized blocks are left out; the text marker
+ * from {@link textFromContent} still tells the model something was there.
+ */
+function imagesFromContent(content: unknown): McpImage[] {
+  if (!Array.isArray(content)) return []
+  const images: McpImage[] = []
+  for (const part of content) {
+    const record = asRecord(part)
+    if (!record || record['type'] !== 'image') continue
+    const source = asRecord(record['source']) ?? record
+    const data = source['data']
+    const mimeType = source['media_type'] ?? source['mimeType']
+    if (
+      typeof data !== 'string' ||
+      data.length === 0 ||
+      data.length > MAX_TOOL_IMAGE_BASE64_CHARS ||
+      typeof mimeType !== 'string' ||
+      !mimeType.startsWith('image/')
+    )
+      continue
+    images.push({ dataBase64: data, mimeType })
+  }
+  return images
 }
 
 /**
@@ -106,10 +152,7 @@ export class McpConnection {
   #stderrTail = ''
   #disposed = false
 
-  private constructor(
-    child: ChildProcess,
-    options: { requestTimeoutMs: number; label: string },
-  ) {
+  private constructor(child: ChildProcess, options: { requestTimeoutMs: number; label: string }) {
     this.#child = child
     this.#requestTimeoutMs = options.requestTimeoutMs
     this.#label = options.label
@@ -194,12 +237,12 @@ export class McpConnection {
   }
 
   /**
-   * Calls one server tool and flattens its content parts into text.
+   * Calls one server tool, keeping its text and image content parts apart.
    * Protocol failures and `isError` results both throw, so the agent loop
    * records an errored tool-completed instead of feeding a fake success
    * back to the model.
    */
-  async callTool(name: string, args: Record<string, unknown>): Promise<string> {
+  async callTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
     let result: unknown
     try {
       result = await this.request('tools/call', { name, arguments: args })
@@ -214,7 +257,10 @@ export class McpConnection {
     if (record?.['isError'] === true) {
       throw new Error(text.length > 0 ? text : `mcp tool '${name}' reported an error`)
     }
-    return text.length > 0 ? text : '(no output)'
+    return {
+      text: text.length > 0 ? text : '(no output)',
+      images: imagesFromContent(record?.['content']),
+    }
   }
 
   /** Kills the server process and rejects every in-flight request. Idempotent. */

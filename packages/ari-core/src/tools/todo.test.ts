@@ -48,7 +48,8 @@ describe('todo_write tool', () => {
       const content = await reader?.execute({ path: TODO_FILENAME }, { workspacePath: dir })
       // `read` prefixes every line with its file line number, so strip those to
       // get the file's own bytes back before parsing.
-      const unnumbered = (content ?? '')
+      const text = typeof content === 'string' ? content : (content?.text ?? '')
+      const unnumbered = text
         .split('\n')
         .map((line) => line.replace(/^\d+\t/, ''))
         .join('\n')

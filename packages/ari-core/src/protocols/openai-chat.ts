@@ -45,9 +45,32 @@ export function openaiMessageContent(
   const parts: { type: string; text?: string; image_url?: { url: string } }[] = []
   if (message.content.length > 0) parts.push({ type: 'text', text: message.content })
   for (const image of message.images) {
-    parts.push({ type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` } })
+    parts.push({
+      type: 'image_url',
+      image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` },
+    })
   }
   return parts
+}
+
+/**
+ * OpenAI's `tool` role carries text only, so images a tool returned are moved
+ * into the one turn that can carry them: a user message right after the
+ * result. Everything else is left exactly as it was.
+ */
+export function splitToolImages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.flatMap((message) =>
+    message.role === 'tool' && message.images && message.images.length > 0
+      ? [
+          { ...message, images: undefined },
+          {
+            role: 'user' as const,
+            content: 'Image returned by the tool call above.',
+            images: message.images,
+          },
+        ]
+      : [message],
+  )
 }
 
 /** One function advertised to an OpenAI-compat endpoint. */
@@ -129,7 +152,11 @@ interface StreamChunk {
       reasoning_content?: string
       /** OpenRouter and some reasoner proxies use `reasoning` instead. */
       reasoning?: string
-      tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[]
+      tool_calls?: {
+        index: number
+        id?: string
+        function?: { name?: string; arguments?: string }
+      }[]
     }
   }[]
   usage?: { prompt_tokens?: number; completion_tokens?: number }
@@ -158,7 +185,7 @@ export async function* streamChatCompletion(
       headers,
       body: JSON.stringify({
         model: request.model,
-        messages: request.messages.map((m) => ({
+        messages: splitToolImages(request.messages).map((m) => ({
           role: m.role,
           content: openaiMessageContent(m),
           ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
