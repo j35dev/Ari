@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import type { Command } from '@ari/contracts/commands'
 import { SessionStore } from '@ari/engine/session-store'
-import { RESUME_PROMPT, ResumeSchedule } from './resume-schedule'
+import { MIN_EVERY_MS, RESUME_PROMPT, ResumeSchedule } from './resume-schedule'
 
 let dir: string
 let store: SessionStore
@@ -117,6 +117,112 @@ it('stops reporting a resume once the session is no longer on that failed turn',
   now = 5_000
   await schedule.sweep()
   expect(sent).toEqual([])
+})
+
+it('fires a custom prompt at its time, once, without a failed turn', async () => {
+  await runTurn('completed')
+  const routine = await schedule.add({ sessionId: 's', prompt: 'run the tests', at: 5_000 })
+  expect(schedule.list()).toEqual([routine])
+
+  await schedule.sweep()
+  expect(sent).toEqual([])
+
+  now = 5_000
+  await schedule.sweep()
+  await schedule.sweep()
+  expect(sent).toEqual([
+    { type: 'turn.start', sessionId: 's', text: 'run the tests', attachments: [] },
+  ])
+  expect(schedule.list()).toEqual([])
+})
+
+it('re-arms a repeating prompt to the next slot instead of bursting', async () => {
+  const routine = await schedule.add({
+    sessionId: 's',
+    prompt: 'changelog',
+    at: 5_000,
+    every: MIN_EVERY_MS,
+  })
+  expect(routine.every).toBe(MIN_EVERY_MS)
+
+  // Woke up after ~1.4 days: 16 slots were missed, none of them may all fire.
+  now = 5_000_000
+  await schedule.sweep()
+  expect(sent).toHaveLength(1)
+  expect(schedule.list()[0]?.at).toBe(5_105_000)
+
+  await schedule.sweep()
+  expect(sent).toHaveLength(1)
+
+  now = 5_105_000
+  await schedule.sweep()
+  expect(sent).toHaveLength(2)
+  expect(schedule.list()[0]?.at).toBe(5_405_000)
+})
+
+it('rejects a repeat interval under the floor, an empty prompt, and an archived session', async () => {
+  await expect(
+    schedule.add({ sessionId: 's', prompt: 'x', at: 5_000, every: 60_000 }),
+  ).rejects.toThrow('at least 5 minutes')
+  await expect(
+    schedule.add({ sessionId: 's', prompt: '   ', at: 5_000, every: MIN_EVERY_MS }),
+  ).rejects.toThrow('prompt is empty')
+
+  await store.append('s', { type: 'session.updated', archived: true })
+  await expect(schedule.add({ sessionId: 's', prompt: 'x', at: 5_000 })).rejects.toThrow(
+    'session is archived',
+  )
+  await expect(schedule.add({ sessionId: 'missing', prompt: 'x', at: 5_000 })).rejects.toThrow(
+    'unknown session',
+  )
+})
+
+it('removes one routine by id and leaves the others', async () => {
+  const first = await schedule.add({ sessionId: 's', prompt: 'first', at: 5_000 })
+  const second = await schedule.add({ sessionId: 's', prompt: 'second', at: 6_000 })
+
+  expect(await schedule.remove(first.id)).toBe(true)
+  expect(await schedule.remove(first.id)).toBe(false)
+  expect(schedule.list().map((entry) => entry.id)).toEqual([second.id])
+
+  now = 10_000
+  await schedule.sweep()
+  expect(sent.map((command) => (command.type === 'turn.start' ? command.text : ''))).toEqual([
+    'second',
+  ])
+})
+
+it('migrates entries written before routines existed', async () => {
+  const turnId = await runTurn('error')
+  await writeFile(
+    join(dir, 'resume.json'),
+    JSON.stringify([{ sessionId: 's', turnId, at: 5_000 }]),
+    'utf8',
+  )
+  const restarted = make()
+  await restarted.load()
+
+  expect(await restarted.get('s')).toBe(5_000)
+  expect(restarted.list()).toEqual([])
+  now = 5_000
+  await restarted.sweep()
+  expect(sent).toEqual([
+    { type: 'turn.start', sessionId: 's', text: RESUME_PROMPT, attachments: [] },
+  ])
+})
+
+it('drops a routine whose session was archived, and keeps it out of the file', async () => {
+  await schedule.add({ sessionId: 's', prompt: 'stale', at: 5_000 })
+  await store.append('s', { type: 'session.updated', archived: true })
+
+  now = 5_000
+  await schedule.sweep()
+  expect(sent).toEqual([])
+  expect(schedule.list()).toEqual([])
+
+  const restarted = make()
+  await restarted.load()
+  expect(restarted.list()).toEqual([])
 })
 
 it('keeps a pending resume across a restart and survives a damaged file', async () => {
