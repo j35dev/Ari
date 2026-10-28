@@ -20,18 +20,11 @@ export async function sessionLineage(
 }
 
 /** Enforces spawn policy before workspace or provider side effects. */
-export function checkDelegation(
-  policy: DelegationSettings,
-  depth: number,
-  children: number,
-  active: number,
-): void {
+export function checkDelegation(policy: DelegationSettings, depth: number, children: number): void {
   if (!policy.enabled) throw new ControlFailure('delegation_disabled', 'Delegation is disabled.')
   if (depth >= policy.maxDepth || (depth > 0 && !policy.recursiveDelegation)) {
     throw new ControlFailure('max_depth', 'Delegation depth limit reached.')
   }
   if (children >= policy.maxChildrenPerSession)
     throw new ControlFailure('max_children', 'Child session limit reached.')
-  if (active >= policy.maxConcurrentChildren)
-    throw new ControlFailure('delegation_limit', 'Maximum concurrent children reached.')
 }

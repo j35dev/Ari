@@ -220,6 +220,7 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
           text: event.text,
           attachments: event.attachments ?? [],
           ...(event.origin ? { origin: event.origin } : {}),
+          ...(event.held === true ? { held: true } : {}),
         },
       ]
       break
@@ -354,9 +355,7 @@ export function applyEventToDraft(draft: SessionReadModel, event: JournalEvent):
       draft.lastSeq = Math.max(draft.lastSeq, event.seq)
       const last = draft.messages[draft.messages.length - 1]
       const existing =
-        last?.id === event.messageId
-          ? last
-          : draft.messages.find((m) => m.id === event.messageId)
+        last?.id === event.messageId ? last : draft.messages.find((m) => m.id === event.messageId)
       if (existing) {
         for (const part of event.parts) existing.parts.push(part)
       } else {
