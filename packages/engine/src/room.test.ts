@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROOM_MAX_FOLLOW_UPS,
+  ROOM_MAX_MESSAGES,
   ROOM_MAX_ROUNDS,
   ROOM_PASS,
   applyBotReply,
@@ -98,6 +99,31 @@ describe('applyBotReply', () => {
       expect(rounds).toBeLessThanOrEqual(ROOM_MAX_ROUNDS)
     }
     expect(reply.settled).toBe(true)
+  })
+
+  it('never lets one human message produce more than the message cap', () => {
+    const team: RoomBot[] = Array.from({ length: 12 }, (_, index) => ({
+      botId: `bot_${String(index)}`,
+      name: `Bot${String(index)}`,
+      sessionId: `sess_${String(index)}`,
+    }))
+    const everyone = team.map((bot) => `@${bot.name}`).join(' ')
+    for (const size of [8, 12]) {
+      const members = team.slice(0, size)
+      const mentions = members.map((bot) => `@${bot.name}`).join(' ')
+      const route = routeHumanMessage(createRoomState('Crowd', members), mentions)
+      let next = route.targets[0] ?? null
+      let state = route.state
+      let runs = 0
+      while (next !== null) {
+        runs += 1
+        const step = applyBotReply(state, next, `Thoughts, ${everyone}?`)
+        state = step.state
+        next = step.next
+      }
+      expect(runs).toBe(ROOM_MAX_MESSAGES)
+      expect(state.round).toBeNull()
+    }
   })
 
   it('marks needs-you when a bot addresses the user', () => {
