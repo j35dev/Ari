@@ -1101,6 +1101,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         baseEnv: processEnvWithPath(environment.pathEnv),
         policy: () => getSettingsStore().current.delegation,
         recover: firstRuntime,
+        onDrop: (id) => browserMcpHandle?.revoke(id),
         routines: routineHost(resumeSchedule),
         memory: {
           read: (botId) => getBotMemoryStore().read(botId),
@@ -1619,7 +1620,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
       await store.destroy(id)
       await runtime?.release(id)
-      browserMcpHandle?.revoke(id)
     }
     // The parent's transcript still holds this child's task card. Without the
     // event the CLI's own destroy journals, the card went on reading "Done"
@@ -1730,10 +1730,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         }
       }
       if (command.archived) {
-        for (const id of parents) {
-          runtime?.revoke(id)
-          browserMcpHandle?.revoke(id)
-        }
+        for (const id of parents) runtime?.revoke(id)
       }
     }
     return result
