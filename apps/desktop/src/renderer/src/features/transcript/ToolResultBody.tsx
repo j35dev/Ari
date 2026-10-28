@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { Dialog } from '@ari/ui/dialog'
 import { DiffViewer } from '../diffs'
 import { CodeBlock } from './CodeBlock'
 import { CopyButton } from './CopyButton'
@@ -24,23 +25,52 @@ export function isClippable(text: string): boolean {
   return text.split('\n').length > 12
 }
 
-const BODY_CLASS = 'overflow-auto border-t border-border bg-surface-0 p-2 font-mono text-2xs text-fg-muted'
+const BODY_CLASS =
+  'overflow-auto border-t border-border bg-surface-0 p-2 font-mono text-2xs text-fg-muted'
 
-type McpContentItem = { kind: 'text'; text: string } | { kind: 'placeholder'; label: string }
+type McpContentItem =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; dataUrl: string; label: string }
+  | { kind: 'placeholder'; label: string }
 
 const MCP_CONTENT_TYPES = new Set(['text', 'image', 'audio'])
+/** Mirrors the MCP ceiling; a larger payload would freeze the transcript. */
+const MAX_IMAGE_BASE64 = 5 * 1024 * 1024
+const IMAGE_MIME = /^image\/(png|jpeg|webp|gif)$/
 
 function isTextBlock(block: Record<string, unknown>): block is { type: 'text'; text: string } {
   return block.type === 'text' && typeof block.text === 'string'
 }
 
+function imageData(block: Record<string, unknown>): { data: string; mimeType: string } | null {
+  const source =
+    block['source'] !== null && typeof block['source'] === 'object'
+      ? (block['source'] as Record<string, unknown>)
+      : block
+  const data = source['data']
+  const mimeType = source['media_type'] ?? source['mimeType']
+  if (typeof data !== 'string' || data.length === 0) return null
+  if (typeof mimeType !== 'string' || !IMAGE_MIME.test(mimeType)) return null
+  return { data, mimeType }
+}
+
 /**
- * Image blocks (MCP `data`/`mimeType` or Anthropic `source`) are never decoded
- * here, so no base64 reaches the DOM.
+ * Image blocks (MCP `data`/`mimeType` or Anthropic `source`) become a bounded
+ * data URL for a thumbnail. Malformed blocks never reach the DOM as text.
  */
 function toContentItem(block: Record<string, unknown>): McpContentItem {
   if (isTextBlock(block)) return { kind: 'text', text: block.text }
-  if (block.type === 'image') return { kind: 'placeholder', label: 'Image' }
+  if (block.type === 'image') {
+    const image = imageData(block)
+    if (image === null) return { kind: 'placeholder', label: 'Image' }
+    if (image.data.length > MAX_IMAGE_BASE64)
+      return { kind: 'placeholder', label: 'Image too large' }
+    return {
+      kind: 'image',
+      dataUrl: `data:${image.mimeType};base64,${image.data}`,
+      label: 'Image',
+    }
+  }
   return { kind: 'placeholder', label: 'Unsupported content' }
 }
 
@@ -97,15 +127,56 @@ export function ToolResultBody({ resultJson }: { resultJson: string }) {
 function McpContentBody({ items }: { items: McpContentItem[] }) {
   return (
     <div className="bg-surface-0">
-      {items.map((item, i) =>
-        item.kind === 'text' ? (
-          <TextBody key={i} text={item.text} lang="text" />
-        ) : (
+      {items.map((item, i) => {
+        if (item.kind === 'text') return <TextBody key={i} text={item.text} lang="text" />
+        if (item.kind === 'image')
+          return <McpImage key={i} dataUrl={item.dataUrl} label={item.label} />
+        return (
           <div key={i} className="border-t border-border p-2 text-2xs text-fg-subtle">
             {item.label}
           </div>
-        ),
-      )}
+        )
+      })}
+    </div>
+  )
+}
+
+/** A bounded thumbnail; the full image opens in a preview dialog. */
+function McpImage({ dataUrl, label }: { dataUrl: string; label: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border-t border-border p-2">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Open image"
+        className="block max-w-full overflow-hidden rounded-md border border-border bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+      >
+        <img src={dataUrl} alt={label} className="max-h-60 max-w-full object-contain" />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog.Content size="lg" className="overflow-hidden bg-surface-0">
+          <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
+            <div className="min-w-0 flex-1">
+              <Dialog.Title className="truncate text-sm">{label}</Dialog.Title>
+              <Dialog.Description className="sr-only">Tool result image preview</Dialog.Description>
+            </div>
+            <Dialog.Close
+              aria-label="Close image preview"
+              className="flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <X size={15} aria-hidden="true" />
+            </Dialog.Close>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-surface-0 p-4">
+            <img
+              src={dataUrl}
+              alt={label}
+              className="max-h-full max-w-full object-contain shadow-2"
+            />
+          </div>
+        </Dialog.Content>
+      </Dialog>
     </div>
   )
 }
