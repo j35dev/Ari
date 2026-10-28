@@ -71,6 +71,8 @@ export const sessionSchema = z.object({
   workspace: sessionWorkspaceSchema.nullish(),
   /** The Hive bot this session runs as; absent for ordinary sessions. */
   botId: z.string().min(1).optional(),
+  /** A lead coordinates children; it is guidance, not a permission change. */
+  lead: z.literal(true).optional(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
 })
