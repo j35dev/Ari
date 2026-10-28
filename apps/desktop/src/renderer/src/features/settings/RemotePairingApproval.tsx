@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Project } from '@ari/contracts/project'
 import type { RemoteState } from '@ari/contracts/rpc'
 import { Button } from '@ari/ui/button'
+import { DeviceAccessPicker } from './DeviceAccessPicker'
 
 interface Props {
   pending: NonNullable<RemoteState['pending']>
@@ -60,67 +61,16 @@ export function RemotePairingApproval({
           />
           The codes match
         </label>
-        <div className="border-t border-border pt-3">
-          <p className="text-sm font-medium">Projects this device may reach</p>
-          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
-            Choose its access. Nothing is selected automatically.
-          </p>
-          {projects.length > 1 ? (
-            <div className="flex gap-4">
-              <button
-                type="button"
-                onClick={() => setGranted(projects.map((project) => project.id))}
-                className="min-h-11 text-xs text-fg-muted underline"
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                onClick={() => setGranted([])}
-                className="min-h-11 text-xs text-fg-muted underline"
-              >
-                Select none
-              </button>
-            </div>
-          ) : null}
-          {projects.length === 0 ? (
-            <p className="py-3 text-sm text-fg-muted">No projects are registered yet.</p>
-          ) : (
-            projects.map((project) => (
-              <label key={project.id} className="flex min-h-11 items-center gap-3 text-sm">
-                <input
-                  type="checkbox"
-                  checked={projectIds.includes(project.id)}
-                  onChange={(event) => {
-                    const checked = event.target.checked
-                    setGranted((current) =>
-                      checked
-                        ? [...current, project.id]
-                        : current.filter((id) => id !== project.id),
-                    )
-                  }}
-                  className="size-4 accent-accent"
-                />
-                {project.name}
-              </label>
-            ))
-          )}
-        </div>
-        <div className="border-t border-border pt-3">
-          <label className="flex min-h-11 items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={allowTerminal}
-              onChange={(event) => setAllowTerminal(event.target.checked)}
-              className="size-4 accent-accent"
-            />
-            Allow terminal access
-          </label>
-          <p className="text-xs leading-relaxed text-fg-muted">
-            A shell runs with this computer&apos;s user permissions; a project folder is not a
-            sandbox.
-          </p>
-        </div>
+        <DeviceAccessPicker
+          projects={projects}
+          projectIds={granted}
+          allowTerminal={allowTerminal}
+          disabled={false}
+          onChange={(nextProjectIds, nextAllowTerminal) => {
+            setGranted(nextProjectIds)
+            setAllowTerminal(nextAllowTerminal)
+          }}
+        />
       </fieldset>
       <p className="my-3 text-xs leading-relaxed text-fg-muted">
         This device can direct agents and answer approvals in the selected projects. Agents use
