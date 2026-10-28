@@ -77,6 +77,7 @@ rl.on('line', (line) => {
           content: [
             { type: 'text', text: 'captured' },
             { type: 'image', data: 'A'.repeat(400000), mimeType: 'image/jpeg' },
+            { type: 'image', data: 'A'.repeat(1365), mimeType: 'image/svg+xml' },
             { type: 'audio', data: 'A'.repeat(8192), mimeType: 'audio/wav' },
             { type: 'resource', resource: { uri: 'file:///a.png', mimeType: 'image/png', blob: 'A'.repeat(4096) } },
             { type: 'resource', resource: { uri: 'file:///a.txt', mimeType: 'text/plain', text: 'file body' } },
@@ -151,6 +152,7 @@ describe('McpConnection', () => {
         [
           'captured',
           '[image: image/jpeg, 293 KB]',
+          '[image: image/svg+xml, 1 KB, not shown]',
           '[audio: audio/wav, 6 KB, not shown]',
           '[resource: image/png, 3 KB, not shown, uri=file:///a.png]',
           'file body',
