@@ -92,7 +92,8 @@ export function mentionedBotIds(text: string, bots: readonly Pick<Bot, 'id' | 'n
   for (const bot of byName) {
     const pattern = new RegExp(`(?<![\\w@])@${escapeRegExp(bot.name)}(?![\\w-])`, 'i')
     const match = pattern.exec(text)
-    if (match && !found.some((entry) => entry.id === bot.id)) found.push({ id: bot.id, at: match.index })
+    if (match && !found.some((entry) => entry.id === bot.id))
+      found.push({ id: bot.id, at: match.index })
   }
   return found.sort((a, b) => a.at - b.at).map((entry) => entry.id)
 }
@@ -114,9 +115,17 @@ export function routeHumanMessage(state: RoomState, text: string): RoomRoute {
     state.bots.map((bot) => ({ id: bot.botId, name: bot.name })),
   )
   const known = new Set(state.bots.map((bot) => bot.botId))
-  const active = state.activeBotId !== null && known.has(state.activeBotId) ? state.activeBotId : null
+  const active =
+    state.activeBotId !== null && known.has(state.activeBotId) ? state.activeBotId : null
   const lead = state.leadBotId !== null && known.has(state.leadBotId) ? state.leadBotId : null
-  const targets = mentioned.length > 0 ? mentioned : active !== null ? [active] : lead !== null ? [lead] : []
+  const targets =
+    mentioned.length > 0
+      ? mentioned.slice(0, ROOM_MAX_MESSAGES)
+      : active !== null
+        ? [active]
+        : lead !== null
+          ? [lead]
+          : []
 
   if (targets.length === 0) {
     return {
@@ -176,7 +185,7 @@ export function applyBotReply(state: RoomState, botId: string, text: string): Ro
     if (withinCaps) {
       rounds += 1
       followUps += 1
-      targets = mentioned
+      targets = mentioned.slice(0, ROOM_MAX_MESSAGES - messages)
     }
   }
 
