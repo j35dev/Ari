@@ -56,6 +56,11 @@ function parse(argv) {
     'timeout',
     'children',
     'snapshot',
+    'prompt',
+    'at',
+    'in',
+    'every',
+    'session',
   ])
   for (const name of Object.keys(flags))
     if (!allowed.has(name)) throw new Error(`Unknown option --${name}`)
@@ -144,7 +149,39 @@ function parse(argv) {
       default:
         throw new Error('Unknown session command')
     }
-  } else throw new Error('Use ari env, ari agents, ari session <command>, or ari --skill')
+  } else if (group === 'routine') {
+    if (verb === 'add') {
+      if (!flags.prompt || flags.prompt.trim().length === 0)
+        throw new Error('routine add needs --prompt')
+      if (flags.at === undefined && flags.in === undefined)
+        throw new Error('routine add needs --at or --in')
+      const at =
+        flags.at !== undefined ? Date.parse(flags.at) : Date.now() + Number(flags.in) * 60_000
+      if (!Number.isFinite(at)) throw new Error('Provide a valid --at time or --in minutes')
+      const everyMs =
+        flags.every === undefined ? undefined : Math.round(Number(flags.every) * 60_000)
+      if (everyMs !== undefined && (!Number.isFinite(everyMs) || everyMs < 300_000))
+        throw new Error('--every must be at least 5 minutes')
+      method = 'routine.add'
+      params = {
+        prompt: flags.prompt,
+        at,
+        ...(everyMs === undefined ? {} : { everyMs }),
+        ...(flags.session ? { targetSessionId: flags.session } : {}),
+        idempotencyKey: key,
+      }
+    } else if (verb === 'list' || verb === 'ls') {
+      method = 'routine.list'
+      params = flags.session ? { targetSessionId: flags.session } : {}
+    } else if (verb === 'rm' || verb === 'remove') {
+      if (!target) throw new Error('routine rm needs a routine id')
+      method = 'routine.remove'
+      params = { routineId: target, idempotencyKey: key }
+    } else throw new Error('Unknown routine command')
+  } else
+    throw new Error(
+      'Use ari env, ari agents, ari session <command>, ari routine <command>, or ari --skill',
+    )
   return { method, params, flags, timeoutMs }
 }
 

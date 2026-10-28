@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { delegationSettingsSchema } from '@ari/contracts/agent-control'
+import { delegationSettingsSchema, type ScheduledRoutine } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { AgentControlService, type ControlHost } from './agent-control'
 import { SessionStore } from './session-store'
@@ -24,6 +24,7 @@ const root: Session = {
   createdAt: 1,
   updatedAt: 1,
 }
+const routines: ScheduledRoutine[] = []
 const spawn = {
   title: 'Worker',
   driverKind: 'claude',
@@ -68,7 +69,28 @@ beforeEach(async () => {
     integrate: async () => ({}),
     approve: async () => true,
     release: async () => undefined,
+    routines: {
+      add: async (input) => {
+        const entry: ScheduledRoutine = {
+          id: `routine-${String(routines.length + 1)}`,
+          sessionId: input.sessionId,
+          prompt: input.prompt,
+          at: input.at,
+          everyMs: input.everyMs ?? null,
+        }
+        routines.push(entry)
+        return entry
+      },
+      list: () => routines,
+      remove: async (id) => {
+        const index = routines.findIndex((entry) => entry.id === id)
+        if (index === -1) return false
+        routines.splice(index, 1)
+        return true
+      },
+    },
   }
+  routines.length = 0
   service = new AgentControlService(host)
 })
 afterEach(async () => {
@@ -496,9 +518,9 @@ it('reports each child with its work state and final report', async () => {
     report: null,
   })
   expect((await store.load('root')).childCompletions?.[done.id]?.acknowledged).toBe(true)
-  expect(await service.invoke(done.id, 'session.status', { targetSessionId: busy.id })).toMatchObject(
-    { error: { code: 'scope_denied' } },
-  )
+  expect(
+    await service.invoke(done.id, 'session.status', { targetSessionId: busy.id }),
+  ).toMatchObject({ error: { code: 'scope_denied' } })
 })
 
 it('rejoins streamed deltas when reading a child and acknowledges the report', async () => {
@@ -522,6 +544,68 @@ it('rejoins streamed deltas when reading a child and acknowledges the report', a
     turnId,
     acknowledged: true,
   })
+})
+
+it('schedules, lists and removes prompts within the caller subtree only', async () => {
+  const child = await spawnChild()
+  const own = await service.invoke('root', 'routine.add', {
+    prompt: 'Check CI.',
+    at: 1_000,
+    idempotencyKey: 'r1',
+  })
+  expect(own).toMatchObject({
+    ok: true,
+    result: { sessionId: 'root', prompt: 'Check CI.', at: 1_000, everyMs: null },
+  })
+  const nested = await service.invoke('root', 'routine.add', {
+    targetSessionId: child.id,
+    prompt: 'Rerun the flaky test.',
+    at: 2_000,
+    everyMs: 600_000,
+    idempotencyKey: 'r2',
+  })
+  expect(nested).toMatchObject({ ok: true, result: { sessionId: child.id, everyMs: 600_000 } })
+  expect(await service.invoke('root', 'routine.list', {})).toMatchObject({
+    ok: true,
+    result: { routines: [{ prompt: 'Check CI.' }] },
+  })
+  expect(await service.invoke('root', 'routine.list', { recursive: true })).toMatchObject({
+    ok: true,
+    result: { routines: [{ prompt: 'Check CI.' }, { prompt: 'Rerun the flaky test.' }] },
+  })
+  expect(await service.invoke(child.id, 'routine.list', {})).toMatchObject({
+    ok: true,
+    result: { routines: [{ prompt: 'Rerun the flaky test.' }] },
+  })
+  expect(
+    await service.invoke(child.id, 'routine.remove', {
+      routineId: 'routine-1',
+      idempotencyKey: 'r3',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'scope_denied' } })
+  expect(
+    await service.invoke('root', 'routine.remove', {
+      routineId: 'routine-1',
+      idempotencyKey: 'r4',
+    }),
+  ).toMatchObject({ ok: true, result: { removed: true } })
+  expect(
+    await service.invoke('root', 'routine.remove', {
+      routineId: 'routine-9',
+      idempotencyKey: 'r5',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'routine_not_found' } })
+})
+
+it('refuses a repeat faster than the floor', async () => {
+  expect(
+    await service.invoke('root', 'routine.add', {
+      prompt: 'Too often.',
+      at: 1_000,
+      everyMs: 1_000,
+      idempotencyKey: 'r6',
+    }),
+  ).toMatchObject({ ok: false, error: { code: 'invalid_request' } })
 })
 
 it('does not wake the parent about a child it stopped itself', async () => {
