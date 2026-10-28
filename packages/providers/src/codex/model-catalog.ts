@@ -97,6 +97,7 @@ export async function probeCodexModelCatalog(
       const id = typeof entry.model === 'string' ? entry.model : entry.id
       if (typeof id !== 'string' || id.length === 0 || seenModels.has(id)) continue
       seenModels.add(id)
+      const modelEfforts = rowEfforts(effortCatalog(entry, null))
       models.push({
         id,
         label:
@@ -105,6 +106,9 @@ export async function probeCodexModelCatalog(
             : id,
         ...(typeof entry.description === 'string' && entry.description.length > 0
           ? { description: entry.description }
+          : {}),
+        ...(modelEfforts !== undefined
+          ? { efforts: modelEfforts, effortsSource: 'agent' as const }
           : {}),
       })
     }
@@ -124,6 +128,12 @@ export async function probeCodexModelCatalog(
       entries.find((entry) => entryId(entry) === defaultId) ?? defaultEntry ?? entries[0],
       configured.effort,
     )
+    const defaultRow = models.find((model) => model.id === defaultId)
+    const defaultEfforts = rowEfforts(efforts)
+    if (defaultRow !== undefined && defaultEfforts !== undefined) {
+      defaultRow.efforts = defaultEfforts
+      defaultRow.effortsSource = 'agent'
+    }
     return {
       models,
       efforts,
@@ -159,6 +169,14 @@ async function readConfiguredDefaults(
   } catch {
     return { model: null, effort: null }
   }
+}
+
+function rowEfforts(catalog: EffortCatalog): CatalogModel['efforts'] {
+  if (catalog.options.length === 0) return undefined
+  return catalog.options.map((option) => ({
+    ...option,
+    ...(catalog.currentId === option.id ? { current: true } : {}),
+  }))
 }
 
 function effortCatalog(entry: ModelEntry | undefined, configured: string | null): EffortCatalog {
