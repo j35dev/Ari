@@ -405,6 +405,16 @@ export const providerLoginMethodSchema = z.object({
 export type ProviderLoginMethod = z.infer<typeof providerLoginMethodSchema>
 export const providerLoginMethodsSchema = z.array(providerLoginMethodSchema)
 
+/** One reasoning level a model advertises. */
+export const catalogEffortSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string().optional(),
+  /** The level the agent uses when the session names none. */
+  current: z.boolean().optional(),
+})
+export type CatalogEffortInfo = z.infer<typeof catalogEffortSchema>
+
 /** One model entry in a driver's picker catalog. */
 export const catalogModelSchema = z.object({
   id: z.string().min(1),
@@ -417,6 +427,10 @@ export const catalogModelSchema = z.object({
   aliases: z.array(z.string().min(1)).optional(),
   /** Superseded within its family; the picker collapses these behind a disclosure. */
   isLegacy: z.boolean().optional(),
+  /** Reasoning levels this model accepts, when the source knows them. */
+  efforts: z.array(catalogEffortSchema).optional(),
+  /** `fallback` is a provisional static guess, not the agent's own answer. */
+  effortsSource: z.enum(['agent', 'fallback']).optional(),
 })
 export type CatalogModelInfo = z.infer<typeof catalogModelSchema>
 

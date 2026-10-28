@@ -1,8 +1,10 @@
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import { catalogSource, clearDynamicModels, modelsFor } from '../catalogs'
+import { catalogSource, clearDynamicModels, modelsFor, setDynamicModels } from '../catalogs'
+import type { CatalogModel } from '../catalogs'
 import {
+  attachModelEfforts,
   createAcpAdapter,
   describeAdvertisedModel,
   AcpDriver,
@@ -14,7 +16,7 @@ import {
   __resetLearnedAcpSelectors,
 } from './acp-driver'
 import { AcpAuthRequiredError, AcpConnectionError } from './connection'
-import type { AcpLaunch } from './connection'
+import type { AcpConnection, AcpLaunch } from './connection'
 import type { AdapterSession, ProviderAdapter } from '../driver'
 
 const LAUNCH: AcpLaunch = { label: 'test-agent', command: 'fake', args: [] }
@@ -631,6 +633,121 @@ describe('createAcpAdapter', () => {
     ])
     await adapter.dispose()
   }, 15000)
+
+  it('reads each model in one session and restores the starting model', async () => {
+    const configOptions = [
+      {
+        id: 'model',
+        category: 'model',
+        type: 'select',
+        currentValue: 'm1',
+        options: [
+          { value: 'm1', name: 'Model One' },
+          { value: 'm2', name: 'Model Two' },
+        ],
+      },
+      {
+        id: 'thought_level',
+        category: 'thought_level',
+        type: 'select',
+        currentValue: 'high',
+        options: [
+          { value: 'low', name: 'Low' },
+          { value: 'high', name: 'High' },
+        ],
+      },
+    ]
+    const setConfigOption = vi.fn(
+      async (_sessionId: string, _configId: string, value: string) => {
+        if (value !== 'm2') return configOptions
+        return [
+          configOptions[0],
+          {
+            id: 'thought_level',
+            category: 'thought_level',
+            type: 'select',
+            currentValue: 'max',
+            options: [
+              { value: 'low', name: 'Low' },
+              { value: 'max', name: 'Max' },
+            ],
+          },
+        ]
+      },
+    )
+    const models: CatalogModel[] = [
+      { id: 'm1', label: 'Model One' },
+      { id: 'm2', label: 'Model Two' },
+    ]
+
+    await attachModelEfforts(
+      { setConfigOption } as unknown as AcpConnection,
+      { sessionId: 's1', configOptions },
+      models,
+      {
+        currentId: 'high',
+        options: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High' },
+        ],
+      },
+    )
+
+    expect(models).toEqual([
+      {
+        id: 'm1',
+        label: 'Model One',
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'high', label: 'High', current: true },
+        ],
+        effortsSource: 'agent',
+      },
+      {
+        id: 'm2',
+        label: 'Model Two',
+        efforts: [
+          { id: 'low', label: 'Low' },
+          { id: 'max', label: 'Max', current: true },
+        ],
+        effortsSource: 'agent',
+      },
+    ])
+    expect(setConfigOption.mock.calls).toEqual([
+      ['s1', 'model', 'm2'],
+      ['s1', 'model', 'm1'],
+    ])
+  })
+
+  it('stops probing model efforts at the first timeout but not at a refusal', async () => {
+    const configOptions = [
+      {
+        id: 'model',
+        category: 'model',
+        type: 'select',
+        currentValue: 'm1',
+        options: ['m1', 'm2', 'm3', 'm4'].map((value) => ({ value, name: value })),
+      },
+    ]
+    const setConfigOption = vi.fn(async (_sessionId: string, _configId: string, value: string) => {
+      if (value === 'm2') throw new AcpConnectionError('unknown model', -32602)
+      throw new AcpConnectionError('session/set_config_option timed out after 10000ms')
+    })
+    const models: CatalogModel[] = ['m1', 'm2', 'm3', 'm4'].map((id) => ({ id, label: id }))
+
+    await attachModelEfforts(
+      { setConfigOption } as unknown as AcpConnection,
+      { sessionId: 's1', configOptions },
+      models,
+      { currentId: null, options: [] },
+    )
+
+    expect(setConfigOption.mock.calls).toEqual([
+      ['s1', 'model', 'm2'],
+      ['s1', 'model', 'm3'],
+    ])
+    expect(models.every((model) => model.efforts === undefined)).toBe(true)
+  })
 
   it('lifts the version out of a description that opens with the model name', () => {
     expect(
@@ -1843,6 +1960,29 @@ describe('publishAdvertisedModels', () => {
     expect(modelsFor('claude')).toEqual([
       { id: 'sonnet', label: 'Sonnet' },
       { id: 'opus[1m]', label: 'Opus (1M)' },
+    ])
+  })
+
+  it('keeps the levels the catalog probe read when a turn publishes its models', () => {
+    const efforts = [
+      { id: 'low', label: 'Low' },
+      { id: 'max', label: 'Max', current: true },
+    ]
+    setDynamicModels('claude', 'live', [
+      { id: 'sonnet', label: 'Sonnet', efforts, effortsSource: 'agent' },
+      { id: 'opus', label: 'Opus' },
+    ])
+
+    publishAdvertisedModels('claude', [
+      { id: 'sonnet', label: 'Sonnet' },
+      { id: 'opus', label: 'Opus' },
+      { id: 'haiku', label: 'Haiku' },
+    ])
+
+    expect(modelsFor('claude')).toEqual([
+      { id: 'sonnet', label: 'Sonnet', efforts, effortsSource: 'agent' },
+      { id: 'opus', label: 'Opus' },
+      { id: 'haiku', label: 'Haiku' },
     ])
   })
 

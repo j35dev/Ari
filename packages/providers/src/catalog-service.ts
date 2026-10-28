@@ -70,6 +70,10 @@ interface DiskCache {
 interface LiveDiskCache {
   at: number
   kinds: Partial<Record<DriverKind, LiveCatalog>>
+  /** The CLI each live catalog was read from, when the host can tell. */
+  versions?: Partial<Record<DriverKind, string | null>>
+  /** The Ari build that wrote the file; its adapter pins and parsing shaped the rows. */
+  appVersion?: string
 }
 
 export interface ModelProbe {
@@ -101,6 +105,12 @@ export interface CatalogServiceOptions {
    * itself can serve new models long before the recheck window runs out.
    */
   cliVersion?: (kind: DriverKind) => Promise<string | null>
+  /**
+   * The running Ari build. A saved live catalog from another build is asked
+   * again even when the CLI is unchanged: it was read through that build's
+   * adapters and parsing.
+   */
+  appVersion?: string
   /** Called after registry refresh and live ACP probes have settled. */
   onUpdated?: (at: number) => void
 }
@@ -188,6 +198,7 @@ export class CatalogService {
   readonly #cliVersion: ((kind: DriverKind) => Promise<string | null>) | null
   /** The CLI version each kind's live catalog was read from. */
   readonly #liveVersions = new Map<DriverKind, string | null>()
+  readonly #appVersion: string | null
   readonly #onUpdated: ((at: number) => void) | null
   #lastRefreshAt = 0
   #lastAttemptAt: number | null = null
@@ -206,6 +217,7 @@ export class CatalogService {
     this.#probeModels = options.probeModels ?? null
     this.#probeKinds = options.probeKinds ?? []
     this.#cliVersion = options.cliVersion ?? null
+    this.#appVersion = options.appVersion ?? null
     this.#onUpdated = options.onUpdated ?? null
   }
 
@@ -401,17 +413,29 @@ export class CatalogService {
       return // First run: nothing saved yet, the round below asks.
     }
     let restored = 0
-    for (const [kind, catalog] of Object.entries(raw.kinds ?? {})) {
+    const sameBuild = (raw.appVersion ?? null) === this.#appVersion
+    for (const [name, catalog] of Object.entries(raw.kinds ?? {})) {
       if (!Array.isArray(catalog?.models) || catalog.models.length === 0) continue
       // A kind a session already answered for this run keeps its fresher list.
-      if (catalogSource(kind as DriverKind) === 'live') continue
-      restoreLiveCatalog(kind as DriverKind, {
+      const kind = name as DriverKind
+      if (catalogSource(kind) === 'live') continue
+      restoreLiveCatalog(kind, {
         models: catalog.models,
         efforts: catalog.efforts ?? { currentId: null, options: [] },
         modes: catalog.modes ?? { currentId: null, options: [] },
         defaultModelId: catalog.defaultModelId ?? null,
       })
-      this.#unconfirmed.add(kind as DriverKind)
+      // A CLI version saved by this build lets the first round skip a probe
+      // that would only repeat what the same CLI already said; else confirm it.
+      if (
+        sameBuild &&
+        raw.versions !== undefined &&
+        Object.prototype.hasOwnProperty.call(raw.versions, kind)
+      ) {
+        this.#liveVersions.set(kind, raw.versions[kind] ?? null)
+      } else {
+        this.#unconfirmed.add(kind)
+      }
       restored += 1
     }
     if (restored === 0) return
@@ -433,11 +457,18 @@ export class CatalogService {
       const catalog = liveCatalogOf(kind)
       if (catalog !== null) kinds[kind] = catalog
     }
+    const versions: Partial<Record<DriverKind, string | null>> | undefined =
+      this.#cliVersion === null ? undefined : Object.fromEntries(this.#liveVersions)
     try {
       await mkdir(dirname(this.#liveCachePath), { recursive: true })
       await writeFile(
         this.#liveCachePath,
-        JSON.stringify({ at: Date.now(), kinds } satisfies LiveDiskCache),
+        JSON.stringify({
+          at: Date.now(),
+          kinds,
+          ...(versions === undefined ? {} : { versions }),
+          ...(this.#appVersion === null ? {} : { appVersion: this.#appVersion }),
+        } satisfies LiveDiskCache),
         'utf8',
       )
     } catch (error) {

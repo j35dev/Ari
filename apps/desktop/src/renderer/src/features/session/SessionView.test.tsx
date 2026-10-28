@@ -2054,6 +2054,38 @@ describe('EffortChip', () => {
     expect(onChange).toHaveBeenCalledWith('high')
   })
 
+  it('uses levels the catalog already attributes to the selected model', async () => {
+    invokeMock.mockResolvedValue([
+      {
+        kind: 'codex',
+        source: 'live',
+        models: [
+          {
+            id: 'gpt-6-astra',
+            label: 'GPT-6 Astra',
+            efforts: [
+              { id: 'low', label: 'Low' },
+              { id: 'high', label: 'High', current: true },
+            ],
+            effortsSource: 'agent',
+          },
+        ],
+        efforts: [{ id: 'low', label: 'Low' }],
+      },
+    ])
+    render(
+      <EffortChip
+        driverKind="codex"
+        modelId="gpt-6-astra"
+        effort={null}
+        onChange={() => undefined}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: 'Effort: High' })).toBeInTheDocument()
+    expect(invokeMock).not.toHaveBeenCalledWith('providers.efforts', expect.anything())
+  })
+
   it('re-queries the selected model when the catalog has no levels', async () => {
     invokeMock.mockImplementation(async (method: string) => {
       if (method === 'providers.models') {
