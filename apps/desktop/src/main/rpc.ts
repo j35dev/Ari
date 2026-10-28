@@ -48,6 +48,7 @@ import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
 import { BotRoutineSchedule } from './bot-routine-schedule'
 import { ResumeSchedule, routineHost } from './resume-schedule'
+import { TeamRoomService } from './team-rooms'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
@@ -948,6 +949,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       notification.show()
     },
   })
+  let teamRooms: TeamRoomService | null = null
   const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
     const payload: SessionEventFrame = { sessionId, event }
     // A pane subscribes to one session; the shell's feeds name none and get
@@ -961,6 +963,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       options.onRunningCount(runningTurns.count)
     }
     void notifier.observe(sessionId, event)
+    if (event.type === 'turn.settled') void teamRooms?.onSettled(sessionId)
   }
   // Composer image staging: pasted/dropped bytes land here keyed by id; only
   // refs cross IPC and journals, so history replay never replays megabytes.
@@ -1017,6 +1020,13 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   engineRef = engine
+  teamRooms = new TeamRoomService({
+    path: join(app.getPath('userData'), 'team-rooms.json'),
+    bots: getBotStore(),
+    store: getSessionStore(),
+    dispatch: (command, origin) => engine.dispatch(command, origin),
+  })
+  const teamRoomsReady = teamRooms.load()
   // Timed prompts outlive a session turn and a restart: they are journaled in
   // their own file, and the control runtime schedules into the same store.
   const resumeSchedule: ResumeSchedule = new ResumeSchedule({
@@ -1557,6 +1567,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('routines.remove', async ({ routineId }) => {
     await botRoutinesReady
     return { removed: await botRoutines.remove(routineId) }
+  })
+  r.register('rooms.list', async () => {
+    await teamRoomsReady
+    return teamRooms?.list() ?? []
+  })
+  r.register('rooms.create', async (input) => {
+    await teamRoomsReady
+    if (teamRooms === null) throw new Error('team rooms are unavailable')
+    return teamRooms.create(input)
+  })
+  r.register('rooms.send', async ({ roomId, text }) => {
+    await teamRoomsReady
+    if (teamRooms === null) throw new Error('team rooms are unavailable')
+    return teamRooms.send(roomId, text)
   })
 
   r.register('session.load', async (params) => {
