@@ -142,6 +142,7 @@ const OUTCOME = {
 export function completionNotice(
   reports: readonly CompletionReport[],
   stillWorking: readonly { sessionId: string; title: string }[],
+  budget?: string | null,
 ): string {
   const sections = reports.map((entry) => {
     const head = `Child session "${entry.title}" (${entry.sessionId}) ${OUTCOME[entry.stopReason]}.`
@@ -166,6 +167,7 @@ export function completionNotice(
   return [
     '[Ari delegation update: added automatically by Ari, not written by the user.]',
     ...sections,
+    ...(budget ? [budget] : []),
     `${waiting} Inspect changes with \`ari session diff <id> --stat --json\` before integrating; a finished turn is not proof the work is correct.`,
   ].join('\n\n')
 }
