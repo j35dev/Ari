@@ -370,6 +370,48 @@ it('settles a child turn that a restart left open, and leaves a root alone', asy
   expect((await store.load('b')).lastTurn).toBeUndefined()
 })
 
+it('wakes a lead with a delegated child question, once, and never for a person’s child', async () => {
+  await start('root')
+  await start('a')
+  supervisor.start()
+  await store.append('a', {
+    type: 'input.requested',
+    inputId: 'q1',
+    prompt: 'Which store?',
+    choicesJson: JSON.stringify(['Settings', 'JSON file']),
+  })
+  await expect.poll(async () => (await store.load('root')).queuedMessages.length).toBe(1)
+  const [queued] = (await store.load('root')).queuedMessages
+  expect(queued).toMatchObject({
+    held: true,
+    origin: { kind: 'question', sessionId: 'a', inputId: 'q1' },
+  })
+  expect(queued?.text).toContain('Which store?')
+  expect(queued?.text).toContain('Settings / JSON file')
+  expect(queued?.text).toContain('ari session answer a --input q1')
+
+  // The provider may repeat a request; the lead is woken only once.
+  await store.append('a', {
+    type: 'input.requested',
+    inputId: 'q1',
+    prompt: 'Which store?',
+    choicesJson: null,
+  })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  expect((await store.load('root')).queuedMessages).toHaveLength(1)
+
+  // A question on a turn the person started stays with the person.
+  await start('b', 'mine', 'person')
+  await store.append('b', {
+    type: 'input.requested',
+    inputId: 'q2',
+    prompt: 'Mine?',
+    choicesJson: null,
+  })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  expect((await store.load('root')).queuedMessages).toHaveLength(1)
+})
+
 it('does not deliver at start-up what settled before the launch', async () => {
   // Also the shape every journal from before delivery existed is in: a
   // settled child and nothing that says the parent has seen it.
