@@ -5,6 +5,7 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { MessageOrigin } from '@ari/contracts/message'
 import type { SessionListEntry, SessionStore } from './session-store'
 import type { SessionReadModel, UnstampedEvent } from './projection'
+import { budgetLine, type TreeSpend } from './tree-budget'
 import {
   CONTINUATION_PROMPT,
   completionNotice,
@@ -47,6 +48,8 @@ export interface SupervisorHost {
   isRunning?(id: string): boolean
   /** True while `parentId` is blocked in `session wait` on `childId`. */
   isWaiting?(parentId: string, childId: string): boolean
+  /** Spend across the parent's subtree, for the one budget line in a notice. */
+  treeSpend?(rootId: string): Promise<TreeSpend>
   settleDelayMs?: number
   retryDelayMs?: number
   batchWindowMs?: number
@@ -428,11 +431,16 @@ export class DelegationSupervisor {
       return
     // `turn.start` rather than an enqueue: refused outright if a turn began
     // after that check, instead of parking a notice behind it.
+    const spend = this.host.treeSpend ? await this.host.treeSpend(parentId) : null
     const outcome = await this.host.dispatch(
       {
         type: 'turn.start',
         sessionId: parentId,
-        text: completionNotice(reports, working),
+        text: completionNotice(
+          reports,
+          working,
+          spend === null ? null : budgetLine(spend, this.host.policy()),
+        ),
         attachments: [],
       },
       { kind: 'completion', sessionIds: delivered.map((entry) => entry.childSessionId) },
