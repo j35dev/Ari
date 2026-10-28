@@ -7,6 +7,7 @@ import { AgentControlService, type ControlHost } from '@ari/engine/agent-control
 import { AgentControlServer } from '@ari/engine/control-server'
 import { DelegationSupervisor } from '@ari/engine/delegation-supervisor'
 import { ManagedWorkspaces } from '@ari/engine/git'
+import { budgetExceeded, treeSpend } from '@ari/engine/tree-budget'
 import type { SessionStore } from '@ari/engine/session-store'
 import type { Engine } from './engine'
 import { DelegationApprovals } from './delegation-approvals'
@@ -136,6 +137,11 @@ async function startControlTransport(
   let dropSession = (id: string): void => {
     approvals.cancel(id)
   }
+  const spendOf = async (rootId: string) => {
+    const rows = await store.listSessions()
+    const members = rows.filter((row) => row.id === rootId || row.rootSessionId === rootId)
+    return treeSpend(await Promise.all(members.map((row) => store.load(row.id))))
+  }
   const supervisor = new DelegationSupervisor({
     store,
     policy: () => options.policy(),
@@ -144,6 +150,7 @@ async function startControlTransport(
     subscribe: (listener) => store.subscribe(listener),
     ...(options.recover === false ? {} : { isRunning: (id: string) => engine.hasLiveTurn(id) }),
     isWaiting: (parentId, childId) => service.isWaiting(parentId, childId),
+    treeSpend: spendOf,
     ...(options.deliveryDelayMs === undefined ? {} : { settleDelayMs: options.deliveryDelayMs }),
   })
   const service = new AgentControlService({
@@ -157,6 +164,7 @@ async function startControlTransport(
     dispatch: (command, origin) => engine.dispatch(command, origin),
     record: (id, event) => engine.record(id, event),
     subscribe: (listener) => store.subscribe(listener),
+    treeSpend: spendOf,
     workspace,
     isRunning: (id) => engine.hasLiveTurn(id),
     isolate: async (parent, id) => workspaces.isolate(parent, await workspace(parent), id),
@@ -265,9 +273,14 @@ async function startControlTransport(
         )
           active++
       }
-      return active >= policy.maxConcurrentChildren
-        ? 'Maximum concurrent child sessions reached.'
-        : null
+      if (active >= policy.maxConcurrentChildren)
+        return 'Maximum concurrent child sessions reached.'
+      if (policy.maxTreeCostUsd !== null || policy.maxTreeTokens !== null) {
+        const exceeded = budgetExceeded(policy, await spendOf(session.rootSessionId ?? session.id))
+        if (exceeded !== null)
+          return `Delegation tree ${exceeded === 'cost' ? 'cost' : 'token'} cap reached.`
+      }
+      return null
     },
     revoke: (id: string) => dropSession(id),
     release: async (id: string) => {
