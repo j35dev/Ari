@@ -198,6 +198,8 @@ describe('discoverExtensions', () => {
     }
   })
 
+  // Host I/O: creating 81 folders is slow on Windows, where the full gate runs
+  // nine suites at once and this can pass vitest's 5s default.
   it('sets truncated when a cap is hit', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ari-inv-cap-'))
     try {
@@ -218,5 +220,5 @@ describe('discoverExtensions', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
-  })
+  }, 30_000)
 })
