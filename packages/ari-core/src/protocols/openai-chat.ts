@@ -45,9 +45,42 @@ export function openaiMessageContent(
   const parts: { type: string; text?: string; image_url?: { url: string } }[] = []
   if (message.content.length > 0) parts.push({ type: 'text', text: message.content })
   for (const image of message.images) {
-    parts.push({ type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` } })
+    parts.push({
+      type: 'image_url',
+      image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` },
+    })
   }
   return parts
+}
+
+/**
+ * OpenAI's `tool` role carries text only, so images a tool returned are moved
+ * into the one turn that can carry them: a user message after the result.
+ * Those messages wait for the end of a run of tool results, because the
+ * results of parallel tool calls must directly follow their assistant turn.
+ * Everything else is left exactly as it was.
+ */
+export function splitToolImages(messages: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = []
+  let deferred: ChatMessage[] = []
+  for (const message of messages) {
+    if (message.role !== 'tool') {
+      out.push(...deferred, message)
+      deferred = []
+    } else if (message.images && message.images.length > 0) {
+      out.push({ ...message, images: undefined })
+      deferred.push({
+        role: 'user',
+        content: message.toolCallId
+          ? `Image returned by tool call ${message.toolCallId}.`
+          : 'Image returned by a tool call above.',
+        images: message.images,
+      })
+    } else {
+      out.push(message)
+    }
+  }
+  return [...out, ...deferred]
 }
 
 /** One function advertised to an OpenAI-compat endpoint. */
@@ -129,7 +162,11 @@ interface StreamChunk {
       reasoning_content?: string
       /** OpenRouter and some reasoner proxies use `reasoning` instead. */
       reasoning?: string
-      tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[]
+      tool_calls?: {
+        index: number
+        id?: string
+        function?: { name?: string; arguments?: string }
+      }[]
     }
   }[]
   usage?: { prompt_tokens?: number; completion_tokens?: number }
@@ -158,7 +195,7 @@ export async function* streamChatCompletion(
       headers,
       body: JSON.stringify({
         model: request.model,
-        messages: request.messages.map((m) => ({
+        messages: splitToolImages(request.messages).map((m) => ({
           role: m.role,
           content: openaiMessageContent(m),
           ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),

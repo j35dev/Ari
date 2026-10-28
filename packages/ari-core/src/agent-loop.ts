@@ -13,6 +13,8 @@ import {
   parseAskUserToolArgs,
   type Tool,
   type ToolContext,
+  type ToolImage,
+  type ToolOutput,
 } from './tools'
 
 export interface AgentLoopOptions {
@@ -134,6 +136,33 @@ interface PendingToolCall {
 interface ToolOutcome {
   resultJson: string
   isError: boolean
+  /** Plain text for the model's tool message; the event keeps `resultJson`. */
+  text?: string
+  images?: ToolImage[]
+}
+
+/**
+ * A tool may return plain text or text with images. The transcript keeps the
+ * MCP content-block shape for the image case so it renders as a thumbnail;
+ * text-only results stay a plain JSON string, exactly as before.
+ */
+function encodeToolResult(output: string | ToolOutput): string {
+  if (typeof output === 'string') return JSON.stringify(output)
+  if (!output.images || output.images.length === 0) return JSON.stringify(output.text)
+  return JSON.stringify({
+    content: [
+      { type: 'text', text: output.text },
+      ...output.images.map((image) => ({
+        type: 'image',
+        data: image.dataBase64,
+        mimeType: image.mimeType,
+      })),
+    ],
+  })
+}
+
+function outputImages(output: string | ToolOutput): ToolImage[] | undefined {
+  return typeof output === 'string' || !output.images?.length ? undefined : output.images
 }
 
 /**
@@ -146,14 +175,17 @@ function isConcurrencySafe(tool: Tool): boolean {
 }
 
 /** Runs a tool, folding a thrown error into the result the model will see. */
-async function executeTool(
-  tool: Tool,
-  argsJson: string,
-  ctx: ToolContext,
-): Promise<ToolOutcome> {
+async function executeTool(tool: Tool, argsJson: string, ctx: ToolContext): Promise<ToolOutcome> {
   try {
     const args = JSON.parse(argsJson || '{}') as Record<string, unknown>
-    return { resultJson: JSON.stringify(await tool.execute(args, ctx)), isError: false }
+    const output = await tool.execute(args, ctx)
+    const images = outputImages(output)
+    return {
+      resultJson: encodeToolResult(output),
+      isError: false,
+      text: typeof output === 'string' ? output : output.text,
+      ...(images === undefined ? {} : { images }),
+    }
   } catch (e) {
     return { resultJson: JSON.stringify(String(e)), isError: true }
   }
@@ -194,10 +226,7 @@ function callIdentity(call: PendingToolCall): string {
  * are canonicalized rather than compared as raw text.
  */
 function roundSignature(calls: readonly PendingToolCall[]): string {
-  return calls
-    .map(callIdentity)
-    .sort()
-    .join('\u0001')
+  return calls.map(callIdentity).sort().join('\u0001')
 }
 
 /**
@@ -247,21 +276,12 @@ function staleReadText(calls: readonly PendingToolCall[]): string {
 export async function* runAgentLoop(
   options: AgentLoopOptions,
 ): AsyncGenerator<AgentEvent, void, undefined> {
-  const {
-    round,
-    systemPrompt,
-    userPrompt,
-    workspacePath,
-    maxRounds,
-    signal,
-  } = options
+  const { round, systemPrompt, userPrompt, workspacePath, maxRounds, signal } = options
   // Fail-closed: an absent mode behaves as `ask`.
   const permissionMode: PermissionMode = options.permissionMode ?? 'ask'
   const extraTools = options.extraTools ?? []
   const extraNames = new Set(extraTools.map((t) => t.name))
-  const toolset = new Map<string, Tool>(
-    [...BUILT_IN_TOOLS, ...extraTools].map((t) => [t.name, t]),
-  )
+  const toolset = new Map<string, Tool>([...BUILT_IN_TOOLS, ...extraTools].map((t) => [t.name, t]))
   const ctx: ToolContext = {
     workspacePath,
     ...(options.runtimeEnv ? { runtimeEnv: options.runtimeEnv } : {}),
@@ -278,7 +298,9 @@ export async function* runAgentLoop(
     {
       role: 'user',
       content: userPrompt,
-      ...(options.userImages && options.userImages.length > 0 ? { images: options.userImages } : {}),
+      ...(options.userImages && options.userImages.length > 0
+        ? { images: options.userImages }
+        : {}),
     },
   ]
   // The system prompt is rebuilt per turn (its environment facts go stale), so
@@ -527,10 +549,12 @@ export async function* runAgentLoop(
       }
     }
 
+    const imagesByCall = new Map<string, ToolImage[]>()
     for (const call of pending) {
       const tool = toolset.get(call.name)
       let resultJson: string
       let isError = false
+      let outputText: string | undefined
       const concurrent = inFlight.get(call.callId)
       if (loopRedirect !== null) {
         isError = true
@@ -539,6 +563,8 @@ export async function* runAgentLoop(
         const outcome = await concurrent
         resultJson = outcome.resultJson
         isError = outcome.isError
+        outputText = outcome.text
+        if (outcome.images) imagesByCall.set(call.callId, outcome.images)
       } else if (!tool) {
         isError = true
         resultJson = JSON.stringify(`unknown tool: ${call.name}`)
@@ -618,7 +644,11 @@ export async function* runAgentLoop(
               }
             }
           }
-          resultJson = JSON.stringify(await tool.execute(args, execCtx))
+          const output = await tool.execute(args, execCtx)
+          resultJson = encodeToolResult(output)
+          outputText = typeof output === 'string' ? output : output.text
+          const images = outputImages(output)
+          if (images) imagesByCall.set(call.callId, images)
         } catch (e) {
           isError = true
           resultJson = JSON.stringify(String(e))
@@ -630,10 +660,12 @@ export async function* runAgentLoop(
         resultJson,
         isError,
       }
+      const callImages = imagesByCall.get(call.callId)
       messages.push({
         role: 'tool',
-        content: resultJson,
+        content: outputText === undefined ? resultJson : JSON.stringify(outputText),
         toolCallId: call.callId,
+        ...(callImages === undefined ? {} : { images: callImages }),
       })
     }
 
