@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import type { ChildTask } from '@ari/contracts/agent-control'
 import { PlanPanel } from './PlanPanel'
 
 const rpcMocks = vi.hoisted(() => ({
@@ -90,6 +91,62 @@ describe('PlanPanel', () => {
     expect(screen.getByText('only step')).toBeInTheDocument()
   })
 
+  it("shows the lead's children with state and spend when no todo file exists", async () => {
+    rpcMocks.invoke.mockResolvedValue({ items: null })
+    const tasks: ChildTask[] = [
+      task({ sessionId: 's1', title: 'Parse the schema', workState: 'queued' }),
+      task({ sessionId: 's2', title: 'Refactor the loop', workState: 'working' }),
+      task({ sessionId: 's3', title: 'Ask about the API', workState: 'blocked_on_user' }),
+      task({ sessionId: 's4', title: 'Write the tests', workState: 'result_available' }),
+    ]
+    render(<PlanPanel sessionId="ses-1" tasks={tasks} />)
+
+    expect(await screen.findByText('Team')).toBeInTheDocument()
+    expect(screen.getByText('Parse the schema')).toBeInTheDocument()
+    expect(screen.getByText('Queued')).toBeInTheDocument()
+    expect(screen.getByText('Working')).toBeInTheDocument()
+    expect(screen.getByText('Needs you')).toBeInTheDocument()
+    expect(screen.getByText('Done')).toBeInTheDocument()
+    // Each child's own spend, and the summed per-model line.
+    expect(screen.getAllByText('12.0K · $0.02')).toHaveLength(4)
+    expect(screen.getByText('opus · 48.0K · $0.08')).toBeInTheDocument()
+  })
+
+  it('calls out incomplete cost when a child reported none', async () => {
+    rpcMocks.invoke.mockResolvedValue({ items: null })
+    render(
+      <PlanPanel
+        sessionId="ses-1"
+        tasks={[
+          task({
+            sessionId: 's1',
+            title: 'Local child',
+            modelId: null,
+            usage: { inputTokens: 9_000, outputTokens: 3_000, costUsd: null },
+          }),
+        ]}
+      />,
+    )
+
+    expect(await screen.findByText('Team')).toBeInTheDocument()
+    expect(screen.getByText('12.0K · cost incomplete')).toBeInTheDocument()
+    expect(screen.getByText('claude · 12.0K · unpriced')).toBeInTheDocument()
+  })
+
+  it('keeps plan and team rows independent while sharing one session', async () => {
+    rpcMocks.invoke.mockResolvedValue({
+      items: [{ text: 'only step', status: 'pending' }],
+    })
+    render(<PlanPanel sessionId="ses-1" tasks={[task({ title: 'Child work' })]} />)
+
+    expect(await screen.findByText('only step')).toBeInTheDocument()
+    expect(screen.getByText('Child work')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /plan/i }))
+    expect(screen.queryByText('only step')).not.toBeInTheDocument()
+    expect(screen.getByText('Child work')).toBeInTheDocument()
+  })
+
   it('survives invoke failures silently', async () => {
     rpcMocks.invoke.mockRejectedValue(new Error('ipc gone'))
     const { container } = render(<PlanPanel sessionId="ses-1" />)
@@ -97,3 +154,24 @@ describe('PlanPanel', () => {
     expect(container).toBeEmptyDOMElement()
   })
 })
+
+function task(overrides: Partial<ChildTask> & Pick<ChildTask, 'title'>): ChildTask {
+  return {
+    sessionId: 's1',
+    parentSessionId: 'ses-1',
+    role: 'general',
+    driverKind: 'claude',
+    modelId: 'opus',
+    workState: 'queued',
+    blockedOn: null,
+    queuedMessages: 0,
+    latestTurn: null,
+    report: null,
+    reportTruncated: false,
+    delivered: null,
+    usage: { inputTokens: 9_000, outputTokens: 3_000, costUsd: 0.02 },
+    workspaceKind: 'project',
+    branch: null,
+    ...overrides,
+  }
+}

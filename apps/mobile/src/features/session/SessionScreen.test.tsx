@@ -201,6 +201,7 @@ describe('delegated agents', () => {
     workState: 'working',
     blockedOn: null,
     queuedMessages: 0,
+  usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
     latestTurn: null,
     report: null,
     reportTruncated: false,
