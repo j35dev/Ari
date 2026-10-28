@@ -156,6 +156,87 @@ describe('SessionStore', () => {
     })
   })
 
+  describe('warm model cap', () => {
+    const fresh = (id: number): Session => ({
+      ...session,
+      id: `sess_warm${id}`,
+      title: `Warm ${id}`,
+      updatedAt: 1000 + id,
+    })
+
+    it('lets loaded read models fall out of memory past the cap', async () => {
+      for (let i = 0; i < 6; i++) {
+        await store.append(fresh(i).id, { type: 'session.created', session: fresh(i) })
+      }
+      // At the cap everything stays warm...
+      expect(store.hasWarmedModel('sess_warm0')).toBe(true)
+      // ...and the next appends evict from the cold end.
+      for (let i = 6; i < 10; i++) {
+        await store.append(fresh(i).id, { type: 'session.created', session: fresh(i) })
+      }
+      expect(store.hasWarmedModel('sess_warm0')).toBe(false)
+      expect(store.hasWarmedModel('sess_warm9')).toBe(true)
+      // Cold replays still serve full history.
+      expect((await store.load('sess_warm0')).session?.title).toBe('Warm 0')
+    })
+
+    it('keeps the appended session warm while others trim around it', async () => {
+      for (let i = 0; i < 9; i++) {
+        await store.append(fresh(i).id, { type: 'session.created', session: fresh(i) })
+      }
+      // Appending to the oldest session refolds (or replays) it fresh; the
+      // append's own entry survives its own eviction sweep.
+      await store.append('sess_warm0', { type: 'session.updated', title: 'Renamed' })
+      expect(store.hasWarmedModel('sess_warm0')).toBe(true)
+      expect((await store.load('sess_warm0')).session?.title).toBe('Renamed')
+    })
+  })
+
+  describe('index preview', () => {
+    it('truncates huge transcript text into the stored preview cap', async () => {
+      const big = 'x'.repeat(600_000)
+      await store.append(session.id, { type: 'session.created', session })
+      await store.append(session.id, {
+        type: 'user.message.added',
+        message: {
+          id: 'm_big',
+          sessionId: session.id,
+          turnId: 'turn_1',
+          role: 'user',
+          parts: [{ type: 'text', text: big }],
+          createdAt: 1001,
+        },
+      })
+      const list = await store.listSessions()
+      expect(list[0]?.lastMessagePreview?.length).toBe(160)
+      expect(await store.load(session.id).then((m) => m.messages[0]?.parts)).toHaveLength(1)
+    })
+
+    it('collapses whitespace without re-sweeping megabytes of formatting', async () => {
+      const word = 'a'.repeat(8)
+      const huge = `${word}${'  \n\r'.repeat(4)}`.repeat(400)
+      await store.append(session.id, { type: 'session.created', session })
+      await store.append(session.id, {
+        type: 'user.message.added',
+        message: {
+          id: 'm_ws',
+          sessionId: session.id,
+          turnId: 'turn_1',
+          role: 'user',
+          parts: [{ type: 'text', text: huge }],
+          createdAt: 1002,
+        },
+      })
+      const preview = (await store.listSessions())[0]?.lastMessagePreview
+      expect(preview).not.toBeNull()
+      expect(preview?.length).toBeLessThanOrEqual(160)
+      // Runs of whitespace became single spaces; no newline survives.
+      expect(preview?.split(' ').length).toBeGreaterThan(8)
+      expect(preview?.includes('\n')).toBe(false)
+      expect(preview?.trim()).toBe(preview)
+    }, 20000)
+  })
+
   it('repairs a corrupt or missing sidecar index via replay', async () => {
     await store.append(session.id, { type: 'session.created', session })
     expect(await store.listSessions()).toHaveLength(1)

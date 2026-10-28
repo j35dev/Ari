@@ -2670,3 +2670,76 @@ describe('Engine durable queue continuation', () => {
     }
   }, 30000)
 })
+
+describe('streamed journal replay', () => {
+  it('delivers history as bounded seq-ordered chunks, never one giant array', async () => {
+    const sessionId = 'sess_chunk_replay'
+    await seedSession(store, sessionId)
+    const registry = new DriverRegistry()
+    registry.register(scriptedDriver({ echo: ''.padEnd(128 * 1024, 'x') }))
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sid, event) => published.push({ sessionId: sid, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    for (let turn = 0; turn < 4; turn++) {
+      const result = await engine.dispatch({
+        type: 'turn.start',
+        sessionId,
+        text: `turn ${turn}`,
+      } as Command)
+      expect(result.accepted).toBe(true)
+      const settledAt = Date.now() + 30000
+      while (true) {
+        const model = await store.load(sessionId)
+        if (model.status === 'idle') break
+        if (Date.now() > settledAt) throw new Error('turn never settled')
+        await new Promise((r) => setTimeout(r, 25))
+      }
+    }
+
+    const all = await engine.replaySession(sessionId)
+    const chunks: JournalEvent[][] = []
+    await engine.replaySessionChunks(sessionId, (chunk) => {
+      chunks.push(chunk)
+    })
+    expect(chunks.length).toBeGreaterThan(1)
+    // Chunks tile the history exactly: concat equals the full replay.
+    const joined = chunks.flatMap((chunk) => chunk)
+    expect(joined).toEqual(all)
+    let offset = 0
+    for (const chunk of chunks) {
+      expect(chunk).toEqual(all.slice(offset, offset + chunk.length))
+      offset += chunk.length
+    }
+    expect(offset).toBe(all.length)
+  }, 30000)
+
+  it('replaySession still returns the same ordered events as before chunking', async () => {
+    const sessionId = 'sess_replay_compat'
+    await seedSession(store, sessionId)
+    await store.append(sessionId, {
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId,
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'hi' }],
+        createdAt: Date.now(),
+      },
+    })
+    const registry = new DriverRegistry()
+    const engine = new Engine({
+      store,
+      registry,
+      publish: (sid, event) => published.push({ sessionId: sid, event }),
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+    })
+    const events = await engine.replaySession(sessionId)
+    expect(events[0]?.type).toBe('session.created')
+    expect(events.at(-1)?.type).toBe('user.message.added')
+    expect(events).not.toBeNull()
+  })
+})

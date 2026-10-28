@@ -88,18 +88,44 @@ const INDEX_VERSION = 4
 const PREVIEW_MAX_CHARS = 160
 
 /**
+ * Read models kept warm per session. Every materialized one holds the whole
+ * folded transcript (messages, parts, approvals) for as long as it stays
+ * cached, so the cap keeps resident memory proportional to recently viewed
+ * sessions instead of every session the process ever touched. Sessions with
+ * work in flight are never dropped — their next flush would pay a full replay
+ * to re-fold the model.
+ */
+const MODEL_WARM_MAX = 6
+
+/**
  * Preview for a session row: the most recent text any message carries,
  * whitespace-collapsed. Thinking parts and tool-only turns are skipped so a
  * session that ended on a tool call still previews the last thing it said.
+ *
+ * Candidates are truncated before collapsing: the streaming append path runs
+ * here on every part flush, and a candidate can be megabytes of transcript —
+ * the regex would then sweep megabytes fifty times a second.
  */
 function lastMessagePreview(messages: Message[]): string | null {
+  const collapseTail = (text: string): string | null => {
+    if (text.length === 0) return null
+    const collapsed = text
+      .slice(0, PREVIEW_MAX_CHARS * 2)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, PREVIEW_MAX_CHARS)
+    return collapsed.length > 0 ? collapsed : null
+  }
   for (let index = messages.length - 1; index >= 0; index--) {
     let text = ''
     for (const part of messages[index]?.parts ?? []) {
       if (part.type === 'text') text += part.text
+      // Candidates stop scanning parts early too once the cap is sure; carry
+      // on reading a long already-capped text's parts would add nothing.
+      if (text.length >= PREVIEW_MAX_CHARS * 2) break
     }
-    const collapsed = text.replace(/\s+/g, ' ').trim()
-    if (collapsed.length > 0) return collapsed.slice(0, PREVIEW_MAX_CHARS)
+    const collapsed = collapseTail(text)
+    if (collapsed !== null) return collapsed
   }
   return null
 }
@@ -308,7 +334,38 @@ export class SessionStore {
   /** Cached read model when fresh in this process; otherwise a full replay. */
   async #modelFor(sessionId: string): Promise<SessionReadModel> {
     const cached = this.#models.get(sessionId)
-    return cached ?? this.#load(sessionId)
+    if (cached === undefined) return this.#load(sessionId)
+    this.#touchModel(sessionId)
+    return cached
+  }
+
+  /** Re-keys a cached model to the most-recent position; Map.set would not. */
+  #touchModel(sessionId: string): void {
+    const value = this.#models.get(sessionId)
+    if (value === undefined) return
+    this.#models.delete(sessionId)
+    this.#models.set(sessionId, value)
+  }
+
+  /**
+   * Stores a read model and trims the cache down to the warm cap. Anything
+   * entered for a session with operations queued is skipped, so a cache drop
+   * can never race the very append that re-folds from it.
+   */
+  #keepModel(sessionId: string, model: SessionReadModel): void {
+    this.#models.delete(sessionId)
+    this.#models.set(sessionId, model)
+    if (this.#models.size <= MODEL_WARM_MAX) return
+    for (const id of this.#models.keys()) {
+      if (this.#models.size <= MODEL_WARM_MAX) break
+      if (id === sessionId || this.#operations.has(id)) continue
+      this.#models.delete(id)
+    }
+  }
+
+  /** Whether one session's folded read model is currently warm in memory. */
+  hasWarmedModel(sessionId: string): boolean {
+    return this.#models.has(sessionId)
   }
 
   /** Next sequence number for a session (max known seq + 1). */
@@ -367,7 +424,7 @@ export class SessionStore {
     await journal.append(stamped, line)
     if (!streamed) await journal.flush()
     this.#indexCache.set(sessionId, entry)
-    this.#models.set(sessionId, post)
+    this.#keepModel(sessionId, post)
     for (const listener of this.#listeners) {
       try {
         listener(stamped)
@@ -400,7 +457,7 @@ export class SessionStore {
     const { model, rejected } = replayEntries(entries)
     this.#diagnostics.set(sessionId, diagnosticsOf(rejected))
     if (rejected.length > 0) await this.#quarantine(sessionId, rejected)
-    this.#models.set(sessionId, model)
+    this.#keepModel(sessionId, model)
     return model
   }
 

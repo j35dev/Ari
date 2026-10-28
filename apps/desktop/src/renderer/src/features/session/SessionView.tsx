@@ -468,8 +468,9 @@ export function SessionView({
         return
       }
       if (frame.replay === true) {
-        // The burst is seq-ordered and arrives whole, so it folds in one pass
-        // and renders once however long the session is.
+        // The burst is seq-ordered but split across bounded frames: each
+        // chunk folds and lands before the next one, so a long session
+        // paints progressively instead of waiting for one serialization.
         for (const event of (frame.events ?? []) as JournalEvent[]) ingest(event, false)
         publishMessages()
         return

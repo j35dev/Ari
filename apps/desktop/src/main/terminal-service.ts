@@ -1,6 +1,13 @@
 import { exec } from 'node:child_process'
 
 const MAX_SCROLLBACK = 1024 * 1024
+/**
+ * Trim floor: overflow slices back to this size, so steady output overflows
+ * the 128KB difference before the next slice instead of rounding a 1MB
+ * string per pty chunk. The ring always stays within MAX_SCROLLBACK,
+ * losslessly holding every byte written since the last trim.
+ */
+export const TRIM_FLOOR = MAX_SCROLLBACK - 128 * 1024
 
 /** Minimal pty surface used by the service; satisfied by node-pty's IPty. */
 export interface PtyLike {
@@ -96,7 +103,10 @@ export class TerminalService {
     const session: Session = { pty, scrollback: '' }
     this.#sessions.set(id, session)
     pty.onData((data) => {
-      session.scrollback = (session.scrollback + data).slice(-MAX_SCROLLBACK)
+      session.scrollback += data
+      if (session.scrollback.length > MAX_SCROLLBACK) {
+        session.scrollback = session.scrollback.slice(-TRIM_FLOOR)
+      }
       this.#events.onData(id, data)
     })
     pty.onExit(() => this.#events.onExit(id))
