@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '@ari/contracts/agent-event'
-import { catalogSource, clearDynamicModels, modelsFor } from '../catalogs'
+import { catalogSource, clearDynamicModels, modelsFor, setDynamicModels } from '../catalogs'
 import type { CatalogModel } from '../catalogs'
 import {
   attachModelEfforts,
@@ -1930,6 +1930,29 @@ describe('publishAdvertisedModels', () => {
     expect(modelsFor('claude')).toEqual([
       { id: 'sonnet', label: 'Sonnet' },
       { id: 'opus[1m]', label: 'Opus (1M)' },
+    ])
+  })
+
+  it('keeps the levels the catalog probe read when a turn publishes its models', () => {
+    const efforts = [
+      { id: 'low', label: 'Low' },
+      { id: 'max', label: 'Max', current: true },
+    ]
+    setDynamicModels('claude', 'live', [
+      { id: 'sonnet', label: 'Sonnet', efforts, effortsSource: 'agent' },
+      { id: 'opus', label: 'Opus' },
+    ])
+
+    publishAdvertisedModels('claude', [
+      { id: 'sonnet', label: 'Sonnet' },
+      { id: 'opus', label: 'Opus' },
+      { id: 'haiku', label: 'Haiku' },
+    ])
+
+    expect(modelsFor('claude')).toEqual([
+      { id: 'sonnet', label: 'Sonnet', efforts, effortsSource: 'agent' },
+      { id: 'opus', label: 'Opus' },
+      { id: 'haiku', label: 'Haiku' },
     ])
   })
 
