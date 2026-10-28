@@ -55,22 +55,32 @@ export function openaiMessageContent(
 
 /**
  * OpenAI's `tool` role carries text only, so images a tool returned are moved
- * into the one turn that can carry them: a user message right after the
- * result. Everything else is left exactly as it was.
+ * into the one turn that can carry them: a user message after the result.
+ * Those messages wait for the end of a run of tool results, because the
+ * results of parallel tool calls must directly follow their assistant turn.
+ * Everything else is left exactly as it was.
  */
 export function splitToolImages(messages: ChatMessage[]): ChatMessage[] {
-  return messages.flatMap((message) =>
-    message.role === 'tool' && message.images && message.images.length > 0
-      ? [
-          { ...message, images: undefined },
-          {
-            role: 'user' as const,
-            content: 'Image returned by the tool call above.',
-            images: message.images,
-          },
-        ]
-      : [message],
-  )
+  const out: ChatMessage[] = []
+  let deferred: ChatMessage[] = []
+  for (const message of messages) {
+    if (message.role !== 'tool') {
+      out.push(...deferred, message)
+      deferred = []
+    } else if (message.images && message.images.length > 0) {
+      out.push({ ...message, images: undefined })
+      deferred.push({
+        role: 'user',
+        content: message.toolCallId
+          ? `Image returned by tool call ${message.toolCallId}.`
+          : 'Image returned by a tool call above.',
+        images: message.images,
+      })
+    } else {
+      out.push(message)
+    }
+  }
+  return [...out, ...deferred]
 }
 
 /** One function advertised to an OpenAI-compat endpoint. */
