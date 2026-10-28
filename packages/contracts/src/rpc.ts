@@ -4,6 +4,8 @@ import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
 import { botCreateParamsSchema } from './bot'
 import type { Bot } from './bot'
+import { botRoutineAddSchema } from './routine'
+import type { BotRoutine } from './routine'
 import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
@@ -536,6 +538,14 @@ export const rpcParams = {
   /** Creates a Hive bot and its main session; returns the bot with `mainSessionId` set. */
   'bots.create': botCreateParamsSchema,
   'bots.setHidden': z.object({ botId: z.string().min(1), hidden: z.boolean() }),
+  /** Every bot routine, enabled or paused. */
+  'routines.list': z.undefined(),
+  'routines.add': botRoutineAddSchema,
+  'routines.setEnabled': z.object({
+    routineId: z.string().min(1),
+    enabled: z.boolean(),
+  }),
+  'routines.remove': z.object({ routineId: z.string().min(1) }),
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
   /** The children this session delegated to, with their state and last report. */
@@ -873,6 +883,10 @@ export interface RpcResults {
   'bots.list': Bot[]
   'bots.create': Bot
   'bots.setHidden': Bot
+  'routines.list': BotRoutine[]
+  'routines.add': BotRoutine
+  'routines.setEnabled': BotRoutine
+  'routines.remove': { removed: boolean }
   'session.load': unknown
   'session.workspace': { path: string | null }
   'session.tasks': ChildTask[]
