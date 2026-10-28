@@ -64,6 +64,7 @@ ari session read CHILD_ID --turns 1 --tools --json
 `session status` reports each child's `workState`:
 
 - `working` — a turn is running or queued.
+- `blocked_on_parent` — a turn you started is waiting on a question you can answer.
 - `blocked_on_user` — it is waiting for the human to answer an approval or question (`blockedOn`).
 - `waiting_for_children` — its own turn ended but work it delegated has not.
 - `result_available` — finished; `report` holds its final message.
@@ -85,6 +86,7 @@ diff before integrating; send a correction when needed.
 ari session prompt CHILD_ID "Fix the failing test and rerun it." --key fix-1 --json
 ari session message CHILD_ID "Use SettingsStore." --key answer-1 --json
 ari parent message "Which persistence API should I target?" --key question-1 --json
+ari session answer CHILD_ID --input INPUT_ID "Use the SettingsStore." --key answer-1 --json
 ```
 
 A prompt to an idle child starts a new turn; to a busy child it queues behind the
@@ -93,7 +95,10 @@ your final message of each turn is delivered to your parent automatically: ask t
 parent only for decisions it can resolve, and do not message it to say you are done.
 
 `session spawn` waits while its approval card is open, so give the human time to
-answer; do not fire parallel duplicate spawns. `delegation_approval_pending` means
+answer; do not fire parallel duplicate spawns. When a child running your work asks a
+question, Ari wakes you with its prompt and `--input` id; answer it with
+`session answer`, or ask the human first when the decision is theirs. Approvals stay
+with the human, and `session answer` refuses an approval id. `delegation_approval_pending` means
 the card is still open — wait, then retry with the same `--key`. Only
 `delegation_approval_required` is a real refusal.
 

@@ -20,9 +20,7 @@ const acknowledged = (childSessionId: string, turnId: string) =>
 function withAssistant(parts: MessagePart[], turnId = 't1'): SessionReadModel {
   return {
     ...initialReadModel(),
-    messages: [
-      { id: 'm1', sessionId: 'child', turnId, role: 'assistant', parts, createdAt: 1 },
-    ],
+    messages: [{ id: 'm1', sessionId: 'child', turnId, role: 'assistant', parts, createdAt: 1 }],
   }
 }
 
@@ -122,6 +120,17 @@ it('classifies a child by turn, prompts, queue and descendants', () => {
       pendingInputs: [{ inputId: 'i', prompt: '?', choicesJson: null }],
     }),
   ).toBe('blocked_on_user')
+  expect(
+    childWorkState(
+      {
+        ...idle,
+        activeTurnId: 't2',
+        pendingInputs: [{ inputId: 'i', prompt: '?', choicesJson: null }],
+      },
+      0,
+      true,
+    ),
+  ).toBe('blocked_on_parent')
   expect(childWorkState(idle)).toBe('result_available')
   expect(childWorkState(idle, 1)).toBe('waiting_for_children')
   expect(childWorkState({ ...idle, queuedMessages: [{ text: 'next', attachments: [] }] })).toBe(
