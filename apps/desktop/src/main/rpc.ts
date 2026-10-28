@@ -46,6 +46,7 @@ import { writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
+import { BotRoutineSchedule } from './bot-routine-schedule'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
@@ -1024,6 +1025,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     dispatch: (command) => engine.dispatch(command),
   })
   const resumeReady: Promise<void> = resumeSchedule.load().then(() => resumeSchedule.start())
+  // Bot routines live beside the bots, not inside a session: they keep their
+  // own file, and each fire becomes a held message in the bot's main session.
+  const botRoutines = new BotRoutineSchedule({
+    path: join(app.getPath('userData'), 'bot-routines.json'),
+    bots: getBotStore(),
+    store: getSessionStore(),
+    dispatch: (command, origin) => engine.dispatch(command, origin),
+  })
+  const botRoutinesReady: Promise<void> = botRoutines.load().then(() => botRoutines.start())
   const backgroundReady = options.backgroundReady ?? Promise.resolve()
   // The runtime's start-up recovery replays every delegated session; turns
   // and agent-control calls wait on it, the first paint does not.
@@ -1083,6 +1093,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     )
   app.once('before-quit', () => {
     resumeSchedule.close()
+    botRoutines.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
 
@@ -1531,6 +1542,22 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('bots.list', () => getBotStore().list())
   r.register('bots.create', (params) => createBot(sessionDeps, params))
   r.register('bots.setHidden', ({ botId, hidden }) => getBotStore().update(botId, { hidden }))
+  r.register('routines.list', async () => {
+    await botRoutinesReady
+    return botRoutines.list()
+  })
+  r.register('routines.add', async (input) => {
+    await botRoutinesReady
+    return botRoutines.add(input)
+  })
+  r.register('routines.setEnabled', async ({ routineId, enabled }) => {
+    await botRoutinesReady
+    return botRoutines.setEnabled(routineId, enabled)
+  })
+  r.register('routines.remove', async ({ routineId }) => {
+    await botRoutinesReady
+    return { removed: await botRoutines.remove(routineId) }
+  })
 
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)
