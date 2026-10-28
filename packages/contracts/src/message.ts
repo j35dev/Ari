@@ -21,6 +21,8 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
     sessionId: z.string().min(1),
     inputId: z.string().min(1),
   }),
+  /** A Hive bot routine fired with nobody present to answer it. */
+  z.object({ kind: z.literal('routine'), routineId: z.string().min(1) }),
 ])
 export type MessageOrigin = z.infer<typeof messageOriginSchema>
 

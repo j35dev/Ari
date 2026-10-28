@@ -17,6 +17,7 @@
     "./settings": "./src/settings.ts",
     "./endpoint": "./src/endpoint.ts",
     "./project": "./src/project.ts",
+    "./routine": "./src/routine.ts",
     "./remote": "./src/remote.ts"
   },
   "scripts": {
