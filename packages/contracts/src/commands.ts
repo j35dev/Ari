@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { driverKindSchema, permissionModeSchema } from './common'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
+import { wakePrioritySchema } from './message'
 
 /**
  * A user turn needs text, images, or both: an images-only message (empty
@@ -51,6 +52,8 @@ export const commandSchema = z.discriminatedUnion('type', [
        * non-completed settle, unlike a message the user sent.
        */
       hold: z.boolean().optional(),
+      /** Human by default; room and routine turns wait behind it. */
+      priority: wakePrioritySchema.optional(),
     })
     .superRefine(requiresTextOrAttachments),
   /**

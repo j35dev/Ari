@@ -9,7 +9,12 @@ import {
 
 const driverKindSchemaOptional = driverKindSchema.optional()
 const permissionModeSchemaOptional = permissionModeSchema.optional()
-import { messageSchema, messagePartSchema, messageOriginSchema } from './message'
+import {
+  messageSchema,
+  messagePartSchema,
+  messageOriginSchema,
+  wakePrioritySchema,
+} from './message'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 import { delegationRoleSchema, sessionSchema } from './session'
 
@@ -169,6 +174,7 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     text: z.string(),
     attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
     held: z.boolean().optional(),
+    priority: wakePrioritySchema.optional(),
   }),
   eventBase.extend({
     type: z.literal('message.dequeued'),
