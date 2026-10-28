@@ -237,6 +237,53 @@ export function PermissionsSettings() {
             </SettingsRow>
           ))}
           <SettingsRow
+            label="Tree token cap"
+            hint="Pause child turns once the whole delegation tree reaches this many tokens. Empty is off."
+          >
+            <Input
+              aria-label="Tree token cap"
+              type="number"
+              min={1}
+              placeholder="Off"
+              value={delegation.maxTreeTokens ?? ''}
+              className={NUMBER_FIELD_CLASS}
+              onChange={(event) => {
+                const raw = event.target.value.trim()
+                if (raw === '') {
+                  persist({ delegation: { maxTreeTokens: null } })
+                  return
+                }
+                const value = Number(raw)
+                if (Number.isInteger(value) && value >= 1)
+                  persist({ delegation: { maxTreeTokens: value } })
+              }}
+            />
+          </SettingsRow>
+          <SettingsRow
+            label="Tree cost cap"
+            hint="Pause child turns once the delegation tree reaches this cost. Empty is off; unpriced providers are not counted."
+          >
+            <Input
+              aria-label="Tree cost cap"
+              type="number"
+              min={0.01}
+              step={0.01}
+              placeholder="Off"
+              value={delegation.maxTreeCostUsd ?? ''}
+              className={NUMBER_FIELD_CLASS}
+              onChange={(event) => {
+                const raw = event.target.value.trim()
+                if (raw === '') {
+                  persist({ delegation: { maxTreeCostUsd: null } })
+                  return
+                }
+                const value = Number(raw)
+                if (Number.isFinite(value) && value > 0)
+                  persist({ delegation: { maxTreeCostUsd: value } })
+              }}
+            />
+          </SettingsRow>
+          <SettingsRow
             label="Delegation approval"
             hint="When Ari asks before a child session is created."
           >

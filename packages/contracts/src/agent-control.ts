@@ -41,6 +41,10 @@ const delegationFields = {
    * prompt each time. Integrating and destroying still ask.
    */
   autoApproveCli: z.boolean(),
+  /** Soft cap on a whole delegation tree's cost; null leaves it off. */
+  maxTreeCostUsd: z.number().positive().nullable(),
+  /** Soft cap on a whole delegation tree's tokens; null leaves it off. */
+  maxTreeTokens: z.number().int().positive().nullable(),
 }
 
 export const delegationSettingsSchema = z.object({
@@ -55,6 +59,8 @@ export const delegationSettingsSchema = z.object({
   autoDeliverResults: delegationFields.autoDeliverResults.default(true),
   cascadeStop: delegationFields.cascadeStop.default(true),
   autoApproveCli: delegationFields.autoApproveCli.default(true),
+  maxTreeCostUsd: delegationFields.maxTreeCostUsd.default(null),
+  maxTreeTokens: delegationFields.maxTreeTokens.default(null),
 })
 export type DelegationSettings = z.infer<typeof delegationSettingsSchema>
 

@@ -21,6 +21,7 @@
     "./bots": "./src/bots.ts",
     "./bot-memory": "./src/bot-memory.ts",
     "./watcher": "./src/watcher.ts",
+    "./tree-budget": "./src/tree-budget.ts",
     "./git": "./src/git/index.ts"
   },
   "scripts": {

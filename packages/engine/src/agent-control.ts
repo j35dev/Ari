@@ -20,6 +20,7 @@ import type { UnstampedEvent } from './projection'
 import { checkDelegation, sessionLineage } from './control-policy'
 import { waitForTurn, type WaitOutcome } from './control-wait'
 import { childWorkState, finalAssistantText } from './delegation-state'
+import type { TreeSpend } from './tree-budget'
 
 const log = createLogger('engine:control')
 
@@ -101,6 +102,8 @@ export interface ControlHost {
     patch(botId: string, find: string, text: string): Promise<string>
     remove(botId: string, find: string): Promise<string>
   }
+  /** Spend across a root's whole subtree, when the host can fold it. */
+  treeSpend?(rootId: string): Promise<TreeSpend>
   /** Durable scheduled prompts; absent runtimes simply cannot schedule. */
   routines?: {
     add(input: {
@@ -291,6 +294,7 @@ export class AgentControlService {
         const chain = await this.#lineage(caller)
         const root = chain.at(-1) as Session
         const policy = this.host.policy()
+        const spend = this.host.treeSpend ? await this.host.treeSpend(root.id) : null
         return {
           protocolVersion: AGENT_CONTROL_VERSION,
           ariVersion: this.host.version,
@@ -308,6 +312,7 @@ export class AgentControlService {
               0,
               policy.maxConcurrentChildren - (await this.#active(root.id)),
             ),
+            ...(spend === null ? {} : { spend }),
           },
           capabilities: {
             isolatedWorktrees: true,
@@ -611,6 +616,7 @@ export class AgentControlService {
       policy,
       chain.length - 1,
       rows.filter((s) => s.parentSessionId === caller.id).length,
+      this.host.treeSpend ? await this.host.treeSpend(root.id) : undefined,
     )
     const provider = (await this.host.providers()).find(
       (v) => v.driverKind === p.driverKind && v.available,

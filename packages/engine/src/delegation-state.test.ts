@@ -179,4 +179,5 @@ it('writes one notice covering every report and what is still running', () => {
   expect(notice).toContain('(c) was stopped before finishing.\nIt left no final message.')
   expect(notice).toContain('Still working: "Tests" (d)')
   expect(completionNotice([], [])).toContain('No other children are working.')
+  expect(completionNotice([], [], 'Tree spend: 10 tokens.')).toContain('Tree spend: 10 tokens.')
 })

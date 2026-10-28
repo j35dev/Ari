@@ -1,5 +1,6 @@
 import { ControlFailure, type DelegationSettings } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
+import { budgetExceeded, type TreeSpend } from './tree-budget'
 
 /** Validated lineage from a session to its root; corrupt and cross-project trees fail closed. */
 export async function sessionLineage(
@@ -20,11 +21,24 @@ export async function sessionLineage(
 }
 
 /** Enforces spawn policy before workspace or provider side effects. */
-export function checkDelegation(policy: DelegationSettings, depth: number, children: number): void {
+export function checkDelegation(
+  policy: DelegationSettings,
+  depth: number,
+  children: number,
+  spend?: TreeSpend,
+): void {
   if (!policy.enabled) throw new ControlFailure('delegation_disabled', 'Delegation is disabled.')
   if (depth >= policy.maxDepth || (depth > 0 && !policy.recursiveDelegation)) {
     throw new ControlFailure('max_depth', 'Delegation depth limit reached.')
   }
   if (children >= policy.maxChildrenPerSession)
     throw new ControlFailure('max_children', 'Child session limit reached.')
+  if (spend !== undefined) {
+    const exceeded = budgetExceeded(policy, spend)
+    if (exceeded !== null)
+      throw new ControlFailure(
+        'budget_exceeded',
+        `Delegation tree ${exceeded === 'cost' ? 'cost' : 'token'} cap reached.`,
+      )
+  }
 }
