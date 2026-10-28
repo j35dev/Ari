@@ -190,6 +190,24 @@ it('queues delegated work at the cap and prevents recursion and escalation', asy
   ).toMatchObject({ error: { code: 'scope_denied' } })
 })
 
+it('refuses a spawn once the tree is over its budget', async () => {
+  host.policy = () =>
+    delegationSettingsSchema.parse({
+      approvalMode: 'never',
+      allowSharedWorkspace: true,
+      maxTreeTokens: 100,
+    })
+  host.treeSpend = async () => ({ tokens: 100, costUsd: 0, unpricedSessions: 0, sessions: 1 })
+  expect(await service.invoke('root', 'session.spawn', spawn)).toMatchObject({
+    error: { code: 'budget_exceeded' },
+  })
+  expect(await store.listSessions()).toHaveLength(1)
+  expect(await service.invoke('root', 'runtime.info', {})).toMatchObject({
+    ok: true,
+    result: { limits: { spend: { tokens: 100 } } },
+  })
+})
+
 it('reports approval-pending distinctly and never mints an orphan child', async () => {
   host.policy = () => delegationSettingsSchema.parse({ allowSharedWorkspace: true })
   let resolveApproval!: (allowed: boolean) => void
