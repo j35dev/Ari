@@ -132,6 +132,8 @@ export interface SessionDefaults {
   modelId: string | null
   permissionMode: PermissionMode
   effort: string | null
+  /** Creates the session as a lead; ordinary sessions leave this off. */
+  lead?: boolean
 }
 
 function Shell() {
@@ -807,13 +809,16 @@ function Shell() {
     (projectId: string, overrides?: Partial<SessionDefaults>): void => {
       const effective = { ...defaults, ...overrides }
       // Reuse the newest pristine (zero-message) session when its config is
-      // compatible — spamming ✎ must not pile up empty chats.
-      const reusable = sessions.find(
-        (s) =>
-          s.projectId === projectId &&
-          s.messageCount === 0 &&
-          (overrides === undefined || overrides.driverKind === undefined),
-      )
+      // compatible — spamming ✎ must not pile up empty chats. A lead is a
+      // different kind of session, so it never borrows an ordinary one.
+      const reusable = effective.lead
+        ? undefined
+        : sessions.find(
+            (s) =>
+              s.projectId === projectId &&
+              s.messageCount === 0 &&
+              (overrides === undefined || overrides.driverKind === undefined),
+          )
       if (reusable) {
         if (overrides) setDefaults(effective)
         const open = (): void => {
@@ -852,6 +857,7 @@ function Shell() {
           modelId: effective.modelId,
           permissionMode: effective.permissionMode,
           effort: effective.effort,
+          ...(effective.lead ? { lead: true } : {}),
         })
         .then(({ sessionId }) => {
           if (overrides) setDefaults(effective)
@@ -909,6 +915,14 @@ function Shell() {
         onSelect: () => {
           setNewSessionRequest(null)
           createSession(project.id, newSessionRequest?.overrides)
+        },
+      })),
+      ...projects.map((project) => ({
+        id: `lead-${project.id}`,
+        label: `Lead session in ${project.name}`,
+        onSelect: () => {
+          setNewSessionRequest(null)
+          createSession(project.id, { ...newSessionRequest?.overrides, lead: true })
         },
       })),
       {

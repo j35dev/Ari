@@ -1437,6 +1437,25 @@ describe('Shell live sidebar feed', () => {
     }
   })
 
+  it('starts a lead session on request instead of reusing the pristine chat', async () => {
+    render(<App />)
+    // The first list call carries an empty session, which a normal Mod+N
+    // would reuse; the lead goes through creation regardless.
+    await vi.waitFor(() => expect(screen.getAllByText('New session')).not.toHaveLength(0))
+
+    fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
+    const menu = await screen.findByRole('menu', { name: 'New session in project' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Lead session in Ari' }))
+
+    await vi.waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        'session.create',
+        expect.objectContaining({ projectId: 'proj-ari', lead: true }),
+      ),
+    )
+    expect(invokeMock).not.toHaveBeenCalledWith('command.dispatch', expect.anything())
+  })
+
   describe('with Full access as the default permission mode', () => {
     beforeEach(() => {
       const base = invokeMock.getMockImplementation()

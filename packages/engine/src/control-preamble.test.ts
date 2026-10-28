@@ -52,6 +52,20 @@ it('states the same facts plainly, on one line, for a provider system channel', 
   expect(controlPreamble(child, 'Ship settings', 'system')).toContain('as its review agent')
 })
 
+it('briefs a lead as the coordinator of its delegation tree, not as a lone session', () => {
+  const lead = controlPreamble({ ...root, lead: true }, null)
+  expect(lead).toContain('You are the lead for this delegation tree')
+  expect(lead).toContain('Coordinate rather than code')
+  expect(lead).toContain('session answer <child>')
+  expect(lead).toContain('ari session integrate')
+  expect(lead).not.toContain('It lets this session delegate work to child sessions.')
+  expect(controlPreamble({ ...root, lead: true }, null, 'system')).toContain(
+    'You are the lead for this delegation tree',
+  )
+  // A child of a lead is still a worker: the lead note never reaches it.
+  expect(controlPreamble({ ...child, lead: true }, 'Root')).toContain('as its review agent')
+})
+
 it('does not promise a wake-up when automatic delivery is switched off', () => {
   const parent = controlPreamble(root, null, 'prompt', false)
   expect(parent).not.toContain('report back to you automatically')
