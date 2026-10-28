@@ -55,6 +55,13 @@ export const KEEP_RECENT_RATIO = 0.35
 /** Keep window for the default budget, and the default for {@link splitForCompaction}. */
 export const KEEP_RECENT_CHARS = Math.floor(CONTEXT_WINDOW_CHARS * KEEP_RECENT_RATIO)
 
+/**
+ * Newest tool results that keep their image bytes. Older ones keep only their
+ * text marker, so a screenshot-heavy session stays under provider per-request
+ * image limits and the stored transcript does not grow with every image.
+ */
+export const MAX_TOOL_IMAGE_RESULTS = 3
+
 /** Marks a message holding a compaction summary rather than real history. */
 export const SUMMARY_PREFIX = '[summary of earlier conversation]'
 
@@ -88,6 +95,23 @@ Be specific: name files and symbols rather than describing them. Do not invent p
 
 function sizeOf(messages: ChatMessage[]): number {
   return messages.reduce((sum, m) => sum + m.content.length, 0)
+}
+
+/** Strips images from all but the newest {@link MAX_TOOL_IMAGE_RESULTS} tool results. */
+function dropStaleToolImages(messages: ChatMessage[]): ChatMessage[] {
+  let kept = 0
+  const out = [...messages]
+  for (let index = out.length - 1; index >= 0; index--) {
+    const message = out[index]
+    if (message?.role !== 'tool' || !message.images?.length) continue
+    if (kept < MAX_TOOL_IMAGE_RESULTS) {
+      kept++
+      continue
+    }
+    const { images: _dropped, ...rest } = message
+    out[index] = rest
+  }
+  return out
 }
 
 /**
@@ -139,7 +163,9 @@ function compressDropped(units: ChatMessage[][]): ChatMessage[] {
  * - the newest history is preferred over the oldest;
  * - an assistant tool call is never separated from its tool results;
  * - dropped tool-result runs are replaced with
- *   {@link TRIMMED_TOOL_RESULTS_PLACEHOLDER}.
+ *   {@link TRIMMED_TOOL_RESULTS_PLACEHOLDER};
+ * - only the newest {@link MAX_TOOL_IMAGE_RESULTS} tool results keep their
+ *   images.
  *
  * The input array is never mutated. Sizes are approximated by summed
  * content lengths; the placeholder itself is not charged to the budget.
@@ -186,7 +212,7 @@ export function trimMessages(messages: ChatMessage[], maxChars: number): ChatMes
     }
   }
   if (droppedRun.length > 0) out.push(...compressDropped(droppedRun))
-  return out
+  return dropStaleToolImages(out)
 }
 
 /** True when the conversation is large enough that summarizing earns its call. */
