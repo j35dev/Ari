@@ -24,7 +24,9 @@ export function controlPreamble(
 ): string {
   const body = session.parentSessionId
     ? childBrief(session, parentTitle, delivers)
-    : parentNote(delivers)
+    : session.lead === true
+      ? leadNote(delivers)
+      : parentNote(delivers)
   if (channel === 'system')
     return `You are running inside the Ari desktop app, which starts this session and puts a command named \`ari\` on PATH for your shell tool; call it as \`ari\`. ${body} Do not print the ARI_CONTROL_TOKEN environment variable.`
   return `[${session.parentSessionId ? 'Ari delegated session' : 'Ari control surface'}: added automatically by the Ari desktop app, not written by the user. The \`ari\` command is on PATH in your shell; call it as \`ari\`. ${body} Never disclose ARI_CONTROL_TOKEN.]`
@@ -42,6 +44,13 @@ export function sessionInstructions(
   return parts.length === 0 ? null : parts.join('\n\n')
 }
 
+function leadNote(delivers: boolean): string {
+  const collect = delivers
+    ? 'Children report back to you automatically when they finish, so end your turn rather than polling for them.'
+    : 'Nothing tells you when a child finishes, so collect its result with `ari session wait` before you end your turn.'
+  return `You are the lead for this delegation tree. Coordinate rather than code: split the work into self-contained prompts with acceptance checks, then spawn workers with \`ari session spawn\` and let the concurrency cap queue the extras. ${collect} Answer a worker's question with \`ari session answer <child> --input <id> "<answer>"\`, or ask the user first when the decision is theirs; approvals always go to the user. When the work is done, inspect each diff and run \`ari session integrate\` explicitly, then verify in your own workspace. If a budget line appears, stop spawning and summarize what is left. Commands: ${COMMANDS}. \`ari --skill\` prints the full protocol.`
+}
+
 function parentNote(delivers: boolean): string {
   const collect = delivers
     ? 'Children report back to you automatically when they finish, so end your turn rather than polling for them.'
@@ -52,6 +61,8 @@ function parentNote(delivers: boolean): string {
 function childBrief(session: Session, parentTitle: string | null, delivers: boolean): string {
   const employer = parentTitle ? `the session "${parentTitle}"` : 'a parent session'
   const role = session.role && session.role !== 'general' ? ` as its ${session.role} agent` : ''
-  const handover = delivers ? 'Ari delivers that report to the parent' : 'The parent reads that report'
+  const handover = delivers
+    ? 'Ari delivers that report to the parent'
+    : 'The parent reads that report'
   return `You are a child session working for ${employer}${role}. Do the assignment and nothing beyond it. End each turn with a short report: what you did, files changed, how you verified it, and anything unresolved. ${handover}, so do not message the parent just to say you are done. For a decision only the parent can make, run: ari parent message "<question>". \`ari --skill\` prints the other commands.`
 }

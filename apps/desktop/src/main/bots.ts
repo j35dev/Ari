@@ -33,6 +33,7 @@ export async function createSession(
     permissionMode: params.permissionMode,
     ...(params.effort !== undefined ? { effort: params.effort } : {}),
     ...(params.botId !== undefined ? { botId: params.botId } : {}),
+    ...(params.lead === true ? { lead: true as const } : {}),
     status: 'idle',
     createdAt: Date.now(),
     updatedAt: Date.now(),
