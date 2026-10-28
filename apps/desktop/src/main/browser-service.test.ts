@@ -1,10 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  BrowserService,
-  hideGuestsOnShellReset,
-  type BrowserGuest,
-} from './browser-service'
+import { BrowserService, hideGuestsOnShellReset, type BrowserGuest } from './browser-service'
 
 function fakeGuest(): {
   guest: BrowserGuest
@@ -34,6 +30,7 @@ function fakeGuest(): {
     isLoading: () => false,
     executeJavaScript: vi.fn(async () => null),
     capturePage: vi.fn(async () => null),
+    consoleEntries: () => [],
     sendKey: vi.fn(),
     setBounds,
     setVisible,
@@ -72,6 +69,15 @@ describe('BrowserService', () => {
     expect(service.close('tab1')).toBe(true)
     expect(destroy).toHaveBeenCalledOnce()
     expect(service.layout('tab1', { x: 0, y: 0, width: 1, height: 1 }, false)).toBe(false)
+  })
+
+  it('returns the guest console history for the tab', async () => {
+    const { guest } = fakeGuest()
+    guest.consoleEntries = () => [{ level: 'error', text: 'boom', timestamp: 1 }]
+    const service = new BrowserService(() => guest, vi.fn())
+    await service.open('tab1')
+    expect(service.consoleEntries('tab1')).toEqual([{ level: 'error', text: 'boom', timestamp: 1 }])
+    expect(() => service.consoleEntries('missing')).toThrow('unknown browser tab')
   })
 
   it('returns a picked element from the guest script', async () => {

@@ -1,4 +1,5 @@
 import { WebContentsView, type BrowserWindow, type WebContents } from 'electron'
+import { ConsoleBuffer } from './browser-console'
 import type { BrowserGuest } from './browser-service'
 import { isBrowserNavigable } from './browser-url'
 
@@ -39,6 +40,15 @@ export function createElectronBrowserGuest(
   wc.setUserAgent(wc.getUserAgent().replace(/\sElectron\/\S+/g, ''))
 
   const emit = (): void => onUpdated()
+  const consoleBuffer = new ConsoleBuffer()
+  wc.on('console-message', (details) =>
+    consoleBuffer.push({
+      level: details.level,
+      message: details.message,
+      sourceUrl: details.sourceId,
+    }),
+  )
+  wc.on('did-navigate', () => consoleBuffer.clear())
   wc.on('did-navigate', emit)
   wc.on('did-navigate-in-page', emit)
   wc.on('page-title-updated', emit)
@@ -75,6 +85,7 @@ export function createElectronBrowserGuest(
     getTitle: () => wc.getTitle(),
     isLoading: () => wc.isLoading(),
     executeJavaScript: (code) => wc.executeJavaScript(code, true),
+    consoleEntries: () => consoleBuffer.entries(),
     capturePage: async (rect, format = 'png') => {
       try {
         const image = await wc.capturePage(rect)
