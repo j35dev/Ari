@@ -822,6 +822,56 @@ describe('engine end-to-end with scripted driver', () => {
     }
   }, 10000)
 
+  it('holds delegated work at the capacity gate and starts it when a slot frees', async () => {
+    let allowed = false
+    const started: string[] = []
+    const registry = new DriverRegistry()
+    registry.register({
+      kind: 'claude',
+      create: (session: AdapterSession) =>
+        Promise.resolve({
+          start: () => ({
+            async *[Symbol.asyncIterator](): AsyncGenerator<AgentEvent> {
+              started.push(session.sessionId)
+              yield { type: 'done' }
+            },
+          }),
+          interrupt: () => undefined,
+          dispose: () => Promise.resolve(),
+        }),
+    })
+    const engine = new Engine({
+      store,
+      registry,
+      publish: () => undefined,
+      git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+      authorizeTurn: async () => (allowed ? null : 'Maximum concurrent child sessions reached.'),
+    })
+    const sessionId = 'sess_held'
+    await seedSession(store, sessionId)
+
+    expect(
+      await engine.dispatch({
+        type: 'message.enqueue',
+        sessionId,
+        text: 'Implement',
+        attachments: [],
+        hold: true,
+      }),
+    ).toMatchObject({ accepted: true })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    const held = await store.load(sessionId)
+    expect(held.activeTurnId).toBeNull()
+    expect(held.queuedMessages).toMatchObject([{ text: 'Implement', held: true }])
+
+    allowed = true
+    await engine.drainHeld()
+    for (let i = 0; i < 150 && !started.includes(sessionId); i++)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(started).toContain(sessionId)
+    expect((await store.load(sessionId)).queuedMessages).toEqual([])
+  }, 10_000)
+
   it('keeps an enqueue queued even when the provider can steer', async () => {
     const steered: string[] = []
     const releaseTurnRef = { current: null as (() => void) | null }
@@ -1458,9 +1508,7 @@ describe('engine end-to-end with scripted driver', () => {
       if (i === 149) throw new Error('turn never settled after approval')
       await new Promise((r) => setTimeout(r, 20))
     }
-    expect(decisions).toEqual([
-      { approvalId: 'ap_1', decision: { optionId: 'acceptForSession' } },
-    ])
+    expect(decisions).toEqual([{ approvalId: 'ap_1', decision: { optionId: 'acceptForSession' } }])
   }, 10000)
 
   it('upgrades the slice title once after the first successful turn (M18.2)', async () => {

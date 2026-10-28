@@ -32,5 +32,7 @@ export const queuedMessageSchema = z.object({
   origin: messageOriginSchema.optional(),
   text: z.string(),
   attachments: z.array(attachmentRefSchema).max(MAX_ATTACHMENTS).default([]),
+  /** Delegated work waiting for a free slot; it survives a stop and an error. */
+  held: z.boolean().optional(),
 })
 export type QueuedMessage = z.infer<typeof queuedMessageSchema>

@@ -19,6 +19,7 @@
     "./settings": "./src/settings.ts",
     "./projects": "./src/projects.ts",
     "./bots": "./src/bots.ts",
+    "./bot-memory": "./src/bot-memory.ts",
     "./watcher": "./src/watcher.ts",
     "./git": "./src/git/index.ts"
   },
