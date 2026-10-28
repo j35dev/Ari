@@ -32,6 +32,8 @@ export interface AgentRuntimeOptions {
   providers: ControlHost['providers']
   /** Durable scheduled prompts; a runtime started without one cannot schedule. */
   routines?: ControlHost['routines']
+  /** Hive bot memory for `ari memory`; absent means the surface is unavailable. */
+  memory?: ControlHost['memory']
   baseEnv?: NodeJS.ProcessEnv
   /** How long finished children are batched before their parent is woken. */
   deliveryDelayMs?: number
@@ -150,6 +152,7 @@ async function startControlTransport(
     policy: () => options.policy(),
     providers: options.providers,
     ...(options.routines === undefined ? {} : { routines: options.routines }),
+    ...(options.memory === undefined ? {} : { memory: options.memory }),
     create: (session) => engine.createSession(session),
     dispatch: (command, origin) => engine.dispatch(command, origin),
     record: (id, event) => engine.record(id, event),

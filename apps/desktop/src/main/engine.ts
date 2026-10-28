@@ -86,7 +86,7 @@ export interface EngineDeps {
   resolveWorkspace?: (projectId: string) => Promise<string | null>
   runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
   /** A Hive bot's persona markdown, or null when the bot or its persona is gone. */
-  botPersona?: (botId: string) => Promise<string | null>
+  botPersona?: (botId: string, sessionId: string) => Promise<string | null>
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
   /** Whether finished children are reported to their parent; told to the agent. */
@@ -331,8 +331,7 @@ export class Engine {
         command.optionId !== undefined
           ? { optionId: command.optionId }
           : (command.decision ?? 'deny')
-      if (this.#deps.respondControlApproval?.(command.approvalId, answer))
-        return { accepted: true }
+      if (this.#deps.respondControlApproval?.(command.approvalId, answer)) return { accepted: true }
       // Route the decision to the live adapter so in-band approval protocols
       // (claude stdin control, ACP request_permission) actually proceed —
       // previously the decision was only journaled and the provider hung.
@@ -586,7 +585,9 @@ export class Engine {
       const viaSystem = driver.systemInstructions === true
       const fresh = viaSystem || resumeOf === null
       const persona =
-        fresh && session.botId ? ((await this.#deps.botPersona?.(session.botId)) ?? null) : null
+        fresh && session.botId
+          ? ((await this.#deps.botPersona?.(session.botId, session.id)) ?? null)
+          : null
       const preamble = fresh
         ? sessionInstructions(
             persona,
