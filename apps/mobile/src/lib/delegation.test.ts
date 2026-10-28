@@ -19,6 +19,7 @@ const task = (overrides: Partial<ChildTask> = {}): ChildTask => ({
   workState: 'result_available',
   blockedOn: null,
   queuedMessages: 0,
+  usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
   latestTurn: { turnId: 't', stopReason: 'completed', settledAt: 1 },
   report: 'Done.',
   reportTruncated: false,
