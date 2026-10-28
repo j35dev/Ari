@@ -41,6 +41,18 @@ Children inherit your permissions and cannot silently elevate them.
 Use stable `--key` values when retrying a mutation after a connection failure. The
 same key with the same arguments reuses its result; use a new key for a new operation.
 
+## Leading a team
+
+A session created as a lead ("Lead session" in the new-session menu) starts
+with a lead note: coordinate rather than code. Split the work into
+self-contained prompts with acceptance checks, spawn every child up front and
+let the concurrency cap queue the extras, and answer a worker's question with
+`session answer` unless the decision belongs to the human. The rest is the
+protocol below — inspect each diff, run `ari session integrate` explicitly, and
+do not spawn past a budget line: summarize what is left instead. "Lead" is
+guidance, not a permission; the session's mode still governs what it and its
+children may do.
+
 ## Getting results
 
 **You are told when children finish.** When a child's turn ends and you are not
