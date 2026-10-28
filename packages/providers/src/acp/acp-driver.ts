@@ -28,7 +28,12 @@ import { classifyAgentMode, findModeOption, pickAgentMode } from './modes'
 export { pickAgentMode } from './modes'
 import { loadImageData, missingImagesNote, stagedImagesOf } from '../attachments'
 import type { CatalogModel } from '../catalogs'
-import { resolveOfferedModel, setDynamicEfforts, setDynamicModels } from '../catalogs'
+import {
+  liveCatalogOf,
+  resolveOfferedModel,
+  setDynamicEfforts,
+  setDynamicModels,
+} from '../catalogs'
 import {
   AcpUpdateFolder,
   configOptionsFromUpdate,
@@ -1090,8 +1095,26 @@ export function shouldFallBack(error: unknown): boolean {
  */
 export function publishAdvertisedModels(kind: DriverKind, models: CatalogModel[]): void {
   if (models.length === 0) return
-  setDynamicModels(kind, 'live', models)
+  setDynamicModels(kind, 'live', withKnownEfforts(models, liveCatalogOf(kind)?.models ?? []))
   log.info('catalog taken from the session agent', { kind, count: models.length })
+}
+
+/**
+ * A turn's selector reports levels for the model it runs on only, so rows the
+ * catalog probe already resolved keep theirs; otherwise the first turn would
+ * erase them and the live cache would persist the loss.
+ */
+function withKnownEfforts(models: CatalogModel[], known: CatalogModel[]): CatalogModel[] {
+  const byId = new Map(known.map((model) => [model.id, model]))
+  return models.map((model) => {
+    const prior = byId.get(model.id)
+    if (model.efforts !== undefined || prior?.efforts === undefined) return model
+    return {
+      ...model,
+      efforts: prior.efforts,
+      ...(prior.effortsSource !== undefined ? { effortsSource: prior.effortsSource } : {}),
+    }
+  })
 }
 
 /**
