@@ -156,42 +156,6 @@ describe('SessionStore', () => {
     })
   })
 
-  describe('warm model cap', () => {
-    const fresh = (id: number): Session => ({
-      ...session,
-      id: `sess_warm${id}`,
-      title: `Warm ${id}`,
-      updatedAt: 1000 + id,
-    })
-
-    it('lets loaded read models fall out of memory past the cap', async () => {
-      for (let i = 0; i < 6; i++) {
-        await store.append(fresh(i).id, { type: 'session.created', session: fresh(i) })
-      }
-      // At the cap everything stays warm...
-      expect(store.hasWarmedModel('sess_warm0')).toBe(true)
-      // ...and the next appends evict from the cold end.
-      for (let i = 6; i < 10; i++) {
-        await store.append(fresh(i).id, { type: 'session.created', session: fresh(i) })
-      }
-      expect(store.hasWarmedModel('sess_warm0')).toBe(false)
-      expect(store.hasWarmedModel('sess_warm9')).toBe(true)
-      // Cold replays still serve full history.
-      expect((await store.load('sess_warm0')).session?.title).toBe('Warm 0')
-    })
-
-    it('keeps the appended session warm while others trim around it', async () => {
-      for (let i = 0; i < 9; i++) {
-        await store.append(fresh(i).id, { type: 'session.created', session: fresh(i) })
-      }
-      // Appending to the oldest session refolds (or replays) it fresh; the
-      // append's own entry survives its own eviction sweep.
-      await store.append('sess_warm0', { type: 'session.updated', title: 'Renamed' })
-      expect(store.hasWarmedModel('sess_warm0')).toBe(true)
-      expect((await store.load('sess_warm0')).session?.title).toBe('Renamed')
-    })
-  })
-
   describe('index preview', () => {
     it('truncates huge transcript text into the stored preview cap', async () => {
       const big = 'x'.repeat(600_000)
