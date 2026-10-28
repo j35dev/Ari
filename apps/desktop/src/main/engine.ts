@@ -86,7 +86,7 @@ export interface EngineDeps {
   resolveWorkspace?: (projectId: string) => Promise<string | null>
   runtimeEnvironment?: (session: Session) => Promise<Record<string, string | undefined>>
   /** A Hive bot's persona markdown, or null when the bot or its persona is gone. */
-  botPersona?: (botId: string) => Promise<string | null>
+  botPersona?: (botId: string, sessionId: string) => Promise<string | null>
   respondControlApproval?: (id: string, decision: AdapterApprovalDecision) => boolean
   authorizeTurn?: (session: Session) => Promise<string | null>
   /** Whether finished children are reported to their parent; told to the agent. */
@@ -331,8 +331,7 @@ export class Engine {
         command.optionId !== undefined
           ? { optionId: command.optionId }
           : (command.decision ?? 'deny')
-      if (this.#deps.respondControlApproval?.(command.approvalId, answer))
-        return { accepted: true }
+      if (this.#deps.respondControlApproval?.(command.approvalId, answer)) return { accepted: true }
       // Route the decision to the live adapter so in-band approval protocols
       // (claude stdin control, ACP request_permission) actually proceed —
       // previously the decision was only journaled and the provider hung.
@@ -586,7 +585,9 @@ export class Engine {
       const viaSystem = driver.systemInstructions === true
       const fresh = viaSystem || resumeOf === null
       const persona =
-        fresh && session.botId ? ((await this.#deps.botPersona?.(session.botId)) ?? null) : null
+        fresh && session.botId
+          ? ((await this.#deps.botPersona?.(session.botId, session.id)) ?? null)
+          : null
       const preamble = fresh
         ? sessionInstructions(
             persona,
@@ -961,6 +962,18 @@ export class Engine {
     })
   }
 
+  /** Starts delegated work left waiting by a restart, through the same gate. */
+  async drainHeld(): Promise<void> {
+    for (const row of await this.#deps.store.listSessions()) {
+      const model = await this.#deps.store.load(row.id)
+      if (
+        model.activeTurnId === null &&
+        model.queuedMessages.some((message) => message.held === true)
+      )
+        this.#scheduleQueueDrain(row.id, row.rootSessionId ?? null)
+    }
+  }
+
   /** Retries queues that were held only by root-level concurrency capacity. */
   #retryCapacityBlockedQueues(rootId: string): void {
     const blocked = this.#capacityBlockedQueues.get(rootId)
@@ -979,7 +992,9 @@ export class Engine {
     const fresh = await this.#deps.store.load(sessionId)
     const session = fresh.session
     if (!session || fresh.activeTurnId !== null) return
-    if (fresh.lastTurn && fresh.lastTurn.stopReason !== 'completed') return
+    // A user's Stop holds the user's own queue, but delegated work is already
+    // promised to a lead: after any settle it may take the next free slot.
+    const heldOnly = fresh.lastTurn !== undefined && fresh.lastTurn.stopReason !== 'completed'
     // A guard the snapshot already reflects is spent — its dequeue is applied,
     // so the entry is gone and nothing needs skipping. Only a guard whose
     // dequeue this snapshot predates still hides a queued entry.
@@ -987,6 +1002,7 @@ export class Engine {
     const skip = new Map<string, number>()
     for (const guard of pending) skip.set(guard.key, (skip.get(guard.key) ?? 0) + 1)
     const next = fresh.queuedMessages.find((queued) => {
+      if (heldOnly && queued.held !== true) return false
       const key = inputKey(queued.text, queued.origin, queued.attachments)
       const remaining = skip.get(key) ?? 0
       if (remaining === 0) return true

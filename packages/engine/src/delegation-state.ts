@@ -34,6 +34,8 @@ export function childWorkState(model: SessionReadModel, liveDescendants = 0): Ch
       : 'working'
   }
   if (model.lastTurn === undefined) return 'not_started'
+  // Delegated work waits for a root-wide slot even when this child is idle.
+  if (model.queuedMessages.some((message) => message.held === true)) return 'queued'
   // A queue behind a clean settle is about to run; behind a stop it is held.
   if (model.queuedMessages.length > 0 && model.lastTurn.stopReason === 'completed') return 'working'
   // A result of its own children that it has yet to be woken with is still

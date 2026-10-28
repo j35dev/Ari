@@ -58,6 +58,19 @@ export function decideCommand(
 
     case 'message.enqueue': {
       if (command.sessionId !== model.session.id) return reject('session id mismatch')
+      // Held work is delegated: it queues even on an idle session so the
+      // root's concurrency gate, not this command, decides when it starts.
+      if (command.hold === true) {
+        return accept([
+          {
+            type: 'message.enqueued',
+            text: command.text,
+            attachments: command.attachments ?? [],
+            ...(origin ? { origin } : {}),
+            held: true,
+          },
+        ])
+      }
       // A send that races a settle must never be lost. With no active turn the
       // message simply *is* the next turn, so decide it as one instead of
       // rejecting a command the user has no way to retry.
