@@ -1442,6 +1442,12 @@ describe('Shell live sidebar feed', () => {
     // The first list call carries an empty session, which a normal Mod+N
     // would reuse; the lead goes through creation regardless.
     await vi.waitFor(() => expect(screen.getAllByText('New session')).not.toHaveLength(0))
+    // The sidebar's own "New session" button satisfies the wait above before
+    // `project.list` lands, and Mod+N with no projects opens the folder picker
+    // instead of the menu.
+    await act(async () => {
+      await Promise.allSettled(invokeMock.mock.results.map((result) => result.value as unknown))
+    })
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
     const menu = await screen.findByRole('menu', { name: 'New session in project' })
