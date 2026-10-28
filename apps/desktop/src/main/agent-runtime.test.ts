@@ -435,3 +435,81 @@ it('wakes an idle parent with its child report and stops children with their par
     await rm(dir, { recursive: true, force: true, maxRetries: 3 })
   }
 }, 60_000)
+
+it('drops a session through onDrop when it is destroyed or archived', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ari-drop-'))
+  const store = new SessionStore({ rootDir: join(dir, 'sessions') })
+  const registry = new DriverRegistry()
+  registry.register({
+    kind: 'claude',
+    create: async () => ({
+      start: () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: 'done' as const }
+        },
+      }),
+      interrupt: () => undefined,
+      dispose: async () => undefined,
+    }),
+  })
+  const engine = new Engine({
+    store,
+    registry,
+    publish: () => undefined,
+    resolveWorkspace: async () => dir,
+    git: { captureCheckpoint: async () => ({ ok: true, value: null }) },
+  })
+  const dropped: string[] = []
+  const runtime = await startAgentRuntime({
+    engine,
+    store,
+    userData: dir,
+    cliPath,
+    executable: process.execPath,
+    version: 'test',
+    policy: () =>
+      delegationSettingsSchema.parse({
+        approvalMode: 'never',
+        allowSharedWorkspace: true,
+        defaultWorkspaceMode: 'shared',
+      }),
+    providers: async () => [{ driverKind: 'claude', available: true, models: [] }],
+    onDrop: (id) => dropped.push(id),
+  })
+  try {
+    await engine.createSession({
+      id: 'root',
+      projectId: 'project',
+      title: 'Root',
+      driverKind: 'claude',
+      modelId: null,
+      permissionMode: 'ask',
+      status: 'idle',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    const spawned = await runtime.service.invoke('root', 'session.spawn', {
+      title: 'Worker',
+      role: 'implementation',
+      driverKind: 'claude',
+      idempotencyKey: 'worker',
+    })
+    const child = (spawned as { result: { child: Session } }).result.child
+    await runtime.service.invoke('root', 'session.destroy', {
+      targetSessionId: child.id,
+      idempotencyKey: 'destroy',
+    })
+    expect(dropped).toContain(child.id)
+
+    // A remote archive reaches the engine directly, without the desktop RPC.
+    await engine.dispatch({ type: 'session.update', sessionId: 'root', archived: true })
+    expect(dropped).toContain('root')
+  } finally {
+    await runtime.close()
+    for (const session of await store.listSessions()) {
+      await engine.quiesce(session.id)
+      await store.closeJournal(session.id)
+    }
+    await rm(dir, { recursive: true, force: true, maxRetries: 3 })
+  }
+}, 60_000)
