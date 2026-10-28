@@ -23,6 +23,12 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
   }),
   /** A Hive bot routine fired with nobody present to answer it. */
   z.object({ kind: z.literal('routine'), routineId: z.string().min(1) }),
+  /** A turn the team room host sent to one of its bots. */
+  z.object({
+    kind: z.literal('room'),
+    roomId: z.string().min(1),
+    botId: z.string().min(1),
+  }),
 ])
 export type MessageOrigin = z.infer<typeof messageOriginSchema>
 
