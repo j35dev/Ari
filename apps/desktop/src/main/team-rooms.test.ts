@@ -77,8 +77,13 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-/** Appends one complete room turn ending with `text` for `sessionId`. */
-async function settleRoomTurn(sessionId: string, roomId: string, botId: string, text: string) {
+/** Appends one complete room turn ending with `text`, and returns its turn id. */
+async function appendRoomTurn(
+  sessionId: string,
+  roomId: string,
+  botId: string,
+  text: string,
+): Promise<string> {
   const turnId = `turn_${String(++turn)}`
   await store.append(sessionId, { type: 'turn.started', turnId })
   await store.append(sessionId, {
@@ -104,7 +109,12 @@ async function settleRoomTurn(sessionId: string, roomId: string, botId: string, 
     stopReason: 'completed',
     errorMessage: null,
   })
-  await service.onSettled(sessionId)
+  return turnId
+}
+
+/** Appends one complete room turn ending with `text` for `sessionId` and settles it. */
+async function settleRoomTurn(sessionId: string, roomId: string, botId: string, text: string) {
+  await service.onSettled(sessionId, await appendRoomTurn(sessionId, roomId, botId, text))
 }
 
 it('starts exactly one run for an unaddressed message, and follows it after a mention', async () => {
@@ -180,7 +190,32 @@ it('ignores a settle that belongs to the bot’s own human thread', async () => 
     stopReason: 'completed',
     errorMessage: null,
   })
-  await service.onSettled('sess_ada')
+  await service.onSettled('sess_ada', turnId)
   expect(sent).toHaveLength(1)
   expect((await service.list())[0]?.round?.awaiting).toEqual(['bot_ada'])
+})
+
+it('records a room reply even when a human turn starts before the settle is read', async () => {
+  const room = await service.create({
+    title: 'War room',
+    botIds: ['bot_ada', 'bot_bea'],
+    leadBotId: 'bot_ada',
+  })
+  await service.send(room.id, 'start')
+  const roomTurnId = await appendRoomTurn('sess_ada', room.id, 'bot_ada', 'Over to @Bea')
+  await store.append('sess_ada', { type: 'turn.started', turnId: 'turn_human' })
+  await store.append('sess_ada', {
+    type: 'user.message.added',
+    message: {
+      id: 'm_human',
+      sessionId: 'sess_ada',
+      turnId: 'turn_human',
+      role: 'user',
+      parts: [{ type: 'text', text: 'queued while Ada worked' }],
+      createdAt: 50,
+    },
+  })
+  await service.onSettled('sess_ada', roomTurnId)
+  expect(sent).toHaveLength(2)
+  expect(sent[1]?.origin).toEqual({ kind: 'room', roomId: room.id, botId: 'bot_bea' })
 })
