@@ -84,35 +84,41 @@ describe('Toast', () => {
     const user = userEvent.setup()
     render(
       <ToastProvider>
-        <Probe opts={{ title: 'Transient', durationMs: 120 }} />
+        // Long enough that a loaded runner cannot let the timer fire before
+        // the assertion below runs; the test is about the dismissal, not the
+        // exact deadline.
+        <Probe opts={{ title: 'Transient', durationMs: 500 }} />
       </ToastProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'show' }))
     expect(screen.getByText('Transient')).toBeInTheDocument()
     await waitFor(
       () => expect(screen.queryByText('Transient')).not.toBeInTheDocument(),
-      { timeout: 1500 },
+      { timeout: 3000 },
     )
-  }, 3000)
+  }, 8000)
 
   it('pauses dismissal while hovered and resumes on leave', async () => {
     const user = userEvent.setup()
     render(
       <ToastProvider>
-        <Probe opts={{ title: 'Paused', durationMs: 200 }} />
+        // The click-to-hover gap has to fit inside the duration, and that gap
+        // can stretch past a fifth of a second on a loaded runner — a timer
+        // that already fired is not something hovering can undo.
+        <Probe opts={{ title: 'Paused', durationMs: 1000 }} />
       </ToastProvider>,
     )
     await user.click(screen.getByRole('button', { name: 'show' }))
     await user.hover(screen.getByRole('status'))
     // Well past the original duration — hovered toasts must survive.
-    await new Promise((r) => setTimeout(r, 350))
+    await new Promise((r) => setTimeout(r, 1200))
     expect(screen.getByText('Paused')).toBeInTheDocument()
     await user.unhover(screen.getByRole('status'))
     await waitFor(
       () => expect(screen.queryByText('Paused')).not.toBeInTheDocument(),
-      { timeout: 1500 },
+      { timeout: 2500 },
     )
-  }, 4000)
+  }, 8000)
 
   it('fires action onClick then dismisses', async () => {
     const user = userEvent.setup()

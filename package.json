@@ -2,8 +2,9 @@
   "name": "ari",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.29.3",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "pnpm --filter @ari/desktop dev",
@@ -13,12 +14,6 @@
     "test": "pnpm -r test",
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
     "format": "prettier --write ."
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ]
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
