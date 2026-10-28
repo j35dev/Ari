@@ -623,8 +623,9 @@ export function modelsFromConfigOptions(configOptions: AcpConfigOption[]): Catal
  * session, one `session/set_config_option` at a time, then restores the model
  * the session started on. The default row reuses the initial answer; agents
  * that gate the effort selector per model cannot be enumerated any other way.
- * A failed switch leaves that row unresolved so the picker can still ask the
- * agent on demand.
+ * A refused switch leaves that row unresolved so the picker can still ask the
+ * agent on demand; a timeout or lost connection ends the probe with what it
+ * has, since every remaining row would wait out the same deadline.
  */
 export async function attachModelEfforts(
   connection: AcpConnection,
@@ -661,6 +662,8 @@ export async function attachModelEfforts(
       refreshed = next
     } catch (error) {
       log.debug('model effort probe skipped', { model: model.id, error: String(error) })
+      // Only an agent's JSON-RPC refusal carries a code.
+      if (!(error instanceof AcpConnectionError) || error.code === null) return
     }
   }
   if (defaultId !== null && refreshed !== configOptions) {

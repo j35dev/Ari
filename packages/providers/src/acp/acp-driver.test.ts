@@ -719,6 +719,36 @@ describe('createAcpAdapter', () => {
     ])
   })
 
+  it('stops probing model efforts at the first timeout but not at a refusal', async () => {
+    const configOptions = [
+      {
+        id: 'model',
+        category: 'model',
+        type: 'select',
+        currentValue: 'm1',
+        options: ['m1', 'm2', 'm3', 'm4'].map((value) => ({ value, name: value })),
+      },
+    ]
+    const setConfigOption = vi.fn(async (_sessionId: string, _configId: string, value: string) => {
+      if (value === 'm2') throw new AcpConnectionError('unknown model', -32602)
+      throw new AcpConnectionError('session/set_config_option timed out after 10000ms')
+    })
+    const models: CatalogModel[] = ['m1', 'm2', 'm3', 'm4'].map((id) => ({ id, label: id }))
+
+    await attachModelEfforts(
+      { setConfigOption } as unknown as AcpConnection,
+      { sessionId: 's1', configOptions },
+      models,
+      { currentId: null, options: [] },
+    )
+
+    expect(setConfigOption.mock.calls).toEqual([
+      ['s1', 'model', 'm2'],
+      ['s1', 'model', 'm3'],
+    ])
+    expect(models.every((model) => model.efforts === undefined)).toBe(true)
+  })
+
   it('lifts the version out of a description that opens with the model name', () => {
     expect(
       describeAdvertisedModel('opus', 'Opus', 'Opus 5.5 · Best for everyday, complex tasks'),
