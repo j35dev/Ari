@@ -27,20 +27,22 @@ jobs:
     # macOS is where it breaks first: `sockaddr_un.sun_path` is 104 bytes there
     # against 108 on Linux, and Electron's userData prefix is far longer, so
     # platform-specific failures in the control transport only surface here.
-    # `fail-fast: false` so a macOS failure still reports the Linux result.
+    # Windows is a first-class target (NSIS installer, `%APPDATA%\Ari Dev`, the
+    # Git Bash handling for ARI_CLI), so path, socket and quoting regressions
+    # get caught here rather than by users. `fail-fast: false` so one OS
+    # failing still reports the others.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      # No `packageManager` field in root package.json, so pin explicitly.
-      # Lockfile is lockfileVersion 9.0 (pnpm >= 9); local dev runs pnpm 10.x.
+      # The version comes from `packageManager` in the root package.json, so CI
+      # and a contributor's machine resolve the same pnpm. Naming it here too
+      # makes pnpm/action-setup fail on a mismatch instead.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -53,14 +55,57 @@ jobs:
       - name: Verify (typecheck + lint + test)
         run: pnpm verify
 
-  # Required by the `protect main` ruleset. `always()` so it still reports when
-  # a platform leg fails or is cancelled, and fails in that case rather than
-  # masking it — the required check has to reflect the whole matrix.
-  verify:
-    if: always()
-    needs: platform
+  # Bundles are what a release ships, and nothing built them until a v* tag: a
+  # bad import only the bundler resolves, or a broken PWA build, could merge
+  # green and only surface at release time. Bundles only — no packaging, no
+  # signing.
+  bundles:
     runs-on: ubuntu-latest
     steps:
-      - name: Confirm every platform leg passed
-        if: needs.platform.result != 'success'
-        run: exit 1
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop bundle
+        run: pnpm --filter @ari/desktop build
+
+      - name: Build mobile PWA
+        run: pnpm --filter @ari/mobile build
+
+  # Required by the `protect main` ruleset. `always()` so it still reports when
+  # a leg fails or is cancelled, and fails in that case rather than masking it —
+  # the required check has to reflect the whole matrix.
+  verify:
+    if: always()
+    needs: [platform, bundles]
+    runs-on: ubuntu-latest
+    steps:
+      # One name covers every matrix leg plus the bundle build, so say which one
+      # broke. The
+      # runner-never-assigned case gets its own message: a leg GitHub could not
+      # place is cancelled with no steps recorded at all, which is an
+      # infrastructure fault that needs a re-run, not a code fix. It still fails
+      # the check — nothing here continues on error.
+      - name: Report why the required check failed
+        if: needs.platform.result != 'success' || needs.bundles.result != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ needs.platform.result }}
+          BUNDLES: ${{ needs.bundles.result }}
+        run: |
+          set -euo pipefail
+          stranded=$(gh api --paginate             "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100"             --jq '[.jobs[] | select(.conclusion == "cancelled") | select((.steps | length) == 0) | .name] | join(", ")')
+          if [ -n "$stranded" ]; then
+            echo "::error title=No hosted runner was assigned::${stranded} was cancelled before a single step ran, so nothing was tested. Re-run the workflow for a real verdict."
+          else
+            echo "::error title=verify failed::platform=${PLATFORM} bundles=${BUNDLES}. Open this run for the failing step."
+          fi
+          exit 1

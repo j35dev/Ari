@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { InstallEvent } from './install'
-import { runInstall } from './install'
+import { ringTail, runInstall } from './install'
 
 function collect(): { events: InstallEvent[]; onEvent: (event: InstallEvent) => void } {
   const events: InstallEvent[] = []
@@ -91,4 +91,16 @@ describe('runInstall', () => {
     await handle.done
     expect(events.at(-1)).toMatchObject({ type: 'exit', truncated: true, code: 0 })
   }, 20000)
+
+  it('tracks overflow across chunks that are each under the cap', () => {
+    const ring = ringTail(16)
+    for (let i = 0; i < 10; i++) ring.push(`line-${i}\n`, () => {}, 'stdout')
+    expect(ring.overflowed()).toBe(true)
+  })
+
+  it('does not report overflow while the stream stays under the cap', () => {
+    const ring = ringTail(64)
+    for (const line of ['one\n', 'two\n']) ring.push(line, () => {}, 'stdout')
+    expect(ring.overflowed()).toBe(false)
+  })
 })

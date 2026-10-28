@@ -64,15 +64,21 @@ An agent you don't use simply stays unlisted — detection is passive and offlin
 
 ## Quick start
 
-Prerequisites: **Node ≥ 22** and **pnpm**.
+Prerequisites: **Node ≥ 22.13** (pnpm needs it) and **pnpm** — CI and the
+lockfile are pinned to the version in `packageManager`, so `corepack enable`
+picks the right one up for you.
 
 ```sh
 git clone https://github.com/j35dev/Ari.git
 cd Ari
-pnpm install
-pnpm approve-builds        # once — approves the node-pty native postinstall
-pnpm dev                   # launch the desktop app
+pnpm install               # electron and esbuild download their binaries; no
+pnpm dev                   # approve-builds step is needed
 ```
+
+`pnpm-workspace.yaml` already allows the three packages that need install
+scripts (`electron`, `esbuild`, `electron-winstaller`), so `pnpm install` runs
+them itself. The terminal's pty comes from `@lydell/node-pty` prebuilt
+binaries, which have no install script at all.
 
 `pnpm dev` runs as **Ari Dev** with its own profile (Windows: `%APPDATA%\Ari Dev`),
 so it can sit next to an installed Ari. Sessions and settings are not shared.
@@ -115,7 +121,6 @@ From the repo root:
 
 ```sh
 pnpm install
-pnpm approve-builds                          # once, for node-pty
 pnpm --filter @ari/desktop build             # renderer + main bundles
 pnpm --filter @ari/mobile build              # phone PWA, packed into the installer
 cd apps/desktop

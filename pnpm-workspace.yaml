@@ -2,3 +2,18 @@ packages:
   - apps/*
   - packages/*
   - scripts
+
+# Packages allowed to run install scripts. `electron` and `esbuild` download
+# their binaries; `electron-winstaller` (a dependency of electron-builder) runs
+# `select-7z-arch.js` to pick the 7z used to build the NSIS installer.
+#
+# Two spellings: pnpm 10 reads `onlyBuiltDependencies`, pnpm 11 renamed it to
+# `allowBuilds` and ignores the old key (agreeing on the same three packages).
+onlyBuiltDependencies:
+  - electron
+  - electron-winstaller
+  - esbuild
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
