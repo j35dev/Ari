@@ -391,7 +391,9 @@ suite('GitService', { timeout: GIT_TIMEOUT }, () => {
       expect(listed).toContain(ref)
       expect(listed).toEqual(refs.slice(-3).sort())
     }
-  }, 30000)
+    // Twenty capture+prune rounds spend most of 30 s on Windows git; the
+    // budget is for a slow disk, not for a slow assertion.
+  }, 120_000)
 
   it('pruneCheckpoints keeps capture order for identical back-to-back captures (same second)', async () => {
     const dir = await initRepo()
