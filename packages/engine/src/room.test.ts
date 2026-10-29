@@ -79,6 +79,14 @@ describe('routeHumanMessage', () => {
     expect(picked.state.activeBotId).toBe('bot_c')
   })
 
+  it('answers a pick prompt without posting the message a second time', () => {
+    const pick = human(room(), 'who can take this?')
+    const picked = human(pick.state, 'who can take this?', 'bot_b')
+    expect(picked.targets).toEqual(['bot_b'])
+    expect(picked.state.log.map((entry) => entry.text)).toEqual(['who can take this?'])
+    expect(picked.state.window).toEqual([{ botId: null, text: 'who can take this?' }])
+  })
+
   it('queues a message sent during a live round and starts it once the room settles', () => {
     const start = human(room(), '@Ada plan it')
     const queued = human(start.state, '@Bea check the schema')

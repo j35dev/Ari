@@ -165,7 +165,14 @@ export function routeHumanMessage(
   stamp: RoomStamp,
   botId: string | null = null,
 ): RoomRoute {
-  const posted = { ...post(state, null, text, stamp), needsUser: false }
+  // Answering a pick prompt re-sends the message that raised it; it is
+  // already the newest line, so it is addressed rather than posted twice.
+  const last = state.log[state.log.length - 1]
+  const answersPick =
+    botId !== null && state.round === null && last?.botId === null && last.text === text
+  const posted = answersPick
+    ? { ...state, needsUser: false }
+    : { ...post(state, null, text, stamp), needsUser: false }
   if (state.round !== null) {
     return {
       state: { ...posted, pending: [...state.pending, { text, botId }] },
