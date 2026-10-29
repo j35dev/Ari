@@ -75,8 +75,7 @@ describe('botSubtitle', () => {
 
 describe('isBotSession', () => {
   it('tells a bot-owned session from an ordinary one', () => {
-    expect(isBotSession({ id: 'sess_1', botId: 'bot_1' })).toBe(true)
-    expect(isBotSession({ id: 'sess_1' })).toBe(false)
-    expect(isBotSession({ id: 'sess_1', botId: null })).toBe(false)
+    expect(isBotSession(session({ botId: 'bot_1' }))).toBe(true)
+    expect(isBotSession(session())).toBe(false)
   })
 })

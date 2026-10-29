@@ -44,6 +44,6 @@ export function botSubtitle(bot: Bot, session: SessionSummary | undefined): stri
  * True for a session a bot owns: its main session or one of its room threads.
  * Those belong to the Hive, so the normal sidebar leaves them out.
  */
-export function isBotSession(session: { id: string; botId?: string | null }): boolean {
-  return typeof session.botId === 'string' && session.botId.length > 0
+export function isBotSession(session: SessionSummary): boolean {
+  return session.botId !== undefined
 }
