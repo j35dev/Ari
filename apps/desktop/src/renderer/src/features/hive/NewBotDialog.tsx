@@ -59,7 +59,9 @@ export function NewBotDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const chosenProject = projects.find((project) => project.id === projectId)
+  // The dialog mounts with the roster, often before the projects arrive, so
+  // an unpicked project falls back to the first one rather than to nothing.
+  const chosenProject = projects.find((project) => project.id === projectId) ?? projects[0]
   const trimmedName = draft.name.trim()
 
   const startFrom = (id: string): void => {
@@ -170,7 +172,7 @@ export function NewBotDialog({
               <Select
                 {...control}
                 aria-label="Project"
-                value={projectId}
+                value={chosenProject?.id ?? ''}
                 options={projects.map((project) => ({ value: project.id, label: project.name }))}
                 placeholder="Choose a project"
                 onValueChange={setProjectId}
