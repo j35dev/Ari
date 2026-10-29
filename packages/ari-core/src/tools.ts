@@ -42,6 +42,11 @@ export interface ToolContext {
   /** Tool names cleared for the rest of the run via an `always-allow` decision. */
   approvedTools?: ReadonlySet<string>
   /**
+   * Aborted when the user steers or stops the turn. Bash stops its child
+   * process; other tools may ignore it.
+   */
+  signal?: AbortSignal
+  /**
    * Ripgrep binary for the grep tool: explicit path, `null` to force the JS
    * fallback, or absent to auto-detect on PATH.
    */
@@ -424,46 +429,56 @@ const BASH_MAX_TIMEOUT_SECONDS = 1_800
  * being swallowed, and `timeout` is model-controlled within a hard cap.
  */
 async function executeBash(args: BashArgs, ctx: ToolContext): Promise<string> {
+  if (ctx.signal?.aborted === true) {
+    return 'Stopped: the user steered the turn before the command started.'
+  }
   const requested = args.timeout ?? BASH_DEFAULT_TIMEOUT_SECONDS
   const timeoutMs = Math.min(Math.max(1, requested), BASH_MAX_TIMEOUT_SECONDS) * 1000
-  const outcome = await new Promise<{ text: string; exitCode: number | null; timedOut: boolean }>(
-    (resolve) => {
-      const command = args.command
-      const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'
-      const shellArg = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command]
-      execFile(
-        shell,
-        shellArg,
-        {
-          cwd: ctx.workspacePath,
-          env: ctx.runtimeEnv,
-          timeout: timeoutMs,
-          maxBuffer: 4 * 1024 * 1024,
-          windowsHide: true,
-        },
-        (error, stdout, stderr) => {
-          const raw = [stdout.toString(), stderr.toString()].filter(Boolean).join('\n')
-          const truncation = truncateTail(raw)
-          let text = truncation.content || '(no output)'
-          if (truncation.truncated) {
-            text += `\n\n[Showing lines ${truncation.firstLine}-${truncation.totalLines} of ${truncation.totalLines} (output truncated)]`
-          }
-          const timedOut = error instanceof Error && error.killed === true
-          const code =
-            error && typeof (error as NodeJS.ErrnoException).code === 'number'
-              ? ((error as NodeJS.ErrnoException).code as unknown as number)
-              : timedOut
-                ? null
-                : error
-                  ? 1
-                  : 0
-          resolve({ text, exitCode: error ? code : 0, timedOut })
-        },
-      )
-    },
-  )
+  const outcome = await new Promise<{
+    text: string
+    exitCode: number | null
+    timedOut: boolean
+    stopped: boolean
+  }>((resolve) => {
+    const command = args.command
+    const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'
+    const shellArg = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-c', command]
+    execFile(
+      shell,
+      shellArg,
+      {
+        cwd: ctx.workspacePath,
+        env: ctx.runtimeEnv,
+        timeout: timeoutMs,
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+        signal: ctx.signal,
+      },
+      (error, stdout, stderr) => {
+        const raw = [stdout.toString(), stderr.toString()].filter(Boolean).join('\n')
+        const truncation = truncateTail(raw)
+        let text = truncation.content || '(no output)'
+        if (truncation.truncated) {
+          text += `\n\n[Showing lines ${truncation.firstLine}-${truncation.totalLines} of ${truncation.totalLines} (output truncated)]`
+        }
+        const stopped = ctx.signal?.aborted === true
+        const timedOut = !stopped && error instanceof Error && error.killed === true
+        const code =
+          error && typeof (error as NodeJS.ErrnoException).code === 'number'
+            ? ((error as NodeJS.ErrnoException).code as unknown as number)
+            : timedOut || stopped
+              ? null
+              : error
+                ? 1
+                : 0
+        resolve({ text, exitCode: error ? code : 0, timedOut, stopped })
+      },
+    )
+  })
   let text = outcome.text
-  if (outcome.timedOut) {
+  if (outcome.stopped) {
+    text += '\n\n[Command stopped because the user steered the turn]'
+  } else if (outcome.timedOut) {
     text += `\n\n[Command timed out after ${timeoutMs / 1000} seconds and was killed]`
   } else if (outcome.exitCode !== null && outcome.exitCode !== 0) {
     text += `\n\n[Command exited with code ${outcome.exitCode}]`

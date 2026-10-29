@@ -176,6 +176,91 @@ describe('agent loop', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('sends a steer that aborted an empty model call on the next request', async () => {
+    const seen: ChatMessage[][] = []
+    let call = 0
+    let pulls = 0
+    const events: AgentEvent[] = []
+    for await (const event of runAgentLoop({
+      round: async function* (messages) {
+        seen.push(messages.map((message) => ({ ...message })))
+        call += 1
+        if (call === 1) {
+          // An abort before the first token leaves the round empty.
+          yield { type: 'done' }
+          return
+        }
+        yield { type: 'text-delta', text: 'adjusted' }
+        yield { type: 'done' }
+      },
+      systemPrompt: 's',
+      userPrompt: 'keep going',
+      workspacePath: '.',
+      takeSteering: () => {
+        pulls += 1
+        return pulls === 2 ? ['stop and write the test'] : []
+      },
+    })) {
+      events.push(event)
+    }
+    expect(events.some((event) => event.type === 'error')).toBe(false)
+    expect(events.at(-1)?.type).toBe('done')
+    expect(
+      seen[1]?.some(
+        (message) => message.role === 'user' && message.content === 'stop and write the test',
+      ),
+    ).toBe(true)
+  })
+
+  it('skips tools that have not started once a steer is waiting', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-steer-skip-'))
+    try {
+      const steered: string[] = []
+      const seen: ChatMessage[][] = []
+      let call = 0
+      const events: AgentEvent[] = []
+      for await (const event of runAgentLoop({
+        round: async function* (messages) {
+          seen.push(messages.map((message) => ({ ...message })))
+          call += 1
+          if (call === 1) {
+            steered.push('do not write that file')
+            yield {
+              type: 'tool-started',
+              callId: 'w1',
+              name: 'write',
+              argsJson: JSON.stringify({ path: 'skip-me.txt', content: 'nope' }),
+            }
+            yield { type: 'done' }
+            return
+          }
+          yield { type: 'text-delta', text: 'adjusted' }
+          yield { type: 'done' }
+        },
+        systemPrompt: 's',
+        userPrompt: 'write a file',
+        workspacePath: dir,
+        permissionMode: 'full',
+        hasSteering: () => steered.length > 0,
+        takeSteering: () => steered.splice(0),
+      })) {
+        events.push(event)
+      }
+      await expect(readFile(join(dir, 'skip-me.txt'), 'utf8')).rejects.toThrow()
+      const skipped = events.find((event) => event.type === 'tool-completed')
+      if (skipped?.type !== 'tool-completed') throw new Error('expected tool-completed')
+      expect(skipped.isError).toBe(true)
+      expect(skipped.resultJson).toContain('user steered')
+      expect(
+        seen[1]?.some(
+          (message) => message.role === 'user' && message.content === 'do not write that file',
+        ),
+      ).toBe(true)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('permission modes', () => {
