@@ -113,6 +113,71 @@ it('updates a bot and keeps the change across a new store', async () => {
   expect(await readdir(join(dir, bot.id))).toEqual(['bot.json', 'persona.md'])
 })
 
+it('keeps a bot character, title and tagline through create and update', async () => {
+  const dir = join(userData, 'bots')
+  const store = new BotStore({ dir })
+  const bot = await store.create({
+    name: 'Forge',
+    emoji: '🔨',
+    character: {
+      body: 'round',
+      eyes: 'visor',
+      mouth: 'grin',
+      top: 'antenna',
+      accessory: 'headset',
+      palette: 3,
+    },
+    title: 'Builder',
+    tagline: 'Ships it.',
+    personaMd: '# Forge\n',
+    driverKind: 'claude',
+    modelId: null,
+  })
+  expect(await new BotStore({ dir }).get(bot.id)).toEqual(bot)
+  expect(bot).toMatchObject({ title: 'Builder', tagline: 'Ships it.', character: { palette: 3 } })
+
+  const updated = await store.update(bot.id, {
+    character: { ...bot.character!, top: 'halo', palette: 9 },
+    title: 'Lead builder',
+  })
+
+  expect(await new BotStore({ dir }).get(bot.id)).toEqual(updated)
+  expect(updated).toMatchObject({
+    title: 'Lead builder',
+    tagline: 'Ships it.',
+    character: { top: 'halo', palette: 9 },
+  })
+})
+
+it('loads a bot saved before characters, titles and taglines', async () => {
+  const dir = join(userData, 'bots')
+  await mkdir(join(dir, 'bot_old'), { recursive: true })
+  await writeFile(
+    join(dir, 'bot_old', 'bot.json'),
+    JSON.stringify({
+      id: 'bot_old',
+      name: 'Old',
+      emoji: '🦉',
+      driverKind: 'claude',
+      modelId: null,
+    }),
+    'utf8',
+  )
+  await writeFile(join(dir, 'bot_old', 'persona.md'), '# Old\n', 'utf8')
+
+  const bot = await new BotStore({ dir }).get('bot_old')
+
+  expect(bot).toEqual({
+    id: 'bot_old',
+    name: 'Old',
+    emoji: '🦉',
+    personaMd: '# Old\n',
+    driverKind: 'claude',
+    modelId: null,
+  })
+  expect(bot && ['character', 'title', 'tagline'].filter((key) => key in bot)).toEqual([])
+})
+
 it('refuses to update an unknown bot', async () => {
   const store = new BotStore({ dir: join(userData, 'bots') })
   await expect(store.update('bot_missing', { hidden: true })).rejects.toThrow('unknown bot')
