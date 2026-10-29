@@ -390,9 +390,31 @@ export class AriCoreDriver implements Driver {
     // Mode-gated calls park here until the host answers via respondApproval.
     const pendingApprovals = new Map<string, (decision: AdapterApprovalDecision) => void>()
     const pendingInputs = new Map<string, (value: string) => void>()
-    // Texts `steer` accepted. The loop pulls them at each round boundary.
+    // Texts `steer` accepted. The loop pulls them as soon as the in-flight
+    // model call stops, which `steer` forces by aborting that call.
     const steeredTexts: string[] = []
     let acceptingSteer = true
+    /** Model-call signal for the current round; a steer aborts only this call. */
+    let roundAbort = new AbortController()
+    /** Tool-batch signal; bash stops its child, other tools ignore it. */
+    let toolAbort = new AbortController()
+    const abortTools = (): void => {
+      toolAbort.abort()
+    }
+    if (abort.signal.aborted) abortTools()
+    else abort.signal.addEventListener('abort', abortTools, { once: true })
+    const renewToolSignal = (): AbortSignal => {
+      toolAbort = new AbortController()
+      if (abort.signal.aborted) toolAbort.abort()
+      return toolAbort.signal
+    }
+    const roundSignal = (parent?: AbortSignal): AbortSignal => {
+      const local = new AbortController()
+      roundAbort = local
+      if (parent?.aborted === true) local.abort()
+      else parent?.addEventListener('abort', () => local.abort(), { once: true })
+      return local.signal
+    }
     // Live MCP connections for this turn; disposed with the adapter or at
     // the end of the loop, whichever comes first (dispose is idempotent).
     const mcpConnections: McpConnection[] = []
@@ -487,14 +509,15 @@ export class AriCoreDriver implements Driver {
         // the floor under compaction, not a replacement for it: trimming drops
         // history, compaction summarizes it first.
         const effective = trimMessages(messages, contextCharLimit)
+        const signalForRound = roundSignal(signal)
         switch (endpoint.flavor) {
           case 'anthropic-messages':
             return (clients.anthropic ?? streamChatAnthropic)(
-              anthropicRequest(endpoint, model, apiKey, effective, signal, effort, advertised),
+              anthropicRequest(endpoint, model, apiKey, effective, signalForRound, effort, advertised),
             )
           case 'ollama':
             return (clients.ollama ?? streamChatOllama)(
-              ollamaRequest(endpoint, model, apiKey, effective, signal),
+              ollamaRequest(endpoint, model, apiKey, effective, signalForRound),
             )
           case 'openai-chat':
             return (clients.openai ?? streamChatCompletion)({
@@ -504,7 +527,7 @@ export class AriCoreDriver implements Driver {
               messages: effective,
               tools: advertised,
               headers: endpoint.headers,
-              signal,
+              signal: signalForRound,
               reasoningEffort: effort,
             })
         }
@@ -591,6 +614,8 @@ export class AriCoreDriver implements Driver {
             latest = messages
           },
           takeSteering: () => steeredTexts.splice(0),
+          hasSteering: () => steeredTexts.length > 0,
+          renewToolSignal,
           closeSteering: () => {
             acceptingSteer = false
           },
@@ -631,6 +656,10 @@ export class AriCoreDriver implements Driver {
       steer: (text) => {
         if (!acceptingSteer || text.length === 0) return false
         steeredTexts.push(text)
+        // Drop the in-flight model call and any command still running so the
+        // loop sends this text on the next request instead of after the turn.
+        roundAbort.abort()
+        toolAbort.abort()
         return true
       },
       interrupt: () => abort.abort(),
