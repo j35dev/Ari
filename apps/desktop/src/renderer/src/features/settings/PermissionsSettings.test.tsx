@@ -142,4 +142,12 @@ describe('PermissionsSettings', () => {
       expect(mocks.update).toHaveBeenCalledWith({ delegation: { approvalMode: 'always' } }),
     )
   })
+
+  it('persists the bots-remember switch under hive', async () => {
+    const user = userEvent.setup()
+    render(<PermissionsSettings />)
+
+    await user.click(screen.getByRole('switch', { name: 'Bots remember on their own' }))
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ hive: { selfMemory: true } }))
+  })
 })
