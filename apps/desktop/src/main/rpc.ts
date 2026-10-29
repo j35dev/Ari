@@ -34,7 +34,7 @@ import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
-import { createBot, createSession, type SessionCreateDeps } from './bots'
+import { createBot, createSession, updateBot, type SessionCreateDeps } from './bots'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -1610,6 +1610,19 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('bots.list', () => getBotStore().list())
   r.register('bots.create', (params) => createBot(sessionDeps, params))
   r.register('bots.setHidden', ({ botId, hidden }) => getBotStore().update(botId, { hidden }))
+  r.register('bots.update', ({ botId, patch }) =>
+    updateBot(
+      {
+        bots: getBotStore(),
+        refreshRooms: async (bot) => {
+          await teamRoomsReady
+          await teamRooms?.refreshBot(bot)
+        },
+      },
+      botId,
+      patch,
+    ),
+  )
   r.register('routines.list', async () => {
     await botRoutinesReady
     return botRoutines.list()
