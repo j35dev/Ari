@@ -1,0 +1,151 @@
+/*
+ * Moods for BotAvatar (components/BotAvatar.tsx): breathing, blinking, a
+ * working drift, a talking squish, a hop for "needs you". CSS only, so a
+ * roster of avatars runs no script. `--ari-bot-phase` is a per-avatar negative
+ * delay that keeps a roster from breathing and blinking in step.
+ *
+ * Reduced motion is not handled here: the renderer's interaction-motion.css
+ * stills every animation for both the OS preference and the in-app switch, and
+ * each keyframe set rests at the avatar's still pose.
+ */
+
+.ari-bot {
+  overflow: visible;
+}
+
+.ari-bot .ari-bot-body {
+  transform-box: view-box;
+  transform-origin: 50px 86px;
+}
+
+.ari-bot .ari-bot-eyes,
+.ari-bot .ari-bot-eye,
+.ari-bot .ari-bot-spark {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.ari-bot--idle .ari-bot-body {
+  animation: ari-bot-breathe 3.8s ease-in-out infinite var(--ari-bot-phase, 0s);
+}
+
+.ari-bot--idle .ari-bot-eye {
+  animation: ari-bot-blink 4.6s infinite var(--ari-bot-phase, 0s);
+}
+
+.ari-bot--working .ari-bot-body {
+  animation: ari-bot-drift 1.6s ease-in-out infinite var(--ari-bot-phase, 0s);
+}
+
+.ari-bot--working .ari-bot-eyes {
+  animation: ari-bot-glance 2.6s ease-in-out infinite var(--ari-bot-phase, 0s);
+}
+
+.ari-bot--working .ari-bot-trail circle {
+  animation: ari-bot-trail 1.6s linear infinite;
+}
+
+.ari-bot--replying .ari-bot-body {
+  animation: ari-bot-talk 0.55s ease-in-out infinite;
+}
+
+.ari-bot--needs-you .ari-bot-body {
+  animation: ari-bot-hop 1.15s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
+}
+
+.ari-bot--asleep .ari-bot-body {
+  animation: ari-bot-breathe 5.2s ease-in-out infinite var(--ari-bot-phase, 0s);
+}
+
+.ari-bot .ari-bot-spark {
+  animation: ari-bot-twinkle 2.2s ease-in-out infinite;
+}
+
+@keyframes ari-bot-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.02, 0.98);
+  }
+}
+
+@keyframes ari-bot-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.12);
+  }
+}
+
+@keyframes ari-bot-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0);
+  }
+  50% {
+    transform: translate(1.5px, -2px) rotate(-1.5deg);
+  }
+}
+
+@keyframes ari-bot-glance {
+  0%,
+  35%,
+  100% {
+    transform: translateX(0);
+  }
+  45%,
+  80% {
+    transform: translateX(2.5px);
+  }
+}
+
+@keyframes ari-bot-talk {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.035, 0.965);
+  }
+}
+
+@keyframes ari-bot-hop {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  22% {
+    transform: translateY(-7px) scale(0.97, 1.03);
+  }
+  42% {
+    transform: translateY(0) scale(1.04, 0.96);
+  }
+}
+
+@keyframes ari-bot-trail {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+@keyframes ari-bot-twinkle {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.6);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
