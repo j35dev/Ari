@@ -1,4 +1,6 @@
+import type { BotCharacter } from '@ari/contracts/bot'
 import type { TeamRoomFrame, TeamRoomSummary } from '@ari/contracts/rpc'
+import { characterFromSeed } from '@ari/ui/bot-character'
 
 /** One bot seated in a room, as the room summary carries it. */
 export type RoomMember = TeamRoomSummary['bots'][number]
@@ -27,6 +29,11 @@ export function applyRoomFrame(
   if (next === null) return rooms.filter((room) => room.id !== frame.roomId)
   if (!rooms.some((room) => room.id === frame.roomId)) return [next, ...rooms]
   return rooms.map((room) => (room.id === frame.roomId ? next : room))
+}
+
+/** The look a member wears: its saved character, else the one its bot id derives. */
+export function memberCharacter(member: RoomMember): BotCharacter {
+  return member.character ?? characterFromSeed(member.botId)
 }
 
 export function memberOf(room: TeamRoomSummary, botId: string | null): RoomMember | undefined {
