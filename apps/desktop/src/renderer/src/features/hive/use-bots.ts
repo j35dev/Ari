@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Bot, BotCreateParams } from '@ari/contracts/bot'
+import type { Bot, BotCreateParams, BotUpdatePatch } from '@ari/contracts/bot'
 import { createLogger } from '@ari/shared/logger'
+import { characterOf } from '@ari/ui/bot-character'
 import { rpc } from '../../lib/rpc'
 
 const log = createLogger('renderer:hive')
@@ -16,6 +17,8 @@ export interface BotsStore {
   refresh: () => Promise<void>
   create: (input: BotCreateParams) => Promise<Bot>
   duplicate: (bot: Bot, projectId: string) => Promise<Bot>
+  /** Changes a bot's look or identity; the driver, model and project stay. */
+  update: (botId: string, patch: BotUpdatePatch) => Promise<Bot>
   setHidden: (botId: string, hidden: boolean) => Promise<void>
 }
 
@@ -72,6 +75,10 @@ export function useBots(): BotsStore {
       return await create({
         name: `${bot.name}${DUPLICATE_SUFFIX}`,
         emoji: bot.emoji,
+        // The copy gets a new id, so a derived look would change; it keeps the original's.
+        character: characterOf(bot),
+        ...(bot.title !== undefined && bot.title.length > 0 ? { title: bot.title } : {}),
+        ...(bot.tagline !== undefined && bot.tagline.length > 0 ? { tagline: bot.tagline } : {}),
         personaMd: bot.personaMd,
         driverKind: bot.driverKind,
         modelId: bot.modelId,
@@ -79,6 +86,15 @@ export function useBots(): BotsStore {
       })
     },
     [create],
+  )
+
+  const update = useCallback(
+    async (botId: string, patch: BotUpdatePatch) => {
+      const bot = await rpc.invoke('bots.update', { botId, patch })
+      await refresh()
+      return bot
+    },
+    [refresh],
   )
 
   const setHidden = useCallback(
@@ -89,5 +105,5 @@ export function useBots(): BotsStore {
     [refresh],
   )
 
-  return { bots, loading, error, refresh, create, duplicate, setHidden }
+  return { bots, loading, error, refresh, create, duplicate, update, setHidden }
 }
