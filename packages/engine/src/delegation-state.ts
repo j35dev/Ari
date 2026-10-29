@@ -113,7 +113,7 @@ export function questionNotice(question: DelegatedQuestion): string {
     }
   }
   return [
-    `[Ari delegation question: child session "${question.title}" (${question.childSessionId}) is waiting for you, not the user.]`,
+    `[Ari delegation question: ${question.title} (${question.childSessionId}) is waiting for you, not the user. The user does not see this message.]`,
     question.prompt + choices,
     `Answer with: ari session answer ${question.childSessionId} --input ${question.inputId} "your answer"`,
     'If only the user can decide, ask them in your own turn and answer after they reply.',
@@ -145,7 +145,7 @@ export function completionNotice(
   budget?: string | null,
 ): string {
   const sections = reports.map((entry) => {
-    const head = `Child session "${entry.title}" (${entry.sessionId}) ${OUTCOME[entry.stopReason]}.`
+    const head = `${entry.title} (${entry.sessionId}) ${OUTCOME[entry.stopReason]}.`
     const error =
       entry.stopReason === 'error' && entry.errorMessage ? `\nError: ${entry.errorMessage}` : ''
     const body =
@@ -162,12 +162,12 @@ export function completionNotice(
     stillWorking.length === 0
       ? 'No other children are working.'
       : `Still working: ${stillWorking
-          .map((child) => `"${child.title}" (${child.sessionId})`)
+          .map((child) => `${child.title} (${child.sessionId})`)
           .join(', ')}. You will be told when they finish, so do not wait or poll for them.`
   return [
-    '[Ari delegation update: added automatically by Ari, not written by the user.]',
+    '[Ari delegation update: added automatically by Ari, not written by the user. The user does not see this message.]',
     ...sections,
     ...(budget ? [budget] : []),
-    `${waiting} Inspect changes with \`ari session diff <id> --stat --json\` before integrating; a finished turn is not proof the work is correct.`,
+    `${waiting} Inspect changes with \`ari session diff <id> --stat --json\` before integrating; a finished turn is not proof the work is correct. Tell the user the outcome in your own words, using each child's title. Do not quote this update or paste session ids into the chat.`,
   ].join('\n\n')
 }
