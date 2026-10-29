@@ -39,3 +39,11 @@ export function botSubtitle(bot: Bot, session: SessionSummary | undefined): stri
     previewOf(session) ?? (bot.mainSessionId === undefined ? 'No session yet' : 'No messages yet')
   )
 }
+
+/**
+ * True for a session a bot owns: its main session or one of its room threads.
+ * Those belong to the Hive, so the normal sidebar leaves them out.
+ */
+export function isBotSession(session: { id: string; botId?: string | null }): boolean {
+  return typeof session.botId === 'string' && session.botId.length > 0
+}

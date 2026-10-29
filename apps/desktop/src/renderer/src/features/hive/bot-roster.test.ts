@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Bot } from '@ari/contracts/bot'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { botSubtitle, mainSessionOf, previewOf, rosterOf } from './bot-roster'
+import { botSubtitle, isBotSession, mainSessionOf, previewOf, rosterOf } from './bot-roster'
 
 const bot = (overrides: Partial<Bot> = {}): Bot => ({
   id: 'bot_1',
@@ -70,5 +70,13 @@ describe('botSubtitle', () => {
   it('distinguishes a session with no messages from a bot with no session', () => {
     expect(botSubtitle(bot({ mainSessionId: 'sess_1' }), session())).toBe('No messages yet')
     expect(botSubtitle(bot(), undefined)).toBe('No session yet')
+  })
+})
+
+describe('isBotSession', () => {
+  it('tells a bot-owned session from an ordinary one', () => {
+    expect(isBotSession({ id: 'sess_1', botId: 'bot_1' })).toBe(true)
+    expect(isBotSession({ id: 'sess_1' })).toBe(false)
+    expect(isBotSession({ id: 'sess_1', botId: null })).toBe(false)
   })
 })
