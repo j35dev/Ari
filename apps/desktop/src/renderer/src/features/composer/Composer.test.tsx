@@ -131,10 +131,83 @@ describe('Composer', () => {
         ]}
         onSteerQueued={vi.fn()}
         onRemoveQueued={vi.fn()}
+        onEditQueued={vi.fn()}
       />,
     )
     expect(screen.queryByRole('button', { name: /steer queued message/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /edit queued message/i })).toBeNull()
     expect(screen.getByRole('button', { name: /remove queued message 1/i })).toBeInTheDocument()
+  })
+
+  it('edits a queued message by handing it back through onEditQueued', async () => {
+    const user = userEvent.setup()
+    const onEditQueued = vi.fn()
+    render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[{ text: 'focus on the parser', attachments: [] }]}
+        onEditQueued={onEditQueued}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /edit queued message 1/i }))
+    expect(onEditQueued).toHaveBeenCalledWith({ text: 'focus on the parser', attachments: [] })
+  })
+
+  it('edits the newest queued text message with Alt+Up from the start of the field', async () => {
+    const user = userEvent.setup()
+    const onEditQueued = vi.fn()
+    render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[
+          { text: 'older text', attachments: [] },
+          {
+            text: 'see this',
+            attachments: [{ id: 'att_1', name: 'a.png', mimeType: 'image/png', size: 4 }],
+          },
+        ]}
+        onEditQueued={onEditQueued}
+      />,
+    )
+    const input = screen.getByLabelText('Message')
+    await user.click(input)
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
+    expect(onEditQueued).toHaveBeenCalledWith({ text: 'older text', attachments: [] })
+  })
+
+  it('leaves Alt+Up alone when the caret is not at the start of the field', async () => {
+    const user = userEvent.setup()
+    const onEditQueued = vi.fn()
+    render(
+      <Composer
+        onSend={vi.fn()}
+        running
+        queued={[{ text: 'a', attachments: [] }]}
+        onEditQueued={onEditQueued}
+      />,
+    )
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'draft')
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
+    expect(onEditQueued).not.toHaveBeenCalled()
+  })
+
+  it('leaves Alt+Up alone when the queue is empty or edit is not wired', async () => {
+    const user = userEvent.setup()
+    const onEditQueued = vi.fn()
+    const { rerender } = render(<Composer onSend={vi.fn()} running onEditQueued={onEditQueued} />)
+    const input = screen.getByLabelText('Message')
+    await user.click(input)
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
+    expect(onEditQueued).not.toHaveBeenCalled()
+
+    rerender(<Composer onSend={vi.fn()} running queued={[{ text: 'a', attachments: [] }]} />)
+    await user.click(screen.getByLabelText('Message'))
+    await user.keyboard('{Alt>}{ArrowUp}{/Alt}')
+    expect(screen.queryByRole('button', { name: /edit queued message/i })).toBeNull()
   })
 
   it('sits extra chrome on the top of the plate', () => {
