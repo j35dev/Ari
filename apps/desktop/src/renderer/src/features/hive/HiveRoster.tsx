@@ -8,7 +8,10 @@ import { SessionActivityMark } from '../moment'
 import type { SessionActivity } from '../session/session-activity'
 import { botSubtitle, mainSessionOf, rosterOf } from './bot-roster'
 import { NewBotDialog } from './NewBotDialog'
+import { NewRoomDialog } from './NewRoomDialog'
+import { RoomList } from './RoomList'
 import { useBots } from './use-bots'
+import type { RoomsStore } from './use-rooms'
 
 export interface HiveRosterProps {
   /** Every session the shell knows about; a bot's row reads its main one. */
@@ -22,6 +25,11 @@ export interface HiveRosterProps {
   onOpenSession: (sessionId: string) => void
   /** A bot was created: its session is new, so the shell's list is stale. */
   onSessionsChanged?: () => void
+  /** The team rooms, listed under the bots; the shell owns the store so the open room shares it. */
+  rooms: RoomsStore
+  /** The room on screen, if one is. */
+  activeRoomId?: string | null
+  onOpenRoom: (roomId: string) => void
 }
 
 const ICON_ACTION =
@@ -115,10 +123,14 @@ export function HiveRoster({
   defaults,
   onOpenSession,
   onSessionsChanged,
+  rooms,
+  activeRoomId = null,
+  onOpenRoom,
 }: HiveRosterProps) {
   const { bots, loading, error, create, duplicate, setHidden } = useBots()
   const [showHidden, setShowHidden] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [creatingRoom, setCreatingRoom] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const visible = rosterOf(bots)
@@ -207,6 +219,14 @@ export function HiveRoster({
         </button>
       ) : null}
 
+      <RoomList
+        rooms={rooms.rooms}
+        activeRoomId={activeRoomId}
+        error={rooms.error}
+        onOpenRoom={onOpenRoom}
+        onNewRoom={() => setCreatingRoom(true)}
+      />
+
       <NewBotDialog
         open={creating}
         onOpenChange={setCreating}
@@ -218,6 +238,13 @@ export function HiveRoster({
           onSessionsChanged?.()
           if (bot.mainSessionId !== undefined) onOpenSession(bot.mainSessionId)
         }}
+      />
+      <NewRoomDialog
+        open={creatingRoom}
+        onOpenChange={setCreatingRoom}
+        bots={visible}
+        onCreate={rooms.create}
+        onCreated={(room) => onOpenRoom(room.id)}
       />
     </section>
   )

@@ -9,7 +9,8 @@ import { useEngineSettings } from './features/settings/useEngineSettings'
 import { AppProviders, App } from './App'
 import { BRANCH_POLL_MS, SessionBranchChip } from './features/session/SessionBranchChip'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
-import { MAX_PANES, paneCount } from './features/split/split-layout'
+import { MAX_PANES, activeSessionOf, paneCount } from './features/split/split-layout'
+import { roomFixture } from './features/hive/room-fixture'
 
 function ToastProbe() {
   const { toast } = useToast()
@@ -1576,6 +1577,8 @@ describe('Hive view switch', () => {
         case 'providers.models':
         case 'endpoints.list':
           return []
+        case 'rooms.list':
+          return [roomFixture()]
         default:
           return undefined
       }
@@ -1667,5 +1670,41 @@ describe('Hive view switch', () => {
       'true',
     )
     expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
+  })
+
+  it('opens a room on the full page and leaves it when the view switches back', async () => {
+    stored = { ...stored, appearance: { ...stored.appearance, hiveView: true } }
+    const user = userEvent.setup()
+    render(<App />)
+
+    const rooms = await screen.findByRole('list', { name: 'Rooms' }, { timeout: 10_000 })
+    await user.click(within(rooms).getByRole('button', { name: /Launch/ }))
+    expect(await screen.findByRole('region', { name: 'Room Launch' })).toBeInTheDocument()
+    expect(within(rooms).getByRole('button', { name: /Launch/ })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+
+    await user.click(screen.getByRole('switch', { name: 'Hive view' }))
+
+    expect(await screen.findByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Room Launch' })).not.toBeInTheDocument()
+  })
+
+  it('leaves the room when a member thread opens', async () => {
+    stored = { ...stored, appearance: { ...stored.appearance, hiveView: true } }
+    const user = userEvent.setup()
+    render(<App />)
+
+    const rooms = await screen.findByRole('list', { name: 'Rooms' }, { timeout: 10_000 })
+    await user.click(within(rooms).getByRole('button', { name: /Launch/ }))
+    await screen.findByRole('region', { name: 'Room Launch' })
+
+    await user.click(screen.getByRole('button', { name: "Open Pixel's thread" }))
+
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Room Launch' })).not.toBeInTheDocument(),
+    )
+    expect(activeSessionOf(splitLayoutSnapshot())).toBe('thread_a')
   })
 })
