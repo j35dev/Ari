@@ -888,6 +888,15 @@ export function SessionView({
     setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
   }, [])
 
+  // Quote splices a blockquote at the caret and keeps whatever is already drafted.
+  const handleQuoteAssistant = useCallback((quote: string) => {
+    setComposerSeed((prev) => ({
+      text: quote,
+      nonce: (prev?.nonce ?? 0) + 1,
+      mode: 'insert',
+    }))
+  }, [])
+
   // M19.4 regenerate/retry: the prompt to re-run is the most recent user
   // message's text plus its staged image refs (null when the transcript has
   // no user message yet).
@@ -1253,6 +1262,7 @@ export function SessionView({
             loading={loading}
             turnDiffs={turnDiffs}
             onEditUserMessage={handleEditMessage}
+            onQuoteAssistant={handleQuoteAssistant}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
             regenerateDisabled={running}
             running={running}
@@ -1437,7 +1447,9 @@ export function EffortChip({
       if (cancelled) return
       const row = rows.find((r) => r.kind === driverKind)
       const model = probesModel
-        ? row?.models?.find((entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''))
+        ? row?.models?.find(
+            (entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''),
+          )
         : undefined
       const modelEfforts = model?.efforts ?? []
       agentEfforts = modelEfforts.length > 0 && model?.effortsSource === 'agent'

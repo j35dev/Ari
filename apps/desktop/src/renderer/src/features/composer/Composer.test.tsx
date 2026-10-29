@@ -275,11 +275,7 @@ describe('Composer resting state', () => {
     // Blur-of-the-textarea would fold the plate out from under the picker.
     const user = userEvent.setup()
     const { container } = render(
-      <Composer
-        onSend={vi.fn()}
-        running
-        leading={<button type="button">pick model</button>}
-      />,
+      <Composer onSend={vi.fn()} running leading={<button type="button">pick model</button>} />,
     )
 
     await user.click(screen.getByRole('button', { name: 'pick model' }))
@@ -316,7 +312,9 @@ describe('Composer resting state', () => {
   })
 
   it('still rests under a child-session rail, which is only a peek strip', () => {
-    const { container } = render(<Composer onSend={vi.fn()} running above={<div>2 children</div>} />)
+    const { container } = render(
+      <Composer onSend={vi.fn()} running above={<div>2 children</div>} />,
+    )
     expect(isResting(container)).toBe(true)
   })
 
@@ -422,6 +420,18 @@ describe('Composer draft seeding', () => {
     await user.type(input, 'my own words')
     rerender(<Composer onSend={vi.fn()} seed={{ text: 'seed', nonce: 7 }} />)
     expect(input).toHaveValue('my own words')
+  })
+
+  it('inserts a seed at the caret and keeps the rest of the draft', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    await user.type(input, 'hello world')
+    input.setSelectionRange(6, 6)
+    rerender(<Composer onSend={vi.fn()} seed={{ text: '> quoted\n', nonce: 1, mode: 'insert' }} />)
+    await waitFor(() => expect(input).toHaveValue('hello > quoted\nworld'))
+    expect(input).toHaveFocus()
+    expect((input as HTMLTextAreaElement).selectionStart).toBe('hello > quoted\n'.length)
   })
 })
 
@@ -789,7 +799,8 @@ describe('Composer file drag-drop', () => {
     render(<Composer onSend={vi.fn()} />)
     const input = screen.getByLabelText('Message')
     const files = Object.assign([osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')], {
-      item: (index: number) => [osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')][index] ?? null,
+      item: (index: number) =>
+        [osFile('notes.txt', 'text/plain', 'D:\\docs\\notes.txt')][index] ?? null,
     })
 
     fireEvent.paste(input, { clipboardData: { files } })
