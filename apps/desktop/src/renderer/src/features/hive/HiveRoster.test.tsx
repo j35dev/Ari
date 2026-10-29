@@ -214,6 +214,25 @@ describe('HiveRoster', () => {
     )
   })
 
+  it('seats a DM through the invite dialog and opens the room', async () => {
+    stubBots([BOT, ROVER])
+    const created = roomFixture({ id: 'room_dm', title: 'Pixel × Rover' })
+    const rooms = roomsStore([], created)
+    const { onOpenRoom } = renderRoster({ rooms })
+    await screen.findByText('Pixel')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Start a DM with Pixel' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Invite a bot' })
+    await userEvent.click(within(dialog).getByRole('button', { name: /Rover/ }))
+
+    expect(rooms.create).toHaveBeenCalledWith({
+      title: 'Pixel × Rover',
+      botIds: ['bot_1', 'bot_b'],
+      leadBotId: null,
+    })
+    await waitFor(() => expect(onOpenRoom).toHaveBeenCalledWith('room_dm'))
+  })
+
   it('creates a bot from the dialog and opens the session it came with', async () => {
     stubBots([], { ...BOT, id: 'bot_9', name: 'Rover', mainSessionId: 'sess_9' })
     vi.spyOn(Math, 'random').mockReturnValue(0)
