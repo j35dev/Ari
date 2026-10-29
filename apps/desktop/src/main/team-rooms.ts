@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { Bot } from '@ari/contracts/bot'
 import type { TeamRoomFrame, TeamRoomSummary } from '@ari/contracts/rpc'
 import type { BotStore } from '@ari/engine/bots'
@@ -21,11 +22,14 @@ import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('desktop:team-rooms')
 
+/** How a bot looks in a room, read from its record. */
+type BotFace = Pick<Bot, 'emoji' | 'character'>
+
 interface Room {
   id: string
   state: RoomState
-  /** Bot id → emoji, read from the bot records. */
-  emoji: Record<string, string>
+  /** Bot id → face. */
+  faces: Record<string, BotFace>
   updatedAt: number
 }
 
@@ -112,14 +116,14 @@ export class TeamRoomService {
       )
         continue
       const bots: RoomBot[] = []
-      const emoji: Record<string, string> = {}
+      const faces: Record<string, BotFace> = {}
       for (const botId of room.botIds) {
         const bot = await this.#deps.bots.get(botId)
         if (bot === null) continue
         // A missing thread is created on the bot's first wake; the main
         // session is never borrowed.
         bots.push({ botId: bot.id, name: bot.name, sessionId: room.threads?.[bot.id] ?? '' })
-        emoji[bot.id] = bot.emoji
+        faces[bot.id] = faceOf(bot)
       }
       if (bots.length === 0) continue
       const known = new Set(bots.map((bot) => bot.botId))
@@ -146,7 +150,7 @@ export class TeamRoomService {
       this.#rooms.set(room.id, {
         id: room.id,
         state,
-        emoji,
+        faces,
         updatedAt: room.updatedAt ?? this.#now(),
       })
     }
@@ -225,7 +229,7 @@ export class TeamRoomService {
     const room: Room = {
       id: `room_${randomUUID()}`,
       state: createRoomState(title, bots, input.leadBotId ?? null),
-      emoji: Object.fromEntries(members.map(({ bot }) => [bot.id, bot.emoji])),
+      faces: Object.fromEntries(members.map(({ bot }) => [bot.id, faceOf(bot)])),
       updatedAt: this.#now(),
     }
     this.#rooms.set(room.id, room)
@@ -280,6 +284,41 @@ export class TeamRoomService {
     this.#deps.publish({ roomId, room: null })
     for (const bot of room.state.bots) await this.#archive(bot.sessionId)
     return { removed: true }
+  }
+
+  /**
+   * Copies a bot's edited name and face into every room it sits in, so the
+   * roster shows it and mentions route by the new name. A rename is not room
+   * activity, so `updatedAt` stays.
+   */
+  refreshBot(bot: Bot): Promise<void> {
+    return this.#serialize(() => this.#refreshBot(bot))
+  }
+
+  async #refreshBot(bot: Bot): Promise<void> {
+    await this.#ready
+    const changed: Room[] = []
+    for (const room of this.#rooms.values()) {
+      const member = room.state.bots.find((entry) => entry.botId === bot.id)
+      if (member === undefined) continue
+      const face = faceOf(bot)
+      if (member.name === bot.name && isDeepStrictEqual(room.faces[bot.id], face)) continue
+      const next: Room = {
+        ...room,
+        state: {
+          ...room.state,
+          bots: room.state.bots.map((entry) =>
+            entry.botId === bot.id ? { ...entry, name: bot.name } : entry,
+          ),
+        },
+        faces: { ...room.faces, [bot.id]: face },
+      }
+      this.#rooms.set(room.id, next)
+      changed.push(next)
+    }
+    if (changed.length === 0) return
+    await this.#save()
+    for (const room of changed) this.#deps.publish({ roomId: room.id, room: summarize(room) })
   }
 
   /**
@@ -422,17 +461,25 @@ function threadInput(bot: Bot, projectId: string, title: string): RoomThreadInpu
   }
 }
 
+function faceOf(bot: Bot): BotFace {
+  return { emoji: bot.emoji, ...(bot.character !== undefined ? { character: bot.character } : {}) }
+}
+
 function summarize(room: Room): TeamRoomSummary {
   const { state } = room
   return {
     id: room.id,
     title: state.title,
-    bots: state.bots.map((bot) => ({
-      botId: bot.botId,
-      name: bot.name,
-      emoji: room.emoji[bot.botId] ?? '',
-      sessionId: bot.sessionId,
-    })),
+    bots: state.bots.map((bot) => {
+      const face = room.faces[bot.botId]
+      return {
+        botId: bot.botId,
+        name: bot.name,
+        emoji: face?.emoji ?? '',
+        ...(face?.character !== undefined ? { character: face.character } : {}),
+        sessionId: bot.sessionId,
+      }
+    }),
     leadBotId: state.leadBotId,
     activeBotId: state.activeBotId,
     needsUser: state.needsUser,
