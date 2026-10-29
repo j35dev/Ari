@@ -156,6 +156,72 @@ describe('SessionStore', () => {
     })
   })
 
+  describe('index preview', () => {
+    it('truncates huge transcript text into the stored preview cap', async () => {
+      const big = 'x'.repeat(600_000)
+      await store.append(session.id, { type: 'session.created', session })
+      await store.append(session.id, {
+        type: 'user.message.added',
+        message: {
+          id: 'm_big',
+          sessionId: session.id,
+          turnId: 'turn_1',
+          role: 'user',
+          parts: [{ type: 'text', text: big }],
+          createdAt: 1001,
+        },
+      })
+      const list = await store.listSessions()
+      expect(list[0]?.lastMessagePreview?.length).toBe(160)
+      expect(await store.load(session.id).then((m) => m.messages[0]?.parts)).toHaveLength(1)
+    })
+
+    it('collapses whitespace without re-sweeping megabytes of formatting', async () => {
+      const word = 'a'.repeat(8)
+      const huge = `${word}${'  \n\r'.repeat(4)}`.repeat(400)
+      await store.append(session.id, { type: 'session.created', session })
+      await store.append(session.id, {
+        type: 'user.message.added',
+        message: {
+          id: 'm_ws',
+          sessionId: session.id,
+          turnId: 'turn_1',
+          role: 'user',
+          parts: [{ type: 'text', text: huge }],
+          createdAt: 1002,
+        },
+      })
+      const preview = (await store.listSessions())[0]?.lastMessagePreview
+      expect(preview).not.toBeNull()
+      expect(preview?.length).toBeLessThanOrEqual(160)
+      // Runs of whitespace became single spaces; no newline survives.
+      expect(preview?.split(' ').length).toBeGreaterThan(8)
+      expect(preview?.includes('\n')).toBe(false)
+      expect(preview?.trim()).toBe(preview)
+    }, 20000)
+
+    it('skips leading whitespace before the preview window, across parts', async () => {
+      const body = 'b'.repeat(200)
+      await store.append(session.id, { type: 'session.created', session })
+      await store.append(session.id, {
+        type: 'user.message.added',
+        message: {
+          id: 'm_indent',
+          sessionId: session.id,
+          turnId: 'turn_1',
+          role: 'user',
+          parts: [
+            { type: 'text', text: ' \n'.repeat(400) },
+            { type: 'text', text: `\t\t${body}` },
+          ],
+          createdAt: 1003,
+        },
+      })
+      const preview = (await store.listSessions())[0]?.lastMessagePreview
+      expect(preview).toBe(body.slice(0, 160))
+    })
+  })
+
   it('repairs a corrupt or missing sidecar index via replay', async () => {
     await store.append(session.id, { type: 'session.created', session })
     expect(await store.listSessions()).toHaveLength(1)

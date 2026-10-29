@@ -125,4 +125,49 @@ describe('Journal', () => {
     expect(entries.filter((e) => e.kind === 'value')).toHaveLength(2)
     await reader.close()
   })
+
+  describe('readByChunk', () => {
+    it('splits entries into bounded chunks, ordered across rotated segments', async () => {
+      const writer = new Journal<TestEvent>({ dir, name: 'j', rotateBytes: 40 })
+      await writer.open()
+      for (let i = 0; i < 12; i++) {
+        // Pad near the rotation cap so chunks grow several entries apart.
+        await writer.append({ seq: i, kind: `chunk-test-${'p'.repeat(24)}` })
+      }
+      await writer.close()
+
+      const journal = new Journal<TestEvent>({ dir, name: 'j' })
+      await journal.open()
+      const chunks: TestEvent[][] = []
+      for await (const chunk of journal.readByChunk(120)) {
+        chunks.push(chunk.flatMap((e) => (e.kind === 'value' ? [e.value] : [])))
+      }
+      await journal.close()
+      // The padded lines exceed the per-entry cap one by one.
+      expect(chunks.length).toBeGreaterThan(1)
+      expect(chunks.at(-1)?.length).toBeGreaterThan(0)
+      // Every entry lands exactly once, in journal order.
+      expect(chunks.flatMap((chunk) => chunk.map((e) => e.seq))).toEqual(
+        Array.from({ length: 12 }, (_, i) => i),
+      )
+    })
+
+    it('flushes the last chunk of a segment even when short, then yields the loop', async () => {
+      await writeFile(join(dir, 'j.0000.jsonl'), '{"seq":0,"kind":"one"}\n{"seq":1,"kind":"two"}\n')
+      await writeFile(join(dir, 'j.0001.jsonl'), '{"seq":2,"kind":"three"}\n\n')
+      const journal = new Journal<TestEvent>({ dir, name: 'j' })
+      await journal.open()
+      const chunks: TestEvent[][] = []
+      for await (const chunk of journal.readByChunk(Number.MAX_SAFE_INTEGER)) {
+        chunks.push(chunk.flatMap((e) => (e.kind === 'value' ? [e.value] : [])))
+      }
+      await journal.close()
+      // A segment flushes its remainder when it ends, never carrying lines
+      // into the next segment; blank lines read as nothing.
+      expect(chunks).toEqual([
+        [{ seq: 0, kind: 'one' }, { seq: 1, kind: 'two' }],
+        [{ seq: 2, kind: 'three' }],
+      ])
+    })
+  })
 })

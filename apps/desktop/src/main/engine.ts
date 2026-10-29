@@ -1154,8 +1154,26 @@ export class Engine {
 
   /** Live tail: replays the journal, then forwards appended events. */
   async replaySession(sessionId: string): Promise<JournalEvent[]> {
+    const events: JournalEvent[] = []
+    await this.replaySessionChunks(sessionId, (chunk) => {
+      events.push(...chunk)
+    })
+    return events
+  }
+
+  /**
+   * Replays the journal as bounded chunks of events instead of one array,
+   * letting callers stream history out of the process (an IPC frame that big
+   * blocks both sides while it serializes) with roughly constant memory.
+   */
+  async replaySessionChunks(
+    sessionId: string,
+    onChunk: (events: JournalEvent[]) => void,
+  ): Promise<void> {
     const journal = await this.#deps.store.openJournal(sessionId)
-    const entries = await journal.readAll()
-    return entries.flatMap((e) => (e.kind === 'value' ? [e.value] : []))
+    for await (const chunk of journal.readByChunk()) {
+      const events = chunk.flatMap((e) => (e.kind === 'value' ? [e.value] : []))
+      if (events.length > 0) onChunk(events)
+    }
   }
 }
