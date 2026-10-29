@@ -1,8 +1,11 @@
-import type { Bot, BotCreateParams } from '@ari/contracts/bot'
+import type { Bot, BotCreateParams, BotUpdatePatch } from '@ari/contracts/bot'
 import type { PermissionMode } from '@ari/contracts/common'
 import type { SessionCreateParams } from '@ari/contracts/rpc'
 import type { Session } from '@ari/contracts/session'
 import type { BotStore } from '@ari/engine/bots'
+import { createLogger } from '@ari/shared/logger'
+
+const log = createLogger('desktop:bots')
 
 export interface SessionCreateDeps {
   bots: Pick<BotStore, 'get' | 'create' | 'update'>
@@ -57,4 +60,30 @@ export async function createBot(deps: SessionCreateDeps, params: BotCreateParams
     botId: bot.id,
   })
   return deps.bots.update(bot.id, { mainSessionId: sessionId })
+}
+
+export interface BotUpdateDeps {
+  bots: Pick<BotStore, 'update'>
+  /** Copies the saved bot's name and face into the live rooms it sits in. */
+  refreshRooms: (bot: Bot) => Promise<void>
+}
+
+/**
+ * Applies a `bots.update` patch. The bot is saved before rooms are refreshed,
+ * so a room that fails to save is logged rather than reported as a failed edit.
+ */
+export async function updateBot(
+  deps: BotUpdateDeps,
+  botId: string,
+  patch: BotUpdatePatch,
+): Promise<Bot> {
+  const name = patch.name?.trim()
+  if (name !== undefined && name.length === 0) throw new Error('bot name is empty')
+  const bot = await deps.bots.update(botId, name === undefined ? patch : { ...patch, name })
+  try {
+    await deps.refreshRooms(bot)
+  } catch (error) {
+    log.warn('team rooms did not pick up a bot edit', { botId, error: String(error) })
+  }
+  return bot
 }
