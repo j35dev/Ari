@@ -1,18 +1,24 @@
 import { useState } from 'react'
 import type { Bot, BotCreateParams } from '@ari/contracts/bot'
 import type { DriverKind } from '@ari/contracts/common'
+import { BotAvatar } from '@ari/ui/bot-avatar'
 import { Button } from '@ari/ui/button'
 import { Dialog } from '@ari/ui/dialog'
 import { Field } from '@ari/ui/field'
-import { Input } from '@ari/ui/input'
 import { Select } from '@ari/ui/select'
-import { Textarea } from '@ari/ui/textarea'
 import { ModelSelector } from '../composer/ModelSelector'
+import { BotIdentityFields } from './BotIdentityFields'
+import { BotLookEditor } from './BotLookEditor'
+import { blankDraft, createFieldsOf, draftFromStarter, type BotDraft } from './bot-draft'
+import { STARTER_CAST } from './starter-cast'
 
-/** Every bot needs a persona file; a new one starts from this placeholder. */
+/**
+ * The schema still asks every bot for an emoji: the fallback face where a
+ * character cannot be drawn. The dialog no longer asks for one.
+ */
 export const DEFAULT_BOT_EMOJI = '🤖'
 
-const PERSONA_PLACEHOLDER = 'You are Pixel, a careful UI engineer. You read before you write.'
+const BLANK = 'blank'
 
 export interface NewBotDialogProps {
   open: boolean
@@ -26,10 +32,13 @@ export interface NewBotDialogProps {
   onCreated: (bot: Bot) => void
 }
 
+const START_CHIP =
+  'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
 /**
- * Creates a bot: who it is (name, emoji, persona), where it works (project),
- * and what runs it (provider and model). The main session is a side effect of
- * `bots.create` — the roster never has to mint one itself.
+ * Creates a bot: who it is (a starter or a blank, its look, name, title,
+ * tagline and persona), where it works (project), and what runs it (provider
+ * and model). The main session is a side effect of `bots.create`.
  */
 export function NewBotDialog({
   open,
@@ -40,9 +49,8 @@ export function NewBotDialog({
   onCreate,
   onCreated,
 }: NewBotDialogProps) {
-  const [name, setName] = useState('')
-  const [emoji, setEmoji] = useState(DEFAULT_BOT_EMOJI)
-  const [personaMd, setPersonaMd] = useState('')
+  const [draft, setDraft] = useState<BotDraft>(() => blankDraft())
+  const [startedFrom, setStartedFrom] = useState(BLANK)
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
   const [pick, setPick] = useState<{ driverKind: DriverKind; modelId: string | null }>({
     driverKind,
@@ -51,8 +59,16 @@ export function NewBotDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const chosenProject = projects.find((project) => project.id === projectId)
-  const trimmedName = name.trim()
+  // The dialog mounts with the roster, often before the projects arrive, so
+  // an unpicked project falls back to the first one rather than to nothing.
+  const chosenProject = projects.find((project) => project.id === projectId) ?? projects[0]
+  const trimmedName = draft.name.trim()
+
+  const startFrom = (id: string): void => {
+    const starter = STARTER_CAST.find((candidate) => candidate.id === id)
+    setStartedFrom(id)
+    setDraft(starter === undefined ? blankDraft() : draftFromStarter(starter))
+  }
 
   const submit = async (): Promise<void> => {
     if (trimmedName.length === 0 || chosenProject === undefined || busy) return
@@ -60,16 +76,15 @@ export function NewBotDialog({
     setError(null)
     try {
       const bot = await onCreate({
-        name: trimmedName,
-        emoji: emoji.trim().length > 0 ? emoji.trim() : DEFAULT_BOT_EMOJI,
-        personaMd,
+        ...createFieldsOf(draft),
+        emoji: DEFAULT_BOT_EMOJI,
         driverKind: pick.driverKind,
         modelId: pick.modelId,
         projectId: chosenProject.id,
       })
       onOpenChange(false)
-      setName('')
-      setPersonaMd('')
+      setDraft(blankDraft())
+      setStartedFrom(BLANK)
       onCreated(bot)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -80,7 +95,10 @@ export function NewBotDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content aria-label="New bot" className="w-[min(34rem,92vw)]">
+      <Dialog.Content
+        aria-label="New bot"
+        className="ari-scroll max-h-[90vh] w-[min(36rem,92vw)] overflow-y-auto"
+      >
         <Dialog.Title>New bot</Dialog.Title>
         <Dialog.Description>
           A bot is a persona with its own workspace and session. You can change any of this later.
@@ -93,46 +111,57 @@ export function NewBotDialog({
             void submit()
           }}
         >
-          <div className="flex gap-3">
-            <div className="w-20 shrink-0">
-              <Field label="Face" hint="An emoji.">
-                {(control) => (
-                  <Input
-                    {...control}
-                    value={emoji}
-                    maxLength={4}
-                    className="justify-center text-center"
-                    onChange={(event) => setEmoji(event.target.value)}
-                  />
-                )}
-              </Field>
-            </div>
-            <div className="min-w-0 flex-1">
-              <Field label="Name">
-                {(control) => (
-                  <Input
-                    {...control}
-                    autoFocus
-                    value={name}
-                    placeholder="Pixel"
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                )}
-              </Field>
+          <div role="group" aria-label="Start from" className="flex flex-col gap-1.5">
+            <p aria-hidden="true" className="text-sm font-medium text-fg">
+              Start from
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {STARTER_CAST.map((starter) => {
+                const pressed = startedFrom === starter.id
+                return (
+                  <button
+                    key={starter.id}
+                    type="button"
+                    aria-pressed={pressed}
+                    title={`${starter.title}: ${starter.tagline}`}
+                    onClick={() => startFrom(starter.id)}
+                    className={`${START_CHIP} ${
+                      pressed
+                        ? 'border-accent bg-accent-subtle text-fg'
+                        : 'border-border bg-surface-1 text-fg-muted hover:bg-surface-3 hover:text-fg'
+                    }`}
+                  >
+                    <BotAvatar character={starter.character} size={20} />
+                    {starter.name}
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                aria-pressed={startedFrom === BLANK}
+                onClick={() => startFrom(BLANK)}
+                className={`${START_CHIP} ${
+                  startedFrom === BLANK
+                    ? 'border-accent bg-accent-subtle text-fg'
+                    : 'border-border bg-surface-1 text-fg-muted hover:bg-surface-3 hover:text-fg'
+                }`}
+              >
+                Blank
+              </button>
             </div>
           </div>
 
-          <Field label="Persona" hint="Markdown. What this bot is here to do.">
-            {(control) => (
-              <Textarea
-                {...control}
-                autoGrow
-                value={personaMd}
-                placeholder={PERSONA_PLACEHOLDER}
-                onChange={(event) => setPersonaMd(event.target.value)}
-              />
-            )}
-          </Field>
+          <BotLookEditor
+            value={draft.character}
+            previewLabel={trimmedName.length > 0 ? trimmedName : undefined}
+            onChange={(character) => setDraft((prev) => ({ ...prev, character }))}
+          />
+
+          <BotIdentityFields
+            draft={draft}
+            autoFocusName
+            onChange={(change) => setDraft((prev) => ({ ...prev, ...change }))}
+          />
 
           <Field
             label="Project"
@@ -143,7 +172,7 @@ export function NewBotDialog({
               <Select
                 {...control}
                 aria-label="Project"
-                value={projectId}
+                value={chosenProject?.id ?? ''}
                 options={projects.map((project) => ({ value: project.id, label: project.name }))}
                 placeholder="Choose a project"
                 onValueChange={setProjectId}

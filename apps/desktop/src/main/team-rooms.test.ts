@@ -333,6 +333,59 @@ it('keeps a transcript and publishes every change', async () => {
   expect(new Set(stamps).size).toBe(frames.length)
 })
 
+it('carries a bot character into its rooms, and leaves it off for a bot without one', async () => {
+  const character = {
+    shape: 'wisp',
+    palette: 2,
+  } as const
+  bots[0] = { ...bots[0]!, character }
+  const room = await service.create({ title: 'War room', botIds: ['bot_ada', 'bot_bea'] })
+  expect(room.bots[0]?.character).toEqual(character)
+  expect(room.bots[1] && 'character' in room.bots[1]).toBe(false)
+
+  const reloaded = new TeamRoomService(deps())
+  await reloaded.load()
+  expect((await reloaded.list())[0]?.bots[0]?.character).toEqual(character)
+})
+
+it('renames a bot in its rooms, so mentions route by the new name', async () => {
+  const room = await service.create({ title: 'War room', botIds: ['bot_ada', 'bot_bea'] })
+  const other = await service.create({ title: 'Solo', botIds: ['bot_ada'] })
+  const character = {
+    shape: 'pebble',
+    palette: 7,
+  } as const
+  bots[1] = { ...bots[1]!, name: 'Bex', emoji: '🐝', character }
+  frames = []
+
+  await service.refreshBot(bots[1])
+
+  const renamed = (await service.list()).find((entry) => entry.id === room.id)
+  expect(renamed?.bots[1]).toEqual({
+    botId: 'bot_bea',
+    name: 'Bex',
+    emoji: '🐝',
+    character,
+    sessionId: threadOf(room, 'bot_bea'),
+  })
+  expect(renamed?.updatedAt).toBe(room.updatedAt)
+  expect(frames).toEqual([{ roomId: room.id, room: renamed }])
+  expect((await service.list()).find((entry) => entry.id === other.id)).toEqual(other)
+
+  await service.refreshBot(bots[1])
+  expect(frames).toHaveLength(1)
+
+  expect(await service.send(room.id, 'hey @Bea')).toMatchObject({ targets: [], pick: true })
+  expect(await service.send(room.id, 'hey @Bex')).toMatchObject({ targets: ['bot_bea'] })
+  expect(sent[0]?.origin).toMatchObject({ kind: 'room', botId: 'bot_bea' })
+
+  const saved = JSON.parse(await readFile(join(dir, 'team-rooms.json'), 'utf8')) as {
+    id: string
+    state: { bots: { name: string }[] }
+  }[]
+  expect(saved.find((entry) => entry.id === room.id)?.state.bots[1]?.name).toBe('Bex')
+})
+
 it('removes a room, archives its threads, and publishes the removal', async () => {
   const room = await service.create({ title: 'War room', botIds: ['bot_ada', 'bot_bea'] })
   expect(await service.remove(room.id)).toEqual({ removed: true })

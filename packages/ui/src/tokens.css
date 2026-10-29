@@ -11,7 +11,8 @@
  *                              rare overlay on top.
  *                              :root also carries the default (Obsidian)
  *                              palette so pre-hydration HTML paints correctly.
- *   html                     → the launch-moment palette (see below).
+ *   html                     → the launch-moment and Hive bot palettes (see
+ *                              below).
  * Token NAMES are identical across every theme, so the Tailwind bridge in
  * apps/desktop/src/renderer/src/styles/index.css needs no per-theme mapping.
  * Palettes mirror packages/ui/src/themes.ts (asserted by themes.test.ts).
@@ -44,6 +45,136 @@ html {
   --ari-awaken-glitch-shadow-pink: rgba(255, 124, 184, 0.28);
   --ari-awaken-glitch-scan: rgba(255, 255, 255, 0.012);
   --ari-awaken-glitch-vignette: rgba(0, 0, 0, 0.5);
+}
+
+/*
+ * Hive bot palettes (see bot-character.ts and components/BotAvatar.tsx). Also
+ * theme-independent: a bot wears the same colour under every theme, the way a
+ * person keeps their face. Each palette is one hue derived into the layers the
+ * avatar paints, from its top light down to the outline and floor shadow.
+ */
+html {
+  --ari-bot-white: oklch(0.99 0.01 90);
+  /* slate */
+  --ari-bot-0-top: oklch(0.72 0.035 255);
+  --ari-bot-0-base: oklch(0.62 0.05 255);
+  --ari-bot-0-shade: oklch(0.52 0.053 255);
+  --ari-bot-0-line: oklch(0.38 0.055 255);
+  --ari-bot-0-light: oklch(0.75 0.028 255);
+  --ari-bot-0-inner-shadow: oklch(0.42 0.055 255);
+  --ari-bot-0-inner-glow: oklch(0.79 0.02 255);
+  --ari-bot-0-bounce: oklch(0.82 0.025 255 / 0.42);
+  --ari-bot-0-eye: oklch(0.99 0.01 90);
+  --ari-bot-0-eye-low: oklch(0.93 0.03 255);
+  --ari-bot-0-floor: oklch(0.4 0.05 255 / 0.3);
+  /* apricot */
+  --ari-bot-1-top: oklch(0.88 0.07 62);
+  --ari-bot-1-base: oklch(0.78 0.1 62);
+  --ari-bot-1-shade: oklch(0.68 0.105 62);
+  --ari-bot-1-line: oklch(0.54 0.11 62);
+  --ari-bot-1-light: oklch(0.91 0.055 62);
+  --ari-bot-1-inner-shadow: oklch(0.58 0.11 62);
+  --ari-bot-1-inner-glow: oklch(0.95 0.04 62);
+  --ari-bot-1-bounce: oklch(0.98 0.05 62 / 0.42);
+  --ari-bot-1-eye: oklch(0.99 0.01 90);
+  --ari-bot-1-eye-low: oklch(0.93 0.03 62);
+  --ari-bot-1-floor: oklch(0.56 0.1 62 / 0.3);
+  /* sage */
+  --ari-bot-2-top: oklch(0.85 0.042 150);
+  --ari-bot-2-base: oklch(0.75 0.06 150);
+  --ari-bot-2-shade: oklch(0.65 0.063 150);
+  --ari-bot-2-line: oklch(0.51 0.066 150);
+  --ari-bot-2-light: oklch(0.88 0.033 150);
+  --ari-bot-2-inner-shadow: oklch(0.55 0.066 150);
+  --ari-bot-2-inner-glow: oklch(0.92 0.024 150);
+  --ari-bot-2-bounce: oklch(0.95 0.03 150 / 0.42);
+  --ari-bot-2-eye: oklch(0.99 0.01 90);
+  --ari-bot-2-eye-low: oklch(0.93 0.03 150);
+  --ari-bot-2-floor: oklch(0.53 0.06 150 / 0.3);
+  /* lavender */
+  --ari-bot-3-top: oklch(0.84 0.032 295);
+  --ari-bot-3-base: oklch(0.74 0.045 295);
+  --ari-bot-3-shade: oklch(0.64 0.047 295);
+  --ari-bot-3-line: oklch(0.5 0.05 295);
+  --ari-bot-3-light: oklch(0.87 0.025 295);
+  --ari-bot-3-inner-shadow: oklch(0.54 0.05 295);
+  --ari-bot-3-inner-glow: oklch(0.91 0.018 295);
+  --ari-bot-3-bounce: oklch(0.94 0.022 295 / 0.42);
+  --ari-bot-3-eye: oklch(0.99 0.01 90);
+  --ari-bot-3-eye-low: oklch(0.93 0.03 295);
+  --ari-bot-3-floor: oklch(0.52 0.045 295 / 0.3);
+  /* sand */
+  --ari-bot-4-top: oklch(0.94 0.038 80);
+  --ari-bot-4-base: oklch(0.84 0.055 80);
+  --ari-bot-4-shade: oklch(0.74 0.058 80);
+  --ari-bot-4-line: oklch(0.6 0.061 80);
+  --ari-bot-4-light: oklch(0.97 0.03 80);
+  --ari-bot-4-inner-shadow: oklch(0.64 0.061 80);
+  --ari-bot-4-inner-glow: oklch(0.98 0.022 80);
+  --ari-bot-4-bounce: oklch(0.98 0.028 80 / 0.42);
+  --ari-bot-4-eye: oklch(0.42 0.04 80);
+  --ari-bot-4-eye-low: oklch(0.42 0.04 80);
+  --ari-bot-4-floor: oklch(0.62 0.055 80 / 0.3);
+  /* rose */
+  --ari-bot-5-top: oklch(0.84 0.049 12);
+  --ari-bot-5-base: oklch(0.74 0.07 12);
+  --ari-bot-5-shade: oklch(0.64 0.074 12);
+  --ari-bot-5-line: oklch(0.5 0.077 12);
+  --ari-bot-5-light: oklch(0.87 0.039 12);
+  --ari-bot-5-inner-shadow: oklch(0.54 0.077 12);
+  --ari-bot-5-inner-glow: oklch(0.91 0.028 12);
+  --ari-bot-5-bounce: oklch(0.94 0.035 12 / 0.42);
+  --ari-bot-5-eye: oklch(0.99 0.01 90);
+  --ari-bot-5-eye-low: oklch(0.93 0.03 12);
+  --ari-bot-5-floor: oklch(0.52 0.07 12 / 0.3);
+  /* coral */
+  --ari-bot-6-top: oklch(0.84 0.077 32);
+  --ari-bot-6-base: oklch(0.74 0.11 32);
+  --ari-bot-6-shade: oklch(0.64 0.116 32);
+  --ari-bot-6-line: oklch(0.5 0.121 32);
+  --ari-bot-6-light: oklch(0.87 0.061 32);
+  --ari-bot-6-inner-shadow: oklch(0.54 0.121 32);
+  --ari-bot-6-inner-glow: oklch(0.91 0.044 32);
+  --ari-bot-6-bounce: oklch(0.94 0.055 32 / 0.42);
+  --ari-bot-6-eye: oklch(0.99 0.01 90);
+  --ari-bot-6-eye-low: oklch(0.93 0.03 32);
+  --ari-bot-6-floor: oklch(0.52 0.11 32 / 0.3);
+  /* plum */
+  --ari-bot-7-top: oklch(0.66 0.049 320);
+  --ari-bot-7-base: oklch(0.56 0.07 320);
+  --ari-bot-7-shade: oklch(0.46 0.074 320);
+  --ari-bot-7-line: oklch(0.32 0.077 320);
+  --ari-bot-7-light: oklch(0.69 0.039 320);
+  --ari-bot-7-inner-shadow: oklch(0.36 0.077 320);
+  --ari-bot-7-inner-glow: oklch(0.73 0.028 320);
+  --ari-bot-7-bounce: oklch(0.76 0.035 320 / 0.42);
+  --ari-bot-7-eye: oklch(0.99 0.01 90);
+  --ari-bot-7-eye-low: oklch(0.93 0.03 320);
+  --ari-bot-7-floor: oklch(0.34 0.07 320 / 0.3);
+  /* sky */
+  --ari-bot-8-top: oklch(0.88 0.049 228);
+  --ari-bot-8-base: oklch(0.78 0.07 228);
+  --ari-bot-8-shade: oklch(0.68 0.074 228);
+  --ari-bot-8-line: oklch(0.54 0.077 228);
+  --ari-bot-8-light: oklch(0.91 0.039 228);
+  --ari-bot-8-inner-shadow: oklch(0.58 0.077 228);
+  --ari-bot-8-inner-glow: oklch(0.95 0.028 228);
+  --ari-bot-8-bounce: oklch(0.98 0.035 228 / 0.42);
+  --ari-bot-8-eye: oklch(0.99 0.01 90);
+  --ari-bot-8-eye-low: oklch(0.93 0.03 228);
+  --ari-bot-8-floor: oklch(0.56 0.07 228 / 0.3);
+  /* mint */
+  --ari-bot-9-top: oklch(0.92 0.049 172);
+  --ari-bot-9-base: oklch(0.82 0.07 172);
+  --ari-bot-9-shade: oklch(0.72 0.074 172);
+  --ari-bot-9-line: oklch(0.58 0.077 172);
+  --ari-bot-9-light: oklch(0.95 0.039 172);
+  --ari-bot-9-inner-shadow: oklch(0.62 0.077 172);
+  --ari-bot-9-inner-glow: oklch(0.98 0.028 172);
+  --ari-bot-9-bounce: oklch(0.98 0.035 172 / 0.42);
+  --ari-bot-9-eye: oklch(0.42 0.04 172);
+  --ari-bot-9-eye-low: oklch(0.42 0.04 172);
+  --ari-bot-9-floor: oklch(0.6 0.07 172 / 0.3);
 }
 
 :root {

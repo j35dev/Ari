@@ -2,11 +2,15 @@ import { useState } from 'react'
 import type { Bot } from '@ari/contracts/bot'
 import type { DriverKind } from '@ari/contracts/common'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { Copy, Eye, EyeOff, Plus } from 'lucide-react'
+import { Copy, Eye, EyeOff, Pencil, Plus } from 'lucide-react'
+import { BotAvatar, type BotMood } from '@ari/ui/bot-avatar'
+import { characterOf } from '@ari/ui/bot-character'
 import { Button } from '@ari/ui/button'
 import { SessionActivityMark } from '../moment'
 import type { SessionActivity } from '../session/session-activity'
+import { botMoodOf } from './bot-mood'
 import { botSubtitle, mainSessionOf, rosterOf } from './bot-roster'
+import { EditBotDialog } from './EditBotDialog'
 import { NewBotDialog } from './NewBotDialog'
 import { NewRoomDialog } from './NewRoomDialog'
 import { RoomList } from './RoomList'
@@ -40,19 +44,24 @@ function BotRow({
   bot,
   session,
   activity,
+  mood,
   dimmed,
   onOpen,
+  onEdit,
   onDuplicate,
   onToggleHidden,
 }: {
   bot: Bot
   session: SessionSummary | undefined
   activity: SessionActivity | undefined
+  mood: BotMood
   dimmed: boolean
   onOpen: () => void
+  onEdit: () => void
   onDuplicate: (() => void) | null
   onToggleHidden: () => void
 }) {
+  const title = bot.title?.trim() ?? ''
   return (
     <div
       className={`group flex items-center gap-1 rounded-lg px-1.5 py-1 transition-colors hover:bg-surface-2 ${
@@ -64,15 +73,16 @@ function BotRow({
         onClick={onOpen}
         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <span
-          aria-hidden="true"
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-base leading-none"
-        >
-          {bot.emoji}
-        </span>
+        <BotAvatar character={characterOf(bot)} mood={mood} size={36} className="shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm text-fg">{bot.name}</span>
           <span className="block truncate text-2xs text-fg-subtle">
+            {title.length > 0 ? (
+              <>
+                <span className="text-fg-muted">{title}</span>
+                {' · '}
+              </>
+            ) : null}
             {botSubtitle(bot, session)}
           </span>
         </span>
@@ -83,6 +93,15 @@ function BotRow({
       {/* Always mounted so the actions stay reachable by keyboard; they only
           paint once the row is hovered or focused. */}
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <button
+          type="button"
+          aria-label={`Edit ${bot.name}`}
+          title="Edit"
+          className={ICON_ACTION}
+          onClick={onEdit}
+        >
+          <Pencil size={13} strokeWidth={1.8} aria-hidden="true" />
+        </button>
         {onDuplicate !== null ? (
           <button
             type="button"
@@ -127,16 +146,20 @@ export function HiveRoster({
   activeRoomId = null,
   onOpenRoom,
 }: HiveRosterProps) {
-  const { bots, loading, error, create, duplicate, setHidden } = useBots()
+  const { bots, loading, error, create, duplicate, update, setHidden } = useBots()
   const [showHidden, setShowHidden] = useState(false)
   const [creating, setCreating] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
+  const [editing, setEditing] = useState<Bot | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const visible = rosterOf(bots)
   const hiddenCount = bots.length - visible.length
   const listed = showHidden ? bots : visible
   const fallbackProjectId = projects[0]?.id ?? null
+  // Read per render: the roster re-renders whenever a session moves, which is
+  // as often as a bot can fall asleep or wake.
+  const now = Date.now()
 
   const run = (work: () => Promise<unknown>): void => {
     setActionError(null)
@@ -174,16 +197,19 @@ export function HiveRoster({
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" role="list">
           {listed.map((bot) => {
             const session = mainSessionOf(bot, sessions)
+            const activity = session === undefined ? undefined : activityOf?.(session.id)
             return (
               <div key={bot.id} role="listitem">
                 <BotRow
                   bot={bot}
                   session={session}
-                  activity={session === undefined ? undefined : activityOf?.(session.id)}
+                  activity={activity}
+                  mood={botMoodOf(activity, session, now)}
                   dimmed={bot.hidden === true}
                   onOpen={() => {
                     if (session !== undefined) onOpenSession(session.id)
                   }}
+                  onEdit={() => setEditing(bot)}
                   onDuplicate={
                     fallbackProjectId === null || bot.hidden === true
                       ? null
@@ -239,6 +265,7 @@ export function HiveRoster({
           if (bot.mainSessionId !== undefined) onOpenSession(bot.mainSessionId)
         }}
       />
+      <EditBotDialog bot={editing} onClose={() => setEditing(null)} onSave={update} />
       <NewRoomDialog
         open={creatingRoom}
         onOpenChange={setCreatingRoom}

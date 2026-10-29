@@ -1,8 +1,11 @@
 import type { TeamRoomSummary } from '@ari/contracts/rpc'
 import { Plus } from 'lucide-react'
 import { Badge } from '@ari/ui/badge'
+import { BotAvatar } from '@ari/ui/bot-avatar'
 import { Button } from '@ari/ui/button'
 import { SessionActivityMark } from '../moment'
+import { roomMoodsOf } from './bot-mood'
+import { memberCharacter } from './team-room'
 
 export interface RoomListProps {
   rooms: readonly TeamRoomSummary[]
@@ -25,6 +28,7 @@ function RoomRow({
   active: boolean
   onOpen: () => void
 }) {
+  const moodOf = roomMoodsOf(room)
   return (
     <div
       className={`flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition-colors ${
@@ -40,8 +44,16 @@ function RoomRow({
         <span className={`block truncate text-sm text-fg ${active ? 'font-medium' : ''}`}>
           {room.title}
         </span>
-        <span aria-hidden="true" className="block truncate text-2xs leading-normal">
-          {room.bots.map((bot) => bot.emoji).join(' ')}
+        <span aria-hidden="true" className="mt-0.5 flex items-center gap-1 overflow-hidden">
+          {room.bots.map((bot) => (
+            <BotAvatar
+              key={bot.botId}
+              character={memberCharacter(bot)}
+              mood={moodOf(bot.botId)}
+              size={18}
+              className="shrink-0"
+            />
+          ))}
         </span>
         <span className="sr-only">{`, with ${room.bots.map((bot) => bot.name).join(', ')}`}</span>
       </button>
