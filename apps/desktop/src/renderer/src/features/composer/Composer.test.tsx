@@ -498,13 +498,13 @@ describe('Composer draft seeding', () => {
   it('inserts a seed at the caret and keeps the rest of the draft', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<Composer onSend={vi.fn()} />)
-    const input = screen.getByLabelText('Message')
+    const input = screen.getByLabelText<HTMLTextAreaElement>('Message')
     await user.type(input, 'hello world')
     input.setSelectionRange(6, 6)
     rerender(<Composer onSend={vi.fn()} seed={{ text: '> quoted\n', nonce: 1, mode: 'insert' }} />)
     await waitFor(() => expect(input).toHaveValue('hello > quoted\nworld'))
     expect(input).toHaveFocus()
-    expect((input as HTMLTextAreaElement).selectionStart).toBe('hello > quoted\n'.length)
+    expect(input.selectionStart).toBe('hello > quoted\n'.length)
   })
 })
 
