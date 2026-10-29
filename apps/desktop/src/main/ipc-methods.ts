@@ -26,6 +26,7 @@ export const IPC_METHODS = [
   'rooms.list',
   'rooms.create',
   'rooms.send',
+  'rooms.remove',
   'session.load',
   'session.workspace',
   'session.tasks',

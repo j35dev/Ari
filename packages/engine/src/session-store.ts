@@ -32,7 +32,7 @@ export interface SessionStoreOptions {
  * feed `usageSummary()` from the same sidecar.
  */
 interface SessionIndex {
-  version: 4
+  version: 5
   hierarchy: SessionHierarchySummary
   lastSeq: number
   hasSession: boolean
@@ -45,6 +45,8 @@ interface SessionIndex {
    * shows one line per bot; null when the session has no text yet.
    */
   lastMessagePreview: string | null
+  /** The Hive bot the session belongs to, so the sidebar can leave it out. */
+  botId: string | null
   archived: boolean
   pinned: boolean
   driverKind: string
@@ -61,6 +63,8 @@ export interface SessionListEntry extends SessionHierarchySummary {
   updatedAt: number
   messageCount: number
   lastMessagePreview: string | null
+  /** Set for Hive bot sessions (main session and room threads); absent otherwise. */
+  botId?: string
   archived: boolean
   pinned: boolean
 }
@@ -82,7 +86,9 @@ export interface UsageSummary {
   totals: { inputTokens: number; outputTokens: number; costUsd: number | null }
 }
 
-const INDEX_VERSION = 4
+// v5 added botId: a v4 entry cannot say whether its session is a bot's, so
+// it is rebuilt by one replay rather than read as "not a bot".
+const INDEX_VERSION = 5
 
 /** Longest preview stored in the index; the roster truncates again for width. */
 const PREVIEW_MAX_CHARS = 160
@@ -145,6 +151,7 @@ function entryFrom(model: SessionReadModel, journalBytes: number): SessionIndex 
     updatedAt: model.session?.updatedAt ?? 0,
     messageCount: model.messages.length,
     lastMessagePreview: lastMessagePreview(model.messages),
+    botId: model.session?.botId ?? null,
     archived: model.session?.archived ?? false,
     pinned: model.session?.pinned ?? false,
     driverKind: model.session?.driverKind ?? '',
@@ -164,6 +171,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
   }
   const cost = value['costUsd']
   const preview = value['lastMessagePreview']
+  const botId = value['botId']
   const hierarchy = sessionHierarchySummarySchema.safeParse(value['hierarchy'])
   if (
     value['version'] !== INDEX_VERSION ||
@@ -175,6 +183,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     typeof value['updatedAt'] !== 'number' ||
     typeof value['messageCount'] !== 'number' ||
     !(preview === null || typeof preview === 'string') ||
+    !(botId === null || typeof botId === 'string') ||
     typeof value['archived'] !== 'boolean' ||
     typeof value['pinned'] !== 'boolean' ||
     typeof value['driverKind'] !== 'string' ||
@@ -186,7 +195,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     return null
   }
   return {
-    version: 4,
+    version: 5,
     hierarchy: hierarchy.data,
     lastSeq: value['lastSeq'],
     hasSession: value['hasSession'],
@@ -195,6 +204,7 @@ function parseSessionIndex(raw: string): SessionIndex | null {
     updatedAt: value['updatedAt'],
     messageCount: value['messageCount'],
     lastMessagePreview: preview,
+    botId,
     archived: value['archived'],
     pinned: value['pinned'],
     driverKind: value['driverKind'],
@@ -590,6 +600,7 @@ export class SessionStore {
       updatedAt: entry.updatedAt,
       messageCount: entry.messageCount,
       lastMessagePreview: entry.lastMessagePreview,
+      ...(entry.botId !== null ? { botId: entry.botId } : {}),
       archived: entry.archived,
       pinned: entry.pinned,
     }
