@@ -47,6 +47,7 @@ import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
 import { BotRoutineSchedule } from './bot-routine-schedule'
+import { BotMemoryCapture } from './bot-memory-capture'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { TeamRoomService } from './team-rooms'
 import { controlCliApproval } from '@ari/engine/control-cli'
@@ -1140,6 +1141,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     dispatch: (command, origin) => engine.dispatch(command, origin),
   })
   const botRoutinesReady: Promise<void> = botRoutines.load().then(() => botRoutines.start())
+  // Post-turn memory capture: the same session store that saw the settle runs
+  // the check, so a bot never captures while its own turn is mid-flight.
+  const botMemoryCapture = new BotMemoryCapture({
+    store: getSessionStore(),
+    memory: getBotMemoryStore(),
+    dispatch: (command, origin) => engine.dispatch(command, origin),
+    enabled: () => getSettingsStore().current.hive.selfMemory,
+  })
+  botMemoryCapture.start(getSessionStore())
   const backgroundReady = options.backgroundReady ?? Promise.resolve()
   // The runtime's start-up recovery replays every delegated session; turns
   // and agent-control calls wait on it, the first paint does not.
@@ -1201,6 +1211,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   app.once('before-quit', () => {
     resumeSchedule.close()
     botRoutines.close()
+    botMemoryCapture.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
 
