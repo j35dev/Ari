@@ -969,4 +969,69 @@ describe('ari core mid-turn steering', () => {
       await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
+
+  it('aborts the in-flight model call and sends the steer on the next request', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ari-steer-now-'))
+    try {
+      const endpoints = new EndpointStore({ dir })
+      await endpoints.upsert({
+        id: 'ep',
+        name: 'Router',
+        baseUrl: 'https://oai.test/v1',
+        flavor: 'openai-chat',
+        model: 'gpt-test',
+        headers: {},
+      })
+      const requests: ChatRequest[] = []
+      const driver = new AriCoreDriver(endpoints, {
+        clients: {
+          openai: async function* (request) {
+            requests.push(request)
+            if (requests.length === 1) {
+              // Stay silent until the steer aborts this call.
+              await new Promise<void>((resolve) => {
+                if (request.signal?.aborted === true) {
+                  resolve()
+                  return
+                }
+                request.signal?.addEventListener('abort', () => resolve(), { once: true })
+              })
+              yield { type: 'done' }
+              return
+            }
+            yield { type: 'text-delta', text: 'adjusted' }
+            yield { type: 'usage', inputTokens: 1, outputTokens: 1, costUsd: null }
+            yield { type: 'done' }
+          },
+        },
+      })
+      const adapter = await driver.create(makeSession(dir, 'work for a long time', 'ep'))
+      const iterator = adapter.start()[Symbol.asyncIterator]()
+      const first = iterator.next()
+      for (let i = 0; i < 50 && requests.length === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      expect(requests).toHaveLength(1)
+      expect(adapter.steer?.('stop and write the test')).toBe(true)
+      const events: AgentEvent[] = []
+      const started = await first
+      if (!started.done && started.value) events.push(started.value)
+      while (events.at(-1)?.type !== 'done') {
+        const next = await iterator.next()
+        if (next.done) break
+        events.push(next.value)
+      }
+      expect(requests).toHaveLength(2)
+      expect(
+        requests[1]?.messages?.some(
+          (message) => message.role === 'user' && message.content === 'stop and write the test',
+        ),
+      ).toBe(true)
+      expect(events.some((event) => event.type === 'text-delta' && event.text === 'adjusted')).toBe(
+        true,
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    }
+  })
 })
