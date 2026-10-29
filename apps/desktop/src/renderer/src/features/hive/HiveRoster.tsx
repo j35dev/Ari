@@ -8,8 +8,9 @@ import { characterOf } from '@ari/ui/bot-character'
 import { Button } from '@ari/ui/button'
 import { SessionActivityMark } from '../moment'
 import type { SessionActivity } from '../session/session-activity'
-import { botMoodOf } from './bot-mood'
+import { botMoodOf, botStatusOf } from './bot-mood'
 import { botSubtitle, mainSessionOf, rosterOf } from './bot-roster'
+import { useBotUnread } from './bot-unread'
 import { EditBotDialog } from './EditBotDialog'
 import { NewBotDialog } from './NewBotDialog'
 import { NewRoomDialog } from './NewRoomDialog'
@@ -39,7 +40,12 @@ export interface HiveRosterProps {
 const ICON_ACTION =
   'flex size-6 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
-/** One bot: its face, what it last said, and what it is doing right now. */
+/** One bot: its face, what it last said, and what it is doing right now.
+ *
+ * A live turn takes over the second line ("is working…"); routine fires and
+ * quiet turns leave it to show the bot's latest line as the receipt. An
+ * unseen turn lights a small dot on the face until the chat is visited.
+ */
 function BotRow({
   bot,
   session,
@@ -61,7 +67,12 @@ function BotRow({
   onDuplicate: (() => void) | null
   onToggleHidden: () => void
 }) {
+  // A hook per row component, not per map iteration: rows themselves are
+  // components, so each one subscribes in its own right.
+  const unread = useBotUnread(bot.id, session?.updatedAt)
   const title = bot.title?.trim() ?? ''
+  const status = botStatusOf(activity)
+  const second = status ?? botSubtitle(bot, session)
   return (
     <div
       className={`group flex items-center gap-1 rounded-lg px-1.5 py-1 transition-colors hover:bg-surface-2 ${
@@ -73,17 +84,28 @@ function BotRow({
         onClick={onOpen}
         className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
       >
-        <BotAvatar character={characterOf(bot)} mood={mood} size={36} className="shrink-0" />
+        <span className="relative shrink-0">
+          <BotAvatar character={characterOf(bot)} mood={mood} size={36} />
+          {unread ? (
+            <span
+              aria-label={`${bot.name} has unread news`}
+              title="New activity since your last visit"
+              className="absolute right-0 bottom-0 size-2.5 rounded-full border border-surface-0 bg-accent"
+            />
+          ) : null}
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm text-fg">{bot.name}</span>
-          <span className="block truncate text-2xs text-fg-subtle">
-            {title.length > 0 ? (
+          <span
+            className={`block truncate text-2xs ${status !== null ? 'text-fg-muted' : 'text-fg-subtle'}`}
+          >
+            {title.length > 0 && status === null ? (
               <>
                 <span className="text-fg-muted">{title}</span>
                 {' · '}
               </>
             ) : null}
-            {botSubtitle(bot, session)}
+            {second}
           </span>
         </span>
       </button>
