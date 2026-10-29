@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { Bot } from '@ari/contracts/bot'
 import type { TeamRoomSummary } from '@ari/contracts/rpc'
+import { BotAvatar } from '@ari/ui/bot-avatar'
+import { characterOf } from '@ari/ui/bot-character'
 import { Button } from '@ari/ui/button'
 import { Checkbox } from '@ari/ui/checkbox'
 import { Dialog } from '@ari/ui/dialog'
@@ -125,9 +127,7 @@ export function NewRoomDialog({
                       onChange={(event) => toggle(bot.id, event.target.checked)}
                       className="rounded-sm px-2 py-1.5 hover:bg-surface-2 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
                     >
-                      <span aria-hidden="true" className="text-sm leading-none">
-                        {bot.emoji}
-                      </span>
+                      <BotAvatar character={characterOf(bot)} size={20} />
                       <span className="truncate text-sm text-fg">{bot.name}</span>
                     </Checkbox>
                   )
@@ -152,7 +152,7 @@ export function NewRoomDialog({
                 value={leadBotId}
                 options={[
                   { value: NO_LEAD, label: 'No lead' },
-                  ...members.map((bot) => ({ value: bot.id, label: `${bot.emoji} ${bot.name}` })),
+                  ...members.map((bot) => ({ value: bot.id, label: bot.name })),
                 ]}
                 onValueChange={setLeadPick}
               />
