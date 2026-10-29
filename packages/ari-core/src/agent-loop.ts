@@ -46,11 +46,18 @@ export interface AgentLoopOptions {
    */
   onTranscript?: (messages: ChatMessage[]) => void
   /**
-   * Mid-turn user texts the host accepted via `steer`. Pulled at each round
-   * boundary (and once more before the turn would otherwise end) so a
-   * follow-up lands in the conversation the model is already in.
+   * Mid-turn user texts the host accepted via `steer`. Pulled when the
+   * in-flight model call stops (including a steer abort) and before each
+   * later round, so the follow-up joins the conversation the model is in.
    */
   takeSteering?: () => string[]
+  /** True while a steer is waiting; lets the loop skip tools that have not started. */
+  hasSteering?: () => boolean
+  /**
+   * Fresh abort signal for this round's tools. The host aborts it when a steer
+   * arrives so a running command does not block the new instruction.
+   */
+  renewToolSignal?: () => AbortSignal
   /** Refuse further steering. Called synchronously before the loop finishes. */
   closeSteering?: () => void
   /** Re-open steering after a boundary consumed a message and the loop continues. */
@@ -323,6 +330,11 @@ export async function* runAgentLoop(
   // work, which is how a stuck model hides from the back-to-back guard above.
   let freshReadHits = new Map<string, number>()
 
+  /** Told to the model when a steer arrives before a requested tool starts. */
+  const steerSkipText =
+    'Not run: the user steered the turn before this tool started, so it was skipped. ' +
+    'Follow the new user message instead of retrying this call.'
+
   /** Appends steered user texts. True when the model still has something to read. */
   const absorbSteering = (): boolean => {
     const extra = (options.takeSteering?.() ?? []).filter((text) => text.length > 0)
@@ -340,7 +352,8 @@ export async function* runAgentLoop(
     options.closeSteering?.()
   }
 
-  for (let current = 0; maxRounds === undefined || current < maxRounds; current++) {
+  rounds: for (let current = 0; maxRounds === undefined || current < maxRounds; current++) {
+    const toolSignal = options.renewToolSignal?.()
     if (signal?.aborted) {
       closeSteering()
       yield { type: 'error', message: 'aborted', rawJson: null }
@@ -420,6 +433,9 @@ export async function* runAgentLoop(
       }
 
       if (!sawContent && pending.length === 0) {
+        // A steer aborts the model call before the first token. That is not an
+        // empty response: the new instruction has to reach the next request.
+        if (absorbSteering()) continue rounds
         // The error the round already yielded is the whole story: retrying it
         // here would stack instant attempts on top of the client's backoff and
         // then blame the model for an "empty response" it never sent.
@@ -540,11 +556,15 @@ export async function* runAgentLoop(
     // one file must not race. Results are still yielded in call order, so the
     // transcript and the message list are identical either way.
     const inFlight = new Map<string, Promise<ToolOutcome>>()
-    if (loopRedirect === null) {
+    const steeredDuringRound = options.hasSteering?.() === true || toolSignal?.aborted === true
+    if (loopRedirect === null && !steeredDuringRound) {
       for (const call of pending) {
         const tool = toolset.get(call.name)
         if (tool && isConcurrencySafe(tool)) {
-          inFlight.set(call.callId, executeTool(tool, call.argsJson, ctx))
+          inFlight.set(
+            call.callId,
+            executeTool(tool, call.argsJson, { ...ctx, signal: toolSignal }),
+          )
         }
       }
     }
@@ -556,9 +576,15 @@ export async function* runAgentLoop(
       let isError = false
       let outputText: string | undefined
       const concurrent = inFlight.get(call.callId)
+      const steeredBeforeStart =
+        concurrent === undefined &&
+        (loopRedirect !== null || options.hasSteering?.() === true || toolSignal?.aborted === true)
       if (loopRedirect !== null) {
         isError = true
         resultJson = JSON.stringify(loopRedirect)
+      } else if (steeredBeforeStart) {
+        isError = true
+        resultJson = JSON.stringify(steerSkipText)
       } else if (concurrent) {
         const outcome = await concurrent
         resultJson = outcome.resultJson
@@ -644,7 +670,7 @@ export async function* runAgentLoop(
               }
             }
           }
-          const output = await tool.execute(args, execCtx)
+          const output = await tool.execute(args, { ...execCtx, signal: toolSignal })
           resultJson = encodeToolResult(output)
           outputText = typeof output === 'string' ? output : output.text
           const images = outputImages(output)

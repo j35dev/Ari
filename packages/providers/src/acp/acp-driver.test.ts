@@ -885,6 +885,80 @@ describe('createAcpAdapter', () => {
     expect(adapter.steer?.('too late')).toBe(false)
   }, 15000)
 
+  it('refuses a steer once the last prompt has settled', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => standardAgent()(method, params, id))
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    // The turn finished while its transport is still open. A buffered text
+    // here would have no prompt left to chain onto and vanish silently.
+    await collectEvents(adapter)
+    expect(adapter.steer?.('too late')).toBe(false)
+    await adapter.dispose()
+  }, 15000)
+
+  it('injects a steer into the live prompt through the ACP steering extension', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, _meta: { steering: { supported: true } } }
+      }
+      if (method === '_session/steering') return { outcome: 'injected' }
+      if (method === 'session/prompt') return undefined
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const collected = collectEvents(adapter)
+    await vi.waitFor(() =>
+      expect(child.sent.some((m) => m['method'] === 'session/prompt')).toBe(true),
+    )
+
+    await expect(adapter.steer?.('actually focus on the tests')).resolves.toBe(true)
+    expect(child.sent.find((m) => m['method'] === '_session/steering')?.['params']).toEqual({
+      sessionId: 'sess_acp_1',
+      prompt: [{ type: 'text', text: 'actually focus on the tests' }],
+      _meta: { steering: { idleBehavior: 'promptRequired' } },
+    })
+
+    const prompt = child.sent.find((m) => m['method'] === 'session/prompt')
+    child.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: prompt?.['id'], result: { stopReason: 'end_turn' } })}\n`,
+    )
+    await collected
+    // The injected text joined the running prompt; nothing was chained after it.
+    expect(child.sent.filter((m) => m['method'] === 'session/prompt')).toHaveLength(1)
+    await adapter.dispose()
+  }, 15000)
+
+  it('leaves a steer queued when the steering extension reports an idle session', async () => {
+    const child = fakeChild()
+    script(child, (method, params, id) => {
+      if (method === 'initialize') {
+        return { protocolVersion: 1, _meta: { steering: { supported: true } } }
+      }
+      if (method === '_session/steering') {
+        return { outcome: 'promptRequired', reason: 'noRunningTurn' }
+      }
+      if (method === 'session/prompt') return undefined
+      return standardAgent()(method, params, id)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child)
+    const collected = collectEvents(adapter)
+    await vi.waitFor(() =>
+      expect(child.sent.some((m) => m['method'] === 'session/prompt')).toBe(true),
+    )
+
+    // False means the engine keeps the message queued and runs it as a turn;
+    // accepting it here would append a user row for text no agent ever saw.
+    await expect(adapter.steer?.('try again next turn')).resolves.toBe(false)
+
+    const prompt = child.sent.find((m) => m['method'] === 'session/prompt')
+    child.stdout.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: prompt?.['id'], result: { stopReason: 'end_turn' } })}\n`,
+    )
+    await collected
+    await adapter.dispose()
+  }, 15000)
+
   it('reports a buffered steer as lost when the transport dies before it is chained', async () => {
     const child = fakeChild()
     // The prompt's stop reason is delivered and the agent exits in the same
