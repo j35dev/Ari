@@ -1255,6 +1255,30 @@ describe('SessionView replay/live dedupe (M23.12)', () => {
     expect(screen.getAllByText('I am the agent.')).toHaveLength(1)
   })
 
+  it('folds a chunked replay burst frame by frame without double-rendering a chunk re-send', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    // The main process streams history in bounded frames; a live event
+    // arriving between chunks stays buffered behind the sentinel. The burst
+    // flushes inside one act so its coalesced publishes stay in this render.
+    await act(async () => {
+      for (let seq = 1; seq <= 8; seq++) {
+        emitFrame({ events: [userMessage(seq, `chunked ${seq}`)], replay: true })
+      }
+      emitFrame({ event: userMessage(9, 'live during burst') })
+      emitFrame({ events: [userMessage(4, 'chunked 4')], replay: true })
+      emitFrame({ replayDone: true })
+    })
+
+    // Every message renders exactly once, re-delivered seqs included.
+    expect(await screen.findByText('live during burst')).toBeInTheDocument()
+    for (let seq = 1; seq <= 8; seq++) {
+      expect(screen.getAllByText(`chunked ${seq}`)).toHaveLength(1)
+    }
+    expect(screen.getAllByText('live during burst')).toHaveLength(1)
+  })
+
   it('holds live frames until the replay sentinel so history stays in order', async () => {
     renderView()
     await screen.findByLabelText('Message')
