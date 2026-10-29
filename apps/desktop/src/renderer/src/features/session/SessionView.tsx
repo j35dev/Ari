@@ -28,6 +28,7 @@ import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
+import { BotChatHead } from '../hive/BotChatHead'
 import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
@@ -274,6 +275,7 @@ export function SessionView({
   activityOf,
   sessionTitle,
   parentSession = null,
+  botId,
   hidden = false,
 }: {
   sessionId: string
@@ -288,6 +290,12 @@ export function SessionView({
   sessionTitle?: (id: string) => string | undefined
   /** The session that delegated to this one, when it is a child. */
   parentSession?: { id: string; title: string } | null
+  /**
+   * The Hive bot this session belongs to, when it is one: bot sessions get the
+   * chat-style head above the transcript. Keyed strictly on the session's own
+   * `botId` — a coding session must never wear a bot's face.
+   */
+  botId?: string
   /**
    * Kept mounted behind the pane's current session. The journal subscription
    * stays live so the view is current when it returns, but its subtree's
@@ -1246,6 +1254,9 @@ export function SessionView({
           parentSession={parentSession}
           onOpenSession={onOpenSession}
         />
+        {botId !== undefined ? (
+          <BotChatHead botId={botId} activity={activityOf?.(sessionId)} />
+        ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
@@ -1437,7 +1448,9 @@ export function EffortChip({
       if (cancelled) return
       const row = rows.find((r) => r.kind === driverKind)
       const model = probesModel
-        ? row?.models?.find((entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''))
+        ? row?.models?.find(
+            (entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''),
+          )
         : undefined
       const modelEfforts = model?.efforts ?? []
       agentEfforts = modelEfforts.length > 0 && model?.effortsSource === 'agent'
