@@ -33,21 +33,38 @@ export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
    * rows. Null until the session says something; absent from older producers.
    */
   lastMessagePreview: z.string().nullable().optional(),
+  /** Set for Hive bot sessions (main session and room threads); absent otherwise. */
+  botId: z.string().optional(),
   /** Sidebar flags; treat missing as false. The engine always reports them. */
   archived: z.boolean().optional(),
   pinned: z.boolean().optional(),
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
 
-/** A Hive team room as the shell sees it: roster, window, and round state. */
+/** One line of a Hive team room's transcript. */
+export interface TeamRoomEntry {
+  id: string
+  /** Null for the person; a bot id for a bot. */
+  botId: string | null
+  text: string
+  at: number
+}
+
+/** A Hive team room as the shell sees it: roster, transcript, and round state. */
 export interface TeamRoomSummary {
   id: string
   title: string
-  bots: { botId: string; name: string; sessionId: string }[]
+  /** `sessionId` is the bot's own room thread, not its main session. */
+  bots: { botId: string; name: string; emoji: string; sessionId: string }[]
   leadBotId: string | null
   activeBotId: string | null
   needsUser: boolean
+  /** What bots are shown when woken: the most recent messages only. */
   window: { botId: string | null; text: string }[]
+  /** The whole transcript, oldest first, capped at the newest 500 entries. */
+  log: TeamRoomEntry[]
+  /** Human messages sent while a round runs; each starts its own turn once the room settles. */
+  pending: number
   round: {
     rounds: number
     messages: number
@@ -55,6 +72,13 @@ export interface TeamRoomSummary {
     awaiting: string[]
     passed: string[]
   } | null
+  updatedAt: number
+}
+
+/** Payload delivered on the rooms.updated stream; `room` is null once removed. */
+export interface TeamRoomFrame {
+  roomId: string
+  room: TeamRoomSummary | null
 }
 
 /** One redeemable reset. Several can be banked with different expiries. */
@@ -297,6 +321,7 @@ export const streamNames = [
   'providers.updates',
   'app.updates',
   'browser.updated',
+  'rooms.updated',
   'remote.updates',
   'app.navigate',
 ] as const
@@ -585,11 +610,17 @@ export const rpcParams = {
     botIds: z.array(z.string().min(1)).min(1).max(8),
     leadBotId: z.string().min(1).nullish(),
   }),
-  /** A human message to the room; the host decides who (if anyone) wakes. */
+  /**
+   * A human message to the room; the host decides who (if anyone) wakes. With
+   * `botId` (the answer to a pick prompt) that bot is addressed directly.
+   */
   'rooms.send': z.object({
     roomId: z.string().min(1),
     text: z.string().trim().min(1).max(64_000),
+    botId: z.string().min(1).optional(),
   }),
+  /** Deletes the room; each bot's room thread is archived, never deleted. */
+  'rooms.remove': z.object({ roomId: z.string().min(1) }),
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
   /** The children this session delegated to, with their state and last report. */
@@ -933,7 +964,9 @@ export interface RpcResults {
   'routines.remove': { removed: boolean }
   'rooms.list': TeamRoomSummary[]
   'rooms.create': TeamRoomSummary
-  'rooms.send': { targets: string[]; pick: boolean }
+  /** `queued`: a round was running, so the message waits for the room to settle. */
+  'rooms.send': { targets: string[]; pick: boolean; queued: boolean }
+  'rooms.remove': { removed: boolean }
   'session.load': unknown
   'session.workspace': { path: string | null }
   'session.tasks': ChildTask[]

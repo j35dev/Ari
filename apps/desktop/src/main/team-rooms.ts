@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import type { Bot } from '@ari/contracts/bot'
+import type { TeamRoomFrame, TeamRoomSummary } from '@ari/contracts/rpc'
 import type { BotStore } from '@ari/engine/bots'
 import {
   ROOM_PASS,
@@ -9,6 +11,7 @@ import {
   roomPrompt,
   routeHumanMessage,
   type RoomBot,
+  type RoomStamp,
   type RoomState,
 } from '@ari/engine/room'
 import type { SessionStore } from '@ari/engine/session-store'
@@ -18,14 +21,30 @@ import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('desktop:team-rooms')
 
-export interface TeamRoomView extends RoomState {
+interface Room {
   id: string
+  state: RoomState
+  /** Bot id → emoji, read from the bot records. */
+  emoji: Record<string, string>
+  updatedAt: number
 }
 
 interface StoredRoom {
   id: string
   botIds: string[]
+  /** Bot id → room thread. Rooms saved before threads existed have none. */
+  threads?: Record<string, string>
   state: RoomState
+  updatedAt?: number
+}
+
+/** What a bot's room thread is created with; the permission mode is the host's default. */
+export interface RoomThreadInput {
+  projectId: string
+  title: string
+  driverKind: Bot['driverKind']
+  modelId: string | null
+  botId: string
 }
 
 export interface TeamRoomDeps {
@@ -37,22 +56,32 @@ export interface TeamRoomDeps {
     command: Command,
     origin?: MessageOrigin,
   ): Promise<{ accepted: boolean; reason?: string }>
+  /** Creates one bot's thread for a room and returns its session id. */
+  createThread(input: RoomThreadInput): Promise<string>
+  /** Archives a room thread once its room is removed. */
+  archiveThread(sessionId: string): Promise<void>
+  /** Called after every persisted change, and with `room: null` on removal. */
+  publish(frame: TeamRoomFrame): void
+  now?: () => number
 }
 
 /**
  * The host side of a Hive team room. A human message wakes exactly one bot;
- * that bot's reply may hand the room to one teammate, and the host serializes
- * every wake so two bots never run at once. Each bot turn is a room-priority
- * held message, so a person's own turn always goes first.
+ * replies may hand the room to teammates, and the host serializes every wake
+ * so two bots never run at once. Each bot runs in its own room thread, and
+ * each bot turn is a room-priority held message, so a person's own turn always
+ * goes first.
  */
 export class TeamRoomService {
   readonly #deps: TeamRoomDeps
-  #rooms = new Map<string, TeamRoomView>()
+  readonly #now: () => number
+  #rooms = new Map<string, Room>()
   #ready: Promise<void> = Promise.resolve()
   #queue: Promise<void> = Promise.resolve()
 
   constructor(deps: TeamRoomDeps) {
     this.#deps = deps
+    this.#now = deps.now ?? Date.now
   }
 
   load(): Promise<void> {
@@ -83,93 +112,174 @@ export class TeamRoomService {
       )
         continue
       const bots: RoomBot[] = []
+      const emoji: Record<string, string> = {}
       for (const botId of room.botIds) {
         const bot = await this.#deps.bots.get(botId)
-        if (bot === null || bot.mainSessionId === undefined) continue
-        bots.push({ botId: bot.id, name: bot.name, sessionId: bot.mainSessionId })
+        if (bot === null) continue
+        // A missing thread is created on the bot's first wake; the main
+        // session is never borrowed.
+        bots.push({ botId: bot.id, name: bot.name, sessionId: room.threads?.[bot.id] ?? '' })
+        emoji[bot.id] = bot.emoji
       }
       if (bots.length === 0) continue
       const known = new Set(bots.map((bot) => bot.botId))
+      const keep = (id: string | null): string | null => (id !== null && known.has(id) ? id : null)
+      const round = room.state.round
       const state: RoomState = {
         ...room.state,
         bots,
-        leadBotId:
-          room.state.leadBotId !== null && known.has(room.state.leadBotId)
-            ? room.state.leadBotId
-            : null,
-        activeBotId:
-          room.state.activeBotId !== null && known.has(room.state.activeBotId)
-            ? room.state.activeBotId
-            : null,
+        leadBotId: keep(room.state.leadBotId),
+        activeBotId: keep(room.state.activeBotId),
+        window: Array.isArray(room.state.window) ? room.state.window : [],
+        log: Array.isArray(room.state.log) ? room.state.log : [],
+        pending: Array.isArray(room.state.pending) ? room.state.pending : [],
         round:
-          room.state.round === null
+          round === null || round === undefined
             ? null
             : {
-                ...room.state.round,
-                awaiting: (room.state.round.awaiting ?? []).filter((id) => known.has(id)),
-                passed: (room.state.round.passed ?? []).filter((id) => known.has(id)),
+                ...round,
+                awaiting: (round.awaiting ?? []).filter((id) => known.has(id)),
+                passed: (round.passed ?? []).filter((id) => known.has(id)),
+                mentioned: (round.mentioned ?? []).filter((id) => known.has(id)),
               },
       }
-      this.#rooms.set(room.id, { ...state, id: room.id })
+      this.#rooms.set(room.id, {
+        id: room.id,
+        state,
+        emoji,
+        updatedAt: room.updatedAt ?? this.#now(),
+      })
     }
   }
 
   async #save(): Promise<void> {
     await mkdir(dirname(this.#deps.path), { recursive: true })
-    const stored: StoredRoom[] = [...this.#rooms.values()].map((room) => {
-      const { id, ...state } = room
-      return { id, botIds: state.bots.map((bot) => bot.botId), state }
-    })
+    const stored: StoredRoom[] = [...this.#rooms.values()].map((room) => ({
+      id: room.id,
+      botIds: room.state.bots.map((bot) => bot.botId),
+      threads: Object.fromEntries(
+        room.state.bots
+          .filter((bot) => bot.sessionId.length > 0)
+          .map((bot) => [bot.botId, bot.sessionId]),
+      ),
+      state: room.state,
+      updatedAt: room.updatedAt,
+    }))
     const temporary = `${this.#deps.path}.${randomUUID()}.tmp`
     await writeFile(temporary, JSON.stringify(stored), 'utf8')
     await rename(temporary, this.#deps.path)
   }
 
-  async list(): Promise<TeamRoomView[]> {
-    await this.#ready
-    return [...this.#rooms.values()]
+  /** Persists a room change and tells the shell about it. */
+  async #commit(id: string, state: RoomState): Promise<void> {
+    const room = this.#rooms.get(id)
+    if (room === undefined) return
+    const next: Room = { ...room, state, updatedAt: this.#now() }
+    this.#rooms.set(id, next)
+    await this.#save()
+    this.#deps.publish({ roomId: id, room: summarize(next) })
   }
 
-  async create(input: {
+  async list(): Promise<TeamRoomSummary[]> {
+    await this.#ready
+    return [...this.#rooms.values()].map(summarize)
+  }
+
+  /** Creates the room and one dedicated thread per bot, so room turns stay out of main sessions. */
+  create(input: {
     title: string
     botIds: string[]
     leadBotId?: string | null
-  }): Promise<TeamRoomView> {
+  }): Promise<TeamRoomSummary> {
+    return this.#serialize(() => this.#create(input))
+  }
+
+  async #create(input: {
+    title: string
+    botIds: string[]
+    leadBotId?: string | null
+  }): Promise<TeamRoomSummary> {
     await this.#ready
     const title = input.title.trim()
     if (title.length === 0) throw new Error('room title is empty')
     const botIds = [...new Set(input.botIds)]
     if (botIds.length === 0) throw new Error('a room needs at least one bot')
-    const bots: RoomBot[] = []
+    const members: { bot: Bot; projectId: string }[] = []
     for (const botId of botIds) {
       const bot = await this.#deps.bots.get(botId)
       if (bot === null) throw new Error(`unknown bot: ${botId}`)
-      if (bot.mainSessionId === undefined) throw new Error(`${bot.name} has no main session`)
-      bots.push({ botId: bot.id, name: bot.name, sessionId: bot.mainSessionId })
+      const projectId = await this.#projectOf(bot)
+      if (projectId === null) throw new Error(`${bot.name} has no project`)
+      members.push({ bot, projectId })
     }
-    const state = createRoomState(title, bots, input.leadBotId ?? null)
-    const room: TeamRoomView = { ...state, id: `room_${randomUUID()}` }
+    const bots: RoomBot[] = []
+    try {
+      for (const { bot, projectId } of members) {
+        const sessionId = await this.#deps.createThread(threadInput(bot, projectId, title))
+        bots.push({ botId: bot.id, name: bot.name, sessionId })
+      }
+    } catch (error) {
+      for (const bot of bots) await this.#archive(bot.sessionId)
+      throw error
+    }
+    const room: Room = {
+      id: `room_${randomUUID()}`,
+      state: createRoomState(title, bots, input.leadBotId ?? null),
+      emoji: Object.fromEntries(members.map(({ bot }) => [bot.id, bot.emoji])),
+      updatedAt: this.#now(),
+    }
     this.#rooms.set(room.id, room)
-    await this.#save()
-    return room
+    await this.#commit(room.id, room.state)
+    return summarize(this.#rooms.get(room.id) ?? room)
   }
 
-  /** Routes a human message and wakes the first addressed bot. */
-  send(roomId: string, text: string): Promise<{ targets: string[]; pick: boolean }> {
-    return this.#serialize(() => this.#send(roomId, text))
+  /**
+   * Routes a human message and wakes the first addressed bot. While a round
+   * runs the message is queued instead; with `botId` that bot is addressed
+   * directly.
+   */
+  send(
+    roomId: string,
+    text: string,
+    botId?: string,
+  ): Promise<{ targets: string[]; pick: boolean; queued: boolean }> {
+    return this.#serialize(() => this.#send(roomId, text, botId))
   }
 
-  async #send(roomId: string, text: string): Promise<{ targets: string[]; pick: boolean }> {
+  async #send(
+    roomId: string,
+    text: string,
+    botId: string | undefined,
+  ): Promise<{ targets: string[]; pick: boolean; queued: boolean }> {
     await this.#ready
     const room = this.#rooms.get(roomId)
     if (room === undefined) throw new Error('unknown room')
     const content = text.trim()
     if (content.length === 0) throw new Error('room message is empty')
-    const route = routeHumanMessage(room, content)
-    this.#rooms.set(roomId, { ...route.state, id: roomId })
+    if (botId !== undefined && !room.state.bots.some((bot) => bot.botId === botId)) {
+      throw new Error(`unknown bot in this room: ${botId}`)
+    }
+    const route = routeHumanMessage(room.state, content, this.#stamp(), botId ?? null)
+    await this.#commit(roomId, route.state)
+    const first = route.targets[0]
+    if (first !== undefined) await this.#wake(roomId, first)
+    return { targets: route.targets, pick: route.pick, queued: route.queued }
+  }
+
+  /** Deletes the room and archives (never deletes) each bot's room thread. */
+  remove(roomId: string): Promise<{ removed: boolean }> {
+    return this.#serialize(() => this.#remove(roomId))
+  }
+
+  async #remove(roomId: string): Promise<{ removed: boolean }> {
+    await this.#ready
+    const room = this.#rooms.get(roomId)
+    if (room === undefined) return { removed: false }
+    this.#rooms.delete(roomId)
     await this.#save()
-    if (route.targets.length > 0) await this.#wake(roomId, route.targets[0] as string)
-    return { targets: route.targets, pick: route.pick }
+    this.#deps.publish({ roomId, room: null })
+    for (const bot of room.state.bots) await this.#archive(bot.sessionId)
+    return { removed: true }
   }
 
   /**
@@ -183,9 +293,9 @@ export class TeamRoomService {
   async #onSettled(sessionId: string, turnId: string): Promise<void> {
     await this.#ready
     for (const room of this.#rooms.values()) {
-      const waiting = room.round?.awaiting[0]
+      const waiting = room.state.round?.awaiting[0]
       if (waiting === undefined) continue
-      const bot = room.bots.find((entry) => entry.botId === waiting)
+      const bot = room.state.bots.find((entry) => entry.botId === waiting)
       if (bot === undefined || bot.sessionId !== sessionId) continue
       const model = await this.#deps.store.load(sessionId)
       const prompt = model.messages.find(
@@ -217,32 +327,128 @@ export class TeamRoomService {
   async #record(roomId: string, botId: string, text: string): Promise<void> {
     const room = this.#rooms.get(roomId)
     if (room === undefined) return
-    const reply = applyBotReply(room, botId, text.length === 0 ? ROOM_PASS : text)
-    this.#rooms.set(roomId, { ...reply.state, id: roomId })
-    await this.#save()
+    const reply = applyBotReply(
+      room.state,
+      botId,
+      text.length === 0 ? ROOM_PASS : text,
+      this.#stamp(),
+    )
+    await this.#commit(roomId, reply.state)
     if (reply.next !== null) await this.#wake(roomId, reply.next)
   }
 
   async #wake(roomId: string, botId: string): Promise<void> {
+    const sessionId = await this.#threadOf(roomId, botId)
     const room = this.#rooms.get(roomId)
-    if (room === undefined) return
-    const bot = room.bots.find((entry) => entry.botId === botId)
-    if (bot === undefined) return
-    const outcome = await this.#deps.dispatch(
-      {
-        type: 'message.enqueue',
-        sessionId: bot.sessionId,
-        text: roomPrompt(room, botId),
-        attachments: [],
-        hold: true,
-        priority: 'room',
-      },
-      { kind: 'room', roomId, botId },
-    )
+    if (room === undefined || sessionId === null) {
+      if (room !== undefined) await this.#record(roomId, botId, ROOM_PASS)
+      return
+    }
+    let outcome: { accepted: boolean; reason?: string }
+    try {
+      outcome = await this.#deps.dispatch(
+        {
+          type: 'message.enqueue',
+          sessionId,
+          text: roomPrompt(room.state, botId),
+          attachments: [],
+          hold: true,
+          priority: 'room',
+        },
+        { kind: 'room', roomId, botId },
+      )
+    } catch (error) {
+      outcome = { accepted: false, reason: String(error) }
+    }
     if (outcome.accepted) return
     log.warn('team room wake was refused', { roomId, botId, reason: outcome.reason })
     // A bot that cannot be woken passes: the room must settle instead of
     // waiting forever on a session that may have been destroyed.
     await this.#record(roomId, botId, ROOM_PASS)
+  }
+
+  /** The bot's room thread, created now for a room saved before threads existed. */
+  async #threadOf(roomId: string, botId: string): Promise<string | null> {
+    const room = this.#rooms.get(roomId)
+    const member = room?.state.bots.find((entry) => entry.botId === botId)
+    if (room === undefined || member === undefined) return null
+    if (member.sessionId.length > 0) return member.sessionId
+    try {
+      const bot = await this.#deps.bots.get(botId)
+      const projectId = bot === null ? null : await this.#projectOf(bot)
+      if (bot === null || projectId === null) throw new Error('bot or its project is gone')
+      const sessionId = await this.#deps.createThread(threadInput(bot, projectId, room.state.title))
+      await this.#commit(roomId, {
+        ...room.state,
+        bots: room.state.bots.map((entry) =>
+          entry.botId === botId ? { ...entry, sessionId } : entry,
+        ),
+      })
+      return sessionId
+    } catch (error) {
+      log.warn('team room thread could not be created', { roomId, botId, error: String(error) })
+      return null
+    }
+  }
+
+  /** The bot's project, or its main session's for a bot saved before bots had one. */
+  async #projectOf(bot: Bot): Promise<string | null> {
+    if (bot.projectId !== undefined) return bot.projectId
+    if (bot.mainSessionId === undefined) return null
+    return (await this.#deps.store.load(bot.mainSessionId)).session?.projectId ?? null
+  }
+
+  async #archive(sessionId: string): Promise<void> {
+    if (sessionId.length === 0) return
+    try {
+      await this.#deps.archiveThread(sessionId)
+    } catch (error) {
+      log.warn('team room thread could not be archived', { sessionId, error: String(error) })
+    }
+  }
+
+  #stamp(): RoomStamp {
+    return { id: `entry_${randomUUID()}`, at: this.#now() }
+  }
+}
+
+function threadInput(bot: Bot, projectId: string, title: string): RoomThreadInput {
+  return {
+    projectId,
+    title,
+    driverKind: bot.driverKind,
+    modelId: bot.modelId,
+    botId: bot.id,
+  }
+}
+
+function summarize(room: Room): TeamRoomSummary {
+  const { state } = room
+  return {
+    id: room.id,
+    title: state.title,
+    bots: state.bots.map((bot) => ({
+      botId: bot.botId,
+      name: bot.name,
+      emoji: room.emoji[bot.botId] ?? '',
+      sessionId: bot.sessionId,
+    })),
+    leadBotId: state.leadBotId,
+    activeBotId: state.activeBotId,
+    needsUser: state.needsUser,
+    window: state.window,
+    log: state.log,
+    pending: state.pending.length,
+    round:
+      state.round === null
+        ? null
+        : {
+            rounds: state.round.rounds,
+            messages: state.round.messages,
+            followUps: state.round.followUps,
+            awaiting: state.round.awaiting,
+            passed: state.round.passed,
+          },
+    updatedAt: room.updatedAt,
   }
 }
