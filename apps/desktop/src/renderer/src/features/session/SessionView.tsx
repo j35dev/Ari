@@ -30,6 +30,7 @@ import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
 import { BotChatHead } from '../hive/BotChatHead'
 import { BotProfileDrawer } from '../hive/BotProfileDrawer'
+import { markBotSeen } from '../hive/bot-unread'
 import { useBotOf } from '../hive/use-bot'
 import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
@@ -312,6 +313,12 @@ export function SessionView({
   const bot = useBotOf(botId)
   // The Mind drawer (persona, memory, routines) opens over this session only.
   const [mindOpen, setMindOpen] = useState(false)
+  // Reading the chat is the "seen" side of the roster's unread dot: any
+  // rendered — not kept-mounted-invisible — bot session visit marks its bot.
+  useEffect(() => {
+    if (bot === undefined || hidden === true) return
+    markBotSeen(bot.id)
+  }, [bot, hidden])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   // History is loading until its replay has been applied, so the transcript
   // never paints an empty state, or animates history in, while it is in flight.

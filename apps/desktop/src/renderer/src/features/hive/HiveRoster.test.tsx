@@ -7,6 +7,7 @@ import type { SessionSummary, TeamRoomSummary } from '@ari/contracts/rpc'
 import type { SessionActivity } from '../session/session-activity'
 import { HiveRoster } from './HiveRoster'
 import { ASLEEP_AFTER_MS } from './bot-mood'
+import { markBotSeen, resetSeenBots } from './bot-unread'
 import { roomFixture } from './room-fixture'
 import { STARTER_CAST } from './starter-cast'
 import type { RoomsStore } from './use-rooms'
@@ -100,6 +101,7 @@ function renderRoster(
 
 beforeEach(() => {
   invokeMock.mockReset()
+  resetSeenBots()
 })
 
 afterEach(() => {
@@ -138,6 +140,34 @@ describe('HiveRoster', () => {
     renderRoster({ activityOf: () => ({ phase: 'working', startedAt: 1000 }) })
 
     expect(await screen.findByRole('status', { name: 'Working' })).toBeInTheDocument()
+  })
+
+  it('takes the second line over with live status while a turn runs', async () => {
+    stubBots([BOT])
+    renderRoster({ activityOf: () => ({ phase: 'working', startedAt: 1000 }) })
+
+    expect(await screen.findByText('is working…')).toBeInTheDocument()
+    // The receipt yields: the row speaks about the present, not the past.
+    expect(screen.queryByText('Read the file and fixed it.')).not.toBeInTheDocument()
+  })
+
+  it('lights an unread dot for news newer than the last visit', async () => {
+    stubBots([BOT])
+    // A visit older than the session's last write (updatedAt 2000). Unread
+    // state is not tied to render order: the store holds it.
+    window.localStorage.setItem('ari.hive.seenBots.v1', JSON.stringify({ bot_1: 1001 }))
+    renderRoster()
+
+    expect(await screen.findByLabelText('Pixel has unread news')).toBeInTheDocument()
+  })
+
+  it('clears the unread dot when the chat has been visited since', async () => {
+    stubBots([BOT])
+    markBotSeen('bot_1') // now ≫ updatedAt: nothing newer than the visit
+    renderRoster()
+
+    await screen.findByText('Pixel')
+    expect(screen.queryByLabelText('Pixel has unread news')).not.toBeInTheDocument()
   })
 
   it('hides a bot out of the roster without deleting it', async () => {
