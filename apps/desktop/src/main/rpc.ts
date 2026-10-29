@@ -1077,11 +1077,50 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   engineRef = engine
+  const sessionDeps: SessionCreateDeps = {
+    bots: getBotStore(),
+    loadProject,
+    createSession: (session) => engine.createSession(session),
+    defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
+  }
+  // An archive follows a session's delegated children, and archived runs lose
+  // their control grants.
+  const cascadeArchive = async (sessionId: string, archived: boolean): Promise<void> => {
+    const sessions = await getSessionStore().listSessions()
+    const parents = new Set([sessionId])
+    let found = true
+    while (found) {
+      found = false
+      for (const child of sessions) {
+        if (!parents.has(child.id) && child.parentSessionId && parents.has(child.parentSessionId)) {
+          parents.add(child.id)
+          found = true
+          await engine.dispatch({ type: 'session.update', sessionId: child.id, archived })
+        }
+      }
+    }
+    if (archived) {
+      for (const id of parents) runtime?.revoke(id)
+    }
+  }
   teamRooms = new TeamRoomService({
     path: join(app.getPath('userData'), 'team-rooms.json'),
     bots: getBotStore(),
     store: getSessionStore(),
     dispatch: (command, origin) => engine.dispatch(command, origin),
+    createThread: async (input) =>
+      (
+        await createSession(sessionDeps, {
+          ...input,
+          permissionMode: sessionDeps.defaultPermissionMode(),
+        })
+      ).sessionId,
+    archiveThread: async (sessionId) => {
+      const result = await engine.dispatch({ type: 'session.update', sessionId, archived: true })
+      if (!result.accepted) throw new Error(result.reason ?? 'archive was refused')
+      await cascadeArchive(sessionId, true)
+    },
+    publish: (frame) => rpcRegistry.publish('rooms.updated', frame),
   })
   const teamRoomsReady = teamRooms.load()
   // Timed prompts outlive a session turn and a restart: they are journaled in
@@ -1567,13 +1606,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('session.list', async () => getSessionStore().listSessions())
 
-  const sessionDeps: SessionCreateDeps = {
-    bots: getBotStore(),
-    loadProject,
-    createSession: (session) => engine.createSession(session),
-    defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
-  }
-
   r.register('session.create', (params) => createSession(sessionDeps, params))
   r.register('bots.list', () => getBotStore().list())
   r.register('bots.create', (params) => createBot(sessionDeps, params))
@@ -1603,10 +1635,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     if (teamRooms === null) throw new Error('team rooms are unavailable')
     return teamRooms.create(input)
   })
-  r.register('rooms.send', async ({ roomId, text }) => {
+  r.register('rooms.send', async ({ roomId, text, botId }) => {
     await teamRoomsReady
     if (teamRooms === null) throw new Error('team rooms are unavailable')
-    return teamRooms.send(roomId, text)
+    return teamRooms.send(roomId, text, botId)
+  })
+  r.register('rooms.remove', async ({ roomId }) => {
+    await teamRoomsReady
+    if (teamRooms === null) throw new Error('team rooms are unavailable')
+    return teamRooms.remove(roomId)
   })
 
   r.register('session.load', async (params) => {
@@ -1740,30 +1777,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     const command = params.command
     const result = await engine.dispatch(command)
     if (result.accepted && command.type === 'session.update' && command.archived !== undefined) {
-      const sessions = await getSessionStore().listSessions()
-      const parents = new Set([command.sessionId])
-      let found = true
-      while (found) {
-        found = false
-        for (const child of sessions) {
-          if (
-            !parents.has(child.id) &&
-            child.parentSessionId &&
-            parents.has(child.parentSessionId)
-          ) {
-            parents.add(child.id)
-            found = true
-            await engine.dispatch({
-              type: 'session.update',
-              sessionId: child.id,
-              archived: command.archived,
-            })
-          }
-        }
-      }
-      if (command.archived) {
-        for (const id of parents) runtime?.revoke(id)
-      }
+      await cascadeArchive(command.sessionId, command.archived)
     }
     return result
   })
