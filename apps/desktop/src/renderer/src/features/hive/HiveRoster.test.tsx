@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { Bot } from '@ari/contracts/bot'
+import { characterFromSeed } from '@ari/ui/bot-character'
 import type { SessionSummary, TeamRoomSummary } from '@ari/contracts/rpc'
 import type { SessionActivity } from '../session/session-activity'
 import { HiveRoster } from './HiveRoster'
@@ -205,7 +206,11 @@ describe('HiveRoster rooms', () => {
 
     const list = await screen.findByRole('list', { name: 'Rooms' })
     expect(within(list).getByText('Launch')).toBeInTheDocument()
-    expect(within(list).getByText('🎨 🛰️')).toBeInTheDocument()
+    const faces = within(list).getAllByRole('listitem')[0]!.querySelectorAll('svg.ari-bot')
+    expect([...faces].map((face) => face.getAttribute('data-shape'))).toEqual([
+      characterFromSeed('bot_a').shape,
+      characterFromSeed('bot_b').shape,
+    ])
 
     await userEvent.click(within(list).getByRole('button', { name: /Launch/ }))
     expect(onOpenRoom).toHaveBeenCalledWith('room_1')
@@ -230,6 +235,8 @@ describe('HiveRoster rooms', () => {
     expect(within(launch!).getByText('Needs you')).toBeInTheDocument()
     expect(within(launch!).queryByRole('status')).not.toBeInTheDocument()
     expect(within(docs!).getByRole('status', { name: 'Working' })).toBeInTheDocument()
+    const docsFaces = [...docs!.querySelectorAll('svg.ari-bot')]
+    expect(docsFaces.map((face) => face.getAttribute('data-mood'))).toEqual(['replying', 'idle'])
     expect(within(docs!).getByRole('button', { name: /Docs/ })).toHaveAttribute(
       'aria-current',
       'page',
@@ -256,7 +263,7 @@ describe('HiveRoster rooms', () => {
     expect(createButton).toBeEnabled()
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Lead' }))
-    await userEvent.click(await screen.findByRole('option', { name: '🛰️ Rover' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Rover' }))
     await userEvent.click(createButton)
 
     // Seated in roster order, whatever order the boxes were ticked in.
@@ -291,7 +298,7 @@ describe('HiveRoster rooms', () => {
     expect(within(dialog).getByText('A room seats up to 8 bots.')).toBeInTheDocument()
 
     await userEvent.click(within(dialog).getByRole('button', { name: 'Lead' }))
-    await userEvent.click(await screen.findByRole('option', { name: '🎨 Bot 0' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Bot 0' }))
     await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Bot 0' }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Create room' }))
 
