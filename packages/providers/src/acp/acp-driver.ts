@@ -422,12 +422,18 @@ export async function createAcpAdapter(
   const promptText = session.prompt + missingImagesNote(missing)
   const promptImages = loaded.map((img) => ({ data: img.dataBase64, mimeType: img.mimeType }))
 
-  // ACP has no mid-turn injection method, so steering rides out as the next
-  // `session/prompt` the moment the current one reports its stop reason — one
-  // continuous stream from the user's point of view, no queue-then-restart.
-  // Only the turn's first prompt carries images; steered follow-ups are
-  // text-only (the engine never steers an imaged message — it stays queued).
+  // ACP has no generic mid-turn injection method. Agents that advertise the
+  // steering extension take `_session/steering` while a prompt is running;
+  // for everyone else the text is chained as the next `session/prompt` the
+  // moment the current one reports its stop reason. Only the turn's first
+  // prompt carries images; steered follow-ups are text-only (the engine never
+  // steers an imaged message — it stays queued).
   const steeredTexts: string[] = []
+  const steeringExtension = sessionSteeringSupported(connection.initialize)
+  /** A prompt is live, so a steer can still join the turn it belongs to. */
+  let promptInFlight = false
+  /** False once the last prompt settled (or the user stopped the turn). */
+  let acceptingSteer = true
   /**
    * Texts accepted as steering that never reached the agent. `steer` already
    * answered true for them, so the engine has dequeued them as delivered; an
@@ -450,25 +456,34 @@ export async function createAcpAdapter(
     /** The text came from `steer`, so the engine has already dequeued it. */
     steered = false,
   ): void => {
+    promptInFlight = true
     void connection
       .prompt(sessionId, text, { images })
       .then((stopReason) => {
+        promptInFlight = false
         // The transport died while this prompt ran, so nothing can be chained
         // onto it. Drain the buffer *and* report it: shifting first and then
         // bailing on `closed` threw the text away without a word.
         if (connection.closed) {
+          acceptingSteer = false
           push([...lostSteeringEvents(steeredTexts.splice(0)), ...stopReasonEvents(stopReason)])
           return
         }
-        const next = steeredTexts.shift()
+        const next = acceptingSteer ? steeredTexts.shift() : undefined
         if (next === undefined) {
-          push(stopReasonEvents(stopReason))
+          // The last prompt settled: a steer arriving after this point can no
+          // longer be delivered, so the engine must keep it queued.
+          const lost = acceptingSteer ? [] : steeredTexts.splice(0)
+          acceptingSteer = false
+          push([...lostSteeringEvents(lost), ...stopReasonEvents(stopReason)])
           return
         }
-        log.debug('acp steering applied at turn boundary', { sessionId })
+        log.debug('acp steering chained at the turn boundary', { sessionId })
         launchPrompt(next, [], true)
       })
       .catch((error: unknown) => {
+        promptInFlight = false
+        acceptingSteer = false
         log.debug('acp prompt failed', { error: String(error) })
         // A token can expire mid-turn, so the sign-in path has to be reachable
         // from here too — not just from the handshake.
@@ -486,6 +501,35 @@ export async function createAcpAdapter(
           { type: 'done' },
         ])
       })
+  }
+
+  /**
+   * Injects one text into the live prompt through the ACP steering extension.
+   * `promptRequired` (and any extension failure) means the text did not join
+   * the turn; the caller keeps it queued instead of losing it.
+   */
+  const injectSteer = async (text: string): Promise<boolean> => {
+    try {
+      const result = (await connection.requestExtension('_session/steering', {
+        sessionId,
+        prompt: [{ type: 'text', text }],
+        // Opt out of the adapter's detached-turn fallback: if its turn already
+        // settled, the engine must keep the message queued for the next turn.
+        _meta: { steering: { idleBehavior: 'promptRequired' } },
+      })) as { outcome?: string } | null
+      if (result?.outcome === 'injected') {
+        log.debug('acp steering injected into the live turn', { sessionId })
+        return true
+      }
+      log.debug('acp steering not injected', { sessionId, outcome: result?.outcome })
+      return false
+    } catch (error) {
+      log.debug('acp steering request failed', {
+        sessionId,
+        error: formatUnknownError(error),
+      })
+      return false
+    }
   }
 
   const iterator = (async function* generate(): AsyncGenerator<AgentEvent, void, undefined> {
@@ -522,14 +566,20 @@ export async function createAcpAdapter(
       // Unpark anything the turn is waiting on first: the agent sits on its
       // question until the client answers, so a bare session/cancel leaves
       // the prompt — and the turn — hanging. Cancelled answers let it finish.
+      acceptingSteer = false
       releasePending()
       connection.cancel(sessionId)
     },
     steer: (text) => {
-      // Buffered and chained onto the turn's tail below, so it is always
-      // delivered — unless the transport already died, in which case the
-      // caller must keep the message queued rather than lose it.
-      if (connection.closed) return false
+      // A steer belongs to the prompt that is running right now. Once the
+      // last prompt has settled nothing would deliver a buffered text, so the
+      // caller must keep the message queued and run it as the next turn.
+      if (connection.closed || !acceptingSteer || text.length === 0) return false
+      if (steeringExtension) {
+        // Before the first prompt is written (or after it settled) the agent
+        // sees an idle session, not a turn to join.
+        return promptInFlight ? injectSteer(text) : false
+      }
       steeredTexts.push(text)
       return true
     },
@@ -723,6 +773,15 @@ export function describeAdvertisedModel(
 /** True when the agent advertised `session/resume` (no history replay). */
 export function sessionResumeSupported(initialize: AcpInitializeResult): boolean {
   return initialize.agentCapabilities?.sessionCapabilities?.resume === true
+}
+
+/**
+ * True when the agent advertises the ACP steering extension: a
+ * `_session/steering` request joins the prompt that is already running
+ * instead of waiting for it to finish.
+ */
+export function sessionSteeringSupported(initialize: AcpInitializeResult): boolean {
+  return initialize._meta?.steering?.supported === true
 }
 
 /**
