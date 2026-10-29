@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUp } from 'lucide-react'
-import { insertMention, type RoomMember } from './team-room'
+import { BotAvatar } from '@ari/ui/bot-avatar'
+import { insertMention, memberCharacter, type RoomMember } from './team-room'
 
 export interface RoomComposerProps {
   members: readonly RoomMember[]
@@ -112,7 +113,7 @@ export function RoomComposer({ members, onSend }: RoomComposerProps) {
             onClick={() => mention(member.name)}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-surface-1 px-1.5 text-2xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-50"
           >
-            <span aria-hidden="true">{member.emoji}</span>@{member.name}
+            <BotAvatar character={memberCharacter(member)} size={14} />@{member.name}
           </button>
         ))}
       </div>

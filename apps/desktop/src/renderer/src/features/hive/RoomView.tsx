@@ -1,14 +1,18 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { TeamRoomEntry, TeamRoomSummary } from '@ari/contracts/rpc'
 import { Check, MessageSquare, Trash2, X } from 'lucide-react'
+import { BotAvatar, type BotMood } from '@ari/ui/bot-avatar'
+import { characterFromSeed } from '@ari/ui/bot-character'
 import { Button } from '@ari/ui/button'
 import { IconButton } from '@ari/ui/icon-button'
 import { SessionActivityMark, WorkingGlyph } from '../moment'
 import { MarkdownBlock } from '../transcript/MarkdownBlock'
 import { pinnedAfterScroll } from '../transcript/transcript-pin'
+import { roomMoodsOf } from './bot-mood'
 import { RoomComposer } from './RoomComposer'
 import {
   isPass,
+  memberCharacter,
   memberOf,
   needsYouMember,
   pendingLabel,
@@ -32,20 +36,20 @@ const NOTE = 'mx-auto w-full max-w-3xl rounded-lg border px-3 py-2 text-xs'
 /** A member in the header: who it is, whether it leads, and whether it is replying now. */
 function MemberChip({
   member,
+  mood,
   lead,
   replying,
   onOpenThread,
 }: {
   member: RoomMember
+  mood: BotMood
   lead: boolean
   replying: boolean
   onOpenThread: () => void
 }) {
   return (
-    <li className="flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface-1 pr-0.5 pl-2">
-      <span aria-hidden="true" className="text-sm leading-none">
-        {member.emoji}
-      </span>
+    <li className="flex h-7 items-center gap-1.5 rounded-lg border border-border bg-surface-1 pr-0.5 pl-1.5">
+      <BotAvatar character={memberCharacter(member)} mood={mood} size={20} />
       <span className="text-xs text-fg">{member.name}</span>
       {lead ? (
         <span className="rounded-sm bg-accent-subtle px-1 text-2xs font-medium text-fg">Lead</span>
@@ -77,16 +81,15 @@ function EntryRow({ entry, member }: { entry: TeamRoomEntry; member: RoomMember 
   }
   const name = member?.name ?? 'A former member'
   if (isPass(entry.text)) {
-    return <p className="my-2 pl-9 text-2xs text-fg-subtle">{name} passed</p>
+    return <p className="my-2 pl-10 text-2xs text-fg-subtle">{name} passed</p>
   }
   return (
     <div className="my-3 flex gap-2.5">
-      <span
-        aria-hidden="true"
-        className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-sm leading-none"
-      >
-        {member?.emoji ?? '🤖'}
-      </span>
+      <BotAvatar
+        character={member === undefined ? characterFromSeed(entry.botId) : memberCharacter(member)}
+        size={30}
+        className="shrink-0"
+      />
       <div className="min-w-0 flex-1">
         <p className="mb-0.5 text-xs font-medium text-fg-muted">{name}</p>
         <MarkdownBlock text={entry.text} />
@@ -113,6 +116,7 @@ export function RoomView({ room, onSend, onRemove, onOpenThread }: RoomViewProps
 
   const replying = replyingMember(room)
   const asking = needsYouMember(room)
+  const moodOf = roomMoodsOf(room)
   const running = room.round !== null
   const lastEntryId = room.log.at(-1)?.id
 
@@ -173,6 +177,7 @@ export function RoomView({ room, onSend, onRemove, onOpenThread }: RoomViewProps
               <MemberChip
                 key={member.botId}
                 member={member}
+                mood={moodOf(member.botId)}
                 lead={member.botId === room.leadBotId}
                 replying={member.botId === replying?.botId}
                 onOpenThread={() => onOpenThread(member.sessionId)}
@@ -254,8 +259,18 @@ export function RoomView({ room, onSend, onRemove, onOpenThread }: RoomViewProps
 
       <div className="flex flex-col gap-2 px-4 pb-4">
         {room.needsUser ? (
-          <p role="status" className={`${NOTE} border-warning/30 bg-warning-subtle text-warning`}>
-            {asking !== undefined ? `${asking.emoji} ${asking.name} needs you` : 'A bot needs you'}
+          <p
+            role="status"
+            className={`${NOTE} flex items-center gap-2 border-warning/30 bg-warning-subtle text-warning`}
+          >
+            {asking !== undefined ? (
+              <>
+                <BotAvatar character={memberCharacter(asking)} mood="needs-you" size={20} />
+                {`${asking.name} needs you`}
+              </>
+            ) : (
+              'A bot needs you'
+            )}
           </p>
         ) : null}
         {pickText !== null ? (
@@ -274,7 +289,7 @@ export function RoomView({ room, onSend, onRemove, onOpenThread }: RoomViewProps
                   aria-label={`Ask ${member.name}`}
                   onClick={() => pick(member.botId)}
                 >
-                  <span aria-hidden="true">{member.emoji}</span>
+                  <BotAvatar character={memberCharacter(member)} size={16} />
                   {member.name}
                 </Button>
               ))}
