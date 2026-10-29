@@ -3,6 +3,7 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,7 +29,8 @@ import { rpc } from '../../lib/rpc'
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
  * replaces the draft with `text`, focuses the field, and parks the caret at
- * the end. Re-delivering the same nonce is a no-op.
+ * the end. Re-delivering the same nonce is a no-op. `mode: 'insert'` splices
+ * `text` at the caret instead, and leaves the rest of the draft in place.
  *
  * `files` restores the images a refused send had already taken from the
  * composer, so a retry carries the same context the first attempt did.
@@ -37,6 +39,8 @@ export interface ComposerSeed {
   text: string
   nonce: number
   files?: File[]
+  /** `replace` overwrites the draft. `insert` splices at the caret. */
+  mode?: 'replace' | 'insert'
 }
 
 /**
@@ -258,8 +262,7 @@ export function Composer({
   // the keystroke paints, never in its way.
   const mentionQuery = useDeferredValue(token?.kind === 'mention' ? token.raw.slice(1) : null)
   const mentionItems = useMemo(
-    () =>
-      mentionQuery !== null && suggestions ? matchSuggestions(suggestions, mentionQuery) : [],
+    () => (mentionQuery !== null && suggestions ? matchSuggestions(suggestions, mentionQuery) : []),
     [mentionQuery, suggestions],
   )
 
@@ -306,16 +309,37 @@ export function Composer({
   // Draft injection: only a fresh nonce applies the seed, so re-renders with
   // the same object never clobber what the user is typing.
   const seededNonceRef = useRef<number | null>(null)
+  // Insert mode has to place the caret after React commits the new value.
+  // Setting it in the seed effect lands on the pre-update textarea.
+  const seedCaretRef = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const next = seedCaretRef.current
+    if (next === null) return
+    seedCaretRef.current = null
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(next, next)
+  }, [text])
   useEffect(() => {
     if (!seed || seededNonceRef.current === seed.nonce) return
     seededNonceRef.current = seed.nonce
     if (seed.files !== undefined && seed.files.length > 0) addFiles(seed.files)
+    const el = textareaRef.current
+    if (seed.mode === 'insert') {
+      const at = el?.selectionStart ?? 0
+      const end = el?.selectionEnd ?? at
+      const next = at + seed.text.length
+      seedCaretRef.current = next
+      setText((prev) => prev.slice(0, at) + seed.text + prev.slice(Math.max(at, end)))
+      setCaret(next)
+      return
+    }
     setText(seed.text)
     const end = seed.text.length
     setCaret(end)
     // Synchronous focus + caret: deferring via rAF raced user input under
     // load (the caret yank landed between keystrokes and ate characters).
-    const el = textareaRef.current
     el?.focus()
     el?.setSelectionRange(end, end)
   }, [seed, addFiles])
@@ -751,36 +775,37 @@ export function Composer({
  */
 const MentionOverlay = forwardRef<HTMLDivElement, { text: string; resting: boolean }>(
   function MentionOverlay({ text, resting }, ref) {
-  const ranges = mentionRanges(text)
-  if (ranges.length === 0) return null
-  const parts: React.ReactNode[] = []
-  let cursor = 0
-  for (const range of ranges) {
-    if (range.start > cursor) {
-      parts.push(<span key={cursor}>{text.slice(cursor, range.start)}</span>)
+    const ranges = mentionRanges(text)
+    if (ranges.length === 0) return null
+    const parts: React.ReactNode[] = []
+    let cursor = 0
+    for (const range of ranges) {
+      if (range.start > cursor) {
+        parts.push(<span key={cursor}>{text.slice(cursor, range.start)}</span>)
+      }
+      parts.push(
+        <mark key={range.start} className="rounded-sm bg-accent-subtle text-fg">
+          {text.slice(range.start, range.end)}
+        </mark>,
+      )
+      cursor = range.end
     }
-    parts.push(
-      <mark key={range.start} className="rounded-sm bg-accent-subtle text-fg">
-        {text.slice(range.start, range.end)}
-      </mark>,
+    if (cursor < text.length) {
+      parts.push(<span key={cursor}>{text.slice(cursor)}</span>)
+    }
+    return (
+      <div
+        ref={ref}
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
+          resting ? 'pl-4 pr-12' : 'px-4'
+        }`}
+      >
+        {parts}
+      </div>
     )
-    cursor = range.end
-  }
-  if (cursor < text.length) {
-    parts.push(<span key={cursor}>{text.slice(cursor)}</span>)
-  }
-  return (
-    <div
-      ref={ref}
-      aria-hidden="true"
-      className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
-        resting ? 'pl-4 pr-12' : 'px-4'
-      }`}
-    >
-      {parts}
-    </div>
-  )
-})
+  },
+)
 
 function SendStopButton({
   running,
