@@ -21,7 +21,9 @@ import { FILE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './d
 import { mentionRanges } from './mention-ranges'
 import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
 import { promptHistory, stepPromptHistory } from './prompt-history'
+import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
+import { rpc } from '../../lib/rpc'
 
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
@@ -344,20 +346,89 @@ export function Composer({
     [refocus, setText],
   )
 
+  /** Inserts at a captured range. A file write resolves after the caret may have moved. */
+  // A paste event does not carry Ctrl/Shift. Remember them from the keys
+  // that are down so Ctrl/Cmd+Shift+V can stay inline.
+  const forceInlinePasteRef = useRef(false)
+  useEffect(() => {
+    const sync = (event: KeyboardEvent): void => {
+      forceInlinePasteRef.current = (event.ctrlKey || event.metaKey) && event.shiftKey
+    }
+    const clear = (): void => {
+      forceInlinePasteRef.current = false
+    }
+    window.addEventListener('keydown', sync)
+    window.addEventListener('keyup', sync)
+    window.addEventListener('blur', clear)
+    return () => {
+      window.removeEventListener('keydown', sync)
+      window.removeEventListener('keyup', sync)
+      window.removeEventListener('blur', clear)
+    }
+  }, [])
+
+  const insertRange = useCallback(
+    (at: number, end: number, insert: string) => {
+      const nextCaret = at + insert.length
+      setText((prev) => prev.slice(0, at) + insert + prev.slice(Math.max(at, end)))
+      setCaret(nextCaret)
+      refocus(nextCaret)
+    },
+    [refocus, setText],
+  )
+
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (e.clipboardData.files.length === 0) return
-      const files = Array.from(e.clipboardData.files)
-      const images = files.filter((file) => file.type.startsWith('image/'))
-      const others = files.filter((file) => !file.type.startsWith('image/'))
-      if (images.length > 0) addFiles(images)
-      // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
-      if (others.length > 0) {
-        const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
-        insertAtCaret(e.currentTarget, caret, insert)
+      if (e.clipboardData.files.length > 0) {
+        const files = Array.from(e.clipboardData.files)
+        const images = files.filter((file) => file.type.startsWith('image/'))
+        const others = files.filter((file) => !file.type.startsWith('image/'))
+        if (images.length > 0) addFiles(images)
+        // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
+        if (others.length > 0) {
+          const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
+          insertAtCaret(e.currentTarget, caret, insert)
+        }
+        return
       }
+      const pasted = e.clipboardData.getData('text/plain')
+      if (pasted.length === 0) return
+      const start = e.currentTarget.selectionStart ?? caret
+      const end = e.currentTarget.selectionEnd ?? start
+      const native = e.nativeEvent as ClipboardEvent & {
+        ctrlKey?: boolean
+        metaKey?: boolean
+        shiftKey?: boolean
+      }
+      const forced =
+        forceInlinePasteRef.current ||
+        ((native.ctrlKey === true || native.metaKey === true) && native.shiftKey === true)
+      const decision = decidePasteFile({
+        pasted,
+        draft: text,
+        selectionStart: start,
+        selectionEnd: end,
+        forceInline: forced,
+        id: createPasteId(),
+      })
+      if (decision.action === 'inline') return
+      e.preventDefault()
+      // No session means no workspace to write into, so the text stays inline.
+      if (sessionId === undefined) {
+        insertRange(start, end, pasted)
+        return
+      }
+      const mention = `@${decision.path} `
+      void rpc
+        .invoke('fs.writeTextFile', {
+          sessionId,
+          path: decision.path,
+          content: decision.content,
+        })
+        .then(() => insertRange(start, end, mention))
+        .catch(() => insertRange(start, end, pasted))
     },
-    [addFiles, caret, insertAtCaret],
+    [addFiles, caret, insertAtCaret, insertRange, sessionId, text],
   )
 
   const handleDrop = useCallback(

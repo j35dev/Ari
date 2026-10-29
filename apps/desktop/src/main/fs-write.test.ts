@@ -39,6 +39,26 @@ describe('writeTextFile', () => {
     expect(await readFile(join(project, 'src', 'new.ts'), 'utf8')).toBe('export {}\n')
   })
 
+  it('creates missing parent directories inside the jail', async () => {
+    const project = await makeProject()
+    const target = join(project, '.ari', 'pastes', 'note.txt')
+
+    await writeTextFile({ path: target, content: 'pasted' }, [project])
+
+    expect(await readFile(target, 'utf8')).toBe('pasted')
+  })
+
+  it('does not create directories for a path that leaves the jail', async () => {
+    const project = await makeProject()
+    const escapeRoot = join(project, '..', 'ari-paste-escape')
+    dirs.push(escapeRoot)
+
+    await expect(
+      writeTextFile({ path: join(escapeRoot, 'nested', 'evil.txt'), content: 'x' }, [project]),
+    ).rejects.toThrow('path escapes registered project folders')
+    await expect(readdir(escapeRoot)).rejects.toThrow()
+  })
+
   it('replaces an existing file without leaving temp files behind', async () => {
     const project = await makeProject()
     const target = join(project, 'existing.txt')
