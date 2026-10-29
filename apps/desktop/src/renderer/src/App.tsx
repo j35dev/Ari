@@ -79,7 +79,7 @@ import {
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
-import { HiveRoster } from './features/hive'
+import { HiveRoster, RoomView, useRooms } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
 import {
   ContextMenu,
@@ -140,8 +140,11 @@ function Shell() {
   const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
-  // are tools, so they dock to the trailing rail beside the transcript.
-  const [fullPage, setFullPage] = useState<'usage' | 'changes' | null>(null)
+  // are tools, so they dock to the trailing rail beside the transcript. A Hive
+  // team room takes the full page the same way, so anything that closes one
+  // of them closes it too.
+  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'room' | null>(null)
+  const [roomId, setRoomId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hubOpen, setHubOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
@@ -532,6 +535,24 @@ function Shell() {
   const engineSettings = useEngineSettings()
   const defaultPermissionMode = engineSettings.settings?.sessions.defaultPermissionMode
   const hiveView = engineSettings.settings?.appearance.hiveView === true
+  const roomStore = useRooms(hiveView)
+  const openRoom =
+    fullPage === 'room' ? roomStore.rooms.find((room) => room.id === roomId) : undefined
+  // A room lives in Hive view, and only as long as the host keeps it.
+  const roomGone =
+    fullPage === 'room' && (!hiveView || (!roomStore.loading && openRoom === undefined))
+  useEffect(() => {
+    if (roomGone) setFullPage(null)
+  }, [roomGone])
+  const showRoom = useCallback(
+    (id: string) => {
+      leaveWorkspaceTool()
+      setInspector(null)
+      setRoomId(id)
+      setFullPage('room')
+    },
+    [leaveWorkspaceTool],
+  )
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
     setDefaults((prev) =>
@@ -1051,7 +1072,13 @@ function Shell() {
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col">
       <Titlebar
-        activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
+        activeTool={
+          settingsOpen
+            ? 'settings'
+            : hubOpen
+              ? 'github'
+              : ((fullPage === 'room' ? null : fullPage) ?? inspector)
+        }
         onSelectTool={selectWorkspaceTool}
         usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
@@ -1115,6 +1142,9 @@ function Shell() {
                   defaults={defaults}
                   onOpenSession={selectSession}
                   onSessionsChanged={refreshSessions}
+                  rooms={roomStore}
+                  activeRoomId={openRoom?.id ?? null}
+                  onOpenRoom={showRoom}
                 />
               ) : (
                 <SessionsUnderProjects
@@ -1239,14 +1269,24 @@ function Shell() {
                 <ErrorBoundary label="Usage">
                   <UsagePage />
                 </ErrorBoundary>
-              ) : (
+              ) : fullPage === 'changes' ? (
                 <ErrorBoundary label="Changes">
                   <ChangesView
                     sessionId={activeSessionId}
                     projectId={activeSession?.projectId ?? null}
                   />
                 </ErrorBoundary>
-              )}
+              ) : openRoom !== undefined ? (
+                <ErrorBoundary label="Room">
+                  <RoomView
+                    key={openRoom.id}
+                    room={openRoom}
+                    onSend={roomStore.send}
+                    onRemove={roomStore.remove}
+                    onOpenThread={selectSession}
+                  />
+                </ErrorBoundary>
+              ) : null}
             </div>
           ) : (
             <div className="flex min-h-0 flex-1">
