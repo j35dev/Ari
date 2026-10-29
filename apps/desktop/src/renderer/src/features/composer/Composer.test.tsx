@@ -4,6 +4,13 @@ import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
 import { FILE_MIME } from './drag-file'
+import { PASTE_FILE_MIN_BYTES } from './paste-as-file'
+
+const rpcMocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+}))
+
+vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
 
 describe('Composer', () => {
   it('sends trimmed text on click and clears the field', async () => {
@@ -490,6 +497,87 @@ describe('Composer image attachments', () => {
     const [sentText, sentFiles] = onSend.mock.calls[0] as [string, File[]]
     expect(sentText).toBe('')
     expect(sentFiles.map((f) => f.name)).toEqual(['shot.png'])
+  })
+})
+
+describe('Composer large paste', () => {
+  beforeEach(() => {
+    // Drafts persist per session and flush on unmount; a prior paste must not
+    // come back as this test's starting text.
+    localStorage.clear()
+    rpcMocks.invoke.mockReset()
+    rpcMocks.invoke.mockResolvedValue({ bytesWritten: 1 })
+  })
+
+  function pasteText(input: HTMLElement, text: string, init: ClipboardEventInit = {}): boolean {
+    return fireEvent.paste(input, {
+      ...init,
+      clipboardData: {
+        files: [],
+        getData: (type: string) => (type === 'text/plain' ? text : ''),
+      },
+    })
+  }
+
+  it('leaves a short paste for the field to insert', () => {
+    render(<Composer onSend={vi.fn()} sessionId="sess_1" />)
+    const input = screen.getByLabelText('Message')
+    const allowed = pasteText(input, 'hello')
+    expect(allowed).toBe(true)
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+    expect(input).toHaveValue('')
+  })
+
+  it('writes a 32 KiB paste to .ari/pastes and inserts a mention', async () => {
+    render(<Composer onSend={vi.fn()} sessionId="sess_1" />)
+    const input = screen.getByLabelText('Message')
+    const pasted = 'a'.repeat(PASTE_FILE_MIN_BYTES)
+    const allowed = pasteText(input, pasted)
+    expect(allowed).toBe(false)
+    await waitFor(() => expect(rpcMocks.invoke).toHaveBeenCalledOnce())
+    const [method, params] = rpcMocks.invoke.mock.calls[0] as [
+      string,
+      { sessionId: string; path: string; content: string },
+    ]
+    expect(method).toBe('fs.writeTextFile')
+    expect(params.sessionId).toBe('sess_1')
+    expect(params.path).toMatch(/^\.ari\/pastes\/.+\.txt$/)
+    expect(params.content).toBe(pasted)
+    await waitFor(() => expect(input).toHaveValue(`@${params.path} `))
+  })
+
+  it('keeps Ctrl+Shift and Meta+Shift pastes inline', () => {
+    render(<Composer onSend={vi.fn()} sessionId="sess_1" />)
+    const input = screen.getByLabelText('Message')
+    const pasted = 'a'.repeat(PASTE_FILE_MIN_BYTES)
+    // Paste events omit modifier keys, so the shortcut is observed on keydown.
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true, shiftKey: true })
+    expect(pasteText(input, pasted)).toBe(true)
+    fireEvent.keyUp(window, { key: 'v', ctrlKey: false, shiftKey: false })
+    fireEvent.keyDown(window, { key: 'v', metaKey: true, shiftKey: true })
+    expect(pasteText(input, pasted)).toBe(true)
+    fireEvent.keyUp(window, { key: 'v', metaKey: false, shiftKey: false })
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+  })
+
+  it('inserts the text inline when the write fails', async () => {
+    rpcMocks.invoke.mockReset()
+    rpcMocks.invoke.mockRejectedValue(new Error('disk full'))
+    render(<Composer onSend={vi.fn()} sessionId="sess_1" />)
+    const input = screen.getByLabelText('Message')
+    const pasted = 'b'.repeat(PASTE_FILE_MIN_BYTES)
+    pasteText(input, pasted)
+    await waitFor(() => expect(input).toHaveValue(pasted))
+    expect(rpcMocks.invoke).toHaveBeenCalledOnce()
+  })
+
+  it('inserts inline when the composer has no session to write into', () => {
+    render(<Composer onSend={vi.fn()} />)
+    const input = screen.getByLabelText('Message')
+    const pasted = 'c'.repeat(PASTE_FILE_MIN_BYTES)
+    pasteText(input, pasted)
+    expect(rpcMocks.invoke).not.toHaveBeenCalled()
+    expect(input).toHaveValue(pasted)
   })
 })
 
