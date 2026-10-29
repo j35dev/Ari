@@ -1,6 +1,7 @@
-import { render } from '@testing-library/react'
-import { describe, expect, it, vi, type Mock } from 'vitest'
+import { act, render } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { Bot } from '@ari/contracts/bot'
+import { botsChanged } from './bots-version'
 import { useBotOf } from './use-bot'
 
 const rpcMocks = vi.hoisted(() => ({
@@ -26,12 +27,32 @@ function Probe(): null {
 }
 
 describe('useBotOf', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('finds the bot on disk', async () => {
     invokeMock.mockImplementation(async (method: string) =>
       method === 'bots.list' ? [FORGE] : undefined,
     )
     render(<Probe />)
     await vi.waitFor(() => expect(read).toEqual(FORGE))
+  })
+
+  it('re-reads when a writer bumps the bot version', async () => {
+    let bots: Bot[] = [FORGE]
+    invokeMock.mockImplementation(async (method: string) =>
+      method === 'bots.list' ? bots : undefined,
+    )
+    render(<Probe />)
+    await vi.waitFor(() => expect(read).toEqual(FORGE))
+    const renamed: Bot = { ...FORGE, name: 'Forge II' }
+    bots = [renamed]
+    act(() => {
+      botsChanged()
+    })
+    await vi.waitFor(() => expect(read).toEqual(renamed))
+    expect(invokeMock.mock.calls.filter(([method]) => method === 'bots.list')).toHaveLength(2)
   })
 
   it('answers nothing for a bot that is gone', async () => {

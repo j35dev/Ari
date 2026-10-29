@@ -1,6 +1,8 @@
+import { BrainIcon } from 'lucide-react'
 import type { Bot } from '@ari/contracts/bot'
 import { BotAvatar } from '@ari/ui/bot-avatar'
 import { characterOf } from '@ari/ui/bot-character'
+import { IconButton } from '@ari/ui/icon-button'
 import type { SessionActivity } from '../session/session-activity'
 import { botMoodOf, botStatusOf } from './bot-mood'
 
@@ -14,9 +16,15 @@ import { botMoodOf, botStatusOf } from './bot-mood'
 export function BotChatHead({
   bot,
   activity,
+  mindOpen = false,
+  onMind,
 }: {
   bot: Bot | undefined
   activity?: SessionActivity
+  /** Reflects the Mind drawer's open state on the button. */
+  mindOpen?: boolean
+  /** Opens the bot's Mind drawer; absent keeps the head purely presentational. */
+  onMind?: () => void
 }) {
   if (bot === undefined) return null
   const title = bot.title?.trim() ?? ''
@@ -48,6 +56,16 @@ export function BotChatHead({
           </p>
         ) : null}
       </div>
+      {onMind !== undefined ? (
+        <IconButton
+          icon={<BrainIcon className={mindOpen ? 'text-accent' : undefined} />}
+          size="sm"
+          variant="ghost"
+          aria-label={`Open ${bot.name}'s mind`}
+          title={`Open ${bot.name}'s mind`}
+          onClick={onMind}
+        />
+      ) : null}
     </header>
   )
 }

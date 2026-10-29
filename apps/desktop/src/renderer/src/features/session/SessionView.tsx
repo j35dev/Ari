@@ -29,6 +29,7 @@ import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
 import { BotChatHead } from '../hive/BotChatHead'
+import { BotProfileDrawer } from '../hive/BotProfileDrawer'
 import { useBotOf } from '../hive/use-bot'
 import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
@@ -309,6 +310,8 @@ export function SessionView({
   // The session's bot, when it has one: the chat head, the transcript's
   // avatar rows and the approval cards all voice it.
   const bot = useBotOf(botId)
+  // The Mind drawer (persona, memory, routines) opens over this session only.
+  const [mindOpen, setMindOpen] = useState(false)
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   // History is loading until its replay has been applied, so the transcript
   // never paints an empty state, or animates history in, while it is in flight.
@@ -1259,7 +1262,19 @@ export function SessionView({
           parentSession={parentSession}
           onOpenSession={onOpenSession}
         />
-        {botId !== undefined ? <BotChatHead bot={bot} activity={activityOf?.(sessionId)} /> : null}
+        {botId !== undefined ? (
+          <BotChatHead
+            bot={bot}
+            activity={activityOf?.(sessionId)}
+            mindOpen={mindOpen}
+            onMind={() => {
+              setMindOpen(true)
+            }}
+          />
+        ) : null}
+        {bot !== undefined ? (
+          <BotProfileDrawer bot={bot} open={mindOpen} onClose={() => setMindOpen(false)} />
+        ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}

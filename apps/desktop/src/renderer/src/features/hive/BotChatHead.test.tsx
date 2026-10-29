@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Bot } from '@ari/contracts/bot'
 import type { SessionActivity } from '../session/session-activity'
 import { BotChatHead } from './BotChatHead'
@@ -61,5 +61,20 @@ describe('BotChatHead', () => {
   it('renders nothing for an unresolved bot', () => {
     const { container } = render(<BotChatHead bot={undefined} />)
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('offers the Mind drawer button when wired', () => {
+    const onMind = vi.fn()
+    const { rerender } = render(<BotChatHead bot={FORGE} onMind={onMind} />)
+    const mind = screen.getByRole('button', { name: "Open Forge's mind" })
+    mind.click()
+    expect(onMind).toHaveBeenCalledOnce()
+    rerender(<BotChatHead bot={FORGE} onMind={onMind} mindOpen />)
+    expect(mind.querySelector('.text-accent')).not.toBeNull()
+  })
+
+  it('stays purely presentational without an onMind', () => {
+    render(<BotChatHead bot={FORGE} />)
+    expect(screen.queryByRole('button', { name: "Open Forge's mind" })).not.toBeInTheDocument()
   })
 })
