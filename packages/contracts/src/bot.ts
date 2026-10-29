@@ -1,19 +1,16 @@
 import { z } from 'zod'
 import { driverKindSchema } from './common'
 
-/** Character colour sets; `palette` indexes them. */
+/** Colours a bot can wear; `palette` indexes them (slate, apricot, sage, lavender, sand, rose, coral, plum, sky, mint). */
 export const BOT_CHARACTER_PALETTES = 10
 
 /**
- * A bot's drawn character, assembled from named parts. Each part list is
- * append-only: removing or renaming a value would fail to parse a saved bot.
+ * A bot's look: one soft shape in one colour. The face and its moods are drawn
+ * by the shell. The shape list is append-only: removing or renaming a value
+ * would fail to parse a saved bot.
  */
 export const botCharacterSchema = z.object({
-  body: z.enum(['round', 'square', 'tall', 'blob', 'bean']),
-  eyes: z.enum(['dot', 'round', 'sleepy', 'visor', 'wide', 'spark']),
-  mouth: z.enum(['smile', 'flat', 'grin', 'o', 'smirk']),
-  top: z.enum(['none', 'antenna', 'tuft', 'horns', 'halo', 'cap', 'leaf']),
-  accessory: z.enum(['none', 'glasses', 'headset', 'scarf', 'bowtie', 'monocle']),
+  shape: z.enum(['drop', 'cloud', 'pill', 'wisp', 'gumdrop', 'pebble']),
   palette: z
     .number()
     .int()
