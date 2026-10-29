@@ -1,10 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { Bot } from '@ari/contracts/bot'
 import { BotStore } from '@ari/engine/bots'
 import { SessionStore } from '@ari/engine/session-store'
-import { createBot, createSession, type SessionCreateDeps } from './bots'
+import { createBot, createSession, updateBot, type SessionCreateDeps } from './bots'
 
 let dir: string
 let bots: BotStore
@@ -148,4 +149,71 @@ it('hides and unhides a bot', async () => {
 
   await bots.update(bot.id, { hidden: false })
   expect((await new BotStore({ dir: join(dir, 'bots') }).get(bot.id))?.hidden).toBe(false)
+})
+
+it('updates a bot, writes its persona to its own file, and refreshes its rooms', async () => {
+  const bot = await bots.create(botInput)
+  const refreshed: Bot[] = []
+  const character = {
+    shape: 'cloud',
+    palette: 4,
+  } as const
+
+  const updated = await updateBot(
+    { bots, refreshRooms: async (next) => void refreshed.push(next) },
+    bot.id,
+    { name: '  Anvil ', character, title: 'Smith', tagline: 'Hot iron.', personaMd: '# Anvil\n' },
+  )
+
+  expect(updated).toEqual({
+    ...bot,
+    name: 'Anvil',
+    character,
+    title: 'Smith',
+    tagline: 'Hot iron.',
+    personaMd: '# Anvil\n',
+  })
+  expect(await new BotStore({ dir: join(dir, 'bots') }).get(bot.id)).toEqual(updated)
+  expect(await readFile(join(dir, 'bots', bot.id, 'persona.md'), 'utf8')).toBe('# Anvil\n')
+  expect(await readFile(join(dir, 'bots', bot.id, 'bot.json'), 'utf8')).not.toContain('# Anvil')
+  expect(refreshed).toEqual([updated])
+})
+
+it('refuses an update for an unknown bot or to a blank name', async () => {
+  const bot = await bots.create(botInput)
+  const refreshRooms = vi.fn(async () => undefined)
+
+  await expect(updateBot({ bots, refreshRooms }, 'bot_missing', { title: 'x' })).rejects.toThrow(
+    'unknown bot: bot_missing',
+  )
+  await expect(updateBot({ bots, refreshRooms }, bot.id, { name: '   ' })).rejects.toThrow(
+    'bot name is empty',
+  )
+  expect(await bots.get(bot.id)).toEqual(bot)
+  expect(refreshRooms).not.toHaveBeenCalled()
+})
+
+it('keeps a saved edit when its rooms cannot be refreshed, and logs it', async () => {
+  const bot = await bots.create(botInput)
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    const updated = await updateBot(
+      {
+        bots,
+        refreshRooms: async () => {
+          throw new Error('disk full')
+        },
+      },
+      bot.id,
+      { emoji: '⚒️' },
+    )
+    expect(updated.emoji).toBe('⚒️')
+    expect((await bots.get(bot.id))?.emoji).toBe('⚒️')
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('team rooms did not pick up a bot edit'),
+      expect.objectContaining({ botId: bot.id, error: 'Error: disk full' }),
+    )
+  } finally {
+    warn.mockRestore()
+  }
 })

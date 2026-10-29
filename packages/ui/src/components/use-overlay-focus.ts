@@ -1,14 +1,18 @@
 import { useEffect } from 'react'
 import type { RefObject } from 'react'
 
+// Controls taken out of the tab order (a roving radio group's unchecked items)
+// are focusable but not tabbable, so they neither take first focus nor wrap.
 const FOCUSABLE_SELECTOR = [
   'a[href]',
   'button:not([disabled])',
   'input:not([disabled])',
   'select:not([disabled])',
   'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(', ')
+  '[tabindex]',
+]
+  .map((selector) => `${selector}:not([tabindex="-1"])`)
+  .join(', ')
 
 export interface OverlayFocusOptions {
   /** Whether the overlay is currently open. */
@@ -29,8 +33,7 @@ export function useOverlayFocus({ active, panelRef, onEscape }: OverlayFocusOpti
   useEffect(() => {
     if (!active) return
     const panel = panelRef.current
-    const previous =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
 
     const focusables = () =>
       panel ? Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)) : []
