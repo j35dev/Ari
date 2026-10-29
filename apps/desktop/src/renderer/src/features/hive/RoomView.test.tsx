@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { TeamRoomSummary } from '@ari/contracts/rpc'
+import { characterFromSeed } from '@ari/ui/bot-character'
 import { roomFixture } from './room-fixture'
 import { RoomView } from './RoomView'
 import { useRooms, type RoomSendResult } from './use-rooms'
@@ -119,7 +120,41 @@ describe('RoomView', () => {
         log: [{ id: 'e1', botId: 'bot_b', text: '@user which colour?', at: 1 }],
       }),
     )
-    expect(screen.getByText('🛰️ Rover needs you')).toBeInTheDocument()
+    const note = screen.getByText('Rover needs you')
+    expect(note.querySelector('svg.ari-bot')).toHaveAttribute('data-mood', 'needs-you')
+    const members = screen.getByRole('list', { name: 'Members' })
+    const rover = within(members).getByText('Rover').closest('li')
+    expect(rover?.querySelector('svg.ari-bot')).toHaveAttribute('data-mood', 'needs-you')
+  })
+
+  it('draws every member in its look, wherever a face shows', () => {
+    const room = roomFixture({
+      bots: [
+        {
+          botId: 'bot_a',
+          name: 'Pixel',
+          emoji: '🎨',
+          character: { shape: 'pebble', palette: 5 },
+          sessionId: 'thread_a',
+        },
+        { botId: 'bot_b', name: 'Rover', emoji: '🛰️', sessionId: 'thread_b' },
+      ],
+      log: [{ id: 'e1', botId: 'bot_a', text: 'Hello.', at: 1 }],
+    })
+    renderRoom(room)
+
+    const members = screen.getByRole('list', { name: 'Members' })
+    const faces = [...members.querySelectorAll('svg.ari-bot')]
+    expect(faces.map((face) => face.getAttribute('data-shape'))).toEqual([
+      'pebble',
+      characterFromSeed('bot_b').shape,
+    ])
+    const transcript = screen.getByRole('log', { name: 'Room transcript' })
+    expect(transcript.querySelector('svg.ari-bot')).toHaveAttribute('data-palette', '5')
+    const mention = screen.getByRole('button', { name: 'Mention Pixel' })
+    expect(mention.querySelector('svg.ari-bot')).toHaveAttribute('data-shape', 'pebble')
+    // No emoji is left standing in for a face.
+    expect(screen.queryByText('🎨')).not.toBeInTheDocument()
   })
 
   it('says who is replying and how many messages wait', () => {
@@ -133,6 +168,8 @@ describe('RoomView', () => {
     expect(screen.getByText('2 messages waiting for the room to settle')).toBeInTheDocument()
     const members = screen.getByRole('list', { name: 'Members' })
     expect(within(members).getByRole('status', { name: 'Working' })).toBeInTheDocument()
+    const rover = within(members).getByText('Rover').closest('li')
+    expect(rover?.querySelector('svg.ari-bot')).toHaveAttribute('data-mood', 'replying')
   })
 
   it('deletes only once the delete is confirmed', async () => {
