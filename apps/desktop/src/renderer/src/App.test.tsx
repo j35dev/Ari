@@ -1672,6 +1672,37 @@ describe('Hive view switch', () => {
     expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
   })
 
+  it('keeps bot sessions out of the normal sidebar', async () => {
+    const base = invokeMock.getMockImplementation()
+    if (base === undefined) throw new Error('missing invoke mock implementation')
+    invokeMock.mockImplementation(async (method, params) =>
+      method === 'session.list'
+        ? [
+            { id: 'sess-alpha', projectId: 'adhoc', title: 'Alpha', updatedAt: 0 },
+            {
+              id: 'sess-pixel',
+              projectId: 'adhoc',
+              title: 'Pixel main',
+              updatedAt: 0,
+              botId: 'bot_a',
+            },
+            {
+              id: 'thread_a',
+              projectId: 'adhoc',
+              title: 'Pixel in Launch',
+              updatedAt: 0,
+              botId: 'bot_a',
+            },
+          ]
+        : base(method, params),
+    )
+    render(<App />)
+
+    expect(await screen.findByText('Alpha', {}, { timeout: 10_000 })).toBeInTheDocument()
+    expect(screen.queryByText('Pixel main')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pixel in Launch')).not.toBeInTheDocument()
+  })
+
   it('opens a room on the full page and leaves it when the view switches back', async () => {
     stored = { ...stored, appearance: { ...stored.appearance, hiveView: true } }
     const user = userEvent.setup()
