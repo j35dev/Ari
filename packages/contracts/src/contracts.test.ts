@@ -3,7 +3,12 @@ import { agentEventSchema } from './agent-event'
 import { commandSchema } from './commands'
 import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
-import { rpcParams, SEARCH_CONTENT_MAX_RESULTS, usageSummarySchema } from './rpc'
+import {
+  rpcParams,
+  SEARCH_CONTENT_MAX_RESULTS,
+  sessionSummarySchema,
+  usageSummarySchema,
+} from './rpc'
 import { sessionSchema } from './session'
 import { settingsSchema, settingsUpdateSchema } from './settings'
 
@@ -23,6 +28,18 @@ describe('contracts', () => {
   it('round-trips a session', () => {
     const parsed = sessionSchema.parse(baseSession)
     expect(parsed.driverKind).toBe('claude')
+  })
+
+  it('carries the bot a session summary belongs to, and parses one without it', () => {
+    const summary = {
+      id: 'sess_1',
+      projectId: 'proj_1',
+      title: 'Ada',
+      updatedAt: 1,
+      messageCount: 0,
+    }
+    expect(sessionSummarySchema.parse({ ...summary, botId: 'bot_ada' }).botId).toBe('bot_ada')
+    expect(sessionSummarySchema.parse(summary).botId).toBeUndefined()
   })
 
   it('accepts a reset redemption for a known provider and grant', () => {
