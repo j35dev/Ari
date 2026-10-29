@@ -10,15 +10,17 @@ import { sessionSchema } from '@ari/contracts/session'
 import { decideCommand, type DispatchDecision } from '@ari/engine/dispatcher'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import {
-  ContextMeter,
   EffortChip,
   PermissionModeChip,
   SessionView,
   contextTokensFromHint,
-  formatCompactTokens,
-  formatTurnDuration,
   type SessionDefaults,
 } from './SessionView'
+import {
+  ContextMeter,
+  formatCompactTokens,
+  formatTurnDuration,
+} from './SessionStatusCapsule'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
