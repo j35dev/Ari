@@ -1623,6 +1623,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       patch,
     ),
   )
+  r.register('bots.memory.get', ({ botId }) => getBotMemoryStore().read(botId))
+  r.register('bots.memory.replace', ({ botId, content }) =>
+    getBotMemoryStore().replace(botId, content),
+  )
   r.register('routines.list', async () => {
     await botRoutinesReady
     return botRoutines.list()

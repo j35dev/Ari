@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { BOT_MEMORY_MAX_CHARS } from '@ari/contracts/bot'
 
-/** A bot's memory is prompt material, so it stays small enough to always send. */
-export const BOT_MEMORY_MAX_CHARS = 4_000
+export { BOT_MEMORY_MAX_CHARS }
 
 const BOT_ID = /^bot_[\w-]+$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
@@ -101,6 +101,19 @@ export class BotMemoryStore {
       .trimEnd()
     await this.#write(botId, next.length === 0 ? '' : `${next}\n`)
     return next
+  }
+
+  /**
+   * Replaces the whole memory — the editor's save and nothing else. An empty
+   * string clears it. One file write, so it cannot interleave a tool's add the
+   * way a read-modify-write around the RPC boundary could.
+   */
+  async replace(botId: string, content: string): Promise<string> {
+    checkBot(botId)
+    const trimmed = content.trimEnd()
+    if (trimmed.length > 0) checkCap(`${trimmed}\n`)
+    await this.#write(botId, trimmed.length === 0 ? '' : `${trimmed}\n`)
+    return trimmed.length === 0 ? '' : `${trimmed}\n`
   }
 
   /**
