@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyRoomFrame,
+  insertMention,
+  isPass,
   isRoomFrame,
   mentionOf,
   needsYouMember,
@@ -43,7 +45,7 @@ describe('applyRoomFrame', () => {
 describe('replyingMember', () => {
   it('names the first bot the round still waits on', () => {
     const running = room({
-      round: { rounds: 1, messages: 1, continuations: 0, awaiting: ['bot_b', 'bot_a'], passed: [] },
+      round: { rounds: 1, messages: 1, followUps: 0, awaiting: ['bot_b', 'bot_a'], passed: [] },
     })
     expect(replyingMember(running)?.name).toBe('Rover')
     expect(replyingMember(room())).toBeUndefined()
@@ -84,5 +86,30 @@ describe('labels', () => {
 
   it('mentions a bot by its full name', () => {
     expect(mentionOf(' Pixel copy ')).toBe('@Pixel copy ')
+  })
+
+  it('reads a bare (pass) as a pass', () => {
+    expect(isPass(' (pass)\n')).toBe(true)
+    expect(isPass('I pass (pass)')).toBe(false)
+  })
+})
+
+describe('insertMention', () => {
+  it('inserts at the caret, spaced off the word before it', () => {
+    expect(insertMention('ask', { start: 3, end: 3 }, 'Pixel')).toEqual({
+      text: 'ask @Pixel ',
+      caret: 11,
+    })
+    expect(insertMention('', { start: 0, end: 0 }, 'Pixel')).toEqual({
+      text: '@Pixel ',
+      caret: 7,
+    })
+  })
+
+  it('replaces the selection and keeps what follows', () => {
+    expect(insertMention('hi there, ok', { start: 3, end: 8 }, 'Rover')).toEqual({
+      text: 'hi @Rover , ok',
+      caret: 10,
+    })
   })
 })

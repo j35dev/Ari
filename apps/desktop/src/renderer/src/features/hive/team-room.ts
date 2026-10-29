@@ -66,3 +66,23 @@ export function pendingLabel(pending: number): string {
 export function mentionOf(name: string): string {
   return `@${name.trim()} `
 }
+
+/**
+ * Puts a bot's mention over the draft's selection, spaced off a preceding
+ * word so it still reads as a mention, and says where the caret lands.
+ */
+export function insertMention(
+  draft: string,
+  selection: { start: number; end: number },
+  name: string,
+): { text: string; caret: number } {
+  const before = draft.slice(0, selection.start)
+  const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : ''
+  const inserted = `${before}${lead}${mentionOf(name)}`
+  return { text: `${inserted}${draft.slice(selection.end)}`, caret: inserted.length }
+}
+
+/** A bot's turn that said nothing, by the host's `(pass)` convention. */
+export function isPass(text: string): boolean {
+  return text.trim() === '(pass)'
+}
