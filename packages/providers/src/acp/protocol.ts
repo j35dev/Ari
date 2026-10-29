@@ -180,8 +180,14 @@ export interface AcpInitializeResult {
     }
   }
   authMethods?: AcpAuthMethod[]
-  /** Grok (and others) stash per-model reasoning levels here. */
-  _meta?: unknown
+  /**
+   * Capability advert extensions. `steering.supported` is the ACP steering
+   * contract: the agent accepts `_session/steering` while a prompt is running.
+   */
+  _meta?: {
+    steering?: { supported?: boolean }
+    [key: string]: unknown
+  }
 }
 
 /**
