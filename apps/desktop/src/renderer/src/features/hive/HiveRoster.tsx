@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Bot } from '@ari/contracts/bot'
 import type { DriverKind } from '@ari/contracts/common'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { Copy, Eye, EyeOff, Pencil, Plus } from 'lucide-react'
+import { Copy, Eye, EyeOff, MessageSquarePlus, Pencil, Plus } from 'lucide-react'
 import { BotAvatar, type BotMood } from '@ari/ui/bot-avatar'
 import { characterOf } from '@ari/ui/bot-character'
 import { Button } from '@ari/ui/button'
@@ -12,6 +12,7 @@ import { botMoodOf, botStatusOf } from './bot-mood'
 import { botSubtitle, mainSessionOf, rosterOf } from './bot-roster'
 import { useBotUnread } from './bot-unread'
 import { EditBotDialog } from './EditBotDialog'
+import { InviteBotDialog } from './InviteBotDialog'
 import { NewBotDialog } from './NewBotDialog'
 import { NewRoomDialog } from './NewRoomDialog'
 import { RoomList } from './RoomList'
@@ -54,6 +55,7 @@ function BotRow({
   dimmed,
   onOpen,
   onEdit,
+  onInvite,
   onDuplicate,
   onToggleHidden,
 }: {
@@ -64,6 +66,7 @@ function BotRow({
   dimmed: boolean
   onOpen: () => void
   onEdit: () => void
+  onInvite: () => void
   onDuplicate: (() => void) | null
   onToggleHidden: () => void
 }) {
@@ -124,6 +127,15 @@ function BotRow({
         >
           <Pencil size={13} strokeWidth={1.8} aria-hidden="true" />
         </button>
+        <button
+          type="button"
+          aria-label={`Start a DM with ${bot.name}`}
+          title="Invite another bot into a private room"
+          className={ICON_ACTION}
+          onClick={onInvite}
+        >
+          <MessageSquarePlus size={13} strokeWidth={1.8} aria-hidden="true" />
+        </button>
         {onDuplicate !== null ? (
           <button
             type="button"
@@ -173,6 +185,8 @@ export function HiveRoster({
   const [creating, setCreating] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
   const [editing, setEditing] = useState<Bot | null>(null)
+  /** The bot whose DM picker is open; null keeps it closed. */
+  const [inviting, setInviting] = useState<Bot | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const visible = rosterOf(bots)
@@ -232,6 +246,7 @@ export function HiveRoster({
                     if (session !== undefined) onOpenSession(session.id)
                   }}
                   onEdit={() => setEditing(bot)}
+                  onInvite={() => setInviting(bot)}
                   onDuplicate={
                     fallbackProjectId === null || bot.hidden === true
                       ? null
@@ -288,6 +303,19 @@ export function HiveRoster({
         }}
       />
       <EditBotDialog bot={editing} onClose={() => setEditing(null)} onSave={update} />
+      {inviting !== null ? (
+        <InviteBotDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setInviting(null)
+          }}
+          host={inviting}
+          bots={bots}
+          rooms={rooms.rooms}
+          onCreate={rooms.create}
+          onCreated={(room) => onOpenRoom(room.id)}
+        />
+      ) : null}
       <NewRoomDialog
         open={creatingRoom}
         onOpenChange={setCreatingRoom}
