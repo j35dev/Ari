@@ -79,7 +79,7 @@ import {
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
-import { HiveRoster, RoomView, useRooms } from './features/hive'
+import { HiveRoster, isBotSession, RoomView, useRooms } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
 import {
   ContextMenu,
@@ -648,11 +648,18 @@ function Shell() {
   // Grouped by the open projects in the Projects view; the flat recency list
   // in the Sessions view. Either way keyboard order matches what is rendered.
   const openProjects = useMemo(() => projects.filter((p) => p.open), [projects])
+  // Bot sessions live in the Hive: the roster opens a bot's main session and a
+  // room opens its threads, so the normal sidebar (and its Mod+digit order)
+  // never lists them.
+  const sidebarSessions = useMemo(
+    () => sessions.filter((session) => !isBotSession(session)),
+    [sessions],
+  )
   const { collapsed: collapsedChildren } = useSessionCollapse()
   const { view: sidebarView } = useSidebarView()
   const navOrder = useMemo(
-    () => sidebarOrder(sessions, sidebarView === 'sessions' ? [] : openProjects),
-    [sessions, openProjects, sidebarView, collapsedChildren],
+    () => sidebarOrder(sidebarSessions, sidebarView === 'sessions' ? [] : openProjects),
+    [sidebarSessions, openProjects, sidebarView, collapsedChildren],
   )
 
   const refreshProjects = useCallback((): void => {
@@ -1148,7 +1155,7 @@ function Shell() {
                 />
               ) : (
                 <SessionsUnderProjects
-                  sessions={sessions}
+                  sessions={sidebarSessions}
                   projects={openProjects}
                   knownProjectNames={projects}
                   searchInputRef={sidebarSearchRef}
