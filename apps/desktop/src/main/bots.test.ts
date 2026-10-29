@@ -155,11 +155,7 @@ it('updates a bot, writes its persona to its own file, and refreshes its rooms',
   const bot = await bots.create(botInput)
   const refreshed: Bot[] = []
   const character = {
-    body: 'tall',
-    eyes: 'wide',
-    mouth: 'smile',
-    top: 'horns',
-    accessory: 'monocle',
+    shape: 'cloud',
     palette: 4,
   } as const
 

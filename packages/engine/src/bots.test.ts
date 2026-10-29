@@ -120,11 +120,7 @@ it('keeps a bot character, title and tagline through create and update', async (
     name: 'Forge',
     emoji: '🔨',
     character: {
-      body: 'round',
-      eyes: 'visor',
-      mouth: 'grin',
-      top: 'antenna',
-      accessory: 'headset',
+      shape: 'drop',
       palette: 3,
     },
     title: 'Builder',
@@ -137,7 +133,7 @@ it('keeps a bot character, title and tagline through create and update', async (
   expect(bot).toMatchObject({ title: 'Builder', tagline: 'Ships it.', character: { palette: 3 } })
 
   const updated = await store.update(bot.id, {
-    character: { ...bot.character!, top: 'halo', palette: 9 },
+    character: { ...bot.character!, shape: 'gumdrop', palette: 9 },
     title: 'Lead builder',
   })
 
@@ -145,7 +141,7 @@ it('keeps a bot character, title and tagline through create and update', async (
   expect(updated).toMatchObject({
     title: 'Lead builder',
     tagline: 'Ships it.',
-    character: { top: 'halo', palette: 9 },
+    character: { shape: 'gumdrop', palette: 9 },
   })
 })
 

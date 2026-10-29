@@ -335,11 +335,7 @@ it('keeps a transcript and publishes every change', async () => {
 
 it('carries a bot character into its rooms, and leaves it off for a bot without one', async () => {
   const character = {
-    body: 'bean',
-    eyes: 'spark',
-    mouth: 'smirk',
-    top: 'leaf',
-    accessory: 'scarf',
+    shape: 'wisp',
     palette: 2,
   } as const
   bots[0] = { ...bots[0]!, character }
@@ -356,11 +352,7 @@ it('renames a bot in its rooms, so mentions route by the new name', async () => 
   const room = await service.create({ title: 'War room', botIds: ['bot_ada', 'bot_bea'] })
   const other = await service.create({ title: 'Solo', botIds: ['bot_ada'] })
   const character = {
-    body: 'square',
-    eyes: 'dot',
-    mouth: 'o',
-    top: 'cap',
-    accessory: 'bowtie',
+    shape: 'pebble',
     palette: 7,
   } as const
   bots[1] = { ...bots[1]!, name: 'Bex', emoji: '🐝', character }
