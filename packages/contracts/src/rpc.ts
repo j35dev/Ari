@@ -2,8 +2,8 @@ import { z } from 'zod'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
-import { botCreateParamsSchema } from './bot'
-import type { Bot } from './bot'
+import { botCreateParamsSchema, botUpdatePatchSchema } from './bot'
+import type { Bot, BotCharacter } from './bot'
 import { botRoutineAddSchema } from './routine'
 import type { BotRoutine } from './routine'
 import { driverKindSchema, permissionModeSchema } from './common'
@@ -55,7 +55,14 @@ export interface TeamRoomSummary {
   id: string
   title: string
   /** `sessionId` is the bot's own room thread, not its main session. */
-  bots: { botId: string; name: string; emoji: string; sessionId: string }[]
+  bots: {
+    botId: string
+    name: string
+    emoji: string
+    /** Absent for bots made before characters; the shell derives one from `botId`. */
+    character?: BotCharacter
+    sessionId: string
+  }[]
   leadBotId: string | null
   activeBotId: string | null
   needsUser: boolean
@@ -596,6 +603,8 @@ export const rpcParams = {
   /** Creates a Hive bot and its main session; returns the bot with `mainSessionId` set. */
   'bots.create': botCreateParamsSchema,
   'bots.setHidden': z.object({ botId: z.string().min(1), hidden: z.boolean() }),
+  /** Edits a bot's face and voice; live rooms pick up the new name and look. */
+  'bots.update': z.object({ botId: z.string().min(1), patch: botUpdatePatchSchema }),
   /** Every bot routine, enabled or paused. */
   'routines.list': z.undefined(),
   'routines.add': botRoutineAddSchema,
@@ -958,6 +967,7 @@ export interface RpcResults {
   'bots.list': Bot[]
   'bots.create': Bot
   'bots.setHidden': Bot
+  'bots.update': Bot
   'routines.list': BotRoutine[]
   'routines.add': BotRoutine
   'routines.setEnabled': BotRoutine
