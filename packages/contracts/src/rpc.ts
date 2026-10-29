@@ -33,6 +33,8 @@ export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
    * rows. Null until the session says something; absent from older producers.
    */
   lastMessagePreview: z.string().nullable().optional(),
+  /** Set for Hive bot sessions (main session and room threads); absent otherwise. */
+  botId: z.string().optional(),
   /** Sidebar flags; treat missing as false. The engine always reports them. */
   archived: z.boolean().optional(),
   pinned: z.boolean().optional(),
