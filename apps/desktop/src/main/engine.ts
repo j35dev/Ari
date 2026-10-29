@@ -1141,7 +1141,7 @@ export class Engine {
     const model = await this.#deps.store.load(sessionId)
     const session = model.session
     const firstPrompt = model.messages.find((m) => m.role === 'user')
-    if (!session || !firstPrompt) return
+    if (!session || !firstPrompt || session.parentSessionId) return
     const prompt = firstPrompt.parts.find((p) => p.type === 'text')?.text ?? ''
     if (!isAutoTitle(session.title, prompt)) return
     const response =

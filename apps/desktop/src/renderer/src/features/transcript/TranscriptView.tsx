@@ -25,7 +25,6 @@ import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { DelegationCard } from './DelegationCard'
-import { DelegationNotice } from './DelegationNotice'
 import { insertDelegationRows } from './delegation-rows'
 import { useLazyRows } from './use-lazy-rows'
 import { attachmentDataUrl } from './attachment-urls'
@@ -71,6 +70,15 @@ function estimateUncached(row: TranscriptRow): number {
     lines += Math.max(1, Math.ceil(paragraph.length / CHARS_PER_LINE))
   }
   return row.kind === 'thinking' ? 36 : lines * LINE_HEIGHT_PX + 16
+}
+
+/**
+ * A wake Ari wrote for the parent agent. It stays in the journal so the model
+ * can read it, and stays out of the conversation.
+ */
+function isAgentWake(message: Message): boolean {
+  const kind = message.origin?.kind
+  return kind === 'completion' || kind === 'question'
 }
 
 /** Hover preview text for a rail entry: prompt text, or image filenames. */
@@ -174,7 +182,10 @@ export function TranscriptView({
   const blocksRef = useRef<TranscriptBlock[]>([])
   const groupedRef = useRef<GroupedRow[]>([])
   const rows = useMemo<TranscriptRow[]>(() => {
-    blocksRef.current = splitBlocks(messages, blocksRef.current)
+    const visible = messages.some(isAgentWake)
+      ? messages.filter((message) => !isAgentWake(message))
+      : messages
+    blocksRef.current = splitBlocks(visible, blocksRef.current)
     groupedRef.current = groupBlocks(blocksRef.current, turnDiffs, groupedRef.current)
     return insertDelegationRows(groupedRef.current, delegations ?? [])
   }, [messages, turnDiffs, delegations])
@@ -644,14 +655,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
       ) : row.kind === 'image' ? (
         <ImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (
-        row.role === 'user' && row.origin?.kind === 'completion' ? (
-          <DelegationNotice
-            text={row.text ?? ''}
-            sessionIds={row.origin.sessionIds}
-            sessionTitle={sessionTitle}
-            onOpenSession={onOpenSession}
-          />
-        ) : row.role === 'user' ? (
+        row.role === 'user' ? (
           <div>
             {row.origin?.kind === 'session' ? (
               <SenderLabel
