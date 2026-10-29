@@ -2690,10 +2690,13 @@ describe('streamed journal replay', () => {
         text: `turn ${turn}`,
       } as Command)
       expect(result.accepted).toBe(true)
+      // `turn.settled` is journaled after the status flips to idle, so wait
+      // for the event itself; idle alone can race the final append.
       const settledAt = Date.now() + 30000
-      while (true) {
-        const model = await store.load(sessionId)
-        if (model.status === 'idle') break
+      while (
+        published.filter((p) => p.sessionId === sessionId && p.event.type === 'turn.settled')
+          .length <= turn
+      ) {
         if (Date.now() > settledAt) throw new Error('turn never settled')
         await new Promise((r) => setTimeout(r, 25))
       }
