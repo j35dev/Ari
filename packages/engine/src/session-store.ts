@@ -91,15 +91,32 @@ const PREVIEW_MAX_CHARS = 160
  * Preview for a session row: the most recent text any message carries,
  * whitespace-collapsed. Thinking parts and tool-only turns are skipped so a
  * session that ended on a tool call still previews the last thing it said.
+ *
+ * Candidates are truncated before collapsing: the streaming append path runs
+ * here on every part flush, and a candidate can be megabytes of transcript —
+ * the regex would then sweep megabytes fifty times a second. Leading
+ * whitespace is dropped as parts accumulate so it can't use up that window.
  */
 function lastMessagePreview(messages: Message[]): string | null {
+  const collapseTail = (text: string): string | null => {
+    if (text.length === 0) return null
+    const collapsed = text
+      .slice(0, PREVIEW_MAX_CHARS * 2)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, PREVIEW_MAX_CHARS)
+    return collapsed.length > 0 ? collapsed : null
+  }
   for (let index = messages.length - 1; index >= 0; index--) {
     let text = ''
     for (const part of messages[index]?.parts ?? []) {
-      if (part.type === 'text') text += part.text
+      if (part.type === 'text') text += text.length === 0 ? part.text.trimStart() : part.text
+      // Candidates stop scanning parts early too once the cap is sure; carry
+      // on reading a long already-capped text's parts would add nothing.
+      if (text.length >= PREVIEW_MAX_CHARS * 2) break
     }
-    const collapsed = text.replace(/\s+/g, ' ').trim()
-    if (collapsed.length > 0) return collapsed.slice(0, PREVIEW_MAX_CHARS)
+    const collapsed = collapseTail(text)
+    if (collapsed !== null) return collapsed
   }
   return null
 }

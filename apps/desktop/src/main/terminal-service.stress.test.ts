@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { TerminalService, type PtyFactory, type PtyLike } from './terminal-service'
+import { TerminalService, TRIM_FLOOR, type PtyFactory, type PtyLike } from './terminal-service'
 
 const CHUNK_BYTES = 100
 const CHUNK_COUNT = 10_000
@@ -76,17 +76,19 @@ describe('TerminalService stress', () => {
     expect(dataEvents.map((e) => e.data).join('')).toBe(expected)
     expect(new Set(dataEvents.map((e) => e.id))).toEqual(new Set(['stress']))
 
-    // Ring invariant under the whole stream.
+    // Ring invariant under the whole stream: bounded, and a contiguous
+    // lossless suffix (trims to a floor, not back to the exact cap).
     const replay = service.replay('stress')
     expect(replay.length).toBeLessThanOrEqual(MAX_SCROLLBACK)
-    expect(replay).toBe(expected.slice(-MAX_SCROLLBACK))
+    expect(replay.length).toBeGreaterThanOrEqual(TRIM_FLOOR)
+    expect(replay).toBe(expected.slice(-replay.length))
 
     // Synchronous in-memory path; generous CI budget guards against
     // accidental per-chunk allocation blowups (e.g. quadratic concat).
     expect(elapsedMs).toBeLessThan(5_000)
   })
 
-  it('soaks past the cap (15k chunks) and truncates the ring to exactly the last 1MB', () => {
+  it('soaks past the cap (15k chunks) and the ring truncates to its bounded floor', () => {
     const { service, ptys, dataEvents } = makeService()
     service.create('soak', '.')
 
@@ -100,8 +102,9 @@ describe('TerminalService stress', () => {
     expect(dataEvents).toHaveLength(SOAK_CHUNK_COUNT)
 
     const replay = service.replay('soak')
-    expect(replay.length).toBe(MAX_SCROLLBACK)
-    expect(replay).toBe(expected.slice(-MAX_SCROLLBACK))
+    expect(replay.length).toBeLessThanOrEqual(MAX_SCROLLBACK)
+    expect(replay.length).toBeGreaterThanOrEqual(TRIM_FLOOR)
+    expect(replay).toBe(expected.slice(-replay.length))
     // 15k chunks is CPU-bound and runs beside every other package's suite in
     // `pnpm verify`; 15s keeps it deterministic under full parallel load.
   }, 15_000)
