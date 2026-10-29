@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, Bookmark, Clock, CornerUpRight, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, Bookmark, Clock, CornerUpRight, Pencil, Square, Trash2, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import { transitions } from '@ari/ui/motion'
 import { Popover } from '@ari/ui/popover'
@@ -66,6 +66,8 @@ export interface ComposerProps {
   onSteerQueued?: (message: QueuedMessageView) => void
   /** Drops one queued message without running it. */
   onRemoveQueued?: (message: QueuedMessageView) => void
+  /** Takes one queued text message back into the composer for editing. */
+  onEditQueued?: (message: QueuedMessageView) => void
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
   /**
@@ -133,6 +135,7 @@ export function Composer({
   queued = [],
   onSteerQueued,
   onRemoveQueued,
+  onEditQueued,
   suggestions,
   leading,
   placeholder = 'Ask anything, @ for files, / for commands…',
@@ -522,11 +525,21 @@ export function Composer({
         stashDraft()
       }
       const plain = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+      // Alt+Up at the start of the field pulls the newest queued text message
+      // back into the composer. Imaged rows stay queued: an edit draft is text.
+      if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
+        const atStart = (e.currentTarget.selectionStart ?? caret) === 0
+        const lastText = [...queued].reverse().find((message) => message.attachments.length === 0)
+        if (atStart && onEditQueued && lastText !== undefined) {
+          e.preventDefault()
+          onEditQueued(lastText)
+        }
+      }
       if (plain && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.nativeEvent.isComposing) {
         if (recallPrompt(e.key === 'ArrowUp' ? 'older' : 'newer')) e.preventDefault()
       }
     },
-    [send, stashDraft, recallPrompt],
+    [send, stashDraft, recallPrompt, queued, caret, onEditQueued],
   )
 
   const closePopup = useCallback(() => setDismissed(true), [])
@@ -588,6 +601,17 @@ export function Composer({
                       className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                     >
                       <CornerUpRight size={11} />
+                    </button>
+                  ) : null}
+                  {onEditQueued && message.attachments.length === 0 ? (
+                    <button
+                      type="button"
+                      aria-label={`Edit queued message ${index + 1}`}
+                      title="Edit in composer"
+                      onClick={() => onEditQueued(message)}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    >
+                      <Pencil size={11} />
                     </button>
                   ) : null}
                   {onRemoveQueued ? (

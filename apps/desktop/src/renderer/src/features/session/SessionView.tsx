@@ -882,6 +882,25 @@ export function SessionView({
     [sessionId, dispatch],
   )
 
+  // Edit is a text-only draft. An imaged message has nowhere to carry its
+  // attachments, so it stays queued instead of dropping them on the way back.
+  const handleEditQueued = useCallback(
+    (message: QueuedMessageView) => {
+      if (message.attachments.length > 0) return
+      dispatch(
+        {
+          type: 'message.dequeue',
+          sessionId,
+          text: message.text,
+          attachments: message.attachments,
+        },
+        'Couldn’t edit queued message',
+      )
+      setComposerSeed((prev) => ({ text: message.text, nonce: (prev?.nonce ?? 0) + 1 }))
+    },
+    [sessionId, dispatch],
+  )
+
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
   const handleEditMessage = useCallback((text: string) => {
@@ -1124,6 +1143,7 @@ export function SessionView({
         queued={queued}
         onSteerQueued={handleSteerQueued}
         onRemoveQueued={handleRemoveQueued}
+        onEditQueued={handleEditQueued}
         seed={composerSeed ?? undefined}
         suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
         attentionRequired={composerAttentionRequired}
@@ -1210,6 +1230,7 @@ export function SessionView({
       queued,
       handleSteerQueued,
       handleRemoveQueued,
+      handleEditQueued,
       composerSeed,
       fileSuggestions,
       composerAttentionRequired,

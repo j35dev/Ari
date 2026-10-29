@@ -1550,6 +1550,52 @@ describe('SessionView queued messages', () => {
     })
   })
 
+  it('edits a queued text message back into the composer', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /edit queued message 1/i }))
+    expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'message.dequeue',
+        sessionId: 'sess_1',
+        text: 'focus on the parser',
+        attachments: [],
+      },
+    })
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('focus on the parser'))
+  })
+
+  it('does not offer edit for a queued message carrying images', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'see this',
+      attachments: [{ id: 'att_1', name: 'a.png', mimeType: 'image/png', size: 4 }],
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit queued message/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /remove queued message 1/i })).toBeInTheDocument()
+  })
+
   it('surfaces a refused command and puts the rejected message back in the draft', async () => {
     const user = userEvent.setup()
     renderView()
