@@ -110,6 +110,25 @@ describe('Dialog', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
   })
 
+  it('skips controls taken out of the tab order when placing first focus', () => {
+    render(
+      <Dialog defaultOpen>
+        <Dialog.Content>
+          <Dialog.Title>Look</Dialog.Title>
+          <div role="radiogroup" aria-label="Shape">
+            <button role="radio" aria-checked={false} tabIndex={-1}>
+              Drop
+            </button>
+            <button role="radio" aria-checked tabIndex={0}>
+              Pebble
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog>,
+    )
+    expect(screen.getByRole('radio', { name: 'Pebble' })).toHaveFocus()
+  })
+
   it('stays closed when controlled with open={false} but reports intent', async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
