@@ -2090,6 +2090,22 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
 
   r.register('project.list', async () => getProjectStore().load())
 
+  let discovery: Promise<RpcResults['project.discover']> | null = null
+  r.register('project.discover', () => {
+    discovery ??= import('./project-discovery')
+      .then(({ discoverAgentProjects }) =>
+        discoverAgentProjects({
+          claudeHome:
+            providerEnvironment('claude')['CLAUDE_CONFIG_DIR'] ?? process.env['CLAUDE_CONFIG_DIR'],
+          codexHome: providerEnvironment('codex')['CODEX_HOME'] ?? process.env['CODEX_HOME'],
+        }),
+      )
+      .finally(() => {
+        discovery = null
+      })
+    return discovery
+  })
+
   r.register('project.add', async (params) => {
     const project = await getProjectStore().add(params.path, params.name)
     // Warm the watcher + mentions file index in the background; the index
