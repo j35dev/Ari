@@ -16,6 +16,8 @@ import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
 import type { ChildTask } from './agent-control'
 export { sourceControlSchemas } from './source-control'
+export { gitMutationSchema } from './git-mutation'
+export type { GitMutation, GitMutationOutcome, GitHistoryEntry } from './git-mutation'
 export type {
   ChangeRequest,
   ChangeRequestCapabilities,
