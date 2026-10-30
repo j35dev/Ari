@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en" data-ari-theme="obsidian">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ari — Sound audition</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="icon" href="data:," />
+  <style>
+    @font-face { font-family: 'Geist Variable'; src: url('geist.woff2'); font-weight: 100 900; font-display: swap; }
+    @font-face { font-family: 'Geist Mono Variable'; src: url('geist-mono.woff2'); font-weight: 100 900; font-display: swap; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ari-bg); color: var(--ari-fg); font: 14px/1.5 var(--ari-font-ui); }
+    main { max-width: 1176px; padding: 32px 36px; margin: auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+    .mono, .number, .badge, .duration { font-family: var(--ari-font-mono); }
+    .mono { color: var(--ari-fg-subtle); font-size: 11px; letter-spacing: 0.08em; }
+    .brand { font-size: 20px; font-weight: 650; letter-spacing: -0.08em; color: var(--ari-fg); }
+    .pill, .badge { border: 1px solid var(--ari-border-strong); border-radius: 99px; padding: 4px 10px; font-size: 10px; color: var(--ari-fg-muted); }
+    h1 { margin: 0; font-size: clamp(32px, 4.2vw, 50px); line-height: 1.12; font-weight: 550; letter-spacing: -0.055em; }
+    h1 span { color: var(--ari-accent); }
+    .intro { margin: 12px 0 28px; color: var(--ari-fg-muted); }
+    .toolbar, .transport { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .toolbar { margin-bottom: 16px; padding: 12px 0; border-block: 1px solid var(--ari-border); }
+    .tabs, .levels { display: flex; align-items: center; gap: 6px; }
+    button, a { font: inherit; }
+    button { cursor: pointer; border: 1px solid var(--ari-border-strong); color: var(--ari-fg); background: var(--ari-surface-1); border-radius: 7px; padding: 8px 13px; transition: background 140ms; }
+    button:hover { background: var(--ari-surface-2); }
+    button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--ari-accent); outline-offset: 4px; }
+    button[aria-pressed="true"] { background: var(--ari-accent-subtle); border-color: var(--ari-accent-ring); color: var(--ari-accent); }
+    .tabs button { border-color: transparent; background: transparent; }
+    .tabs button[aria-pressed="true"] { background: var(--ari-surface-2); color: var(--ari-fg); }
+    .dot { display: inline-block; width: 6px; height: 6px; border-radius: 100%; margin-right: 7px; background: var(--ari-success); }
+    [data-kind="attention"] .dot { background: var(--ari-warning); }
+    [data-kind="error"] .dot { background: var(--ari-danger); }
+    input { width: 92px; accent-color: var(--ari-accent); }
+    output { width: 36px; color: var(--ari-fg-muted); font-size: 12px; }
+    .row { display: grid; grid-template-columns: 24px minmax(230px, 1fr) 220px 169px; align-items: center; gap: 20px; padding: 20px 16px; border-bottom: 1px solid var(--ari-border); border-left: 2px solid transparent; }
+    .row[data-id="soft-glass"] { background: var(--ari-surface-0); border-left-color: var(--ari-accent); }
+    .row[data-playing="true"] { background: var(--ari-surface-1); }
+    .number { color: var(--ari-fg-subtle); font-size: 11px; align-self: start; padding-top: 5px; }
+    h2 { font-size: 16px; font-weight: 550; letter-spacing: -0.015em; display: inline; }
+    .badge { margin-left: 10px; padding: 2px 7px; font-size: 9px; }
+    [data-id="soft-glass"] .badge { border-color: var(--ari-accent-ring); color: var(--ari-accent); }
+    .description { color: var(--ari-fg-subtle); font-size: 12px; max-width: 410px; margin: 5px 0 0; }
+    .wave { width: 100%; }
+    svg { width: 100%; height: 36px; color: var(--ari-fg-subtle); opacity: 0.65; }
+    [data-playing="true"] svg { color: var(--ari-accent); opacity: 1; }
+    .duration { color: var(--ari-fg-subtle); font-size: 9px; display: block; text-align: right; }
+    .actions { display: flex; align-items: center; gap: 7px; }
+    .play { min-width: 70px; }
+    .compare { background: transparent; padding: 8px 9px; font-size: 12px; }
+    .download { color: var(--ari-fg-muted); text-decoration: none; font-size: 20px; padding: 4px 8px; }
+    .transport { padding: 20px 0; }
+    #status { color: var(--ari-fg-muted); font-size: 12px; min-height: 20px; }
+    .tour { background: var(--ari-accent); color: var(--ari-fg-on-accent); border-color: transparent; }
+    .tour:hover { background: var(--ari-accent-hover); }
+    footer { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; border-top: 1px solid var(--ari-border); padding-top: 18px; color: var(--ari-fg-subtle); font-size: 11px; }
+    footer p { margin: 0; } footer strong { font-weight: 500; color: var(--ari-fg-muted); }
+    .links { margin-top: 8px; } .links a { color: var(--ari-fg-muted); margin-right: 10px; }
+    @media (max-width: 900px) { .row { grid-template-columns: 20px 1fr 169px; gap: 12px; } .wave { display: none; } }
+    @media (max-width: 600px) { main { padding: 24px 18px; } header { margin-bottom: 24px; } .pill { display: none; } .toolbar, .transport { align-items: start; flex-direction: column; gap: 12px; } .levels { width: 100%; } .levels #stop { margin-left: auto; } .row { grid-template-columns: 18px 1fr; padding: 18px 10px; } .actions { grid-column: 2; } footer { grid-template-columns: 1fr; gap: 16px; } }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header><div><span class="brand">ari</span><span class="mono"> &nbsp; / &nbsp; SOUND STUDY 01</span></div><span class="pill">Isolated worktree · app unchanged</span></header>
+    <h1>Less beep. <span>More closure.</span></h1>
+    <p class="intro">Five original directions for the moments between working. Listen, compare, then pick your favourite.</p>
+    <section class="toolbar" aria-label="Audition controls">
+      <div class="tabs" role="group" aria-label="Notification event">
+        <button data-kind="complete" aria-pressed="true"><span class="dot"></span>Completion</button>
+        <button data-kind="attention" aria-pressed="false"><span class="dot"></span>Needs you</button>
+        <button data-kind="error" aria-pressed="false"><span class="dot"></span>Error</button>
+      </div>
+      <div class="levels"><label class="mono" for="volume">VOLUME</label><input id="volume" type="range" min="0" max="100" value="55" /><output id="level" for="volume">55%</output><button id="stop" title="Stop playback (Escape)">■ Stop</button></div>
+    </section>
+    <section id="options" aria-label="Sound families"></section>
+    <section class="transport" aria-label="Sequence playback"><div><button class="tour" id="tour">▶ Play all six</button> <button id="repeat">Repeat last ×5</button></div><span id="status" role="status" aria-live="polite">Ready. Start with Soft Glass, or compare it with the current sound.</span></section>
+    <footer>
+      <p><strong>My shortlist: Soft Glass → Warm Felt.</strong><br />Glass gives completion a polished little lift. Felt is warmer and less insistent for long sessions. Needs-you cues use a repeat rhythm; errors settle downward without an alarm.</p>
+      <div><p>Original synthesis, not stock effects. Preview cues are active-RMS matched, not perceptually loudness-calibrated. A/B plays current → candidate for the selected event. ↓ downloads a 48 kHz WAV.</p><p class="links">Current at original app gain: <a href="clips/current-complete-original.wav" download>completion</a><a href="clips/current-attention-original.wav" download>needs you</a><a href="clips/current-error-original.wav" download>error</a></p></div>
+    </footer>
+    <audio id="audio" preload="none"></audio>
+    <noscript>This audition page needs JavaScript. The WAV files are available in the clips folder.</noscript>
+  </main>
+  <script src="catalog.js"></script>
+  <script>
+    const catalog = globalThis.ariSoundCatalog;
+    const options = document.querySelector('#options'), audio = document.querySelector('#audio'), status = document.querySelector('#status');
+    let kind = 'complete', last = 'soft-glass', queue = [], timer, generation = 0;
+    audio.volume = 0.55;
+    options.innerHTML = catalog.map((sound, i) => `<article class="row" data-id="${sound.id}"><span class="number">0${i}</span><div><h2>${sound.name}</h2><span class="badge">${sound.tag}</span><p class="description">${sound.description}</p></div><div class="wave"><svg viewBox="0 0 288 44" aria-hidden="true"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="${sound.cues[kind].waveform}" /></svg><span class="duration">${sound.cues[kind].duration} ms</span></div><div class="actions"><button class="play" aria-label="Play ${sound.name}">▶ Play</button><button class="compare" aria-label="Compare current with ${sound.name}" ${sound.id === 'current' ? 'hidden' : ''}>A/B</button><a class="download" download href="${sound.cues[kind].url}" aria-label="Download ${sound.name} WAV" title="Download WAV">↓</a></div></article>`).join('');
+    function clearPlaying() {
+      for (const row of options.children) { row.dataset.playing = 'false'; row.querySelector('.play').textContent = '▶ Play'; }
+    }
+    function stop() { generation++; clearTimeout(timer); queue = []; audio.pause(); audio.currentTime = 0; clearPlaying(); }
+    function fail(error) { console.error('Sound audition failed', error); stop(); status.textContent = 'Could not play this file. Check your browser audio output or download the WAV.'; }
+    async function next() {
+      const entry = queue.shift();
+      if (!entry) { clearPlaying(); status.textContent = 'Ready. Which one feels right?'; return; }
+      const token = generation, sound = catalog.find((item) => item.id === entry.id);
+      clearPlaying();
+      const row = options.querySelector(`[data-id="${entry.id}"]`);
+      row.dataset.playing = 'true'; row.querySelector('.play').textContent = '♪ Playing';
+      audio.src = sound.cues[entry.kind].url;
+      status.textContent = `${entry.label ?? sound.name} · ${entry.kind === 'complete' ? 'Completion' : entry.kind === 'attention' ? 'Needs you' : 'Error'}`;
+      try { await audio.play(); } catch (error) { if (token === generation) fail(error); else console.debug('Previous audition cancelled', error); }
+    }
+    function start(entries) { stop(); queue = entries; void next().catch(fail); }
+    audio.addEventListener('ended', () => { clearPlaying(); if (queue.length) { const token = generation; timer = setTimeout(() => { if (token === generation) void next().catch(fail); }, 750); } else status.textContent = 'Ready. Which one feels right?'; });
+    audio.addEventListener('error', () => fail(audio.error));
+    options.addEventListener('click', (event) => {
+      const row = event.target.closest('.row'); if (!row) return;
+      if (event.target.closest('.play')) { last = row.dataset.id; start([{ id: last, kind }]); }
+      if (event.target.closest('.compare')) { last = row.dataset.id; start([{ id: 'current', kind, label: 'A · Current Ari' }, { id: last, kind, label: `B · ${catalog.find((item) => item.id === last).name}` }]); }
+    });
+    document.querySelector('.tabs').addEventListener('click', (event) => {
+      const button = event.target.closest('button'); if (!button) return;
+      stop(); kind = button.dataset.kind;
+      for (const tab of document.querySelectorAll('.tabs button')) tab.setAttribute('aria-pressed', String(tab === button));
+      for (const row of options.children) {
+        const cue = catalog.find((item) => item.id === row.dataset.id).cues[kind];
+        row.querySelector('path').setAttribute('d', cue.waveform); row.querySelector('.duration').textContent = `${cue.duration} ms`; row.querySelector('.download').href = cue.url;
+      }
+      status.textContent = 'Event changed. Play a sound, or A/B it with the current cue.';
+    });
+    document.querySelector('#volume').addEventListener('input', (event) => { audio.volume = Number(event.target.value) / 100; document.querySelector('#level').textContent = `${event.target.value}%`; });
+    document.querySelector('#stop').addEventListener('click', () => { stop(); status.textContent = 'Stopped.'; });
+    document.querySelector('#tour').addEventListener('click', () => start(catalog.map((sound) => ({ id: sound.id, kind }))));
+    document.querySelector('#repeat').addEventListener('click', () => start(Array.from({ length: 5 }, (_, i) => ({ id: last, kind, label: `${catalog.find((sound) => sound.id === last).name} · ${i + 1}/5` }))));
+    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { stop(); status.textContent = 'Stopped.'; } });
+    window.addEventListener('pagehide', stop);
+  </script>
+</body>
+</html>
