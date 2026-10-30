@@ -25,6 +25,13 @@ function setup(
   return { onChange }
 }
 
+function replyWith(method: string, value: unknown): void {
+  const invoke = rpcMocks.invoke.getMockImplementation()!
+  rpcMocks.invoke.mockImplementation(async (name: string) =>
+    name === method ? value : (invoke(name) as Promise<unknown>),
+  )
+}
+
 describe('ModelSelector', () => {
   beforeEach(() => {
     rpcMocks.subscribe.mockClear()
@@ -190,6 +197,178 @@ describe('ModelSelector', () => {
     await user.click(await screen.findByRole('button', { name: /model:/i }))
     await user.type(screen.getByLabelText('Search models'), 'zzz')
     expect(screen.getByText(/no models match/i)).toBeInTheDocument()
+  })
+
+  it('opens and scrolls to a selected model deep in the catalog', async () => {
+    replyWith('providers.models', [{
+      kind: 'pi', source: 'live',
+      models: Array.from({ length: 50 }, (_, i) => ({
+        id: `agentrouter/model-${i}`, label: `Model ${i}`,
+      })),
+    }])
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+    const scrolled: HTMLElement[] = []
+    const scroll = vi.fn(function (this: HTMLElement) { scrolled.push(this) })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+    try {
+      const { onChange } = setup('pi', 'agentrouter/model-42', 'pi')
+      const user = userEvent.setup()
+      await user.click(await screen.findByRole('button', { name: /model:/i }))
+      const selected = screen.getByRole('option', { selected: true })
+      expect(selected).toHaveTextContent('Model 42')
+      expect(selected).toHaveClass('bg-accent-subtle')
+      expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', selected.id)
+      expect(scrolled).toContain(selected)
+      expect(scroll).toHaveBeenCalledWith({ block: 'nearest' })
+      await user.keyboard('{Enter}')
+      expect(onChange).toHaveBeenCalledWith({ driverKind: 'pi', modelId: 'agentrouter/model-42' })
+    } finally {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor)
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+    }
+  })
+
+  it('keeps the selected highlight separate from hover and restores it on reopen', async () => {
+    const { onChange } = setup('claude', 'opus-4', 'claude')
+    const user = userEvent.setup()
+    const trigger = await screen.findByRole('button', { name: /model:/i })
+    await user.click(trigger)
+    const selected = screen.getByRole('option', { selected: true })
+    const other = screen.getByRole('option', { name: /Sonnet/ })
+    await user.hover(other)
+    expect(selected).toHaveClass('bg-accent-subtle')
+    expect(other).toHaveClass('bg-surface-2')
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', other.id)
+    expect(onChange).not.toHaveBeenCalled()
+    await user.keyboard('{Escape}')
+    await user.click(trigger)
+    expect(screen.getByRole('combobox')).toHaveAttribute(
+      'aria-activedescendant', screen.getByRole('option', { selected: true }).id,
+    )
+    await user.keyboard('{Enter}')
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'opus-4' })
+  })
+
+  it('searches only the locked provider and never offers a foreign keyboard choice', async () => {
+    const { onChange } = setup('claude', 'sonnet-4', 'claude')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    const search = screen.getByRole('combobox')
+    await user.type(search, 'gpt')
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    expect(screen.getByText(/no models match/i)).toBeInTheDocument()
+    expect(screen.queryByText('Codex')).not.toBeInTheDocument()
+    await user.keyboard('{End}{Enter}')
+    expect(onChange).not.toHaveBeenCalled()
+    await user.clear(search)
+    await user.type(search, 'op')
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    await user.keyboard('{Enter}')
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'opus-4' })
+  })
+
+  it('excludes foreign search results even when their model labels match', async () => {
+    replyWith('providers.models', [
+      { kind: 'claude', source: 'live', models: [{ id: 'sonnet-4', label: 'Shared model' }] },
+      { kind: 'codex', source: 'live', models: [{ id: 'gpt-5.6', label: 'Shared model' }] },
+    ])
+    const { onChange } = setup('claude', 'sonnet-4', 'claude')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    await user.type(screen.getByRole('combobox'), 'shared')
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.queryByText('Codex')).not.toBeInTheDocument()
+    await user.keyboard('{End}{Enter}')
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'claude', modelId: 'sonnet-4' })
+  })
+
+  it('pins an already-open pane and its search when the provider lock arrives', async () => {
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <ModelSelector driverKind="claude" modelId="sonnet-4" onChange={onChange} />,
+    )
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    await user.click(within(screen.getByRole('presentation', { name: 'Providers' })).getByText('Codex'))
+    expect(screen.getByRole('option')).toHaveTextContent('GPT-5.6')
+    rerender(<ModelSelector driverKind="claude" modelId="sonnet-4" onChange={onChange} lockedTo="claude" />)
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Sonnet 4.5')
+    expect(screen.queryByText('GPT-5.6')).not.toBeInTheDocument()
+    await user.type(screen.getByRole('combobox'), 'gpt')
+    expect(screen.queryAllByRole('option')).toHaveLength(0)
+    await user.keyboard('{Enter}')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('highlights the current selection when its catalog arrives after opening', async () => {
+    setup('codex', 'future-cli-model', 'codex')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    replyWith('providers.models', [{ kind: 'codex', source: 'live', models: [
+      { id: 'gpt-5.6', label: 'GPT-5.6' }, { id: 'future-cli-model', label: 'New CLI model' },
+    ] }])
+    const listener = rpcMocks.subscribe.mock.calls.find(([name]) => name === 'providers.updates')?.[2]
+    await act(async () => listener?.({ type: 'catalog', at: Date.now() }))
+    const selected = await screen.findByRole('option', { selected: true })
+    expect(selected).toHaveClass('bg-accent-subtle')
+    expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', selected.id)
+  })
+
+  it('keeps the keyboard candidate on the same model when catalogs reorder', async () => {
+    setup()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    await user.keyboard('{ArrowDown}')
+    replyWith('providers.models', [{ kind: 'claude', source: 'live', models: [
+      { id: 'opus-4', label: 'Opus 4' }, { id: 'sonnet-4', label: 'Sonnet 4.5' },
+    ] }])
+    const listener = rpcMocks.subscribe.mock.calls.find(([name]) => name === 'providers.updates')?.[2]
+    await act(async () => listener?.({ type: 'catalog', at: Date.now() }))
+    expect(screen.getByRole('combobox')).toHaveAttribute(
+      'aria-activedescendant', screen.getByRole('option', { name: /Opus/ }).id,
+    )
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Sonnet 4.5')
+  })
+
+  it.each(['ep:end_1:llama3.1:8b', 'ep:end_1'])(
+    'highlights endpoint selection %s without guessing the first model', async (modelId) => {
+      replyWith('endpoints.list', [{
+        id: 'end_1', name: 'My Relay', model: 'llama3.1:8b', models: [
+          { id: 'relay-small', label: 'Relay Small', contextWindow: null },
+          { id: 'llama3.1:8b', label: 'Llama 3.1', contextWindow: null },
+        ],
+      }])
+      const { onChange } = setup('ari-core', modelId, 'ari-core')
+      const user = userEvent.setup()
+      const trigger = await screen.findByRole('button', { name: /model:/i })
+      await waitFor(() => expect(trigger).toHaveTextContent('My Relay · Llama 3.1'))
+      await user.click(trigger)
+      const selected = screen.getByRole('option', { selected: true })
+      expect(selected).toHaveClass('bg-accent-subtle')
+      expect(screen.getByRole('combobox')).toHaveAttribute('aria-activedescendant', selected.id)
+      await user.type(screen.getByRole('combobox'), 'small')
+      expect(screen.getAllByRole('option')).toHaveLength(1)
+      expect(screen.getByRole('option')).toHaveTextContent('My Relay · Relay Small')
+      await user.clear(screen.getByRole('combobox'))
+      await user.keyboard('{Enter}')
+      expect(onChange).toHaveBeenCalledWith({ driverKind: 'ari-core', modelId: 'ep:end_1:llama3.1:8b' })
+    },
+  )
+
+  it('does not mark a default-suffixed model when the selected endpoint id ends in a colon', async () => {
+    replyWith('endpoints.list', [{
+      id: 'end_1', name: 'My Relay', model: 'model:', models: [
+        { id: 'model:default', label: 'Other model', contextWindow: null },
+        { id: 'model:', label: 'Current model', contextWindow: null },
+      ],
+    }])
+    const { onChange } = setup('ari-core', 'ep:end_1:model:', 'ari-core')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /model:/i }))
+    expect(screen.getAllByRole('option', { selected: true })).toHaveLength(1)
+    expect(screen.getByRole('option', { selected: true })).toHaveTextContent('Current model')
+    await user.keyboard('{Enter}')
+    expect(onChange).toHaveBeenCalledWith({ driverKind: 'ari-core', modelId: 'ep:end_1:model:' })
   })
 
   it('lists every model an endpoint serves and picks the one clicked', async () => {
@@ -418,6 +597,9 @@ describe('ModelSelector', () => {
       // A mid-session logout must not swap the pane onto another provider.
       const listbox = screen.getByRole('listbox', { name: 'Models' })
       expect(within(listbox).getByText('GPT-5.6')).toBeInTheDocument()
+      await user.type(screen.getByRole('combobox'), 'gpt')
+      expect(screen.getByRole('option')).toHaveTextContent('GPT-5.6')
+      expect(screen.queryByText('Claude')).not.toBeInTheDocument()
     })
   })
 
@@ -464,6 +646,9 @@ describe('ModelSelector', () => {
       const models = screen.getByRole('listbox', { name: 'Models' })
       expect(within(models).getByRole('option', { selected: true })).toHaveTextContent(
         'Claude Opus 4.8',
+      )
+      expect(screen.getByRole('combobox')).toHaveAttribute(
+        'aria-activedescendant', within(models).getByRole('option', { selected: true }).id,
       )
     })
 
