@@ -71,6 +71,7 @@ export const IPC_METHODS = [
   'providers.cancelInstall',
   'providers.authProbe',
   'providers.login',
+  'providers.setupTerminal',
   'providers.configFiles',
   'providers.readConfig',
   'providers.writeConfig',

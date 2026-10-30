@@ -27,6 +27,7 @@ function mergeConnections(
  * the main process may change a provider's accounts, which a renderer may not.
  */
 export interface SettingsPatch {
+  onboarding?: Settings['onboarding']
   delegation?: Partial<Settings['delegation']>
   appearance?: Partial<Settings['appearance']>
   sessions?: Partial<Settings['sessions']>
@@ -108,6 +109,7 @@ export class SettingsStore {
 
   async #apply(patch: SettingsPatch): Promise<Settings> {
     const next: Settings = {
+      onboarding: patch.onboarding ?? this.#current.onboarding,
       delegation: { ...this.#current.delegation, ...patch.delegation },
       version: 1,
       appearance: { ...this.#current.appearance, ...patch.appearance },

@@ -124,6 +124,7 @@ import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver, attachModelEfforts, modelsFromConfigOptions } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
+import { openProviderSetupTerminal } from './provider-setup'
 import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
 import { providerEnvironment, setProviderEnvironment } from './provider-env'
@@ -2042,6 +2043,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { applied: true }
   })
 
+  const setupTerminalIds = new Set<string>()
+  contents.once('destroyed', () => {
+    for (const id of setupTerminalIds) terminals.kill(id)
+  })
+  r.register('providers.setupTerminal', async ({ kind }) => {
+    ptyModule = await loadPtyModule()
+    if (!ptyModule) return { ok: false as const, error: 'The terminal backend is unavailable.' }
+    const result = await openProviderSetupTerminal({
+      signIn: () => accounts.signIn(kind, accounts.activeId(kind)),
+      terminals,
+      homeDir: homedir(),
+      platform: process.platform,
+    })
+    if (result.ok) setupTerminalIds.add(result.id)
+    return result
+  })
+
   r.register('terminal.create', async (params) => {
     // Await the guarded loader so a slow native import delays creation instead
     // of failing it; a hard load failure becomes a descriptive error.
@@ -2067,6 +2085,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('terminal.kill', (params) => {
+    setupTerminalIds.delete(params.id)
     terminals.kill(params.id)
     return { killed: true }
   })

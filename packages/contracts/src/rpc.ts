@@ -730,6 +730,7 @@ export const rpcParams = {
   'providers.cancelInstall': z.object({ kind: driverKindSchema }),
   'providers.authProbe': z.object({ kind: driverKindSchema }),
   'providers.login': z.object({ kind: driverKindSchema }),
+  'providers.setupTerminal': z.object({ kind: z.enum(['claude', 'codex']) }),
   'providers.configFiles': z.object({ kind: driverKindSchema }),
   'providers.extensionInventory': z.object({
     kind: driverKindSchema,
@@ -1220,6 +1221,7 @@ export interface RpcResults {
   /** Native chrome repainted for the given theme (overlay + OS scheme hint). */
   'theme.apply': { applied: boolean }
   'terminal.create': { created: boolean }
+  'providers.setupTerminal': { ok: true; id: string; cwd: string } | { ok: false; error: string }
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }
   'terminal.kill': { killed: boolean }
