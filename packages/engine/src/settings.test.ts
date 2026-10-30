@@ -15,6 +15,15 @@ afterEach(async () => {
 })
 
 describe('SettingsStore', () => {
+  it('persists first-run completion across unrelated updates and rejects invalid markers', async () => {
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).onboarding).toBeUndefined()
+    await store.update({ onboarding: { completedAt: 1234 } })
+    await store.update({ appearance: { reducedMotion: true } })
+    expect((await new SettingsStore({ dir }).load()).onboarding?.completedAt).toBe(1234)
+    await expect(store.update({ onboarding: { completedAt: -1 } })).rejects.toThrow()
+    expect(store.current.onboarding?.completedAt).toBe(1234)
+  })
   it('persists delegation patches without resetting other limits', async () => {
     const store = new SettingsStore({ dir })
     await store.load()
@@ -112,10 +121,17 @@ describe('SettingsStore', () => {
     )
     const loaded = await new SettingsStore({ dir }).load()
     expect(loaded.notifications.settleSound).toBe(false)
-    expect(Object.values(loaded.providers).every((c) => c.enabled && c.binaryPath === '')).toBe(true)
-    expect(Object.keys(loaded.providers).sort()).toEqual(
-      ['claude', 'codex', 'grok', 'hermes', 'opencode', 'pi'],
+    expect(Object.values(loaded.providers).every((c) => c.enabled && c.binaryPath === '')).toBe(
+      true,
     )
+    expect(Object.keys(loaded.providers).sort()).toEqual([
+      'claude',
+      'codex',
+      'grok',
+      'hermes',
+      'opencode',
+      'pi',
+    ])
   })
 
   it('creates defaults on first load', async () => {

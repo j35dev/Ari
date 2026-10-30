@@ -116,8 +116,12 @@ const defaultAppearance = {
   wallpaper: 'none',
 } as const
 
+/** Completion is optional so pre-onboarding installations migrate without losing settings. */
+const onboardingSchema = z.object({ completedAt: z.number().int().nonnegative().nullable() })
+
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
   version: z.literal(1),
   appearance: z
@@ -197,6 +201,7 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsPatchSchema.optional(),
   appearance: z
     .object({
