@@ -18,12 +18,18 @@ import type { ChildTask } from './agent-control'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
 import type { GitHistoryEntry, GitMutationOutcome } from './git-mutation'
-import type { GitReviewManifest, SourceControlError, SourceControlStatus } from './source-control'
+import type {
+  GitReviewManifest,
+  HostConnection,
+  SourceControlError,
+  SourceControlStatus,
+} from './source-control'
 export { sourceControlSchemas, gitMutationSchema }
 export type { GitMutation, GitMutationOutcome, GitHistoryEntry } from './git-mutation'
 export type {
   ChangeRequest,
   ChangeRequestCapabilities,
+  HostConnection,
   GitComparison,
   GitReviewFile,
   GitReviewManifest,
@@ -886,6 +892,7 @@ export const rpcParams = {
   'settings.update': settingsUpdateSchema,
   'git.status': gitScopeSchema,
   'scm.summary': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
+  'scm.requests': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
   'scm.status': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
   'scm.review': gitScopeSchema.extend({
     comparison: sourceControlSchemas.comparison,
@@ -1313,6 +1320,7 @@ export interface RpcResults {
   'settings.get': Settings
   'settings.update': Settings
   'scm.summary': SourceControlResult<{ branch: string | null; changedFiles: number }>
+  'scm.requests': SourceControlResult<HostConnection>
   'scm.status': SourceControlResult<SourceControlContext>
   'scm.review': SourceControlResult<GitReviewManifest>
   'scm.diff': SourceControlResult<string>
