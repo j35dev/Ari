@@ -31,6 +31,7 @@ import {
   UNFILED_GROUP_ID,
   moveProjectInList,
   projectMoveForDelta,
+  sessionsViewOrder,
   shellRootFor,
   sidebarOrder,
 } from './features/session/session-nav'
@@ -645,8 +646,9 @@ function Shell() {
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
-  // Grouped by the open projects in the Projects view; the flat recency list
-  // in the Sessions view. Either way keyboard order matches what is rendered.
+  // Grouped by the open projects in the Projects view; root cards, pinned
+  // then newest, in the Sessions view. Either way keyboard order matches
+  // what is rendered, and child agents are not their own stops.
   const openProjects = useMemo(() => projects.filter((p) => p.open), [projects])
   // Bot sessions live in the Hive: the roster opens a bot's main session and a
   // room opens its threads, so the normal sidebar (and its Mod+digit order)
@@ -658,7 +660,10 @@ function Shell() {
   const { collapsed: collapsedChildren } = useSessionCollapse()
   const { view: sidebarView } = useSidebarView()
   const navOrder = useMemo(
-    () => sidebarOrder(sidebarSessions, sidebarView === 'sessions' ? [] : openProjects),
+    () =>
+      sidebarView === 'sessions'
+        ? sessionsViewOrder(sidebarSessions)
+        : sidebarOrder(sidebarSessions, openProjects),
     [sidebarSessions, openProjects, sidebarView, collapsedChildren],
   )
 
