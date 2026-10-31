@@ -135,11 +135,27 @@ export class GitService {
     sessionId: string,
     turnId: string,
   ): Promise<Result<string | null, GitError>> {
+    const ref = checkpointRef(sessionId, turnId)
+    return ref.ok ? this.#captureSnapshot(cwd, ref.value) : ref
+  }
+
+  async #captureSnapshot(
+    cwd: string,
+    ref: string,
+    immutable = false,
+  ): Promise<Result<string | null, GitError>> {
     const inside = await this.isRepo(cwd)
     if (!inside.ok) return inside
     if (!inside.value) return ok(null)
-    const ref = checkpointRef(sessionId, turnId)
-    if (!ref.ok) return ref
+    if (immutable) {
+      const existing = await this.#run(
+        cwd,
+        ['rev-parse', '--verify', '--quiet', ref],
+        DEFAULT_MAX_BYTES,
+        { quiet: true },
+      )
+      if (existing.ok) return ok(ref)
+    }
     const trees = await this.#withScratchIndex(cwd, async (env) => {
       // Fails on an unmerged index; such checkpoints restore the worktree only.
       const index = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env, quiet: true })
@@ -156,9 +172,57 @@ export class GitService {
     }
     const checkpoint = await this.#commitTree(cwd, trees.value.worktree, CHECKPOINT_MESSAGE, parent)
     if (!checkpoint.ok) return checkpoint
-    const updated = await this.#run(cwd, ['update-ref', ref.value, checkpoint.value])
-    if (!updated.ok) return updated
-    return ok(ref.value)
+    if (immutable) return this.#pinRef(cwd, ref, checkpoint.value)
+    const updated = await this.#run(cwd, ['update-ref', ref, checkpoint.value])
+    return updated.ok ? ok(ref) : updated
+  }
+
+  /** Captures a turn end once, independently of pre-turn revert checkpoints. */
+  captureTurnEnd(
+    cwd: string,
+    sessionId: string,
+    turnId: string,
+  ): Promise<Result<string | null, GitError>> {
+    const checked = checkpointRef(sessionId, turnId)
+    return checked.ok
+      ? this.#captureSnapshot(cwd, `refs/ari-turn-ends/${sessionId}/${turnId}`, true)
+      : Promise.resolve(checked)
+  }
+
+  /** Pins the first pre-turn snapshot independently from the rolling turn history. */
+  pinSessionBaseline(
+    cwd: string,
+    sessionId: string,
+    checkpoint: string,
+  ): Promise<Result<string, GitError>> {
+    const checked = checkpointRef(sessionId, 'baseline')
+    const source = assertSafeRev(checkpoint)
+    if (!checked.ok) return Promise.resolve(checked)
+    if (!source.ok) return Promise.resolve(source)
+    return this.#pinRef(cwd, `refs/ari-baselines/${sessionId}`, checkpoint)
+  }
+
+  async #pinRef(cwd: string, ref: string, source: string): Promise<Result<string, GitError>> {
+    const existing = await this.#run(
+      cwd,
+      ['rev-parse', '--verify', '--quiet', ref],
+      DEFAULT_MAX_BYTES,
+      { quiet: true },
+    )
+    if (existing.ok) return ok(ref)
+    if (existing.error.code === 'git_missing') return existing
+    const pinned = await this.#run(cwd, ['update-ref', ref, source, ''], DEFAULT_MAX_BYTES, {
+      quiet: true,
+    })
+    if (pinned.ok) return ok(ref)
+    // Another capture may have won the create-only ref update.
+    const raced = await this.#run(
+      cwd,
+      ['rev-parse', '--verify', '--quiet', ref],
+      DEFAULT_MAX_BYTES,
+      { quiet: true },
+    )
+    return raced.ok ? ok(ref) : pinned
   }
 
   /** Tree of the full working tree — tracked, untracked, minus ignored. */
@@ -247,9 +311,14 @@ export class GitService {
     const inside = await this.isRepo(cwd)
     if (!inside.ok) return inside
     if (!inside.value) return ok('')
-    const head = await this.#run(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD'], DEFAULT_MAX_BYTES, {
-      quiet: true,
-    })
+    const head = await this.#run(
+      cwd,
+      ['rev-parse', '--verify', '--quiet', 'HEAD'],
+      DEFAULT_MAX_BYTES,
+      {
+        quiet: true,
+      },
+    )
     const against = head.ok ? 'HEAD' : EMPTY_TREE
     return this.#withScratchIndex(cwd, async (env) => {
       const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
@@ -410,9 +479,23 @@ export class GitService {
       if (run.ok) {
         deleted.push(ref)
       } else {
+        keep.add(turnId)
         log.warn('checkpoint prune delete failed', { ref, error: run.error.message })
       }
     }
+    const ends = await this.#run(cwd, [
+      'for-each-ref',
+      '--format=%(refname)',
+      `refs/ari-turn-ends/${sessionId}/`,
+    ])
+    if (ends.ok) {
+      for (const ref of ends.value.stdout.trim().split('\n').filter(Boolean)) {
+        if (keep.has(ref.slice(ref.lastIndexOf('/') + 1))) continue
+        const removed = await this.#run(cwd, ['update-ref', '-d', ref])
+        if (!removed.ok)
+          log.warn('turn-end checkpoint prune failed', { ref, error: removed.error.message })
+      }
+    } else log.warn('turn-end checkpoint listing failed', { error: ends.error.message })
     return ok(deleted)
   }
 
