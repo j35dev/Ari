@@ -150,6 +150,33 @@ describe('NewSessionLauncher', () => {
     )
   })
 
+  it('highlights the first match when the query changes', async () => {
+    const user = userEvent.setup()
+    launch()
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByRole('option', { name: 'Lost repo' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await user.type(screen.getByRole('textbox', { name: 'Search projects' }), 'a')
+    expect(screen.getByRole('option', { name: 'Ari' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('lets Enter activate a focused Lead button', async () => {
+    const user = userEvent.setup()
+    const { onCreate } = launch()
+    const lead = screen.getByRole('button', { name: 'Lead session in Ari mobile' })
+    lead.focus()
+    await user.keyboard('{Enter}')
+    expect(onCreate).toHaveBeenCalledWith('proj-mobile', true)
+  })
+
+  it('shows the Lead chip on the keyboard-highlighted row', () => {
+    launch()
+    const lead = screen.getByRole('button', { name: 'Lead session in Ari' })
+    expect(lead.className).toContain('group-aria-selected:opacity-100')
+  })
+
   it('creates a lead session on Alt+Enter', async () => {
     const user = userEvent.setup()
     const { onCreate } = launch()

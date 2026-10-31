@@ -98,6 +98,12 @@ export function NewSessionLauncher({
     setActiveIndex((index) => (index < visible.length ? index : 0))
   }, [visible])
 
+  // A new query is a new list. Clamping a stale index would highlight a
+  // later match and Enter would open the wrong project.
+  useEffect(() => {
+    setActiveIndex(0)
+  }, [query])
+
   // Keep the highlighted row visible inside the capped, scrolling list.
   useLayoutEffect(() => {
     listRef.current?.children[activeIndex]?.scrollIntoView?.({ block: 'nearest' })
@@ -132,6 +138,10 @@ export function NewSessionLauncher({
           break
         }
         case 'Enter': {
+          // Buttons in the dialog (Lead, Add project, Pick a folder) must
+          // receive Enter themselves. The capture listener only owns Enter
+          // while the search field is focused.
+          if (event.target !== inputRef.current) return
           event.preventDefault()
           event.stopPropagation()
           const project = state.visible[state.activeIndex]
@@ -224,7 +234,12 @@ export function NewSessionLauncher({
                       aria-selected={index === activeIndex}
                       aria-label={project.name}
                       title={project.path}
-                      onMouseMove={() => setActiveIndex(index)}
+                      onMouseMove={(event) => {
+                        // scrollIntoView of the highlighted row fires a move
+                        // with no pointer travel and would pull selection back.
+                        if (event.movementX === 0 && event.movementY === 0) return
+                        setActiveIndex(index)
+                      }}
                       onClick={(event) => {
                         const lead = event.altKey
                         onClose()
@@ -265,7 +280,7 @@ export function NewSessionLauncher({
                           onClose()
                           onCreate(project.id, true)
                         }}
-                        className="shrink-0 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs font-medium text-accent opacity-0 transition-opacity hover:border-accent-ring focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover:opacity-100 aria-selected:opacity-100"
+                        className="shrink-0 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs font-medium text-accent opacity-0 transition-opacity hover:border-accent-ring focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring group-hover:opacity-100 group-aria-selected:opacity-100"
                       >
                         Lead ↵
                       </button>
