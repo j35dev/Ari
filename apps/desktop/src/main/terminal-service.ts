@@ -91,13 +91,32 @@ export class TerminalService {
     this.#spawnPty = spawnPty
   }
 
+  /** Interactive shell inside a jailed project directory. */
   create(id: string, cwd: string): void {
-    if (this.#sessions.has(id)) return
     const shell = defaultShell()
-    const pty = this.#spawnPty(shell.file, shell.args, {
+    const env: Record<string, string> = {}
+    for (const [name, value] of Object.entries(process.env)) {
+      if (typeof value === 'string') env[name] = value
+    }
+    this.spawn(id, shell.file, shell.args, cwd, env)
+  }
+
+  /**
+   * A specific program, not a shell. Sign-in uses this so keystrokes are
+   * stdin for that program and cannot start another command.
+   */
+  spawn(
+    id: string,
+    file: string,
+    args: string[],
+    cwd: string,
+    env: Record<string, string>,
+  ): void {
+    if (this.#sessions.has(id)) return
+    const pty = this.#spawnPty(file, args, {
       name: 'xterm-256color',
       cwd,
-      env: process.env as Record<string, string>,
+      env,
       windowsHide: true,
     })
     const session: Session = { pty, scrollback: '' }

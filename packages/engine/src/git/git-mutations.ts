@@ -98,7 +98,19 @@ export class GitMutationService {
     if (fresh.value.id !== input.snapshotId) return err({ code: 'stale', message: 'The worktree changed while preparing this action. Refresh and review again.' })
     const result = args.length ? await git.run(['--literal-pathspecs', ...args], { input: stdin, timeoutMs: 120_000 }) : ok('')
     if (!result.ok) return err({ ...result.error, message: recoveryRef ? `${result.error.message} Recovery: ${recoveryRef}` : result.error.message })
-    for (const path of removePaths) await rm(resolve(this.review.cwd, path), { force: true })
+    const stuck: string[] = []
+    for (const path of removePaths) {
+      try {
+        await rm(resolve(this.review.cwd, path), { force: true })
+      } catch (error) {
+        log.warn('discard removal failed', { path, error: String(error) })
+        stuck.push(path)
+      }
+    }
+    if (stuck.length > 0) {
+      const detail = `Could not remove ${stuck.join(', ')}.`
+      return err({ code: 'failed', message: recoveryRef ? `${detail} Recovery: ${recoveryRef}` : detail })
+    }
     return ok({ ...(recoveryRef ? { recoveryRef } : {}), message: input.kind === 'commit' ? 'Committed locally. Push when ready.' : `${input.kind} completed.` })
   }
 }

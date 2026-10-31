@@ -8,8 +8,8 @@
  * Composite model: the scene is painted once as a fixed layer behind
  * everything (`body::before`, `z-index: -1`, above the propagated canvas
  * background), and the window's whole content area sits on one continuous
- * wallpaper pane. The pane is lightly tinted so the scene remains visible
- * without changing the native window's opaque chrome.
+ * wallpaper pane. The chrome keeps its existing tint and baked blur; the
+ * welcome/session canvases paint a sharper, locally faded Haze above it.
  *
  * The scene is shown blurred. The ThemeProvider bakes that blur once per
  * scene and window size (wallpaper-bake.ts) and flags `<html>` with
@@ -82,6 +82,59 @@
   background-color: transparent;
 }
 
+/* Haze filters only stationary artwork, never the live transcript/editor.
+   The same crop under each alpha mask keeps the scene aligned as blur grows.
+   At 100% presence the artwork still fades into the theme below the horizon. */
+[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas) {
+  --ari-haze-presence: 1;
+  --ari-haze-background:
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--ari-bg) calc(100% - 82% * var(--ari-haze-presence)), transparent) 15%,
+      color-mix(in oklab, var(--ari-bg) calc(100% - 64% * var(--ari-haze-presence)), transparent) 36%,
+      color-mix(in oklab, var(--ari-bg) calc(100% - 28% * var(--ari-haze-presence)), transparent) 58%,
+      var(--ari-bg) 92%
+    ),
+    var(--ari-wallpaper-image);
+  isolation: isolate;
+  background: var(--ari-haze-background) center 46% / cover no-repeat;
+}
+
+[data-ari-wallpaper] .ari-session-canvas {
+  --ari-haze-presence: 0.2;
+}
+
+[data-ari-wallpaper] .ari-session-canvas:has(> .ari-session-scene[data-visible]) {
+  --ari-haze-presence: 1;
+}
+
+/* Keep the existing scene's visibility marker and composer choreography, but
+   replace only its old artwork so it cannot double-tint the new background. */
+[data-ari-wallpaper] .ari-session-scene {
+  background-image: none;
+}
+
+[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::before,
+[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: inherit;
+  clip-path: inset(0);
+}
+
+[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::before {
+  filter: blur(8px);
+  mask-image: linear-gradient(to bottom, transparent 20%, var(--ari-fg) 48%);
+}
+
+[data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::after {
+  filter: blur(20px);
+  mask-image: linear-gradient(to bottom, transparent 35%, var(--ari-fg) 72%);
+}
+
 /* Reduced transparency: keep the scene visible (it is an explicit opt-in) but
    drop the blur and raise the tint so contrast never depends on blur. */
 @media (prefers-reduced-transparency: reduce) {
@@ -95,5 +148,18 @@
   [data-ari-wallpaper][data-ari-wallpaper-baked] body::before {
     background-image: var(--ari-wallpaper-image);
     background-size: cover;
+  }
+  [data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas) {
+    background-image:
+      linear-gradient(
+        color-mix(in oklab, var(--ari-bg) 92%, transparent),
+        color-mix(in oklab, var(--ari-bg) 92%, transparent)
+      ),
+      var(--ari-wallpaper-image);
+  }
+  [data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::before,
+  [data-ari-wallpaper] :is(.ari-welcome-glow, .ari-session-canvas)::after {
+    content: none;
+    filter: none;
   }
 }

@@ -89,6 +89,23 @@ export function insertMention(
   return { text: `${inserted}${draft.slice(selection.end)}`, caret: inserted.length }
 }
 
+/**
+ * The existing two-bot room for exactly this pair, if one is in the list.
+ * Bot DMs are rooms with no lead; inviting a teammate opens the pair's room
+ * rather than seating a second copy, so the DM has one place to live.
+ */
+export function dmRoomOf(
+  rooms: readonly TeamRoomSummary[],
+  firstBotId: string,
+  secondBotId: string,
+): TeamRoomSummary | undefined {
+  return rooms.find((room) => {
+    if (room.bots.length !== 2) return false
+    const ids = room.bots.map((bot) => bot.botId)
+    return ids.includes(firstBotId) && ids.includes(secondBotId)
+  })
+}
+
 /** A bot's turn that said nothing, by the host's `(pass)` convention. */
 export function isPass(text: string): boolean {
   return text.trim() === '(pass)'

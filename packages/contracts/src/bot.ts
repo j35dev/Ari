@@ -5,6 +5,13 @@ import { driverKindSchema } from './common'
 export const BOT_CHARACTER_PALETTES = 10
 
 /**
+ * A bot's memory is prompt material, so it is prompt-sized: the most a
+ * `memory.md` may hold. The editor and the self-capture budget both stop at
+ * this line.
+ */
+export const BOT_MEMORY_MAX_CHARS = 4_000
+
+/**
  * A bot's look: one soft shape in one colour. The face and its moods are drawn
  * by the shell. The shape list is append-only: removing or renaming a value
  * would fail to parse a saved bot.

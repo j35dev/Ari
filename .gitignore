@@ -24,10 +24,13 @@ recordings/
 .ari/
 .worktrees/
 
-# Internal planning docs: maintained locally, never published.
-PLAN.md
-PROGRESS.md
-docs/arch-*.md
+# Internal planning documents and agent-only notes.
+/AGENTS.md
+/PLAN.md
+/PROGRESS.md
+/docs/arch-*.md
+/docs/superpowers/
+/apps/desktop/src/renderer/src/features/composer/DESIGN.md
 
 # Local-only scratch: agent workspaces, todos, pnpm store.
 .claude/

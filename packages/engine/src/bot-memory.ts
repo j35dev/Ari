@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { BOT_MEMORY_MAX_CHARS } from '@ari/contracts/bot'
 
-/** A bot's memory is prompt material, so it stays small enough to always send. */
-export const BOT_MEMORY_MAX_CHARS = 4_000
+export { BOT_MEMORY_MAX_CHARS }
 
 const BOT_ID = /^bot_[\w-]+$/
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
@@ -50,9 +50,25 @@ function requireText(value: string, label: string): string {
  */
 export class BotMemoryStore {
   readonly #botsDir: string
+  /** Serializes mutations so an add cannot land between a stale read and a replace. */
+  #tail: Promise<void> = Promise.resolve()
 
   constructor(options: { dir: string }) {
     this.#botsDir = options.dir
+  }
+
+  async #exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const previous = this.#tail
+    let release: () => void = () => undefined
+    this.#tail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
+    try {
+      return await work()
+    } finally {
+      release()
+    }
   }
 
   #memoryPath(botId: string): string {
@@ -71,36 +87,64 @@ export class BotMemoryStore {
   /** Appends one memory line. */
   async add(botId: string, value: string): Promise<string> {
     const text = requireText(value, 'memory text')
-    const current = (await this.read(botId)).trimEnd()
-    const next = current.length === 0 ? `${text}\n` : `${current}\n\n${text}\n`
-    checkCap(next)
-    await this.#write(botId, next)
-    return next
+    return this.#exclusive(async () => {
+      const current = (await this.read(botId)).trimEnd()
+      const next = current.length === 0 ? `${text}\n` : `${current}\n\n${text}\n`
+      checkCap(next)
+      await this.#write(botId, next)
+      return next
+    })
   }
 
   /** Replaces the first occurrence of `find` with `value`. */
   async patch(botId: string, find: string, value: string): Promise<string> {
     const needle = requireText(find, 'text to replace')
     const replacement = requireText(value, 'replacement text')
-    const current = await this.read(botId)
-    if (!current.includes(needle)) throw new Error('memory does not contain the text to replace')
-    const next = current.replace(needle, replacement)
-    checkCap(next)
-    await this.#write(botId, next)
-    return next
+    return this.#exclusive(async () => {
+      const current = await this.read(botId)
+      if (!current.includes(needle)) throw new Error('memory does not contain the text to replace')
+      const next = current.replace(needle, replacement)
+      checkCap(next)
+      await this.#write(botId, next)
+      return next
+    })
   }
 
   /** Removes the first occurrence of `find`. */
   async remove(botId: string, find: string): Promise<string> {
     const needle = requireText(find, 'text to remove')
-    const current = await this.read(botId)
-    if (!current.includes(needle)) throw new Error('memory does not contain the text to remove')
-    const next = current
-      .replace(needle, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trimEnd()
-    await this.#write(botId, next.length === 0 ? '' : `${next}\n`)
-    return next
+    return this.#exclusive(async () => {
+      const current = await this.read(botId)
+      if (!current.includes(needle)) throw new Error('memory does not contain the text to remove')
+      const next = current
+        .replace(needle, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trimEnd()
+      await this.#write(botId, next.length === 0 ? '' : `${next}\n`)
+      return next
+    })
+  }
+
+  /**
+   * Replaces the whole memory — the editor's save and nothing else. An empty
+   * string clears it. `base`, when the editor loaded one, must still match the
+   * file or the save is refused: a capture that landed while the drawer was
+   * open is not overwritten. Mutations run one at a time.
+   */
+  async replace(botId: string, content: string, base?: string): Promise<string> {
+    checkBot(botId)
+    const trimmed = content.trimEnd()
+    // The editor counts the text the user typed. The stored file keeps one
+    // trailing newline so a later append stays a separate paragraph.
+    if (trimmed.length > 0) checkCap(trimmed)
+    const next = trimmed.length === 0 ? '' : `${trimmed}\n`
+    return this.#exclusive(async () => {
+      if (base !== undefined && (await this.read(botId)) !== base) {
+        throw new Error('memory changed since it was loaded')
+      }
+      await this.#write(botId, next)
+      return next
+    })
   }
 
   /**
@@ -111,14 +155,16 @@ export class BotMemoryStore {
     checkBot(botId)
     if (!SESSION_ID.test(sessionId)) throw new Error('unknown session')
     const path = join(this.#botsDir, botId, 'snapshots', `${sessionId}.md`)
-    try {
-      return await readFile(path, 'utf8')
-    } catch {
-      const live = await this.read(botId)
-      await mkdir(join(this.#botsDir, botId, 'snapshots'), { recursive: true })
-      await writeAtomic(path, live)
-      return live
-    }
+    return this.#exclusive(async () => {
+      try {
+        return await readFile(path, 'utf8')
+      } catch {
+        const live = await this.read(botId)
+        await mkdir(join(this.#botsDir, botId, 'snapshots'), { recursive: true })
+        await writeAtomic(path, live)
+        return live
+      }
+    })
   }
 
   async #write(botId: string, content: string): Promise<void> {

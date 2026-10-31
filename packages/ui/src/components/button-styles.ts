@@ -1,7 +1,7 @@
 /**
  * Shared class maps for the button family (Button, IconButton).
  * Token-based utilities only — raw color literals live exclusively in
- * tokens.css (AGENTS.md).
+ * tokens.css.
  */
 
 export const BUTTON_BASE_CLASSES =
