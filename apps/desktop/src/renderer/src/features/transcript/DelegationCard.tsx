@@ -1,6 +1,7 @@
 import { ChevronRight, GitBranch } from 'lucide-react'
 import { SessionActivityMark, useTickingText } from '../moment'
 import type { SessionActivity } from '../session/session-activity'
+import { agentModelLabel } from './agent-label'
 import { summarizeDelegation } from './delegation-rows'
 import type { DelegatedChild, DelegatedChildState, DelegationRow } from './types'
 
@@ -53,16 +54,10 @@ function Elapsed({ startedAt }: { startedAt: number }) {
   )
 }
 
-function ChildRow({
-  child,
-  onOpen,
-}: {
-  child: DelegatedChild
-  onOpen?: (id: string) => void
-}) {
+function ChildRow({ child, onOpen }: { child: DelegatedChild; onOpen?: (id: string) => void }) {
   const mark = markFor(child.state, child.startedAt)
   const openable = child.state !== 'removed' && onOpen !== undefined
-  const model = child.modelId ? `${child.driverKind} · ${child.modelId}` : child.driverKind
+  const model = agentModelLabel(child.driverKind, child.modelId)
   const settled = child.state === 'done' || child.state === 'failed' || child.state === 'stopped'
   const body = (
     <>
