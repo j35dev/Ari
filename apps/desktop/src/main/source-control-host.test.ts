@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initialReadModel } from '@ari/engine/projection'
 import type { StreamFrame } from '@ari/contracts/rpc'
 import { SourceControlHost } from './source-control-host'
@@ -57,6 +57,7 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
     const { registry } = fixture()
     for (const method of [
       'scm.summary',
+      'scm.requests',
       'scm.status',
       'scm.review',
       'scm.diff',
@@ -85,6 +86,35 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
       ok: true,
       value: { changedFiles: 0 },
     })
+    expect(await registry.invoke('scm.requests', { projectId: 'p' })).toMatchObject({
+      ok: true,
+      value: { repository: null, requests: [] },
+    })
+    run('remote', 'add', 'origin', 'https://github.com/acme/demo.git')
+    const hostCommand = vi.fn(async () => ({
+      stdout: JSON.stringify([
+        {
+          number: 4,
+          title: 'Fix the bug',
+          body: '',
+          url: 'https://github.com/acme/demo/pull/4',
+          state: 'OPEN',
+          updatedAt: '2026-10-01T00:00:00Z',
+          headRefOid: 'a'.repeat(40),
+        },
+      ]),
+    }))
+    const connected = fixture({ hostCommand })
+    expect(await connected.registry.invoke('scm.requests', { projectId: 'p' })).toMatchObject({
+      ok: true,
+      value: { repository: { provider: 'github', name: 'acme/demo' }, requests: [{ number: 4 }] },
+    })
+    expect(hostCommand).toHaveBeenCalledWith(
+      'gh',
+      expect.any(Array),
+      await realpath(root),
+      expect.any(AbortSignal),
+    )
     await writeFile(join(root, 'dirty.txt'), 'pending\n')
     expect(await registry.invoke('scm.summary', { projectId: 'p' })).toMatchObject({
       ok: true,
