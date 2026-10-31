@@ -5,12 +5,17 @@ import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const actual = await importOriginal()
+  const fs = actual as {
+    rm: (path: string, options?: { force?: boolean }) => Promise<void>
+  }
   return {
-    ...actual,
-    rm: async (path: Parameters<typeof actual.rm>[0], options?: Parameters<typeof actual.rm>[1]) => {
-      if (String(path).endsWith(`${sep}locked.txt`)) throw Object.assign(new Error('busy'), { code: 'EBUSY' })
-      return actual.rm(path, options)
+    ...fs,
+    rm: async (path: string, options?: { force?: boolean }) => {
+      if (String(path).endsWith(`${sep}locked.txt`)) {
+        throw Object.assign(new Error('busy'), { code: 'EBUSY' })
+      }
+      return fs.rm(path, options)
     },
   }
 })
