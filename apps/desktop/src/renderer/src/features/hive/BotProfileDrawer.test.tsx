@@ -87,8 +87,46 @@ describe('BotProfileDrawer', () => {
     expect(invokeMock).toHaveBeenCalledWith('bots.memory.replace', {
       botId: 'bot_1',
       content: 'New memory',
+      base: 'Prefer small diffs.',
     })
     expect(await screen.findByText('Memory saved')).toBeInTheDocument()
+  })
+
+  it('does not replace memory that changed while the drawer was open', async () => {
+    const user = userEvent.setup()
+    let reads = 0
+    invokeMock.mockImplementation((method: string, params: Record<string, unknown>) => {
+      if (method === 'bots.memory.get') {
+        reads += 1
+        return Promise.resolve(reads === 1 ? 'Prefer small diffs.' : 'Captured while open.')
+      }
+      return Promise.resolve(answer(method, params))
+    })
+    renderDrawer()
+    const memory = await screen.findByLabelText("Forge's memory")
+    await user.clear(memory)
+    await user.type(memory, 'My draft')
+    await user.click(screen.getByRole('button', { name: 'Save memory' }))
+    expect(invokeMock).not.toHaveBeenCalledWith('bots.memory.replace', expect.anything())
+    expect(await screen.findByText('Memory changed')).toBeInTheDocument()
+    expect(memory).toHaveValue('My draft')
+  })
+
+  it('keeps an in-progress persona draft when the bot object is refreshed', async () => {
+    const user = userEvent.setup()
+    const view = render(
+      <ToastProvider>
+        <BotProfileDrawer bot={FORGE} open onClose={() => undefined} />
+      </ToastProvider>,
+    )
+    const persona = await screen.findByLabelText("Forge's persona")
+    await user.type(persona, ' draft')
+    view.rerender(
+      <ToastProvider>
+        <BotProfileDrawer bot={{ ...FORGE }} open onClose={() => undefined} />
+      </ToastProvider>,
+    )
+    expect(screen.getByLabelText("Forge's persona")).toHaveValue('# Forge draft')
   })
 
   it('saves persona edits through bots.update and a fresh save keeps them', async () => {

@@ -610,6 +610,8 @@ export const rpcParams = {
   'bots.memory.replace': z.object({
     botId: z.string().min(1),
     content: z.string().max(BOT_MEMORY_MAX_CHARS),
+    /** File contents the editor loaded. A mismatch refuses the write. */
+    base: z.string().max(BOT_MEMORY_MAX_CHARS + 1).optional(),
   }),
   /** Every bot routine, enabled or paused. */
   'routines.list': z.undefined(),
