@@ -13,12 +13,21 @@ export interface DiffSurfaceProps {
   path: string
   comparisonId: string
   onRange?: (range: DiffRange) => void
+  scrollOffset?: number
+  onScrollOffset?: (offset: number) => void
 }
 const control =
   'flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30'
 
 /** Shared, virtualized split/unified review with bounded syntax, search and side-aware ranges. */
-export function DiffSurface({ diffText, path, comparisonId, onRange }: DiffSurfaceProps) {
+export function DiffSurface({
+  diffText,
+  path,
+  comparisonId,
+  onRange,
+  scrollOffset = 0,
+  onScrollOffset,
+}: DiffSurfaceProps) {
   const [split, setSplit] = useState(true)
   const [wrap, setWrap] = useState(false)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
@@ -38,12 +47,21 @@ export function DiffSurface({ diffText, path, comparisonId, onRange }: DiffSurfa
     () => (file ? reviewRows(file, split, ignoreWhitespace) : []),
     [file, split, ignoreWhitespace],
   )
+  const maxChars = useMemo(
+    () =>
+      rows.reduce(
+        (max, row) => Math.max(max, row.old?.content.length ?? 0, row.next?.content.length ?? 0),
+        40,
+      ),
+    [rows],
+  )
   const highlights = useDiffHighlight(rows, path)
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroll.current,
     estimateSize: () => 24,
     overscan: 12,
+    initialOffset: scrollOffset,
   })
   const matches = useMemo(
     () =>
@@ -66,7 +84,7 @@ export function DiffSurface({ diffText, path, comparisonId, onRange }: DiffSurfa
     setHunk(0)
   }, [comparisonId, path])
   useEffect(() => {
-    scroll.current?.scrollTo?.({ top: 0 })
+    scroll.current?.scrollTo?.({ top: scrollOffset })
   }, [path])
   useEffect(() => {
     virtual.measure()
@@ -250,6 +268,7 @@ export function DiffSurface({ diffText, path, comparisonId, onRange }: DiffSurfa
         className="ari-scroll shiki min-h-0 flex-1 overflow-auto"
         tabIndex={0}
         aria-label="Diff lines"
+        onScroll={(event) => onScrollOffset?.(event.currentTarget.scrollTop)}
       >
         {raw ? (
           <pre className="p-4 font-mono text-xs text-fg">{diffText}</pre>
@@ -260,7 +279,16 @@ export function DiffSurface({ diffText, path, comparisonId, onRange }: DiffSurfa
         ) : rows.length === 0 ? (
           <p className="p-8 text-sm text-fg-subtle">No text changes in this selection.</p>
         ) : (
-          <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
+          <div
+            className="font-mono text-xs"
+            style={{
+              height: virtual.getTotalSize(),
+              position: 'relative',
+              minWidth: wrap
+                ? undefined
+                : `calc(${maxChars * (split ? 2 : 1)}ch + ${split ? 10 : 5}rem)`,
+            }}
+          >
             {virtual.getVirtualItems().map((item) => {
               const row = rows[item.index]!
               return (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { ASLEEP_AFTER_MS, botMoodOf, roomMoodsOf } from './bot-mood'
+import { ASLEEP_AFTER_MS, botMoodOf, botStatusOf, roomMoodsOf } from './bot-mood'
 import { roomFixture } from './room-fixture'
 
 const NOW = 10 * ASLEEP_AFTER_MS
@@ -44,6 +44,24 @@ describe('botMoodOf', () => {
     expect(botMoodOf(undefined, { ...quiet, messageCount: 0 }, NOW)).toBe('idle')
     // Live activity wakes it.
     expect(botMoodOf({ phase: 'working', startedAt: 1 }, quiet, NOW)).toBe('working')
+  })
+})
+
+describe('botStatusOf', () => {
+  it('speaks about live turns only', () => {
+    expect(botStatusOf({ phase: 'working', startedAt: 1 })).toBe('is working…')
+    expect(botStatusOf({ phase: 'paused', startedAt: 1, pauseReason: 'approval' })).toBe(
+      'wants your approval',
+    )
+    expect(botStatusOf({ phase: 'paused', startedAt: 1, pauseReason: 'input' })).toBe(
+      'has a question for you',
+    )
+    expect(botStatusOf({ phase: 'error', startedAt: null, settledAt: 1 })).toBe('hit a problem')
+  })
+
+  it('stays silent for settled and absent turns', () => {
+    expect(botStatusOf({ phase: 'done', startedAt: null, settledAt: 1 })).toBeNull()
+    expect(botStatusOf(undefined)).toBeNull()
   })
 })
 

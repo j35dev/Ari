@@ -156,6 +156,12 @@ export const settingsSchema = z.object({
       discordPresence: z.boolean().default(true),
     })
     .default({ settleSound: true, desktop: true, discordPresence: true }),
+  hive: z
+    .object({
+      /** After settled bot turns, one-shot capture prompts let bots save durable facts to memory. */
+      selfMemory: z.boolean().default(false),
+    })
+    .default({ selfMemory: false }),
   permissions: z
     .object({
       /** Tools pre-approved across all sessions, e.g. ['Bash(git status*)']. */
@@ -237,6 +243,12 @@ export const settingsUpdateSchema = z.object({
     })
     .partial()
     .optional(),
+  hive: z
+    .object({
+      selfMemory: z.boolean(),
+    })
+    .partial()
+    .optional(),
   permissions: z
     .object({
       allowlist: z.array(z.string()),
@@ -271,6 +283,7 @@ export const defaultSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultConnections(),
   notifications: { settleSound: true, desktop: true, discordPresence: true },
+  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,

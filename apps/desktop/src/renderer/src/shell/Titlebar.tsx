@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import {
+  FileDiff,
   Folder,
   Gauge,
-  GitPullRequest,
+  GitBranch,
   Globe,
   PanelLeftOpen,
   Settings,
@@ -21,7 +22,8 @@ const TITLEBAR_TOOLS: {
   label: string
   icon: LucideIcon
 }[] = [
-  { id: 'changes', label: 'Changes', icon: GitPullRequest },
+  { id: 'changes', label: 'Review changes', icon: FileDiff },
+  { id: 'source-control', label: 'Source control', icon: GitBranch },
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
@@ -53,11 +55,14 @@ export function Titlebar({
   activeTool,
   onSelectTool,
   usage,
+  changeCount = null,
   onExpandSidebar,
 }: {
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
   usage?: { sessionId: string | null; kind: DriverKind }
+  /** Working-tree file count for the Review changes tool. Null hides the badge. */
+  changeCount?: number | null
   onExpandSidebar?: () => void
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
@@ -98,21 +103,29 @@ export function Titlebar({
           {TITLEBAR_TOOLS.map((item) => {
             const Icon = item.icon
             const selected = item.id === activeTool
+            const count =
+              item.id === 'changes' && changeCount !== null && changeCount > 0 ? changeCount : null
+            const label = count === null ? item.label : `${item.label}, ${count} files changed`
             return (
               <button
                 key={item.id}
                 type="button"
-                aria-label={item.label}
+                aria-label={label}
                 aria-pressed={selected}
-                title={item.label}
+                title={label}
                 onClick={() => onSelectTool(item.id)}
-                className={`flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+                className={`relative flex size-7 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
                   selected
                     ? 'bg-accent/15 text-accent border border-accent/25 shadow-sm'
                     : 'text-fg-subtle hover:bg-surface-2/60 hover:text-fg border border-transparent'
                 }`}
               >
                 <Icon size={14} strokeWidth={selected ? 2 : 1.7} aria-hidden />
+                {count !== null ? (
+                  <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-4 text-fg-on-accent">
+                    {count > 99 ? '99+' : count}
+                  </span>
+                ) : null}
               </button>
             )
           })}
