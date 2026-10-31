@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+import type { OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -82,6 +84,11 @@ const rpcMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('./lib/rpc', () => ({ rpc: rpcMocks }))
+// These suites exercise the established workspace. Real startup/setup is covered in App.onboarding.
+vi.mock('./features/onboarding/OnboardingGate', () => ({
+  OnboardingGate: ({ children }: { children: (props: OnboardingWorkspaceProps) => ReactNode }) =>
+    children({ onOpenSetup: () => undefined, setupCovered: false, onboardingOutcome: null }),
+}))
 
 const invokeMock = rpcMocks.invoke as unknown as Mock<
   (method: string, params?: unknown) => Promise<unknown>
