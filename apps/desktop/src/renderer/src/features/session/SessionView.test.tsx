@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -19,6 +19,7 @@ import {
   formatTurnDuration,
   type SessionDefaults,
 } from './SessionView'
+import { dropReviewDraftMemory, rememberReviewRange } from '../changes/review-drafts'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
@@ -1797,6 +1798,8 @@ describe('SessionView image attachments', () => {
 describe('SessionView refused sends with review notes', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
+    dropReviewDraftMemory()
     invokeMock.mockReset()
     invokeMock.mockImplementation(async (method, params) => {
       if (method === 'settings.get') return SETTINGS
@@ -1827,6 +1830,8 @@ describe('SessionView refused sends with review notes', () => {
 
   afterEach(() => {
     sessionListener = null
+    sessionStorage.clear()
+    dropReviewDraftMemory()
     vi.clearAllMocks()
   })
 
@@ -1877,6 +1882,86 @@ describe('SessionView refused sends with review notes', () => {
     await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('do it'))
     expect(screen.getByLabelText('Review notes attached to next message')).toBeInTheDocument()
     expect(screen.getByLabelText('Remove note extract a helper')).toBeInTheDocument()
+  })
+
+  it('restores a saved note after reload and forgets it when removed', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    emitSessionEvent({
+      seq: 1,
+      at: 1,
+      sessionId: 'sess_1',
+      type: 'user.message.added',
+      message: {
+        id: 'm1',
+        sessionId: 'sess_1',
+        turnId: 'turn_1',
+        role: 'user',
+        parts: [{ type: 'text', text: 'edit the file' }],
+        createdAt: 1,
+      },
+    })
+    emitSessionEvent({ seq: 2, at: 2, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+    await user.click(await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }))
+    await user.click((await screen.findAllByRole('button', { name: 'Comment on src/a.ts:1' }))[0]!)
+    await user.type(screen.getByLabelText('Review note for src/a.ts'), 'extract a helper')
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    expect(sessionStorage.getItem('ari:review-drafts:sess_1')).toContain('extract a helper')
+
+    cleanup()
+    dropReviewDraftMemory()
+    renderView()
+    expect(await screen.findByLabelText('Remove note extract a helper')).toBeInTheDocument()
+    await user.click(screen.getByLabelText('Remove note extract a helper'))
+    expect(screen.queryByLabelText('Review notes attached to next message')).not.toBeInTheDocument()
+    expect(sessionStorage.getItem('ari:review-drafts:sess_1')).toBeNull()
+
+    cleanup()
+    dropReviewDraftMemory()
+    renderView()
+    await screen.findByLabelText('Message')
+    expect(screen.queryByLabelText('Review notes attached to next message')).not.toBeInTheDocument()
+  })
+
+  it('attaches a persisted review range to the refused send', async () => {
+    const user = userEvent.setup()
+    rememberReviewRange('sess_1', {
+      path: 'src/a.ts',
+      comparisonId: 'a'.repeat(64),
+      side: 'new',
+      startLine: 3,
+      endLine: 5,
+      context: 'const value = 1',
+    })
+    renderView()
+    expect(await screen.findByText('a.ts:3-5')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Message'), 'do it{Enter}')
+    await screen.findByText('over capacity')
+    const call = invokeMock.mock.calls.find((entry) => entry[0] === 'command.dispatch')
+    const params: unknown = call?.[1]
+    const command =
+      typeof params === 'object' && params !== null && 'command' in params ? params.command : null
+    const text =
+      typeof command === 'object' &&
+      command !== null &&
+      'text' in command &&
+      typeof command.text === 'string'
+        ? command.text
+        : ''
+    expect(text).toContain('src/a.ts:3-5 (new) — Selected new lines 3-5')
+    expect(text).toContain('const value = 1')
+    expect(text).toContain('do it')
+    expect(screen.getByLabelText('Remove note Selected new lines 3-5')).toBeInTheDocument()
   })
 })
 

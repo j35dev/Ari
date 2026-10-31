@@ -46,6 +46,7 @@ import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
+import { rememberReviewRange } from './features/changes/review-drafts'
 import { useSourceControl } from './features/changes/use-source-control'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
@@ -174,6 +175,17 @@ function Shell() {
   const sessionTitle = useCallback(
     (id: string) => sessionsRef.current.find((session) => session.id === id)?.title,
     [titlesKey],
+  )
+  const attachReviewRange = useCallback(
+    (
+      path: string,
+      comparisonId: string,
+      range: { side: 'old' | 'new'; startLine: number; endLine: number; context: string },
+    ) => {
+      if (activeSessionId === null) return
+      rememberReviewRange(activeSessionId, { path, comparisonId, ...range })
+    },
+    [activeSessionId],
   )
   const [importProjectId, setImportProjectId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -1292,6 +1304,7 @@ function Shell() {
                     sessionId={activeSessionId}
                     projectId={activeSession?.projectId ?? null}
                     sourceControl={fullPage === 'source-control'}
+                    onRange={activeSessionId ? attachReviewRange : undefined}
                   />
                 </ErrorBoundary>
               ) : openRoom !== undefined ? (
@@ -1489,6 +1502,7 @@ function Shell() {
                               <ChangesView
                                 sessionId={activeSessionId}
                                 projectId={activeSession?.projectId ?? null}
+                                onRange={activeSessionId ? attachReviewRange : undefined}
                               />
                             </ErrorBoundary>
                           ) : activeProjectPath && activeScope ? (
