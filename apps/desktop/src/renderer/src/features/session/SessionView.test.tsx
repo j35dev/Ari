@@ -2645,7 +2645,8 @@ describe('SessionView delegated work', () => {
     emitReplayDone()
 
     expect(await screen.findByText('Integrated the parser.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Delegation update:/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Delegation update:/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ari delegation update/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument()
   })
 })

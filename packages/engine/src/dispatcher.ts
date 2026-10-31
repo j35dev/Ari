@@ -254,7 +254,9 @@ function startTurn(
     },
   ]
   // Auto-title: first prompt names an untouched session (T3 behavior).
-  if (session.title === 'New session' && text.trim().length > 0) {
+  // A spawned child already has the title its parent chose. Replacing it with
+  // the prompt would throw away the only name a person sees.
+  if (!session.parentSessionId && session.title === 'New session' && text.trim().length > 0) {
     events.push({
       type: 'session.updated',
       title: deriveSliceTitle(text),

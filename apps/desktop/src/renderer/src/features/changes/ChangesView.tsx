@@ -4,6 +4,7 @@ import { RefreshCw, FileText, GitBranch, GitPullRequest } from 'lucide-react'
 import { DiffViewer } from '../diffs'
 import { rpc } from '../../lib/rpc'
 import { setDragFilePath } from '../composer/drag-file'
+import { branchLabel } from '../session/branch-label'
 import { CheckpointList } from './CheckpointList'
 
 interface StatusState {
@@ -96,8 +97,11 @@ export function ChangesView({ sessionId = null, projectId = null }: ChangesViewP
         <div className="mb-4 flex items-center gap-2">
           <span className="text-sm font-semibold text-fg">Changes</span>
           {status?.branch ? (
-            <span className="flex items-center gap-1 rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-fg-muted">
-              <GitBranch size={10} /> {status.branch}
+            <span
+              className="flex items-center gap-1 rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-fg-muted"
+              title={status.branch}
+            >
+              <GitBranch size={10} /> {branchLabel(status.branch)}
             </span>
           ) : null}
           <div className="flex-1" />
