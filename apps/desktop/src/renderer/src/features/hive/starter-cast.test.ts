@@ -8,7 +8,7 @@ import { BOT_PALETTE_NAMES, BOT_SHAPES } from '@ari/ui/bot-character'
 import { STARTER_CAST, starterById } from './starter-cast'
 
 describe('STARTER_CAST', () => {
-  it('is the five starters, each with its hand-picked look', () => {
+  it('is the eight starters, each with its hand-picked look', () => {
     expect(
       STARTER_CAST.map((starter) => [
         starter.name,
@@ -22,6 +22,9 @@ describe('STARTER_CAST', () => {
       ['Scout', 'Researcher', 'cloud', 'apricot'],
       ['Pixel', 'Designer', 'pebble', 'rose'],
       ['Sift', 'Triage', 'wisp', 'lavender'],
+      ['Watch', 'Ops', 'gumdrop', 'sand'],
+      ['Scribe', 'Writer', 'drop', 'sky'],
+      ['Gist', 'Curator', 'cloud', 'mint'],
     ])
   })
 
@@ -52,9 +55,13 @@ describe('STARTER_CAST', () => {
 
   it('gives every starter its own id and look', () => {
     expect(new Set(STARTER_CAST.map((starter) => starter.id)).size).toBe(STARTER_CAST.length)
-    expect(new Set(STARTER_CAST.map((starter) => starter.character.shape)).size).toBe(
-      STARTER_CAST.length,
-    )
+    // More starters than shapes, so a look is the shape and palette pair:
+    // no two cast members share one.
+    expect(
+      new Set(
+        STARTER_CAST.map((starter) => `${starter.character.shape}:${starter.character.palette}`),
+      ).size,
+    ).toBe(STARTER_CAST.length)
     expect(starterById('lint')?.name).toBe('Lint')
     expect(starterById('nobody')).toBeUndefined()
   })

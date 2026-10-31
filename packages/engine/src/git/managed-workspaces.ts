@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { ControlFailure } from '@ari/contracts/agent-control'
 import type { Session } from '@ari/contracts/session'
 import { GitService } from './git-service'
+import { branchBelongsToSession, orchestrationBranch } from './orchestration-branch'
 
 const oid = /^[a-f0-9]{40,64}$/
 const component = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
@@ -74,13 +75,14 @@ export class ManagedWorkspaces {
     parent: Session,
     cwd: string,
     childId: string,
+    title = '',
   ): Promise<NonNullable<Session['workspace']>> {
     if (!component.test(parent.projectId))
       throw new ControlFailure('invalid_request', 'Invalid project identifier.')
     const baseRef = `${this.#ref(childId)}/base`
     const baseCommit = await this.snapshot(cwd, baseRef)
     const path = join(this.rootDir, parent.projectId, childId)
-    const branch = `ari/${(parent.rootSessionId ?? parent.id).slice(-12)}/${childId}`
+    const branch = await this.#uniqueBranch(cwd, orchestrationBranch(title, childId))
     await mkdir(join(this.rootDir, parent.projectId), { recursive: true })
     const result = await this.git.addWorktree(cwd, path, branch, 'create-branch', baseCommit)
     if (!result.ok) throw new ControlFailure('worktree_create_failed', result.error.message)
@@ -182,7 +184,22 @@ export class ManagedWorkspaces {
     return (others[0] ?? list.value[0])?.path ?? null
   }
 
-  /** Deletes `ari/…/<sessionId>` branches left behind after worktree removal. */
+  /** A free `ari/<title>-<key>` name. A taken name gets `-2`, `-3`, and so on. */
+  async #uniqueBranch(cwd: string, preferred: string): Promise<string> {
+    for (let n = 1; n <= 20; n++) {
+      const branch = n === 1 ? preferred : `${preferred}-${n}`
+      const taken = await this.git.runPlumbing(cwd, [
+        'show-ref',
+        '--verify',
+        '--quiet',
+        `refs/heads/${branch}`,
+      ])
+      if (!taken.ok) return branch
+    }
+    throw new ControlFailure('worktree_create_failed', 'Could not choose a free branch name.')
+  }
+
+  /** Deletes this session's `ari/…` branch, including the older id-suffixed form. */
   async #deleteSessionBranches(repo: string, sessionId: string): Promise<void> {
     const refs = await this.git.runPlumbing(repo, [
       'for-each-ref',
@@ -195,10 +212,8 @@ export class ManagedWorkspaces {
       const short = name.startsWith('refs/heads/') ? name.slice('refs/heads/'.length) : ''
       if (
         !short ||
-        !name.endsWith(`/${sessionId}`) ||
+        !branchBelongsToSession(short, sessionId) ||
         short.startsWith('-') ||
-        short.includes('..') ||
-        short.includes('\\') ||
         !/^[A-Za-z0-9._/-]+$/.test(short)
       )
         continue

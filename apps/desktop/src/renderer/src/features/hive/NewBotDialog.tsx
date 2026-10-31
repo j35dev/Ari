@@ -5,11 +5,19 @@ import { BotAvatar } from '@ari/ui/bot-avatar'
 import { Button } from '@ari/ui/button'
 import { Dialog } from '@ari/ui/dialog'
 import { Field } from '@ari/ui/field'
+import { Input } from '@ari/ui/input'
 import { Select } from '@ari/ui/select'
 import { ModelSelector } from '../composer/ModelSelector'
 import { BotIdentityFields } from './BotIdentityFields'
 import { BotLookEditor } from './BotLookEditor'
-import { blankDraft, createFieldsOf, draftFromStarter, type BotDraft } from './bot-draft'
+import {
+  blankDraft,
+  createFieldsOf,
+  draftFromIntent,
+  draftFromStarter,
+  intentStarterId,
+  type BotDraft,
+} from './bot-draft'
 import { STARTER_CAST } from './starter-cast'
 
 /**
@@ -51,6 +59,8 @@ export function NewBotDialog({
 }: NewBotDialogProps) {
   const [draft, setDraft] = useState<BotDraft>(() => blankDraft())
   const [startedFrom, setStartedFrom] = useState(BLANK)
+  /** The one-line job, as typed; drafting consumes it and keeps it for edits. */
+  const [job, setJob] = useState('')
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '')
   const [pick, setPick] = useState<{ driverKind: DriverKind; modelId: string | null }>({
     driverKind,
@@ -70,6 +80,14 @@ export function NewBotDialog({
     setDraft(starter === undefined ? blankDraft() : draftFromStarter(starter))
   }
 
+  const draftFromJob = (): void => {
+    if (job.trim().length === 0) return
+    setDraft(draftFromIntent(job))
+    // A job that names no archetype drafts the generalist, which has no chip;
+    // the closest cast member's chip lights when it does fit.
+    setStartedFrom(intentStarterId(job) ?? BLANK)
+  }
+
   const submit = async (): Promise<void> => {
     if (trimmedName.length === 0 || chosenProject === undefined || busy) return
     setBusy(true)
@@ -84,6 +102,7 @@ export function NewBotDialog({
       })
       onOpenChange(false)
       setDraft(blankDraft())
+      setJob('')
       setStartedFrom(BLANK)
       onCreated(bot)
     } catch (cause) {
@@ -111,6 +130,30 @@ export function NewBotDialog({
             void submit()
           }}
         >
+          <Field
+            label="The job, in one line"
+            hint="Describe the work and press Draft: it fills a name, role, line and persona you can tune below."
+          >
+            {(control) => (
+              <div className="flex gap-1.5">
+                <Input
+                  {...control}
+                  value={job}
+                  placeholder="Watch our release CI and summarize failures each morning"
+                  onChange={(event) => setJob(event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy || job.trim().length === 0}
+                  onClick={draftFromJob}
+                >
+                  Draft
+                </Button>
+              </div>
+            )}
+          </Field>
+
           <div role="group" aria-label="Start from" className="flex flex-col gap-1.5">
             <p aria-hidden="true" className="text-sm font-medium text-fg">
               Start from
