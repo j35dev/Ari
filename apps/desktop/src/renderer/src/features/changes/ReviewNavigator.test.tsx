@@ -50,7 +50,9 @@ describe('review navigation', () => {
     expect(screen.getByText('2 changed files')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'src/a.ts' })).toHaveAttribute('aria-current', 'true')
     await user.click(screen.getByRole('button', { name: 'src/b.ts' }))
-    expect(onSelect).toHaveBeenCalledWith('src/b.ts')
+    expect(onSelect).toHaveBeenCalledWith('src/b.ts', false)
+    fireEvent.click(screen.getByRole('button', { name: 'src/b.ts' }), { ctrlKey: true })
+    expect(onSelect).toHaveBeenLastCalledWith('src/b.ts', true)
     const setData = vi.fn()
     fireEvent.dragStart(screen.getByRole('button', { name: 'src/a.ts' }), {
       dataTransfer: { setData, effectAllowed: '' },
