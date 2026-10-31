@@ -10,7 +10,7 @@
     "dev": "pnpm --filter @ari/desktop dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint eslint.config.js scripts packages/contracts packages/shared packages/ui packages/remote-gateway && eslint packages/engine packages/providers packages/ari-core && eslint apps/mobile && eslint apps/desktop",
+    "lint": "eslint eslint.config.js scripts packages/contracts packages/shared packages/ui packages/remote-gateway && eslint packages/engine packages/providers packages/ari-core && eslint apps/mobile && eslint apps/desktop/electron.vite.config.ts apps/desktop/vitest.config.ts apps/desktop/postcss.config.js apps/desktop/packaging apps/desktop/src/main apps/desktop/src/preload apps/desktop/src/shared apps/desktop/src/test-setup.dom.ts && eslint apps/desktop/src/renderer apps/desktop/src/assets.d.ts apps/desktop/src/test-env.dom.test.ts apps/desktop/src/test-env.node.test.ts",
     "test": "pnpm -r test",
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
     "format": "prettier --write ."
