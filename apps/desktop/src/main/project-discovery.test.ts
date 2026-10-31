@@ -74,6 +74,31 @@ describe('agent project discovery', () => {
     expect((await discoverAgentProjects({ homeDir: home })).projects).toEqual([])
   })
 
+  it('excludes Downloads and Codex scratch folders through a home alias', async () => {
+    const root = temp('ari-discovery-')
+    const home = await folder(root, 'actual-home')
+    const alias = join(root, 'home-alias')
+    await symlink(home, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    const download = await folder(home, 'Downloads/repo')
+    const scratch = await folder(home, 'Documents/Codex/repo')
+    await record(join(home, '.claude.json'), { projects: { [download]: {}, [scratch]: {} } })
+    expect((await discoverAgentProjects({ homeDir: alias })).projects).toEqual([])
+  })
+
+  it('excludes a relocated Downloads target reached through another spelling', async () => {
+    const root = temp('ari-discovery-')
+    const home = await folder(root, 'home')
+    const relocated = await folder(root, 'download-target')
+    await symlink(
+      relocated,
+      join(home, 'Downloads'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
+    const path = await folder(relocated, 'repo')
+    await record(join(home, '.claude.json'), { projects: { [path]: {} } })
+    expect((await discoverAgentProjects({ homeDir: home })).projects).toEqual([])
+  })
+
   it('canonicalizes aliases so the same folder is not offered twice', async () => {
     const home = temp('ari-discovery-')
     const path = await folder(home, 'workspace')
