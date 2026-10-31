@@ -59,5 +59,44 @@ export default tseslint.config(
       ],
     },
   },
+  // One type-aware program for all of apps/desktop, tests included, peaks near
+  // the 6GB macOS runner cap. Main and the renderer do not import each other,
+  // so each gets its own program. Tests stay out of those programs; tsc still
+  // typechecks them.
+  {
+    files: [
+      'apps/desktop/src/main/**/*.ts',
+      'apps/desktop/src/preload/**/*.ts',
+      'apps/desktop/src/shared/**/*.ts',
+      'apps/desktop/src/test-setup.dom.ts',
+      'apps/desktop/electron.vite.config.ts',
+      'apps/desktop/vitest.config.ts',
+    ],
+    ignores: ['apps/desktop/**/*.test.ts', 'apps/desktop/**/*.live.test.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: ['./apps/desktop/tsconfig.eslint-main.json'],
+        projectService: false,
+      },
+    },
+  },
+  {
+    files: ['apps/desktop/src/renderer/**/*.{ts,tsx}', 'apps/desktop/src/assets.d.ts'],
+    ignores: ['apps/desktop/**/*.test.ts', 'apps/desktop/**/*.test.tsx'],
+    languageOptions: {
+      parserOptions: {
+        project: ['./apps/desktop/tsconfig.eslint-renderer.json'],
+        projectService: false,
+      },
+    },
+  },
+  {
+    files: [
+      'apps/desktop/**/*.test.ts',
+      'apps/desktop/**/*.test.tsx',
+      'apps/desktop/**/*.live.test.ts',
+    ],
+    ...tseslint.configs.disableTypeChecked,
+  },
   prettier,
 )
