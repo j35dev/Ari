@@ -702,17 +702,24 @@ export function SessionView({
       command: Record<string, unknown>,
       failureTitle: string,
       onRejected?: (reason: string) => void,
-    ): void => {
+    ): Promise<boolean> => {
       const fail = (reason: string): void => {
         onRejected?.(reason)
         toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
       }
-      void rpc
+      return rpc
         .invoke('command.dispatch', { command })
         .then((result) => {
-          if (!result.accepted) fail(result.reason ?? 'The command was rejected.')
+          if (!result.accepted) {
+            fail(result.reason ?? 'The command was rejected.')
+            return false
+          }
+          return true
         })
-        .catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
+        .catch((err: unknown) => {
+          fail(err instanceof Error ? err.message : String(err))
+          return false
+        })
     },
     [toast],
   )
@@ -751,7 +758,7 @@ export function SessionView({
         // transport confirms the steer); the mirrored events update the view.
         // With no turn actually live it promotes the message to the next turn
         // rather than rejecting, so a send racing a settle is never lost.
-        dispatch(
+        void dispatch(
           { type: 'message.enqueue', sessionId, text: outgoing, attachments },
           'Couldn’t queue message',
           restoreDraft,
@@ -759,7 +766,7 @@ export function SessionView({
         return
       }
       setTurnError(null)
-      dispatch(
+      void dispatch(
         { type: 'turn.start', sessionId, text: outgoing, attachments },
         'Couldn’t send message',
         restoreDraft,
@@ -812,14 +819,14 @@ export function SessionView({
   )
 
   const handleStop = useCallback(() => {
-    dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
+    void dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
   }, [sessionId, dispatch])
 
   // Queue management. Steering is best-effort by nature — the engine reports a
   // provider that cannot take a mid-turn message, and the message stays queued.
   const handleSteerQueued = useCallback(
     (message: QueuedMessageView) => {
-      dispatch(
+      void dispatch(
         {
           type: 'message.steer',
           sessionId,
@@ -834,7 +841,7 @@ export function SessionView({
 
   const handleRemoveQueued = useCallback(
     (message: QueuedMessageView) => {
-      dispatch(
+      void dispatch(
         {
           type: 'message.dequeue',
           sessionId,
@@ -847,10 +854,42 @@ export function SessionView({
     [sessionId, dispatch],
   )
 
+  // Edit is a text-only draft. An imaged message has nowhere to carry its
+  // attachments, so it stays queued instead of dropping them on the way back.
+  const handleEditQueued = useCallback(
+    (message: QueuedMessageView) => {
+      if (message.attachments.length > 0) return
+      // The draft changes only after the engine accepts the dequeue. Applying
+      // it first wipes an in-progress draft when the row was already sent.
+      void dispatch(
+        {
+          type: 'message.dequeue',
+          sessionId,
+          text: message.text,
+          attachments: message.attachments,
+        },
+        'Couldn’t edit queued message',
+      ).then((accepted) => {
+        if (!accepted) return
+        setComposerSeed((prev) => ({ text: message.text, nonce: (prev?.nonce ?? 0) + 1 }))
+      })
+    },
+    [sessionId, dispatch],
+  )
+
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
   const handleEditMessage = useCallback((text: string) => {
     setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+
+  // Quote splices a blockquote at the caret and keeps whatever is already drafted.
+  const handleQuoteAssistant = useCallback((quote: string) => {
+    setComposerSeed((prev) => ({
+      text: quote,
+      nonce: (prev?.nonce ?? 0) + 1,
+      mode: 'insert',
+    }))
   }, [])
 
   // M19.4 regenerate/retry: the prompt to re-run is the most recent user
@@ -1080,6 +1119,7 @@ export function SessionView({
         queued={queued}
         onSteerQueued={handleSteerQueued}
         onRemoveQueued={handleRemoveQueued}
+        onEditQueued={handleEditQueued}
         seed={composerSeed ?? undefined}
         suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
         attentionRequired={composerAttentionRequired}
@@ -1167,6 +1207,7 @@ export function SessionView({
       queued,
       handleSteerQueued,
       handleRemoveQueued,
+      handleEditQueued,
       composerSeed,
       fileSuggestions,
       composerAttentionRequired,
@@ -1233,6 +1274,7 @@ export function SessionView({
             bot={bot}
             turnDiffs={turnDiffs}
             onEditUserMessage={handleEditMessage}
+            onQuoteAssistant={handleQuoteAssistant}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
             regenerateDisabled={running}
             running={running}

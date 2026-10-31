@@ -1,6 +1,6 @@
 import { open, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -42,7 +42,7 @@ import {
   push as gitPush,
   stage as gitStage,
 } from './git-actions'
-import { writeTextFile } from './fs-write'
+import { ensureParentDir, writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
@@ -2526,6 +2526,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // Writes carry the same capability scope as reads: the target resolves
     // inside one trusted scope root first, then the write jail below
     // re-verifies it against the registered folders as defense in depth.
+    // Parents (`.ari/pastes/`) are created only after that scope's nearest
+    // existing ancestor is inside the root — the jail rejects a missing one.
+    const root = await resolveScopeRoot(params)
+    if (isAbsolute(params.path)) throw new Error('path must be workspace-relative')
+    await ensureParentDir(resolve(root, params.path), [root])
     const target = await resolveFsScope(params)
     const bytesWritten = await writeTextFile(
       { path: target, content: params.content },
