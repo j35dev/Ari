@@ -173,6 +173,17 @@ export class ProjectStore {
    */
   async open(folderPath: string, name?: string): Promise<Project> {
     const added = await this.add(folderPath, name)
+    if (added.status === 'missing') {
+      // Opening is how onboarding adds a chosen folder. A path that vanished
+      // between the scan and the confirm must not stay in the sidebar: roll
+      // back a record this call just created. An older project keeps its row.
+      const stored = this.#projects.find((project) => project.id === added.id)
+      if (stored && !stored.open && stored.lastOpenedAt === 0) {
+        this.#projects = this.#projects.filter((project) => project.id !== added.id)
+        await this.#persist()
+      }
+      return added
+    }
     return (await this.#patch(added.id, { open: true, lastOpenedAt: Date.now() })) ?? added
   }
 

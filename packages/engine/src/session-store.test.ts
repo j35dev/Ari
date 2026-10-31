@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -40,9 +40,10 @@ describe('SessionStore', () => {
     expect(await broken.listSessions()).toEqual([])
   })
 
-  it('reports a wholly unreadable listing but keeps useful partial results', async () => {
+  it('ignores entries that are not session directories and still lists the rest', async () => {
     await writeFile(join(rootDir, 'broken-entry'), 'not a session directory')
-    await expect(store.listSessions()).rejects.toThrow('Saved sessions could not be read')
+    await mkdir(join(rootDir, 'not a session'))
+    expect(await store.listSessions()).toEqual([])
     await store.append(session.id, { type: 'session.created', session })
     expect((await store.listSessions()).map((entry) => entry.id)).toEqual([session.id])
   })

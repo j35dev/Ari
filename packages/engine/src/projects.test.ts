@@ -73,6 +73,20 @@ describe('ProjectStore', () => {
     expect(store.list()).toHaveLength(1)
   })
 
+  it('does not keep a folder that is missing when it is opened', async () => {
+    const store = new ProjectStore({ dir })
+    const missing = await store.open(join(dir, 'gone'))
+    expect(missing.status).toBe('missing')
+    expect(store.list()).toEqual([])
+    const kept = await store.open(existingFolder)
+    await store.close(kept.id)
+    await rm(existingFolder, { recursive: true, force: true })
+    const again = await store.open(existingFolder)
+    expect(again.id).toBe(kept.id)
+    expect(again.status).toBe('missing')
+    expect(store.list().map((project) => project.id)).toEqual([kept.id])
+  })
+
   it('deduplicates on the canonical path', async () => {
     const store = new ProjectStore({ dir })
     const first = await store.add(existingFolder)
@@ -136,6 +150,8 @@ describe('ProjectStore', () => {
 
   it('move reorders among open projects without disturbing closed ones', async () => {
     const store = new ProjectStore({ dir })
+    await mkdir(join(dir, 'open'))
+    await mkdir(join(dir, 'other'))
     const open = await store.open(join(dir, 'open'))
     const hidden = await store.add(join(dir, 'hidden'))
     const other = await store.open(join(dir, 'other'))
