@@ -76,6 +76,9 @@ export class SourceControlHost {
       request?.abort()
       return { cancelled: !!request }
     })
+    r.register('scm.summary', (scope) =>
+      this.#read(scope, scope.requestId, (review, signal) => review.summary(signal)),
+    )
     r.register('scm.status', (scope) =>
       this.#read(scope, scope.requestId, async (review, signal) => {
         const status = await review.status(signal)

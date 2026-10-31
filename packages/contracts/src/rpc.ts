@@ -893,6 +893,7 @@ export const rpcParams = {
   'settings.get': z.undefined(),
   'settings.update': settingsUpdateSchema,
   'git.status': gitScopeSchema,
+  'scm.summary': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
   'scm.status': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
   'scm.review': gitScopeSchema.extend({
     comparison: sourceControlSchemas.comparison,
@@ -1322,6 +1323,7 @@ export interface RpcResults {
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
   'settings.update': Settings
+  'scm.summary': SourceControlResult<{ branch: string | null; changedFiles: number }>
   'scm.status': SourceControlResult<SourceControlContext>
   'scm.review': SourceControlResult<GitReviewManifest>
   'scm.diff': SourceControlResult<string>
