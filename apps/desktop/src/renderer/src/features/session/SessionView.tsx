@@ -58,6 +58,14 @@ import {
   subscribeBrowserPicks,
   takeBrowserPicks,
 } from '../browser/browser-picks'
+import {
+  appendReviewNote,
+  formatReviewDrafts,
+  readReviewDrafts,
+  reviewDraftChipLabel,
+  useReviewDrafts,
+  writeReviewDrafts,
+} from '../changes/review-drafts'
 
 interface PendingApproval {
   approvalId: string
@@ -319,10 +327,9 @@ export function SessionView({
   // Refresh tick driving the plan panel (per-session
   // `.ari-todo-<sessionId>.json`, keyed by this view's session id).
   const [planNonce, setPlanNonce] = useState(0)
-  // Review notes (M21.1): inline diff comments attached to the next message.
-  const [reviewNotes, setReviewNotes] = useState<
-    { path: string; line: number | null; text: string }[]
-  >([])
+  // Review notes (M21.1): inline diff comments and review ranges attached to
+  // the next message. They live in session storage so a reload keeps them.
+  const reviewNotes = useReviewDrafts(sessionId)
   const elementPicks = useSyncExternalStore(subscribeBrowserPicks, browserPicksState)
   const sessionTitleRef = useRef('Session')
   const fetchedTurnIdsRef = useRef(new Set<string>())
@@ -772,23 +779,17 @@ export function SessionView({
       const notes = reviewNotes
       const picks = takeBrowserPicks()
       const elementBlock = promptForPicks(picks)
-      const outgoing = [
-        elementBlock,
-        notes.length > 0
-          ? `Review notes on your changes:\n${notes
-              .map((n) => `- ${n.path}${n.line !== null ? `:${n.line}` : ''} — ${n.text}`)
-              .join('\n')}`
-          : '',
-        text,
-      ]
+      const outgoing = [elementBlock, formatReviewDrafts(notes), text]
         .filter((part) => part.length > 0)
         .join('\n\n')
-      if (notes.length > 0) setReviewNotes([])
+      if (notes.length > 0) writeReviewDrafts(sessionId, [])
       // A rejected send must cost a retry, not the message: the composer
       // already cleared its draft — text, images and the notes above — so put
       // all of it back and the retry carries the same context.
       const restoreDraft = (): void => {
-        if (notes.length > 0) setReviewNotes((prev) => (prev.length === 0 ? notes : prev))
+        if (notes.length > 0 && readReviewDrafts(sessionId).length === 0) {
+          writeReviewDrafts(sessionId, notes)
+        }
         if (picks.length > 0) restoreBrowserPicks(picks)
         setComposerSeed((prev) => ({ text, files, nonce: (prev?.nonce ?? 0) + 1 }))
       }
@@ -862,9 +863,9 @@ export function SessionView({
   /** M21.1 review loop: a saved diff line note joins the next message. */
   const handleDiffComment = useCallback(
     (comment: { path: string; line: number | null; text: string }) => {
-      setReviewNotes((prev) => [...prev, comment])
+      appendReviewNote(sessionId, comment)
     },
-    [],
+    [sessionId],
   )
 
   const handleStop = useCallback(() => {
@@ -1355,20 +1356,22 @@ export function SessionView({
             <span className="text-2xs text-fg-subtle">
               {reviewNotes.length} note{reviewNotes.length > 1 ? 's' : ''} with your next message:
             </span>
-            {reviewNotes.map((note, i) => (
+            {reviewNotes.map((note) => (
               <span
-                key={`${i}-${note.path}-${note.line ?? 'x'}-${note.text.slice(0, 8)}`}
+                key={note.id}
                 className="flex max-w-64 items-center gap-1 rounded-full border border-accent-subtle bg-accent-subtle px-2 py-0.5 text-2xs text-fg-muted"
-                title={note.text}
+                title={note.context ?? note.text}
               >
-                <span className="min-w-0 truncate font-mono">
-                  {note.path.split(/[\\/]/).pop()}
-                  {note.line !== null ? `:${note.line}` : ''}
-                </span>
+                <span className="min-w-0 truncate font-mono">{reviewDraftChipLabel(note)}</span>
                 <button
                   type="button"
                   aria-label={`Remove note ${note.text}`}
-                  onClick={() => setReviewNotes((prev) => prev.filter((_, idx) => idx !== i))}
+                  onClick={() =>
+                    writeReviewDrafts(
+                      sessionId,
+                      reviewNotes.filter((item) => item.id !== note.id),
+                    )
+                  }
                   className="shrink-0 rounded-full text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                 >
                   <X size={10} />
