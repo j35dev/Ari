@@ -5,7 +5,7 @@ export interface TurnDiffParams {
   path: string
   turnId: string
   /** The session's checkpoints in capture order. */
-  checkpoints: readonly { turnId: string; gitRef: string }[]
+  checkpoints: readonly { turnId: string; gitRef: string; endRef?: string; endError?: string }[]
 }
 
 export interface TurnDiffResult {
@@ -15,11 +15,9 @@ export interface TurnDiffResult {
 }
 
 /**
- * Per-turn diff query (M8.4 over IPC): diffs the turn's checkpoint against the
- * next turn's checkpoint, or against the current working tree for the newest
- * turn, so the card shows only what that turn changed. A null diffText means
- * the query failed — no checkpoint for that turn, or git failed — with the
- * reason in `error`.
+ * Diffs immutable before/after snapshots. Legacy turns without an end capture
+ * retain the next-checkpoint/live fallback; failed new captures never pretend
+ * that later work belongs to the turn.
  */
 export async function queryTurnDiff(
   git: Pick<GitService, 'diffForRef' | 'worktreeTree'>,
@@ -28,7 +26,8 @@ export async function queryTurnDiff(
   const at = params.checkpoints.findIndex((c) => c.turnId === params.turnId)
   const start = params.checkpoints[at]
   if (start === undefined) return { diffText: null, error: 'no checkpoint for that turn' }
-  let end = params.checkpoints[at + 1]?.gitRef
+  if (start.endError) return { diffText: null, error: start.endError }
+  let end = start.endRef ?? params.checkpoints[at + 1]?.gitRef
   if (end === undefined) {
     const tree = await git.worktreeTree(params.path)
     if (!tree.ok) return { diffText: null, error: tree.error.message }

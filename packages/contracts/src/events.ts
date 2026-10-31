@@ -144,6 +144,13 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     type: z.literal('checkpoint.captured'),
     turnId: z.string(),
     gitRef: z.string(),
+    baselineRef: z.string().optional(),
+  }),
+  eventBase.extend({
+    type: z.literal('checkpoint.completed'),
+    turnId: z.string(),
+    gitRef: z.string().nullable(),
+    error: z.string().nullable(),
   }),
   eventBase.extend({
     type: z.literal('checkpoint.reverted'),
