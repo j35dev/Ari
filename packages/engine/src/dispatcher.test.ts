@@ -30,7 +30,11 @@ function modelWithSession() {
 
 describe('decideCommand', () => {
   it('rejects commands for unknown sessions', () => {
-    const result = decideCommand(initialReadModel(), { type: 'turn.interrupt', sessionId: 'sess_x' }, ids)
+    const result = decideCommand(
+      initialReadModel(),
+      { type: 'turn.interrupt', sessionId: 'sess_x' },
+      ids,
+    )
     expect(result.accepted).toBe(false)
     expect(result.reason).toBe('unknown session')
   })
@@ -80,7 +84,13 @@ describe('decideCommand', () => {
     expect(added).toMatchObject({
       message: {
         parts: [
-          { type: 'image', attachmentId: 'att_1', name: 'shot.png', mimeType: 'image/png', size: 8 },
+          {
+            type: 'image',
+            attachmentId: 'att_1',
+            name: 'shot.png',
+            mimeType: 'image/png',
+            size: 8,
+          },
           { type: 'text', text: 'look' },
         ],
       },
@@ -98,6 +108,41 @@ describe('decideCommand', () => {
     const added = result.events.find((e) => e.type === 'user.message.added')
     expect(added).toMatchObject({ message: { parts: [{ type: 'image', attachmentId: 'att_1' }] } })
     expect(result.events.some((e) => e.type === 'session.updated')).toBe(false)
+  })
+
+  it('names an untitled root from its first prompt and leaves a child title alone', () => {
+    const root = applyEvent(initialReadModel(), {
+      type: 'session.created',
+      seq: 0,
+      at: 1000,
+      sessionId: session.id,
+      session: { ...session, title: 'New session' },
+    })
+    const named = decideCommand(
+      root,
+      { type: 'turn.start', sessionId: 'sess_1', text: 'fix the parser', attachments: [] },
+      ids,
+    )
+    expect(named.events).toContainEqual({ type: 'session.updated', title: 'fix the parser' })
+
+    const child = applyEvent(initialReadModel(), {
+      type: 'session.created',
+      seq: 0,
+      at: 1000,
+      sessionId: session.id,
+      session: { ...session, title: 'Edit queued message', parentSessionId: 'sess_root' },
+    })
+    const kept = decideCommand(
+      child,
+      {
+        type: 'turn.start',
+        sessionId: 'sess_1',
+        text: 'fix the parser\n\nand a lot more',
+        attachments: [],
+      },
+      ids,
+    )
+    expect(kept.events.some((event) => event.type === 'session.updated')).toBe(false)
   })
 
   it('queues messages behind an active turn', () => {

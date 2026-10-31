@@ -169,7 +169,8 @@ async function startControlTransport(
     treeSpend: spendOf,
     workspace,
     isRunning: (id) => engine.hasLiveTurn(id),
-    isolate: async (parent, id) => workspaces.isolate(parent, await workspace(parent), id),
+    isolate: async (parent, id, title) =>
+      workspaces.isolate(parent, await workspace(parent), id, title),
     diff: async (child, patch) => {
       await engine.quiesce(child.id)
       if ((await store.load(child.id)).activeTurnId || engine.hasLiveTurn(child.id))

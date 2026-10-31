@@ -79,4 +79,31 @@ describe('MessageFooter', () => {
 
     expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument()
   })
+
+  it('quotes the supplied reply and leaves copy on the footer text', async () => {
+    const user = userEvent.setup()
+    const onQuote = vi.fn()
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(
+      <MessageFooter
+        message={makeMessage({ parts: [{ type: 'text', text: 'last block only' }] })}
+        onQuote={onQuote}
+        quoteText={'Part one\nPart two  '}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Quote reply' }))
+    expect(onQuote).toHaveBeenCalledWith('> Part one\n> Part two')
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(writeText).toHaveBeenCalledWith('last block only')
+  })
+
+  it('omits quote without a handler or without text', () => {
+    const { rerender } = render(<MessageFooter message={makeMessage()} quoteText="Part one" />)
+    expect(screen.queryByRole('button', { name: 'Quote reply' })).not.toBeInTheDocument()
+
+    rerender(<MessageFooter message={makeMessage()} onQuote={vi.fn()} quoteText="   " />)
+    expect(screen.queryByRole('button', { name: 'Quote reply' })).not.toBeInTheDocument()
+  })
 })

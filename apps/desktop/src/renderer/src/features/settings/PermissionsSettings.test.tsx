@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '@ari/contracts/settings'
@@ -27,6 +27,7 @@ const engineSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },
+  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
@@ -140,5 +141,13 @@ describe('PermissionsSettings', () => {
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({ delegation: { approvalMode: 'always' } }),
     )
+  })
+
+  it('persists the bots-remember switch under hive', async () => {
+    const user = userEvent.setup()
+    render(<PermissionsSettings />)
+
+    await user.click(screen.getByRole('switch', { name: 'Bots remember on their own' }))
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ hive: { selfMemory: true } }))
   })
 })

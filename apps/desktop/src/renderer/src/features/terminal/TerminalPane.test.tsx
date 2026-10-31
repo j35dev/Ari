@@ -25,7 +25,9 @@ vi.mock('@xterm/xterm', () => ({
     }
     focus(): void {}
     dispose(): void {}
-    getSelection(): string { return '' }
+    getSelection(): string {
+      return ''
+    }
     paste(): void {}
     input(): void {}
     attachCustomKeyEventHandler(): void {}
@@ -86,6 +88,22 @@ describe('TerminalPane', () => {
     mount()
 
     expect(invokeFn).toHaveBeenCalledWith('terminal.create', { id: 'term_1', cwd: '/repo' })
+  })
+
+  it('attaches to a host-created login without restarting or repeating it', () => {
+    const { unmount } = render(
+      <TerminalPane
+        terminalId="setup_1"
+        cwd="/home/person"
+        attachOnly
+        active
+        initialCommand="must-not-run"
+      />,
+    )
+    expect(invokeFn).not.toHaveBeenCalledWith('terminal.create', expect.anything())
+    expect(invokeFn).not.toHaveBeenCalledWith('terminal.write', expect.anything())
+    expect(ctorOptions).toHaveLength(1)
+    unmount()
   })
 
   it('clips the xterm host so a stacked pane cannot paint over its neighbour', () => {

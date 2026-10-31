@@ -1,6 +1,6 @@
 import { CopyButton } from './CopyButton'
 import type { Message } from '@ari/contracts/message'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, TextQuote } from 'lucide-react'
 
 /** Usage figures for one assistant message, as extracted by the engine (M4.18). */
 export interface MessageUsage {
@@ -31,6 +31,15 @@ function messageText(message: Message): string {
     .join('\n')
 }
 
+/** Blockquote the reply, one `> ` prefix per line, without trailing whitespace. */
+function quoteOf(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => `> ${line}`)
+    .join('\n')
+    .replace(/\s+$/, '')
+}
+
 /**
  * Metadata row rendered under a message: local timestamp, optional token/cost
  * usage line, and affordances — copy for the message's text content, plus a
@@ -42,16 +51,23 @@ export function MessageFooter({
   message,
   usage,
   onRegenerate,
+  onQuote,
+  quoteText,
   actionDisabled = false,
 }: {
   message: Message
   usage?: MessageUsage
   /** Present on the newest assistant message: offers regenerating the last turn. */
   onRegenerate?: () => void
+  /** Quotes `quoteText` into the composer. Copy stays on this footer's own text. */
+  onQuote?: (quoted: string) => void
+  /** Full assistant reply. Omitted hides the quote button. */
+  quoteText?: string
   /** Disables action buttons — true while a turn runs or no prompt exists. */
   actionDisabled?: boolean
 }) {
   const text = messageText(message)
+  const quotable = quoteText?.trim() ?? ''
   return (
     <div className="mt-1 flex items-center gap-2 text-2xs text-fg-subtle">
       <span>
@@ -67,6 +83,17 @@ export function MessageFooter({
         </span>
       ) : null}
       {text ? <CopyButton text={text} /> : null}
+      {onQuote && quotable.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => onQuote(quoteOf(quoteText ?? ''))}
+          aria-label="Quote reply"
+          title="Quote reply"
+          className="inline-flex items-center rounded-sm p-1 text-fg-subtle transition-colors hover:bg-surface-1 hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+        >
+          <TextQuote size={12} />
+        </button>
+      ) : null}
       {onRegenerate ? (
         <button
           type="button"
