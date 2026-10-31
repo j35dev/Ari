@@ -32,26 +32,35 @@ export function OnboardingAgents({
   const [error, setError] = useState<string | null>(null)
   const [plan, setPlan] = useState<{ kind: DriverKind; command: string } | null>(null)
   const [opening, setOpening] = useState(false)
-  const [terminal, setTerminal] = useState<{ id: string; cwd: string; kind: string } | null>(null)
+  const [terminal, setTerminal] = useState<{ id: string; cwd: string; kind: DriverKind } | null>(
+    null,
+  )
   const alive = useRef(true)
+  const scanGeneration = useRef(0)
   const actionPending = useRef(false)
   const chose = useRef(selected !== null)
-  const { installs, start, cancel } = useProviderInstalls(setDetections)
-  const { auth, checking, check } = useProviderAuth()
+  const receiveDetections = useCallback((rows: Detection[]) => {
+    scanGeneration.current++
+    setScanning(false)
+    setDetections(rows)
+  }, [])
+  const { installs, start, cancel } = useProviderInstalls(receiveDetections)
+  const { auth, checking, check, dismiss } = useProviderAuth()
   const installing = Object.values(installs).some((state) => state?.outcome === null)
   const busy = installing || opening || terminal !== null
   const scan = useCallback(async (fresh = false) => {
+    const mine = ++scanGeneration.current
     setScanning(true)
     setError(null)
     try {
       const rows = await rpc.invoke(fresh ? 'providers.rescan' : 'providers.detect')
-      if (alive.current) setDetections(rows)
+      if (alive.current && mine === scanGeneration.current) setDetections(rows)
     } catch (error) {
       log.warn('agent detection failed', error)
-      if (alive.current)
+      if (alive.current && mine === scanGeneration.current)
         setError('Could not check your agents. Try again, or set them up later in Settings.')
     } finally {
-      if (alive.current) setScanning(false)
+      if (alive.current && mine === scanGeneration.current) setScanning(false)
     }
   }, [])
   useEffect(() => {
@@ -59,6 +68,7 @@ export function OnboardingAgents({
     void scan()
     return () => {
       alive.current = false
+      scanGeneration.current++
     }
   }, [scan])
   useEffect(() => {
@@ -170,7 +180,8 @@ export function OnboardingAgents({
           const isSelected = selected === kind
           const isInstalling = installs[kind]?.outcome === null
           const failed = installs[kind]?.outcome
-          const verified = auth[kind]?.result.status === 'ready'
+          const healthy = status.tone === 'ok' || status.tone === 'update'
+          const verified = healthy && auth[kind]?.result.status === 'ready'
           return (
             <section
               key={kind}
@@ -195,7 +206,7 @@ export function OnboardingAgents({
                   {verified && <Check size={13} />}
                   {verified
                     ? 'Connected'
-                    : detection?.authStatus === 'authenticated'
+                    : healthy && detection?.authStatus === 'authenticated'
                       ? 'Sign-in found'
                       : status.headline}
                 </span>
@@ -335,6 +346,7 @@ export function OnboardingAgents({
               className="ml-auto"
               onClick={() => {
                 setTerminal(null)
+                dismiss(terminal.kind)
                 void scan(true)
               }}
             >
