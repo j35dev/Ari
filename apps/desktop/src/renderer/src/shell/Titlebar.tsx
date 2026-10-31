@@ -54,11 +54,14 @@ export function Titlebar({
   onSelectTool,
   usage,
   onExpandSidebar,
+  minimal = false,
 }: {
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
   usage?: { sessionId: string | null; kind: DriverKind }
   onExpandSidebar?: () => void
+  /** Setup keeps only the native window controls, without starting focus-tool subscriptions. */
+  minimal?: boolean
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -86,7 +89,7 @@ export function Titlebar({
       </div>
 
       <div className="flex-1" />
-      <FocusPill />
+      {minimal ? null : <FocusPill />}
       {usage ? <ProviderUsagePill {...usage} /> : null}
 
       {onSelectTool ? (
