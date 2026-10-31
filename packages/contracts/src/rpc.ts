@@ -17,7 +17,7 @@ import { sessionHierarchySummarySchema } from './session'
 import type { ChildTask } from './agent-control'
 import { sourceControlSchemas } from './source-control'
 import { gitMutationSchema } from './git-mutation'
-import type { GitHistoryEntry } from './git-mutation'
+import type { GitHistoryEntry, GitMutationOutcome } from './git-mutation'
 import type { GitReviewManifest, SourceControlError, SourceControlStatus } from './source-control'
 export { sourceControlSchemas, gitMutationSchema }
 export type { GitMutation, GitMutationOutcome, GitHistoryEntry } from './git-mutation'
@@ -349,6 +349,7 @@ export const streamNames = [
   'rooms.updated',
   'remote.updates',
   'app.navigate',
+  'scm.changed',
 ] as const
 export type StreamName = (typeof streamNames)[number]
 
@@ -895,6 +896,7 @@ export const rpcParams = {
     context: z.number().int().min(0).max(1000).default(3),
     requestId: z.string().min(1).max(128).optional(),
   }),
+  'scm.mutate': gitScopeSchema.extend({ action: gitMutationSchema }),
   'scm.cancel': z.object({ requestId: z.string().min(1).max(128) }),
   'git.diffWorktree': gitScopeSchema,
   'git.turnDiff': z.object({
@@ -1312,6 +1314,7 @@ export interface RpcResults {
   'scm.status': SourceControlResult<SourceControlContext>
   'scm.review': SourceControlResult<GitReviewManifest>
   'scm.diff': SourceControlResult<string>
+  'scm.mutate': SourceControlResult<GitMutationOutcome>
   'scm.cancel': { cancelled: boolean }
   'git.status': {
     isRepo: boolean

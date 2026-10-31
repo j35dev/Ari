@@ -1,6 +1,6 @@
-import { open, readFile, readdir, stat } from 'node:fs/promises'
+import { open, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -56,6 +56,7 @@ import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
 import { SourceControlHost } from './source-control-host'
+import { SourceControlLive } from './source-control-live'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
@@ -2338,8 +2339,33 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     session: (id) => getSessionStore().load(id),
   })
   sourceControl.register()
-  contents.once('destroyed', () => sourceControl.close())
-  app.once('before-quit', () => sourceControl.close())
+  const sourceControlLive = new SourceControlLive(r, sourceControl, {
+    busy: async (root) => {
+      for (const row of await getSessionStore().listSessions()) {
+        if (!engine.hasLiveTurn(row.id)) continue
+        const { session } = await getSessionStore().load(row.id)
+        const workspace = session ? await engine.workspace(session) : null
+        if (!workspace) return true
+        const actual = await realpath(workspace)
+        const a = process.platform === 'win32' ? actual.toLowerCase() : actual
+        const b = process.platform === 'win32' ? root.toLowerCase() : root
+        if (a === b || a.startsWith(b + sep) || b.startsWith(a + sep)) return true
+      }
+      return false
+    },
+  })
+  sourceControlLive.register()
+  const offSourceControl = getSessionStore().subscribe((event) => {
+    if (event.type.startsWith('checkpoint.') || event.type === 'turn.settled')
+      sourceControlLive.changed()
+  })
+  const closeSourceControl = (): void => {
+    offSourceControl()
+    sourceControlLive.close()
+    sourceControl.close()
+  }
+  contents.once('destroyed', closeSourceControl)
+  app.once('before-quit', closeSourceControl)
 
   r.register('git.status', async (params) => {
     const { GitService } = await import('@ari/engine/git')
@@ -2570,6 +2596,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
           })
       }
     }
+    if (params.name === 'scm.changed') sourceControlLive.watch(params.id, params.params)
     if (params.name === 'terminal.data') {
       const terminalId = params.params['id']
       if (typeof terminalId === 'string') {
@@ -2603,6 +2630,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('stream.unsubscribe', (params) => {
+    sourceControlLive.unwatch(params.id)
     rpcRegistry.unsubscribe(params.id)
     return { unsubscribed: true }
   })
