@@ -1,8 +1,24 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { join, sep } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal()
+  const fs = actual as {
+    rm: (path: string, options?: { force?: boolean }) => Promise<void>
+  }
+  return {
+    ...fs,
+    rm: async (path: string, options?: { force?: boolean }) => {
+      if (String(path).endsWith(`${sep}locked.txt`)) {
+        throw Object.assign(new Error('busy'), { code: 'EBUSY' })
+      }
+      return fs.rm(path, options)
+    },
+  }
+})
 import { gitMutationSchema } from '@ari/contracts/rpc'
 import { GitReviewService } from './git-review'
 import { GitMutationService } from './git-mutations'
@@ -70,6 +86,21 @@ describe('reviewed Git mutations', { timeout: 120_000 }, () => {
     expect(git(root, 'show', ':a.txt')).toBe('staged')
     expect(git(root, 'show', `${result.value.recoveryRef}:new.txt`)).toBe('recover me')
     expect(git(root, 'show', `${result.value.recoveryRef}:a.txt`)).toBe('unstaged')
+  })
+
+  it('keeps the recovery ref when an untracked discard cannot be removed', async () => {
+    const { root, mutations, snapshot } = await fixture()
+    await writeFile(join(root, 'locked.txt'), 'keep me\n')
+    const result = await mutations.run({
+      kind: 'discard',
+      paths: ['locked.txt'],
+      confirmed: true,
+      snapshotId: await snapshot(),
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.message).toMatch(/Could not remove locked\.txt\. Recovery: /)
+    expect(await readFile(join(root, 'locked.txt'), 'utf8')).toBe('keep me\n')
   })
 
   it('switches a clean branch, stashes, and reapplies without dropping the stash', async () => {
