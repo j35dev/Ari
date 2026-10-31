@@ -71,12 +71,13 @@ describe('onboarding agents', () => {
 
   it('offers the native sign-in after a refused check and cleans up its terminal', async () => {
     const user = userEvent.setup()
-    const { unmount } = mount()
+    const { unmount, onBusyChange } = mount()
     const claude = screen.getByRole('region', { name: 'Claude Code' })
     await user.click(await within(claude).findByRole('button', { name: 'Check sign-in' }))
     await user.click(await within(claude).findByRole('button', { name: 'Sign in' }))
     expect(await screen.findByText('Native sign-in terminal')).toBeInTheDocument()
     expect(invoke).toHaveBeenCalledWith('providers.setupTerminal', { kind: 'claude' })
+    expect(onBusyChange).toHaveBeenLastCalledWith(true)
     unmount()
     expect(invoke).toHaveBeenCalledWith('terminal.kill', { id: 'setup_1' })
   })
