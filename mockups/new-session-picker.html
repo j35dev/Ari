@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title> Ari — New session picker mockups</title>
+<style>
+  :root {
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 18px;
+    --font-ui: 'Geist', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --font-mono: 'Geist Mono', 'Cascadia Code', ui-monospace, monospace;
+
+    /* Obsidian palette */
+    --bg: oklch(0.15 0.016 305);
+    --surface-0: oklch(0.18 0.016 305);
+    --surface-1: oklch(0.225 0.016 305);
+    --surface-2: oklch(0.275 0.016 305);
+    --surface-3: oklch(0.33 0.016 305);
+    --border: oklch(0.85 0.02 278 / 11%);
+    --border-strong: oklch(0.86 0.025 278 / 18%);
+    --fg: oklch(0.95 0.012 305);
+    --fg-muted: oklch(0.77 0.018 305);
+    --fg-subtle: oklch(0.69 0.02 305);
+    --fg-faint: oklch(0.49 0.02 305);
+    --accent: oklch(0.78 0.145 30);
+    --accent-subtle: oklch(0.78 0.145 30 / 14%);
+    --accent-ring: oklch(0.78 0.145 30 / 45%);
+    --shadow-2: 0 4px 16px oklch(0 0 0 / 40%);
+    --shadow-3: 0 12px 40px oklch(0 0 0 / 50%);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::placeholder { color: var(--fg-faint); }
+
+  /* ---- Board chrome ---- */
+  .board { max-width: 1180px; margin: 0 auto; padding: 48px 32px 96px; }
+  .board header { margin-bottom: 40px; }
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 8px;
+  }
+  .board h1 { font-size: 26px; font-weight: 600; margin: 0 0 10px; letter-spacing: -0.01em; }
+  .board header p { color: var(--fg-subtle); max-width: 640px; margin: 0; }
+
+  section.concept { margin-top: 72px; }
+  .concept-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .concept-tag .dot {
+    width: 8px; height: 8px; border-radius: 999px;
+    background: var(--accent);
+    box-shadow: 0 0 12px 2px var(--accent-subtle);
+  }
+  .concept h2 { font-size: 19px; font-weight: 600; margin: 10px 0 6px; letter-spacing: -0.01em; }
+  .concept .why { color: var(--fg-subtle); max-width: 620px; margin: 0 0 10px; }
+  .notes { color: var(--fg-subtle); font-size: 12.5px; max-width: 620px; }
+  .notes li { margin: 3px 0; }
+  .notes b { color: var(--fg-muted); font-weight: 500; }
+
+  /* ---- Fake stage: simulates the app shell behind each mockup ---- */
+  .stage {
+    position: relative;
+    margin: 32px 0;
+    height: 420px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background:
+      linear-gradient(var(--surface-0), var(--surface-0)) padding-box,
+      var(--bg);
+    overflow: hidden;
+  }
+  .stage .rail {
+    position: absolute; inset: 0 auto 0 0; width: 220px;
+    border-right: 1px solid var(--border);
+    background: var(--surface-0);
+    padding: 12px 10px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .rail .rail-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    color: var(--fg-muted);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    width: fit-content;
+  }
+  .rail .rail-btn .plus { color: var(--accent); font-weight: 600; }
+  .rail .ghost-row {
+    height: 26px; border-radius: var(--radius-sm);
+    background: repeating-linear-gradient(-60deg, var(--surface-1), var(--surface-1) 26%, var(--surface-0) 0);
+    opacity: 0.5;
+  }
+  .stage .dim {
+    position: absolute; inset: 0;
+    background: oklch(0 0 0 / 35%);
+  }
+
+  /* ===================== Reference: current design ===================== */
+  .legacy-menu {
+    position: absolute;
+    left: 236px; top: 84px;
+    width: 184px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-2);
+    padding: 8px;
+    z-index: 2;
+  }
+  .legacy-menu .legacy-item {
+    display: flex; align-items: center;
+    padding: 4px 8px;
+    margin-bottom: 2px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+  .legacy-menu .legacy-item.hl { background: var(--surface-2); color: var(--fg); }
+  .legacy-menu .sep { height: 1px; background: var(--border); margin: 6px 0; }
+  .callout-list { counter-reset: callout; margin-bottom: 0; }
+  .callout-list li b::before {
+    counter-increment: callout;
+    content: counter(callout) " ";
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  /* ===================== Shared launcher pieces ===================== */
+  .launcher {
+    background: var(--surface-1);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-3);
+    overflow: hidden;
+  }
+  .search-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .search-row svg { color: var(--fg-subtle); flex-shrink: 0; }
+  .search-row input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--fg);
+    font-family: var(--font-ui);
+    font-size: 14.5px;
+  }
+  .search-row .esc {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .proj-list { padding: 8px; max-height: 300px; overflow: auto; }
+  .proj-list .section-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    padding: 6px 10px 4px;
+  }
+  .proj-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: none;
+    color: var(--fg);
+    cursor: pointer;
+    font-family: var(--font-ui);
+    outline: none;
+    transition: background 100ms, border-color 100ms;
+  }
+  .proj-row:hover, .proj-row.active {
+    background: var(--surface-2);
+    border-color: var(--border);
+  }
+  .proj-row.active {
+    box-shadow: inset 0 0 0 1px var(--accent-subtle);
+  }
+  .proj-row.hidden { display: none; }
+  .p-more { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+  .p-name { font-size: 13.5px; font-weight: 550; display: flex; align-items: center; gap: 8px; }
+  .p-path {
+    font-size: 11.5px;
+    color: var(--fg-subtle);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    direction: rtl;
+    text-align: left;
+  }
+  .p-meta { font-size: 11px; color: var(--fg-faint); display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0; }
+  .p-key {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--fg-faint);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    width: 18px; height: 18px;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+    visibility: visible;
+  }
+  .proj-row:hover .p-key, .proj-row.active .p-key { visibility: hidden; }
+  .kbd {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-subtle);
+    border: 1px solid var(--border-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 5px;
+  }
+
+  /* Project color dot */
+  .p-dot { width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0; }
+
+  /* Hover chip for lead */
+  .lead-chip {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-family: var(--font-mono);
+    color: var(--accent);
+    background: var(--accent-subtle);
+    border-radius: 999px;
+    padding: 2px 8px;
+    opacity: 0;
+    transform: translateX(4px);
+    transition: opacity 100ms, transform 100ms;
+    flex-shrink: 0;
+  }
+  .proj-row:hover .lead-chip, .proj-row.active .lead-chip {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Footer */
+  .launcher footer {
+    display: flex; align-items: center;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: oklch(from var(--surface-1) l c h / 100%);
+  }
+  .launcher footer .hint { color: var(--fg-faint); font-size: 11.5px; }
+  .launcher footer .spacer { flex: 1; }
+  .footer-link {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--fg-muted);
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: none; background: none; cursor: pointer;
+    font-family: var(--font-ui);
+  }
+  .footer-link:hover { background: var(--surface-2); color: var(--fg); }
+
+  /* ---- Concept A: centered session launcher ---- */
+  .stage-a .launcher {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 500px;
+    z-index: 2;
+  }
+
+  /* ---- Concept B: command palette ---- */
+  .stage-b .launcher {
+    position: absolute;
+    left: 50%; top: 64px;
+    transform: translateX(-50%);
+    width: 400px;
+    z-index: 2;
+  }
+  .stage-b .proj-list { padding: 6px; }
+  .stage-b .proj-row { padding: 7px 10px; }
+
+  /* ---- Concept C: anchored rail sheet ---- */
+  .stage-c .launcher {
+    position: absolute;
+    left: 230px; top: 64px;
+    width: 380px;
+    z-index: 2;
+    border-radius: var(--radius-lg);
+    transform-origin: top left;
+    animation: pop-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  }
+  .stage-c .rail .rail-btn {
+    background: var(--surface-2);
+    border-color: var(--border-strong);
+  }
+
+  @media (max-width: 900px) {
+    .launcher { width: min(95%, 500px) !important; }
+    .stage { height: fit-content; min-height: 380px; }
+    .stage .launcher { position: static; transform: none; margin: 40px auto; }
+  }
+
+  .empty-state {
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--fg-subtle);
+    font-size: 13px;
+  }
+  .empty-state .big { font-size: 22px; margin-bottom: 6px; color: var(--fg-faint); }
+</style>
+</head>
+<body>
+<div class="board">
+  <header>
+    <p class="kicker">Ari · Design exploration · M-session-picker</p>
+    <h1>Reimagining the “New session” project picker</h1>
+    <p>
+      Today, clicking <em>New session</em> reuses the sidebar’s right-click menu — a flat,
+      184&nbsp;px list. Each project appears twice (regular + “Lead session in…”), names
+      truncate, <em>Add project…</em> competes with projects, and there is no way to search
+      when you have many. Below: the current design for reference, then three concepts.
+      All mockups are live — type into the search, hover rows, use the keyboard.
+    </p>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- Reference                                                    -->
+  <!-- ============================================================ -->
+  <section class="concept">
+    <span class="concept-tag"><span class="dot" style="background:var(--fg-subtle); box-shadow:none"></span>Reference</span>
+    <h2>What ships today</h2>
+    <p class="why"><strong>Problems to kill:</strong></p>
+    <ul class="notes callout-list">
+      <li><b>Duplicate rows</b> — every project is listed twice (session + lead session); the list grows 2× per project.
+      <li><b>No identity</b> — bare names in a 184&nbsp;px menu; nothing shows the folder, activity or size.
+      <li><b>No search</b> — with 8+ projects you scan the whole list by eye.
+      <li><b>Mixed intent</b> — “Add project…” sits inside the same namespace as projects.
+      <li><b>Wrong vocabulary</b> — it’s the <em>Context menu</em>component (built for right-click on a sidebar row), not a launcher.
+    </ul>
+
+    <div class="stage">
+      <div class="rail">
+        <div class="rail-btn"><span class="plus">＋</span> New session</div>
+        <div class="ghost-row" style="width:85%"></div>
+        <div class="ghost-row" style="width:70%"></div>
+        <div class="ghost-row" style="width:78%"></div>
+        <div class="ghost-row" style="width:60%"></div>
+      </div>
+      <div class="dim"></div>
+      <div class="legacy-menu">
+        <div class="legacy-item">Ari</div>
+        <div class="legacy-item">Ari mobile</div>
+        <div class="legacy-item hl">Experiment log</div>
+        <div class="legacy-item">Voice-notes CLI</div>
+        <div class="sep"></div>
+        <div class="legacy-item">Lead session in Ari</div>
+        <div class="legacy-item">Lead session in Ari mobile</div>
+        <div class="legacy-item">Lead session in Experiment log</div>
+        <div class="legacy-item">Lead session in Voice-notes CLI</div>
+        <div class="sep"></div>
+        <div class="legacy-item">Add project…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- Concept A                                                    -->
+  <!-- ============================================================ -->
+  <section class="concept" id="concept-a">
+    <span class="concept-tag"><span class="dot"></span>Concept A · Recommended</span>
+    <h2>The Session Launcher — search-first, one row per project, lead on hover</h2>
+    <p class="why">
+      A centered launcher (like a mini command palette but dedicated): type-to-filter,
+      <b>recents first</b>, one row per project, and the lead-session option appears as a
+      hover chip or <kbd>Alt</kbd>+<kbd>↵</kbd> — instead of doubling the list. rich rows
+      show folder paths and live metadata so you’re choosing by context, not just name.
+    </p>
+    <ul class="notes">
+      <li><b>Rows lead with memory</b> — “2h&nbsp;ago” and session counts turn the chooser into “where was I?”, which is usually the actual question when this opens.</li>
+      <li><b>1–9 number keys</b> jump straight to a row; Enter opens first result (already focused).</li>
+      <li><b>Lead session</b> lives per-row as a chip on hover + Alt-Enter, deduplicating the list entirely.</li>
+      <li><b>Footer carries escape hatches</b> — Add project + resurrect-last-session, out of the project namespace.</li>
+    </ul>
+
+    <div class="stage stage-a">
+      <div class="rail">
+        <div class="rail-btn"><span class="plus">＋</span> New session</div>
+        <div class="ghost-row" style="width:85%"></div>
+        <div class="ghost-row" style="width:70%"></div>
+        <div class="ghost-row" style="width:78%"></div>
+        <div class="ghost-row" style="width:60%"></div>
+      </div>
+      <div class="dim"></div>
+
+      <div class="launcher">
+        <div class="search-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input placeholder="Jump to a project…" />
+          <span class="esc">ESC to close</span>
+        </div>
+        <div class="proj-list">
+          <div class="section-label">Recent</div>
+          <div class="proj-row active">
+            <span class="p-dot" style="background:oklch(0.78 0.145 30)"></span>
+            <span class="p-more">
+              <span class="p-name">Ari</span>
+              <span class="p-path">D:\Projects\Ari</span>
+            </span>
+            <span class="p-meta"><span>4 open · 2h ago</span></span>
+            <span class="lead-chip">Lead via Alt ↵</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.75 0.06 150)"></span>
+            <span class="p-more">
+              <span class="p-name">Ari mobile</span>
+              <span class="p-path">D:\Projects\Ari\apps\mobile</span>
+            </span>
+            <span class="p-meta"><span>1 open · 3d ago</span></span>
+            <span class="lead-chip">Lead via Alt ↵</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.74 0.07 228)"></span>
+            <span class="p-more">
+              <span class="p-name">Voice-notes CLI</span>
+              <span class="p-path">D:\Projects\voice-notes</span>
+            </span>
+            <span class="p-meta"><span>last opened 6d ago</span></span>
+            <span class="lead-chip">Lead via Alt ↵</span>
+          </div>
+          <div class="section-label">All projects</div>
+          <div class="proj-row">
+            <span class="p-key">4</span>
+            <span class="p-dot" style="background:oklch(0.74 0.045 295)"></span>
+            <span class="p-more">
+              <span class="p-name">Experiment log</span>
+              <span class="p-path">D:\Projects\experiment-log</span>
+            </span>
+            <span class="p-meta"><span></span></span>
+            <span class="lead-chip">Lead via Alt ↵</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-key">5</span>
+            <span class="p-dot" style="background:oklch(0.84 0.055 80)"></span>
+            <span class="p-more">
+              <span class="p-name">Client work</span>
+              <span class="p-path">E:\Work\client-site</span>
+            </span>
+            <span class="p-meta"><span></span></span>
+            <span class="lead-chip">Lead via Alt ↵</span>
+          </div>
+        </div>
+        <footer>
+          <span class="hint"><kbd>↑↓</kbd> to navigate &nbsp; <kbd>↵</kbd> to open &nbsp; <kbd>Alt ↵</kbd> for lead</span>
+          <span class="spacer"></span>
+          <button class="footer-link">＋ Add project</button>
+          <button class="footer-link">↺ Resume last session</button>
+        </footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- Concept B                                                    -->
+  <!-- ============================================================ -->
+  <section class="concept">
+    <span class="concept-tag"><span class="dot"></span>Concept B</span>
+    <h2>Palette mode — minimal, command-palette faithful, fastest by keyboard</h2>
+    <p class="why">
+      Tighter palette variant that leans on the same muscle memory as the command
+      palette: nothing but a field, ranked rows and a thin footer. Projects are flat
+      (no sections), paths hidden until hover — the tersest option, closest in spirit
+      to VS Code/Arc/Raycast.
+    </p>
+    <ul class="notes">
+      <li><b>Minimal chrome</b> — no section labels, no visible metadata; the smallest, most keyboard-native version.</li>
+      <li><b>Lead also compact</b> — typed as a hint in the result meta rather than a separate row; picking a project with an active <kbd>Alt</kbd> modifier creates the lead session.</li>
+      <li><b>Weakest at browsing</b> — great when you know your project, poorer at “what have I been doing?”.</li>
+    </ul>
+
+    <div class="stage stage-b">
+      <div class="rail">
+        <div class="rail-btn"><span class="plus">＋</span> New session</div>
+        <div class="ghost-row" style="width:85%"></div>
+        <div class="ghost-row" style="width:70%"></div>
+        <div class="ghost-row" style="width:78%"></div>
+        <div class="ghost-row" style="width:60%"></div>
+      </div>
+      <div class="dim"></div>
+
+      <div class="launcher">
+        <div class="search-row" style="padding: 12px 14px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input placeholder="Start a session in…" />
+        </div>
+        <div class="proj-list">
+          <div class="proj-row active">
+            <span class="p-dot" style="background:oklch(0.78 0.145 30)"></span>
+            <span class="p-name">Ari</span>
+            <span class="p-meta"><span class="p-path">Projects\Ari</span></span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.75 0.06 150)"></span>
+            <span class="p-name">Ari mobile</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.74 0.07 228)"></span>
+            <span class="p-name">Voice-notes CLI</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.74 0.045 295)"></span>
+            <span class="p-name">Experiment log</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.84 0.055 80)"></span>
+            <span class="p-name">Client work</span>
+          </div>
+          <div class="proj-row" style="border:1px dashed var(--border); color: var(--fg-muted)">
+            <span class="p-name" style="font-weight:450">Add project…</span>
+          </div>
+        </div>
+        <footer style="padding-top:9px; padding-bottom:9px">
+          <span class="hint">open <kbd>↵</kbd> · lead <kbd>Alt ↵</kbd></span>
+          <span class="spacer"></span>
+          <span class="hint">5 projects</span>
+        </footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- Concept C                                                    -->
+  <!-- ============================================================ -->
+  <section class="concept">
+    <span class="concept-tag"><span class="dot"></span>Concept C</span>
+    <h2>Anchored rail sheet — keeps locality, adds richness</h2>
+    <p class="why">
+      Same <em>mental model</em> as today (appears right under the New-session button),
+      but a proper launcher card instead of the context menu — richer rows, search,
+      and still tight to where you clicked. Least disruptive upgrade if you want the
+      spatial habit preserved.
+    </p>
+    <ul class="notes">
+      <li><b>Locality</b> — anchored to the trigger; extra movement mapping is near-zero.</li>
+      <li><b>Escalation of clarity</b> — same row anatomy as Concept A, but compact and the list is capped at ~5 rows with scroll after.</li>
+      <li><b>Tradeoff</b> — less room for metadata than the centered launcher; paths shorten to the segment on hover.</li>
+    </ul>
+
+    <div class="stage stage-c">
+      <div class="rail">
+        <div class="rail-btn"><span class="plus">＋</span> New session</div>
+        <div class="ghost-row" style="width:85%"></div>
+        <div class="ghost-row" style="width:70%"></div>
+        <div class="ghost-row" style="width:78%"></div>
+        <div class="ghost-row" style="width:60%"></div>
+      </div>
+      <div class="dim"></div>
+
+      <div class="launcher">
+        <div class="search-row" style="padding: 11px 14px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input placeholder="Filter projects" />
+        </div>
+        <div class="proj-list" style="max-height: 260px;">
+          <div class="proj-row active">
+            <span class="p-dot" style="background:oklch(0.78 0.145 30)"></span>
+            <span class="p-more">
+              <span class="p-name">Ari <span style="color:var(--fg-faint); font-weight:400; font-size:11px">· 4 open</span></span>
+              <span class="p-path">D:\Projects\Ari</span>
+            </span>
+            <span class="lead-chip">Lead ↵</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.75 0.06 150)"></span>
+            <span class="p-more">
+              <span class="p-name">Ari mobile</span>
+              <span class="p-path">D:\Projects\Ari\apps\mobile</span>
+            </span>
+            <span class="lead-chip">Lead ↵</span>
+          </div>
+          <div class="proj-row">
+            <span class="p-dot" style="background:oklch(0.74 0.07 228)"></span>
+            <span class="p-more">
+              <span class="p-name">Voice-notes CLI</span>
+              <span class="p-path">D:\Projects\voice-notes</span>
+            </span>
+            <span class="lead-chip">Lead ↵</span>
+          </div>
+          <div class="proj-row" style="border:1px dashed var(--border); color: var(--fg-muted)">
+            <span class="p-name" style="font-weight:450">＋ Browse for folder…</span>
+          </div>
+        </div>
+        <footer style="padding-top:8px; padding-bottom:8px">
+          <span class="hint"><kbd>↵</kbd> open · <kbd>Alt ↵</kbd> lead</span>
+          <span class="spacer"></span>
+        </footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- Empty state for A: shown when filter matches nothing -->
+  <section class="concept">
+    <span class="concept-tag"><span class="dot" style="background:var(--fg-subtle); box-shadow:none"></span>State detail</span>
+    <h2>No-match — the moment the launcher stays useful</h2>
+    <p class="why">
+      A filter that matches nothing shouldn’t dead-end: the add-project action
+      escalates itself, because that’s almost always what you came here to do.
+    </p>
+    <div class="stage stage-a">
+      <div class="dim"></div>
+      <div class="launcher">
+        <div class="search-row">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input value="blender" />
+          <span class="esc">ESC to close</span>
+        </div>
+        <div class="empty-state">
+          <div class="big">⌕</div>
+          No project matches “blender”
+        </div>
+        <footer>
+          <span class="hint">…or open a folder that isn’t registered yet:</span>
+          <span class="spacer"></span>
+          <button class="footer-link">＋ Pick a folder</button>
+        </footer>
+        <div class="dim" style="inset:auto 0 0 0; height:0"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  // Wire all live filtering inputs: each launcher's search filters its rows.
+  document.querySelectorAll('.launcher').forEach((launcher) => {
+    const input = launcher.querySelector('input')
+    const rows = launcher.querySelectorAll('.proj-row')
+    if (!input || rows.length === 0) return
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase()
+      rows.forEach((row) => {
+        const text = row.textContent.toLowerCase()
+        row.classList.toggle('hidden', q !== '' && !text.includes(q))
+      })
+    })
+  })
+</script>
+</body>
+</html>
