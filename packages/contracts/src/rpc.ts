@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
-import { botCreateParamsSchema, botUpdatePatchSchema } from './bot'
+import { botCreateParamsSchema, botUpdatePatchSchema, BOT_MEMORY_MAX_CHARS } from './bot'
 import type { Bot, BotCharacter } from './bot'
 import { botRoutineAddSchema } from './routine'
 import type { BotRoutine } from './routine'
@@ -10,7 +10,7 @@ import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
 import type { DiscoveredModel, EndpointModel } from './endpoint'
-import type { Project } from './project'
+import type { Project, ProjectDiscovery } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
@@ -640,6 +640,14 @@ export const rpcParams = {
   'bots.setHidden': z.object({ botId: z.string().min(1), hidden: z.boolean() }),
   /** Edits a bot's face and voice; live rooms pick up the new name and look. */
   'bots.update': z.object({ botId: z.string().min(1), patch: botUpdatePatchSchema }),
+  'bots.memory.get': z.object({ botId: z.string().min(1) }),
+  /** Replaces a bot's memory wholesale; the cap still applies, empty clears it. */
+  'bots.memory.replace': z.object({
+    botId: z.string().min(1),
+    content: z.string().max(BOT_MEMORY_MAX_CHARS),
+    /** File contents the editor loaded. A mismatch refuses the write. */
+    base: z.string().max(BOT_MEMORY_MAX_CHARS + 1).optional(),
+  }),
   /** Every bot routine, enabled or paused. */
   'routines.list': z.undefined(),
   'routines.add': botRoutineAddSchema,
@@ -765,6 +773,7 @@ export const rpcParams = {
   'providers.cancelInstall': z.object({ kind: driverKindSchema }),
   'providers.authProbe': z.object({ kind: driverKindSchema }),
   'providers.login': z.object({ kind: driverKindSchema }),
+  'providers.setupTerminal': z.object({ kind: z.enum(['claude', 'codex']) }),
   'providers.configFiles': z.object({ kind: driverKindSchema }),
   'providers.extensionInventory': z.object({
     kind: driverKindSchema,
@@ -826,6 +835,7 @@ export const rpcParams = {
   'browser.cancelPick': z.object({ id: z.string().min(1) }),
   'browser.capture': z.object({ id: z.string().min(1) }),
   'project.list': z.undefined(),
+  'project.discover': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.close': z.object({ id: z.string().min(1) }),
@@ -1018,6 +1028,9 @@ export interface RpcResults {
   'bots.create': Bot
   'bots.setHidden': Bot
   'bots.update': Bot
+  /** The bot's memory.md as plain markdown; empty means it remembers nothing. */
+  'bots.memory.get': string
+  'bots.memory.replace': string
   'routines.list': BotRoutine[]
   'routines.add': BotRoutine
   'routines.setEnabled': BotRoutine
@@ -1269,6 +1282,7 @@ export interface RpcResults {
   /** Native chrome repainted for the given theme (overlay + OS scheme hint). */
   'theme.apply': { applied: boolean }
   'terminal.create': { created: boolean }
+  'providers.setupTerminal': { ok: true; id: string; cwd: string } | { ok: false; error: string }
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }
   'terminal.kill': { killed: boolean }
@@ -1283,6 +1297,7 @@ export interface RpcResults {
   /** A JPEG still of the page as a data URL; null when the guest has no frame. */
   'browser.capture': { dataUrl: string | null }
   'project.list': Project[]
+  'project.discover': ProjectDiscovery
   'project.add': Project
   'project.open': Project
   'project.close': Project | null

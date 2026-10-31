@@ -40,6 +40,8 @@ export interface SettingsWorkspaceProps {
   section?: SettingsSectionId
   onSectionChange?: (section: SettingsSectionId) => void
   onBack: () => void
+  /** Opens setup without clearing existing agents, projects or sessions. */
+  onOpenSetup?: () => void
   /**
    * Leaves settings for the Terminal pane. Provider sign-in runs the agent's
    * own login command in a terminal tab, which is no use if the user is left
@@ -67,6 +69,7 @@ export function SettingsWorkspace({
   section: controlledSection,
   onSectionChange,
   onBack,
+  onOpenSetup,
   onOpenTerminal,
   workspacePath = null,
 }: SettingsWorkspaceProps) {
@@ -133,6 +136,17 @@ export function SettingsWorkspace({
             })}
           </ul>
         </nav>
+        {onOpenSetup && (
+          <div className="border-t border-border/60 p-3">
+            <button
+              type="button"
+              onClick={onOpenSetup}
+              className="w-full rounded-md px-2.5 py-2 text-left text-xs text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              Run setup again
+            </button>
+          </div>
+        )}
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col border-l border-border bg-bg">
