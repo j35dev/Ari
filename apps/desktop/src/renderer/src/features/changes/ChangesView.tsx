@@ -17,6 +17,7 @@ export interface ChangesViewProps {
   initialComparison?: GitComparison
   onRange?: ReviewWorkspaceProps['onRange']
   onCreatePr?: () => void
+  onCheckedOut?: (path: string) => Promise<void> | void
 }
 
 /** Routes the active capability scope into the shared review/source-control canvas. */
@@ -27,6 +28,7 @@ export function ChangesView({
   initialComparison,
   onRange,
   onCreatePr,
+  onCheckedOut,
 }: ChangesViewProps) {
   const [fallback, setFallback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -81,6 +83,7 @@ export function ChangesView({
             initialComparison={initialComparison}
             onRange={onRange}
             onCreatePr={onCreatePr}
+            onCheckedOut={onCheckedOut}
           />
         ) : (
           <ReviewWorkspace scope={scope} initialComparison={initialComparison} onRange={onRange} />

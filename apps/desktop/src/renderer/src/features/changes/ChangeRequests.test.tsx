@@ -58,5 +58,37 @@ describe('ChangeRequests', () => {
     render(<ChangeRequests scope={{ sessionId: 's' }} />)
     expect(await screen.findByText(/not connected/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /merge/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /check out/i })).not.toBeInTheDocument()
+  })
+
+  it('checks out a request only after confirmation', async () => {
+    const user = userEvent.setup()
+    const onCheckedOut = vi.fn(async () => undefined)
+    mocks.invoke.mockImplementation(async (method: string) => {
+      if (method === 'scm.requests') return connection
+      if (method === 'scm.checkout') {
+        return {
+          ok: true,
+          value: {
+            path: 'D:\\wt\\github-4',
+            branch: 'ari/request/github/4',
+            commit: 'a'.repeat(40),
+            number: 4,
+            created: true,
+          },
+        }
+      }
+      return { opened: true }
+    })
+    render(<ChangeRequests scope={{ projectId: 'p' }} onCheckedOut={onCheckedOut} />)
+    await user.click(await screen.findByRole('button', { name: 'Check out #4' }))
+    expect(screen.getByText(/open a session there/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(mocks.invoke).not.toHaveBeenCalledWith('scm.checkout', { projectId: 'p', number: 4 })
+    await user.click(screen.getByRole('button', { name: 'Check out #4' }))
+    await user.click(screen.getByRole('button', { name: 'Create worktree' }))
+    expect(await screen.findByText(/left unchanged/)).toBeInTheDocument()
+    expect(mocks.invoke).toHaveBeenCalledWith('scm.checkout', { projectId: 'p', number: 4 })
+    expect(onCheckedOut).toHaveBeenCalledWith('D:\\wt\\github-4')
   })
 })
