@@ -12,14 +12,16 @@ export function ReviewNavigator({
   onFilter,
   onSelect,
   onCommit,
+  selectedPaths,
 }: {
   files: GitReviewFile[]
   selected: string | undefined
   filter: string
   commits: GitHistoryEntry[]
   onFilter: (filter: string) => void
-  onSelect: (path: string) => void
+  onSelect: (path: string, multiple?: boolean) => void
   onCommit: (oid: string) => void
+  selectedPaths?: ReadonlySet<string>
 }) {
   const [history, setHistory] = useState(false)
   return (
@@ -53,7 +55,12 @@ export function ReviewNavigator({
           {files.reduce((sum, file) => sum + file.deletions, 0)}
         </span>
       </div>
-      <ChangedFiles files={files} selected={selected} onSelect={onSelect} />
+      <ChangedFiles
+        files={files}
+        selected={selected}
+        onSelect={onSelect}
+        selectedPaths={selectedPaths}
+      />
       {history ? (
         <div
           className="ari-scroll max-h-64 overflow-auto border-t border-border/60 p-2"

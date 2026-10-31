@@ -8,10 +8,12 @@ export function ChangedFiles({
   files,
   selected,
   onSelect,
+  selectedPaths,
 }: {
   files: GitReviewFile[]
   selected: string | undefined
-  onSelect: (path: string) => void
+  onSelect: (path: string, multiple?: boolean) => void
+  selectedPaths?: ReadonlySet<string>
 }) {
   const scroll = useRef<HTMLElement>(null)
   const virtual = useVirtualizer({
@@ -50,9 +52,10 @@ export function ChangedFiles({
               aria-label={file.path}
               title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
               aria-current={selected === file.path ? 'true' : undefined}
+              aria-pressed={selectedPaths?.has(file.path)}
               draggable
               onDragStart={(event) => setDragFilePath(event, file.path)}
-              onClick={() => onSelect(file.path)}
+              onClick={(event) => onSelect(file.path, event.ctrlKey || event.metaKey)}
               style={{
                 position: 'absolute',
                 top: 0,
@@ -76,6 +79,11 @@ export function ChangedFiles({
                   </span>
                 ) : null}
               </span>
+              {selectedPaths?.has(file.path) ? (
+                <span className="text-accent" aria-hidden>
+                  ✓
+                </span>
+              ) : null}
               {file.staged ? (
                 <span className="text-success" title="Staged">
                   •
