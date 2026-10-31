@@ -55,6 +55,7 @@ import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allow
 import { resetCreditService } from './reset-credits'
 import { searchProjectContent } from './content-search'
 import { queryTurnDiff } from './turn-diff'
+import { SourceControlHost } from './source-control-host'
 import { listScripts } from './scripts-list'
 import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
@@ -2331,6 +2332,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       return { ok: false, latencyMs, message }
     }
   })
+
+  const sourceControl = new SourceControlHost(r, {
+    root: resolveScopeRoot,
+    session: (id) => getSessionStore().load(id),
+  })
+  sourceControl.register()
+  contents.once('destroyed', () => sourceControl.close())
+  app.once('before-quit', () => sourceControl.close())
 
   r.register('git.status', async (params) => {
     const { GitService } = await import('@ari/engine/git')
