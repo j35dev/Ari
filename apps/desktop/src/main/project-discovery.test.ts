@@ -112,6 +112,27 @@ describe('agent project discovery', () => {
     expect((await discoverAgentProjects({ homeDir: home })).truncated).toBe(true)
   })
 
+  it('bounds directory enumeration even when entries are not conversation files', async () => {
+    const home = temp('ari-discovery-')
+    const metadata = await folder(home, '.claude/projects/metadata')
+    await Promise.all(
+      Array.from({ length: 20 }, (_, i) => writeFile(join(metadata, `${i}.txt`), 'ignored')),
+    )
+    const result = await discoverAgentProjects({ homeDir: home, maxEntries: 4 })
+    expect(result.projects).toEqual([])
+    expect(result.truncated).toBe(true)
+  })
+
+  it.each([{ maxDirectories: 1 }, { maxBytes: 1 }, { maxEntries: 1 }])(
+    'reports partial scans for exhausted budgets: %j',
+    async (budget) => {
+      const home = temp('ari-discovery-')
+      const path = await folder(home, 'workspace')
+      await record(join(home, '.claude/projects/a/one.jsonl'), { cwd: path })
+      expect((await discoverAgentProjects({ homeDir: home, ...budget })).truncated).toBe(true)
+    },
+  )
+
   it('tolerates absent/malformed history and respects an already-aborted scan', async () => {
     const home = temp('ari-discovery-')
     await writeFile(join(home, '.claude.json'), '{broken')

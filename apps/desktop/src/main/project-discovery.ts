@@ -1,4 +1,5 @@
-import { open, readdir, realpath, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import { open, opendir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import {
@@ -19,6 +20,7 @@ export interface ProjectDiscoveryOptions {
   signal?: AbortSignal
   maxFiles?: number
   maxDirectories?: number
+  maxEntries?: number
   maxBytes?: number
   maxProjects?: number
 }
@@ -51,6 +53,7 @@ export async function discoverAgentProjects(
   const warnings = new Set<string>()
   let files = options.maxFiles ?? 2_000
   let directories = options.maxDirectories ?? 2_000
+  let entriesRemaining = options.maxEntries ?? 8_000
   let bytes = options.maxBytes ?? 16 * 1024 * 1024
   const maxProjects = options.maxProjects ?? 100
   let truncated = false
@@ -152,15 +155,24 @@ export async function discoverAgentProjects(
   }
   const walk = async (root: string, source: 'claude' | 'codex', depth: number): Promise<void> => {
     if (stopped()) return
-    if (directories <= 0) {
+    if (directories <= 0 || files <= 0 || bytes <= 0) {
       truncated = true
       return
     }
     directories--
     try {
-      const entries = (await readdir(root, { withFileTypes: true })).sort((a, b) =>
-        b.name.localeCompare(a.name),
-      )
+      // Bound enumeration itself, not just the metadata files opened afterwards.
+      const entries: Dirent[] = []
+      for await (const entry of await opendir(root)) {
+        if (stopped()) break
+        if (entriesRemaining <= 0) {
+          truncated = true
+          break
+        }
+        entriesRemaining--
+        entries.push(entry)
+      }
+      entries.sort((a, b) => b.name.localeCompare(a.name))
       for (const entry of entries) {
         if (stopped()) break
         if (files <= 0 || bytes <= 0) {
