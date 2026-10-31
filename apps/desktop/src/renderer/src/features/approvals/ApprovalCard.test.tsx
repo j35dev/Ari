@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import type { Bot } from '@ari/contracts/bot'
 import { ApprovalCard, formatApprovalToolName } from './ApprovalCard'
 
 const ONCE_ALWAYS_DENY = [
@@ -8,6 +9,16 @@ const ONCE_ALWAYS_DENY = [
   { optionId: 'acceptForSession', name: 'Allow for this session', kind: 'allow_always' },
   { optionId: 'decline', name: 'Deny', kind: 'reject_once' },
 ]
+
+const FORGE: Bot = {
+  id: 'bot_1',
+  name: 'Forge',
+  emoji: '⚒️',
+  character: { shape: 'gumdrop', palette: 6 },
+  personaMd: '# Forge',
+  driverKind: 'ari-core',
+  modelId: null,
+}
 
 describe('ApprovalCard', () => {
   it.each([
@@ -25,6 +36,22 @@ describe('ApprovalCard', () => {
     )
     expect(screen.getByText(label)).toBeInTheDocument()
     expect(screen.getByText(detail)).toBeInTheDocument()
+  })
+
+  it('names the bot that asks, wears its face, and stops warning-dotting', () => {
+    render(
+      <ApprovalCard
+        approvalId="ap-1"
+        toolName="bash"
+        summaryJson='{"command":"pnpm add -D vite"}'
+        options={ONCE_ALWAYS_DENY}
+        onRespond={vi.fn()}
+        owner={FORGE}
+      />,
+    )
+    expect(screen.getByText('Forge wants to run')).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Forge wants to run bash' })).toBeInTheDocument()
+    expect(document.querySelector('svg.ari-bot')).not.toBeNull()
   })
 
   it('renders one button per offered option and answers with its exact id', async () => {
