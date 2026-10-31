@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DriverKind } from '@ari/contracts/common'
 import type { ProvidersUpdateFrame, RpcResults } from '@ari/contracts/rpc'
 import { rpc } from '../../lib/rpc'
+import { createLogger } from '@ari/shared/logger'
+
+const log = createLogger('providers:install')
 
 type Detection = RpcResults['providers.detect'][number]
 
@@ -80,25 +83,42 @@ export function useProviderInstalls(
     return () => clearTimeout(timer)
   }, [installs])
 
-  const planFor = useCallback(
-    (kind: DriverKind) => rpc.invoke('providers.plan', { kind }),
-    [],
-  )
+  const planFor = useCallback((kind: DriverKind) => rpc.invoke('providers.plan', { kind }), [])
 
   const start = useCallback(async (kind: DriverKind, operation: 'install' | 'upgrade') => {
     setInstalls((current) => ({
       ...current,
       [kind]: { operation, outcome: null },
     }))
-    const result = await rpc.invoke('providers.install', { kind, operation })
-    if (!result.started) {
-      setInstalls((current) => ({
-        ...current,
-        [kind]: {
-          operation,
-          outcome: { ok: false, reason: result.reason ?? 'Could not start.', truncated: false },
-        },
-      }))
+    try {
+      const result = await rpc.invoke('providers.install', { kind, operation })
+      if (!result.started) {
+        setInstalls((current) => ({
+          ...current,
+          [kind]: {
+            operation,
+            outcome: { ok: false, reason: result.reason ?? 'Could not start.', truncated: false },
+          },
+        }))
+      }
+    } catch (error) {
+      log.warn('install request failed', { kind, error })
+      setInstalls((current) =>
+        current[kind]?.outcome != null
+          ? current
+          : {
+              ...current,
+              [kind]: {
+                operation,
+                outcome: {
+                  ok: false,
+                  reason: 'Could not start the installation.',
+                  truncated: false,
+                },
+              },
+            },
+      )
+      throw error
     }
   }, [])
 

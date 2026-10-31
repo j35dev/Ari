@@ -1,4 +1,5 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OnboardingAgents } from './OnboardingAgents'
@@ -80,6 +81,62 @@ describe('onboarding agents', () => {
     expect(onBusyChange).toHaveBeenLastCalledWith(true)
     unmount()
     expect(invoke).toHaveBeenCalledWith('terminal.kill', { id: 'setup_1' })
+  })
+
+  it('a refused sign-in check outranks credential hints and clears after native sign-in', async () => {
+    const user = userEvent.setup()
+    mount()
+    const claude = screen.getByRole('region', { name: 'Claude Code' })
+    await user.click(await within(claude).findByRole('button', { name: 'Check sign-in' }))
+    expect(await within(claude).findByText('Sign-in needed')).toBeInTheDocument()
+    expect(within(claude).queryByText('Sign-in found')).not.toBeInTheDocument()
+    await user.click(within(claude).getByRole('button', { name: 'Sign in' }))
+    await user.click(await screen.findByRole('button', { name: 'Done, check again' }))
+    expect(await within(claude).findByText('Sign-in found')).toBeInTheDocument()
+    expect(within(claude).queryByText('Sign-in needed')).not.toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith('terminal.kill', { id: 'setup_1' })
+  })
+
+  it('releases the busy state and permits retry when starting an install rejects', async () => {
+    const base = invoke.getMockImplementation()!
+    let first = true
+    invoke.mockImplementation(async (method: string, params: unknown): Promise<unknown> => {
+      if (method === 'providers.install' && first) {
+        first = false
+        throw new Error('installer unavailable')
+      }
+      return base(method, params) as Promise<unknown>
+    })
+    const user = userEvent.setup()
+    const { onBusyChange } = mount()
+    await user.click(await screen.findByRole('button', { name: 'Install' }))
+    await user.click(await screen.findByRole('button', { name: 'Install Codex' }))
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false))
+    expect(
+      screen.getAllByRole('alert').some((p) => p.textContent?.includes('Could not start')),
+    ).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Install Codex' }))
+    expect(await screen.findByRole('button', { name: 'Cancel install' })).toBeInTheDocument()
+  })
+
+  it('ignores the first StrictMode scan after a newer result has arrived', async () => {
+    let resolve!: (value: unknown) => void
+    invoke.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
+    render(
+      <StrictMode>
+        <OnboardingAgents selected={null} onSelect={vi.fn()} onBusyChange={vi.fn()} />
+      </StrictMode>,
+    )
+    expect(await screen.findByText('Sign-in found')).toBeInTheDocument()
+    await act(async () => {
+      resolve([])
+    })
+    expect(screen.getByText('Sign-in found')).toBeInTheDocument()
   })
 
   it('keeps detection failures recoverable', async () => {
