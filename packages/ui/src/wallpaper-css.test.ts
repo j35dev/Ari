@@ -5,9 +5,8 @@ import { WALLPAPER_BLUR_PX, WALLPAPER_SATURATE } from './wallpaper-bake'
 
 /**
  * wallpaper.css is the whole feature — jsdom cannot evaluate `backdrop-filter`
- * or `color-mix`, so these assertions guard its structure instead: one plate,
- * nothing nested re-tinting it, the scene driven by a JS-supplied URL, and no
- * raw colors.
+ * or `color-mix`, so these assertions guard its structure instead: one chrome
+ * plate, image-only Haze layers, provider-resolved asset URLs, and no raw colors.
  */
 const css = readFileSync(resolve(process.cwd(), 'src/wallpaper.css'), 'utf8')
 
@@ -44,7 +43,33 @@ describe('wallpaper.css', () => {
     expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(/url\(\s*['"]?\.\//)
   })
 
-  it('has no visibility-look variants left (one uniform look)', () => {
+  it('uses full-presence Haze only on the welcome and empty-session backgrounds', () => {
+    const canvasRule = /:is\(\.ari-welcome-glow, \.ari-session-canvas\) \{([^}]+)\}/.exec(css)?.[1]
+    expect(canvasRule).toContain('--ari-haze-presence: 1')
+    expect(canvasRule).toContain('--ari-wallpaper-image')
+    expect(canvasRule).toContain('var(--ari-bg) 92%')
+    expect(canvasRule).toContain('isolation: isolate')
+    expect(canvasRule).not.toContain('filter:')
+    expect(canvasRule).not.toContain('opacity:')
+    expect(css).toMatch(/\.ari-session-canvas \{\s*--ari-haze-presence: 0\.2/)
+    expect(css).toMatch(
+      /\.ari-session-canvas:has\(> \.ari-session-scene\[data-visible\]\) \{\s*--ari-haze-presence: 1/,
+    )
+  })
+
+  it('blurs aligned decorative image copies instead of the live UI', () => {
+    expect(css).toMatch(/::before \{\s*filter: blur\(8px\);\s*mask-image:/)
+    expect(css).toMatch(/::after \{\s*filter: blur\(20px\);\s*mask-image:/)
+    const layers = /::after \{\s*content: '';([^}]+)\}/.exec(css)?.[1]
+    expect(layers).toContain('pointer-events: none')
+    expect(layers).toContain('z-index: -1')
+    expect(layers).toContain('background: inherit')
+    expect(layers).toContain('clip-path: inset(0)')
+    expect(css).toMatch(/\.ari-session-scene \{\s*background-image: none;/)
+    expect(css).not.toMatch(/\.ari-composer[\w-]*/)
+  })
+
+  it('keeps one fixed wallpaper look without adding settings variants', () => {
     expect(css).not.toContain('data-ari-wallpaper-look')
     expect(css).not.toContain('--wallpaper-scrim-')
   })
@@ -54,6 +79,8 @@ describe('wallpaper.css', () => {
     const media = css.slice(css.indexOf('@media (prefers-reduced-transparency: reduce)'))
     expect(media).toContain('backdrop-filter: none')
     expect(media).toContain('--ari-wallpaper-pane')
+    expect(media).toContain('var(--ari-bg) 92%')
+    expect(media).toContain('content: none;\n    filter: none;')
   })
 
   it('derives every color from theme tokens (no raw literals outside tokens.css)', () => {
