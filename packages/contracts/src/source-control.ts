@@ -106,6 +106,11 @@ const changeRequest = z.object({
   updatedAt: z.string(),
   capabilities,
 })
+const hostConnection = z.object({
+  repository: repository.nullable(),
+  requests: z.array(changeRequest),
+  detail: z.string().max(500),
+})
 const status = z.object({
   branch: z.string().nullable(),
   headOid: oid.nullable(),
@@ -147,6 +152,7 @@ export const sourceControlSchemas = {
   repository,
   capabilities,
   changeRequest,
+  hostConnection,
   status,
   error,
 }
@@ -159,5 +165,6 @@ export type SourceControlProvider = z.infer<typeof provider>
 export type SourceControlRepository = z.infer<typeof repository>
 export type ChangeRequest = z.infer<typeof changeRequest>
 export type ChangeRequestCapabilities = z.infer<typeof capabilities>
+export type HostConnection = z.infer<typeof hostConnection>
 export type SourceControlStatus = z.infer<typeof status>
 export type SourceControlError = z.infer<typeof error>
