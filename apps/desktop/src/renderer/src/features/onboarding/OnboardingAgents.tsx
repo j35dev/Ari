@@ -39,7 +39,7 @@ export function OnboardingAgents({
   const { installs, start, cancel } = useProviderInstalls(setDetections)
   const { auth, checking, check } = useProviderAuth()
   const installing = Object.values(installs).some((state) => state?.outcome === null)
-  const busy = installing || opening
+  const busy = installing || opening || terminal !== null
   const scan = useCallback(async (fresh = false) => {
     setScanning(true)
     setError(null)
