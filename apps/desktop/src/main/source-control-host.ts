@@ -61,6 +61,14 @@ export class SourceControlHost {
     }
   }
 
+  /** Runs a main-process operation against the same scoped snapshot cache as review reads. */
+  withReview<T>(
+    scope: GitScope,
+    run: (review: GitReviewService) => Promise<Result<T, SourceControlError>>,
+  ): Promise<Result<T, SourceControlError>> {
+    return this.#read(scope, undefined, run)
+  }
+
   register(): void {
     const r = this.registry
     r.register('scm.cancel', ({ requestId }) => {
