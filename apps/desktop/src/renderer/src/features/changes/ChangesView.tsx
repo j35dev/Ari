@@ -1,166 +1,108 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { GitScope } from '@ari/contracts/rpc'
-import { RefreshCw, FileText, GitBranch, GitPullRequest } from 'lucide-react'
-import { DiffViewer } from '../diffs'
+import { useEffect, useMemo, useState } from 'react'
+import type { GitComparison, GitScope } from '@ari/contracts/rpc'
+import { GitPullRequest } from 'lucide-react'
+import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
-import { setDragFilePath } from '../composer/drag-file'
-import { branchLabel } from '../session/branch-label'
 import { CheckpointList } from './CheckpointList'
+import { ReviewWorkspace, type ReviewWorkspaceProps } from './ReviewWorkspace'
+import { SourceControlWorkspace } from './SourceControlWorkspace'
 
-interface StatusState {
-  isRepo: boolean
-  branch: string | null
-  files: { path: string; staged: boolean; kind: string }[]
-  error?: string
-}
-
+const log = createLogger('ui:changes')
 type ShipPhase = 'commit' | 'pr' | 'done'
 
 export interface ChangesViewProps {
-  /** Active session whose per-turn checkpoints are listed below the diff. */
   sessionId?: string | null
-  /** The active session's project id; pairs with {@link sessionId}. */
   projectId?: string | null
+  sourceControl?: boolean
+  initialComparison?: GitComparison
+  onRange?: ReviewWorkspaceProps['onRange']
+  onCreatePr?: () => void
 }
 
-/**
- * Changes rail view: worktree status for the active session's workspace (or
- * the project checkout) plus the full unified diff vs HEAD. Git calls carry
- * a capability scope only — the working directory resolves server-side, so
- * absolute paths never cross IPC. When a session is active its turn
- * checkpoints (list + revert) mount underneath.
- */
-export function ChangesView({ sessionId = null, projectId = null }: ChangesViewProps) {
-  const [scope, setScope] = useState<GitScope | null>(null)
-  const [status, setStatus] = useState<StatusState | null>(null)
-  const [diffText, setDiffText] = useState<string>('')
-  const [diffError, setDiffError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
+/** Routes the active capability scope into the shared review/source-control canvas. */
+export function ChangesView({
+  sessionId = null,
+  projectId = null,
+  sourceControl = false,
+  initialComparison,
+  onRange,
+  onCreatePr,
+}: ChangesViewProps) {
+  const [fallback, setFallback] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
+  const [checkpoints, setCheckpoints] = useState(false)
+  const scope = useMemo<GitScope | null>(
+    () =>
+      sessionId
+        ? { sessionId }
+        : projectId
+          ? { projectId }
+          : fallback
+            ? { projectId: fallback }
+            : null,
+    [sessionId, projectId, fallback],
+  )
   useEffect(() => {
+    if (sessionId || projectId) return
     let cancelled = false
-    setScope(null)
-    if (sessionId) {
-      // The session's workspace resolves server-side; no path round-trip.
-      setScope({ sessionId })
-    } else {
-      void rpc
-        .invoke('project.list')
-        .then((projects) => {
-          if (cancelled) return
-          const match = projectId ? projects.find((p) => p.id === projectId) : undefined
-          const first = match ?? projects[0]
-          setScope(first ? { projectId: first.id } : null)
-        })
-        .catch(() => {
-          if (!cancelled) setScope(null)
-        })
-    }
+    setError(null)
+    void rpc
+      .invoke('project.list')
+      .then((projects) => {
+        if (!cancelled) setFallback(projects[0]?.id ?? null)
+      })
+      .catch((error: unknown) => {
+        log.warn('Project scope unavailable', { error: String(error) })
+        if (!cancelled) setError('Could not load projects. Retry or reopen your project.')
+      })
     return () => {
       cancelled = true
     }
-  }, [sessionId, projectId])
-
-  const refresh = useCallback(() => {
-    if (!scope) return
-    setLoading(true)
-    void rpc
-      .invoke('git.status', scope)
-      .then(setStatus)
-      .catch(() => setStatus({ isRepo: false, branch: null, files: [], error: 'unreachable' }))
-      .finally(() => setLoading(false))
-    void rpc
-      .invoke('git.diffWorktree', scope)
-      .then((r) => {
-        setDiffText(r.diffText)
-        setDiffError(r.error ?? null)
-      })
-      .catch((e: unknown) => {
-        setDiffError(e instanceof Error ? e.message : String(e))
-        setDiffText('')
-      })
-  }, [scope])
-
-  useEffect(refresh, [refresh])
-
-  if (!scope) {
-    return (
-      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-fg-subtle">
-        Add a project first — Changes tracks its git worktree.
-      </div>
-    )
-  }
-
+  }, [sessionId, projectId, retry])
   return (
-    <div className="ari-scroll h-full overflow-y-auto p-4">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-4 flex items-center gap-2">
-          <span className="text-sm font-semibold text-fg">Changes</span>
-          {status?.branch ? (
-            <span
-              className="flex items-center gap-1 rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-fg-muted"
-              title={status.branch}
-            >
-              <GitBranch size={10} /> {branchLabel(status.branch)}
-            </span>
-          ) : null}
-          <div className="flex-1" />
+    <div className="flex h-full min-h-0 flex-col">
+      {error && !scope ? (
+        <p role="alert" className="p-6 text-sm text-danger">
+          {error}
           <button
             type="button"
-            aria-label="Refresh"
-            onClick={refresh}
-            className="flex h-6 w-6 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="ml-3 underline"
+            onClick={() => setRetry((value) => value + 1)}
           >
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            Retry
           </button>
-        </div>
-
-        {!status?.isRepo ? (
-          <p className="text-sm text-fg-subtle">
-            {status?.error ?? 'This folder is not a git repository.'}
-          </p>
-        ) : status.files.length === 0 ? (
-          <p className="flex items-center gap-2 text-sm text-fg-subtle">
-            <FileText size={14} /> Worktree clean — nothing to review.
-          </p>
+        </p>
+      ) : null}
+      <div className="min-h-0 flex-1">
+        {sourceControl ? (
+          <SourceControlWorkspace
+            scope={scope}
+            initialComparison={initialComparison}
+            onRange={onRange}
+            onCreatePr={onCreatePr}
+          />
         ) : (
-          <>
-            <ul className="mb-4 flex flex-wrap gap-1.5">
-              {status.files.map((f) => (
-                <li
-                  key={`${f.path}:${String(f.staged)}`}
-                  draggable
-                  title="Drag into the prompt to reference this file"
-                  onDragStart={(event) => setDragFilePath(event, f.path)}
-                  className="cursor-grab rounded-sm border border-border bg-surface-1 px-1.5 py-0.5 font-mono text-2xs text-fg-muted transition-colors hover:border-border-strong hover:text-fg active:cursor-grabbing"
-                >
-                  {f.staged ? '• ' : ''}
-                  {f.path}
-                </li>
-              ))}
-            </ul>
-            {diffError !== null ? (
-              <p role="alert" className="break-words text-xs text-danger">
-                Couldn't load the diff: {diffError}
-              </p>
-            ) : diffText.length > 0 ? (
-              <DiffViewer diffText={diffText} />
-            ) : null}
-          </>
+          <ReviewWorkspace scope={scope} initialComparison={initialComparison} onRange={onRange} />
         )}
-
-        {sessionId ? (
-          <div className="mt-8 border-t border-border pt-6">
-            <CheckpointList projectId={projectId ?? 'adhoc'} sessionId={sessionId} />
-          </div>
-        ) : null}
-
-        {status?.isRepo ? (
-          <div className="mt-8 border-t border-border pt-6">
-            <ShipSection scope={scope} hasChanges={status.files.length > 0} onShipped={refresh} />
-          </div>
-        ) : null}
       </div>
+      {sessionId ? (
+        <div className="shrink-0 border-t border-border/60 bg-surface-0 px-3 py-2">
+          <button
+            type="button"
+            className="text-2xs text-fg-muted hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+            aria-expanded={checkpoints}
+            onClick={() => setCheckpoints(!checkpoints)}
+          >
+            Turn checkpoints
+          </button>
+          {checkpoints ? (
+            <div className="ari-scroll max-h-48 overflow-auto pt-2">
+              <CheckpointList projectId={projectId ?? 'adhoc'} sessionId={sessionId} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
