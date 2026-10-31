@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+﻿import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '@ari/contracts/settings'
@@ -28,6 +28,7 @@ const engineSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },
+  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
@@ -69,17 +70,14 @@ describe('AppearanceSettings', () => {
       expect(document.documentElement.dataset['ariTheme']).toBe('porcelain')
     })
     expect(document.documentElement.dataset['ariScheme']).toBe('light')
-    expect(screen.getByRole('radio', { name: /Porcelain/ })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    )
+    expect(screen.getByRole('radio', { name: /Porcelain/ })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('lists every bundled wallpaper and applies the selection to the html attribute', async () => {
     renderPage()
     expect(screen.getByRole('radiogroup', { name: 'Wallpaper' })).toBeInTheDocument()
     for (const label of ['None', 'Anime City', 'Moon Landscape', 'Moon Landscape II']) {
-      // "Moon Landscape" is a strict prefix of "Moon Landscape II" — exclude it.
+      // "Moon Landscape" is a strict prefix of "Moon Landscape II" â€” exclude it.
       const pattern = label === 'Moon Landscape' ? /Moon Landscape(?! II)/ : new RegExp(label)
       expect(screen.getByRole('radio', { name: pattern })).toBeInTheDocument()
     }
@@ -89,7 +87,10 @@ describe('AppearanceSettings', () => {
     await waitFor(() => {
       expect(document.documentElement.dataset['ariWallpaper']).toBe('anime-city')
     })
-    expect(screen.getByRole('radio', { name: /Anime City/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: /Anime City/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
 
     await user.click(screen.getByRole('radio', { name: /^None/ }))
     await waitFor(() => {

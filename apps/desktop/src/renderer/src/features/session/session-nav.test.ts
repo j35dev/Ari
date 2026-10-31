@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
 import {
+  inboxSplit,
   moveProjectInList,
   projectMoveForDelta,
   projectMoveFromOrder,
-  recencyGroups,
+  sessionsViewOrder,
   shellRootFor,
   sidebarGroups,
   sidebarOrder,
@@ -71,16 +72,8 @@ describe('moveProjectInList', () => {
 
   it('mirrors the stored splice, closed projects included', () => {
     expect(moveProjectInList(list, 'b', 'a').map((p) => p.id)).toEqual(['b', 'a', 'closed'])
-    expect(moveProjectInList(list, 'b', null).map((p) => p.id)).toEqual([
-      'a',
-      'closed',
-      'b',
-    ])
-    expect(moveProjectInList(list, 'b', 'closed').map((p) => p.id)).toEqual([
-      'a',
-      'b',
-      'closed',
-    ])
+    expect(moveProjectInList(list, 'b', null).map((p) => p.id)).toEqual(['a', 'closed', 'b'])
+    expect(moveProjectInList(list, 'b', 'closed').map((p) => p.id)).toEqual(['a', 'b', 'closed'])
   })
 
   it('leaves the list untouched for unknown ids', () => {
@@ -157,9 +150,9 @@ describe('shellRootFor', () => {
   })
 
   it('keeps the workspace a managed worktree already has', () => {
-    expect(
-      shellRootFor(row('wt', 1, { projectId: 'p1' }), 'D:\\worktrees\\abc', registered),
-    ).toBe('D:\\worktrees\\abc')
+    expect(shellRootFor(row('wt', 1, { projectId: 'p1' }), 'D:\\worktrees\\abc', registered)).toBe(
+      'D:\\worktrees\\abc',
+    )
   })
 
   it('keeps that worktree after the project behind it is removed', () => {
@@ -188,53 +181,40 @@ describe('shellRootFor', () => {
   })
 })
 
-describe('recencyGroups', () => {
-  const HOUR = 60 * 60 * 1000
-  // Noon, so "today" has room on both sides of the clock.
-  const now = new Date(2026, 8, 8, 12).getTime()
+describe('inboxSplit', () => {
+  const sessions = [
+    row('run', 1),
+    row('run-child', 2, { parentSessionId: 'run' }),
+    row('idle', 3),
+    row('idle-child', 4, { parentSessionId: 'idle' }),
+    row('pinned', 5, { pinned: true }),
+    row('archived', 6, { archived: true }),
+    row('pinned-child', 7, { parentSessionId: 'pinned' }),
+  ]
 
-  it('buckets live sessions by recency with pinned floated first', () => {
-    const groups = recencyGroups(
-      [
-        row('older', now - 30 * 24 * HOUR),
-        row('week', now - 3 * 24 * HOUR),
-        row('yesterday', now - 20 * HOUR),
-        row('today', now - HOUR),
-        row('pinned', now - 40 * 24 * HOUR, { pinned: true }),
-        row('gone', now, { archived: true }),
-      ],
-      now,
-    )
-    expect(groups.map((g) => [g.name, g.sessions.map((s) => s.id)])).toEqual([
-      ['Pinned', ['pinned']],
-      ['Today', ['today']],
-      ['Yesterday', ['yesterday']],
-      ['Previous 7 days', ['week']],
-      ['Older', ['older']],
+  it('keeps running and settled roots in the card lists and hides child agents', () => {
+    const split = inboxSplit(sessions)
+    expect(split.pinned.map((s) => s.id)).toEqual(['pinned'])
+    expect(split.active.map((s) => s.id)).toEqual(['idle', 'run'])
+    expect([...split.pinned, ...split.active].some((s) => s.parentSessionId)).toBe(false)
+  })
+
+  it('drops archived sessions from every list', () => {
+    const split = inboxSplit(sessions)
+    expect(split.pinned.some((s) => s.id === 'archived')).toBe(false)
+    expect(split.active.some((s) => s.id === 'archived')).toBe(false)
+  })
+})
+
+describe('sessionsViewOrder', () => {
+  it('walks pinned roots then active roots, including ones still working', () => {
+    const order = sessionsViewOrder([
+      row('run', 1),
+      row('run-child', 2, { parentSessionId: 'run' }),
+      row('idle', 3),
+      row('pinned', 5, { pinned: true }),
     ])
-  })
-
-  it('omits empty buckets and keeps children with their root', () => {
-    const groups = recencyGroups(
-      [
-        row('child', now - HOUR, { parentSessionId: 'root' }),
-        row('root', now - 3 * 24 * HOUR),
-      ],
-      now,
-    )
-    expect(groups.map((g) => g.name)).toEqual(['Previous 7 days'])
-    expect(groups[0]?.sessions.map((s) => s.id).sort()).toEqual(['child', 'root'])
-  })
-
-  it('concatenates to the projectless sidebarOrder so keyboard traversal matches', () => {
-    const sessions = [
-      row('fresh', now - HOUR),
-      row('pinned', now - 9 * 24 * HOUR, { pinned: true }),
-      row('stale', now - 2 * 24 * HOUR),
-    ]
-    expect(recencyGroups(sessions, now).flatMap((g) => g.sessions.map((s) => s.id))).toEqual(
-      sidebarOrder(sessions).map((s) => s.id),
-    )
+    expect(order.map((s) => s.id)).toEqual(['pinned', 'idle', 'run'])
   })
 })
 
