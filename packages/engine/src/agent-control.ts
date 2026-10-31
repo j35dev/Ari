@@ -81,7 +81,7 @@ export interface ControlHost {
   subscribe(listener: (event: JournalEvent) => void): () => void
   workspace(session: Session): Promise<string | null>
   isRunning?(id: string): boolean
-  isolate(parent: Session, childId: string): Promise<SessionWorkspace>
+  isolate(parent: Session, childId: string, title?: string): Promise<SessionWorkspace>
   diff(child: Session, patch: boolean): Promise<unknown>
   integrate(
     parent: Session,
@@ -656,7 +656,9 @@ export class AgentControlService {
     let isolated = false
     try {
       const workspace =
-        mode === 'isolated' ? await this.host.isolate(caller, id) : { kind: 'project' as const }
+        mode === 'isolated'
+          ? await this.host.isolate(caller, id, p.title)
+          : { kind: 'project' as const }
       isolated = mode === 'isolated'
       // Preparing a worktree can outlast the caller. Whoever asked is no
       // longer there to receive the id, so no child is minted for it.

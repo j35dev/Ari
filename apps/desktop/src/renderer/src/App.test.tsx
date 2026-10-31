@@ -394,13 +394,13 @@ describe('Shell session navigation keys', () => {
     // The session's project is no longer implied — the shortcut opens the
     // same picker the sidebar's New session button does.
     const menu = await screen.findByRole(
-      'menu',
-      { name: 'New session in project' },
+      'dialog',
+      { name: 'New session' },
       {
         timeout: 10_000,
       },
     )
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
+    fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
 
     await vi.waitFor(
       () => {
@@ -1408,8 +1408,8 @@ describe('Shell live sidebar feed', () => {
     expect(listCalls).toBeGreaterThanOrEqual(2)
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
-    const menu = await screen.findByRole('menu', { name: 'New session in project' })
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
+    const menu = await screen.findByRole('dialog', { name: 'New session' })
+    fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
 
     await vi.waitFor(
       () => {
@@ -1432,8 +1432,8 @@ describe('Shell live sidebar feed', () => {
       render(<App />)
       await vi.waitFor(() => expect(screen.getByText('Fixed the build')).toBeInTheDocument())
       fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
-      const menu = await screen.findByRole('menu', { name: 'New session in project' })
-      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
+      const menu = await screen.findByRole('dialog', { name: 'New session' })
+      fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
       await vi.waitFor(() =>
         expect(invokeMock).toHaveBeenCalledWith(
           'session.create',
@@ -1458,8 +1458,12 @@ describe('Shell live sidebar feed', () => {
     })
 
     fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
-    const menu = await screen.findByRole('menu', { name: 'New session in project' })
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Lead session in Ari' }))
+    const menu = await screen.findByRole('dialog', { name: 'New session' })
+    fireEvent.click(
+      within(within(menu).getByRole('option', { name: 'Ari' })).getByRole('button', {
+        name: 'Lead session in Ari',
+      }),
+    )
 
     await vi.waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith(
@@ -1493,8 +1497,8 @@ describe('Shell live sidebar feed', () => {
 
     const startSessionInAri = async (): Promise<void> => {
       fireEvent.keyDown(window, { key: 'n', ctrlKey: true })
-      const menu = await screen.findByRole('menu', { name: 'New session in project' })
-      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Ari' }))
+      const menu = await screen.findByRole('dialog', { name: 'New session' })
+      fireEvent.click(within(menu).getByRole('option', { name: 'Ari' }))
     }
 
     it('creates new sessions in that mode', async () => {
