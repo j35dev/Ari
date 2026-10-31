@@ -30,10 +30,10 @@ export function OnboardingFrame({
       <Titlebar minimal />
       <main
         aria-label="Ari setup"
-        className="ari-scroll min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-10"
+        className="ari-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-10 lg:py-8"
       >
-        <div className="mx-auto grid min-h-full max-w-5xl content-center gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
-          <div className="flex flex-col items-start lg:py-3">
+        <div className="mx-auto grid min-h-full max-w-5xl content-center gap-8 md:grid-cols-[0.8fr_1.2fr] md:gap-10 lg:gap-16">
+          <div className="flex flex-col items-start md:py-3">
             <span className="text-2xl font-semibold tracking-tight text-fg">
               Ari<span className="text-accent">.</span>
             </span>
@@ -47,7 +47,7 @@ export function OnboardingFrame({
             </p>
             {step !== undefined && (
               <nav aria-label="Setup progress" className="mt-7 w-full">
-                <ol className="flex gap-2 lg:flex-col lg:gap-1">
+                <ol className="flex gap-2 md:flex-col md:gap-1">
                   {STEPS.map((label, index) => (
                     <li key={label} className="flex-1">
                       <button
@@ -73,7 +73,7 @@ export function OnboardingFrame({
             <Button
               variant="ghost"
               size="sm"
-              className="mt-4 lg:mt-8"
+              className="mt-4 md:mt-8"
               disabled={busy}
               onClick={onDismiss}
             >
