@@ -693,6 +693,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
     active,
     onEditUserMessage,
     onRegenerate,
+    onQuote,
+    quoteText,
     regenerateDisabled,
     onDiffComment,
     onRetryTurnDiff,
@@ -742,6 +744,8 @@ function renderRowBody({
   active,
   onEditUserMessage,
   onRegenerate,
+  onQuote,
+  quoteText,
   regenerateDisabled,
   onDiffComment,
   onRetryTurnDiff,
@@ -752,6 +756,8 @@ function renderRowBody({
   active: boolean
   onEditUserMessage?: (text: string) => void
   onRegenerate?: () => void
+  onQuote?: (quoted: string) => void
+  quoteText?: string
   regenerateDisabled: boolean
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
   onRetryTurnDiff?: (turnId: string) => void
