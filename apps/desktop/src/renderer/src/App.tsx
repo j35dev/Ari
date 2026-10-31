@@ -46,6 +46,7 @@ import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
+import { openCheckedOutWorktree } from './features/changes/open-request-worktree'
 import { rememberReviewRange } from './features/changes/review-drafts'
 import { useSourceControl } from './features/changes/use-source-control'
 import { openProjectViaPicker } from './features/projects/open-project'
@@ -1305,6 +1306,19 @@ function Shell() {
                     projectId={activeSession?.projectId ?? null}
                     sourceControl={fullPage === 'source-control'}
                     onRange={activeSessionId ? attachReviewRange : undefined}
+                    onCheckedOut={
+                      fullPage === 'source-control'
+                        ? (path) =>
+                            openCheckedOutWorktree(path, {
+                              open: (folder) => rpc.invoke('project.open', { path: folder }),
+                              refreshProjects,
+                              startSession: (projectId) => {
+                                setFullPage(null)
+                                createSession(projectId)
+                              },
+                            })
+                        : undefined
+                    }
                   />
                 </ErrorBoundary>
               ) : openRoom !== undefined ? (
