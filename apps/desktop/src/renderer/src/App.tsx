@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { X, FolderPlus } from 'lucide-react'
+import { X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
@@ -47,6 +47,7 @@ import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
+import { useSourceControl } from './features/changes/use-source-control'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
 import { FileExplorer } from './features/files/FileExplorer'
@@ -83,11 +84,10 @@ import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell
 import { HiveRoster, isBotSession, RoomView, useRooms } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
 import {
-  ContextMenu,
   anchorBelow,
-  type ContextMenuItem,
   type MenuAnchor,
 } from './shell/ContextMenu'
+import { NewSessionLauncher } from './shell/NewSessionLauncher'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import {
   applyPatches,
@@ -106,7 +106,7 @@ import {
 import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github'>
+type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github' | 'source-control'>
 
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
@@ -144,7 +144,9 @@ function Shell() {
   // are tools, so they dock to the trailing rail beside the transcript. A Hive
   // team room takes the full page the same way, so anything that closes one
   // of them closes it too.
-  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'room' | null>(null)
+  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'source-control' | 'room' | null>(
+    null,
+  )
   const [roomId, setRoomId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hubOpen, setHubOpen] = useState(false)
@@ -177,8 +179,9 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   /**
-   * The pending "start a session" request: where to anchor the project picker,
-   * plus any defaults the entry point wants applied to the session it creates.
+   * The pending "start a session" request, plus any overrides the entry point
+   * wants applied to the session it creates. (Entry points still pass an
+   * anchor — the launcher now opens centered, so it is carried but unused.)
    */
   const [newSessionRequest, setNewSessionRequest] = useState<{
     anchor: MenuAnchor
@@ -608,6 +611,11 @@ function Shell() {
         setSettingsOpen(false)
         setFullPage(null)
         setInspector('browser')
+      } else if (view === 'changes' || view === 'source-control') {
+        setHubOpen(false)
+        setSettingsOpen(false)
+        setInspector(null)
+        setFullPage(view)
       } else {
         setHubOpen(false)
         setSettingsOpen(false)
@@ -940,42 +948,18 @@ function Shell() {
   const closeNewSessionMenu = useCallback(() => setNewSessionRequest(null), [])
   newSessionRef.current = beginNewSessionFromKeyboard
 
-  const newSessionMenuItems = useMemo<ContextMenuItem[]>(
-    () => [
-      ...projects.map((project) => ({
-        id: project.id,
-        label: project.name,
-        onSelect: () => {
-          setNewSessionRequest(null)
-          createSession(project.id, newSessionRequest?.overrides)
-        },
-      })),
-      ...projects.map((project) => ({
-        id: `lead-${project.id}`,
-        label: `Lead session in ${project.name}`,
-        onSelect: () => {
-          setNewSessionRequest(null)
-          createSession(project.id, { ...newSessionRequest?.overrides, lead: true })
-        },
-      })),
-      {
-        id: 'add-project',
-        label: 'Add project…',
-        icon: FolderPlus,
-        onSelect: () => {
-          const overrides = newSessionRequest?.overrides
-          setNewSessionRequest(null)
-          void openProjectViaPicker()
-            .then((project) => {
-              if (project === null) return
-              refreshProjects()
-              createSession(project.id, overrides)
-            })
-            .catch((error: unknown) => log.warn('project open failed', error))
-        },
-      },
-    ],
-    [projects, createSession, refreshProjects, newSessionRequest],
+  const addProjectAndStart = useCallback(
+    (overrides?: Partial<SessionDefaults>): void => {
+      setNewSessionRequest(null)
+      void openProjectViaPicker()
+        .then((project) => {
+          if (project === null) return // cancelled picker stays put
+          refreshProjects()
+          createSession(project.id, overrides)
+        })
+        .catch((error: unknown) => log.warn('project open failed', error))
+    },
+    [createSession, refreshProjects],
   )
 
   const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
@@ -1000,7 +984,7 @@ function Shell() {
       setFullPage(null)
       return
     }
-    if (id === 'usage' || id === 'changes') {
+    if (id === 'usage' || id === 'changes' || id === 'source-control') {
       setInspector(null)
       setFullPage((prev) => (prev === id ? null : id))
       return
@@ -1035,6 +1019,7 @@ function Shell() {
       : activeScopeProjectId !== undefined
         ? { projectId: activeScopeProjectId }
         : null
+  const changeSummary = useSourceControl(activeScope, 'summary')
   // Where a shell can actually run — the rule and its precedence live in
   // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
   // offer a project instead of a spawn the main process would refuse.
@@ -1092,6 +1077,7 @@ function Shell() {
               : ((fullPage === 'room' ? null : fullPage) ?? inspector)
         }
         onSelectTool={selectWorkspaceTool}
+        changeCount={changeSummary.summary?.changedFiles ?? null}
         usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
       />
@@ -1281,11 +1267,12 @@ function Shell() {
                 <ErrorBoundary label="Usage">
                   <UsagePage />
                 </ErrorBoundary>
-              ) : fullPage === 'changes' ? (
-                <ErrorBoundary label="Changes">
+              ) : fullPage === 'changes' || fullPage === 'source-control' ? (
+                <ErrorBoundary label={fullPage === 'source-control' ? 'Source control' : 'Changes'}>
                   <ChangesView
                     sessionId={activeSessionId}
                     projectId={activeSession?.projectId ?? null}
+                    sourceControl={fullPage === 'source-control'}
                   />
                 </ErrorBoundary>
               ) : openRoom !== undefined ? (
@@ -1393,6 +1380,7 @@ function Shell() {
                                   <SessionView
                                     sessionId={sessionId}
                                     hidden={hidden}
+                                    botId={sessions.find((s) => s.id === sessionId)?.botId}
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}
                                     onPick={rememberPick}
@@ -1531,14 +1519,18 @@ function Shell() {
         scope={activeScope}
       />
       <KeyboardCheatSheet />
-      {newSessionRequest !== null ? (
-        <ContextMenu
-          anchor={newSessionRequest.anchor}
-          label="New session in project"
-          items={newSessionMenuItems}
-          onClose={closeNewSessionMenu}
-        />
-      ) : null}
+      <NewSessionLauncher
+        open={newSessionRequest !== null}
+        projects={projects}
+        sessions={sessions}
+        preferredProjectId={activeSession?.projectId ?? null}
+        onCreate={(projectId, lead) => {
+          const overrides = newSessionRequest?.overrides
+          createSession(projectId, lead ? { ...overrides, lead: true } : overrides)
+        }}
+        onAddProject={() => addProjectAndStart(newSessionRequest?.overrides)}
+        onClose={closeNewSessionMenu}
+      />
     </div>
   )
 }

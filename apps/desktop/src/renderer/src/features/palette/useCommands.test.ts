@@ -22,6 +22,7 @@ describe('buildAppCommands', () => {
       'terminal',
       'browser',
       'changes',
+      'source-control',
       'settings',
       'files',
       'usage',

@@ -55,7 +55,13 @@ function fixture(options: Partial<ConstructorParameters<typeof SourceControlHost
 describe('scoped source-control RPC', { timeout: 30_000 }, () => {
   it('registers all operations, validates paths/scopes and reports unavailable workspaces explicitly', async () => {
     const { registry } = fixture()
-    for (const method of ['scm.status', 'scm.review', 'scm.diff', 'scm.cancel'] as const)
+    for (const method of [
+      'scm.summary',
+      'scm.status',
+      'scm.review',
+      'scm.diff',
+      'scm.cancel',
+    ] as const)
       expect(registry.hasHandler(method)).toBe(true)
     await expect(registry.invoke('scm.status', { projectId: 'p', sessionId: 's' })).rejects.toThrow(
       'invalid params',
@@ -74,6 +80,15 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
     expect(await registry.invoke('scm.status', { projectId: 'p' })).toMatchObject({
       ok: true,
       value: { commits: [{ subject: 'first' }] },
+    })
+    expect(await registry.invoke('scm.summary', { projectId: 'p' })).toMatchObject({
+      ok: true,
+      value: { changedFiles: 0 },
+    })
+    await writeFile(join(root, 'dirty.txt'), 'pending\n')
+    expect(await registry.invoke('scm.summary', { projectId: 'p' })).toMatchObject({
+      ok: true,
+      value: { changedFiles: 1 },
     })
     expect(
       await registry.invoke('scm.review', {

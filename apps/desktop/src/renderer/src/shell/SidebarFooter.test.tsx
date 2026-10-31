@@ -17,12 +17,30 @@ describe('Titlebar workspace tools', () => {
   it('places workspace tools in the titlebar, not the session sidebar', () => {
     render(<Titlebar activeTool="files" onSelectTool={() => undefined} />)
     expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
-    for (const label of ['Changes', 'Files', 'Usage', 'Terminal', 'PRs & issues', 'Settings']) {
+    for (const label of [
+      'Review changes',
+      'Source control',
+      'Files',
+      'Usage',
+      'Terminal',
+      'PRs & issues',
+      'Settings',
+    ]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
     expect(screen.queryByRole('button', { name: 'Sessions' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByText('Settings')).not.toBeInTheDocument()
+  })
+
+  it('badges Review changes with the working-tree file count', () => {
+    render(<Titlebar activeTool="changes" changeCount={3} onSelectTool={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Review changes, 3 files changed' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Source control' })).toBeInTheDocument()
   })
 
   it('reports the chosen tool', async () => {

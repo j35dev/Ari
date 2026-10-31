@@ -3,9 +3,10 @@ import {
   ChevronLeft,
   ChevronRight,
   FileSearch,
+  FileDiff,
   Folder,
   Gauge,
-  GitPullRequest,
+  GitBranch,
   Globe,
   Images,
   Maximize2,
@@ -37,7 +38,15 @@ export interface PaletteCommand {
 
 /** Views the palette can navigate to; mirrors the shell rail targets. */
 export type NavigableView =
-  'sessions' | 'terminal' | 'browser' | 'changes' | 'settings' | 'files' | 'usage' | 'github'
+  | 'sessions'
+  | 'terminal'
+  | 'browser'
+  | 'changes'
+  | 'source-control'
+  | 'settings'
+  | 'files'
+  | 'usage'
+  | 'github'
 
 /**
  * What the pane commands act on, as the shell sees it: the pane the user is in,
@@ -201,9 +210,15 @@ export function buildAppCommands(ctx: CommandsContext): PaletteCommand[] {
     },
     {
       id: 'nav.changes',
-      label: 'Go to Changes',
-      icon: GitPullRequest,
+      label: 'Go to Review changes',
+      icon: FileDiff,
       run: () => ctx.onNavigate('changes'),
+    },
+    {
+      id: 'nav.source-control',
+      label: 'Go to Source control',
+      icon: GitBranch,
+      run: () => ctx.onNavigate('source-control'),
     },
     {
       id: 'nav.files',

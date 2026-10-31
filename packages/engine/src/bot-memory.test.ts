@@ -53,3 +53,25 @@ it('freezes memory per session and never touches the project folder', async () =
   await expect(memory.snapshot('../escape', 'sess_1')).rejects.toThrow('unknown bot')
   await expect(memory.snapshot('bot_a', '../escape')).rejects.toThrow('unknown session')
 })
+
+it('replaces the whole memory, and clears it with nothing', async () => {
+  await memory.add('bot_a', 'old note')
+  expect(await memory.replace('bot_a', 'new\nnotes')).toBe('new\nnotes\n')
+  expect(await memory.read('bot_a')).toBe('new\nnotes\n')
+  expect(await memory.replace('bot_a', '')).toBe('')
+  expect(await memory.read('bot_a')).toBe('')
+  await expect(
+    memory.replace('bot_a', `${'x'.repeat(BOT_MEMORY_MAX_CHARS)} extra`),
+  ).rejects.toThrow(`the cap is ${String(BOT_MEMORY_MAX_CHARS)}`)
+  const full = 'y'.repeat(BOT_MEMORY_MAX_CHARS)
+  expect(await memory.replace('bot_a', full)).toBe(`${full}\n`)
+})
+
+it('refuses a replace whose loaded copy is no longer the file', async () => {
+  await memory.add('bot_a', 'live note')
+  await expect(memory.replace('bot_a', 'editor draft', 'stale\n')).rejects.toThrow(
+    'memory changed since it was loaded',
+  )
+  expect(await memory.read('bot_a')).toBe('live note\n')
+  expect(await memory.replace('bot_a', 'editor draft', 'live note\n')).toBe('editor draft\n')
+})

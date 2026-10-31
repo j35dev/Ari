@@ -1849,4 +1849,12 @@ export function SidebarSearch({
 }
 
 export type SidebarNavId =
-  'session' | 'terminal' | 'browser' | 'changes' | 'settings' | 'files' | 'usage' | 'github'
+  | 'session'
+  | 'terminal'
+  | 'browser'
+  | 'changes'
+  | 'source-control'
+  | 'settings'
+  | 'files'
+  | 'usage'
+  | 'github'
