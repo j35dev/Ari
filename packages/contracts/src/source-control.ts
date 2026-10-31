@@ -111,6 +111,13 @@ const hostConnection = z.object({
   requests: z.array(changeRequest),
   detail: z.string().max(500),
 })
+const requestCheckout = z.object({
+  path: z.string().min(1).max(4096),
+  branch: z.string().min(1).max(240),
+  commit: oid,
+  number: z.number().int().positive(),
+  created: z.boolean(),
+})
 const status = z.object({
   branch: z.string().nullable(),
   headOid: oid.nullable(),
@@ -153,6 +160,7 @@ export const sourceControlSchemas = {
   capabilities,
   changeRequest,
   hostConnection,
+  requestCheckout,
   status,
   error,
 }
@@ -166,5 +174,6 @@ export type SourceControlRepository = z.infer<typeof repository>
 export type ChangeRequest = z.infer<typeof changeRequest>
 export type ChangeRequestCapabilities = z.infer<typeof capabilities>
 export type HostConnection = z.infer<typeof hostConnection>
+export type RequestCheckout = z.infer<typeof requestCheckout>
 export type SourceControlStatus = z.infer<typeof status>
 export type SourceControlError = z.infer<typeof error>
