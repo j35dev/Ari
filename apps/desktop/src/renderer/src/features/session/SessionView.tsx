@@ -28,6 +28,10 @@ import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
+import { BotChatHead } from '../hive/BotChatHead'
+import { BotProfileDrawer } from '../hive/BotProfileDrawer'
+import { markBotSeen } from '../hive/bot-unread'
+import { useBotOf } from '../hive/use-bot'
 import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
@@ -211,6 +215,7 @@ export function SessionView({
   activityOf,
   sessionTitle,
   parentSession = null,
+  botId,
   hidden = false,
 }: {
   sessionId: string
@@ -226,6 +231,12 @@ export function SessionView({
   /** The session that delegated to this one, when it is a child. */
   parentSession?: { id: string; title: string } | null
   /**
+   * The Hive bot this session belongs to, when it is one: bot sessions get the
+   * chat-style head above the transcript. Keyed strictly on the session's own
+   * `botId` — a coding session must never wear a bot's face.
+   */
+  botId?: string
+  /**
    * Kept mounted behind the pane's current session. The journal subscription
    * stays live so the view is current when it returns, but its subtree's
    * effects pause and its cues stay quiet: an unseen session makes no sound,
@@ -234,6 +245,19 @@ export function SessionView({
   hidden?: boolean
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
+  // The session's bot, when it has one: the chat head, the transcript's
+  // avatar rows and the approval cards all voice it.
+  const bot = useBotOf(botId)
+  const botRef = useRef(bot)
+  botRef.current = bot
+  // The Mind drawer (persona, memory, routines) opens over this session only.
+  const [mindOpen, setMindOpen] = useState(false)
+  // Reading the chat is the "seen" side of the roster's unread dot: any
+  // rendered — not kept-mounted-invisible — bot session visit marks its bot.
+  useEffect(() => {
+    if (bot === undefined || hidden === true) return
+    markBotSeen(bot.id)
+  }, [bot, hidden])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   // History is loading until its replay has been applied, so the transcript
   // never paints an empty state, or animates history in, while it is in flight.
@@ -420,6 +444,10 @@ export function SessionView({
         return
       }
       ingest(event, true)
+      // A turn that lands while this chat is on screen has been seen. The
+      // open effect alone leaves the roster dot on, because the session's
+      // updatedAt moves past the visit that happened when the pane opened.
+      if (hiddenRef.current !== true && botRef.current !== undefined) markBotSeen(botRef.current.id)
       // A prompt lands at once; streamed parts wait for the next frame.
       if (event.type === 'assistant.parts.appended') publishSoon()
       else publishMessages()
@@ -1089,6 +1117,7 @@ export function SessionView({
                       options={a.options}
                       position={i + 1}
                       total={approvals.length}
+                      owner={bot}
                       onRespond={(answer) => respondApproval(a.approvalId, answer)}
                     />
                   ))}
@@ -1183,11 +1212,25 @@ export function SessionView({
           parentSession={parentSession}
           onOpenSession={onOpenSession}
         />
+        {botId !== undefined ? (
+          <BotChatHead
+            bot={bot}
+            activity={activityOf?.(sessionId)}
+            mindOpen={mindOpen}
+            onMind={() => {
+              setMindOpen(true)
+            }}
+          />
+        ) : null}
+        {bot !== undefined ? (
+          <BotProfileDrawer bot={bot} open={mindOpen} onClose={() => setMindOpen(false)} />
+        ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
             store={store}
             loading={loading}
+            bot={bot}
             turnDiffs={turnDiffs}
             onEditUserMessage={handleEditMessage}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
@@ -1338,7 +1381,9 @@ export function EffortChip({
       if (cancelled) return
       const row = rows.find((r) => r.kind === driverKind)
       const model = probesModel
-        ? row?.models?.find((entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''))
+        ? row?.models?.find(
+            (entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''),
+          )
         : undefined
       const modelEfforts = model?.efforts ?? []
       agentEfforts = modelEfforts.length > 0 && model?.effortsSource === 'agent'

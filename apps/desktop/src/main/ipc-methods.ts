@@ -20,6 +20,8 @@ export const IPC_METHODS = [
   'bots.create',
   'bots.setHidden',
   'bots.update',
+  'bots.memory.get',
+  'bots.memory.replace',
   'routines.list',
   'routines.add',
   'routines.setEnabled',

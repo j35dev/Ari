@@ -1382,6 +1382,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   <SessionView
                                     sessionId={sessionId}
                                     hidden={hidden}
+                                    botId={sessions.find((s) => s.id === sessionId)?.botId}
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}
                                     onPick={rememberPick}

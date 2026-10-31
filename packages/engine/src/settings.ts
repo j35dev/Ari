@@ -33,6 +33,7 @@ export interface SettingsPatch {
   sessions?: Partial<Settings['sessions']>
   providers?: Partial<Record<CliKind, Partial<ProviderConnection>>>
   notifications?: Partial<Settings['notifications']>
+  hive?: Partial<Settings['hive']>
   permissions?: Partial<Settings['permissions']>
   remote?: Partial<Settings['remote']>
   window?: Settings['window']
@@ -124,6 +125,7 @@ export class SettingsStore {
       sessions: { ...this.#current.sessions, ...patch.sessions },
       providers: mergeConnections(this.#current.providers, patch.providers),
       notifications: { ...this.#current.notifications, ...patch.notifications },
+      hive: { ...this.#current.hive, ...patch.hive },
       permissions: { ...this.#current.permissions, ...patch.permissions },
       remote: { ...this.#current.remote, ...patch.remote },
       window: patch.window !== undefined ? patch.window : this.#current.window,

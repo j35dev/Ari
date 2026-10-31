@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+﻿import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '@ari/contracts/settings'
@@ -36,6 +36,7 @@ const engineSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },
+  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
@@ -64,9 +65,7 @@ describe('SettingsWorkspace', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'Settings sections' })).toBeInTheDocument()
     for (const section of SETTINGS_SECTIONS) {
-      expect(
-        screen.getByRole('button', { name: section.label }),
-      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: section.label })).toBeInTheDocument()
     }
     expect(screen.queryByText('Detected providers')).not.toBeInTheDocument()
     expect(screen.queryByText('Export diagnostics')).not.toBeInTheDocument()
