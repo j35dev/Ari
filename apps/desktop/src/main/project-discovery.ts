@@ -30,16 +30,12 @@ function pathKey(path: string): string {
   return process.platform === 'win32' ? key.toLowerCase() : key
 }
 
-function excluded(path: string, home: string): boolean {
+function excluded(path: string, roots: ReadonlySet<string>): boolean {
   const key = pathKey(path)
   return (
     /\/(?:\.worktrees|\.git|node_modules|\.ari|\.claude\/worktrees|\.t3\/worktrees)(?:\/|$)/.test(
       key,
-    ) ||
-    [join(home, 'Downloads'), join(home, 'Documents', 'Codex')].some((root) => {
-      const prefix = pathKey(root)
-      return key === prefix || key.startsWith(`${prefix}/`)
-    })
+    ) || [...roots].some((prefix) => key === prefix || key.startsWith(`${prefix}/`))
   )
 }
 
@@ -48,6 +44,8 @@ export async function discoverAgentProjects(
   options: ProjectDiscoveryOptions = {},
 ): Promise<ProjectDiscovery> {
   const home = options.homeDir ?? homedir()
+  const excludedFolders = [join(home, 'Downloads'), join(home, 'Documents', 'Codex')]
+  const excludedPaths = new Set(excludedFolders.map(pathKey))
   const signal = options.signal ?? AbortSignal.timeout(8_000)
   const found = new Map<string, DiscoveredProject>()
   const warnings = new Set<string>()
@@ -98,10 +96,10 @@ export async function discoverAgentProjects(
     source: 'claude' | 'codex',
     at: number | null,
   ): Promise<void> => {
-    if (stopped() || !isAbsolute(path) || excluded(path, home)) return
+    if (stopped() || !isAbsolute(path) || excluded(path, excludedPaths)) return
     try {
       const canonical = await realpath(path)
-      if (excluded(canonical, home) || !(await stat(canonical)).isDirectory()) return
+      if (excluded(canonical, excludedPaths) || !(await stat(canonical)).isDirectory()) return
       // Linked agent worktrees are not independent projects. Manual browse still accepts them.
       const git = await stat(join(canonical, '.git')).catch(() => null)
       if (git?.isFile()) return
@@ -188,6 +186,15 @@ export async function discoverAgentProjects(
     }
   }
   const scan = async (): Promise<void> => {
+    // Temp/home aliases and relocated Downloads folders need the same canonical comparison as projects.
+    for (const folder of excludedFolders) {
+      if (stopped()) return
+      try {
+        excludedPaths.add(pathKey(await realpath(folder)))
+      } catch (error) {
+        report('excluded-folder', error)
+      }
+    }
     const config =
       options.claudeHome && pathKey(options.claudeHome) !== pathKey(join(home, '.claude'))
         ? null
