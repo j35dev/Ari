@@ -1,6 +1,6 @@
 import { open, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -42,11 +42,12 @@ import {
   push as gitPush,
   stage as gitStage,
 } from './git-actions'
-import { writeTextFile } from './fs-write'
+import { ensureParentDir, writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
 import { BotRoutineSchedule } from './bot-routine-schedule'
+import { BotMemoryCapture } from './bot-memory-capture'
 import { ResumeSchedule, routineHost } from './resume-schedule'
 import { TeamRoomService } from './team-rooms'
 import { controlCliApproval } from '@ari/engine/control-cli'
@@ -126,6 +127,7 @@ import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
 import { AcpDriver, attachModelEfforts, modelsFromConfigOptions } from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
+import { openProviderSetupTerminal } from './provider-setup'
 import { ProviderAccounts } from './provider-accounts'
 import { detectConnection, unavailableReason } from './provider-connections'
 import { providerEnvironment, setProviderEnvironment } from './provider-env'
@@ -1142,6 +1144,15 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     dispatch: (command, origin) => engine.dispatch(command, origin),
   })
   const botRoutinesReady: Promise<void> = botRoutines.load().then(() => botRoutines.start())
+  // Post-turn memory capture: the same session store that saw the settle runs
+  // the check, so a bot never captures while its own turn is mid-flight.
+  const botMemoryCapture = new BotMemoryCapture({
+    store: getSessionStore(),
+    memory: getBotMemoryStore(),
+    dispatch: (command, origin) => engine.dispatch(command, origin),
+    enabled: () => getSettingsStore().current.hive.selfMemory,
+  })
+  botMemoryCapture.start(getSessionStore())
   const backgroundReady = options.backgroundReady ?? Promise.resolve()
   // The runtime's start-up recovery replays every delegated session; turns
   // and agent-control calls wait on it, the first paint does not.
@@ -1203,6 +1214,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   app.once('before-quit', () => {
     resumeSchedule.close()
     botRoutines.close()
+    botMemoryCapture.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
 
@@ -1625,6 +1637,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       patch,
     ),
   )
+  r.register('bots.memory.get', ({ botId }) => getBotMemoryStore().read(botId))
+  r.register('bots.memory.replace', ({ botId, content, base }) =>
+    getBotMemoryStore().replace(botId, content, base),
+  )
   r.register('routines.list', async () => {
     await botRoutinesReady
     return botRoutines.list()
@@ -2044,6 +2060,23 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     return { applied: true }
   })
 
+  const setupTerminalIds = new Set<string>()
+  contents.once('destroyed', () => {
+    for (const id of setupTerminalIds) terminals.kill(id)
+  })
+  r.register('providers.setupTerminal', async ({ kind }) => {
+    ptyModule = await loadPtyModule()
+    if (!ptyModule) return { ok: false as const, error: 'The terminal backend is unavailable.' }
+    const result = await openProviderSetupTerminal({
+      signIn: () => accounts.signIn(kind, accounts.activeId(kind)),
+      terminals,
+      homeDir: homedir(),
+      platform: process.platform,
+    })
+    if (result.ok) setupTerminalIds.add(result.id)
+    return result
+  })
+
   r.register('terminal.create', async (params) => {
     // Await the guarded loader so a slow native import delays creation instead
     // of failing it; a hard load failure becomes a descriptive error.
@@ -2069,6 +2102,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
 
   r.register('terminal.kill', (params) => {
+    setupTerminalIds.delete(params.id)
     terminals.kill(params.id)
     return { killed: true }
   })
@@ -2091,6 +2125,22 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('browser.capture', async (params) => ({ dataUrl: await browsers.still(params.id) }))
 
   r.register('project.list', async () => getProjectStore().load())
+
+  let discovery: Promise<RpcResults['project.discover']> | null = null
+  r.register('project.discover', () => {
+    discovery ??= import('./project-discovery')
+      .then(({ discoverAgentProjects }) =>
+        discoverAgentProjects({
+          claudeHome:
+            providerEnvironment('claude')['CLAUDE_CONFIG_DIR'] ?? process.env['CLAUDE_CONFIG_DIR'],
+          codexHome: providerEnvironment('codex')['CODEX_HOME'] ?? process.env['CODEX_HOME'],
+        }),
+      )
+      .finally(() => {
+        discovery = null
+      })
+    return discovery
+  })
 
   r.register('project.add', async (params) => {
     const project = await getProjectStore().add(params.path, params.name)
@@ -2512,6 +2562,11 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     // Writes carry the same capability scope as reads: the target resolves
     // inside one trusted scope root first, then the write jail below
     // re-verifies it against the registered folders as defense in depth.
+    // Parents (`.ari/pastes/`) are created only after that scope's nearest
+    // existing ancestor is inside the root — the jail rejects a missing one.
+    const root = await resolveScopeRoot(params)
+    if (isAbsolute(params.path)) throw new Error('path must be workspace-relative')
+    await ensureParentDir(resolve(root, params.path), [root])
     const target = await resolveFsScope(params)
     const bytesWritten = await writeTextFile(
       { path: target, content: params.content },

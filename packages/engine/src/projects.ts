@@ -1,11 +1,14 @@
 import { dirname } from 'node:path'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { projectSchema } from '@ari/contracts/project'
 import type { Project, ProjectStatus, StoredProject } from '@ari/contracts/project'
 import { z } from 'zod'
 import { newTypedId } from '@ari/shared/ids'
+import { createLogger } from '@ari/shared/logger'
+
+const log = createLogger('engine:projects')
 
 export interface ProjectStoreOptions {
   /** Directory holding projects.json (typically <userData>). */
@@ -18,14 +21,19 @@ export interface ProjectStoreOptions {
  * win32 only, where the filesystem itself is case-insensitive.
  */
 export async function canonicalizeFolder(folderPath: string): Promise<string> {
-  let absolute = resolve(folderPath)
+  const absolute = resolve(folderPath)
   try {
-    absolute = await realpath(absolute)
+    return await realpath(absolute)
   } catch {
-    // Missing or unreadable folder: keep the resolved path so a project can
-    // still be recorded in the degraded `missing` state.
+    // The folder itself may be gone. Realpath the parent so a stored project
+    // still matches where the platform's realpath and resolve differ
+    // (`/var` vs `/private/var`, 8.3 short names).
+    try {
+      return join(await realpath(dirname(absolute)), basename(absolute))
+    } catch {
+      return absolute
+    }
   }
-  return absolute
 }
 
 function dedupeKey(canonicalPath: string): string {
@@ -80,13 +88,21 @@ export class ProjectStore {
   // Guards against a `load()` racing an in-flight mutation and clobbering it
   // with the on-disk snapshot: the first load wins, later ones are no-ops.
   #loaded = false
+  #loading: Promise<Project[]> | null = null
 
   constructor(options: ProjectStoreOptions) {
     this.#path = join(options.dir, 'projects.json')
   }
 
-  async load(): Promise<Project[]> {
-    if (this.#loaded) return this.list()
+  load(): Promise<Project[]> {
+    if (this.#loaded) return Promise.resolve(this.list())
+    this.#loading ??= this.#read().finally(() => {
+      this.#loading = null
+    })
+    return this.#loading
+  }
+
+  async #read(): Promise<Project[]> {
     try {
       const raw = await readFile(this.#path, 'utf8')
       const parsed: unknown = JSON.parse(raw)
@@ -98,7 +114,11 @@ export class ProjectStore {
         this.#projects = registry.projects
         this.#removed = registry.removed
       }
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.warn('project registry could not be read; preserving file', { error: String(error) })
+        throw error
+      }
       this.#projects = []
       this.#removed = []
     }
@@ -126,6 +146,7 @@ export class ProjectStore {
    * than staying stranded.
    */
   async add(folderPath: string, name?: string): Promise<Project> {
+    await this.load()
     const canonical = await canonicalizeFolder(folderPath)
     const existing = this.#findByPath(canonical)
     if (existing) return withStatus(existing)
@@ -157,6 +178,17 @@ export class ProjectStore {
    */
   async open(folderPath: string, name?: string): Promise<Project> {
     const added = await this.add(folderPath, name)
+    if (added.status === 'missing') {
+      // Opening is how onboarding adds a chosen folder. A path that vanished
+      // between the scan and the confirm must not stay in the sidebar: roll
+      // back a record this call just created. An older project keeps its row.
+      const stored = this.#projects.find((project) => project.id === added.id)
+      if (stored && !stored.open && stored.lastOpenedAt === 0) {
+        this.#projects = this.#projects.filter((project) => project.id !== added.id)
+        await this.#persist()
+      }
+      return added
+    }
     return (await this.#patch(added.id, { open: true, lastOpenedAt: Date.now() })) ?? added
   }
 
@@ -172,11 +204,11 @@ export class ProjectStore {
    * when either id is unknown, leaving the order untouched.
    */
   async move(id: string, beforeId: string | null): Promise<Project | null> {
+    await this.load()
     const moved = this.#projects.find((p) => p.id === id)
     if (!moved) return null
     const without = this.#projects.filter((p) => p.id !== id)
-    const index =
-      beforeId === null ? without.length : without.findIndex((p) => p.id === beforeId)
+    const index = beforeId === null ? without.length : without.findIndex((p) => p.id === beforeId)
     if (index === -1) return null
     this.#projects = [...without.slice(0, index), moved, ...without.slice(index)]
     await this.#persist()
@@ -189,6 +221,7 @@ export class ProjectStore {
    * folder again restores this project's id and revives those sessions.
    */
   async remove(id: string): Promise<boolean> {
+    await this.load()
     const project = this.#projects.find((p) => p.id === id)
     if (!project) return false
     this.#projects = this.#projects.filter((p) => p.id !== id)
@@ -219,6 +252,7 @@ export class ProjectStore {
   }
 
   async #patch(id: string, fields: Partial<StoredProject>): Promise<Project | null> {
+    await this.load()
     const target = this.#projects.find((p) => p.id === id)
     if (!target) return null
     const updated: StoredProject = { ...target, ...fields }

@@ -31,6 +31,28 @@
   background: color-mix(in oklab, var(--ari-surface-1) 96%, transparent);
 }
 
+/* Context fill retargets on every provider reading; a transform keeps that off
+   the layout path. Colour is instant — it changes tone, not size. */
+.ari-status-capsule-fill {
+  transition: transform var(--ari-dur-panel) var(--ari-ease-glide);
+}
+
+/* A split pane narrows before the capsule's readouts do. Shed the lower-value
+   ones rather than let the row wrap into a second line under the composer. */
+@container (max-width: 520px) {
+  .ari-status-capsule-tokens,
+  .ari-status-capsule-tokens + .ari-status-divider,
+  .ari-status-divider:has(+ .ari-status-capsule-tokens) {
+    display: none;
+  }
+}
+
+@container (max-width: 400px) {
+  .ari-status-capsule-duration {
+    display: none;
+  }
+}
+
 @container (max-height: 420px) {
   .ari-session-intro,
   .ari-session-starters {

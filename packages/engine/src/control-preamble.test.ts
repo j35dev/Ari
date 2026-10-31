@@ -20,6 +20,8 @@ it('tells a root session it can delegate and will be told when children finish',
   expect(text).toContain('not written by the user')
   expect(text).toContain('session spawn|status|wait')
   expect(text).toContain('end your turn rather than polling')
+  expect(text).toContain('short human title')
+  expect(text).toContain('Do not quote a delegation update')
   expect(text).toContain('`ari --skill`')
   expect(text).toContain('Never disclose ARI_CONTROL_TOKEN')
 })

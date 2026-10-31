@@ -163,30 +163,19 @@ it('names the session a relayed message came from, and opens it', () => {
   expect(screen.getByText('From a linked session')).toBeTruthy()
 })
 
-it('shows a delegation update as one line that opens to the delivered text', () => {
-  const onOpenSession = vi.fn()
+it('keeps a delegation wake out of the conversation', () => {
   const update: Message = {
     ...message('user', [
       text(
-        '[Ari delegation update: added automatically by Ari, not written by the user.]\n\nChild session "Parser" (c) finished its turn.\nReport:\nFixed the parser.',
+        '[Ari delegation update: added automatically by Ari, not written by the user.]\n\nParser (c) finished its turn.\nReport:\nFixed the parser.',
       ),
     ]),
     origin: { kind: 'completion', sessionIds: ['c'] },
   }
-  const { container } = render(
-    <Conversation
-      messages={[update]}
-      sessionId="session-1"
-      titleOf={(id) => (id === 'c' ? 'Parser' : undefined)}
-      onOpenSession={onOpenSession}
-    />,
-  )
-  // Not a bubble, and nothing of the long text until it is asked for.
-  expect(container.querySelector('.message-bubble')).toBeNull()
+  const typed = message('user', [text('Ship the parser.')])
+  const { container } = render(<Conversation messages={[typed, update]} sessionId="session-1" />)
+  expect(screen.getByText('Ship the parser.')).toBeTruthy()
   expect(screen.queryByText(/Fixed the parser/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Delegation update: Parser reported back' }))
-  expect(screen.getByText(/Fixed the parser/)).toBeTruthy()
-  expect(screen.queryByText(/not written by the user/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Open Parser' }))
-  expect(onOpenSession).toHaveBeenCalledWith('c')
+  expect(screen.queryByText(/Delegation update/)).toBeNull()
+  expect(container.querySelectorAll('.message-bubble')).toHaveLength(1)
 })
