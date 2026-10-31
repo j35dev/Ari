@@ -23,6 +23,20 @@ export function TurnDiffCard({
   onComment?: (comment: DiffComment) => void
 }) {
   const [open, setOpen] = useState(false)
+  const stats = useMemo(() => {
+    const { files } = parseDiff(diffText)
+    let added = 0
+    let removed = 0
+    for (const file of files) {
+      for (const hunk of file.hunks) {
+        for (const line of hunk.lines) {
+          if (line.type === 'add') added += 1
+          else if (line.type === 'del') removed += 1
+        }
+      }
+    }
+    return { fileCount: files.length, added, removed }
+  }, [diffText])
   if (error !== undefined && error.length > 0) {
     return (
       <div
@@ -44,20 +58,6 @@ export function TurnDiffCard({
       </div>
     )
   }
-  const stats = useMemo(() => {
-    const { files } = parseDiff(diffText)
-    let added = 0
-    let removed = 0
-    for (const file of files) {
-      for (const hunk of file.hunks) {
-        for (const line of hunk.lines) {
-          if (line.type === 'add') added += 1
-          else if (line.type === 'del') removed += 1
-        }
-      }
-    }
-    return { fileCount: files.length, added, removed }
-  }, [diffText])
 
   return (
     <div className="my-2" data-turn-diff={turnId}>
