@@ -1668,6 +1668,7 @@ export type SidebarNavId =
   | 'terminal'
   | 'browser'
   | 'changes'
+  | 'source-control'
   | 'settings'
   | 'files'
   | 'usage'
