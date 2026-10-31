@@ -737,17 +737,24 @@ export function SessionView({
       command: Record<string, unknown>,
       failureTitle: string,
       onRejected?: (reason: string) => void,
-    ): void => {
+    ): Promise<boolean> => {
       const fail = (reason: string): void => {
         onRejected?.(reason)
         toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
       }
-      void rpc
+      return rpc
         .invoke('command.dispatch', { command })
         .then((result) => {
-          if (!result.accepted) fail(result.reason ?? 'The command was rejected.')
+          if (!result.accepted) {
+            fail(result.reason ?? 'The command was rejected.')
+            return false
+          }
+          return true
         })
-        .catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
+        .catch((err: unknown) => {
+          fail(err instanceof Error ? err.message : String(err))
+          return false
+        })
     },
     [toast],
   )
@@ -887,7 +894,9 @@ export function SessionView({
   const handleEditQueued = useCallback(
     (message: QueuedMessageView) => {
       if (message.attachments.length > 0) return
-      dispatch(
+      // The draft changes only after the engine accepts the dequeue. Applying
+      // it first wipes an in-progress draft when the row was already sent.
+      void dispatch(
         {
           type: 'message.dequeue',
           sessionId,
@@ -895,8 +904,10 @@ export function SessionView({
           attachments: message.attachments,
         },
         'Couldn’t edit queued message',
-      )
-      setComposerSeed((prev) => ({ text: message.text, nonce: (prev?.nonce ?? 0) + 1 }))
+      ).then((accepted) => {
+        if (!accepted) return
+        setComposerSeed((prev) => ({ text: message.text, nonce: (prev?.nonce ?? 0) + 1 }))
+      })
     },
     [sessionId, dispatch],
   )

@@ -1578,6 +1578,41 @@ describe('SessionView queued messages', () => {
     await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('focus on the parser'))
   })
 
+  it('keeps the current draft when a queued edit is refused', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    await user.type(screen.getByLabelText('Message'), 'keep me')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'command.dispatch') return { accepted: false, reason: 'already sent' }
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: 'turn_1' }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+
+    await user.click(screen.getByRole('button', { name: /edit queued message 1/i }))
+    expect(await screen.findByText('already sent')).toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toHaveValue('keep me')
+  })
+
   it('does not offer edit for a queued message carrying images', async () => {
     renderView()
     await screen.findByLabelText('Message')
