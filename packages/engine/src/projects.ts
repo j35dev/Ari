@@ -1,6 +1,6 @@
 import { dirname } from 'node:path'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { projectSchema } from '@ari/contracts/project'
 import type { Project, ProjectStatus, StoredProject } from '@ari/contracts/project'
@@ -21,14 +21,19 @@ export interface ProjectStoreOptions {
  * win32 only, where the filesystem itself is case-insensitive.
  */
 export async function canonicalizeFolder(folderPath: string): Promise<string> {
-  let absolute = resolve(folderPath)
+  const absolute = resolve(folderPath)
   try {
-    absolute = await realpath(absolute)
+    return await realpath(absolute)
   } catch {
-    // Missing or unreadable folder: keep the resolved path so a project can
-    // still be recorded in the degraded `missing` state.
+    // The folder itself may be gone. Realpath the parent so a stored project
+    // still matches where the platform's realpath and resolve differ
+    // (`/var` vs `/private/var`, 8.3 short names).
+    try {
+      return join(await realpath(dirname(absolute)), basename(absolute))
+    } catch {
+      return absolute
+    }
   }
-  return absolute
 }
 
 function dedupeKey(canonicalPath: string): string {
