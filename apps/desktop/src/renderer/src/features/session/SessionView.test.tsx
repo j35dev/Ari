@@ -4,21 +4,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { useState } from 'react'
 import { ToastProvider } from '@ari/ui/toast'
+import { botSeenAt, resetSeenBots } from '../hive/bot-unread'
 import { commandSchema } from '@ari/contracts/commands'
 import { journalEventSchema } from '@ari/contracts/events'
 import { sessionSchema } from '@ari/contracts/session'
 import { decideCommand, type DispatchDecision } from '@ari/engine/dispatcher'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import {
-  ContextMeter,
   EffortChip,
   PermissionModeChip,
   SessionView,
   contextTokensFromHint,
-  formatCompactTokens,
-  formatTurnDuration,
   type SessionDefaults,
 } from './SessionView'
+import {
+  ContextMeter,
+  formatCompactTokens,
+  formatTurnDuration,
+} from './SessionStatusCapsule'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
@@ -2676,7 +2679,80 @@ describe('SessionView delegated work', () => {
     emitReplayDone()
 
     expect(await screen.findByText('Integrated the parser.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Delegation update:/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Delegation update:/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ari delegation update/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('SessionView bot unread', () => {
+  beforeEach(() => {
+    resetSeenBots()
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'bots.list') {
+        return [
+          {
+            id: 'bot_1',
+            name: 'Forge',
+            emoji: '⚒️',
+            personaMd: '# Forge',
+            driverKind: 'ari-core',
+            modelId: null,
+          },
+        ]
+      }
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    resetSeenBots()
+    vi.restoreAllMocks()
+  })
+
+  it('marks an open bot chat seen again when a later turn lands', async () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    render(
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          botId="bot_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+        />
+      </ToastProvider>,
+    )
+    await waitFor(() => expect(botSeenAt('bot_1')).toBe(1_000))
+    now = 5_000
+    emitSessionEvent({
+      seq: 1,
+      at: 5_000,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'completed',
+    })
+    expect(botSeenAt('bot_1')).toBe(5_000)
   })
 })

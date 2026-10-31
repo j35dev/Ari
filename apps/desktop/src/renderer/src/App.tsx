@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { X, FolderPlus } from 'lucide-react'
+import { X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
@@ -83,11 +83,10 @@ import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell
 import { HiveRoster, isBotSession, RoomView, useRooms } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
 import {
-  ContextMenu,
   anchorBelow,
-  type ContextMenuItem,
   type MenuAnchor,
 } from './shell/ContextMenu'
+import { NewSessionLauncher } from './shell/NewSessionLauncher'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import {
   applyPatches,
@@ -179,8 +178,9 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   /**
-   * The pending "start a session" request: where to anchor the project picker,
-   * plus any defaults the entry point wants applied to the session it creates.
+   * The pending "start a session" request, plus any overrides the entry point
+   * wants applied to the session it creates. (Entry points still pass an
+   * anchor — the launcher now opens centered, so it is carried but unused.)
    */
   const [newSessionRequest, setNewSessionRequest] = useState<{
     anchor: MenuAnchor
@@ -943,42 +943,18 @@ function Shell() {
   const closeNewSessionMenu = useCallback(() => setNewSessionRequest(null), [])
   newSessionRef.current = beginNewSessionFromKeyboard
 
-  const newSessionMenuItems = useMemo<ContextMenuItem[]>(
-    () => [
-      ...projects.map((project) => ({
-        id: project.id,
-        label: project.name,
-        onSelect: () => {
-          setNewSessionRequest(null)
-          createSession(project.id, newSessionRequest?.overrides)
-        },
-      })),
-      ...projects.map((project) => ({
-        id: `lead-${project.id}`,
-        label: `Lead session in ${project.name}`,
-        onSelect: () => {
-          setNewSessionRequest(null)
-          createSession(project.id, { ...newSessionRequest?.overrides, lead: true })
-        },
-      })),
-      {
-        id: 'add-project',
-        label: 'Add project…',
-        icon: FolderPlus,
-        onSelect: () => {
-          const overrides = newSessionRequest?.overrides
-          setNewSessionRequest(null)
-          void openProjectViaPicker()
-            .then((project) => {
-              if (project === null) return
-              refreshProjects()
-              createSession(project.id, overrides)
-            })
-            .catch((error: unknown) => log.warn('project open failed', error))
-        },
-      },
-    ],
-    [projects, createSession, refreshProjects, newSessionRequest],
+  const addProjectAndStart = useCallback(
+    (overrides?: Partial<SessionDefaults>): void => {
+      setNewSessionRequest(null)
+      void openProjectViaPicker()
+        .then((project) => {
+          if (project === null) return // cancelled picker stays put
+          refreshProjects()
+          createSession(project.id, overrides)
+        })
+        .catch((error: unknown) => log.warn('project open failed', error))
+    },
+    [createSession, refreshProjects],
   )
 
   const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
@@ -1399,6 +1375,7 @@ function Shell() {
                                   <SessionView
                                     sessionId={sessionId}
                                     hidden={hidden}
+                                    botId={sessions.find((s) => s.id === sessionId)?.botId}
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}
                                     onPick={rememberPick}
@@ -1537,14 +1514,18 @@ function Shell() {
         scope={activeScope}
       />
       <KeyboardCheatSheet />
-      {newSessionRequest !== null ? (
-        <ContextMenu
-          anchor={newSessionRequest.anchor}
-          label="New session in project"
-          items={newSessionMenuItems}
-          onClose={closeNewSessionMenu}
-        />
-      ) : null}
+      <NewSessionLauncher
+        open={newSessionRequest !== null}
+        projects={projects}
+        sessions={sessions}
+        preferredProjectId={activeSession?.projectId ?? null}
+        onCreate={(projectId, lead) => {
+          const overrides = newSessionRequest?.overrides
+          createSession(projectId, lead ? { ...overrides, lead: true } : overrides)
+        }}
+        onAddProject={() => addProjectAndStart(newSessionRequest?.overrides)}
+        onClose={closeNewSessionMenu}
+      />
     </div>
   )
 }

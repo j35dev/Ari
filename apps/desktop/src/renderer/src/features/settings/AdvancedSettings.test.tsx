@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+﻿import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
@@ -36,6 +36,7 @@ const engineSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },
+  hive: { selfMemory: false },
   permissions: { allowlist: ['git status'] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
@@ -69,9 +70,7 @@ describe('AdvancedSettings', () => {
   })
 
   it('downloads ari-diagnostics.json via a blob anchor click', async () => {
-    const createObjectURL = vi
-      .spyOn(URL, 'createObjectURL')
-      .mockReturnValue('blob:ari-test')
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:ari-test')
     const user = userEvent.setup()
 
     render(<AdvancedSettings />)

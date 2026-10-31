@@ -23,6 +23,8 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
   }),
   /** A Hive bot routine fired with nobody present to answer it. */
   z.object({ kind: z.literal('routine'), routineId: z.string().min(1) }),
+  /** Ari's post-turn memory capture, a housekeeping prompt into a bot's chat. */
+  z.object({ kind: z.literal('memory-capture') }),
   /** A turn the team room host sent to one of its bots. */
   z.object({
     kind: z.literal('room'),
