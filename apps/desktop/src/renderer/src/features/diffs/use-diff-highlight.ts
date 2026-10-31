@@ -38,6 +38,7 @@ export function useDiffHighlight(rows: ReviewRow[], path: string): Record<string
     const lines: HighlightLine[] = []
     let chars = 0
     for (const [index, row] of rows.entries()) {
+      if (lines.length >= 4000) break
       for (const [side, line] of [
         ['old', row.old],
         ['new', row.next],
