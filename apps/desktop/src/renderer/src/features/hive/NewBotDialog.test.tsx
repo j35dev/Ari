@@ -21,6 +21,8 @@ const CREATED: Bot = {
   projectId: 'proj_1',
 }
 
+const PROJECTS = [{ id: 'proj_1', name: 'Ari' }]
+
 beforeEach(() => {
   invokeMock.mockReset()
   invokeMock.mockImplementation(async (method: string) => {
@@ -41,7 +43,7 @@ describe('NewBotDialog', () => {
       onCreated: vi.fn(),
     }
     const { rerender } = render(<NewBotDialog {...props} projects={[]} />)
-    rerender(<NewBotDialog {...props} projects={[{ id: 'proj_1', name: 'Ari' }]} />)
+    rerender(<NewBotDialog {...props} projects={PROJECTS} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Forge' }))
     await userEvent.click(screen.getByRole('button', { name: 'Create bot' }))
@@ -49,5 +51,56 @@ describe('NewBotDialog', () => {
     await waitFor(() =>
       expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'proj_1' })),
     )
+  })
+
+  it('drafts a whole bot from one line about the job', async () => {
+    const onCreate = vi.fn(async (input: { name: string }) => ({ ...CREATED, ...input }))
+    const onCreated = vi.fn()
+    render(
+      <NewBotDialog
+        open
+        onOpenChange={vi.fn()}
+        projects={PROJECTS}
+        driverKind="ari-core"
+        modelId={null}
+        onCreate={onCreate}
+        onCreated={onCreated}
+      />,
+    )
+
+    const dialog = await screen.findByRole('dialog', { name: 'New bot' })
+    await userEvent.type(
+      dialog.querySelector('input[placeholder^="Watch"]')!,
+      'watch our alert pipeline and page me',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Draft' }))
+
+    // The draft lands in the editable fields; the name belongs to the archetype.
+    const name = screen.getAllByRole('textbox', { name: 'Name' })[0]!
+    expect(name).toHaveValue('Watch')
+    expect(screen.getByDisplayValue('Ops')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Create bot' }))
+
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Watch', title: 'Ops' }),
+      ),
+    )
+  })
+
+  it('keeps Draft idle while the line is empty', async () => {
+    render(
+      <NewBotDialog
+        open
+        onOpenChange={vi.fn()}
+        projects={PROJECTS}
+        driverKind="ari-core"
+        modelId={null}
+        onCreate={vi.fn(async () => CREATED)}
+        onCreated={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: 'Draft' })).toHaveAttribute('disabled')
   })
 })

@@ -42,6 +42,7 @@ export function PermissionsSettings() {
   const entries = settings?.permissions.allowlist ?? []
   const mode = settings?.sessions.defaultPermissionMode ?? 'ask'
   const delegation = settings?.delegation ?? delegationSettingsSchema.parse({})
+  const hive = settings?.hive ?? { selfMemory: false }
   // Keeps one tab stop in the group if the stored mode is not one we render.
   const knownMode = PERMISSION_MODES.some((m) => m.value === mode)
 
@@ -374,6 +375,27 @@ export function PermissionsSettings() {
             ))}
           </ul>
         )}
+      </section>
+
+      <section aria-labelledby="hive-heading" className="space-y-3">
+        <h2 id="hive-heading" className="text-sm font-medium">
+          Hive bots
+        </h2>
+        <p className="text-sm text-fg-muted">
+          What your bot team may do quietly in the background.
+        </p>
+        <div className="mt-3">
+          <SettingsRow
+            label="Bots remember on their own"
+            hint="After each settled bot turn, one quiet prompt lets the bot save durable facts to memory.md (off by default)."
+          >
+            <Switch
+              checked={hive.selfMemory}
+              onCheckedChange={(checked) => persist({ hive: { selfMemory: checked } })}
+              aria-label="Bots remember on their own"
+            />
+          </SettingsRow>
+        </div>
       </section>
     </SettingsPage>
   )
