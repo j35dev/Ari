@@ -19,14 +19,7 @@ export type TranscriptRow = GroupedRow | DelegationRow
 export type GroupedRow = TranscriptBlock | ToolGroupRow | TurnDiffRow
 
 export type DelegatedChildState =
-  | 'working'
-  | 'needs-you'
-  | 'waiting'
-  | 'done'
-  | 'failed'
-  | 'stopped'
-  | 'idle'
-  | 'removed'
+  'working' | 'needs-you' | 'waiting' | 'done' | 'failed' | 'stopped' | 'idle' | 'removed'
 
 /** One child session a turn delegated to, as its task card shows it. */
 export interface DelegatedChild {
@@ -97,12 +90,17 @@ export interface ToolGroupRow {
   resultsByCallId: Map<string, TranscriptBlock>
 }
 
+/** A successful diff, or an explicit failure that must stay visible and retryable. */
+export type TurnDiffValue = string | { error: string }
+
 /** A settled turn's git changes rendered as one collapsed diff card. */
 export interface TurnDiffRow {
   kind: 'turn-diff'
   /** Stable key derived from the turn id (`turn-diff:<turnId>`). */
   key: string
   turnId: string
-  /** Raw unified diff text for the turn's checkpoint. */
+  /** Raw unified diff text for the turn's checkpoint. Empty when `error` is set. */
   diffText: string
+  /** Why the comparison could not be read. Absent when `diffText` is the diff. */
+  error?: string
 }
