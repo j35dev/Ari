@@ -1,4 +1,4 @@
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { GitService, type RepositoryGit } from '@ari/engine/git'
 import type { RequestCheckout, SourceControlError } from '@ari/contracts/rpc'
@@ -76,7 +76,7 @@ export async function checkoutChangeRequest(
   const worktrees = options.worktrees ?? new GitService({ timeoutMs: 60_000 })
   const listed = await worktrees.listWorktrees(git.cwd)
   if (!listed.ok) return err({ code: 'failed', message: 'Could not list worktrees.' })
-  const existing = listed.value.find((row) => samePath(row.path, target))
+  const existing = await findWorktree(listed.value, target)
   if (existing) {
     if (!oid.test(existing.head) || existing.branch !== `refs/heads/${branch}`) {
       return err({
@@ -147,9 +147,29 @@ async function readPair(
   return ok({ head: head.value.trim(), branch: branch.value.trim() })
 }
 
-function samePath(left: string, right: string): boolean {
-  const a = resolve(left)
-  const b = resolve(right)
+async function findWorktree(
+  rows: readonly { path: string; head: string; branch: string | null }[],
+  target: string,
+): Promise<(typeof rows)[number] | undefined> {
+  const wanted = await canonicalize(target)
+  for (const row of rows) {
+    if (await samePath(row.path, wanted)) return row
+  }
+  return undefined
+}
+
+/** git reports the real path. macOS tmp is /var -> /private/var, and Windows may use an 8.3 name. */
+async function canonicalize(path: string): Promise<string> {
+  try {
+    return await realpath(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
+async function samePath(left: string, right: string): Promise<boolean> {
+  const a = await canonicalize(left)
+  const b = await canonicalize(right)
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
