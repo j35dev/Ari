@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -109,7 +109,12 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
       ok: true,
       value: { repository: { provider: 'github', name: 'acme/demo' }, requests: [{ number: 4 }] },
     })
-    expect(hostCommand).toHaveBeenCalledWith('gh', expect.any(Array), root, expect.any(AbortSignal))
+    expect(hostCommand).toHaveBeenCalledWith(
+      'gh',
+      expect.any(Array),
+      await realpath(root),
+      expect.any(AbortSignal),
+    )
     await writeFile(join(root, 'dirty.txt'), 'pending\n')
     expect(await registry.invoke('scm.summary', { projectId: 'p' })).toMatchObject({
       ok: true,
