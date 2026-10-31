@@ -21,6 +21,7 @@ import type { GitHistoryEntry, GitMutationOutcome } from './git-mutation'
 import type {
   GitReviewManifest,
   HostConnection,
+  RequestCheckout,
   SourceControlError,
   SourceControlStatus,
 } from './source-control'
@@ -30,6 +31,7 @@ export type {
   ChangeRequest,
   ChangeRequestCapabilities,
   HostConnection,
+  RequestCheckout,
   GitComparison,
   GitReviewFile,
   GitReviewManifest,
@@ -893,6 +895,10 @@ export const rpcParams = {
   'git.status': gitScopeSchema,
   'scm.summary': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
   'scm.requests': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
+  'scm.checkout': gitScopeSchema.extend({
+    number: z.number().int().positive().max(1_000_000),
+    requestId: z.string().min(1).max(128).optional(),
+  }),
   'scm.status': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
   'scm.review': gitScopeSchema.extend({
     comparison: sourceControlSchemas.comparison,
@@ -1321,6 +1327,7 @@ export interface RpcResults {
   'settings.update': Settings
   'scm.summary': SourceControlResult<{ branch: string | null; changedFiles: number }>
   'scm.requests': SourceControlResult<HostConnection>
+  'scm.checkout': SourceControlResult<RequestCheckout>
   'scm.status': SourceControlResult<SourceControlContext>
   'scm.review': SourceControlResult<GitReviewManifest>
   'scm.diff': SourceControlResult<string>

@@ -2337,6 +2337,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   const sourceControl = new SourceControlHost(r, {
     root: resolveScopeRoot,
     session: (id) => getSessionStore().load(id),
+    requestRoot: join(app.getPath('userData'), 'request-worktrees'),
   })
   sourceControl.register()
   const sourceControlLive = new SourceControlLive(r, sourceControl, {

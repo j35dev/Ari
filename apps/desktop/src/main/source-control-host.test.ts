@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { initialReadModel } from '@ari/engine/projection'
 import type { StreamFrame } from '@ari/contracts/rpc'
@@ -34,6 +34,20 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   for (const host of hosts) host.close()
+  try {
+    const list = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    for (const line of list.split('\n')) {
+      if (!line.startsWith('worktree ')) continue
+      const path = line.slice('worktree '.length).trim()
+      if (resolve(path).toLowerCase() === resolve(root).toLowerCase()) continue
+      execFileSync('git', ['worktree', 'remove', '--force', path], { cwd: root })
+    }
+  } catch {
+    // The fixture repository is already gone.
+  }
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
 })
 function fixture(options: Partial<ConstructorParameters<typeof SourceControlHost>[1]> = {}) {
@@ -58,6 +72,7 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
     for (const method of [
       'scm.summary',
       'scm.requests',
+      'scm.checkout',
       'scm.status',
       'scm.review',
       'scm.diff',
@@ -89,6 +104,10 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
     expect(await registry.invoke('scm.requests', { projectId: 'p' })).toMatchObject({
       ok: true,
       value: { repository: null, requests: [] },
+    })
+    expect(await registry.invoke('scm.checkout', { projectId: 'p', number: 1 })).toMatchObject({
+      ok: false,
+      error: { code: 'unavailable' },
     })
     run('remote', 'add', 'origin', 'https://github.com/acme/demo.git')
     const hostCommand = vi.fn(async () => ({
@@ -178,5 +197,55 @@ describe('scoped source-control RPC', { timeout: 30_000 }, () => {
     expect(await registry.invoke('scm.cancel', { requestId: 'request' })).toEqual({
       cancelled: false,
     })
+  })
+
+  it('checks a request out beside the current checkout', async () => {
+    await writeFile(join(root, 'a.txt'), 'request\n')
+    run('add', '.')
+    run(
+      '-c',
+      'user.name=test',
+      '-c',
+      'user.email=test@ari.dev',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-qm',
+      'request',
+    )
+    const request = run('rev-parse', 'HEAD')
+    run('reset', '--hard', 'HEAD~1')
+    const head = run('rev-parse', 'HEAD')
+    const branch = run('rev-parse', '--abbrev-ref', 'HEAD')
+    await writeFile(join(root, 'dirty.txt'), 'pending\n')
+    run('remote', 'add', 'origin', 'https://github.com/acme/demo.git')
+    const requestRoot = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    const fetchHead = vi.fn(async (_remote: string, _remoteRef: string, localRef: string) => {
+      run('update-ref', localRef, request)
+      return { ok: true as const, value: request }
+    })
+    const { registry } = fixture({ requestRoot, fetchRequestHead: fetchHead })
+    try {
+      const result = (await registry.invoke('scm.checkout', { projectId: 'p', number: 4 })) as {
+        ok: true
+        value: { path: string }
+      }
+      expect(result).toMatchObject({
+        ok: true,
+        value: { created: true, number: 4, commit: request, branch: 'ari/request/github/4' },
+      })
+      expect(await readFile(join(result.value.path, 'a.txt'), 'utf8')).toBe('request\n')
+      expect(run('rev-parse', 'HEAD')).toBe(head)
+      expect(run('rev-parse', '--abbrev-ref', 'HEAD')).toBe(branch)
+      expect(await readFile(join(root, 'dirty.txt'), 'utf8')).toBe('pending\n')
+      expect(fetchHead).toHaveBeenCalledWith(
+        'origin',
+        'refs/pull/4/head',
+        'refs/ari/requests/github/4',
+        expect.any(AbortSignal),
+      )
+    } finally {
+      await rm(requestRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+    }
   })
 })
