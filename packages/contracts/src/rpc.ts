@@ -15,6 +15,19 @@ import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
 import type { ChildTask } from './agent-control'
+export { sourceControlSchemas } from './source-control'
+export type {
+  ChangeRequest,
+  ChangeRequestCapabilities,
+  GitComparison,
+  GitReviewFile,
+  GitReviewManifest,
+  GitReviewNote,
+  SourceControlError,
+  SourceControlProvider,
+  SourceControlRepository,
+  SourceControlStatus,
+} from './source-control'
 
 /**
  * The RPC surface between renderer and engine. Method names are an allowlist;
