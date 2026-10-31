@@ -13,7 +13,7 @@ import { ChildSessionActivity } from './ChildSessionActivity'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
 import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
-import type { DelegatedChild } from '../transcript/types'
+import type { DelegatedChild, TurnDiffValue } from '../transcript/types'
 import type { ChildTask } from '@ari/contracts/agent-control'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { JournalEvent } from '@ari/contracts/events'
@@ -311,7 +311,7 @@ export function SessionView({
   const { toast } = useToast()
   const [telemetry, setTelemetry] = useState<Telemetry>(EMPTY_TELEMETRY)
   const [fileSuggestions, setFileSuggestions] = useState<string[]>([])
-  const [turnDiffs, setTurnDiffs] = useState<Record<string, string>>({})
+  const [turnDiffs, setTurnDiffs] = useState<Record<string, TurnDiffValue>>({})
   const [composerSeed, setComposerSeed] = useState<ComposerSeed | null>(null)
   const [catalogModels, setCatalogModels] = useState<
     { kind: string; models: CatalogModelInfo[] }[]
@@ -488,22 +488,33 @@ export function SessionView({
       else publishMessages()
     })
 
-    // Per-turn diff cards (M18.1): after a turn settles, query its checkpoint
-    // diff once. Fire-and-forget — streaming is never blocked; null/empty or
-    // failed queries simply render no card. The checkpoint workspace resolves
-    // server-side from the session id, so no path round-trip gates this.
+    // Per-turn diff cards: query once after settle. An empty diff stays silent.
+    // A failure stays on screen with its reason so it cannot look like a clean turn.
     const fetchTurnDiff = (turnId: string): void => {
       if (fetchedTurnIdsRef.current.has(turnId)) return
       fetchedTurnIdsRef.current.add(turnId)
       void rpc
         .invoke('git.turnDiff', { sessionId, turnId })
         .then((result) => {
+          if (cancelled) return
+          const failure = result.error
+          if (typeof failure === 'string' && failure.length > 0) {
+            setTurnDiffs((prev) => ({ ...prev, [turnId]: { error: failure } }))
+            return
+          }
           const diffText = result.diffText
-          if (!cancelled && typeof diffText === 'string' && diffText.length > 0) {
+          if (typeof diffText === 'string' && diffText.length > 0) {
             setTurnDiffs((prev) => ({ ...prev, [turnId]: diffText }))
           }
         })
-        .catch(() => undefined)
+        .catch(() => {
+          if (!cancelled) {
+            setTurnDiffs((prev) => ({
+              ...prev,
+              [turnId]: { error: 'Could not load this turn’s diff.' },
+            }))
+          }
+        })
     }
     fetchTurnDiffRef.current = fetchTurnDiff
 
@@ -836,6 +847,16 @@ export function SessionView({
 
   const handleTurnInView = useCallback((turnId: string) => {
     if (settledTurnIdsRef.current.has(turnId)) fetchTurnDiffRef.current(turnId)
+  }, [])
+
+  const retryTurnDiff = useCallback((turnId: string) => {
+    fetchedTurnIdsRef.current.delete(turnId)
+    setTurnDiffs((prev) => {
+      const next = { ...prev }
+      delete next[turnId]
+      return next
+    })
+    fetchTurnDiffRef.current(turnId)
   }, [])
 
   /** M21.1 review loop: a saved diff line note joins the next message. */
@@ -1258,6 +1279,7 @@ export function SessionView({
             running={running}
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} tasks={tasks} />}
             onDiffComment={handleDiffComment}
+            onRetryTurnDiff={retryTurnDiff}
             working={running ? <WorkingGlyph startedAt={telemetry.startedAt} /> : null}
             delegations={delegations}
             sessionTitle={sessionTitle}
@@ -1437,7 +1459,9 @@ export function EffortChip({
       if (cancelled) return
       const row = rows.find((r) => r.kind === driverKind)
       const model = probesModel
-        ? row?.models?.find((entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''))
+        ? row?.models?.find(
+            (entry) => entry.id === modelId || entry.aliases?.includes(modelId ?? ''),
+          )
         : undefined
       const modelEfforts = model?.efforts ?? []
       agentEfforts = modelEfforts.length > 0 && model?.effortsSource === 'agent'

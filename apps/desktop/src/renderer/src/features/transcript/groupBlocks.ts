@@ -9,7 +9,7 @@ import {
   type ToolKind,
 } from './toolLabels'
 import { editDiffStat, editFilePath, type EditDiffStat } from './edit-diff'
-import type { GroupedRow, ToolGroupRow, TranscriptBlock, TurnDiffRow } from './types'
+import type { GroupedRow, ToolGroupRow, TranscriptBlock, TurnDiffRow, TurnDiffValue } from './types'
 
 export type { TranscriptRow } from './types'
 
@@ -41,21 +41,27 @@ export function rowTurnId(row: GroupedRow): string | null {
  */
 export function insertTurnDiffRows(
   rows: GroupedRow[],
-  turnDiffs: Readonly<Record<string, string>>,
+  turnDiffs: Readonly<Record<string, TurnDiffValue>>,
 ): GroupedRow[] {
   const out: GroupedRow[] = []
   const emitted = new Set<string>()
   let openTurnId: string | null = null
   const flushCard = (): void => {
     if (openTurnId === null) return
-    const diffText = turnDiffs[openTurnId]
-    if (typeof diffText === 'string' && diffText.length > 0 && !emitted.has(openTurnId)) {
+    const value = turnDiffs[openTurnId]
+    const error = typeof value === 'object' ? value.error : undefined
+    const diffText = typeof value === 'string' ? value : ''
+    if (
+      (diffText.length > 0 || (error !== undefined && error.length > 0)) &&
+      !emitted.has(openTurnId)
+    ) {
       emitted.add(openTurnId)
       const row: TurnDiffRow = {
         kind: 'turn-diff',
         key: `turn-diff:${openTurnId}`,
         turnId: openTurnId,
         diffText,
+        ...(error !== undefined && error.length > 0 ? { error } : {}),
       }
       out.push(row)
     }
@@ -93,7 +99,7 @@ export function insertTurnDiffRows(
  */
 export function groupBlocks(
   blocks: TranscriptBlock[],
-  turnDiffs?: Readonly<Record<string, string>>,
+  turnDiffs?: Readonly<Record<string, TurnDiffValue>>,
   previous?: GroupedRow[],
 ): GroupedRow[] {
   const rows = buildRows(blocks, turnDiffs)
@@ -114,13 +120,15 @@ function sameRow(a: GroupedRow, b: GroupedRow): boolean {
       a.blocks.every((block, index) => block === b.blocks[index])
     )
   }
-  if (a.kind === 'turn-diff' && b.kind === 'turn-diff') return a.diffText === b.diffText
+  if (a.kind === 'turn-diff' && b.kind === 'turn-diff') {
+    return a.diffText === b.diffText && a.error === b.error
+  }
   return false
 }
 
 function buildRows(
   blocks: TranscriptBlock[],
-  turnDiffs?: Readonly<Record<string, string>>,
+  turnDiffs?: Readonly<Record<string, TurnDiffValue>>,
 ): GroupedRow[] {
   const rows: GroupedRow[] = []
   let run: TranscriptBlock[] = []

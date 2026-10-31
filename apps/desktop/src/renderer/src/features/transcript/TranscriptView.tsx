@@ -23,6 +23,7 @@ import { ErrorNote } from './ErrorNote'
 import { NoticeNote } from './NoticeNote'
 import { ActivityBurst } from './ActivityBurst'
 import { TurnDiffCard } from './TurnDiffCard'
+import type { TurnDiffValue } from './types'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { DelegationCard } from './DelegationCard'
 import { DelegationNotice } from './DelegationNotice'
@@ -110,6 +111,7 @@ export function TranscriptView({
   running = false,
   header,
   onDiffComment,
+  onRetryTurnDiff,
   working,
   activity,
   delegations,
@@ -133,8 +135,8 @@ export function TranscriptView({
   sessionTitle?: (id: string) => string | undefined
   onOpenSession?: (id: string) => void
   loading?: boolean
-  /** Settled turns' unified diffs (turnId → diffText); cards render inline. */
-  turnDiffs?: Readonly<Record<string, string>>
+  /** Settled turns' diffs or an explicit unavailable reason. Empty diffs stay hidden. */
+  turnDiffs?: Readonly<Record<string, TurnDiffValue>>
   /** Called with a user bubble's text when its edit action fires (M19.4). */
   onEditUserMessage?: (text: string) => void
   /** Regenerate the last turn by resending the last user prompt (M19.4). */
@@ -151,6 +153,8 @@ export function TranscriptView({
   header?: React.ReactNode
   /** Review-note loop (M21.1): inline diff comments flow to the composer. */
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
+  /** Asks the session to read one turn's diff again after an unavailable result. */
+  onRetryTurnDiff?: (turnId: string) => void
   /** Live working indicator, rendered where the next assistant reply will land. */
   working?: React.ReactNode
   /**
@@ -522,6 +526,7 @@ export function TranscriptView({
                   regenerateDisabled={regenerateDisabled}
                   active={running && index === activeIndex}
                   onDiffComment={onDiffComment}
+                  onRetryTurnDiff={onRetryTurnDiff}
                 />
               ) : (
                 <RowPlaceholder row={row} index={index} observe={lazyRows.observe} />
@@ -612,6 +617,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   regenerateDisabled,
   active,
   onDiffComment,
+  onRetryTurnDiff,
   sessionTitle,
   onOpenSession,
 }: {
@@ -626,6 +632,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   /** True when a running turn is on this row; only ever the last one. */
   active: boolean
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
+  onRetryTurnDiff?: (turnId: string) => void
 }) {
   return (
     <div
@@ -638,7 +645,13 @@ const TranscriptRowView = memo(function TranscriptRowView({
       {row.kind === 'tool-group' ? (
         <ActivityBurst row={row} active={active} />
       ) : row.kind === 'turn-diff' ? (
-        <TurnDiffCard turnId={row.turnId} diffText={row.diffText} onComment={onDiffComment} />
+        <TurnDiffCard
+          turnId={row.turnId}
+          diffText={row.diffText}
+          error={row.error}
+          onRetry={onRetryTurnDiff ? () => onRetryTurnDiff(row.turnId) : undefined}
+          onComment={onDiffComment}
+        />
       ) : row.kind === 'delegation' ? (
         <DelegationCard row={row} onOpenSession={onOpenSession} />
       ) : row.kind === 'image' ? (
