@@ -5,6 +5,7 @@ import type { SessionReadModel } from '@ari/engine/projection'
 import { err, ok, type Result } from '@ari/shared/result'
 import { createLogger } from '@ari/shared/logger'
 import { listChangeRequests, runHostCommand, type HostCommand } from './change-requests'
+import { checkoutChangeRequest, fetchRequestHead, type FetchRequestHead } from './request-checkout'
 import type { RpcRegistry } from './rpc-registry'
 
 const log = createLogger('desktop:source-control')
@@ -13,6 +14,10 @@ interface SourceControlDeps {
   session(id: string): Promise<SessionReadModel>
   /** Test seam. Production uses the installed gh and glab CLIs. */
   hostCommand?: HostCommand
+  /** Directory that receives request worktrees. Checkout is refused without one. */
+  requestRoot?: string
+  /** Test seam. Production fetches the request head with git. */
+  fetchRequestHead?: FetchRequestHead
 }
 
 /** Owns capability-scoped snapshots and cancellation for desktop review queries. */
@@ -92,6 +97,26 @@ export class SourceControlHost {
         })
       }),
     )
+    r.register('scm.checkout', (scope) => {
+      const rootDir = this.deps.requestRoot
+      if (!rootDir) {
+        return err({ code: 'unavailable', message: 'Request checkout is not configured.' })
+      }
+      return this.#read(scope, scope.requestId, async (review, signal) => {
+        const status = await review.status(signal)
+        if (!status.ok) return status
+        return checkoutChangeRequest(
+          review.git,
+          status.value.remotes,
+          scope.number,
+          {
+            rootDir,
+            fetchHead: this.deps.fetchRequestHead ?? fetchRequestHead(review.git),
+          },
+          signal,
+        )
+      })
+    })
     r.register('scm.status', (scope) =>
       this.#read(scope, scope.requestId, async (review, signal) => {
         const status = await review.status(signal)
