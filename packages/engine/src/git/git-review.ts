@@ -32,7 +32,15 @@ export class GitReviewService {
 
   async status(signal?: AbortSignal): Promise<Result<SourceControlStatus, SourceControlError>> {
     const raw = await this.git.run(
-      ['-c', 'status.relativePaths=false', 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'],
+      [
+        '-c',
+        'status.relativePaths=false',
+        'status',
+        '--porcelain=v2',
+        '--branch',
+        '-z',
+        '--untracked-files=all',
+      ],
       { signal },
     )
     if (!raw.ok) return raw
@@ -59,7 +67,17 @@ export class GitReviewService {
       const split = record.indexOf('\n')
       const name = /^remote\.(.+)\.url$/.exec(record.slice(0, split))?.[1]
       if (!name || split < 0) return []
-      return [{ name, url: record.slice(split + 1).replace(/(https?:\/\/)[^/@\s]+@/g, '$1') }]
+      const rawUrl = record.slice(split + 1)
+      let url = rawUrl.replace(/(https?:\/\/)[^/@\s]+@/g, '$1').split(/[?#]/)[0] ?? ''
+      try {
+        const parsed = new URL(url)
+        parsed.username = ''
+        parsed.password = ''
+        url = parsed.toString()
+      } catch {
+        /* SCP-style and local remotes are not URLs. */
+      }
+      return [{ name, url }]
     })
     const paths = await this.git.run(
       [
@@ -88,14 +106,11 @@ export class GitReviewService {
     return ok(result)
   }
 
-  async refs(): Promise<Result<string[], SourceControlError>> {
-    const result = await this.git.run([
-      'for-each-ref',
-      '--count=200',
-      '--format=%(refname:short)',
-      'refs/heads',
-      'refs/remotes',
-    ])
+  async refs(signal?: AbortSignal): Promise<Result<string[], SourceControlError>> {
+    const result = await this.git.run(
+      ['for-each-ref', '--count=200', '--format=%(refname:short)', 'refs/heads', 'refs/remotes'],
+      { signal },
+    )
     return result.ok ? ok(result.value.trim().split('\n').filter(Boolean)) : result
   }
 
@@ -148,7 +163,7 @@ export class GitReviewService {
       headLabel = comparison.ref
       live = false
     } else if (comparison.kind === 'branch' && status.value.headOid) {
-      const refs = await this.refs()
+      const refs = await this.refs(signal)
       if (!refs.ok) return refs
       const target =
         comparison.base ??
@@ -162,14 +177,21 @@ export class GitReviewService {
       baseLabel = `Merge base · ${target}`
       headLabel = status.value.branch ?? 'HEAD'
     }
-    if (!head) {
-      const tree = await this.checkpoints.worktreeTree(this.cwd)
+    const mutable = ['working-tree', 'staged', 'unstaged'].includes(comparison.kind)
+    let worktree: string | undefined
+    if (!head || mutable) {
+      const tree = await this.checkpoints.worktreeTree(this.cwd, signal)
       if (!tree.ok)
         return err({
-          code: tree.error.code === 'output_overflow' ? 'too-large' : 'failed',
-          message: tree.error.message,
+          code: signal?.aborted
+            ? 'unavailable'
+            : tree.error.code === 'output_overflow'
+              ? 'too-large'
+              : 'failed',
+          message: signal?.aborted ? 'Git request cancelled.' : tree.error.message,
         })
-      head = tree.value
+      worktree = tree.value
+      head ??= worktree
     }
     const oldTree = await this.git.run(
       ['rev-parse', '--verify', '--end-of-options', `${base}^{tree}`],
@@ -206,8 +228,16 @@ export class GitReviewService {
           comparison,
           oldTree.value,
           newTree.value,
-          status.value.headOid,
-          index.ok ? index.value : null,
+          live ? [status.value.headOid, index.ok ? index.value : null] : null,
+          mutable
+            ? [
+                worktree,
+                status.value.branch,
+                status.value.upstream,
+                status.value.remotes,
+                status.value.operation,
+              ]
+            : null,
         ]),
       )
       .digest('hex')
@@ -234,7 +264,12 @@ export class GitReviewService {
     return this.#snapshots.get(id)
   }
 
-  async diff(id: string, path: string, context = 3): Promise<Result<string, SourceControlError>> {
+  async diff(
+    id: string,
+    path: string,
+    context = 3,
+    signal?: AbortSignal,
+  ): Promise<Result<string, SourceControlError>> {
     const snapshot = this.#snapshots.get(id)
     const file = snapshot?.files.find((file) => file.path === path)
     if (!snapshot || !file)
@@ -257,7 +292,7 @@ export class GitReviewService {
         path,
         ...(file.oldPath ? [file.oldPath] : []),
       ],
-      { maxBytes: 1024 * 1024 },
+      { maxBytes: 1024 * 1024, signal },
     )
   }
 }
