@@ -20,6 +20,7 @@
     "./projects": "./src/projects.ts",
     "./bots": "./src/bots.ts",
     "./bot-memory": "./src/bot-memory.ts",
+    "./bot-memory-capture": "./src/bot-memory-capture.ts",
     "./bot-routines": "./src/bot-routines.ts",
     "./room": "./src/room.ts",
     "./watcher": "./src/watcher.ts",

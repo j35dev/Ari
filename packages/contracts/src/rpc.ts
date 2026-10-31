@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
-import { botCreateParamsSchema, botUpdatePatchSchema } from './bot'
+import { botCreateParamsSchema, botUpdatePatchSchema, BOT_MEMORY_MAX_CHARS } from './bot'
 import type { Bot, BotCharacter } from './bot'
 import { botRoutineAddSchema } from './routine'
 import type { BotRoutine } from './routine'
@@ -634,6 +634,14 @@ export const rpcParams = {
   'bots.setHidden': z.object({ botId: z.string().min(1), hidden: z.boolean() }),
   /** Edits a bot's face and voice; live rooms pick up the new name and look. */
   'bots.update': z.object({ botId: z.string().min(1), patch: botUpdatePatchSchema }),
+  'bots.memory.get': z.object({ botId: z.string().min(1) }),
+  /** Replaces a bot's memory wholesale; the cap still applies, empty clears it. */
+  'bots.memory.replace': z.object({
+    botId: z.string().min(1),
+    content: z.string().max(BOT_MEMORY_MAX_CHARS),
+    /** File contents the editor loaded. A mismatch refuses the write. */
+    base: z.string().max(BOT_MEMORY_MAX_CHARS + 1).optional(),
+  }),
   /** Every bot routine, enabled or paused. */
   'routines.list': z.undefined(),
   'routines.add': botRoutineAddSchema,
@@ -1010,6 +1018,9 @@ export interface RpcResults {
   'bots.create': Bot
   'bots.setHidden': Bot
   'bots.update': Bot
+  /** The bot's memory.md as plain markdown; empty means it remembers nothing. */
+  'bots.memory.get': string
+  'bots.memory.replace': string
   'routines.list': BotRoutine[]
   'routines.add': BotRoutine
   'routines.setEnabled': BotRoutine
