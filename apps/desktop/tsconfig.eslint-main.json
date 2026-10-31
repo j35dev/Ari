@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/test-setup.dom.ts",
+    "electron.vite.config.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["**/*.test.ts", "**/*.live.test.ts"]
+}
