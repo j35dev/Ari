@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, Copy, CornerDownRight } from 'lucide-react'
+import { Check, Copy } from 'lucide-react'
 import type { Message } from '@ari/contracts/message'
 import type { z } from 'zod'
 import type { remoteAttachmentSchema } from '@ari/contracts/remote'
@@ -8,7 +8,6 @@ import { EmptyState } from '../../components/EmptyState'
 import { useApp } from '../../lib/app-state'
 import { formatClock } from '../../lib/format'
 import { conversationBlocks, conversationParts } from '../../lib/conversation-parts'
-import { delegationUpdate } from '../../lib/delegation'
 import { ActivityRun } from './ActivityRun'
 
 /** A pause this long between messages is worth marking with the time. */
@@ -44,17 +43,9 @@ export function Conversation({
         const blocks = conversationBlocks(presentation.parts)
         const previous = messages[index - 1]
         const user = message.role === 'user'
-        if (user && message.origin?.kind === 'completion')
-          return (
-            <li key={message.id} data-role="notice" className="w-full min-w-0">
-              <DelegationUpdate
-                text={presentation.copyText}
-                sessionIds={message.origin.sessionIds}
-                titleOf={titleOf}
-                onOpenSession={onOpenSession}
-              />
-            </li>
-          )
+        // The parent agent still receives these wakes. They are not part of the chat.
+        if (user && (message.origin?.kind === 'completion' || message.origin?.kind === 'question'))
+          return null
         const sender = message.origin?.kind === 'session' ? message.origin.sessionId : null
         const senderTitle = sender === null ? undefined : titleOf?.(sender)
         return (
@@ -133,69 +124,6 @@ function Part({
   if (part.type === 'text') return <Markdown text={part.text} />
   return <ImageAttachment sessionId={sessionId} id={part.attachmentId} name={part.name} />
 }
-/**
- * A wake-up Ari wrote for this session when delegated agents finished. Nobody
- * typed it, so it is not a bubble: one line says who reported, and the text
- * the agent was given opens underneath for whoever wants it.
- */
-function DelegationUpdate({
-  text,
-  sessionIds,
-  titleOf,
-  onOpenSession,
-}: {
-  text: string
-  sessionIds: readonly string[]
-  titleOf: ((sessionId: string) => string | undefined) | undefined
-  onOpenSession: ((sessionId: string) => void) | undefined
-}): ReactNode {
-  const [open, setOpen] = useState(false)
-  const update = delegationUpdate(text, sessionIds, (id) => titleOf?.(id))
-  return (
-    <div className="rounded-xl bg-surface-1">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={`Delegation update: ${update.headline}`}
-        className="flex min-h-11 w-full items-center gap-2 px-3 text-left text-xs text-fg-muted"
-        onClick={() => setOpen((shown) => !shown)}
-      >
-        <CornerDownRight size={14} aria-hidden className="shrink-0 text-accent" />
-        <span className="min-w-0 flex-1 truncate">{update.headline}</span>
-        <ChevronDown
-          size={14}
-          aria-hidden
-          className={`shrink-0 text-fg-subtle transition-transform ${open ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {open && (
-        <div className="px-3 pb-3">
-          {onOpenSession !== undefined && (
-            <p className="flex flex-wrap gap-2 pb-2">
-              {sessionIds.map((id) => {
-                const title = titleOf?.(id)
-                return title === undefined ? null : (
-                  <button
-                    key={id}
-                    type="button"
-                    className="min-h-9 rounded-full border border-border px-3 text-xs text-fg-muted"
-                    onClick={() => onOpenSession(id)}
-                  >
-                    Open {title}
-                  </button>
-                )
-              })}
-            </p>
-          )}
-          <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-fg-muted">
-            {update.body}
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function CopyMessage({ text }: { text: string }): ReactNode {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   return (

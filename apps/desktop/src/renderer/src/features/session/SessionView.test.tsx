@@ -10,15 +10,17 @@ import { sessionSchema } from '@ari/contracts/session'
 import { decideCommand, type DispatchDecision } from '@ari/engine/dispatcher'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import {
-  ContextMeter,
   EffortChip,
   PermissionModeChip,
   SessionView,
   contextTokensFromHint,
-  formatCompactTokens,
-  formatTurnDuration,
   type SessionDefaults,
 } from './SessionView'
+import {
+  ContextMeter,
+  formatCompactTokens,
+  formatTurnDuration,
+} from './SessionStatusCapsule'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
@@ -2643,7 +2645,8 @@ describe('SessionView delegated work', () => {
     emitReplayDone()
 
     expect(await screen.findByText('Integrated the parser.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Delegation update:/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Delegation update:/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ari delegation update/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument()
   })
 })
