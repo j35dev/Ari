@@ -12,6 +12,7 @@ const log = createLogger('ui:source-control')
 interface State {
   key: string
   context: SourceControlContext | null
+  summary: { branch: string | null; changedFiles: number } | null
   manifest: GitReviewManifest | null
   error: string | null
   watchError: string | null
@@ -20,6 +21,7 @@ interface State {
 const empty = (key: string): State => ({
   key,
   context: null,
+  summary: null,
   manifest: null,
   error: null,
   watchError: null,
@@ -27,7 +29,10 @@ const empty = (key: string): State => ({
 })
 
 /** Single-flight, visibility-scoped reads; coalesce changes and ignore obsolete scope/selection replies. */
-export function useSourceControl(scope: GitScope | null, comparison: GitComparison | null) {
+export function useSourceControl(
+  scope: GitScope | null,
+  comparison: GitComparison | 'summary' | null,
+) {
   const scopeKey = JSON.stringify(scope)
   const comparisonKey = JSON.stringify(comparison)
   const key = `${scopeKey}:${comparisonKey}`
@@ -53,28 +58,41 @@ export function useSourceControl(scope: GitScope | null, comparison: GitComparis
       }
       pending = true
       update({ loading: true, error: null })
-      ids = [crypto.randomUUID(), crypto.randomUUID()]
+      ids =
+        comparison === 'summary'
+          ? [crypto.randomUUID()]
+          : [crypto.randomUUID(), crypto.randomUUID()]
       try {
-        const [context, manifest] = await Promise.all([
-          rpc.invoke('scm.status', { ...scope, requestId: ids[0] }),
-          comparison
-            ? rpc.invoke('scm.review', { ...scope, comparison, requestId: ids[1] })
-            : Promise.resolve(null),
-        ])
-        update({
-          context: context.ok ? context.value : null,
-          manifest: manifest?.ok ? manifest.value : null,
-          error: !context.ok
-            ? context.error.message
-            : manifest && !manifest.ok
-              ? manifest.error.message
-              : null,
-          loading: false,
-        })
+        if (comparison === 'summary') {
+          const result = await rpc.invoke('scm.summary', { ...scope, requestId: ids[0] })
+          update({
+            summary: result.ok ? result.value : null,
+            error: result.ok ? null : result.error.message,
+            loading: false,
+          })
+        } else {
+          const [context, manifest] = await Promise.all([
+            rpc.invoke('scm.status', { ...scope, requestId: ids[0] }),
+            comparison
+              ? rpc.invoke('scm.review', { ...scope, comparison, requestId: ids[1] })
+              : Promise.resolve(null),
+          ])
+          update({
+            context: context.ok ? context.value : null,
+            manifest: manifest?.ok ? manifest.value : null,
+            error: !context.ok
+              ? context.error.message
+              : manifest && !manifest.ok
+                ? manifest.error.message
+                : null,
+            loading: false,
+          })
+        }
       } catch (error) {
         log.warn('Source-control read failed', { error: String(error) })
         update({
           context: null,
+          summary: null,
           manifest: null,
           error: 'Could not read this worktree. Refresh to retry.',
           loading: false,

@@ -31,6 +31,17 @@ afterEach(async () => {
 })
 
 describe('snapshot-backed Git review', { timeout: 60_000 }, () => {
+  it('counts branch and changed files without reading history or ignored paths', async () => {
+    const root = await repository()
+    await writeFile(join(root, 'app.ts'), 'one\ntwo\n')
+    await writeFile(join(root, 'fresh.ts'), 'fresh\n')
+    await writeFile(join(root, 'ignored.txt'), 'private\n')
+    const summary = await new GitReviewService(root).summary()
+    if (!summary.ok) throw new Error(summary.error.message)
+    expect(summary.value).toEqual({ branch: 'main', changedFiles: 2 })
+    expect(git(root, 'rev-parse', 'HEAD')).toMatch(/^[a-f0-9]{40}$/)
+  })
+
   it('separates staged and unstaged scopes without changing the real index or HEAD', async () => {
     const root = await repository()
     await writeFile(join(root, 'app.ts'), 'one\nstaged\n')
@@ -138,11 +149,16 @@ describe('snapshot-backed Git review', { timeout: 60_000 }, () => {
     const service = new GitReviewService(root)
     const review = await service.manifest({ kind: 'working-tree' })
     if (!review.ok) throw new Error(review.error.message)
-    expect(review.value.files).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: 'renamed.ts', oldPath: 'app.ts', kind: 'renamed' }),
-      expect.objectContaining({ path: 'image.bin', binary: true }),
-    ]))
-    expect(await service.diff(review.value.id, 'large.txt')).toMatchObject({ ok: false, error: { code: 'too-large' } })
+    expect(review.value.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'renamed.ts', oldPath: 'app.ts', kind: 'renamed' }),
+        expect.objectContaining({ path: 'image.bin', binary: true }),
+      ]),
+    )
+    expect(await service.diff(review.value.id, 'large.txt')).toMatchObject({
+      ok: false,
+      error: { code: 'too-large' },
+    })
     expect((await service.diff(review.value.id, 'renamed.ts')).ok).toBe(true)
   })
 
