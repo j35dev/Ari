@@ -15,8 +15,11 @@ import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
 import type { ChildTask } from './agent-control'
-export { sourceControlSchemas } from './source-control'
-export { gitMutationSchema } from './git-mutation'
+import { sourceControlSchemas } from './source-control'
+import { gitMutationSchema } from './git-mutation'
+import type { GitHistoryEntry } from './git-mutation'
+import type { GitReviewManifest, SourceControlError, SourceControlStatus } from './source-control'
+export { sourceControlSchemas, gitMutationSchema }
 export type { GitMutation, GitMutationOutcome, GitHistoryEntry } from './git-mutation'
 export type {
   ChangeRequest,
@@ -564,6 +567,16 @@ export const gitScopeSchema = z
   })
 export type GitScope = z.infer<typeof gitScopeSchema>
 
+export type SourceControlResult<T> =
+  { ok: true; value: T } | { ok: false; error: SourceControlError }
+export interface SourceControlContext {
+  status: SourceControlStatus
+  refs: string[]
+  commits: GitHistoryEntry[]
+  stashes: GitHistoryEntry[]
+  turns: { turnId: string; stable: boolean; error?: string }[]
+}
+
 /**
  * Outcome for the mutating git RPCs (`git.add` / `git.commit` / `git.push`):
  * failures come back as data instead of being thrown across IPC.
@@ -871,6 +884,18 @@ export const rpcParams = {
   'settings.get': z.undefined(),
   'settings.update': settingsUpdateSchema,
   'git.status': gitScopeSchema,
+  'scm.status': gitScopeSchema.extend({ requestId: z.string().min(1).max(128).optional() }),
+  'scm.review': gitScopeSchema.extend({
+    comparison: sourceControlSchemas.comparison,
+    requestId: z.string().min(1).max(128).optional(),
+  }),
+  'scm.diff': gitScopeSchema.extend({
+    snapshotId: sourceControlSchemas.oid,
+    path: sourceControlSchemas.path,
+    context: z.number().int().min(0).max(1000).default(3),
+    requestId: z.string().min(1).max(128).optional(),
+  }),
+  'scm.cancel': z.object({ requestId: z.string().min(1).max(128) }),
   'git.diffWorktree': gitScopeSchema,
   'git.turnDiff': z.object({
     sessionId: checkpointComponentSchema,
@@ -1284,6 +1309,10 @@ export interface RpcResults {
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
   'settings.update': Settings
+  'scm.status': SourceControlResult<SourceControlContext>
+  'scm.review': SourceControlResult<GitReviewManifest>
+  'scm.diff': SourceControlResult<string>
+  'scm.cancel': { cancelled: boolean }
   'git.status': {
     isRepo: boolean
     branch: string | null
