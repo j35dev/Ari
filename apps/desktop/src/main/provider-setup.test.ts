@@ -10,7 +10,7 @@ function setup() {
       args: ['login'],
       env: { CODEX_HOME: 'C:\\Account' },
     })),
-    terminals: { create: vi.fn(), write: vi.fn(), kill: vi.fn() },
+    terminals: { spawn: vi.fn(), kill: vi.fn() },
     homeDir: 'C:\\Users\\person',
     platform: 'win32',
   }
@@ -22,10 +22,12 @@ describe('provider setup terminal', () => {
     const result = await openProviderSetupTerminal(deps)
     expect(result).toMatchObject({ ok: true, cwd: deps.homeDir })
     if (!result.ok) throw new Error('expected setup terminal')
-    expect(deps.terminals.create).toHaveBeenCalledWith(result.id, deps.homeDir)
-    expect(deps.terminals.write).toHaveBeenCalledWith(
+    expect(deps.terminals.spawn).toHaveBeenCalledWith(
       result.id,
-      "$env:CODEX_HOME = 'C:\\Account'; & 'C:\\Agent Folder\\codex.cmd' 'login'\r",
+      'cmd.exe',
+      ['/d', '/s', '/c', '"C:\\Agent Folder\\codex.cmd" login'],
+      deps.homeDir,
+      expect.objectContaining({ CODEX_HOME: 'C:\\Account' }),
     )
   })
 
@@ -33,12 +35,12 @@ describe('provider setup terminal', () => {
     const deps = setup()
     const result = await openProviderSetupTerminal({ ...deps, signIn: async () => null })
     expect(result.ok).toBe(false)
-    expect(deps.terminals.create).not.toHaveBeenCalled()
+    expect(deps.terminals.spawn).not.toHaveBeenCalled()
   })
 
   it('disposes a half-created terminal on failure', async () => {
     const deps = setup()
-    deps.terminals.write.mockImplementation(() => {
+    deps.terminals.spawn.mockImplementation(() => {
       throw new Error('pty exited')
     })
     expect((await openProviderSetupTerminal(deps)).ok).toBe(false)

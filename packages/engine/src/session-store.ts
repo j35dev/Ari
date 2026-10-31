@@ -492,7 +492,7 @@ export class SessionStore {
    * journal bytes on disk. The fallback also repairs the sidecar.
    */
   async listSessions(): Promise<SessionListEntry[]> {
-    const { readdir } = await import('node:fs/promises')
+    const { readdir, stat } = await import('node:fs/promises')
     let dirs: string[]
     try {
       dirs = await readdir(this.#rootDir)
@@ -505,6 +505,11 @@ export class SessionStore {
     let unreadable = false
     for (const id of dirs) {
       try {
+        const info = await stat(join(this.#rootDir, id))
+        // A stray file, or a name that cannot be a session id, is not a
+        // session. Treating it as unreadable blocks first-run setup whenever
+        // the sessions root has no real journals.
+        if (!info.isDirectory() || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id)) continue
         const entry = await this.#listingFor(id)
         if (entry) out.push({ id, ...entry })
       } catch (error) {
