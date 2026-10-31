@@ -3,12 +3,13 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowUp, Bookmark, Clock, CornerUpRight, Square, Trash2, X } from 'lucide-react'
+import { ArrowUp, Bookmark, Clock, CornerUpRight, Pencil, Square, Trash2, X } from 'lucide-react'
 import type { AttachmentRef } from '@ari/contracts/attachments'
 import { transitions } from '@ari/ui/motion'
 import { Popover } from '@ari/ui/popover'
@@ -21,12 +22,15 @@ import { FILE_MIME, osFilePath, quotePathForPrompt, readDragFilePath } from './d
 import { mentionRanges } from './mention-ranges'
 import { loadStash, persistStash, stashPrompt, type StashEntry } from './prompt-stash'
 import { promptHistory, stepPromptHistory } from './prompt-history'
+import { createPasteId, decidePasteFile } from './paste-as-file'
 import { useDrafts } from './use-drafts'
+import { rpc } from '../../lib/rpc'
 
 /**
  * External draft injection (M19.4 edit-and-resend): a changed {@link nonce}
  * replaces the draft with `text`, focuses the field, and parks the caret at
- * the end. Re-delivering the same nonce is a no-op.
+ * the end. Re-delivering the same nonce is a no-op. `mode: 'insert'` splices
+ * `text` at the caret instead, and leaves the rest of the draft in place.
  *
  * `files` restores the images a refused send had already taken from the
  * composer, so a retry carries the same context the first attempt did.
@@ -35,6 +39,8 @@ export interface ComposerSeed {
   text: string
   nonce: number
   files?: File[]
+  /** `replace` overwrites the draft. `insert` splices at the caret. */
+  mode?: 'replace' | 'insert'
 }
 
 /**
@@ -60,6 +66,8 @@ export interface ComposerProps {
   onSteerQueued?: (message: QueuedMessageView) => void
   /** Drops one queued message without running it. */
   onRemoveQueued?: (message: QueuedMessageView) => void
+  /** Takes one queued text message back into the composer for editing. */
+  onEditQueued?: (message: QueuedMessageView) => void
   /** Workspace paths offered by the @file mention popup; absent hides it. */
   suggestions?: string[]
   /**
@@ -127,6 +135,7 @@ export function Composer({
   queued = [],
   onSteerQueued,
   onRemoveQueued,
+  onEditQueued,
   suggestions,
   leading,
   placeholder = 'Ask anything, @ for files, / for commands…',
@@ -256,8 +265,7 @@ export function Composer({
   // the keystroke paints, never in its way.
   const mentionQuery = useDeferredValue(token?.kind === 'mention' ? token.raw.slice(1) : null)
   const mentionItems = useMemo(
-    () =>
-      mentionQuery !== null && suggestions ? matchSuggestions(suggestions, mentionQuery) : [],
+    () => (mentionQuery !== null && suggestions ? matchSuggestions(suggestions, mentionQuery) : []),
     [mentionQuery, suggestions],
   )
 
@@ -304,16 +312,37 @@ export function Composer({
   // Draft injection: only a fresh nonce applies the seed, so re-renders with
   // the same object never clobber what the user is typing.
   const seededNonceRef = useRef<number | null>(null)
+  // Insert mode has to place the caret after React commits the new value.
+  // Setting it in the seed effect lands on the pre-update textarea.
+  const seedCaretRef = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const next = seedCaretRef.current
+    if (next === null) return
+    seedCaretRef.current = null
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(next, next)
+  }, [text])
   useEffect(() => {
     if (!seed || seededNonceRef.current === seed.nonce) return
     seededNonceRef.current = seed.nonce
     if (seed.files !== undefined && seed.files.length > 0) addFiles(seed.files)
+    const el = textareaRef.current
+    if (seed.mode === 'insert') {
+      const at = el?.selectionStart ?? 0
+      const end = el?.selectionEnd ?? at
+      const next = at + seed.text.length
+      seedCaretRef.current = next
+      setText((prev) => prev.slice(0, at) + seed.text + prev.slice(Math.max(at, end)))
+      setCaret(next)
+      return
+    }
     setText(seed.text)
     const end = seed.text.length
     setCaret(end)
     // Synchronous focus + caret: deferring via rAF raced user input under
     // load (the caret yank landed between keystrokes and ate characters).
-    const el = textareaRef.current
     el?.focus()
     el?.setSelectionRange(end, end)
   }, [seed, addFiles])
@@ -344,20 +373,89 @@ export function Composer({
     [refocus, setText],
   )
 
+  /** Inserts at a captured range. A file write resolves after the caret may have moved. */
+  // A paste event does not carry Ctrl/Shift. Remember them from the keys
+  // that are down so Ctrl/Cmd+Shift+V can stay inline.
+  const forceInlinePasteRef = useRef(false)
+  useEffect(() => {
+    const sync = (event: KeyboardEvent): void => {
+      forceInlinePasteRef.current = (event.ctrlKey || event.metaKey) && event.shiftKey
+    }
+    const clear = (): void => {
+      forceInlinePasteRef.current = false
+    }
+    window.addEventListener('keydown', sync)
+    window.addEventListener('keyup', sync)
+    window.addEventListener('blur', clear)
+    return () => {
+      window.removeEventListener('keydown', sync)
+      window.removeEventListener('keyup', sync)
+      window.removeEventListener('blur', clear)
+    }
+  }, [])
+
+  const insertRange = useCallback(
+    (at: number, end: number, insert: string) => {
+      const nextCaret = at + insert.length
+      setText((prev) => prev.slice(0, at) + insert + prev.slice(Math.max(at, end)))
+      setCaret(nextCaret)
+      refocus(nextCaret)
+    },
+    [refocus, setText],
+  )
+
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (e.clipboardData.files.length === 0) return
-      const files = Array.from(e.clipboardData.files)
-      const images = files.filter((file) => file.type.startsWith('image/'))
-      const others = files.filter((file) => !file.type.startsWith('image/'))
-      if (images.length > 0) addFiles(images)
-      // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
-      if (others.length > 0) {
-        const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
-        insertAtCaret(e.currentTarget, caret, insert)
+      if (e.clipboardData.files.length > 0) {
+        const files = Array.from(e.clipboardData.files)
+        const images = files.filter((file) => file.type.startsWith('image/'))
+        const others = files.filter((file) => !file.type.startsWith('image/'))
+        if (images.length > 0) addFiles(images)
+        // OS file pastes (e.g. copy + paste from Explorer) land as prompt paths.
+        if (others.length > 0) {
+          const insert = `${others.map((file) => quotePathForPrompt(osFilePath(file))).join(' ')} `
+          insertAtCaret(e.currentTarget, caret, insert)
+        }
+        return
       }
+      const pasted = e.clipboardData.getData('text/plain')
+      if (pasted.length === 0) return
+      const start = e.currentTarget.selectionStart ?? caret
+      const end = e.currentTarget.selectionEnd ?? start
+      const native = e.nativeEvent as ClipboardEvent & {
+        ctrlKey?: boolean
+        metaKey?: boolean
+        shiftKey?: boolean
+      }
+      const forced =
+        forceInlinePasteRef.current ||
+        ((native.ctrlKey === true || native.metaKey === true) && native.shiftKey === true)
+      const decision = decidePasteFile({
+        pasted,
+        draft: text,
+        selectionStart: start,
+        selectionEnd: end,
+        forceInline: forced,
+        id: createPasteId(),
+      })
+      if (decision.action === 'inline') return
+      e.preventDefault()
+      // No session means no workspace to write into, so the text stays inline.
+      if (sessionId === undefined) {
+        insertRange(start, end, pasted)
+        return
+      }
+      const mention = `@${decision.path} `
+      void rpc
+        .invoke('fs.writeTextFile', {
+          sessionId,
+          path: decision.path,
+          content: decision.content,
+        })
+        .then(() => insertRange(start, end, mention))
+        .catch(() => insertRange(start, end, pasted))
     },
-    [addFiles, caret, insertAtCaret],
+    [addFiles, caret, insertAtCaret, insertRange, sessionId, text],
   )
 
   const handleDrop = useCallback(
@@ -427,11 +525,21 @@ export function Composer({
         stashDraft()
       }
       const plain = !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+      // Alt+Up at the start of the field pulls the newest queued text message
+      // back into the composer. Imaged rows stay queued: an edit draft is text.
+      if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
+        const atStart = (e.currentTarget.selectionStart ?? caret) === 0
+        const lastText = [...queued].reverse().find((message) => message.attachments.length === 0)
+        if (atStart && onEditQueued && lastText !== undefined) {
+          e.preventDefault()
+          onEditQueued(lastText)
+        }
+      }
       if (plain && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.nativeEvent.isComposing) {
         if (recallPrompt(e.key === 'ArrowUp' ? 'older' : 'newer')) e.preventDefault()
       }
     },
-    [send, stashDraft, recallPrompt],
+    [send, stashDraft, recallPrompt, queued, caret, onEditQueued],
   )
 
   const closePopup = useCallback(() => setDismissed(true), [])
@@ -493,6 +601,17 @@ export function Composer({
                       className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                     >
                       <CornerUpRight size={11} />
+                    </button>
+                  ) : null}
+                  {onEditQueued && message.attachments.length === 0 ? (
+                    <button
+                      type="button"
+                      aria-label={`Edit queued message ${index + 1}`}
+                      title="Edit in composer"
+                      onClick={() => onEditQueued(message)}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                    >
+                      <Pencil size={11} />
                     </button>
                   ) : null}
                   {onRemoveQueued ? (
@@ -680,36 +799,37 @@ export function Composer({
  */
 const MentionOverlay = forwardRef<HTMLDivElement, { text: string; resting: boolean }>(
   function MentionOverlay({ text, resting }, ref) {
-  const ranges = mentionRanges(text)
-  if (ranges.length === 0) return null
-  const parts: React.ReactNode[] = []
-  let cursor = 0
-  for (const range of ranges) {
-    if (range.start > cursor) {
-      parts.push(<span key={cursor}>{text.slice(cursor, range.start)}</span>)
+    const ranges = mentionRanges(text)
+    if (ranges.length === 0) return null
+    const parts: React.ReactNode[] = []
+    let cursor = 0
+    for (const range of ranges) {
+      if (range.start > cursor) {
+        parts.push(<span key={cursor}>{text.slice(cursor, range.start)}</span>)
+      }
+      parts.push(
+        <mark key={range.start} className="rounded-sm bg-accent-subtle text-fg">
+          {text.slice(range.start, range.end)}
+        </mark>,
+      )
+      cursor = range.end
     }
-    parts.push(
-      <mark key={range.start} className="rounded-sm bg-accent-subtle text-fg">
-        {text.slice(range.start, range.end)}
-      </mark>,
+    if (cursor < text.length) {
+      parts.push(<span key={cursor}>{text.slice(cursor)}</span>)
+    }
+    return (
+      <div
+        ref={ref}
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
+          resting ? 'pl-4 pr-12' : 'px-4'
+        }`}
+      >
+        {parts}
+      </div>
     )
-    cursor = range.end
-  }
-  if (cursor < text.length) {
-    parts.push(<span key={cursor}>{text.slice(cursor)}</span>)
-  }
-  return (
-    <div
-      ref={ref}
-      aria-hidden="true"
-      className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
-        resting ? 'pl-4 pr-12' : 'px-4'
-      }`}
-    >
-      {parts}
-    </div>
-  )
-})
+  },
+)
 
 function SendStopButton({
   running,

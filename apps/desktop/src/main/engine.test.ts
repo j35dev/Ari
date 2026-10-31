@@ -1845,6 +1845,32 @@ describe('session title source', () => {
     expect(await titleOf(sessionId)).toBe('Refactored the tokenizer in package.json')
   }, 10000)
 
+  it('keeps a spawned child on the title it was given', async () => {
+    const engine = engineFor(
+      turnsDriver([[{ type: 'text-delta', text: 'Refactored the tokenizer in package.json.' }]]),
+    )
+    const sessionId = 'sess_child_title'
+    await store.append(sessionId, {
+      type: 'session.created',
+      session: {
+        id: sessionId,
+        projectId: 'proj_1',
+        parentSessionId: 'sess_root',
+        title: 'fix it',
+        driverKind: 'claude',
+        modelId: null,
+        permissionMode: 'ask',
+        status: 'idle',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    })
+    await engine.dispatch({ type: 'turn.start', sessionId, text: 'fix it' } as Command)
+    await until('settle', () => settles(sessionId) > 0)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(await titleOf(sessionId)).toBe('fix it')
+  }, 10000)
+
   it('skips a notice banner that opens the first reply', async () => {
     const engine = engineFor(
       turnsDriver([

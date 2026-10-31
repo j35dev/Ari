@@ -1,5 +1,8 @@
 import type { KeyboardEvent } from 'react'
 import { Button } from '@ari/ui/button'
+import { BotAvatar } from '@ari/ui/bot-avatar'
+import { characterOf } from '@ari/ui/bot-character'
+import type { Bot } from '@ari/contracts/bot'
 import type { ApprovalOption } from '@ari/contracts/common'
 import type { Command } from '@ari/contracts/commands'
 
@@ -92,6 +95,8 @@ export interface ApprovalCardProps {
   position?: number
   /** Total pending approvals; renders the counter with `position`. */
   total?: number
+  /** The Hive bot asking, when this is a bot's chat: the request is voiced. */
+  owner?: Bot
 }
 
 function prettySummary(json: string): string {
@@ -153,6 +158,7 @@ export function ApprovalCard({
   onRespond,
   position,
   total,
+  owner,
 }: ApprovalCardProps) {
   const choices = options.length > 0 ? offeredChoices(options) : LEGACY_CHOICES
   const keys = shortcutKeys(choices)
@@ -174,16 +180,29 @@ export function ApprovalCard({
     <div
       data-approval-id={approvalId}
       role="group"
-      aria-label={`Approval requested: ${toolName}`}
+      aria-label={
+        owner !== undefined
+          ? `${owner.name} wants to run ${toolName}`
+          : `Approval requested: ${toolName}`
+      }
       tabIndex={0}
       onKeyDown={handleKeyDown}
       className="px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
     >
       <div className="flex items-start gap-2">
-        <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
+        {owner !== undefined ? (
+          <BotAvatar character={characterOf(owner)} size={20} className="mt-0.5 shrink-0" />
+        ) : (
+          <span
+            aria-hidden="true"
+            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <p className="text-xs font-medium text-fg">Permission needed</p>
+            <p className="text-xs font-medium text-fg">
+              {owner !== undefined ? `${owner.name} wants to run` : 'Permission needed'}
+            </p>
             <p className="min-w-0 truncate text-2xs text-fg-muted">{displayName}</p>
             {position !== undefined && total !== undefined && total > 1 ? (
               <span className="ml-auto shrink-0 text-2xs tabular-nums text-fg-subtle">

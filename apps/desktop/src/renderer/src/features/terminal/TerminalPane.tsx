@@ -25,6 +25,7 @@ export function TerminalPane({
   terminalId,
   cwd,
   initialCommand,
+  attachOnly = false,
   active,
   onError,
 }: {
@@ -32,6 +33,8 @@ export function TerminalPane({
   cwd: string | null
   /** First command written into the shell after spawn (presets, run scripts). */
   initialCommand?: string
+  /** Attach to a host-created setup terminal; never starts or repeats its login command. */
+  attachOnly?: boolean
   /** Focused pane: steals xterm focus without re-creating anything. */
   active: boolean
   /** Receives the `terminal.create` rejection message so the dock can offer a retry. */
@@ -106,16 +109,20 @@ export function TerminalPane({
 
     // A rejected create used to vanish into `.catch(() => undefined)`, leaving
     // a blank xterm with a blinking cursor and no way to tell it had failed.
-    void rpc.invoke('terminal.create', { id: terminalId, cwd }).then(() => {
-      if (initialCommand !== undefined && initialCommand.length > 0) {
-        return rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
-      }
-      return undefined
-    }).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      term.writeln(`\r\n[Terminal failed to start: ${message}]`)
-      onErrorRef.current?.(message)
-    })
+    if (!attachOnly)
+      void rpc
+        .invoke('terminal.create', { id: terminalId, cwd })
+        .then(() => {
+          if (initialCommand !== undefined && initialCommand.length > 0) {
+            return rpc.invoke('terminal.write', { id: terminalId, data: `${initialCommand}\r` })
+          }
+          return undefined
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error)
+          term.writeln(`\r\n[Terminal failed to start: ${message}]`)
+          onErrorRef.current?.(message)
+        })
 
     const dataSub = rpc.subscribe('terminal.data', { id: terminalId }, (payload) => {
       const frame = payload as { id: string; data: string }
@@ -128,17 +135,17 @@ export function TerminalPane({
     const observer = new ResizeObserver(() => {
       try {
         fit.fit()
-        rpc.invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows }).catch(
-          () => undefined,
-        )
+        rpc
+          .invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
+          .catch(() => undefined)
       } catch {
         // zero-size layout moments are fine
       }
     })
     observer.observe(host)
-    void rpc.invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows }).catch(
-      () => undefined,
-    )
+    void rpc
+      .invoke('terminal.resize', { id: terminalId, cols: term.cols, rows: term.rows })
+      .catch(() => undefined)
 
     return () => {
       termRef.current = null
@@ -150,7 +157,7 @@ export function TerminalPane({
     }
     // initialCommand is consumed once at spawn; excluding it from these deps
     // keeps the pty alive across re-renders.
-  }, [terminalId, cwd])
+  }, [terminalId, cwd, attachOnly])
 
   // Focus follows pane activation without re-creating anything.
   useEffect(() => {

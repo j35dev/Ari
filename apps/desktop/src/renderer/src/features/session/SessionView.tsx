@@ -28,6 +28,10 @@ import { rpc } from '../../lib/rpc'
 import { useToast } from '@ari/ui/toast'
 import { Popover } from '@ari/ui/popover'
 import { TranscriptView } from '../transcript'
+import { BotChatHead } from '../hive/BotChatHead'
+import { BotProfileDrawer } from '../hive/BotProfileDrawer'
+import { markBotSeen } from '../hive/bot-unread'
+import { useBotOf } from '../hive/use-bot'
 import { Composer, type ComposerSeed, type QueuedMessageView } from '../composer/Composer'
 import { stageImages } from '../composer/stage-images'
 import { ModelSelector } from '../composer/ModelSelector'
@@ -36,11 +40,12 @@ import { QuestionPanel } from '../approvals/QuestionPanel'
 import { PlanReviewRail } from '../approvals/PlanReviewRail'
 import { parseQuestionPayload } from '../approvals/questionnaire'
 import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../moment'
-import { formatElapsed, WorkingGlyph } from '../moment'
+import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
 import { ComposerDock } from './ComposerDock'
+import { SessionStatusCapsule } from './SessionStatusCapsule'
 import { createMessageFold } from './message-fold'
 import {
   transcriptStore,
@@ -177,12 +182,6 @@ const EMPTY_TELEMETRY: Telemetry = {
   context: null,
 }
 
-/** Turn latency for the strip: 52.8s, then 2m 05s once it passes a minute. */
-export function formatTurnDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000)
-  return seconds < 60 ? `${(ms / 1000).toFixed(1)}s` : formatElapsed(seconds)
-}
-
 /**
  * Parses a catalog `contextHint` ("200k", "1M", "32768") into a token count.
  * Returns null when absent or unparseable — the meter then shows the used
@@ -198,64 +197,6 @@ export function contextTokensFromHint(hint: string | undefined): number | null {
   if (unit === 'k') return Math.round(value * 1000)
   if (unit === 'm') return Math.round(value * 1_000_000)
   return Math.round(value)
-}
-
-/** Compact token formatting for the meter chip: 200K, 1M, 12.5K, 999. */
-export function formatCompactTokens(n: number): string {
-  if (n < 1000) return String(n)
-  // Rounded first, so 3,982 reads 4K and 999,960 reads 1M, never 4.0K or 1000K.
-  const k = Number((n / 1000).toFixed(1))
-  return k < 1000 ? `${k}K` : `${Number((n / 1_000_000).toFixed(1))}M`
-}
-
-const METER_WARN_PCT = 75
-const METER_DANGER_PCT = 90
-
-/**
- * Context-window meter for the telemetry strip: a slim fill bar plus
- * `used / window` tokens. Without a known window only the used count shows.
- * `used` is what the conversation occupies now, not tokens spent so far.
- */
-export function ContextMeter({
-  used,
-  contextWindow,
-}: {
-  used: number
-  contextWindow: number | null
-}) {
-  const pct =
-    contextWindow !== null && contextWindow > 0
-      ? Math.min(100, Math.round((used / contextWindow) * 100))
-      : null
-  const tone =
-    pct !== null && pct >= METER_DANGER_PCT
-      ? 'bg-danger'
-      : pct !== null && pct >= METER_WARN_PCT
-        ? 'bg-warning'
-        : 'bg-accent'
-  return (
-    <span
-      className="flex items-center gap-1.5"
-      title={
-        contextWindow !== null
-          ? `Context: ${formatCompactTokens(used)} of ${formatCompactTokens(contextWindow)} tokens (${pct}%)`
-          : `Context: ${formatCompactTokens(used)} tokens`
-      }
-    >
-      <span aria-hidden="true">context</span>
-      {contextWindow !== null ? (
-        <span aria-hidden="true" className="h-1 w-9 overflow-hidden rounded-full bg-surface-2">
-          <span className={`block h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
-        </span>
-      ) : null}
-      <span
-        aria-label={`Context used: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}
-      >
-        {formatCompactTokens(used)}
-        {contextWindow !== null ? ` / ${formatCompactTokens(contextWindow)}` : ''}
-      </span>
-    </span>
-  )
 }
 
 export interface SessionDefaults {
@@ -282,6 +223,7 @@ export function SessionView({
   activityOf,
   sessionTitle,
   parentSession = null,
+  botId,
   hidden = false,
 }: {
   sessionId: string
@@ -297,6 +239,12 @@ export function SessionView({
   /** The session that delegated to this one, when it is a child. */
   parentSession?: { id: string; title: string } | null
   /**
+   * The Hive bot this session belongs to, when it is one: bot sessions get the
+   * chat-style head above the transcript. Keyed strictly on the session's own
+   * `botId` — a coding session must never wear a bot's face.
+   */
+  botId?: string
+  /**
    * Kept mounted behind the pane's current session. The journal subscription
    * stays live so the view is current when it returns, but its subtree's
    * effects pause and its cues stay quiet: an unseen session makes no sound,
@@ -305,6 +253,19 @@ export function SessionView({
   hidden?: boolean
 }) {
   const store = useMemo(() => transcriptStore(sessionId), [sessionId])
+  // The session's bot, when it has one: the chat head, the transcript's
+  // avatar rows and the approval cards all voice it.
+  const bot = useBotOf(botId)
+  const botRef = useRef(bot)
+  botRef.current = bot
+  // The Mind drawer (persona, memory, routines) opens over this session only.
+  const [mindOpen, setMindOpen] = useState(false)
+  // Reading the chat is the "seen" side of the roster's unread dot: any
+  // rendered — not kept-mounted-invisible — bot session visit marks its bot.
+  useEffect(() => {
+    if (bot === undefined || hidden === true) return
+    markBotSeen(bot.id)
+  }, [bot, hidden])
   const [historyReadySession, setHistoryReadySession] = useState<string | null>(null)
   // History is loading until its replay has been applied, so the transcript
   // never paints an empty state, or animates history in, while it is in flight.
@@ -490,6 +451,10 @@ export function SessionView({
         return
       }
       ingest(event, true)
+      // A turn that lands while this chat is on screen has been seen. The
+      // open effect alone leaves the roster dot on, because the session's
+      // updatedAt moves past the visit that happened when the pane opened.
+      if (hiddenRef.current !== true && botRef.current !== undefined) markBotSeen(botRef.current.id)
       // A prompt lands at once; streamed parts wait for the next frame.
       if (event.type === 'assistant.parts.appended') publishSoon()
       else publishMessages()
@@ -755,17 +720,24 @@ export function SessionView({
       command: Record<string, unknown>,
       failureTitle: string,
       onRejected?: (reason: string) => void,
-    ): void => {
+    ): Promise<boolean> => {
       const fail = (reason: string): void => {
         onRejected?.(reason)
         toast({ title: failureTitle, description: reason, tone: 'danger', durationMs: 6000 })
       }
-      void rpc
+      return rpc
         .invoke('command.dispatch', { command })
         .then((result) => {
-          if (!result.accepted) fail(result.reason ?? 'The command was rejected.')
+          if (!result.accepted) {
+            fail(result.reason ?? 'The command was rejected.')
+            return false
+          }
+          return true
         })
-        .catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
+        .catch((err: unknown) => {
+          fail(err instanceof Error ? err.message : String(err))
+          return false
+        })
     },
     [toast],
   )
@@ -798,7 +770,7 @@ export function SessionView({
         // transport confirms the steer); the mirrored events update the view.
         // With no turn actually live it promotes the message to the next turn
         // rather than rejecting, so a send racing a settle is never lost.
-        dispatch(
+        void dispatch(
           { type: 'message.enqueue', sessionId, text: outgoing, attachments },
           'Couldn’t queue message',
           restoreDraft,
@@ -806,7 +778,7 @@ export function SessionView({
         return
       }
       setTurnError(null)
-      dispatch(
+      void dispatch(
         { type: 'turn.start', sessionId, text: outgoing, attachments },
         'Couldn’t send message',
         restoreDraft,
@@ -869,14 +841,14 @@ export function SessionView({
   )
 
   const handleStop = useCallback(() => {
-    dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
+    void dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
   }, [sessionId, dispatch])
 
   // Queue management. Steering is best-effort by nature — the engine reports a
   // provider that cannot take a mid-turn message, and the message stays queued.
   const handleSteerQueued = useCallback(
     (message: QueuedMessageView) => {
-      dispatch(
+      void dispatch(
         {
           type: 'message.steer',
           sessionId,
@@ -891,7 +863,7 @@ export function SessionView({
 
   const handleRemoveQueued = useCallback(
     (message: QueuedMessageView) => {
-      dispatch(
+      void dispatch(
         {
           type: 'message.dequeue',
           sessionId,
@@ -904,10 +876,42 @@ export function SessionView({
     [sessionId, dispatch],
   )
 
+  // Edit is a text-only draft. An imaged message has nowhere to carry its
+  // attachments, so it stays queued instead of dropping them on the way back.
+  const handleEditQueued = useCallback(
+    (message: QueuedMessageView) => {
+      if (message.attachments.length > 0) return
+      // The draft changes only after the engine accepts the dequeue. Applying
+      // it first wipes an in-progress draft when the row was already sent.
+      void dispatch(
+        {
+          type: 'message.dequeue',
+          sessionId,
+          text: message.text,
+          attachments: message.attachments,
+        },
+        'Couldn’t edit queued message',
+      ).then((accepted) => {
+        if (!accepted) return
+        setComposerSeed((prev) => ({ text: message.text, nonce: (prev?.nonce ?? 0) + 1 }))
+      })
+    },
+    [sessionId, dispatch],
+  )
+
   // M19.4 edit-and-resend: filling the composer (and focusing it) is all an
   // edit does; sending then starts a new turn through the normal send path.
   const handleEditMessage = useCallback((text: string) => {
     setComposerSeed((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+  }, [])
+
+  // Quote splices a blockquote at the caret and keeps whatever is already drafted.
+  const handleQuoteAssistant = useCallback((quote: string) => {
+    setComposerSeed((prev) => ({
+      text: quote,
+      nonce: (prev?.nonce ?? 0) + 1,
+      mode: 'insert',
+    }))
   }, [])
 
   // M19.4 regenerate/retry: the prompt to re-run is the most recent user
@@ -1137,6 +1141,7 @@ export function SessionView({
         queued={queued}
         onSteerQueued={handleSteerQueued}
         onRemoveQueued={handleRemoveQueued}
+        onEditQueued={handleEditQueued}
         seed={composerSeed ?? undefined}
         suggestions={fileSuggestions.length > 0 ? fileSuggestions : undefined}
         attentionRequired={composerAttentionRequired}
@@ -1174,6 +1179,7 @@ export function SessionView({
                       options={a.options}
                       position={i + 1}
                       total={approvals.length}
+                      owner={bot}
                       onRespond={(answer) => respondApproval(a.approvalId, answer)}
                     />
                   ))}
@@ -1223,6 +1229,7 @@ export function SessionView({
       queued,
       handleSteerQueued,
       handleRemoveQueued,
+      handleEditQueued,
       composerSeed,
       fileSuggestions,
       composerAttentionRequired,
@@ -1268,13 +1275,28 @@ export function SessionView({
           parentSession={parentSession}
           onOpenSession={onOpenSession}
         />
+        {botId !== undefined ? (
+          <BotChatHead
+            bot={bot}
+            activity={activityOf?.(sessionId)}
+            mindOpen={mindOpen}
+            onMind={() => {
+              setMindOpen(true)
+            }}
+          />
+        ) : null}
+        {bot !== undefined ? (
+          <BotProfileDrawer bot={bot} open={mindOpen} onClose={() => setMindOpen(false)} />
+        ) : null}
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
             store={store}
             loading={loading}
+            bot={bot}
             turnDiffs={turnDiffs}
             onEditUserMessage={handleEditMessage}
+            onQuoteAssistant={handleQuoteAssistant}
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
             regenerateDisabled={running}
             running={running}
@@ -1288,54 +1310,6 @@ export function SessionView({
             onTurnInView={handleTurnInView}
             hidden={hidden}
           />
-        </div>
-        <div
-          className={`mx-auto flex h-6 w-full max-w-3xl shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle ${centered ? 'invisible' : ''}`}
-        >
-          {telemetry.turnCount > 0 ? (
-            <>
-              <span>
-                {telemetry.turnCount} turn{telemetry.turnCount === 1 ? '' : 's'}
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                last{' '}
-                {telemetry.lastDurationMs !== null
-                  ? formatTurnDuration(telemetry.lastDurationMs)
-                  : '—'}
-              </span>
-              {/* Some agents report a context reading but no token totals. */}
-              {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span
-                    title={`Input tokens this session: ${telemetry.inputTokens.toLocaleString('en-US')}${
-                      telemetry.cachedInputTokens > 0
-                        ? ` (${telemetry.cachedInputTokens.toLocaleString('en-US')} read from cache)`
-                        : ''
-                    }`}
-                  >
-                    ↑ {formatCompactTokens(telemetry.inputTokens)}
-                  </span>
-                  <span aria-hidden>·</span>
-                  <span
-                    title={`Output tokens this session: ${telemetry.outputTokens.toLocaleString('en-US')}`}
-                  >
-                    ↓ {formatCompactTokens(telemetry.outputTokens)}
-                  </span>
-                </>
-              ) : null}
-            </>
-          ) : (
-            <span>{running ? null : 'no turns yet'}</span>
-          )}
-          <div className="flex-1" />
-          {/* Headroom comes from the provider's own reading of the window.
-            Summing the turns' tokens instead would count each re-read of the
-            conversation again and miss everything served from cache. */}
-          {telemetry.context !== null ? (
-            <ContextMeter used={telemetry.context.usedTokens} contextWindow={contextWindow} />
-          ) : null}
         </div>
         {turnError ? (
           <TurnErrorBanner
@@ -1380,6 +1354,18 @@ export function SessionView({
             ))}
           </div>
         ) : null}
+        {/* Last thing above the plate: the capsule reads as the composer's own
+            shoulder, so nothing may sit between the two. */}
+        <SessionStatusCapsule
+          turnCount={telemetry.turnCount}
+          lastDurationMs={telemetry.lastDurationMs}
+          inputTokens={telemetry.inputTokens}
+          cachedInputTokens={telemetry.cachedInputTokens}
+          outputTokens={telemetry.outputTokens}
+          context={telemetry.context}
+          contextWindow={contextWindow}
+          hidden={centered}
+        />
         <ComposerDock
           centered={centered}
           canvasRef={canvasRef}
