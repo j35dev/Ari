@@ -1,155 +1,84 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Mock } from 'vitest'
 import { ToastProvider } from '@ari/ui/toast'
+import type { ReviewWorkspaceProps } from './ReviewWorkspace'
 import { ChangesView } from './ChangesView'
-import { FILE_MIME } from '../composer/drag-file'
 
-const rpcMocks = vi.hoisted(() => ({
-  invoke: vi.fn(),
-  subscribe: vi.fn(() => () => undefined),
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), subscribe: vi.fn(() => () => undefined) }))
+vi.mock('../../lib/rpc', () => ({ rpc: mocks }))
+vi.mock('./ReviewWorkspace', () => ({
+  ReviewWorkspace: (props: ReviewWorkspaceProps) => (
+    <pre data-testid="review">
+      {JSON.stringify({ scope: props.scope, comparison: props.initialComparison })}
+    </pre>
+  ),
 }))
+vi.mock('./SourceControlWorkspace', () => ({
+  SourceControlWorkspace: (props: ReviewWorkspaceProps) => (
+    <pre data-testid="source-control">{JSON.stringify(props.scope)}</pre>
+  ),
+}))
+beforeEach(() => {
+  mocks.invoke.mockReset()
+  mocks.invoke.mockImplementation(async (method) =>
+    method === 'project.list'
+      ? [{ id: 'p', name: 'Demo', path: 'C:\\repos\\demo' }]
+      : { checkpoints: [{ turnId: 't1', gitRef: 'refs/ari/s1/t1' }] },
+  )
+})
+afterEach(() => vi.clearAllMocks())
 
-vi.mock('../../lib/rpc', () => ({ rpc: rpcMocks }))
-
-const invokeMock = rpcMocks.invoke as unknown as Mock<
-  (method: string, params?: unknown) => Promise<unknown>
->
-
-const DIFF = [
-  'diff --git a/src/app.ts b/src/app.ts',
-  '--- a/src/app.ts',
-  '+++ b/src/app.ts',
-  '@@ -1,2 +1,2 @@',
-  ' const one = 1',
-  '-const two = 2',
-  '+const two = 22',
-].join('\n')
-
-function mockChangedFileDiff(diffWorktree: () => Promise<unknown>): void {
-  invokeMock.mockImplementation(async (method) => {
-    if (method === 'project.list') return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
-    if (method === 'git.status')
-      return {
-        isRepo: true,
-        branch: 'main',
-        files: [{ path: 'src/app.ts', staged: false, kind: 'M' }],
-      }
-    if (method === 'git.diffWorktree') return diffWorktree()
-    throw new Error(`unexpected method: ${String(method)}`)
-  })
-}
-
-describe('ChangesView', () => {
-  beforeEach(() => {
-    invokeMock.mockReset()
-    invokeMock.mockImplementation(async (method) => {
-      if (method === 'project.list')
-        return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
-      if (method === 'git.status') return { isRepo: true, branch: 'main', files: [] }
-      if (method === 'git.diffWorktree') return { diffText: '' }
-      if (method === 'session.load')
-        return { checkpoints: [{ turnId: 't1', gitRef: 'refs/ari/s1/t1' }] }
-      throw new Error(`unexpected method: ${String(method)}`)
-    })
+describe('Changes route', () => {
+  it('resolves child/session scope synchronously instead of using the project checkout', () => {
+    render(
+      <ChangesView
+        sessionId="child"
+        projectId="parent-project"
+        initialComparison={{ kind: 'turn', turnId: 't1' }}
+      />,
+    )
+    expect(screen.getByTestId('review')).toHaveTextContent('"sessionId":"child"')
+    expect(screen.getByTestId('review')).toHaveTextContent('"kind":"turn"')
+    expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
-  afterEach(() => {
-    vi.clearAllMocks()
+  it('uses an explicit project or the first registered fallback without exposing cwd', async () => {
+    const { rerender } = render(<ChangesView projectId="selected" />)
+    expect(screen.getByTestId('review')).toHaveTextContent('"projectId":"selected"')
+    rerender(<ChangesView />)
+    expect(await screen.findByTestId('review')).not.toHaveTextContent('C:\\repos')
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('review')).toHaveTextContent('"projectId":"p"'),
+    )
   })
 
-  it('mounts the active session checkpoint list with revert actions', async () => {
-    render(<ToastProvider><ChangesView sessionId="sess_1" projectId="proj_1" /></ToastProvider>)
-
-    expect(await screen.findByRole('region', { name: 'Checkpoints' })).toBeInTheDocument()
+  it('keeps checkpoint history lazy while preserving existing revert actions', async () => {
+    render(
+      <ToastProvider>
+        <ChangesView sessionId="s" />
+      </ToastProvider>,
+    )
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Turn checkpoints' }))
     expect(await screen.findByRole('button', { name: 'Revert turn t1' })).toBeInTheDocument()
-    expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_1' })
+    expect(mocks.invoke).toHaveBeenCalledWith('session.load', { sessionId: 's' })
   })
 
-  it('renders without the checkpoint section when no session is active', async () => {
-    render(<ToastProvider><ChangesView /></ToastProvider>)
-
-    expect(await screen.findByText(/Worktree clean/)).toBeInTheDocument()
-    expect(screen.queryByRole('region', { name: 'Checkpoints' })).not.toBeInTheDocument()
-    expect(invokeMock).not.toHaveBeenCalledWith('session.load', expect.anything())
-    // Project scope: no working directory crosses IPC.
-    expect(invokeMock).toHaveBeenCalledWith('git.status', { projectId: 'proj_1' })
+  it('routes Source control separately from review', () => {
+    render(<ChangesView sessionId="s" sourceControl />)
+    expect(screen.getByTestId('source-control')).toHaveTextContent('"sessionId":"s"')
+    expect(screen.queryByTestId('review')).not.toBeInTheDocument()
   })
 
-  it('reviews the selected child worktree instead of the project checkout', async () => {
-    render(<ToastProvider><ChangesView sessionId="sess_1" projectId="proj_1" /></ToastProvider>)
-
-    await screen.findByRole('button', { name: 'Revert turn t1' })
-    // Session scope: the worktree resolves server-side, no path round-trip.
-    expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
-    expect(invokeMock).not.toHaveBeenCalledWith('session.workspace', expect.anything())
-  })
-
-  it('changed-file chips drag as mention sources with their repo-relative path', async () => {
-    invokeMock.mockImplementation(async (method) => {
-      if (method === 'project.list')
-        return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
-      if (method === 'git.status')
-        return {
-          isRepo: true,
-          branch: 'main',
-          files: [{ path: 'index.html', staged: false, kind: 'M' }],
-        }
-      if (method === 'git.diffWorktree') return { diffText: '' }
-      throw new Error(`unexpected method: ${String(method)}`)
-    })
-    render(<ToastProvider><ChangesView /></ToastProvider>)
-
-    const chip = await screen.findByText('index.html')
-    const setData = vi.fn()
-    fireEvent.dragStart(chip, { dataTransfer: { setData, effectAllowed: '' } })
-
-    expect(chip).toHaveAttribute('draggable', 'true')
-    expect(setData).toHaveBeenCalledWith(FILE_MIME, 'index.html')
-  })
-
-  it('shows the error when the worktree diff request rejects', async () => {
-    mockChangedFileDiff(async () => {
-      throw new Error('diff failed')
-    })
-    render(<ToastProvider><ChangesView /></ToastProvider>)
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      "Couldn't load the diff: diff failed",
+  it('surfaces fallback scope failures and permits retry', async () => {
+    mocks.invoke
+      .mockRejectedValueOnce(new Error('project read failed'))
+      .mockResolvedValue([{ id: 'p' }])
+    render(<ChangesView />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load projects')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('review')).toHaveTextContent('"projectId":"p"'),
     )
-  })
-
-  it('shows the error the diff response carries', async () => {
-    mockChangedFileDiff(async () => ({ diffText: '', error: 'diff_too_large' }))
-    render(<ToastProvider><ChangesView /></ToastProvider>)
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      "Couldn't load the diff: diff_too_large",
-    )
-  })
-
-  it('renders the diff on a successful load', async () => {
-    mockChangedFileDiff(async () => ({ diffText: DIFF }))
-    render(<ToastProvider><ChangesView /></ToastProvider>)
-
-    expect(await screen.findByText('const two = 22')).toBeInTheDocument()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('clears a diff error once a refresh loads the diff', async () => {
-    const diff = vi
-      .fn<() => Promise<unknown>>()
-      .mockRejectedValueOnce(new Error('diff failed'))
-      .mockResolvedValue({ diffText: DIFF })
-    mockChangedFileDiff(diff)
-    render(<ToastProvider><ChangesView /></ToastProvider>)
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      "Couldn't load the diff: diff failed",
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-
-    expect(await screen.findByText('const two = 22')).toBeInTheDocument()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
