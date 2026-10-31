@@ -20,11 +20,14 @@ const TITLES = ['Meet your coding agents.', 'Bring your projects along.', 'Ready
 export function OnboardingWizard({
   settings,
   returning,
+  createFirstSession = !returning,
   onFinished,
   onLeave,
 }: {
   settings: Settings
   returning: boolean
+  /** A resumed setup may already have created its first session before a failed save. */
+  createFirstSession?: boolean
   onFinished: (outcome: OnboardingOutcome) => void
   onLeave: () => void
 }) {
@@ -35,7 +38,7 @@ export function OnboardingWizard({
     projects: [],
     driverKind: settings.sessions.defaultDriverKind,
     permissionMode: settings.sessions.defaultPermissionMode,
-    createSession: !returning,
+    createSession: createFirstSession,
   }))
   const [agentBusy, setAgentBusy] = useState(false)
   const [saving, setSaving] = useState(false)

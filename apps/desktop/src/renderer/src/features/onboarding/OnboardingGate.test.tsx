@@ -38,7 +38,7 @@ describe('first-run gate', () => {
   it('waits for both lists and settings before deciding this is a new installation', async () => {
     let resolve!: (value: unknown[]) => void
     invoke.mockImplementation(async (method) => {
-      if (method === 'settings.get') return defaultSettings
+      if (method === 'settings.get' || method === 'settings.update') return defaultSettings
       if (method === 'session.list')
         return new Promise((done) => {
           resolve = done
@@ -52,7 +52,30 @@ describe('first-run gate', () => {
       resolve([])
     })
     expect(screen.getByText('First setup')).toBeInTheDocument()
+    expect(invoke).toHaveBeenCalledWith('settings.update', { onboarding: { completedAt: null } })
+  })
+
+  it('does not mistake an interrupted setup for a legacy workspace', async () => {
+    invoke.mockImplementation(async (method) =>
+      method === 'settings.get'
+        ? { ...defaultSettings, onboarding: { completedAt: null } }
+        : [{ id: 'partially-added' }],
+    )
+    mount()
+    expect(await screen.findByText('First setup')).toBeInTheDocument()
     expect(invoke.mock.calls.some(([method]) => method === 'settings.update')).toBe(false)
+  })
+
+  it('requires the pending marker to save before opening a new setup', async () => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation((method, params) =>
+      method === 'settings.update' ? Promise.reject(new Error('read only')) : base(method, params),
+    )
+    mount()
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not read or save')
+    expect(screen.queryByText('First setup')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open workspace for now' }))
+    expect(screen.getByRole('main', { name: 'Workspace' })).toBeInTheDocument()
   })
 
   it('bypasses completed setup even with an empty workspace and a zero completion timestamp', async () => {
