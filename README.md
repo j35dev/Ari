@@ -166,20 +166,17 @@ pnpm test:watch   # vitest watch
 pnpm format       # prettier write
 ```
 
-`AGENTS.md` documents the working protocol (branching, commit conventions, the
-task-by-task workflow) — it doubles as a contributor guide and is enforced by tooling.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development and pull-request guidelines.
 
 ## Project status
 
-Ari is built milestone by milestone. Current state and history:
-
-- [Releases](https://github.com/j35dev/Ari/releases) — installers for each platform
+Installers for each platform are available from [Releases](https://github.com/j35dev/Ari/releases).
 
 ## Contributing
 
-Issues and PRs are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md). For substantial work, open an issue first so it can be slotted
-into the plan. Keep diffs small, match the existing style, and make sure `pnpm verify` is
-green before pushing.
+Issues and PRs are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md). For substantial
+changes, open an issue first to discuss the scope. Keep diffs small, match the existing
+style, and make sure `pnpm verify` is green before pushing.
 
 ## License
 

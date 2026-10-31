@@ -1,6 +1,6 @@
 /*
- * Ari design tokens — the ONLY place raw color/oklch literals may appear
- * (AGENTS.md). Structure:
+ * Ari design tokens — the ONLY place raw color/oklch literals may appear.
+ * Structure:
  *   :root                    → scheme-independent tokens (geometry, type,
  *                              layout, motion).
  *   [data-ari-theme='<id>']  → one complete color palette per theme; the
