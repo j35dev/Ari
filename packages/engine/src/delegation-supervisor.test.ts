@@ -141,9 +141,9 @@ it('wakes an idle parent once with every finished child and names the ones still
   const [notice] = await notices('root')
   expect(notice?.origin).toEqual({ kind: 'completion', sessionIds: ['a', 'b'] })
   const text = notice?.parts[0]?.type === 'text' ? notice.parts[0].text : ''
-  expect(text).toContain('Child session "A" (a) finished its turn.\nReport:\nA is done.')
-  expect(text).toContain('Child session "B" (b) failed.\nError: boom')
-  expect(text).toContain('Still working: "C" (c)')
+  expect(text).toContain('A (a) finished its turn.\nReport:\nA is done.')
+  expect(text).toContain('B (b) failed.\nError: boom')
+  expect(text).toContain('Still working: C (c)')
   expect((await store.load('root')).activeTurnId).not.toBeNull()
 
   await settle('root')

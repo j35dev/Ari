@@ -36,11 +36,12 @@ import { QuestionPanel } from '../approvals/QuestionPanel'
 import { PlanReviewRail } from '../approvals/PlanReviewRail'
 import { parseQuestionPayload } from '../approvals/questionnaire'
 import { notifyNeedsAttention, playSettleSound, useSettleNotify } from '../moment'
-import { formatElapsed, WorkingGlyph } from '../moment'
+import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { SessionBranchChip } from './SessionBranchChip'
 import { ComposerDock } from './ComposerDock'
+import { SessionStatusCapsule } from './SessionStatusCapsule'
 import { createMessageFold } from './message-fold'
 import {
   transcriptStore,
@@ -169,12 +170,6 @@ const EMPTY_TELEMETRY: Telemetry = {
   context: null,
 }
 
-/** Turn latency for the strip: 52.8s, then 2m 05s once it passes a minute. */
-export function formatTurnDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000)
-  return seconds < 60 ? `${(ms / 1000).toFixed(1)}s` : formatElapsed(seconds)
-}
-
 /**
  * Parses a catalog `contextHint` ("200k", "1M", "32768") into a token count.
  * Returns null when absent or unparseable — the meter then shows the used
@@ -190,64 +185,6 @@ export function contextTokensFromHint(hint: string | undefined): number | null {
   if (unit === 'k') return Math.round(value * 1000)
   if (unit === 'm') return Math.round(value * 1_000_000)
   return Math.round(value)
-}
-
-/** Compact token formatting for the meter chip: 200K, 1M, 12.5K, 999. */
-export function formatCompactTokens(n: number): string {
-  if (n < 1000) return String(n)
-  // Rounded first, so 3,982 reads 4K and 999,960 reads 1M, never 4.0K or 1000K.
-  const k = Number((n / 1000).toFixed(1))
-  return k < 1000 ? `${k}K` : `${Number((n / 1_000_000).toFixed(1))}M`
-}
-
-const METER_WARN_PCT = 75
-const METER_DANGER_PCT = 90
-
-/**
- * Context-window meter for the telemetry strip: a slim fill bar plus
- * `used / window` tokens. Without a known window only the used count shows.
- * `used` is what the conversation occupies now, not tokens spent so far.
- */
-export function ContextMeter({
-  used,
-  contextWindow,
-}: {
-  used: number
-  contextWindow: number | null
-}) {
-  const pct =
-    contextWindow !== null && contextWindow > 0
-      ? Math.min(100, Math.round((used / contextWindow) * 100))
-      : null
-  const tone =
-    pct !== null && pct >= METER_DANGER_PCT
-      ? 'bg-danger'
-      : pct !== null && pct >= METER_WARN_PCT
-        ? 'bg-warning'
-        : 'bg-accent'
-  return (
-    <span
-      className="flex items-center gap-1.5"
-      title={
-        contextWindow !== null
-          ? `Context: ${formatCompactTokens(used)} of ${formatCompactTokens(contextWindow)} tokens (${pct}%)`
-          : `Context: ${formatCompactTokens(used)} tokens`
-      }
-    >
-      <span aria-hidden="true">context</span>
-      {contextWindow !== null ? (
-        <span aria-hidden="true" className="h-1 w-9 overflow-hidden rounded-full bg-surface-2">
-          <span className={`block h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
-        </span>
-      ) : null}
-      <span
-        aria-label={`Context used: ${formatCompactTokens(used)}${contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''}`}
-      >
-        {formatCompactTokens(used)}
-        {contextWindow !== null ? ` / ${formatCompactTokens(contextWindow)}` : ''}
-      </span>
-    </span>
-  )
 }
 
 export interface SessionDefaults {
@@ -1308,54 +1245,6 @@ export function SessionView({
             hidden={hidden}
           />
         </div>
-        <div
-          className={`mx-auto flex h-6 w-full max-w-3xl shrink-0 items-center gap-2.5 px-4 font-mono text-2xs tabular-nums text-fg-subtle ${centered ? 'invisible' : ''}`}
-        >
-          {telemetry.turnCount > 0 ? (
-            <>
-              <span>
-                {telemetry.turnCount} turn{telemetry.turnCount === 1 ? '' : 's'}
-              </span>
-              <span aria-hidden>·</span>
-              <span>
-                last{' '}
-                {telemetry.lastDurationMs !== null
-                  ? formatTurnDuration(telemetry.lastDurationMs)
-                  : '—'}
-              </span>
-              {/* Some agents report a context reading but no token totals. */}
-              {telemetry.inputTokens + telemetry.outputTokens > 0 ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span
-                    title={`Input tokens this session: ${telemetry.inputTokens.toLocaleString('en-US')}${
-                      telemetry.cachedInputTokens > 0
-                        ? ` (${telemetry.cachedInputTokens.toLocaleString('en-US')} read from cache)`
-                        : ''
-                    }`}
-                  >
-                    ↑ {formatCompactTokens(telemetry.inputTokens)}
-                  </span>
-                  <span aria-hidden>·</span>
-                  <span
-                    title={`Output tokens this session: ${telemetry.outputTokens.toLocaleString('en-US')}`}
-                  >
-                    ↓ {formatCompactTokens(telemetry.outputTokens)}
-                  </span>
-                </>
-              ) : null}
-            </>
-          ) : (
-            <span>{running ? null : 'no turns yet'}</span>
-          )}
-          <div className="flex-1" />
-          {/* Headroom comes from the provider's own reading of the window.
-            Summing the turns' tokens instead would count each re-read of the
-            conversation again and miss everything served from cache. */}
-          {telemetry.context !== null ? (
-            <ContextMeter used={telemetry.context.usedTokens} contextWindow={contextWindow} />
-          ) : null}
-        </div>
         {turnError ? (
           <TurnErrorBanner
             message={turnError}
@@ -1397,6 +1286,18 @@ export function SessionView({
             ))}
           </div>
         ) : null}
+        {/* Last thing above the plate: the capsule reads as the composer's own
+            shoulder, so nothing may sit between the two. */}
+        <SessionStatusCapsule
+          turnCount={telemetry.turnCount}
+          lastDurationMs={telemetry.lastDurationMs}
+          inputTokens={telemetry.inputTokens}
+          cachedInputTokens={telemetry.cachedInputTokens}
+          outputTokens={telemetry.outputTokens}
+          context={telemetry.context}
+          contextWindow={contextWindow}
+          hidden={centered}
+        />
         <ComposerDock
           centered={centered}
           canvasRef={canvasRef}
