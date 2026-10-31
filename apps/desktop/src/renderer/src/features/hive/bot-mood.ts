@@ -32,6 +32,21 @@ export function botMoodOf(
 }
 
 /**
+ * What a bot is doing right now, as the verb phrase that completes "Forge …"
+ * in its chat head's status line ("is working…"). Live turns only: a settled
+ * turn is finished business the transcript already told the story of, so a
+ * done mark leaves the line to the bot's tagline.
+ */
+export function botStatusOf(activity: SessionActivity | undefined): string | null {
+  if (activity?.phase === 'working') return 'is working…'
+  if (activity?.phase === 'paused') {
+    return activity.pauseReason === 'input' ? 'has a question for you' : 'wants your approval'
+  }
+  if (activity?.phase === 'error') return 'hit a problem'
+  return null
+}
+
+/**
  * Moods for a room's members: the bot the round waits on is replying, the one
  * that asked for the person needs them, everyone else idles. Reads the room
  * once and answers per bot.

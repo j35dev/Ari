@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyRoomFrame,
+  dmRoomOf,
   insertMention,
   isPass,
   isRoomFrame,
@@ -91,6 +92,26 @@ describe('labels', () => {
   it('reads a bare (pass) as a pass', () => {
     expect(isPass(' (pass)\n')).toBe(true)
     expect(isPass('I pass (pass)')).toBe(false)
+  })
+})
+
+describe('dmRoomOf', () => {
+  const dm = room({ title: 'Pixel × Rover', leadBotId: null })
+
+  it('finds the pair room whichever way it was seated', () => {
+    expect(dmRoomOf([dm], 'bot_a', 'bot_b')).toBe(dm)
+    expect(dmRoomOf([dm], 'bot_b', 'bot_a')).toBe(dm)
+  })
+
+  it('passes on seats that are not exactly the pair', () => {
+    const pair = room().bots
+    const trio = room({ id: 'room_3', bots: [...pair, pair[1]!] })
+    expect(dmRoomOf([trio], 'bot_a', 'bot_b')).toBeUndefined()
+    expect(dmRoomOf([dm], 'bot_a', 'bot_c')).toBeUndefined()
+  })
+
+  it('passes on an empty list', () => {
+    expect(dmRoomOf([], 'bot_a', 'bot_b')).toBeUndefined()
   })
 })
 
