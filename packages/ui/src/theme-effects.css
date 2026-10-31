@@ -5,7 +5,7 @@
  * (`body::after`; wallpaper.css owns `body::before`), so no component needs to
  * know which theme is active and nothing here can intercept a click. Colours
  * derive from the active theme's own tokens through `color-mix`, which keeps
- * raw literals in tokens.css where AGENTS.md wants them.
+ * raw literals in tokens.css.
  *
  * All of it is static: there is nothing to pause under reduced motion.
  */
