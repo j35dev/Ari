@@ -15,13 +15,17 @@ declare global {
 
 let subscriptionCounter = 0
 
+function bridge<T>(value: unknown): T {
+  return value as T
+}
+
 /** Typed renderer-side RPC client over the sandboxed preload bridge. */
 export const rpc = {
   async invoke<M extends RpcMethod>(
     method: M,
     params?: unknown,
   ): Promise<RpcResults[M]> {
-    return window.ari.invoke(method, params) as Promise<RpcResults[M]>
+    return bridge<RpcResults[M]>(await window.ari.invoke(method, params))
   },
 
   subscribe<S extends StreamName>(
