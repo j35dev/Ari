@@ -30,6 +30,19 @@ export class GitReviewService {
     this.git = new RepositoryGit(cwd)
   }
 
+  /** Cheap scope-filtered status for persistent chrome; never hashes snapshots or reads history. */
+  async summary(
+    signal?: AbortSignal,
+  ): Promise<Result<{ branch: string | null; changedFiles: number }, SourceControlError>> {
+    const raw = await this.git.run(
+      ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--', '.'],
+      { signal },
+    )
+    if (!raw.ok) return raw
+    const status = parseRepositoryStatus(raw.value)
+    return ok({ branch: status.branch, changedFiles: status.files.length })
+  }
+
   async status(signal?: AbortSignal): Promise<Result<SourceControlStatus, SourceControlError>> {
     const raw = await this.git.run(
       [

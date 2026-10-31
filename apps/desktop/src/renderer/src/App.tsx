@@ -46,6 +46,7 @@ import { SettingsWorkspace, type SettingsSectionId } from './features/settings'
 import { HubWorkspace } from './features/github'
 import { KeyboardCheatSheet } from './features/settings/KeyboardCheatSheet'
 import { ChangesView } from './features/changes'
+import { useSourceControl } from './features/changes/use-source-control'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
 import { FileExplorer } from './features/files/FileExplorer'
@@ -104,7 +105,7 @@ import {
 import { WelcomePanel } from './features/welcome'
 import './features/transcript/transcript.css'
 
-type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github'>
+type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github' | 'source-control'>
 
 /** Rail headings, and the accessible name of the rail itself. */
 const INSPECTOR_TITLES: Record<InspectorId, string> = {
@@ -142,7 +143,9 @@ function Shell() {
   // are tools, so they dock to the trailing rail beside the transcript. A Hive
   // team room takes the full page the same way, so anything that closes one
   // of them closes it too.
-  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'room' | null>(null)
+  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'source-control' | 'room' | null>(
+    null,
+  )
   const [roomId, setRoomId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hubOpen, setHubOpen] = useState(false)
@@ -607,6 +610,11 @@ function Shell() {
         setSettingsOpen(false)
         setFullPage(null)
         setInspector('browser')
+      } else if (view === 'changes' || view === 'source-control') {
+        setHubOpen(false)
+        setSettingsOpen(false)
+        setInspector(null)
+        setFullPage(view)
       } else {
         setHubOpen(false)
         setSettingsOpen(false)
@@ -971,7 +979,7 @@ function Shell() {
       setFullPage(null)
       return
     }
-    if (id === 'usage' || id === 'changes') {
+    if (id === 'usage' || id === 'changes' || id === 'source-control') {
       setInspector(null)
       setFullPage((prev) => (prev === id ? null : id))
       return
@@ -1006,6 +1014,7 @@ function Shell() {
       : activeScopeProjectId !== undefined
         ? { projectId: activeScopeProjectId }
         : null
+  const changeSummary = useSourceControl(activeScope, 'summary')
   // Where a shell can actually run — the rule and its precedence live in
   // `shellRootFor`, which is unit-tested. A null answer is what makes the rail
   // offer a project instead of a spawn the main process would refuse.
@@ -1063,6 +1072,7 @@ function Shell() {
               : ((fullPage === 'room' ? null : fullPage) ?? inspector)
         }
         onSelectTool={selectWorkspaceTool}
+        changeCount={changeSummary.summary?.changedFiles ?? null}
         usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
       />
@@ -1252,11 +1262,12 @@ function Shell() {
                 <ErrorBoundary label="Usage">
                   <UsagePage />
                 </ErrorBoundary>
-              ) : fullPage === 'changes' ? (
-                <ErrorBoundary label="Changes">
+              ) : fullPage === 'changes' || fullPage === 'source-control' ? (
+                <ErrorBoundary label={fullPage === 'source-control' ? 'Source control' : 'Changes'}>
                   <ChangesView
                     sessionId={activeSessionId}
                     projectId={activeSession?.projectId ?? null}
+                    sourceControl={fullPage === 'source-control'}
                   />
                 </ErrorBoundary>
               ) : openRoom !== undefined ? (

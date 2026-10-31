@@ -119,6 +119,7 @@ export const IPC_METHODS = [
   'settings.get',
   'settings.update',
   'git.status',
+  'scm.summary',
   'scm.status',
   'scm.review',
   'scm.diff',

@@ -81,6 +81,22 @@ describe('review data', () => {
     expect(result.current.watchError).toBe('watch unavailable')
   })
 
+  it('reads a cheap file count for the titlebar without opening a review', async () => {
+    mocks.invoke.mockImplementation(async (method) =>
+      method === 'scm.summary'
+        ? { ok: true, value: { branch: 'main', changedFiles: 4 } }
+        : { ok: false, error: { message: 'should not run' } },
+    )
+    const { result } = renderHook(() => useSourceControl({ projectId: 'p' }, 'summary'))
+    await waitFor(() => expect(result.current.summary?.changedFiles).toBe(4))
+    expect(result.current.context).toBeNull()
+    expect(mocks.invoke).toHaveBeenCalledTimes(1)
+    expect(mocks.invoke).toHaveBeenCalledWith(
+      'scm.summary',
+      expect.objectContaining({ projectId: 'p' }),
+    )
+  })
+
   it('keeps query errors explicit and supports status-only titlebar reads', async () => {
     mocks.invoke.mockImplementation(async (method) =>
       method === 'scm.status'
