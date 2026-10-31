@@ -945,6 +945,39 @@ describe('SessionView per-turn diff cards', () => {
     }
   })
 
+  it('shows the failure and retries a turn whose diff could not be read', async () => {
+    const user = userEvent.setup()
+    let attempts = 0
+    invokeMock.mockImplementation(async (method, params) => {
+      if (method === 'git.turnDiff') {
+        attempts += 1
+        return attempts === 1
+          ? { diffText: null, error: 'no checkpoint for that turn' }
+          : { diffText: TURN_DIFF }
+      }
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      if (method === 'git.status') return { isRepo: true, branch: 'main', files: [] }
+      throw new Error(`unexpected method: ${String(method)} ${JSON.stringify(params)}`)
+    })
+    renderView()
+    await screen.findByLabelText('Message')
+    replaySettledTurn()
+    expect(await screen.findByText('no checkpoint for that turn')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry turn diff' }))
+    expect(
+      await screen.findByRole('button', { name: 'Turn diff: 1 file changed' }),
+    ).toBeInTheDocument()
+    expect(attempts).toBe(2)
+  })
+
   it('shows no card when the settled turn has a null diff', async () => {
     renderView()
     await screen.findByLabelText('Message')

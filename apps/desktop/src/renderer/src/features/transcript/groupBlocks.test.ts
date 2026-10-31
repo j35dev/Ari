@@ -192,7 +192,9 @@ describe('groupBlocks row reuse', () => {
   })
 
   it('keeps a turn diff card until its diff text changes', () => {
-    const blocks = splitBlocks([{ ...assistantMessage([{ type: 'text', text: 'hi' }]), turnId: 't1' }])
+    const blocks = splitBlocks([
+      { ...assistantMessage([{ type: 'text', text: 'hi' }]), turnId: 't1' },
+    ])
     const before = groupBlocks(blocks, { t1: 'diff a' })
 
     expect(groupBlocks(blocks, { t1: 'diff a' }, before)[1]).toBe(before[1])
@@ -237,6 +239,20 @@ describe('turn diff cards', () => {
     const nextTurnUser: Message = { ...userMessage('more'), id: 'm3', turnId: null }
     const rows = groupBlocks(splitBlocks([toolTurn, nextTurnUser]), { turn_3: DIFF })
     expect(rows.map((r) => r.kind)).toEqual(['tool-group', 'turn-diff', 'markdown'])
+  })
+
+  it('keeps an unavailable turn visible instead of treating it as clean', () => {
+    const blocks = splitBlocks([
+      { ...assistantMessage([{ type: 'text', text: 'hi' }]), turnId: 'turn_1' },
+    ])
+    const rows = groupBlocks(blocks, { turn_1: { error: 'checkpoint missing' } })
+    expect(rows.at(-1)).toMatchObject({
+      kind: 'turn-diff',
+      turnId: 'turn_1',
+      error: 'checkpoint missing',
+      diffText: '',
+    })
+    expect(groupBlocks(blocks, { turn_1: '' })).toHaveLength(1)
   })
 
   it('leaves turns without an entry untouched and skips empty diffs', () => {
@@ -476,9 +492,9 @@ describe('describeActivity', () => {
   })
 
   it('reads as Thinking with no calls at all', () => {
-    expect(describeActivity({ blocks: [], calls: [], resultsByCallId: new Map() }, false).label).toBe(
-      'Thinking',
-    )
+    expect(
+      describeActivity({ blocks: [], calls: [], resultsByCallId: new Map() }, false).label,
+    ).toBe('Thinking')
   })
 })
 
