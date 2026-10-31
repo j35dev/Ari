@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Check, Copy, FileDiff, GitBranch, RefreshCw, UnfoldVertical } from 'lucide-react'
-import type { GitComparison, GitScope } from '@ari/contracts/rpc'
+import type {
+  GitComparison,
+  GitScope,
+  GitReviewManifest,
+  SourceControlContext,
+} from '@ari/contracts/rpc'
 import { Select } from '@ari/ui/select'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
@@ -12,10 +17,20 @@ import { useReviewPreferences } from './use-review-preferences'
 const log = createLogger('ui:review')
 const control =
   'flex size-7 items-center justify-center rounded-md text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30'
+export interface ReviewControlsState {
+  scope: GitScope
+  context: SourceControlContext | null
+  manifest: GitReviewManifest | null
+  paths: string[]
+  loading: boolean
+  refresh: () => void
+}
 export interface ReviewWorkspaceProps {
   scope: GitScope | null
   initialComparison?: GitComparison
   onRange?: (path: string, comparisonId: string, range: DiffRange) => void
+  label?: 'Review changes' | 'Source control'
+  renderControls?: (state: ReviewControlsState) => ReactNode
 }
 
 /** Worktree-aware review canvas; selected files load individually and survive navigation. */
@@ -37,6 +52,8 @@ function ScopedReview({
   scope,
   initialComparison,
   onRange,
+  label = 'Review changes',
+  renderControls,
 }: ReviewWorkspaceProps & { scope: GitScope }) {
   const scopeKey = JSON.stringify(scope)
   const preferences = useReviewPreferences(scopeKey)
@@ -51,6 +68,7 @@ function ScopedReview({
   const [contextLines, setContextLines] = useState(3)
   const [retry, setRetry] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
+  const [selection, setSelection] = useState<string[]>([])
   useEffect(() => {
     if (initialComparison) preferences.change({ comparison: initialComparison })
   }, [JSON.stringify(initialComparison)])
@@ -62,6 +80,11 @@ function ScopedReview({
     [manifest, filter],
   )
   const file = files.find((file) => file.path === selected) ?? files[0]
+  const paths = selection.length
+    ? selection.filter((path) => manifest?.files.some((file) => file.path === path))
+    : file
+      ? [file.path]
+      : []
   const key = manifest && file ? `${manifest.id}:${file.path}:${contextLines}` : ''
   useEffect(() => {
     if (!manifest || !file) return
@@ -137,11 +160,15 @@ function ScopedReview({
       preferences.change({ comparison: { kind: value } })
   }
   return (
-    <section className="flex h-full min-h-0 flex-col bg-bg" aria-label="Review changes">
+    <section className="flex h-full min-h-0 flex-col bg-bg" aria-label={label}>
       <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-border/60 px-4 py-2">
-        <FileDiff size={18} className="text-accent" />
+        {label === 'Source control' ? (
+          <GitBranch size={18} className="text-accent" />
+        ) : (
+          <FileDiff size={18} className="text-accent" />
+        )}
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight text-fg">Review changes</h2>
+          <h2 className="text-sm font-semibold tracking-tight text-fg">{label}</h2>
           <p className="flex items-center gap-1.5 font-mono text-2xs text-fg-subtle">
             <GitBranch size={10} />
             {context
@@ -198,10 +225,18 @@ function ScopedReview({
           filter={filter}
           commits={context?.commits ?? []}
           onFilter={(filter) => preferences.change({ filter })}
-          onSelect={(path) => {
+          onSelect={(path, multiple) => {
+            setSelection(
+              multiple
+                ? paths.includes(path)
+                  ? paths.filter((entry) => entry !== path)
+                  : [...paths, path]
+                : [path],
+            )
             preferences.change({ path })
             setContextLines(3)
           }}
+          selectedPaths={renderControls ? new Set(paths) : undefined}
           onCommit={(ref) => {
             preferences.change({ comparison: { kind: 'commit', ref } })
             setContextLines(3)
@@ -285,6 +320,7 @@ function ScopedReview({
           ) : null}
         </div>
       </div>
+      {renderControls?.({ scope, context, manifest, paths, loading, refresh })}
       <div className="flex h-7 shrink-0 items-center gap-2 border-t border-border/60 px-3 font-mono text-2xs text-fg-subtle">
         <span className="truncate">
           {manifest?.baseLabel ?? '—'} → {manifest?.headLabel ?? '—'}
