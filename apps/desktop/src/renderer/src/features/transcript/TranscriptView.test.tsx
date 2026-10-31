@@ -446,6 +446,46 @@ describe('TranscriptView regenerate action', () => {
 
     expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument()
   })
+
+  it('quotes every assistant reply from all of its text parts', async () => {
+    const user = userEvent.setup()
+    const onQuoteAssistant = vi.fn()
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const first: Message = {
+      ...assistantMessage('a1'),
+      parts: [
+        { type: 'text', text: 'alpha' },
+        { type: 'text', text: 'beta' },
+      ],
+    }
+    const second: Message = {
+      ...assistantMessage('a2'),
+      parts: [
+        { type: 'text', text: 'one' },
+        { type: 'tool-call', callId: 'c', name: 'bash', argsJson: '{}' },
+        { type: 'text', text: 'two' },
+      ],
+    }
+    render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        messages: [first, second],
+        onQuoteAssistant,
+      }),
+    )
+
+    const quotes = screen.getAllByRole('button', { name: 'Quote reply' })
+    expect(quotes).toHaveLength(2)
+    await user.click(quotes[0]!)
+    expect(onQuoteAssistant).toHaveBeenCalledWith('> alpha\n> beta')
+    await user.click(quotes[1]!)
+    expect(onQuoteAssistant).toHaveBeenLastCalledWith('> one\n> two')
+
+    const copies = screen.getAllByRole('button', { name: 'Copy' })
+    await user.click(copies[1]!)
+    expect(writeText).toHaveBeenCalledWith('two')
+  })
 })
 
 const TURN_DIFF =

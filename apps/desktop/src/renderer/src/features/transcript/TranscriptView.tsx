@@ -117,6 +117,7 @@ export function TranscriptView({
   turnDiffs,
   onEditUserMessage,
   onRegenerate,
+  onQuoteAssistant,
   regenerateDisabled = false,
   running = false,
   header,
@@ -157,6 +158,8 @@ export function TranscriptView({
   onEditUserMessage?: (text: string) => void
   /** Regenerate the last turn by resending the last user prompt (M19.4). */
   onRegenerate?: () => void
+  /** Insert a blockquote of an assistant reply into the composer. */
+  onQuoteAssistant?: (quoted: string) => void
   /** Disables the regenerate control — true while a turn runs. */
   regenerateDisabled?: boolean
   /**
@@ -265,6 +268,21 @@ export function TranscriptView({
       if (m && m.role === 'assistant') return m.id
     }
     return null
+  }, [messages])
+
+  // Quote uses every text part, joined with newlines. The footer copy button
+  // stays on the last block, which splitBlocks may have merged differently.
+  const quoteTextById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const message of messages) {
+      if (message.role !== 'assistant') continue
+      const text = message.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('\n')
+      if (text.trim().length > 0) map.set(message.id, text)
+    }
+    return map
   }, [messages])
 
   // Rail rows are looked up once per rail change, not per scroll event.
@@ -541,6 +559,12 @@ export function TranscriptView({
                       ? onRegenerate
                       : undefined
                   }
+                  onQuote={onQuoteAssistant}
+                  quoteText={
+                    row.kind === 'markdown' && row.role === 'assistant' && row.messageId
+                      ? quoteTextById.get(row.messageId)
+                      : undefined
+                  }
                   regenerateDisabled={regenerateDisabled}
                   active={running && index === activeIndex}
                   onDiffComment={onDiffComment}
@@ -631,6 +655,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
   index,
   onEditUserMessage,
   onRegenerate,
+  onQuote,
+  quoteText,
   regenerateDisabled,
   active,
   onDiffComment,
@@ -645,6 +671,9 @@ const TranscriptRowView = memo(function TranscriptRowView({
   onEditUserMessage?: (text: string) => void
   /** Present only on the newest answer's footer row. */
   onRegenerate?: () => void
+  /** Present on every assistant footer that has reply text. */
+  onQuote?: (quoted: string) => void
+  quoteText?: string
   regenerateDisabled: boolean
   /** True when a running turn is on this row; only ever the last one. */
   active: boolean
@@ -758,6 +787,8 @@ function renderRowBody({
                   createdAt: row.messageCreatedAt ?? Date.now(),
                 }}
                 onRegenerate={onRegenerate}
+                onQuote={onQuote}
+                quoteText={quoteText}
                 actionDisabled={regenerateDisabled}
               />
             ) : null}
