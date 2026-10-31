@@ -10,7 +10,7 @@
     "dev": "pnpm --filter @ari/desktop dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint .",
+    "lint": "eslint eslint.config.js scripts packages/contracts packages/shared packages/ui packages/remote-gateway && eslint packages/engine packages/providers packages/ari-core && eslint apps/mobile && eslint apps/desktop",
     "test": "pnpm -r test",
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
     "format": "prettier --write ."
