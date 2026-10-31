@@ -226,8 +226,8 @@ export class GitService {
   }
 
   /** Tree of the full working tree — tracked, untracked, minus ignored. */
-  worktreeTree(cwd: string): Promise<Result<string, GitError>> {
-    return this.#withScratchIndex(cwd, (env) => this.#addAllAndWriteTree(cwd, env))
+  worktreeTree(cwd: string, signal?: AbortSignal): Promise<Result<string, GitError>> {
+    return this.#withScratchIndex(cwd, (env) => this.#addAllAndWriteTree(cwd, env, signal), signal)
   }
 
   /**
@@ -237,8 +237,11 @@ export class GitService {
   async #withScratchIndex<T>(
     cwd: string,
     use: (env: NodeJS.ProcessEnv) => Promise<Result<T, GitError>>,
+    signal?: AbortSignal,
   ): Promise<Result<T, GitError>> {
-    const index = await this.#run(cwd, ['rev-parse', '--git-path', 'index'])
+    const index = await this.#run(cwd, ['rev-parse', '--git-path', 'index'], DEFAULT_MAX_BYTES, {
+      signal,
+    })
     if (!index.ok) return index
     const scratch = await mkdtemp(join(tmpdir(), 'ari-index-'))
     try {
@@ -255,10 +258,11 @@ export class GitService {
   async #addAllAndWriteTree(
     cwd: string,
     env: NodeJS.ProcessEnv,
+    signal?: AbortSignal,
   ): Promise<Result<string, GitError>> {
-    const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env })
+    const added = await this.#run(cwd, ['add', '--all'], DEFAULT_MAX_BYTES, { env, signal })
     if (!added.ok) return added
-    const tree = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env })
+    const tree = await this.#run(cwd, ['write-tree'], DEFAULT_MAX_BYTES, { env, signal })
     return tree.ok ? ok(tree.value.stdout.trim()) : tree
   }
 
@@ -595,13 +599,19 @@ export class GitService {
     cwd: string,
     args: string[],
     maxBytes: number = DEFAULT_MAX_BYTES,
-    opts: { quiet?: boolean; env?: NodeJS.ProcessEnv | undefined; acceptConflict?: boolean } = {},
+    opts: {
+      quiet?: boolean
+      env?: NodeJS.ProcessEnv | undefined
+      acceptConflict?: boolean
+      signal?: AbortSignal
+    } = {},
   ): Promise<Result<{ stdout: string; conflict?: boolean }, GitError>> {
     try {
       const { stdout } = await execFileP(this.#gitPath, args, {
         cwd,
         ...(opts.env ? { env: opts.env } : {}),
         timeout: this.#timeoutMs,
+        signal: opts.signal,
         shell: false,
         windowsHide: true,
         encoding: 'utf8',
