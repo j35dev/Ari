@@ -53,6 +53,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify (typecheck + lint + test)
+        env:
+          # Hosted macOS dies at Node's default ~2GB old-space once the desktop
+          # suite passes that mark (exit 134). 4GB fits the 7GB runner.
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm verify
 
   # Bundles are what a release ships, and nothing built them until a v* tag: a
