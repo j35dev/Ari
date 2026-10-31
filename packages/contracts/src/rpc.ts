@@ -10,7 +10,7 @@ import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
 import type { DiscoveredModel, EndpointModel } from './endpoint'
-import type { Project } from './project'
+import type { Project, ProjectDiscovery } from './project'
 import type { Settings } from './settings'
 import { settingsUpdateSchema, themeIdSchema } from './settings'
 import { sessionHierarchySummarySchema } from './session'
@@ -767,6 +767,7 @@ export const rpcParams = {
   'providers.cancelInstall': z.object({ kind: driverKindSchema }),
   'providers.authProbe': z.object({ kind: driverKindSchema }),
   'providers.login': z.object({ kind: driverKindSchema }),
+  'providers.setupTerminal': z.object({ kind: z.enum(['claude', 'codex']) }),
   'providers.configFiles': z.object({ kind: driverKindSchema }),
   'providers.extensionInventory': z.object({
     kind: driverKindSchema,
@@ -828,6 +829,7 @@ export const rpcParams = {
   'browser.cancelPick': z.object({ id: z.string().min(1) }),
   'browser.capture': z.object({ id: z.string().min(1) }),
   'project.list': z.undefined(),
+  'project.discover': z.undefined(),
   'project.add': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.open': z.object({ path: z.string().min(1), name: z.string().optional() }),
   'project.close': z.object({ id: z.string().min(1) }),
@@ -1273,6 +1275,7 @@ export interface RpcResults {
   /** Native chrome repainted for the given theme (overlay + OS scheme hint). */
   'theme.apply': { applied: boolean }
   'terminal.create': { created: boolean }
+  'providers.setupTerminal': { ok: true; id: string; cwd: string } | { ok: false; error: string }
   'terminal.write': { written: boolean }
   'terminal.resize': { resized: boolean }
   'terminal.kill': { killed: boolean }
@@ -1287,6 +1290,7 @@ export interface RpcResults {
   /** A JPEG still of the page as a data URL; null when the guest has no frame. */
   'browser.capture': { dataUrl: string | null }
   'project.list': Project[]
+  'project.discover': ProjectDiscovery
   'project.add': Project
   'project.open': Project
   'project.close': Project | null

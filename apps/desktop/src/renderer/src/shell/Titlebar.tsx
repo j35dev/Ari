@@ -57,6 +57,7 @@ export function Titlebar({
   usage,
   changeCount = null,
   onExpandSidebar,
+  minimal = false,
 }: {
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
@@ -64,6 +65,8 @@ export function Titlebar({
   /** Working-tree file count for the Review changes tool. Null hides the badge. */
   changeCount?: number | null
   onExpandSidebar?: () => void
+  /** Setup keeps only the native window controls, without starting focus-tool subscriptions. */
+  minimal?: boolean
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -91,7 +94,7 @@ export function Titlebar({
       </div>
 
       <div className="flex-1" />
-      <FocusPill />
+      {minimal ? null : <FocusPill />}
       {usage ? <ProviderUsagePill {...usage} /> : null}
 
       {onSelectTool ? (
