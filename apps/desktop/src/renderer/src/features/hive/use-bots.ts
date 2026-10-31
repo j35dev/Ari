@@ -3,6 +3,7 @@ import type { Bot, BotCreateParams, BotUpdatePatch } from '@ari/contracts/bot'
 import { createLogger } from '@ari/shared/logger'
 import { characterOf } from '@ari/ui/bot-character'
 import { rpc } from '../../lib/rpc'
+import { botsChanged } from './bots-version'
 
 const log = createLogger('renderer:hive')
 
@@ -64,6 +65,7 @@ export function useBots(): BotsStore {
   const create = useCallback(
     async (input: BotCreateParams) => {
       const bot = await rpc.invoke('bots.create', input)
+      botsChanged()
       await refresh()
       return bot
     },
@@ -91,6 +93,7 @@ export function useBots(): BotsStore {
   const update = useCallback(
     async (botId: string, patch: BotUpdatePatch) => {
       const bot = await rpc.invoke('bots.update', { botId, patch })
+      botsChanged()
       await refresh()
       return bot
     },
@@ -100,6 +103,7 @@ export function useBots(): BotsStore {
   const setHidden = useCallback(
     async (botId: string, hidden: boolean) => {
       await rpc.invoke('bots.setHidden', { botId, hidden })
+      botsChanged()
       await refresh()
     },
     [refresh],

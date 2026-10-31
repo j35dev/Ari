@@ -30,18 +30,20 @@ import { Kbd } from '@ari/ui/kbd'
 import { transitions } from '@ari/ui/motion'
 import type { ProjectStatus } from '@ari/contracts/project'
 import type { SessionSummary } from '@ari/contracts/rpc'
-import { SessionActivityMark } from '../features/moment'
+import { SessionActivityMark, useTickingText } from '../features/moment'
 import {
   peakActivity,
   treeActivity,
   type SessionActivity,
 } from '../features/session/session-activity'
+import { driverLabel } from '../features/composer/agent-mark'
+import { ProviderLogo } from '../features/composer/provider-logo'
 import { setDragSession } from '../features/split/drag-split'
 import type { PaneEdge } from '../features/split/split-layout'
 import { ContextMark } from './ContextMark'
 import {
+  inboxSplit,
   projectMoveFromOrder,
-  recencyGroups,
   sidebarGroups,
   UNFILED_GROUP_ID,
   type SidebarGroup,
@@ -132,7 +134,9 @@ function SelectMark({ checked }: { checked: boolean }) {
   return (
     <span
       className={`flex size-3.5 items-center justify-center rounded-sm border ${
-        checked ? 'border-accent bg-accent text-fg-on-accent' : 'border-border-strong bg-transparent'
+        checked
+          ? 'border-accent bg-accent text-fg-on-accent'
+          : 'border-border-strong bg-transparent'
       }`}
     >
       {checked ? <Check size={10} aria-hidden /> : null}
@@ -221,6 +225,81 @@ export function formatRelativeTime(timestamp: number, now = Date.now()): string 
   return new Date(timestamp).toLocaleDateString()
 }
 
+/** The card's right-hand status: phase → one word, tone, and the full hint. */
+function activityStatus(activity: SessionActivity): {
+  label: string
+  hint: string
+  tone: string
+} {
+  switch (activity.phase) {
+    case 'working':
+      return { label: 'Working', hint: 'Working', tone: 'text-busy' }
+    case 'paused':
+      return activity.pauseReason === 'approval'
+        ? { label: 'Approval', hint: 'Waiting for your approval', tone: 'text-warning' }
+        : activity.pauseReason === 'input'
+          ? { label: 'Input', hint: 'Waiting for your input', tone: 'text-warning' }
+          : { label: 'Waiting', hint: 'Waiting for you', tone: 'text-warning' }
+    case 'done':
+      return { label: 'Done', hint: 'Turn complete', tone: 'text-success' }
+    case 'error':
+      return { label: 'Failed', hint: 'Turn failed', tone: 'text-danger' }
+  }
+}
+
+/** Repaints the turn's age on the shared clock without a React render. */
+function ElapsedSince({ startedAt }: { startedAt: number }) {
+  const ref = useTickingText<HTMLSpanElement>(
+    (now) => formatRelativeTime(startedAt, now),
+    startedAt,
+  )
+  return (
+    <span ref={ref} className="tabular-nums">
+      now
+    </span>
+  )
+}
+
+function ActivityStatus({ activity }: { activity: SessionActivity }) {
+  const status = activityStatus(activity)
+  const startedAt =
+    activity.startedAt !== null && (activity.phase === 'working' || activity.phase === 'paused')
+      ? activity.startedAt
+      : null
+  // The forging mark already says a thread is running. A "Working" word beside
+  // it just competes with the card.
+  if (activity.phase === 'working') {
+    if (startedAt === null) return null
+    return (
+      <span className={`font-normal ${status.tone}`} title={status.hint}>
+        <ElapsedSince startedAt={startedAt} />
+      </span>
+    )
+  }
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 text-2xs font-medium ${status.tone}`}
+      title={status.hint}
+    >
+      {status.label}
+      {startedAt !== null ? (
+        <>
+          <span aria-hidden className="text-fg-subtle/60">
+            ·
+          </span>
+          <span className="font-normal text-fg-subtle">
+            <ElapsedSince startedAt={startedAt} />
+          </span>
+        </>
+      ) : null}
+    </span>
+  )
+}
+
+/** Cards read as quiet lines: project, title, then branch when there is one. */
+const CARD_ROW =
+  'flex min-h-[3rem] min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+
 function SessionRow({
   session,
   hasChildren = false,
@@ -237,6 +316,7 @@ function SessionRow({
   onOpenInSplit,
   selecting = false,
   selected = false,
+  variant = 'compact',
   onToggleSelect,
 }: {
   session: SessionSummary
@@ -247,6 +327,8 @@ function SessionRow({
   projectName: string | null
   isActive: boolean
   activity?: SessionActivity
+  /** `card` is the Sessions inbox row; compact stays the tree/shelf row. */
+  variant?: 'compact' | 'card'
   onSelect: (id: string) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
@@ -334,10 +416,28 @@ function SessionRow({
     )
   }
 
+  const mark =
+    activity !== undefined ? (
+      <SessionActivityMark activity={activity} />
+    ) : variant !== 'card' && hasChildren ? (
+      <GitBranch size={11} aria-hidden className={isActive ? 'text-accent' : 'text-fg-muted'} />
+    ) : session.pinned ? (
+      <Pin size={10} aria-hidden className="text-accent" />
+    ) : (
+      <span
+        data-session-mark="idle"
+        className={`rounded-full ${nested ? 'size-1' : 'size-1.5'}`}
+        style={{
+          background: 'var(--ari-fg-subtle)',
+          opacity: isActive ? 0.9 : nested ? 0.4 : 0.55,
+        }}
+      />
+    )
+
   return (
     <div
       className="group relative flex items-center"
-      data-session-role={hasChildren ? 'parent' : nested ? 'child' : undefined}
+      data-session-role={hasChildren ? 'parent' : session.parentSessionId ? 'child' : undefined}
     >
       {selecting ? (
         <button
@@ -357,9 +457,7 @@ function SessionRow({
         // the session, so nothing about this list has to know about panes.
         // Select mode owns the click, so the row is not a drag source then.
         draggable={!selecting}
-        onDragStart={
-          selecting ? undefined : (e) => setDragSession(e, session.id, session.title)
-        }
+        onDragStart={selecting ? undefined : (e) => setDragSession(e, session.id, session.title)}
         onClick={(e) => {
           if (selecting) {
             onToggleSelect?.(session.id, e.shiftKey)
@@ -369,59 +467,88 @@ function SessionRow({
         }}
         onContextMenu={(e) => menu.open(session.id, e)}
         title={projectName ?? undefined}
-        className={`flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md py-0 pl-2 pr-1 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+        className={`${
+          variant === 'card'
+            ? CARD_ROW
+            : 'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md py-0 pl-2 pr-1'
+        } text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
           selected
             ? 'bg-accent/15 text-fg'
-            : isActive ? 'bg-accent/15 text-fg font-medium'
-            : activity !== undefined
-              ? 'text-fg hover:bg-surface-2'
-              : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
+            : isActive
+              ? 'bg-accent/15 text-fg font-medium'
+              : variant === 'card'
+                ? 'text-fg hover:bg-surface-2/70'
+                : activity !== undefined
+                  ? 'text-fg hover:bg-surface-2'
+                  : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
         }`}
       >
-        <span className="flex size-3 shrink-0 items-center justify-center">
-          {activity !== undefined ? (
-            <SessionActivityMark activity={activity} />
-          ) : hasChildren ? (
-            <GitBranch
-              size={11}
-              aria-hidden
-              className={isActive ? 'text-accent' : 'text-fg-muted'}
-            />
-          ) : session.pinned ? (
-            <Pin size={10} aria-hidden className="text-accent" />
-          ) : (
+        {variant === 'card' ? (
+          <>
+            <span className="flex w-full min-w-0 items-center gap-1.5">
+              <span className="flex size-3 shrink-0 items-center justify-center">{mark}</span>
+              <span className="min-w-0 truncate text-2xs font-medium text-fg-subtle">
+                {projectName ?? 'Unfiled'}
+              </span>
+              {session.driverKind ? (
+                <span className="shrink-0" title={driverLabel(session.driverKind)}>
+                  <ProviderLogo kind={session.driverKind} />
+                </span>
+              ) : null}
+              <span className="min-w-0 flex-1" />
+              <span className="shrink-0 text-right text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+                {activity !== undefined ? (
+                  <ActivityStatus activity={activity} />
+                ) : (
+                  formatRelativeTime(session.updatedAt)
+                )}
+              </span>
+            </span>
+            <span className="flex w-full min-w-0 items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{session.title}</span>
+            </span>
+            {session.branch ? (
+              <span className="flex w-full min-w-0 items-center gap-1.5 text-2xs text-fg-subtle">
+                <GitBranch size={10} aria-hidden className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate" title={session.branch}>
+                  {session.branch}
+                </span>
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <span className="flex size-3 shrink-0 items-center justify-center">{mark}</span>
             <span
-              data-session-mark="idle"
-              className={`rounded-full ${nested ? 'size-1' : 'size-1.5'}`}
-              style={{
-                background: 'var(--ari-fg-subtle)',
-                opacity: isActive ? 0.9 : nested ? 0.4 : 0.55,
-              }}
-            />
-          )}
-        </span>
-        <span
-          className={`min-w-0 flex-1 truncate text-[13px] ${
-            hasChildren ? 'font-medium text-fg' : nested && !isActive ? 'text-fg-muted' : ''
-          }`}
-        >
-          {session.title}
-        </span>
-        {hasChildren && childCount > 0 ? (
-          <span className="shrink-0 text-2xs tabular-nums text-fg-subtle">{childCount}</span>
-        ) : null}
-        {/* min-w-11 matches the two-icon hover cluster so a long title
-            truncates before the overlay instead of running under it. */}
-        <span className="ml-auto min-w-11 shrink-0 text-right text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0">
-          {formatRelativeTime(session.updatedAt)}
-        </span>
+              className={`min-w-0 flex-1 truncate text-[13px] ${
+                hasChildren ? 'font-medium text-fg' : nested && !isActive ? 'text-fg-muted' : ''
+              }`}
+            >
+              {session.title}
+            </span>
+            {hasChildren && childCount > 0 ? (
+              <span className="shrink-0 text-2xs tabular-nums text-fg-subtle">{childCount}</span>
+            ) : null}
+            {/* min-w-11 matches the two-icon hover cluster so a long title
+                truncates before the overlay instead of running under it. */}
+            <span className="ml-auto min-w-11 shrink-0 text-right text-2xs tabular-nums text-fg-subtle transition-opacity group-hover:opacity-0">
+              {formatRelativeTime(session.updatedAt)}
+            </span>
+          </>
+        )}
       </button>
       {/* Sibling, not nested: a control inside a <button> is invalid HTML and
           breaks keyboard semantics. Right-click anywhere on the row opens the
           same menu; this is just the discoverable affordance. It takes over the
           timestamp slot while the row is hovered. Archive is a one-press
           sibling so parking a chat does not take a trip through the menu. */}
-      <div className={ROW_ACTION_CLUSTER}>
+      <div
+        className={
+          variant === 'card'
+            ? 'absolute right-2 top-1.5 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
+            : ROW_ACTION_CLUSTER
+        }
+      >
         {!session.archived && !selecting ? (
           <button
             type="button"
@@ -525,88 +652,114 @@ interface SessionRowHandlers {
   onDeleteMany?: (ids: string[]) => void
 }
 
+/** Direct, non-archived children. Cards use this for delete copy, not for a second row. */
+function directChildCount(scope: readonly SessionSummary[], id: string): number {
+  let count = 0
+  for (const session of scope) {
+    if (!session.archived && session.parentSessionId === id) count += 1
+  }
+  return count
+}
+
 /** FLIP-animated session list; shared by groups, the archived shelf and search. */
 function SessionList({
   sessions,
   searching = false,
   projectNameOf,
   handlers,
+  variant = 'compact',
+  flat = false,
+  activityScope,
 }: {
   sessions: SessionSummary[]
   searching?: boolean
   projectNameOf?: (projectId: string) => string | null
   handlers: SessionRowHandlers
+  /** Card rows for the Sessions inbox. The same card is used while a thread runs. */
+  variant?: 'compact' | 'card'
+  /** Render every session as its own thread, with no tree guides or chevrons. */
+  flat?: boolean
+  /**
+   * Sessions consulted for child counts and folded activity. The Sessions
+   * inbox renders roots only, so this is the full live list while `sessions`
+   * is just the cards on screen.
+   */
+  activityScope?: readonly SessionSummary[]
 }) {
   const { collapsed, toggle } = useSessionCollapse()
-  const rows = sessionTree(sessions, searching ? new Set() : collapsed)
+  const scope = activityScope ?? sessions
+  const rows = flat
+    ? sessions.map((session) => ({
+        session,
+        childCount: directChildCount(scope, session.id),
+        lastAtDepth: [] as boolean[],
+      }))
+    : sessionTree(sessions, searching ? new Set() : collapsed)
   const order = rows.map((row) => row.session.id).join(' ')
   return (
-    <ul className="flex flex-col gap-0.5">
-      {rows.map(
-        ({ session: s, childCount, lastAtDepth }) => {
-          const expanded = !collapsed.has(s.id)
-          return (
-            <motion.li key={s.id} {...LIST_LAYOUT} layoutDependency={order}>
-              <div className="flex items-center">
-                <SessionTreeGuides lastAtDepth={lastAtDepth} />
-                {childCount > 0 && !searching ? (
-                  <button
-                    type="button"
-                    aria-label={
-                      expanded ? `Collapse children of ${s.title}` : `Expand children of ${s.title}`
+    <ul className={`flex flex-col ${variant === 'card' ? 'gap-1' : 'gap-0.5'}`}>
+      {rows.map(({ session: s, childCount, lastAtDepth }) => {
+        const expanded = !collapsed.has(s.id)
+        const rowVariant =
+          variant === 'card' && (flat || lastAtDepth.length === 0) ? 'card' : 'compact'
+        return (
+          <motion.li key={s.id} {...LIST_LAYOUT} layoutDependency={order}>
+            <div className="flex items-center">
+              <SessionTreeGuides lastAtDepth={lastAtDepth} />
+              {childCount > 0 && !searching && !flat ? (
+                <button
+                  type="button"
+                  aria-label={
+                    expanded ? `Collapse children of ${s.title}` : `Expand children of ${s.title}`
+                  }
+                  aria-expanded={expanded}
+                  className="flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+                  onClick={() => toggle(s.id)}
+                  onKeyDown={(event) => {
+                    if (
+                      (event.key === 'ArrowLeft' && expanded) ||
+                      (event.key === 'ArrowRight' && !expanded)
+                    ) {
+                      event.preventDefault()
+                      toggle(s.id)
                     }
-                    aria-expanded={expanded}
-                    className="flex size-4 shrink-0 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                    onClick={() => toggle(s.id)}
-                    onKeyDown={(event) => {
-                      if (
-                        (event.key === 'ArrowLeft' && expanded) ||
-                        (event.key === 'ArrowRight' && !expanded)
-                      ) {
-                        event.preventDefault()
-                        toggle(s.id)
-                      }
-                    }}
-                  >
-                    <ChevronRight
-                      size={10}
-                      aria-hidden
-                      className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
-                    />
-                  </button>
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <SessionRow
-                    session={s}
-                    hasChildren={childCount > 0}
-                    childCount={childCount}
-                    nested={lastAtDepth.length > 0}
-                    projectName={projectNameOf?.(s.projectId) ?? null}
-                    isActive={s.id === handlers.activeSessionId}
-                    activity={
-                      childCount > 0
-                        ? treeActivity(
-                            handlers.activityOf?.(s.id),
-                            descendantIds(sessions, s.id).map((id) => handlers.activityOf?.(id)),
-                          )
-                        : handlers.activityOf?.(s.id)
-                    }
-                    onSelect={handlers.onSelect}
-                    onRename={handlers.onRename}
-                    onDelete={handlers.onDelete}
-                    onTogglePin={handlers.onTogglePin}
-                    onToggleArchive={handlers.onToggleArchive}
-                    onOpenInSplit={handlers.onOpenInSplit}
-                    selecting={handlers.selecting}
-                    selected={handlers.selectedIds?.has(s.id) ?? false}
-                    onToggleSelect={handlers.onToggleSelect}
+                  }}
+                >
+                  <ChevronRight
+                    size={10}
+                    aria-hidden
+                    className={`transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
                   />
-                </div>
+                </button>
+              ) : null}
+              <div className="min-w-0 flex-1">
+                <SessionRow
+                  session={s}
+                  hasChildren={childCount > 0}
+                  childCount={childCount}
+                  nested={!flat && lastAtDepth.length > 0}
+                  variant={rowVariant}
+                  projectName={projectNameOf?.(s.projectId) ?? null}
+                  isActive={s.id === handlers.activeSessionId}
+                  activity={treeActivity(
+                    handlers.activityOf?.(s.id),
+                    descendantIds(scope, s.id).map((id) => handlers.activityOf?.(id)),
+                  )}
+                  onSelect={handlers.onSelect}
+                  onRename={handlers.onRename}
+                  onDelete={handlers.onDelete}
+                  onTogglePin={handlers.onTogglePin}
+                  onToggleArchive={handlers.onToggleArchive}
+                  onOpenInSplit={handlers.onOpenInSplit}
+                  selecting={handlers.selecting}
+                  selected={handlers.selectedIds?.has(s.id) ?? false}
+                  onToggleSelect={handlers.onToggleSelect}
+                />
               </div>
-            </motion.li>
-          )
-        },
-      )}
+            </div>
+          </motion.li>
+        )
+      })}
     </ul>
   )
 }
@@ -629,6 +782,7 @@ function CollapsibleSessions({
 }) {
   const [open, setOpen] = useState(sessions.some((s) => s.id === handlers.activeSessionId))
   const [confirmEmpty, setConfirmEmpty] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
   const menu = useContextMenu()
 
   // Auto-open when the active session moves into this bucket.
@@ -636,11 +790,16 @@ function CollapsibleSessions({
     if (sessions.some((s) => s.id === handlers.activeSessionId)) setOpen(true)
   }, [handlers.activeSessionId, sessions])
 
+  // The shelf sits at the bottom of the scroll pane, so opening it would push
+  // its rows past the fold; pull them back into view.
+  useEffect(() => {
+    if (open) contentRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [open])
+
   // The shelf keeps the active-location signal: its caret fills while the
   // active session sits inside, even though the shelf opens on its own.
   const shelfActive =
-    handlers.activeSessionId != null &&
-    sessions.some((s) => s.id === handlers.activeSessionId)
+    handlers.activeSessionId != null && sessions.some((s) => s.id === handlers.activeSessionId)
 
   return (
     <div className="group/archive">
@@ -658,6 +817,13 @@ function CollapsibleSessions({
           <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/archive:opacity-0">
             {sessions.length}
           </span>
+          <ChevronRight
+            size={12}
+            aria-hidden
+            className={`shrink-0 text-fg-subtle transition-all duration-150 group-hover/archive:opacity-0 ${
+              open ? 'rotate-90' : ''
+            }`}
+          />
         </button>
         <button
           type="button"
@@ -719,7 +885,7 @@ function CollapsibleSessions({
       {/* Closing is instant: an exit fade would hold the space open and keep
           everything below from moving up until it finished. */}
       {open ? (
-        <div className="ari-enter-fade pt-0.5">
+        <div ref={contentRef} className="ari-enter-fade pt-0.5">
           <SessionList sessions={sessions} projectNameOf={projectNameOf} handlers={handlers} />
         </div>
       ) : null}
@@ -855,7 +1021,9 @@ function ProjectGroupSection({
             </span>
             {groupActivity !== undefined ? <SessionActivityMark activity={groupActivity} /> : null}
             <span className="shrink-0 rounded-full bg-surface-2 px-1.5 text-2xs leading-4 text-fg-subtle transition-opacity group-hover/project:opacity-0">
-              {bulk?.selecting ? `${String(bulk.selectedCount)}/${String(sessions.length)}` : sessions.length}
+              {bulk?.selecting
+                ? `${String(bulk.selectedCount)}/${String(sessions.length)}`
+                : sessions.length}
             </span>
           </button>
           <button
@@ -1154,9 +1322,10 @@ type SessionsUnderProjectsProps = SessionRowHandlers &
 /**
  * Sidebar body: a compose row, then either the Projects view (one collapsible
  * group per open project with its sessions nested inside, pinned first, a
- * trailing Unfiled group, drag-reorderable) or the Sessions view (every live
- * session in one flat list bucketed by recency), plus the global Archived
- * shelf. Searching flattens matches across every project into one list.
+ * trailing Unfiled group, drag-reorderable) or the Sessions view (root threads
+ * as cards, running or settled, with child agents kept off this list), plus
+ * the global Archived shelf. Searching flattens matches across every project
+ * into one list.
  */
 export function SessionsUnderProjects(props: SessionsUnderProjectsProps) {
   // The shell re-renders far more often than the sidebar's data changes, and
@@ -1358,30 +1527,23 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
     )
     if (move) actions.onReorderProject?.(move.id, move.beforeId)
   }
-  const matches = useMemo(
-    () => (trimmed ? searchSessionTree(sessions, trimmed) : []),
-    [sessions, trimmed],
-  )
+  const matches = useMemo(() => {
+    if (!trimmed) return []
+    const found = searchSessionTree(sessions, trimmed)
+    // Child agents stay inside the parent thread in the Sessions view.
+    return view === 'sessions' ? found.filter((session) => !session.parentSessionId) : found
+  }, [sessions, trimmed, view])
   // Newest-first shelf of everything archived (the groups exclude them).
   const archived = useMemo(
     () => [...sessions].filter((s) => s.archived).sort((a, b) => b.updatedAt - a.updatedAt),
     [sessions],
   )
-  // Recency buckets derive from the calendar day: re-render when it rolls over
-  // so an idle window never labels yesterday's sessions as Today past midnight.
-  const [dayTick, setDayTick] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setDayTick((prev) => {
-        const now = Date.now()
-        return new Date(prev).toDateString() === new Date(now).toDateString() ? prev : now
-      })
-    }, 60_000)
-    return () => clearInterval(timer)
-  }, [])
-  const recent = useMemo(
-    () => (view === 'sessions' ? recencyGroups(sessions, dayTick) : []),
-    [sessions, view, dayTick],
+  const inbox = useMemo(() => (view === 'sessions' ? inboxSplit(sessions) : null), [sessions, view])
+  // Live sessions, including children that are not drawn as their own cards,
+  // so a root card can still chase while a child agent is the one running.
+  const liveSessions = useMemo(
+    () => sessions.filter((session) => !session.archived),
+    [sessions],
   )
 
   const archivedShelf =
@@ -1410,6 +1572,9 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
         <SessionList
           sessions={matches}
           searching
+          flat
+          variant={view === 'sessions' ? 'card' : 'compact'}
+          activityScope={view === 'sessions' ? liveSessions : undefined}
           projectNameOf={projectNameOf}
           handlers={handlers}
         />
@@ -1422,21 +1587,41 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
       </p>
     ) : view === 'sessions' ? (
       <>
-        {recent.length === 0 ? (
+        {inbox === null || (inbox.pinned.length === 0 && inbox.active.length === 0) ? (
           <p className="px-2 py-6 text-center text-xs text-fg-subtle">No sessions yet.</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {recent.map((group) => (
-              <section key={group.id} aria-label={group.name}>
-                <h3 className={`${SECTION_LABEL} h-6 px-2 leading-6`}>{group.name}</h3>
+          <>
+            {inbox.pinned.length > 0 ? (
+              <section aria-label="Pinned" className="mb-1.5">
+                <h3
+                  className={`${SECTION_LABEL} flex h-7 items-center justify-between px-2 leading-7`}
+                >
+                  <span>Pinned</span>
+                  <span className="tabular-nums text-fg-subtle/70">{inbox.pinned.length}</span>
+                </h3>
                 <SessionList
-                  sessions={group.sessions}
+                  sessions={inbox.pinned}
+                  flat
+                  activityScope={liveSessions}
                   projectNameOf={projectNameOf}
                   handlers={handlers}
+                  variant="card"
                 />
               </section>
-            ))}
-          </div>
+            ) : null}
+            {inbox.active.length > 0 ? (
+              <section aria-label="Active">
+                <SessionList
+                  sessions={inbox.active}
+                  flat
+                  activityScope={liveSessions}
+                  projectNameOf={projectNameOf}
+                  handlers={handlers}
+                  variant="card"
+                />
+              </section>
+            ) : null}
+          </>
         )}
         {archivedShelf}
       </>

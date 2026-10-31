@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -31,6 +31,22 @@ afterEach(async () => {
 })
 
 describe('SessionStore', () => {
+  it('does not treat an unreadable session root as a new installation', async () => {
+    const path = join(rootDir, 'not-a-directory')
+    await writeFile(path, 'preserve')
+    const broken = new SessionStore({ rootDir: path })
+    await expect(broken.listSessions()).rejects.toThrow()
+    await rm(path)
+    expect(await broken.listSessions()).toEqual([])
+  })
+
+  it('ignores entries that are not session directories and still lists the rest', async () => {
+    await writeFile(join(rootDir, 'broken-entry'), 'not a session directory')
+    await mkdir(join(rootDir, 'not a session'))
+    expect(await store.listSessions()).toEqual([])
+    await store.append(session.id, { type: 'session.created', session })
+    expect((await store.listSessions()).map((entry) => entry.id)).toEqual([session.id])
+  })
   it('creates a session and replays it into a read model', async () => {
     await store.append(session.id, { type: 'session.created', session })
     const model = await store.load(session.id)
