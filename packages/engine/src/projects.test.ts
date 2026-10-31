@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -19,6 +19,44 @@ afterEach(async () => {
 })
 
 describe('ProjectStore', () => {
+  it.each(['{corrupt', '{"projects":false}'])(
+    'preserves a failed registry read and permits retry: %s',
+    async (raw) => {
+      const path = join(dir, 'projects.json')
+      await writeFile(path, raw)
+      const store = new ProjectStore({ dir })
+      await expect(store.load()).rejects.toThrow()
+      await expect(store.open(existingFolder)).rejects.toThrow()
+      await expect(store.remove('unknown')).rejects.toThrow()
+      await expect(store.close('unknown')).rejects.toThrow()
+      await expect(store.move('unknown', null)).rejects.toThrow()
+      expect(await readFile(path, 'utf8')).toBe(raw)
+      await writeFile(path, '[]')
+      expect(await store.load()).toEqual([])
+      expect((await store.open(existingFolder)).status).toBe('ok')
+    },
+  )
+
+  it('reports non-missing read failures without latching an empty registry', async () => {
+    const path = join(dir, 'projects.json')
+    await mkdir(path)
+    const store = new ProjectStore({ dir })
+    await expect(store.load()).rejects.toThrow()
+    await rm(path, { recursive: true })
+    expect(await store.load()).toEqual([])
+  })
+
+  it('coalesces boot reads and loads existing projects before adding another', async () => {
+    const original = await new ProjectStore({ dir }).open(existingFolder)
+    const store = new ProjectStore({ dir })
+    const first = store.load()
+    expect(store.load()).toBe(first)
+    await first
+    const cold = new ProjectStore({ dir })
+    await cold.open(dir)
+    expect(cold.list().map((p) => p.id)).toContain(original.id)
+    expect(cold.list()).toHaveLength(2)
+  })
   it('adds an existing folder with a derived name', async () => {
     const store = new ProjectStore({ dir })
     const project = await store.add(existingFolder)

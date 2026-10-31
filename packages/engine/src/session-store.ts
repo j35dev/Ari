@@ -496,18 +496,23 @@ export class SessionStore {
     let dirs: string[]
     try {
       dirs = await readdir(this.#rootDir)
-    } catch {
-      return []
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      log.warn('session registry could not be read', { error: String(error) })
+      throw error
     }
     const out: SessionListEntry[] = []
+    let unreadable = false
     for (const id of dirs) {
       try {
         const entry = await this.#listingFor(id)
         if (entry) out.push({ id, ...entry })
-      } catch {
-        // unreadable dir — skip rather than break listing
+      } catch (error) {
+        log.warn('session could not be listed', { sessionId: id, error: String(error) })
+        unreadable = true
       }
     }
+    if (unreadable && out.length === 0) throw new Error('Saved sessions could not be read.')
     out.sort((a, b) => b.updatedAt - a.updatedAt)
     return out
   }
