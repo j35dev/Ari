@@ -4,12 +4,15 @@ import type { GitScope, SourceControlError } from '@ari/contracts/rpc'
 import type { SessionReadModel } from '@ari/engine/projection'
 import { err, ok, type Result } from '@ari/shared/result'
 import { createLogger } from '@ari/shared/logger'
+import { listChangeRequests, runHostCommand, type HostCommand } from './change-requests'
 import type { RpcRegistry } from './rpc-registry'
 
 const log = createLogger('desktop:source-control')
 interface SourceControlDeps {
   root(scope: GitScope): Promise<string>
   session(id: string): Promise<SessionReadModel>
+  /** Test seam. Production uses the installed gh and glab CLIs. */
+  hostCommand?: HostCommand
 }
 
 /** Owns capability-scoped snapshots and cancellation for desktop review queries. */
@@ -78,6 +81,16 @@ export class SourceControlHost {
     })
     r.register('scm.summary', (scope) =>
       this.#read(scope, scope.requestId, (review, signal) => review.summary(signal)),
+    )
+    r.register('scm.requests', (scope) =>
+      this.#read(scope, scope.requestId, async (review, signal) => {
+        const status = await review.status(signal)
+        if (!status.ok) return status
+        return listChangeRequests(review.git.cwd, status.value.remotes, {
+          run: this.deps.hostCommand ?? runHostCommand,
+          signal,
+        })
+      }),
     )
     r.register('scm.status', (scope) =>
       this.#read(scope, scope.requestId, async (review, signal) => {
