@@ -29,3 +29,31 @@ export const projectViewSchema = projectSchema.extend({
   status: projectStatusSchema,
 })
 export type Project = z.infer<typeof projectViewSchema>
+
+/** Metadata-only suggestion; a folder becomes trusted only after the user opens it. */
+export const discoveredProjectSchema = z.object({
+  path: z.string().min(1),
+  name: z.string().min(1),
+  sources: z.array(z.enum(['claude', 'codex'])),
+  lastUsedAt: z.number().nonnegative().nullable(),
+})
+export type DiscoveredProject = z.infer<typeof discoveredProjectSchema>
+
+/** Partial discoveries remain useful when a history exceeds the scan budget. */
+export interface ProjectDiscovery {
+  projects: DiscoveredProject[]
+  truncated: boolean
+  warnings: string[]
+}
+
+/** Only workspace fields are retained from native agent records. */
+export const agentWorkspaceRecordSchema = z.object({
+  type: z.string().optional(),
+  cwd: z.string().trim().max(4096).optional(),
+  payload: z
+    .object({ cwd: z.string().trim().max(4096).optional(), source: z.unknown().optional() })
+    .optional(),
+})
+
+/** Claude's known folders, without retaining account or credential fields. */
+export const claudeProjectPathsSchema = z.object({ projects: z.record(z.string(), z.unknown()) })

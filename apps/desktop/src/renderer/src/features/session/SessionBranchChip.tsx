@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CornerLeftUp, GitBranch } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
+import { branchLabel } from './branch-label'
 
 const log = createLogger('session:branch')
 
@@ -98,7 +99,9 @@ export function SessionBranchChip({
           title="Active branch"
         >
           <GitBranch size={11} className="text-accent" aria-hidden="true" />
-          <span className="max-w-40 truncate font-semibold">{branch}</span>
+          <span className="max-w-40 truncate font-semibold" title={branch}>
+            {branchLabel(branch)}
+          </span>
         </span>
       ) : null}
     </div>

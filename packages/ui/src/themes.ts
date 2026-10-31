@@ -4,10 +4,9 @@
  * `[data-ari-theme="<id>"]` blocks (CSS is the runtime source of truth, this
  * module is the typed catalog the UI and the main process read).
  *
- * Raw color literals are permitted in `tokens.css` only (AGENTS.md); the values
- * here are the same literals kept in TypeScript so the picker can preview them
- * and the window can pick an opaque backdrop before the renderer boots. A test
- * asserts the two stay in sync.
+ * Raw color literals live in `tokens.css`; the values here mirror them in
+ * TypeScript so the picker can preview them and the window can pick an opaque
+ * backdrop before the renderer boots. A test asserts the two stay in sync.
  */
 
 /** Every color-bearing token name, minus the `--ari-` prefix. */

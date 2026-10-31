@@ -4,22 +4,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import { useState } from 'react'
 import { ToastProvider } from '@ari/ui/toast'
+import { botSeenAt, resetSeenBots } from '../hive/bot-unread'
 import { commandSchema } from '@ari/contracts/commands'
 import { journalEventSchema } from '@ari/contracts/events'
 import { sessionSchema } from '@ari/contracts/session'
 import { decideCommand, type DispatchDecision } from '@ari/engine/dispatcher'
 import { applyEvent, initialReadModel } from '@ari/engine/projection'
 import {
-  ContextMeter,
   EffortChip,
   PermissionModeChip,
   SessionView,
   contextTokensFromHint,
-  formatCompactTokens,
-  formatTurnDuration,
   type SessionDefaults,
 } from './SessionView'
 import { dropReviewDraftMemory, rememberReviewRange } from '../changes/review-drafts'
+import {
+  ContextMeter,
+  formatCompactTokens,
+  formatTurnDuration,
+} from './SessionStatusCapsule'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
@@ -1584,6 +1587,87 @@ describe('SessionView queued messages', () => {
     })
   })
 
+  it('edits a queued text message back into the composer', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /edit queued message 1/i }))
+    expect(invokeMock).toHaveBeenCalledWith('command.dispatch', {
+      command: {
+        type: 'message.dequeue',
+        sessionId: 'sess_1',
+        text: 'focus on the parser',
+        attachments: [],
+      },
+    })
+    await waitFor(() => expect(screen.getByLabelText('Message')).toHaveValue('focus on the parser'))
+  })
+
+  it('keeps the current draft when a queued edit is refused', async () => {
+    const user = userEvent.setup()
+    renderView()
+    await screen.findByLabelText('Message')
+    await user.type(screen.getByLabelText('Message'), 'keep me')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'focus on the parser',
+      attachments: [],
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'command.dispatch') return { accepted: false, reason: 'already sent' }
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: 'turn_1' }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+
+    await user.click(screen.getByRole('button', { name: /edit queued message 1/i }))
+    expect(await screen.findByText('already sent')).toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toHaveValue('keep me')
+  })
+
+  it('does not offer edit for a queued message carrying images', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+    startTurn()
+
+    emitSessionEvent({
+      seq: 2,
+      at: 2,
+      sessionId: 'sess_1',
+      type: 'message.enqueued',
+      text: 'see this',
+      attachments: [{ id: 'att_1', name: 'a.png', mimeType: 'image/png', size: 4 }],
+    })
+    expect(await screen.findByText(/1 queued message/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit queued message/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /remove queued message 1/i })).toBeInTheDocument()
+  })
+
   it('surfaces a refused command and puts the rejected message back in the draft', async () => {
     const user = userEvent.setup()
     renderView()
@@ -2761,7 +2845,80 @@ describe('SessionView delegated work', () => {
     emitReplayDone()
 
     expect(await screen.findByText('Integrated the parser.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Delegation update:/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Delegation update:/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ari delegation update/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('SessionView bot unread', () => {
+  beforeEach(() => {
+    resetSeenBots()
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'bots.list') {
+        return [
+          {
+            id: 'bot_1',
+            name: 'Forge',
+            emoji: '⚒️',
+            personaMd: '# Forge',
+            driverKind: 'ari-core',
+            modelId: null,
+          },
+        ]
+      }
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return [PROJECT]
+      if (method === 'session.workspace') return { path: PROJECT.path }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    resetSeenBots()
+    vi.restoreAllMocks()
+  })
+
+  it('marks an open bot chat seen again when a later turn lands', async () => {
+    let now = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    render(
+      <ToastProvider>
+        <SessionView
+          sessionId="sess_1"
+          botId="bot_1"
+          defaults={DEFAULTS}
+          onDefaultsChange={() => undefined}
+        />
+      </ToastProvider>,
+    )
+    await waitFor(() => expect(botSeenAt('bot_1')).toBe(1_000))
+    now = 5_000
+    emitSessionEvent({
+      seq: 1,
+      at: 5_000,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'completed',
+    })
+    expect(botSeenAt('bot_1')).toBe(5_000)
   })
 })

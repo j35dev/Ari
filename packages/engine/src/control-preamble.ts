@@ -48,14 +48,14 @@ function leadNote(delivers: boolean): string {
   const collect = delivers
     ? 'Children report back to you automatically when they finish, so end your turn rather than polling for them.'
     : 'Nothing tells you when a child finishes, so collect its result with `ari session wait` before you end your turn.'
-  return `You are the lead for this delegation tree. Coordinate rather than code: split the work into self-contained prompts with acceptance checks, then spawn workers with \`ari session spawn\` and let the concurrency cap queue the extras. ${collect} Answer a worker's question with \`ari session answer <child> --input <id> "<answer>"\`, or ask the user first when the decision is theirs; approvals always go to the user. When the work is done, inspect each diff and run \`ari session integrate\` explicitly, then verify in your own workspace. If a budget line appears, stop spawning and summarize what is left. Commands: ${COMMANDS}. \`ari --skill\` prints the full protocol.`
+  return `You are the lead for this delegation tree. Coordinate rather than code: split the work into self-contained prompts with acceptance checks, then spawn workers with \`ari session spawn\` and let the concurrency cap queue the extras. Name each child with a short human title; that title is its name. ${collect} Answer a worker's question with \`ari session answer <child> --input <id> "<answer>"\`, or ask the user first when the decision is theirs; approvals always go to the user. When the work is done, inspect each diff and run \`ari session integrate\` explicitly, then verify in your own workspace. Tell the user the outcome in your own words using each child's title. Do not quote a delegation update or paste session ids into the chat. If a budget line appears, stop spawning and summarize what is left. Commands: ${COMMANDS}. \`ari --skill\` prints the full protocol.`
 }
 
 function parentNote(delivers: boolean): string {
   const collect = delivers
     ? 'Children report back to you automatically when they finish, so end your turn rather than polling for them.'
     : 'Nothing tells you when a child finishes, so collect its result with `ari session wait` before you end your turn.'
-  return `It lets this session delegate work to child sessions. Commands: ${COMMANDS}. ${collect} \`ari --skill\` prints the full protocol.`
+  return `It lets this session delegate work to child sessions. Name each child with a short human title; that title is its name. ${collect} Tell the user the outcome in your own words using that title. Do not quote a delegation update or paste session ids into the chat. Commands: ${COMMANDS}. \`ari --skill\` prints the full protocol.`
 }
 
 function childBrief(session: Session, parentTitle: string | null, delivers: boolean): string {

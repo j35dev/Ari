@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@ari/contracts/rpc'
@@ -14,13 +14,19 @@ import { SIDEBAR_VIEW_STORAGE_KEY } from './use-sidebar-view'
 
 const HOUR = 60 * 60 * 1000
 
-function session(id: string, ageHours: number, projectId = 'adhoc'): SessionSummary {
+function session(
+  id: string,
+  ageHours: number,
+  projectId = 'adhoc',
+  flags: Partial<SessionSummary> = {},
+): SessionSummary {
   return {
     id,
     projectId,
     title: `Session ${id}`,
     updatedAt: Date.now() - ageHours * HOUR,
     messageCount: 2,
+    ...flags,
   }
 }
 
@@ -187,7 +193,9 @@ describe('SessionsUnderProjects', () => {
     const user = userEvent.setup()
     const shelf = screen.getByRole('button', { name: 'Archived' })
     expect(shelf.querySelector('[data-context-mark="archived"]')).not.toBeNull()
+    expect(shelf).toHaveAttribute('aria-expanded', 'false')
     await user.click(shelf)
+    expect(shelf).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Session old')).toBeInTheDocument()
   })
 
@@ -254,7 +262,7 @@ describe('SessionsUnderProjects', () => {
     expect(onNewSession).toHaveBeenCalledWith({ x: 12, y: 76 })
   })
 
-  it('switches to a flat recency list in the Sessions view and persists the choice', async () => {
+  it('switches to a flat Sessions list and persists the choice', async () => {
     renderSidebar([
       session('fresh', 0, 'proj-1'),
       session('stale', 3 * 24, 'proj-2'),
@@ -268,10 +276,11 @@ describe('SessionsUnderProjects', () => {
     expect(screen.queryByRole('region', { name: 'Ari' })).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Unfiled' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Pinned' })).toHaveTextContent('Session pinned')
-    expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session fresh')
-    expect(screen.getByRole('region', { name: 'Previous 7 days' })).toHaveTextContent(
-      'Session stale',
-    )
+    const active = screen.getByRole('region', { name: 'Active' })
+    expect(active).toHaveTextContent('Session fresh')
+    expect(active).toHaveTextContent('Session stale')
+    expect(screen.queryByRole('region', { name: 'Today' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Previous 7 days' })).not.toBeInTheDocument()
     // Origin survives as a tooltip so a flat row still says where it lives.
     expect(screen.getByText('Session fresh').closest('button')).toHaveAttribute('title', 'Ari')
 
@@ -284,7 +293,10 @@ describe('SessionsUnderProjects', () => {
     localStorage.setItem(SIDEBAR_VIEW_STORAGE_KEY, 'sessions')
     render(
       <SessionsUnderProjects
-        sessions={[session('live', 0, 'proj-1'), { ...session('old', 2, 'proj-1'), archived: true }]}
+        sessions={[
+          session('live', 0, 'proj-1'),
+          { ...session('old', 2, 'proj-1'), archived: true },
+        ]}
         projects={projects}
         activeSessionId={null}
         onSelect={() => {}}
@@ -295,44 +307,110 @@ describe('SessionsUnderProjects', () => {
       />,
     )
     expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session live')
+    expect(screen.getByRole('region', { name: 'Active' })).toHaveTextContent('Session live')
     expect(screen.queryByText('Session old')).not.toBeInTheDocument()
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Archived' }))
     expect(screen.getByText('Session old')).toBeInTheDocument()
   })
 
-  it('re-buckets the Sessions view after midnight without new session data', () => {
-    vi.useFakeTimers()
-    try {
-      vi.setSystemTime(new Date(2026, 8, 8, 23, 30))
-      renderSidebar([session('late', 0, 'proj-1')])
-      fireEvent.click(screen.getByRole('button', { name: 'Sessions' }))
-      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session late')
+  it('renders inbox cards with project, status, branch and provider', async () => {
+    const user = userEvent.setup()
+    renderSidebar(
+      [
+        session('card', 0, 'proj-1', {
+          branch: 'feat/session-inbox',
+          driverKind: 'claude',
+        }),
+      ],
+      null,
+      {
+        activityOf: (id) =>
+          id === 'card'
+            ? { phase: 'paused', startedAt: Date.now(), pauseReason: 'approval' }
+            : undefined,
+      },
+    )
+    await user.click(screen.getByRole('button', { name: 'Sessions' }))
 
-      vi.setSystemTime(new Date(2026, 8, 9, 0, 1))
-      act(() => {
-        vi.advanceTimersByTime(61_000)
-      })
-      expect(screen.queryByRole('region', { name: 'Today' })).not.toBeInTheDocument()
-      expect(screen.getByRole('region', { name: 'Yesterday' })).toHaveTextContent('Session late')
-    } finally {
-      vi.useRealTimers()
-    }
+    const active = screen.getByRole('region', { name: 'Active' })
+    expect(active).toHaveTextContent('Ari')
+    expect(active).toHaveTextContent('Session card')
+    expect(active).toHaveTextContent('Approval')
+    expect(active).toHaveTextContent('feat/session-inbox')
+    expect(within(active).getByRole('status', { name: 'Waiting for you' })).toBeInTheDocument()
+    expect(within(active).getByTitle('Claude')).toBeInTheDocument()
+  })
+
+  it('hides child agents from the Sessions list', async () => {
+    const user = userEvent.setup()
+    renderSidebar([
+      session('root', 0, 'proj-1'),
+      { ...session('child', 1, 'proj-1'), parentSessionId: 'root' },
+    ])
+    await user.click(screen.getByRole('button', { name: 'Sessions' }))
+
+    const active = screen.getByRole('region', { name: 'Active' })
+    expect(active).toHaveTextContent('Session root')
+    expect(active).toHaveTextContent('Ari')
+    expect(active).not.toHaveTextContent('Session child')
+    expect(active.querySelector('[data-session-role="child"]')).toBeNull()
+    expect(within(active).queryByText('child')).not.toBeInTheDocument()
+    expect(within(active).queryByTitle('1 child agent')).not.toBeInTheDocument()
+    expect(active.querySelector('[data-tree-guides]')).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: 'Collapse children of Session root' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps a running thread on the card, with the working mark and no Working shelf', async () => {
+    const user = userEvent.setup()
+    const now = Date.now()
+    renderSidebar([session('run', 0, 'proj-1'), session('idle', 1, 'proj-1')], null, {
+      activityOf: (id) => (id === 'run' ? { phase: 'working', startedAt: now } : undefined),
+    })
+    await user.click(screen.getByRole('button', { name: 'Sessions' }))
+
+    const active = screen.getByRole('region', { name: 'Active' })
+    expect(active).toHaveTextContent('Session run')
+    expect(active).toHaveTextContent('Session idle')
+    expect(active).toHaveTextContent('Ari')
+    expect(within(active).getByRole('status', { name: 'Working' })).toBeInTheDocument()
+    expect(within(active).queryByText('Working')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Working sessions' })).not.toBeInTheDocument()
+  })
+
+  it('animates the parent card while a child agent works, without listing the child', async () => {
+    const user = userEvent.setup()
+    renderSidebar(
+      [
+        session('root', 0, 'proj-1'),
+        { ...session('child', 1, 'proj-1'), parentSessionId: 'root' },
+      ],
+      null,
+      {
+        activityOf: (id) =>
+          id === 'child' ? { phase: 'working', startedAt: Date.now() } : undefined,
+      },
+    )
+    await user.click(screen.getByRole('button', { name: 'Sessions' }))
+
+    const active = screen.getByRole('region', { name: 'Active' })
+    expect(active).toHaveTextContent('Session root')
+    expect(active).not.toHaveTextContent('Session child')
+    expect(within(active).getByRole('status', { name: 'Working' })).toBeInTheDocument()
   })
 
   it('still switches views when localStorage writes fail', async () => {
     const user = userEvent.setup()
-    const setItem = vi
-      .spyOn(Storage.prototype, 'setItem')
-      .mockImplementation((): void => {
-        throw new Error('quota')
-      })
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation((): void => {
+      throw new Error('quota')
+    })
     try {
       renderSidebar([session('fresh', 0, 'proj-1')])
       await user.click(screen.getByRole('button', { name: 'Sessions' }))
       expect(screen.getByRole('button', { name: 'Sessions', pressed: true })).toBeInTheDocument()
-      expect(screen.getByRole('region', { name: 'Today' })).toHaveTextContent('Session fresh')
+      expect(screen.getByRole('region', { name: 'Active' })).toHaveTextContent('Session fresh')
     } finally {
       setItem.mockRestore()
     }
@@ -696,7 +774,11 @@ describe('SessionsUnderProjects', () => {
   it('lets the user pick a subset in a project and archive the selection', async () => {
     const onToggleArchive = vi.fn()
     renderSidebar(
-      [session('keep', 1, 'proj-1'), session('drop-a', 2, 'proj-1'), session('drop-b', 3, 'proj-1')],
+      [
+        session('keep', 1, 'proj-1'),
+        session('drop-a', 2, 'proj-1'),
+        session('drop-b', 3, 'proj-1'),
+      ],
       null,
       { onToggleArchive },
     )

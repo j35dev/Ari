@@ -116,8 +116,12 @@ const defaultAppearance = {
   wallpaper: 'none',
 } as const
 
+/** Completion is optional so pre-onboarding installations migrate without losing settings. */
+const onboardingSchema = z.object({ completedAt: z.number().int().nonnegative().nullable() })
+
 /** Persisted application settings. Versioned for forward migration. */
 export const settingsSchema = z.object({
+  onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsSchema.default(() => delegationSettingsSchema.parse({})),
   version: z.literal(1),
   appearance: z
@@ -156,6 +160,12 @@ export const settingsSchema = z.object({
       discordPresence: z.boolean().default(true),
     })
     .default({ settleSound: true, desktop: true, discordPresence: true }),
+  hive: z
+    .object({
+      /** After settled bot turns, one-shot capture prompts let bots save durable facts to memory. */
+      selfMemory: z.boolean().default(false),
+    })
+    .default({ selfMemory: false }),
   permissions: z
     .object({
       /** Tools pre-approved across all sessions, e.g. ['Bash(git status*)']. */
@@ -197,6 +207,7 @@ export type Settings = z.infer<typeof settingsSchema>
  * parsed patch only carries keys the caller actually sent.
  */
 export const settingsUpdateSchema = z.object({
+  onboarding: onboardingSchema.optional(),
   delegation: delegationSettingsPatchSchema.optional(),
   appearance: z
     .object({
@@ -237,6 +248,12 @@ export const settingsUpdateSchema = z.object({
     })
     .partial()
     .optional(),
+  hive: z
+    .object({
+      selfMemory: z.boolean(),
+    })
+    .partial()
+    .optional(),
   permissions: z
     .object({
       allowlist: z.array(z.string()),
@@ -271,6 +288,7 @@ export const defaultSettings: Settings = {
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultConnections(),
   notifications: { settleSound: true, desktop: true, discordPresence: true },
+  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
