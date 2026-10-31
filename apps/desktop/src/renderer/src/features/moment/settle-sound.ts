@@ -1,11 +1,10 @@
 import { createLogger } from '@ari/shared/logger'
 
 /**
- * The turn-settle cue: a soft two-note lift when a turn completes, a
- * muted falling third when it fails, and a bright ping-pair when the agent
- * stalls waiting on the user (approval / question). Synthesized with Web
- * Audio like the launch signature (`awaken-sound.ts`) so there is no audio
- * asset to ship.
+ * The Soft Glass turn-settle cues: a rounded mallet lift on completion, a
+ * repeated cue for approval / questions, and a lower falling third on failure.
+ * A sine fundamental and two faster-decaying glass partials are synthesized
+ * with Web Audio, so there is no audio asset to ship or decode.
  *
  * Chromium blocks this without a user gesture; the main process opts the app
  * out with `--autoplay-policy=no-user-gesture-required` (see src/main/index.ts).
@@ -21,6 +20,42 @@ const TEARDOWN_MS = 900
 
 export type SettleSoundKind = 'complete' | 'error' | 'attention'
 
+const ATTACK = 0.012
+const RELEASE = 0.02
+const TONE_GAIN = 0.14
+const PARTIALS = [
+  [1, 1, 1],
+  [2, 0.14, 0.45],
+  [2.76, 0.09, 0.3],
+] as const
+
+// Offline-calibrated to the approved previews' 0.045 active RMS, without
+// synthesizing or normalizing PCM on the renderer's notification path.
+const CUES = {
+  complete: {
+    level: 0.915774,
+    notes: [
+      [523.25, 0, 0.32],
+      [659.25, 0.085, 0.36],
+    ],
+  },
+  attention: {
+    level: 1.000393,
+    notes: [
+      [659.25, 0, 0.22],
+      [659.25, 0.19, 0.22],
+      [783.99, 0.32, 0.28],
+    ],
+  },
+  error: {
+    level: 0.98955,
+    notes: [
+      [440, 0, 0.26],
+      [349.23, 0.11, 0.3],
+    ],
+  },
+} as const
+
 type AudioContextCtor = new () => AudioContext
 
 function audioContextCtor(): AudioContextCtor | null {
@@ -31,31 +66,39 @@ function audioContextCtor(): AudioContextCtor | null {
   return w.AudioContext ?? w.webkitAudioContext ?? null
 }
 
-/** One plucked sine with a fast attack and exponential tail. */
 function tone(
   ctx: AudioContext,
+  output: GainNode,
   start: number,
   duration: number,
   freq: number,
-  gain: number,
 ): void {
-  const osc = ctx.createOscillator()
-  const g = ctx.createGain()
-  osc.type = 'sine'
-  osc.frequency.setValueAtTime(freq, start)
-  g.gain.setValueAtTime(0, start)
-  g.gain.linearRampToValueAtTime(gain, start + 0.014)
-  g.gain.exponentialRampToValueAtTime(0.0001, start + duration)
-  osc.connect(g).connect(ctx.destination)
-  osc.start(start)
-  osc.stop(start + duration + 0.02)
+  const release = ctx.createGain()
+  release.gain.setValueAtTime(1, start)
+  release.gain.setValueAtTime(1, start + duration)
+  release.gain.linearRampToValueAtTime(0, start + duration + RELEASE)
+  release.connect(output)
+
+  for (const [ratio, amount, decay] of PARTIALS) {
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    // A mid-quantum start otherwise inherits a phase offset from the default
+    // 440 Hz; seed the intrinsic frequency to match the auditioned waveform.
+    osc.frequency.value = freq * ratio
+    osc.frequency.setValueAtTime(freq * ratio, start)
+    gain.gain.setValueAtTime(0, start)
+    gain.gain.linearRampToValueAtTime(TONE_GAIN * amount, start + ATTACK)
+    gain.gain.exponentialRampToValueAtTime(0.0001 * amount, start + duration * decay)
+    osc.connect(gain).connect(release)
+    osc.start(start)
+    osc.stop(start + duration + RELEASE)
+  }
 }
 
 /**
- * Plays the settle cue once. A completion is a rising fifth (D5→A5); an error
- * is a quieter falling minor third (G4→E♭4) so failures are heard as a step
- * down without sounding like an alarm; attention is a higher fifth (G5→D6)
- * so a blocked turn sounds distinct from a finished one.
+ * Plays the selected Soft Glass cue: completion C5→E5, attention E5/E5→G5,
+ * or error A4→F4. The restrained upper partials decay before the fundamental.
  */
 export function playSettleSound(kind: SettleSoundKind): void {
   const Ctor = audioContextCtor()
@@ -73,29 +116,32 @@ export function playSettleSound(kind: SettleSoundKind): void {
   }
 
   const close = (): void => {
-    void ctx.close().catch(() => undefined)
+    void ctx.close().catch((error: unknown) => {
+      log.warn('settle sound close failed', { error })
+    })
   }
 
   // A fresh context may start suspended even with the autoplay-policy opt-out;
   // without this the scheduled tones never advance and the cue is silent.
   try {
     const resumed: unknown = ctx.resume?.()
-    if (resumed instanceof Promise) void resumed.catch(() => undefined)
+    if (resumed instanceof Promise) {
+      void resumed.catch((error: unknown) => {
+        log.warn('settle sound resume failed', { error })
+      })
+    }
   } catch (error: unknown) {
     log.warn('settle sound resume failed', { error })
   }
 
   try {
+    const cue = CUES[kind]
+    const output = ctx.createGain()
+    output.gain.value = cue.level
+    output.connect(ctx.destination)
     const now = ctx.currentTime + 0.02
-    if (kind === 'error') {
-      tone(ctx, now, 0.34, 392.0, 0.13) // G4
-      tone(ctx, now + 0.13, 0.42, 311.13, 0.12) // E♭4
-    } else if (kind === 'attention') {
-      tone(ctx, now, 0.28, 783.99, 0.15) // G5
-      tone(ctx, now + 0.09, 0.36, 1174.66, 0.14) // D6
-    } else {
-      tone(ctx, now, 0.3, 587.33, 0.16) // D5
-      tone(ctx, now + 0.1, 0.4, 880.0, 0.14) // A5
+    for (const [freq, delay, duration] of cue.notes) {
+      tone(ctx, output, now + delay, duration, freq)
     }
   } catch (error: unknown) {
     log.warn('settle sound scheduling failed', { error })

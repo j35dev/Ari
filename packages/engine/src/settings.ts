@@ -27,11 +27,13 @@ function mergeConnections(
  * the main process may change a provider's accounts, which a renderer may not.
  */
 export interface SettingsPatch {
+  onboarding?: Settings['onboarding']
   delegation?: Partial<Settings['delegation']>
   appearance?: Partial<Settings['appearance']>
   sessions?: Partial<Settings['sessions']>
   providers?: Partial<Record<CliKind, Partial<ProviderConnection>>>
   notifications?: Partial<Settings['notifications']>
+  hive?: Partial<Settings['hive']>
   permissions?: Partial<Settings['permissions']>
   remote?: Partial<Settings['remote']>
   window?: Settings['window']
@@ -44,12 +46,13 @@ export interface SettingsStoreOptions {
 
 /**
  * JSON settings file with atomic writes and schema-versioned defaults.
- * Unknown fields are dropped on load; a corrupt file falls back to defaults
- * rather than blocking boot.
+ * Unknown fields are dropped on load; unreadable or invalid files are preserved
+ * and reported so a failed read cannot be mistaken for a new installation.
  */
 export class SettingsStore {
   readonly #path: string
   #current: Settings = defaultSettings
+  #loaded = false
   #writes: Promise<unknown> = Promise.resolve()
 
   constructor(options: SettingsStoreOptions) {
@@ -76,23 +79,28 @@ export class SettingsStore {
   }
 
   async #read(): Promise<Settings> {
+    this.#loaded = false
     let raw: string
     try {
       raw = await readFile(this.#path, 'utf8')
-    } catch {
-      // First boot — persist defaults so the file exists for users to inspect.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.warn('settings read failed; preserving file', { error: String(error) })
+        throw error
+      }
       await this.save(defaultSettings)
       this.#current = defaultSettings
+      this.#loaded = true
       return this.#current
     }
     try {
       const parsed: unknown = JSON.parse(raw)
       this.#current = settingsSchema.parse(parsed)
-    } catch (e) {
-      log.warn('settings corrupt or invalid; using defaults', { error: String(e) })
-      this.#current = defaultSettings
-      await this.save(defaultSettings)
+    } catch (error) {
+      log.warn('settings invalid; preserving file', { error: String(error) })
+      throw error
     }
+    this.#loaded = true
     return this.#current
   }
 
@@ -107,13 +115,17 @@ export class SettingsStore {
   }
 
   async #apply(patch: SettingsPatch): Promise<Settings> {
+    // Window geometry can save before boot has loaded the user's preferences.
+    if (!this.#loaded) await this.#read()
     const next: Settings = {
+      onboarding: patch.onboarding ?? this.#current.onboarding,
       delegation: { ...this.#current.delegation, ...patch.delegation },
       version: 1,
       appearance: { ...this.#current.appearance, ...patch.appearance },
       sessions: { ...this.#current.sessions, ...patch.sessions },
       providers: mergeConnections(this.#current.providers, patch.providers),
       notifications: { ...this.#current.notifications, ...patch.notifications },
+      hive: { ...this.#current.hive, ...patch.hive },
       permissions: { ...this.#current.permissions, ...patch.permissions },
       remote: { ...this.#current.remote, ...patch.remote },
       window: patch.window !== undefined ? patch.window : this.#current.window,

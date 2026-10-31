@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { X, FolderPlus } from 'lucide-react'
+import { X } from 'lucide-react'
 import { ThemeProvider } from '@ari/ui/theme-provider'
 import { MotionProvider } from '@ari/ui/motion-provider'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
@@ -31,6 +31,7 @@ import {
   UNFILED_GROUP_ID,
   moveProjectInList,
   projectMoveForDelta,
+  sessionsViewOrder,
   shellRootFor,
   sidebarOrder,
 } from './features/session/session-nav'
@@ -84,11 +85,10 @@ import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell
 import { HiveRoster, isBotSession, RoomView, useRooms } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
 import {
-  ContextMenu,
   anchorBelow,
-  type ContextMenuItem,
   type MenuAnchor,
 } from './shell/ContextMenu'
+import { NewSessionLauncher } from './shell/NewSessionLauncher'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import {
   applyPatches,
@@ -105,6 +105,7 @@ import {
   useSidebarWidth,
 } from './shell/use-pane-width'
 import { WelcomePanel } from './features/welcome'
+import { OnboardingGate, type OnboardingWorkspaceProps } from './features/onboarding/OnboardingGate'
 import './features/transcript/transcript.css'
 
 type InspectorId = Exclude<SidebarNavId, 'session' | 'settings' | 'github' | 'source-control'>
@@ -138,7 +139,7 @@ export interface SessionDefaults {
   lead?: boolean
 }
 
-function Shell() {
+function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorkspaceProps) {
   const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
@@ -191,8 +192,9 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   /**
-   * The pending "start a session" request: where to anchor the project picker,
-   * plus any defaults the entry point wants applied to the session it creates.
+   * The pending "start a session" request, plus any overrides the entry point
+   * wants applied to the session it creates. (Entry points still pass an
+   * anchor — the launcher now opens centered, so it is carried but unused.)
    */
   const [newSessionRequest, setNewSessionRequest] = useState<{
     anchor: MenuAnchor
@@ -202,10 +204,10 @@ function Shell() {
   // Where the pane area is the view on screen: settings, the gallery and the
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
-  const panesVisible = !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
+  const panesVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
-  const tabsVisible = !settingsOpen && !hubOpen && !galleryOpen
+  const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
   const [recentSpaceIds, setRecentSpaceIds] = useState<readonly string[]>([])
   const nextRecentSpaceIds = recentSpaces(
     recentSpaceIds,
@@ -412,6 +414,7 @@ function Shell() {
     visibleRef.current = new Set(now)
   }, [layout, acknowledge])
   useEffect(() => {
+    if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
         e.preventDefault()
@@ -420,7 +423,7 @@ function Shell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toggleSidebar])
+  }, [toggleSidebar, setupCovered])
 
   // Set on the first successful list, so the restored panes are never pruned
   // against the empty session state the shell starts from.
@@ -430,22 +433,19 @@ function Shell() {
   /** Generation of the last list actually committed to the shell. */
   const appliedListRef = useRef(0)
 
-  const refreshSessions = useCallback((): void => {
+  const reloadSessions = useCallback(async (): Promise<void> => {
     const generation = ++listsRef.current
-    void rpc
-      .invoke('session.list')
-      .then((next) => {
-        // Commit when no later *success* has already landed. A newer request
-        // that failed must not poison an older success still in flight, or
-        // the boot list would be dropped and pruning would never see it.
-        if (generation < appliedListRef.current) return
-        appliedListRef.current = generation
-        sessionsLoadedRef.current = true
-        setSessions(next)
-        setPatches((prev) => dropSettled(prev, generation))
-      })
-      .catch((error: unknown) => log.warn('rpc call failed', error))
+    const next = await rpc.invoke('session.list')
+    // An older success may land only if no newer success has already committed.
+    if (generation < appliedListRef.current) return
+    appliedListRef.current = generation
+    sessionsLoadedRef.current = true
+    setSessions(next)
+    setPatches((prev) => dropSettled(prev, generation))
   }, [])
+  const refreshSessions = useCallback((): void => {
+    void reloadSessions().catch((error: unknown) => log.warn('rpc call failed', error))
+  }, [reloadSessions])
 
   /**
    * Sends one sidebar change to the engine. The caller has already shown it;
@@ -665,8 +665,9 @@ function Shell() {
   })
 
   // Sidebar-visible order — the same sequence Mod+1..9 and Ctrl+Tab traverse.
-  // Grouped by the open projects in the Projects view; the flat recency list
-  // in the Sessions view. Either way keyboard order matches what is rendered.
+  // Grouped by the open projects in the Projects view; root cards, pinned
+  // then newest, in the Sessions view. Either way keyboard order matches
+  // what is rendered, and child agents are not their own stops.
   const openProjects = useMemo(() => projects.filter((p) => p.open), [projects])
   // Bot sessions live in the Hive: the roster opens a bot's main session and a
   // room opens its threads, so the normal sidebar (and its Mod+digit order)
@@ -678,7 +679,10 @@ function Shell() {
   const { collapsed: collapsedChildren } = useSessionCollapse()
   const { view: sidebarView } = useSidebarView()
   const navOrder = useMemo(
-    () => sidebarOrder(sidebarSessions, sidebarView === 'sessions' ? [] : openProjects),
+    () =>
+      sidebarView === 'sessions'
+        ? sessionsViewOrder(sidebarSessions)
+        : sidebarOrder(sidebarSessions, openProjects),
     [sidebarSessions, openProjects, sidebarView, collapsedChildren],
   )
 
@@ -688,6 +692,22 @@ function Shell() {
       .then(setProjects)
       .catch((error: unknown) => log.warn('rpc call failed', error))
   }, [])
+
+  useEffect(() => {
+    if (onboardingOutcome === null) return
+    let cancelled = false
+    if (onboardingOutcome.driverKind !== null)
+      rememberPick({ driverKind: onboardingOutcome.driverKind, modelId: null, effort: null })
+    refreshProjects()
+    void reloadSessions().then(() => {
+      if (!cancelled && onboardingOutcome.sessionId !== null)
+        selectSessionRef.current(onboardingOutcome.sessionId)
+    }).catch((error: unknown) => {
+      log.warn('workspace refresh after setup failed', error)
+      toast({ tone: 'warning', title: 'Setup is saved', description: 'Reopen Ari if your new projects or session have not appeared yet.' })
+    })
+    return () => { cancelled = true }
+  }, [onboardingOutcome, reloadSessions, refreshProjects, rememberPick, toast])
 
   // Sidebar order is the stored registry order: slot the project before
   // `beforeId` (null = last). Applied optimistically so the spring tracks the
@@ -720,6 +740,7 @@ function Shell() {
   )
 
   useEffect(() => {
+    if (setupCovered) return
     const onKey = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -838,6 +859,7 @@ function Shell() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [
+    setupCovered,
     paletteOpen,
     settingsOpen,
     hubOpen,
@@ -955,42 +977,18 @@ function Shell() {
   const closeNewSessionMenu = useCallback(() => setNewSessionRequest(null), [])
   newSessionRef.current = beginNewSessionFromKeyboard
 
-  const newSessionMenuItems = useMemo<ContextMenuItem[]>(
-    () => [
-      ...projects.map((project) => ({
-        id: project.id,
-        label: project.name,
-        onSelect: () => {
-          setNewSessionRequest(null)
-          createSession(project.id, newSessionRequest?.overrides)
-        },
-      })),
-      ...projects.map((project) => ({
-        id: `lead-${project.id}`,
-        label: `Lead session in ${project.name}`,
-        onSelect: () => {
-          setNewSessionRequest(null)
-          createSession(project.id, { ...newSessionRequest?.overrides, lead: true })
-        },
-      })),
-      {
-        id: 'add-project',
-        label: 'Add project…',
-        icon: FolderPlus,
-        onSelect: () => {
-          const overrides = newSessionRequest?.overrides
-          setNewSessionRequest(null)
-          void openProjectViaPicker()
-            .then((project) => {
-              if (project === null) return
-              refreshProjects()
-              createSession(project.id, overrides)
-            })
-            .catch((error: unknown) => log.warn('project open failed', error))
-        },
-      },
-    ],
-    [projects, createSession, refreshProjects, newSessionRequest],
+  const addProjectAndStart = useCallback(
+    (overrides?: Partial<SessionDefaults>): void => {
+      setNewSessionRequest(null)
+      void openProjectViaPicker()
+        .then((project) => {
+          if (project === null) return // cancelled picker stays put
+          refreshProjects()
+          createSession(project.id, overrides)
+        })
+        .catch((error: unknown) => log.warn('project open failed', error))
+    },
+    [createSession, refreshProjects],
   )
 
   const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
@@ -1120,6 +1118,7 @@ function Shell() {
           section={settingsSection}
           onSectionChange={setSettingsSection}
           onBack={() => setSettingsOpen(false)}
+          onOpenSetup={onOpenSetup}
           workspacePath={sessionWorkspace?.path ?? null}
           onOpenTerminal={() => {
             setSettingsOpen(false)
@@ -1412,6 +1411,7 @@ function Shell() {
                                   <SessionView
                                     sessionId={sessionId}
                                     hidden={hidden}
+                                    botId={sessions.find((s) => s.id === sessionId)?.botId}
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}
                                     onPick={rememberPick}
@@ -1550,15 +1550,19 @@ function Shell() {
         root={activeProjectPath}
         scope={activeScope}
       />
-      <KeyboardCheatSheet />
-      {newSessionRequest !== null ? (
-        <ContextMenu
-          anchor={newSessionRequest.anchor}
-          label="New session in project"
-          items={newSessionMenuItems}
-          onClose={closeNewSessionMenu}
-        />
-      ) : null}
+      {setupCovered ? null : <KeyboardCheatSheet />}
+      <NewSessionLauncher
+        open={newSessionRequest !== null}
+        projects={projects}
+        sessions={sessions}
+        preferredProjectId={activeSession?.projectId ?? null}
+        onCreate={(projectId, lead) => {
+          const overrides = newSessionRequest?.overrides
+          createSession(projectId, lead ? { ...overrides, lead: true } : overrides)
+        }}
+        onAddProject={() => addProjectAndStart(newSessionRequest?.overrides)}
+        onClose={closeNewSessionMenu}
+      />
     </div>
   )
 }
@@ -1624,7 +1628,7 @@ export function App() {
 
   return (
     <AppProviders>
-      {booted ? <Shell /> : null}
+      {booted ? <OnboardingGate>{(props) => <Shell {...props} />}</OnboardingGate> : null}
       {launched ? null : <AwakenSplash ready={booted} onDone={finishLaunch} />}
     </AppProviders>
   )
