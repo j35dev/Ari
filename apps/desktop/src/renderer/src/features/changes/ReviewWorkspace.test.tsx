@@ -75,6 +75,21 @@ describe('ReviewWorkspace', () => {
     )
   })
 
+  it('retains multiple selected files for explicit Git controls', async () => {
+    const user = userEvent.setup()
+    render(
+      <ReviewWorkspace
+        scope={{ sessionId: 's' }}
+        renderControls={(state) => <p>{state.paths.join(',')}</p>}
+      />,
+    )
+    await screen.findByText('a.ts:3')
+    await user.keyboard('{Control>}')
+    await user.click(screen.getByRole('button', { name: 'b.ts' }))
+    await user.keyboard('{/Control}')
+    expect(screen.getByText('a.ts,b.ts')).toBeInTheDocument()
+  })
+
   it('shows retryable per-file failures rather than clean/empty state', async () => {
     let attempts = 0
     mocks.invoke.mockImplementation(async (method) =>
