@@ -45,7 +45,8 @@ export interface SessionReadModel {
   pendingInputs: { inputId: string; prompt: string; choicesJson: string | null }[]
   /** User messages queued behind the active turn (survives reload via replay). */
   queuedMessages: QueuedMessage[]
-  checkpoints: { turnId: string; gitRef: string }[]
+  checkpoints: { turnId: string; gitRef: string; endRef?: string; endError?: string }[]
+  sessionBaselineRef?: string
   /** Provider-native session/thread id to resume, when one was observed. */
   providerSessionId: string | null
   usage: UsageTotals
@@ -246,10 +247,21 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
     }
 
     case 'checkpoint.captured':
+      if (event.baselineRef && !next.sessionBaselineRef) next.sessionBaselineRef = event.baselineRef
       next.checkpoints = [
         ...next.checkpoints.filter((c) => c.turnId !== event.turnId),
         { turnId: event.turnId, gitRef: event.gitRef },
       ]
+      break
+
+    case 'checkpoint.completed':
+      next.checkpoints = next.checkpoints.map((checkpoint) =>
+        checkpoint.turnId === event.turnId
+          ? event.gitRef
+            ? { ...checkpoint, endRef: event.gitRef, endError: undefined }
+            : { ...checkpoint, endError: event.error ?? 'Turn-end snapshot is unavailable.' }
+          : checkpoint,
+      )
       break
 
     case 'checkpoint.reverted':

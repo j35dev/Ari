@@ -62,6 +62,16 @@ function wakeRank(priority: QueuedMessage['priority']): number {
 }
 
 export interface CheckpointCapturer {
+  captureTurnEnd?(
+    cwd: string,
+    sessionId: string,
+    turnId: string,
+  ): Promise<{ ok: true; value: string | null } | { ok: false; error: { message: string } }>
+  pinSessionBaseline?(
+    cwd: string,
+    sessionId: string,
+    checkpoint: string,
+  ): Promise<{ ok: true; value: string } | { ok: false; error: { message: string } }>
   captureCheckpoint(
     cwd: string,
     sessionId: string,
@@ -552,10 +562,21 @@ export class Engine {
     const git = this.#deps.git ?? (await import('@ari/engine/git')).newDefaultCapturer()
     const captured = await git.captureCheckpoint(workspacePath, session.id, turnId)
     if (captured.ok && captured.value !== null) {
+      const model = await this.#deps.store.load(session.id)
+      const baseline = model.sessionBaselineRef
+        ? undefined
+        : await git.pinSessionBaseline?.(
+            workspacePath,
+            session.id,
+            model.checkpoints[0]?.gitRef ?? captured.value,
+          )
+      if (baseline && !baseline.ok)
+        log.warn('session baseline capture failed', { error: baseline.error.message })
       await this.#append(session.id, {
         type: 'checkpoint.captured',
         turnId,
         gitRef: captured.value,
+        ...(baseline?.ok ? { baselineRef: baseline.value } : {}),
       })
       // M8.10: cap stored checkpoints per session. Pruning is event-sourced
       // (checkpoint.pruned folds the projection) and best-effort. The
@@ -584,7 +605,10 @@ export class Engine {
     /** Whether this turn's process was given the `ari` control CLI. */
     let hasControl: boolean
     try {
-      if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) return
+      if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
+        await this.#captureTurnEnd(session.id, turnId)
+        return
+      }
       const runtimeEnv = await this.#deps.runtimeEnvironment?.(session)
       hasControl = runtimeEnv?.ARI_ENV === '1'
       // What Ari tells this session goes through the provider's system
@@ -635,6 +659,7 @@ export class Engine {
     if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId) {
       adapter.interrupt()
       await adapter.dispose()
+      await this.#captureTurnEnd(session.id, turnId)
       return
     }
 
@@ -752,6 +777,8 @@ export class Engine {
       }
     }
 
+    let stopReason: 'completed' | 'error'
+    let errorMessage: string | null
     try {
       let firstErrorMessage: string | null = null
       for await (const event of adapter.start()) {
@@ -910,22 +937,46 @@ export class Engine {
       // Provider-emitted errors (auth failures, CLI crashes with exit 0, HTTP
       // errors) must settle the turn as `error`, never as a completed chat —
       // otherwise the failure is invisible and the UI looks broken.
-      if (!interrupted) {
-        await this.#settle(
-          session.id,
-          turnId,
-          firstErrorMessage === null ? 'completed' : 'error',
-          firstErrorMessage,
-        )
-      }
+      stopReason = firstErrorMessage === null ? 'completed' : 'error'
+      errorMessage = firstErrorMessage
     } catch (e) {
-      await flush().catch(() => undefined)
-      if (!interrupted) await this.#settle(session.id, turnId, 'error', String(e))
+      await flush().catch((error: unknown) =>
+        log.warn('final text flush failed', { error: String(error) }),
+      )
+      stopReason = 'error'
+      errorMessage = String(e)
     } finally {
       if (flushTimer !== null) clearTimeout(flushTimer)
+      try {
+        await adapter.dispose()
+      } catch (error) {
+        log.warn('provider disposal failed', { sessionId: session.id, error: String(error) })
+        stopReason = 'error'
+        errorMessage ??= String(error)
+      }
       this.#activeTurns.delete(session.id)
-      await adapter.dispose()
     }
+    // Disposal fences the final snapshot against late provider writes and the next turn.
+    if (interrupted) await this.#captureTurnEnd(session.id, turnId)
+    else await this.#settle(session.id, turnId, stopReason, errorMessage)
+  }
+
+  async #captureTurnEnd(sessionId: string, turnId: string): Promise<void> {
+    const model = await this.#deps.store.load(sessionId)
+    const checkpoint = model.checkpoints.find((entry) => entry.turnId === turnId)
+    if (!model.session || !checkpoint || checkpoint.endRef || checkpoint.endError) return
+    const git = this.#deps.git ?? (await import('@ari/engine/git')).newDefaultCapturer()
+    if (!git.captureTurnEnd) return
+    const cwd = await this.workspace(model.session)
+    const captured = cwd ? await git.captureTurnEnd(cwd, sessionId, turnId) : null
+    const gitRef = captured?.ok ? captured.value : null
+    const error = gitRef
+      ? null
+      : captured && !captured.ok
+        ? captured.error.message
+        : 'Turn-end snapshot is unavailable.'
+    if (error) log.warn('turn-end checkpoint capture failed', { sessionId, turnId, error })
+    await this.#append(sessionId, { type: 'checkpoint.completed', turnId, gitRef, error })
   }
 
   async #settle(
@@ -934,7 +985,10 @@ export class Engine {
     stopReason: 'completed' | 'interrupted' | 'error',
     errorMessage: string | null,
   ): Promise<void> {
-    const model = await this.#deps.store.load(sessionId)
+    let model = await this.#deps.store.load(sessionId)
+    if (model.activeTurnId !== turnId) return
+    await this.#captureTurnEnd(sessionId, turnId)
+    model = await this.#deps.store.load(sessionId)
     if (model.activeTurnId !== turnId) return
     const nextStatus = stopReason === 'error' ? 'error' : 'idle'
     // Fold status before publishing turn.settled so subscribers that load
@@ -1141,7 +1195,7 @@ export class Engine {
     const model = await this.#deps.store.load(sessionId)
     const session = model.session
     const firstPrompt = model.messages.find((m) => m.role === 'user')
-    if (!session || !firstPrompt) return
+    if (!session || !firstPrompt || session.parentSessionId) return
     const prompt = firstPrompt.parts.find((p) => p.type === 'text')?.text ?? ''
     if (!isAutoTitle(session.title, prompt)) return
     const response =

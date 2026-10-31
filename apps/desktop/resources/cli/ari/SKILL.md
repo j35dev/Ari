@@ -26,6 +26,15 @@ Create a child with a concise title, real catalog model ID and a concrete assign
 The child starts with only that prompt, not your conversation, so make it self-contained:
 goal, scope, constraints, what to verify and what to report.
 
+`--title` is the child's name in the sidebar, on its task card, and in its git
+branch (`ari/<title>` plus a short id). Use two to five words a person would
+recognize, such as `Edit queued message`. Do not put a session id, a model id,
+or the word "child" in the title.
+
+When you tell the user what a child did, use that title. Ari wakes you with a
+delegation update the user never sees. Do not quote it, and do not paste session
+ids into the chat. The user already has each child in the sidebar.
+
 ```sh
 ari session spawn --title "Settings persistence" --role implementation --agent codex --model MODEL_ID --prompt "Implement persistence. Scope: engine settings. Reuse the existing store, add tests, report decisions and changed files." --key persistence-1 --json
 ```
