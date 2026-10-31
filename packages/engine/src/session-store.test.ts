@@ -31,6 +31,21 @@ afterEach(async () => {
 })
 
 describe('SessionStore', () => {
+  it('does not treat an unreadable session root as a new installation', async () => {
+    const path = join(rootDir, 'not-a-directory')
+    await writeFile(path, 'preserve')
+    const broken = new SessionStore({ rootDir: path })
+    await expect(broken.listSessions()).rejects.toThrow()
+    await rm(path)
+    expect(await broken.listSessions()).toEqual([])
+  })
+
+  it('reports a wholly unreadable listing but keeps useful partial results', async () => {
+    await writeFile(join(rootDir, 'broken-entry'), 'not a session directory')
+    await expect(store.listSessions()).rejects.toThrow('Saved sessions could not be read')
+    await store.append(session.id, { type: 'session.created', session })
+    expect((await store.listSessions()).map((entry) => entry.id)).toEqual([session.id])
+  })
   it('creates a session and replays it into a read model', async () => {
     await store.append(session.id, { type: 'session.created', session })
     const model = await store.load(session.id)

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -180,13 +180,42 @@ describe('SettingsStore', () => {
     expect(persisted.notifications.settleSound).toBe(false)
   })
 
-  it('falls back to defaults on corrupt file', async () => {
-    const { writeFile } = await import('node:fs/promises')
-    await writeFile(join(dir, 'settings.json'), '{corrupt', 'utf8')
+  it.each(['{corrupt', '{"version":99}'])(
+    'preserves invalid settings and refuses automatic writes: %s',
+    async (raw) => {
+      const { writeFile } = await import('node:fs/promises')
+      const path = join(dir, 'settings.json')
+      const store = new SettingsStore({ dir })
+      await store.load()
+      await writeFile(path, raw, 'utf8')
+      await expect(store.load()).rejects.toThrow()
+      await expect(store.update({ onboarding: { completedAt: 1 } })).rejects.toThrow()
+      expect(await readFile(path, 'utf8')).toBe(raw)
+      await writeFile(
+        path,
+        JSON.stringify({ version: 1, sessions: { defaultDriverKind: 'codex' } }),
+      )
+      expect((await store.load()).sessions.defaultDriverKind).toBe('codex')
+      await store.update({ onboarding: { completedAt: 2 } })
+      expect((await new SettingsStore({ dir }).load()).onboarding?.completedAt).toBe(2)
+    },
+  )
+
+  it('does not mistake an unreadable settings path for a missing file', async () => {
+    await mkdir(join(dir, 'settings.json'))
     const store = new SettingsStore({ dir })
-    const settings = await store.load()
-    expect(settings).toEqual(await new SettingsStore({ dir }).load())
-    expect(settings.appearance.themeId).toBe('obsidian')
+    await expect(store.load()).rejects.toThrow()
+    await expect(store.update({ notifications: { settleSound: false } })).rejects.toThrow()
+    await rm(join(dir, 'settings.json'), { recursive: true })
+    expect((await store.load()).version).toBe(1)
+  })
+
+  it('reads saved preferences before accepting a window update at boot', async () => {
+    const saved = new SettingsStore({ dir })
+    await saved.update({ providers: { claude: { enabled: false } } })
+    const cold = new SettingsStore({ dir })
+    await cold.update({ window: { x: 0, y: 0, width: 1280, height: 800, maximized: false } })
+    expect(cold.current.providers.claude.enabled).toBe(false)
   })
 
   it('migrates the pre-M16 single-appearance themeId to the default theme', async () => {
