@@ -26,8 +26,10 @@ import { TurnDiffCard } from './TurnDiffCard'
 import type { TurnDiffValue } from './types'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
 import { DelegationCard } from './DelegationCard'
-import { DelegationNotice } from './DelegationNotice'
 import { insertDelegationRows } from './delegation-rows'
+import { BotAvatar } from '@ari/ui/bot-avatar'
+import { characterOf } from '@ari/ui/bot-character'
+import type { Bot } from '@ari/contracts/bot'
 import { useLazyRows } from './use-lazy-rows'
 import { attachmentDataUrl } from './attachment-urls'
 import type {
@@ -74,6 +76,15 @@ function estimateUncached(row: TranscriptRow): number {
   return row.kind === 'thinking' ? 36 : lines * LINE_HEIGHT_PX + 16
 }
 
+/**
+ * A wake Ari wrote for the parent agent. It stays in the journal so the model
+ * can read it, and stays out of the conversation.
+ */
+function isAgentWake(message: Message): boolean {
+  const kind = message.origin?.kind
+  return kind === 'completion' || kind === 'question'
+}
+
 /** Hover preview text for a rail entry: prompt text, or image filenames. */
 function railText(row: TranscriptRow): string {
   if (row.kind === 'image') {
@@ -107,6 +118,7 @@ export function TranscriptView({
   turnDiffs,
   onEditUserMessage,
   onRegenerate,
+  onQuoteAssistant,
   regenerateDisabled = false,
   running = false,
   header,
@@ -119,6 +131,7 @@ export function TranscriptView({
   onOpenSession,
   onTurnInView,
   hidden = false,
+  bot,
 }: {
   sessionId: string
   messages: Message[]
@@ -131,6 +144,12 @@ export function TranscriptView({
   activity?: React.ReactNode
   /** Children this session delegated to; each renders as a task card where it was spawned. */
   delegations?: readonly DelegatedChild[]
+  /**
+   * The Hive bot this transcript belongs to, when it is one: its face rides
+   * the assistant rows like a chat app's sender. Undefined for every other
+   * session, which keeps the coding-transcript layout exactly as it was.
+   */
+  bot?: Bot
   /** Current title of another session, for attributing messages it sent. */
   sessionTitle?: (id: string) => string | undefined
   onOpenSession?: (id: string) => void
@@ -141,6 +160,8 @@ export function TranscriptView({
   onEditUserMessage?: (text: string) => void
   /** Regenerate the last turn by resending the last user prompt (M19.4). */
   onRegenerate?: () => void
+  /** Insert a blockquote of an assistant reply into the composer. */
+  onQuoteAssistant?: (quoted: string) => void
   /** Disables the regenerate control — true while a turn runs. */
   regenerateDisabled?: boolean
   /**
@@ -178,7 +199,10 @@ export function TranscriptView({
   const blocksRef = useRef<TranscriptBlock[]>([])
   const groupedRef = useRef<GroupedRow[]>([])
   const rows = useMemo<TranscriptRow[]>(() => {
-    blocksRef.current = splitBlocks(messages, blocksRef.current)
+    const visible = messages.some(isAgentWake)
+      ? messages.filter((message) => !isAgentWake(message))
+      : messages
+    blocksRef.current = splitBlocks(visible, blocksRef.current)
     groupedRef.current = groupBlocks(blocksRef.current, turnDiffs, groupedRef.current)
     return insertDelegationRows(groupedRef.current, delegations ?? [])
   }, [messages, turnDiffs, delegations])
@@ -248,6 +272,21 @@ export function TranscriptView({
       if (m && m.role === 'assistant') return m.id
     }
     return null
+  }, [messages])
+
+  // Quote uses every text part, joined with newlines. The footer copy button
+  // stays on the last block, which splitBlocks may have merged differently.
+  const quoteTextById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const message of messages) {
+      if (message.role !== 'assistant') continue
+      const text = message.parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join('\n')
+      if (text.trim().length > 0) map.set(message.id, text)
+    }
+    return map
   }, [messages])
 
   // Rail rows are looked up once per rail change, not per scroll event.
@@ -513,6 +552,7 @@ export function TranscriptView({
                   sessionTitle={sessionTitle}
                   onOpenSession={onOpenSession}
                   onEditUserMessage={onEditUserMessage}
+                  bot={bot}
                   // Only the newest answer's footer row regenerates; handing the
                   // callback to every row would re-render all of them whenever
                   // it changes, which is every flush.
@@ -521,6 +561,12 @@ export function TranscriptView({
                     row.isLastOfMessage === true &&
                     row.messageId === lastAssistantMessageId
                       ? onRegenerate
+                      : undefined
+                  }
+                  onQuote={onQuoteAssistant}
+                  quoteText={
+                    row.kind === 'markdown' && row.role === 'assistant' && row.messageId
+                      ? quoteTextById.get(row.messageId)
                       : undefined
                   }
                   regenerateDisabled={regenerateDisabled}
@@ -614,12 +660,15 @@ const TranscriptRowView = memo(function TranscriptRowView({
   index,
   onEditUserMessage,
   onRegenerate,
+  onQuote,
+  quoteText,
   regenerateDisabled,
   active,
   onDiffComment,
   onRetryTurnDiff,
   sessionTitle,
   onOpenSession,
+  bot,
 }: {
   row: TranscriptRow
   sessionTitle?: (id: string) => string | undefined
@@ -628,12 +677,28 @@ const TranscriptRowView = memo(function TranscriptRowView({
   onEditUserMessage?: (text: string) => void
   /** Present only on the newest answer's footer row. */
   onRegenerate?: () => void
+  /** Present on every assistant footer that has reply text. */
+  onQuote?: (quoted: string) => void
+  quoteText?: string
   regenerateDisabled: boolean
   /** True when a running turn is on this row; only ever the last one. */
   active: boolean
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
   onRetryTurnDiff?: (turnId: string) => void
+  /** The bot this chat belongs to; its face rides the assistant rows. */
+  bot?: Bot
 }) {
+  const body = renderRowBody({
+    row,
+    active,
+    onEditUserMessage,
+    onRegenerate,
+    regenerateDisabled,
+    onDiffComment,
+    onRetryTurnDiff,
+    sessionTitle,
+    onOpenSession,
+  })
   return (
     <div
       data-index={index}
@@ -642,6 +707,59 @@ const TranscriptRowView = memo(function TranscriptRowView({
         containIntrinsicSize: `auto ${estimateRowSize(row)}px`,
       }}
     >
+      {wrapInChatFace(body, row, bot)}
+    </div>
+  )
+})
+
+/**
+ * The bot's face beside what it says and does — not a sender label, the face
+ * itself, so a bot chat reads as a person talking. Text and the activity rail
+ * carry it; the person's bubbles, ephemeral machinery (thinking previews,
+ * notices, diffs, delegation cards) keep the plain transcript layout.
+ */
+function wrapInChatFace(
+  body: React.ReactNode,
+  row: TranscriptRow,
+  bot: Bot | undefined,
+): React.ReactNode {
+  const carriesFace =
+    bot !== undefined &&
+    (row.kind === 'tool-group' ||
+      (row.kind === 'markdown' && row.role === 'assistant' && row.origin?.kind !== 'completion'))
+  if (!carriesFace) return body
+  return (
+    <div className="flex min-w-0 gap-2.5">
+      <BotAvatar character={characterOf(bot)} size={30} className="shrink-0" />
+      <div className="min-w-0 flex-1">{body}</div>
+    </div>
+  )
+}
+
+/** The row kinds' own render, independent of the chat-face wrapper around it. */
+function renderRowBody({
+  row,
+  active,
+  onEditUserMessage,
+  onRegenerate,
+  regenerateDisabled,
+  onDiffComment,
+  onRetryTurnDiff,
+  sessionTitle,
+  onOpenSession,
+}: {
+  row: TranscriptRow
+  active: boolean
+  onEditUserMessage?: (text: string) => void
+  onRegenerate?: () => void
+  regenerateDisabled: boolean
+  onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
+  onRetryTurnDiff?: (turnId: string) => void
+  sessionTitle?: (id: string) => string | undefined
+  onOpenSession?: (id: string) => void
+}) {
+  return (
+    <>
       {row.kind === 'tool-group' ? (
         <ActivityBurst row={row} active={active} />
       ) : row.kind === 'turn-diff' ? (
@@ -657,14 +775,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
       ) : row.kind === 'image' ? (
         <ImageRow images={row.images ?? []} right={row.role === 'user'} />
       ) : row.kind === 'markdown' ? (
-        row.role === 'user' && row.origin?.kind === 'completion' ? (
-          <DelegationNotice
-            text={row.text ?? ''}
-            sessionIds={row.origin.sessionIds}
-            sessionTitle={sessionTitle}
-            onOpenSession={onOpenSession}
-          />
-        ) : row.role === 'user' ? (
+        row.role === 'user' ? (
           <div>
             {row.origin?.kind === 'session' ? (
               <SenderLabel
@@ -692,6 +803,8 @@ const TranscriptRowView = memo(function TranscriptRowView({
                   createdAt: row.messageCreatedAt ?? Date.now(),
                 }}
                 onRegenerate={onRegenerate}
+                onQuote={onQuote}
+                quoteText={quoteText}
                 actionDisabled={regenerateDisabled}
               />
             ) : null}
@@ -704,9 +817,9 @@ const TranscriptRowView = memo(function TranscriptRowView({
       ) : row.kind === 'thinking' ? (
         <ThinkingBlock text={row.text ?? ''} />
       ) : null}
-    </div>
+    </>
   )
-})
+}
 
 /**
  * Staged-image thumbnails for a message's image row, stacked above its text

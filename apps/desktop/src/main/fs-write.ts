@@ -1,4 +1,4 @@
-import { open, rename, rm } from 'node:fs/promises'
+import { lstat, mkdir, open, rename, rm } from 'node:fs/promises'
 import * as path from 'node:path'
 import { resolveInsideRoots } from './path-jail'
 
@@ -21,6 +21,25 @@ async function jailedTarget(resolved: string, roots: readonly string[]): Promise
 }
 
 /**
+ * Creates missing parents of `target` (a paste lands in `.ari/pastes/`, which
+ * does not exist yet). The jail refuses a missing parent, and creating the
+ * directory before proving the nearest existing ancestor is inside `roots`
+ * would let a traversal path mkdir outside the project. Callers still jail
+ * the file itself afterwards.
+ */
+export async function ensureParentDir(target: string, roots: readonly string[]): Promise<void> {
+  const parent = path.dirname(target)
+  let ancestor = parent
+  while ((await lstat(ancestor).catch(() => null)) === null) {
+    const next = path.dirname(ancestor)
+    if (next === ancestor) throw new Error('parent directory does not exist')
+    ancestor = next
+  }
+  await resolveInsideRoots(ancestor, roots)
+  if (ancestor !== parent) await mkdir(parent, { recursive: true })
+}
+
+/**
  * Writes UTF-8 text atomically (sibling temp file + rename) to an absolute
  * path that must stay inside one of the `roots` folders — the same jail the
  * engine tools enforce. Mirrors the read guards: payloads over
@@ -38,7 +57,9 @@ export async function writeTextFile(
   }
   if (params.content.includes('\0')) throw new Error('binary content cannot be written')
 
-  const target = await jailedTarget(path.resolve(params.path), roots)
+  const resolved = path.resolve(params.path)
+  await ensureParentDir(resolved, roots)
+  const target = await jailedTarget(resolved, roots)
 
   const tmp = `${target}.ari-tmp`
   const handle = await open(tmp, 'w')

@@ -136,6 +136,17 @@ it('returns conflicts while preserving parent working files and index', async ()
   expect(await readFile(join(repo, '.git', 'index'))).toEqual(index)
 }, 20_000)
 
+it('names an isolated branch after the child title and releases a collision too', async () => {
+  const id = 'sess_c2825b69-d75a-415c-aef6-1deba05b3ded'
+  git(repo, 'branch', 'ari/edit-queued-message-c2825b69')
+  const workspace = await manager.isolate(root, repo, id, 'Edit queued message')
+  if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
+  expect(workspace.branch).toBe('ari/edit-queued-message-c2825b69-2')
+  await manager.release(id)
+  expect(git(repo, 'branch', '--list', 'ari/edit-queued-message-c2825b69')).toBe('')
+  expect(git(repo, 'branch', '--list', workspace.branch)).toBe('')
+}, 30_000)
+
 it('releases the worktree, branch and orchestration refs and is idempotent', async () => {
   const workspace = await manager.isolate(root, repo, 'child')
   if (workspace.kind !== 'managed-worktree') throw new Error('expected managed workspace')
@@ -186,9 +197,8 @@ it('leaves a single snapshot ref after many diffs and prune', async () => {
   let current = ''
   for (let i = 0; i < 5; i++) {
     await writeFile(join(workspace.path, 'new.txt'), `v${i}\n`)
-    current = (
-      (await manager.diff(child, false)) as { currentSnapshotCommit: string }
-    ).currentSnapshotCommit
+    current = ((await manager.diff(child, false)) as { currentSnapshotCommit: string })
+      .currentSnapshotCommit
   }
   await manager.pruneSnapshots('child', current)
   const snapshots = git(

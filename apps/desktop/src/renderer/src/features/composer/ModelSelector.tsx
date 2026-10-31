@@ -27,8 +27,8 @@ export interface SelectorOption {
 /** True when an option is the current one, following version-less aliases. */
 function matchesCurrent(option: SelectorOption, currentId: string): boolean {
   if (option.id === currentId || (option.aliases?.includes(currentId) ?? false)) return true
-  // No saved model means the agent's own default, which is its `default` row.
-  return currentId.endsWith(':') && option.id === `${currentId}default`
+  // Only the driver's empty model id denotes its default, not model ids ending in ':'.
+  return /^[^:]+:$/.test(currentId) && option.id === `${currentId}default`
 }
 
 /**
@@ -83,8 +83,9 @@ interface ResultGroup {
 /**
  * Two-pane model picker: a provider rail on the left, the active provider's
  * models on the right — no drill-in step, every model is one click away.
- * Search cuts across all providers into one grouped flat list. Arrows move
- * the selection, Left/Right switch provider, Enter picks, Esc closes.
+ * Search cuts across ready providers when unlocked, and only the session's
+ * provider when locked. Arrows move the selection, Left/Right switch provider,
+ * Enter picks, Esc closes.
  *
  * `lockedTo` hides the rail and pins the pane to one provider (a session that
  * already ran turns must stay on its harness, or the provider-side resume
@@ -106,7 +107,7 @@ export function ModelSelector({
   const [open, setOpen] = useState(false)
   const [activeKind, setActiveKind] = useState<DriverKind | null>(null)
   const [query, setQuery] = useState('')
-  const [activeIndex, setActiveIndex] = useState(0)
+  const [activeOptionId, setActiveOptionId] = useState<string | null>(null)
   const [detections, setDetections] = useState<ProviderReadiness[]>([])
   const [catalog, setCatalog] = useState<CatalogByKind>({})
   const [sources, setSources] = useState<SourcesByKind>({})
@@ -119,7 +120,6 @@ export function ModelSelector({
   const searchRef = useRef<HTMLInputElement>(null)
   const [anchor, setAnchor] = useState<HTMLDivElement | null>(null)
   const listboxId = useId()
-  const activeId = `${listboxId}-opt-${activeIndex}`
 
   /** Drivers + model catalogs; cheap enough to re-run on every picker open so
    * late-landing ACP probes (which spawn the agent CLI) show up without a
@@ -165,6 +165,7 @@ export function ModelSelector({
               id: `ep:${endpoint.id}:${model.id}`,
               label: `${endpoint.name} · ${model.label}`,
               group: 'Ari Core',
+              aliases: model.id === endpoint.model ? [`ep:${endpoint.id}`] : undefined,
               hint:
                 model.contextWindow != null
                   ? `${Math.round(model.contextWindow / 1000)}k`
@@ -212,7 +213,8 @@ export function ModelSelector({
    */
   const currentId = useMemo(() => {
     const pick = modelId ?? agentDefaults[driverKind] ?? null
-    if (pick === null || driverKind === 'ari-core') return `${driverKind}:${pick ?? ''}`
+    if (driverKind === 'ari-core') return pick ?? ''
+    if (pick === null) return `${driverKind}:`
     const live = catalog[driverKind]
     const list = live && live.length > 0 ? live : modelsFor(driverKind)
     return `${driverKind}:${resolveOfferedModel(pick, list) ?? pick}`
@@ -231,11 +233,12 @@ export function ModelSelector({
   )
 
   const searching = query.trim().length > 0
+  const paneKind = lockedTo ?? activeKind
 
   /** Every model the active provider serves, superseded ones included. */
   const allPaneModels = useMemo(
-    () => (activeKind === null ? [] : optionsFor(activeKind)),
-    [activeKind, optionsFor],
+    () => (paneKind === null ? [] : optionsFor(paneKind)),
+    [paneKind, optionsFor],
   )
 
   /**
@@ -255,18 +258,21 @@ export function ModelSelector({
 
   /** Why the active pane's list is not the agent's own, when it is not. */
   const fallbackLabel = useMemo(() => {
-    if (activeKind === null || activeKind === 'ari-core') return null
-    const source = sources[activeKind]
+    if (paneKind === null || paneKind === 'ari-core') return null
+    const source = sources[paneKind]
     return source === undefined ? null : fallbackNote(source)
-  }, [activeKind, sources])
+  }, [paneKind, sources])
 
-  /** Search rows: matching models from every provider, grouped, flat order. */
+  /** Search rows: matching models from eligible providers, grouped, flat order. */
   const results = useMemo<ResultGroup[]>(() => {
     const q = query.trim().toLowerCase()
     if (q.length === 0) return []
     const groups: ResultGroup[] = []
     let start = 0
-    for (const provider of providers) {
+    const eligible = lockedTo === null
+      ? providers
+      : [{ kind: lockedTo, label: driverLabel(lockedTo) }]
+    for (const provider of eligible) {
       const options = optionsFor(provider.kind).filter(
         (o) =>
           o.label.toLowerCase().includes(q) ||
@@ -279,7 +285,7 @@ export function ModelSelector({
       }
     }
     return groups
-  }, [providers, optionsFor, query])
+  }, [providers, optionsFor, query, lockedTo])
 
   /** Flat keyboard order: pane rows normally, grouped hits while searching. */
   const flatOptions = useMemo(
@@ -287,6 +293,17 @@ export function ModelSelector({
     [searching, results, paneModels],
   )
   const visibleCount = flatOptions.length
+  const activeIndex = useMemo(() => {
+    const candidate = activeOptionId === null
+      ? -1
+      : flatOptions.findIndex((option) => option.id === activeOptionId)
+    if (candidate >= 0) return candidate
+    return Math.max(0, flatOptions.findIndex((option) => matchesCurrent(option, currentId)))
+  }, [flatOptions, activeOptionId, currentId])
+  const activeId = `${listboxId}-opt-${activeIndex}`
+  const focusOption = (index: number): void => {
+    setActiveOptionId(flatOptions[index]?.id ?? null)
+  }
 
   /** Provider the pane opens on: the session's current one (or the lock). */
   const defaultKind = useMemo<DriverKind | null>(() => {
@@ -299,50 +316,50 @@ export function ModelSelector({
   }, [providers, lockedTo, driverKind])
 
   useEffect(() => {
+    if (!open) return
     // Each provider starts on its current models; a disclosure left open
     // across a provider switch would hide which list you are looking at.
     // The exception is a session already on an older model: folding that away
     // would open the picker with nothing checked.
     setShowLegacy(
-      activeKind !== null &&
-        optionsFor(activeKind).some((o) => o.isLegacy === true && matchesCurrent(o, currentId)),
+      paneKind !== null &&
+        optionsFor(paneKind).some((o) => o.isLegacy === true && matchesCurrent(o, currentId)),
     )
     // Deliberately not re-run when catalogs refresh: a late probe must not
     // fold a list the user just opened.
-  }, [activeKind])
+  }, [open, paneKind])
 
   useEffect(() => {
     if (!open) return
     if (activeKind === null && defaultKind !== null) setActiveKind(defaultKind)
-    setActiveIndex(0)
+    setActiveOptionId(null)
     // Focus synchronously: a deferred (rAF) focus let keystrokes land on
     // <body> when they were dispatched between commit and the frame callback.
     searchRef.current?.focus()
   }, [open, query, activeKind, defaultKind])
 
   useEffect(() => {
+    if (!open) return
     listRef.current
       ?.querySelector(`[data-option-index="${activeIndex}"]`)
       ?.scrollIntoView?.({ block: 'nearest' })
-  }, [activeIndex])
+  }, [open, activeIndex, flatOptions])
 
   const close = useCallback((): void => {
     setOpen(false)
     setQuery('')
     setActiveKind(null)
+    setActiveOptionId(null)
   }, [])
 
   const pickModel = (opt: SelectorOption): void => {
-    // Endpoint options carry `ep:<endpointId>`; they ride the ari-core driver,
-    // never a CLI kind — splitting on ':' would send driverKind 'ep' and fail
-    // session.create validation (seen after adding a custom endpoint).
-    if (opt.id.startsWith('ep:')) {
-      onChange({ driverKind: 'ari-core', modelId: opt.id })
-      close()
-      return
-    }
+    // Endpoint handles ride Ari Core, not a CLI named `ep`; keep their model
+    // suffix intact, including any colons in the endpoint's model id.
+    const endpoint = opt.id.startsWith('ep:')
     const [kind, ...rest] = opt.id.split(':')
-    onChange({ driverKind: kind as DriverKind, modelId: rest.join(':') || null })
+    const nextKind: DriverKind = endpoint ? 'ari-core' : (kind as DriverKind)
+    if (lockedTo !== null && nextKind !== lockedTo) return
+    onChange({ driverKind: nextKind, modelId: endpoint ? opt.id : rest.join(':') || null })
     close()
   }
 
@@ -382,22 +399,22 @@ export function ModelSelector({
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActiveIndex((i) => Math.min(Math.max(visibleCount - 1, 0), i + 1))
+      focusOption(Math.min(Math.max(visibleCount - 1, 0), activeIndex + 1))
       return
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setActiveIndex((i) => Math.max(0, i - 1))
+      focusOption(Math.max(0, activeIndex - 1))
       return
     }
     if (e.key === 'Home') {
       e.preventDefault()
-      setActiveIndex(0)
+      focusOption(0)
       return
     }
     if (e.key === 'End') {
       e.preventDefault()
-      setActiveIndex(Math.max(visibleCount - 1, 0))
+      focusOption(Math.max(visibleCount - 1, 0))
       return
     }
     if (e.key === 'Enter') {
@@ -409,14 +426,10 @@ export function ModelSelector({
 
   const triggerLabel = useMemo(() => {
     if (driverKind === 'ari-core') {
-      // Show "endpoint · model", not the raw `ep:<id>:<model>` handle. Sessions
-      // saved before per-model selection carry a bare `ep:<id>`, which matches
-      // by prefix so their label still resolves.
-      const exact = endpointModels.find((e) => e.id === modelId)
-      const legacy =
-        exact ??
-        (modelId != null ? endpointModels.find((e) => e.id.startsWith(`${modelId}:`)) : undefined)
-      return legacy?.label ?? modelId ?? 'Ari Core'
+      // Bare endpoint handles resolve to the configured default model's alias,
+      // not whichever model happens to be listed first.
+      const current = endpointModels.find((option) => matchesCurrent(option, currentId))
+      return current?.label ?? modelId ?? 'Ari Core'
     }
     const current = optionsFor(driverKind).find((o) => matchesCurrent(o, currentId))
     if (current === undefined) return modelId ?? currentKindLabel
@@ -440,10 +453,10 @@ export function ModelSelector({
         role="option"
         aria-selected={isSelected}
         data-option-index={index}
-        onMouseEnter={() => setActiveIndex(index)}
+        onMouseEnter={() => setActiveOptionId(opt.id)}
         onClick={() => pickModel(opt)}
         className={`flex h-8 w-full items-center gap-3 rounded-md px-2.5 text-left transition-colors duration-[var(--ari-dur-fast)] motion-reduce:transition-none ${
-          isActive ? 'bg-surface-2 text-fg' : isSelected ? 'text-fg' : 'text-fg-muted'
+          isSelected ? 'bg-accent-subtle text-fg' : isActive ? 'bg-surface-2 text-fg' : 'text-fg-muted'
         }`}
       >
         <span className="min-w-0 truncate text-[13px] font-medium">
@@ -451,7 +464,7 @@ export function ModelSelector({
         </span>
         {/* The agent's own summary, only for the row in hand: a list of twelve
             taglines is noise, one beside the row being considered is an answer. */}
-        <span className="min-w-0 flex-1 basis-0 truncate text-right text-xs text-fg-subtle">
+        <span className={`min-w-0 flex-1 basis-0 truncate text-right text-xs ${isSelected ? 'text-fg-muted' : 'text-fg-subtle'}`}>
           {isActive ? (opt.description ?? opt.hint) : null}
         </span>
         {isSelected ? <Check size={14} aria-hidden className="shrink-0 text-accent" /> : null}
@@ -463,7 +476,7 @@ export function ModelSelector({
     <p className="px-3 py-10 text-center text-xs text-fg-subtle">
       {!loaded
         ? 'Loading…'
-        : providers.length === 0
+        : providers.length === 0 && lockedTo === null
           ? 'No agents ready yet.'
           : searching
             ? `No models match “${query.trim()}”.`
@@ -648,10 +661,10 @@ export function ModelSelector({
             )}
           </div>
 
-          {!searching && fallbackLabel !== null && activeKind !== null ? (
+          {!searching && fallbackLabel !== null && paneKind !== null ? (
             <div className={`flex items-start gap-3 ${noteClasses}`}>
               <span className="min-w-0 flex-1">
-                {driverLabel(activeKind)} has not reported its own models — this is {fallbackLabel}.
+                {driverLabel(paneKind)} has not reported its own models — this is {fallbackLabel}.
                 It may not accept every entry.
               </span>
               <button
