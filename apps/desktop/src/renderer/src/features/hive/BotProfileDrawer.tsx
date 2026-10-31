@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { TrashIcon, XIcon } from 'lucide-react'
 import type { Bot } from '@ari/contracts/bot'
@@ -119,11 +119,23 @@ function MemoryCard({ bot }: { bot: Bot }) {
   const changed = saved !== null && draft !== saved
 
   const save = useCallback(async () => {
-    if (busy) return
+    if (busy || saved === null) return
     setBusy(true)
     setError(null)
     try {
-      const stored = await rpc.invoke('bots.memory.replace', { botId: bot.id, content: draft })
+      const current = await rpc.invoke('bots.memory.get', { botId: bot.id })
+      if (current !== saved) {
+        setSaved(current)
+        const message = 'Memory changed while this was open. Review the draft, then save again.'
+        setError(message)
+        toast({ title: 'Memory changed', description: message, tone: 'danger' })
+        return
+      }
+      const stored = await rpc.invoke('bots.memory.replace', {
+        botId: bot.id,
+        content: draft,
+        base: saved,
+      })
       setSaved(stored)
       setDraft(stored)
       toast({ title: 'Memory saved', tone: 'success', durationMs: 2500 })
@@ -134,7 +146,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
     } finally {
       setBusy(false)
     }
-  }, [bot.id, busy, draft, toast])
+  }, [bot.id, busy, draft, saved, toast])
 
   return (
     <Card
@@ -182,10 +194,14 @@ function PersonaCard({ bot }: { bot: Bot }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const savedPersona = useRef(bot.personaMd)
   useEffect(() => {
+    // A roster refresh replaces the bot object without a persona change.
+    // Resetting on that identity would wipe a draft that is still being typed.
+    setDraft((current) => (current === savedPersona.current ? bot.personaMd : current))
+    savedPersona.current = bot.personaMd
     setSaved(bot.personaMd)
-    setDraft(bot.personaMd)
-  }, [bot])
+  }, [bot.id, bot.personaMd])
 
   const changed = draft !== saved
 

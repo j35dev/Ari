@@ -311,6 +311,8 @@ export function SessionView({
   // The session's bot, when it has one: the chat head, the transcript's
   // avatar rows and the approval cards all voice it.
   const bot = useBotOf(botId)
+  const botRef = useRef(bot)
+  botRef.current = bot
   // The Mind drawer (persona, memory, routines) opens over this session only.
   const [mindOpen, setMindOpen] = useState(false)
   // Reading the chat is the "seen" side of the roster's unread dot: any
@@ -505,6 +507,10 @@ export function SessionView({
         return
       }
       ingest(event, true)
+      // A turn that lands while this chat is on screen has been seen. The
+      // open effect alone leaves the roster dot on, because the session's
+      // updatedAt moves past the visit that happened when the pane opened.
+      if (hiddenRef.current !== true && botRef.current !== undefined) markBotSeen(botRef.current.id)
       // A prompt lands at once; streamed parts wait for the next frame.
       if (event.type === 'assistant.parts.appended') publishSoon()
       else publishMessages()

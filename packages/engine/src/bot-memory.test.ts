@@ -63,4 +63,15 @@ it('replaces the whole memory, and clears it with nothing', async () => {
   await expect(
     memory.replace('bot_a', `${'x'.repeat(BOT_MEMORY_MAX_CHARS)} extra`),
   ).rejects.toThrow(`the cap is ${String(BOT_MEMORY_MAX_CHARS)}`)
+  const full = 'y'.repeat(BOT_MEMORY_MAX_CHARS)
+  expect(await memory.replace('bot_a', full)).toBe(`${full}\n`)
+})
+
+it('refuses a replace whose loaded copy is no longer the file', async () => {
+  await memory.add('bot_a', 'live note')
+  await expect(memory.replace('bot_a', 'editor draft', 'stale\n')).rejects.toThrow(
+    'memory changed since it was loaded',
+  )
+  expect(await memory.read('bot_a')).toBe('live note\n')
+  expect(await memory.replace('bot_a', 'editor draft', 'live note\n')).toBe('editor draft\n')
 })

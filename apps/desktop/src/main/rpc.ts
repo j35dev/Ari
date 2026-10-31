@@ -1635,8 +1635,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     ),
   )
   r.register('bots.memory.get', ({ botId }) => getBotMemoryStore().read(botId))
-  r.register('bots.memory.replace', ({ botId, content }) =>
-    getBotMemoryStore().replace(botId, content),
+  r.register('bots.memory.replace', ({ botId, content, base }) =>
+    getBotMemoryStore().replace(botId, content, base),
   )
   r.register('routines.list', async () => {
     await botRoutinesReady
