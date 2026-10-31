@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Bot } from '@ari/contracts/bot'
 import { characterFromSeed } from '@ari/ui/bot-character'
-import { blankDraft, createFieldsOf, draftFromBot, draftFromStarter, patchOf } from './bot-draft'
-import { STARTER_CAST } from './starter-cast'
+import {
+  blankDraft,
+  createFieldsOf,
+  draftFromBot,
+  draftFromIntent,
+  draftFromStarter,
+  intentStarterId,
+  patchOf,
+} from './bot-draft'
+import { STARTER_CAST, starterById } from './starter-cast'
 
 const BOT: Bot = {
   id: 'bot_1',
@@ -77,5 +85,53 @@ describe('patchOf', () => {
       title: '',
       tagline: '',
     })
+  })
+})
+
+describe('intentStarterId', () => {
+  it('points a job line at the archetype that fits it', () => {
+    expect(intentStarterId('watch our alert pipeline and page me at 3am')).toBe('watch')
+    expect(intentStarterId('write the changelog every friday')).toBe('scribe')
+    expect(intentStarterId('collect the best webgpu links into a daily digest')).toBe('gist')
+    expect(intentStarterId('review my pull requests for races')).toBe('lint')
+    expect(intentStarterId('build the upload feature with tests')).toBe('forge')
+    expect(intentStarterId('design the new settings page')).toBe('pixel')
+    expect(intentStarterId('triage the backlog of bug reports')).toBe('sift')
+    expect(intentStarterId('what changed in vite 8 and how do we adopt it')).toBe('scout')
+  })
+
+  it('answers nothing for silence or a line that names no job', () => {
+    expect(intentStarterId('  ')).toBeNull()
+    expect(intentStarterId('do art, I guess')).toBeNull()
+  })
+
+  it('reads the most specific fit first', () => {
+    // "watch the release alerts and write them up" names several minds; the
+    // narrow ops cue outranks the writing one.
+    expect(intentStarterId('watch the release alerts and write them up')).toBe('watch')
+    // Same for design over writing: whichever cue the map puts first wins.
+    expect(intentStarterId('design and write the migration guide')).toBe('pixel')
+  })
+})
+
+describe('draftFromIntent', () => {
+  const JOB = 'watch our alert pipeline and page me at 3am'
+
+  it('drafts the matched archetype with the job threaded into the persona', () => {
+    const watch = starterById('watch')!
+    const draft = draftFromIntent(`  ${JOB} `)
+    expect(draft).toEqual({
+      name: watch.name,
+      title: watch.title,
+      tagline: watch.tagline,
+      personaMd: `${watch.personaMd}\n\nThe job at hand: ${JOB}`,
+      character: watch.character,
+    })
+  })
+
+  it('drafts the generalist when the line names no archetype', () => {
+    const draft = draftFromIntent('do art, I guess')
+    expect(draft.name).toBe('Drift')
+    expect(draft.personaMd).toContain('The job at hand: do art, I guess')
   })
 })
