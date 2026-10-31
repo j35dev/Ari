@@ -730,7 +730,7 @@ export function SessionView({
         // transport confirms the steer); the mirrored events update the view.
         // With no turn actually live it promotes the message to the next turn
         // rather than rejecting, so a send racing a settle is never lost.
-        dispatch(
+        void dispatch(
           { type: 'message.enqueue', sessionId, text: outgoing, attachments },
           'Couldn’t queue message',
           restoreDraft,
@@ -738,7 +738,7 @@ export function SessionView({
         return
       }
       setTurnError(null)
-      dispatch(
+      void dispatch(
         { type: 'turn.start', sessionId, text: outgoing, attachments },
         'Couldn’t send message',
         restoreDraft,
@@ -791,14 +791,14 @@ export function SessionView({
   )
 
   const handleStop = useCallback(() => {
-    dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
+    void dispatch({ type: 'turn.interrupt', sessionId }, 'Couldn’t stop the turn')
   }, [sessionId, dispatch])
 
   // Queue management. Steering is best-effort by nature — the engine reports a
   // provider that cannot take a mid-turn message, and the message stays queued.
   const handleSteerQueued = useCallback(
     (message: QueuedMessageView) => {
-      dispatch(
+      void dispatch(
         {
           type: 'message.steer',
           sessionId,
@@ -813,7 +813,7 @@ export function SessionView({
 
   const handleRemoveQueued = useCallback(
     (message: QueuedMessageView) => {
-      dispatch(
+      void dispatch(
         {
           type: 'message.dequeue',
           sessionId,
