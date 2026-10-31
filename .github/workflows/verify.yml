@@ -55,8 +55,10 @@ jobs:
       - name: Verify (typecheck + lint + test)
         env:
           # Hosted macOS dies at Node's default ~2GB old-space once the desktop
-          # suite passes that mark (exit 134). 4GB fits the 7GB runner.
-          NODE_OPTIONS: --max-old-space-size=4096
+          # suite passes that mark (exit 134). Lint of the source-control
+          # program retains about 4GB, so 5GB leaves GC room and still fits
+          # the 7GB macOS runner.
+          NODE_OPTIONS: --max-old-space-size=5120
         run: pnpm verify
 
   # Bundles are what a release ships, and nothing built them until a v* tag: a
