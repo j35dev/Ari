@@ -12,10 +12,14 @@ import type { DiffComment } from '../diffs'
 export function TurnDiffCard({
   turnId,
   diffText,
+  error,
+  onRetry,
   onComment,
 }: {
   turnId: string
   diffText: string
+  error?: string
+  onRetry?: () => void
   onComment?: (comment: DiffComment) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -33,6 +37,27 @@ export function TurnDiffCard({
     }
     return { fileCount: files.length, added, removed }
   }, [diffText])
+  if (error !== undefined && error.length > 0) {
+    return (
+      <div
+        className="my-2 flex items-center gap-2 rounded-md border border-border bg-surface-1 px-2 py-1.5"
+        data-turn-diff={turnId}
+        role="status"
+      >
+        <FileDiff size={12} aria-hidden="true" className="shrink-0 text-fg-subtle" />
+        <span className="min-w-0 flex-1 truncate text-xs text-danger">{error}</span>
+        {onRetry !== undefined ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="shrink-0 text-2xs text-fg-muted underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          >
+            Retry turn diff
+          </button>
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <div className="my-2" data-turn-diff={turnId}>
