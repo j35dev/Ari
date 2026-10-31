@@ -14,7 +14,7 @@ const LOAD_TIMEOUT_MS = 15_000
 
 type GateState =
   | { status: 'loading' | 'error' | 'closed' }
-  | { status: 'setup'; settings: Settings; returning: boolean }
+  | { status: 'setup'; settings: Settings; returning: boolean; createFirstSession: boolean }
 export interface OnboardingWorkspaceProps {
   onOpenSetup: () => void
   setupCovered: boolean
@@ -48,11 +48,11 @@ export function OnboardingGate({
         rpc.invoke('session.list'),
       ])
       if (mine !== generation.current) return
-      if (returning) setState({ status: 'setup', settings, returning: true })
+      if (returning)
+        setState({ status: 'setup', settings, returning: true, createFirstSession: false })
       else if (
         settings.onboarding?.completedAt != null ||
-        projects.length > 0 ||
-        sessions.length > 0
+        (settings.onboarding === undefined && (projects.length > 0 || sessions.length > 0))
       ) {
         setMounted(true)
         setState({ status: 'closed' })
@@ -63,7 +63,20 @@ export function OnboardingGate({
               log.warn('existing workspace migration could not be saved', error),
             )
         }
-      } else setState({ status: 'setup', settings, returning: false })
+      } else {
+        // A partial import must not masquerade as a legacy installation after a restart.
+        const prepared =
+          settings.onboarding === undefined
+            ? await rpc.invoke('settings.update', { onboarding: { completedAt: null } })
+            : settings
+        if (mine === generation.current)
+          setState({
+            status: 'setup',
+            settings: prepared,
+            returning: false,
+            createFirstSession: sessions.length === 0,
+          })
+      }
     } catch (error) {
       log.warn('workspace check failed', error)
       if (mine === generation.current) setState({ status: 'error' })
@@ -110,6 +123,7 @@ export function OnboardingGate({
         <OnboardingWizard
           settings={state.settings}
           returning={state.returning}
+          createFirstSession={state.createFirstSession}
           onFinished={leave}
           onLeave={() => leave()}
         />
@@ -129,7 +143,7 @@ export function OnboardingGate({
               className="mt-4 text-sm leading-relaxed text-fg-muted"
             >
               {state.status === 'error'
-                ? 'Ari could not read your saved settings, projects or sessions. Retry, or open the workspace without marking setup complete.'
+                ? 'Ari could not read or save your setup state. Retry, or open the workspace without marking setup complete.'
                 : 'Checking saved settings, projects and sessions. Nothing is being imported.'}
             </p>
             {state.status === 'error' ? (

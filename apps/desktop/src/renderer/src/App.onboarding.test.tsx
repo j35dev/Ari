@@ -16,6 +16,7 @@ vi.mock('./features/session/SessionView', () => ({
   SessionView: ({ sessionId }: { sessionId: string }) => <div>Opened session {sessionId}</div>,
 }))
 vi.mock('./features/focus', () => ({ FocusPill: () => null }))
+vi.mock('./features/usage/ProviderUsagePill', () => ({ ProviderUsagePill: () => null }))
 const project = projectViewSchema.parse({
   id: 'project-ari',
   name: 'Ari',
@@ -38,6 +39,8 @@ beforeEach(() => {
     switch (method) {
       case 'ping':
         return 'pong'
+      case 'theme.apply':
+        return { applied: true }
       case 'app.info':
         return { platform: 'win32', homeDir: '/home/test', version: '0.3.8' }
       case 'settings.get':
@@ -132,13 +135,41 @@ describe('App onboarding integration', () => {
     expect(invoke.mock.calls.filter(([method]) => method === 'session.create')).toHaveLength(1)
   })
 
+  it('resumes an interrupted setup without duplicating its already-created first session', async () => {
+    settings = settingsSchema.parse({ version: 1, onboarding: { completedAt: null } })
+    projects = [project]
+    sessions = [
+      {
+        id: 'existing-first',
+        projectId: project.id,
+        title: 'First session',
+        messageCount: 0,
+        updatedAt: 1,
+      },
+    ]
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Meet your coding agents.' })
+    await screen.findByText('Sign-in found')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Add Ari/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByRole('checkbox', { name: 'Open an empty session in Ari' })).not.toBeChecked()
+    expect(settings.onboarding?.completedAt).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }))
+    await waitFor(() => expect(settings.onboarding?.completedAt).toBeGreaterThan(0))
+    expect(invoke.mock.calls.some(([method]) => method === 'session.create')).toBe(false)
+    expect(sessions[0]?.id).toBe('existing-first')
+  })
+
   it('remembers a skip across remounts without requiring an agent or project', async () => {
     const first = render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Skip setup' }))
     await screen.findByRole('button', { name: 'Add a project to start' })
     first.unmount()
     render(<App />)
-    expect(await screen.findByRole('button', { name: 'Add a project to start' })).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Add a project to start' })).toBeVisible(),
+    )
     expect(screen.queryByRole('main', { name: 'Ari setup' })).not.toBeInTheDocument()
     expect(projects).toHaveLength(0)
     expect(sessions).toHaveLength(0)
