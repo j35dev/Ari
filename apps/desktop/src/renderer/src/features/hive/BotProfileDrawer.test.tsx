@@ -30,6 +30,7 @@ const ROUTINE: BotRoutine = {
   id: 'rt_1',
   botId: 'bot_1',
   prompt: 'Check the inbox',
+  kind: 'schedule',
   at: 0,
   everyMs: 1_800_000,
   enabled: true,
@@ -180,6 +181,24 @@ describe('BotProfileDrawer', () => {
     renderDrawer()
     expect(await screen.findByText('Ari paused this: too many failures')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Routine every 30 min' })).not.toBeChecked()
+  })
+
+  it('names the branch a commit routine fires on', async () => {
+    OTHERS['routines.list'] = [
+      {
+        id: 'rt_4',
+        botId: 'bot_1',
+        prompt: 'Playtest the build',
+        kind: 'commit',
+        branch: 'main',
+        enabled: true,
+        consecutiveFailures: 0,
+        lastOutcomeTurnId: null,
+        disabledReason: null,
+      },
+    ]
+    renderDrawer()
+    expect(await screen.findByText('on each commit to main')).toBeInTheDocument()
   })
 
   it('still shows a bot with no routines and no project', async () => {

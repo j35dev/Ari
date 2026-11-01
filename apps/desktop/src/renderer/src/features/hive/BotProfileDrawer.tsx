@@ -303,7 +303,7 @@ function RoutinesCard({ bot }: { bot: Bot }) {
   return (
     <Card
       title="Routines"
-      hint="Repeating prompts a bot runs on its own schedule into its main session."
+      hint="Prompts a bot runs into its main session on a schedule or on each new commit."
     >
       {routines === null ? (
         <p className="text-xs text-fg-subtle">Loading…</p>
@@ -316,9 +316,7 @@ function RoutinesCard({ bot }: { bot: Bot }) {
               <p className="truncate text-xs text-fg" title={routine.prompt}>
                 {routine.prompt}
               </p>
-              <p className="mt-0.5 text-2xs text-fg-subtle">
-                every {routineCadence(routine.everyMs)}
-              </p>
+              <p className="mt-0.5 text-2xs text-fg-subtle">{routineCadence(routine)}</p>
               {routine.disabledReason !== null ? (
                 <p className="mt-0.5 text-2xs text-danger">
                   Ari paused this: {routine.disabledReason}
@@ -330,7 +328,7 @@ function RoutinesCard({ bot }: { bot: Bot }) {
               onCheckedChange={(checked) => {
                 void setEnabled(routine, checked)
               }}
-              aria-label={`Routine every ${routineCadence(routine.everyMs)}`}
+              aria-label={`Routine ${routineCadence(routine)}`}
             />
             <IconButton
               icon={<TrashIcon />}
@@ -348,8 +346,10 @@ function RoutinesCard({ bot }: { bot: Bot }) {
   )
 }
 
-function routineCadence(everyMs: number): string {
-  return `${String(Math.round(everyMs / 60_000))} min`
+function routineCadence(routine: BotRoutine): string {
+  return routine.kind === 'commit'
+    ? `on each commit to ${routine.branch}`
+    : `every ${String(Math.round(routine.everyMs / 60_000))} min`
 }
 
 function IdentityCard({ bot }: { bot: Bot }) {

@@ -94,3 +94,62 @@ export async function watchGitChanges(
     return err({ code: 'unavailable', message: 'Live Git refresh could not start.' })
   }
 }
+
+/**
+ * Watches `refs/heads/<branch>` in the repository at `cwd` and calls
+ * `onCommit` once each time the branch moves to a commit it was not on. Work
+ * tree edits, staging, and other branches never reach it.
+ */
+export async function watchBranchHead(
+  cwd: string,
+  branch: string,
+  onCommit: (sha: string) => void,
+): Promise<Result<() => Promise<void>, SourceControlError>> {
+  const git = new RepositoryGit(cwd)
+  const common = await git.run(['rev-parse', '--git-common-dir'])
+  if (!common.ok) return common
+  const commonDir = resolve(cwd, common.value.trim())
+  const head = async (): Promise<string | null> => {
+    const result = await git.run([
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `refs/heads/${branch}^{commit}`,
+    ])
+    return result.ok ? result.value.trim() : null
+  }
+  let seen = await head()
+  let reading = Promise.resolve()
+  let closed = false
+  // Branch updates always land as a loose ref, even for a packed branch. One
+  // path only: with several, chokidar reports ready before it scans them all.
+  const watcher = watch(resolve(commonDir, 'refs/heads'), {
+    ignoreInitial: true,
+    followSymlinks: false,
+  })
+  watcher.on('all', () => {
+    reading = reading.then(async () => {
+      const sha = await head()
+      if (closed || sha === null || sha === seen) return
+      seen = sha
+      onCommit(sha)
+    })
+  })
+  watcher.on('error', (error: unknown) => {
+    log.warn('Branch watcher failed', { branch, error: String(error) })
+  })
+  const close = async (): Promise<void> => {
+    closed = true
+    await watcher.close()
+  }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      watcher.once('ready', () => resolve())
+      watcher.once('error', reject)
+    })
+    return ok(close)
+  } catch {
+    await close()
+    return err({ code: 'unavailable', message: 'Branch watch could not start.' })
+  }
+}

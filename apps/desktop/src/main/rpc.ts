@@ -1141,6 +1141,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     path: join(app.getPath('userData'), 'bot-routines.json'),
     bots: getBotStore(),
     store: getSessionStore(),
+    workspace: (session) => engine.workspace(session),
     dispatch: (command, origin) => engine.dispatch(command, origin),
   })
   const botRoutinesReady: Promise<void> = botRoutines.load().then(() => botRoutines.start())
@@ -1213,7 +1214,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     )
   app.once('before-quit', () => {
     resumeSchedule.close()
-    botRoutines.close()
+    void botRoutines.close()
     botMemoryCapture.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
