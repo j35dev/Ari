@@ -51,7 +51,12 @@ export interface BrowserGuest {
   getTitle(): string
   isLoading(): boolean
   executeJavaScript(code: string): Promise<unknown>
-  capturePage(rect?: BrowserBounds, format?: 'png' | 'jpeg'): Promise<Buffer | null>
+  /** With `size`, the image is scaled to that many pixels (e.g. CSS px from device px). */
+  capturePage(
+    rect?: BrowserBounds,
+    format?: 'png' | 'jpeg',
+    size?: { width: number; height: number },
+  ): Promise<Buffer | null>
   /** Console history for this tab, oldest first; cleared when the page navigates. */
   consoleEntries(): ConsoleEntry[]
   sendKey(key: string, phase: 'down' | 'up', modifiers: KeyModifier[]): void
@@ -235,6 +240,17 @@ export class BrowserService {
     return jpeg ? `data:image/jpeg;base64,${jpeg.toString('base64')}` : null
   }
 
+  /**
+   * A JPEG of the viewport for agents, scaled to CSS px so a point read off it
+   * is the point browser_pointer takes, whatever the device scale.
+   */
+  async screenshot(id: string): Promise<string | null> {
+    const { guest } = this.#tab(id)
+    const { width, height } = await viewportSize(guest)
+    const jpeg = await guest.capturePage(undefined, 'jpeg', { width, height })
+    return jpeg ? `data:image/jpeg;base64,${jpeg.toString('base64')}` : null
+  }
+
   /** Holds `key` down in the page for `holdMs`, then releases it. The key up is always sent. */
   async key(id: string, key: string, holdMs: number, modifiers: KeyModifier[] = []): Promise<void> {
     const { guest } = this.#tab(id)
@@ -258,11 +274,7 @@ export class BrowserService {
       action === 'drag' && input.to !== undefined
         ? { x: Math.round(input.to.x), y: Math.round(input.to.y) }
         : from
-    const viewport: unknown = await guest.executeJavaScript('[innerWidth, innerHeight]')
-    const [width, height] = Array.isArray(viewport) ? (viewport as unknown[]) : []
-    if (typeof width !== 'number' || typeof height !== 'number') {
-      throw new Error('could not read the viewport size')
-    }
+    const { width, height } = await viewportSize(guest)
     for (const { x, y } of [from, to]) {
       if (x < 0 || y < 0 || x >= width || y >= height) {
         throw new Error(
@@ -314,4 +326,14 @@ export class BrowserService {
   #emit(id: string): void {
     this.#onUpdated(this.snapshot(id))
   }
+}
+
+/** The page's viewport in CSS px, the unit of browser_pointer and browser_screenshot. */
+async function viewportSize(guest: BrowserGuest): Promise<{ width: number; height: number }> {
+  const viewport: unknown = await guest.executeJavaScript('[innerWidth, innerHeight]')
+  const [width, height] = Array.isArray(viewport) ? (viewport as unknown[]) : []
+  if (typeof width !== 'number' || typeof height !== 'number') {
+    throw new Error('could not read the viewport size')
+  }
+  return { width, height }
 }

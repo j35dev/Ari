@@ -133,7 +133,7 @@ export const BROWSER_MCP_TOOLS = [
   {
     name: 'browser_screenshot',
     description:
-      'JPEG screenshot of the in-app browser page. Use it to see canvas, WebGL, or game content that browser_snapshot cannot read.',
+      'JPEG screenshot of the in-app browser viewport, one image pixel per viewport CSS pixel, so x,y read off it are the coordinates browser_pointer takes. Use it to see canvas, WebGL, or game content that browser_snapshot cannot read.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -233,7 +233,7 @@ export async function dispatchBrowserMcpTool(
       return typed === true ? textResult('typed') : textResult(`no element for ${selector}`, true)
     }
     if (name === 'browser_screenshot') {
-      const still = await browsers.still(tabId)
+      const still = await browsers.screenshot(tabId)
       if (still === null) return textResult('screenshot failed: the page returned no image', true)
       return {
         content: [
