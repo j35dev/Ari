@@ -285,6 +285,31 @@ describe('browser_clock', () => {
     expect(frozen.text).toMatch(/^clock frozen at performance\.now\(\) [\d.]+ ms\. requestAnimationFrame/)
   })
 
+  it('stops watching the page when a capture fails mid-watch', async () => {
+    let captures = 0
+    const env = setup('shimmed', () => {
+      if (++captures === 2) throw new Error('capture failed')
+      return Buffer.from('same frame')
+    })
+    const { window } = env.page()
+    let observing = 0
+    window.MutationObserver = class extends MutationObserver {
+      override observe(target: Node, options?: MutationObserverInit): void {
+        observing++
+        super.observe(target, options)
+      }
+      override disconnect(): void {
+        observing--
+        super.disconnect()
+      }
+    }
+
+    const frozen = await freeze(env)
+
+    expect(frozen).toEqual({ text: 'capture failed', isError: true })
+    expect(observing).toBe(0)
+  })
+
   it('rejects a step without a usable ms', async () => {
     const env = setup()
     await freeze(env)

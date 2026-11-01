@@ -131,10 +131,14 @@ export async function freezeClock(
   if (frozen === null || typeof frozen !== 'object' || !('already' in frozen) || frozen.already !== false) {
     return frozen
   }
-  const before = await capture()
-  await new Promise((resolve) => setTimeout(resolve, CLOCK_WATCH_MS))
-  const after = await capture()
-  const mutations = await run(WATCH_END_SOURCE)
+  let before: string | null, after: string | null, mutations: unknown
+  try {
+    before = await capture()
+    await new Promise((resolve) => setTimeout(resolve, CLOCK_WATCH_MS))
+    after = await capture()
+  } finally {
+    mutations = await run(WATCH_END_SOURCE)
+  }
   return { ...frozen, mutations, repainted: before !== null && after !== null && before !== after }
 }
 
