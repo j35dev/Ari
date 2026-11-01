@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { encodeCapture, type CapturedImage } from './browser-capture'
 import { BrowserService, type BrowserGuest } from './browser-service'
 import { dispatchBrowserMcpTool, startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
 import { useTempDirs } from './testing/temp-dirs'
@@ -85,7 +86,28 @@ describe('dispatchBrowserMcpTool', () => {
     expect(shot.content).toEqual([
       { type: 'image', data: Buffer.from('jpeg').toString('base64'), mimeType: 'image/jpeg' },
     ])
-    expect(capturePage).toHaveBeenCalledWith(undefined, 'jpeg')
+    expect(capturePage).toHaveBeenCalledWith(undefined, 'jpeg', { width: 800, height: 600 })
+  })
+
+  it('scales a 2x screenshot to the CSS viewport, so its pixels are pointer coordinates', async () => {
+    const g = guest()
+    // A scale-2 screen: the page is 640x512 CSS px, the capture 1280x1024 device px.
+    g.executeJavaScript = vi.fn(async () => [640, 512])
+    const image = (width: number, height: number): CapturedImage => ({
+      getSize: () => ({ width, height }),
+      resize: (size) => image(size.width, size.height),
+      toJPEG: () => Buffer.from(`${String(width)}x${String(height)}`),
+      toPNG: () => Buffer.from(''),
+    })
+    g.capturePage = vi.fn(async (_rect, format = 'png', size) =>
+      encodeCapture(image(1280, 1024), format, size),
+    )
+    const service = new BrowserService(() => g, vi.fn())
+
+    const shot = await dispatchBrowserMcpTool(service, 'browser_screenshot', {})
+    const first = shot.content[0]
+    const data = first?.type === 'image' ? first.data : ''
+    expect(Buffer.from(data, 'base64').toString()).toBe('640x512')
   })
 
   it('reports an error when the screenshot captures nothing', async () => {
@@ -202,15 +224,23 @@ describe('dispatchBrowserMcpTool', () => {
     g.sendMouse = sendMouse
     const service = new BrowserService(() => g, vi.fn())
 
-    const outsideStart = await dispatchBrowserMcpTool(service, 'browser_pointer', {
+    const atRightEdge = await dispatchBrowserMcpTool(service, 'browser_pointer', {
       action: 'drag',
       x: 800,
-      y: -1,
-      toX: 5000,
+      y: 10,
+      toX: 10,
       toY: 10,
     })
-    expect(outsideStart.isError).toBe(true)
-    expect(text(outsideStart)).toContain('outside the 800x600 viewport')
+    expect(atRightEdge.isError).toBe(true)
+    expect(text(atRightEdge)).toContain('800,10 is outside the 800x600 viewport')
+
+    const atBottomEdge = await dispatchBrowserMcpTool(service, 'browser_pointer', {
+      action: 'click',
+      x: 10,
+      y: 600,
+    })
+    expect(atBottomEdge.isError).toBe(true)
+    expect(text(atBottomEdge)).toContain('10,600 is outside the 800x600 viewport')
 
     const outsideEnd = await dispatchBrowserMcpTool(service, 'browser_pointer', {
       action: 'drag',

@@ -1,4 +1,5 @@
 import { WebContentsView, type BrowserWindow, type WebContents } from 'electron'
+import { encodeCapture } from './browser-capture'
 import { ConsoleBuffer } from './browser-console'
 import type { BrowserGuest, PointerButton } from './browser-service'
 import { isBrowserNavigable } from './browser-url'
@@ -87,11 +88,9 @@ export function createElectronBrowserGuest(
     isLoading: () => wc.isLoading(),
     executeJavaScript: (code) => wc.executeJavaScript(code, true),
     consoleEntries: () => consoleBuffer.entries(),
-    capturePage: async (rect, format = 'png') => {
+    capturePage: async (rect, format = 'png', size) => {
       try {
-        const image = await wc.capturePage(rect)
-        const encoded = format === 'jpeg' ? image.toJPEG(80) : image.toPNG()
-        return encoded.length > 0 ? encoded : null
+        return encodeCapture(await wc.capturePage(rect), format, size)
       } catch {
         return null
       }
