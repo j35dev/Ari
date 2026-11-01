@@ -141,6 +141,19 @@ describe('listChangeRequests', () => {
     }
   })
 
+  it('lists a GitHub Enterprise Cloud repo from SSH and HTTPS remotes', async () => {
+    for (const url of ['git@acme.ghe.com:acme/demo.git', 'https://acme.ghe.com/acme/demo.git']) {
+      const run = runWith('[]')
+      const result = await listChangeRequests('/repo', [{ name: 'origin', url }], { run, signal })
+      expect(vi.mocked(run).mock.calls[0]?.[0]).toBe('gh')
+      expect(vi.mocked(run).mock.calls[0]?.[1].slice(-2)).toEqual([
+        '--repo',
+        'acme.ghe.com/acme/demo',
+      ])
+      expect(result.ok && result.value.repository?.name).toBe('acme/demo')
+    }
+  })
+
   it('recognizes Forgejo, Bitbucket, and Azure without calling a CLI', async () => {
     const run = vi.fn<HostCommand>()
     for (const url of [
