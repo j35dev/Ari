@@ -51,8 +51,14 @@ function fakePage(loop: 'none' | 'shimmed' | 'cached') {
 
 type Page = ReturnType<typeof fakePage>
 
-/** A tab whose every navigation loads a fresh page, like a real document swap. */
-function setup(loop: 'none' | 'shimmed' | 'cached' = 'shimmed') {
+/**
+ * A tab whose every navigation loads a fresh page, like a real document swap.
+ * `capture` stands in for a screenshot of the page.
+ */
+function setup(
+  loop: 'none' | 'shimmed' | 'cached' = 'shimmed',
+  capture: () => Buffer | null = () => null,
+) {
   let page = fakePage(loop)
   let url = 'about:blank'
   const guest: BrowserGuest = {
@@ -71,7 +77,7 @@ function setup(loop: 'none' | 'shimmed' | 'cached' = 'shimmed') {
     executeJavaScript: vi.fn(async (code: string): Promise<unknown> =>
       runInNewContext(code, { window: page.window }),
     ),
-    capturePage: vi.fn(async () => null),
+    capturePage: vi.fn(async () => capture()),
     consoleEntries: () => [],
     sendKey: vi.fn(),
     setBounds: vi.fn(),
@@ -257,13 +263,22 @@ describe('browser_clock', () => {
 
     expect(frozen.isError).toBe(false)
     expect(frozen.text).toMatch(
-      /^clock frozen at performance\.now\(\) [\d.]+ ms, but the page kept changing in the 250 ms after freeze \(\d+ DOM mutations, 0 canvases redrawn\); it likely saved its own requestAnimationFrame/,
+      /^clock frozen at performance\.now\(\) [\d.]+ ms, but the page kept changing in the 250 ms after freeze \(\d+ DOM mutations, page image unchanged\); it likely saved its own requestAnimationFrame/,
     )
     expect(frozen.text).not.toContain('(0 DOM mutations')
   })
 
+  it('warns when the page image keeps changing after freeze, as a cached-rAF WebGL game does', async () => {
+    let paints = 0
+    const env = setup('shimmed', () => Buffer.from(`frame ${String(paints++)}`))
+
+    const frozen = await freeze(env)
+
+    expect(frozen.text).toContain('(0 DOM mutations, page image changed)')
+  })
+
   it('does not warn when the shim holds the page still', async () => {
-    const env = setup('shimmed')
+    const env = setup('shimmed', () => Buffer.from('same frame'))
 
     const frozen = await freeze(env)
 
