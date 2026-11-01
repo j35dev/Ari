@@ -6,10 +6,12 @@ import {
   BROWSER_STATE_TIMEOUT_MS,
   dispatchBrowserMcpTool,
   startBrowserMcpServer,
+  type BrowserMcpHandle,
 } from './browser-mcp'
 
 interface DomWindow {
-  document: Document
+  /** jsdom drops the document once the window is closed. */
+  document: Document | undefined
   eval(source: string): unknown
   close(): void
 }
@@ -48,6 +50,7 @@ function browserGuest(pages: Readonly<Record<string, string>>): BrowserGuestFact
         url = next
         dom?.window.close()
         dom = new JSDOM(html, { runScripts: 'dangerously', url: next })
+        windows.push(dom.window)
       },
       goBack: () => {},
       goForward: () => {},
@@ -55,7 +58,7 @@ function browserGuest(pages: Readonly<Record<string, string>>): BrowserGuestFact
       canGoBack: () => false,
       canGoForward: () => false,
       getURL: () => url,
-      getTitle: () => dom?.window.document.title ?? '',
+      getTitle: () => dom?.window.document?.title ?? '',
       isLoading: () => false,
       executeJavaScript: async (code: string): Promise<unknown> => {
         if (dom === null) return undefined
@@ -71,8 +74,15 @@ function browserGuest(pages: Readonly<Record<string, string>>): BrowserGuestFact
   }
 }
 
+// Everything a test opens, so afterEach can close it and prove it closed.
+const services: BrowserService[] = []
+const servers: BrowserMcpHandle[] = []
+const windows: DomWindow[] = []
+
 function serviceFor(pages: Readonly<Record<string, string>>): BrowserService {
-  return new BrowserService(browserGuest(pages), vi.fn())
+  const service = new BrowserService(browserGuest(pages), vi.fn())
+  services.push(service)
+  return service
 }
 
 function page(script: string): string {
@@ -101,12 +111,25 @@ async function callTool(
       params: { name, arguments: args },
     }),
   })
-  const body = (await response.json()) as { result: ToolResult }
+  const body = (await response.json()) as {
+    result?: ToolResult
+    error?: { code: number; message: string }
+  }
+  if (body.error !== undefined) {
+    throw new Error(`${name}: JSON-RPC error ${String(body.error.code)}: ${body.error.message}`)
+  }
+  if (!response.ok || body.result === undefined) {
+    throw new Error(`${name}: HTTP ${String(response.status)} with no result`)
+  }
   return body.result
 }
 
 afterEach(() => {
   vi.useRealTimers()
+  for (const server of servers.splice(0)) server.close()
+  for (const service of services.splice(0)) service.dispose()
+  const open = windows.splice(0).filter((window) => window.document !== undefined)
+  expect(open, 'jsdom windows still open after the test').toHaveLength(0)
 })
 
 const GAME_URL = 'http://127.0.0.1:9/game.html'
@@ -132,12 +155,9 @@ async function withGameServer(
     'utf8',
   )
   const handle = await startBrowserMcpServer(serviceFor({ '/game.html': gameHtml }))
+  servers.push(handle)
   const token = handle.tokenFor('sess-a')
-  try {
-    await run((name, args) => callTool(handle.url, token, name, args))
-  } finally {
-    handle.close()
-  }
+  await run((name, args) => callTool(handle.url, token, name, args))
 }
 
 describe('browser_state against the game fixture page over HTTP', () => {
