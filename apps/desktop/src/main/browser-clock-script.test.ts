@@ -24,19 +24,20 @@ function fakePage(loop: 'none' | 'shimmed' | 'cached') {
     document: document.implementation.createHTMLDocument('game'),
     MutationObserver,
   }
-  const game = { frames: 0, lastTs: 0 }
+  const game = { frames: 0, lastTs: 0, handle: 0 }
   // A 'cached' page saves the native rAF at load, so the shim never sees its loop.
   const raf = loop === 'cached' ? window.requestAnimationFrame : null
   const tick = (ts: number): void => {
     game.frames++
     game.lastTs = ts
     window.document.body.textContent = String(game.frames)
-    ;(raf ?? window.requestAnimationFrame)(tick)
+    game.handle = (raf ?? window.requestAnimationFrame)(tick)
   }
-  if (loop !== 'none') window.requestAnimationFrame(tick)
+  if (loop !== 'none') game.handle = window.requestAnimationFrame(tick)
   return {
     window,
     game,
+    stop: () => window.cancelAnimationFrame(game.handle),
     paint: () => {
       const batch = [...frames.values()]
       frames.clear()
@@ -165,6 +166,59 @@ describe('browser_clock', () => {
     expect(window.performance.now()).toBe(perf + 16)
     expect(window.Date.now()).toBeGreaterThanOrEqual(date + 16)
     expect(window.Date.now()).toBeLessThanOrEqual(date + 17)
+  })
+
+  it('stops a loop cancelled right after resume', async () => {
+    const env = setup()
+    await freeze(env)
+    await env.clock({ action: 'step', ms: 100 })
+    await env.clock({ action: 'resume' })
+    const { game, stop, paint, elapse } = env.page()
+    const frames = game.frames
+
+    stop()
+    for (let i = 0; i < 5; i++) {
+      elapse(16)
+      paint()
+    }
+
+    expect(game.frames).toBe(frames)
+  })
+
+  it('skips a callback cancelled earlier in the same stepped frame', async () => {
+    const env = setup('none')
+    await freeze(env)
+    const { window } = env.page()
+    const ran: string[] = []
+    let b = 0
+    window.requestAnimationFrame(() => {
+      ran.push('a')
+      window.cancelAnimationFrame(b)
+    })
+    b = window.requestAnimationFrame(() => ran.push('b'))
+
+    const step = await env.clock({ action: 'step', ms: 17 })
+
+    expect(ran).toEqual(['a'])
+    expect(step.text).toContain('(1 calls)')
+  })
+
+  it('holds and steps a loop frozen again right after resume, before any real frame', async () => {
+    const env = setup()
+    await freeze(env)
+    await env.clock({ action: 'resume' })
+    await env.clock({ action: 'freeze' })
+    const { game, paint, elapse } = env.page()
+    const before = game.frames
+    elapse(16)
+    paint()
+    const held = game.frames
+
+    const step = await env.clock({ action: 'step', ms: 1000 })
+
+    expect(held).toBe(before)
+    expect(step.text).toContain('stepped 60 frames')
+    expect(game.frames - before).toBe(60)
   })
 
   it('refuses to step or resume a page that navigated away from the freeze', async () => {
