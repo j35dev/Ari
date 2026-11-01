@@ -19,16 +19,24 @@ const mocks = vi.hoisted(() => {
     setVisible = vi.fn()
   }
   const BrowserWindow = { fromWebContents: vi.fn() }
-  return { views, WebContentsView, BrowserWindow }
+  // Two side-by-side displays: a 1x one at x < 1920 and a 2x one right of it.
+  const screen = {
+    getDisplayMatching: (rect: { x: number }) => ({ scaleFactor: rect.x < 1920 ? 1 : 2 }),
+  }
+  return { views, WebContentsView, BrowserWindow, screen }
 })
 
 vi.mock('electron', () => ({
   WebContentsView: mocks.WebContentsView,
   BrowserWindow: mocks.BrowserWindow,
+  screen: mocks.screen,
 }))
 
-function hostWindow(): BrowserWindow {
-  return { contentView: { addChildView: vi.fn() } } as unknown as BrowserWindow
+function hostWindow(x = 0): BrowserWindow {
+  return {
+    contentView: { addChildView: vi.fn() },
+    getBounds: () => ({ x, y: 0, width: 1280, height: 800 }),
+  } as unknown as BrowserWindow
 }
 
 afterEach(() => {
@@ -39,7 +47,10 @@ describe('createElectronBrowserGuest rendering', () => {
   it('renders agent tabs offscreen so they paint while never shown', () => {
     createElectronBrowserGuest(hostWindow(), 'agent:sess-a', vi.fn())
 
-    expect(mocks.views[0]?.webPreferences).toMatchObject({ offscreen: true, sandbox: true })
+    expect(mocks.views[0]?.webPreferences).toMatchObject({
+      offscreen: { deviceScaleFactor: 1 },
+      sandbox: true,
+    })
   })
 
   it('keeps the inspector a normal on-screen view', () => {
@@ -57,7 +68,19 @@ describe('hostedBrowserGuestFactory', () => {
     createGuest('agent:sess-a', vi.fn())
     createGuest('inspector', vi.fn())
 
-    expect(mocks.views.map((v) => v.webPreferences.offscreen)).toEqual([true, false])
+    expect(mocks.views.map((v) => v.webPreferences.offscreen)).toEqual([
+      { deviceScaleFactor: 1 },
+      false,
+    ])
+  })
+
+  it('renders agent tabs at the scale of the display the host window is on', () => {
+    mocks.BrowserWindow.fromWebContents.mockReturnValue(hostWindow(2000))
+    const createGuest = hostedBrowserGuestFactory({} as WebContents)
+
+    createGuest('agent:sess-a', vi.fn())
+
+    expect(mocks.views[0]?.webPreferences.offscreen).toEqual({ deviceScaleFactor: 2 })
   })
 
   it('refuses when the host window is gone', () => {

@@ -1,4 +1,4 @@
-import { BrowserWindow, WebContentsView, type WebContents } from 'electron'
+import { BrowserWindow, WebContentsView, screen, type WebContents } from 'electron'
 import { encodeCapture } from './browser-capture'
 import { ConsoleBuffer } from './browser-console'
 import type { BrowserGuest, BrowserGuestFactory, PointerButton } from './browser-service'
@@ -39,6 +39,10 @@ export function hostedBrowserGuestFactory(contents: WebContents): BrowserGuestFa
  * and capturePage throws (#432). So they render offscreen, which keeps them
  * painting without ever drawing into the window. Their viewport follows the
  * window's size. The inspector stays a normal view because the user sees it.
+ *
+ * Offscreen rendering defaults to scale 1, so agent tabs take the scale of the
+ * display the window is on when created (#443). They don't follow the window
+ * to a display with a different scale.
  */
 export function createElectronBrowserGuest(
   win: BrowserWindow,
@@ -47,7 +51,9 @@ export function createElectronBrowserGuest(
 ): BrowserGuest {
   const view = new WebContentsView({
     webPreferences: {
-      offscreen: tabId.startsWith('agent:'),
+      offscreen: tabId.startsWith('agent:') && {
+        deviceScaleFactor: screen.getDisplayMatching(win.getBounds()).scaleFactor,
+      },
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
