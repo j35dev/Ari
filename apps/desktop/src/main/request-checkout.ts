@@ -1,5 +1,5 @@
 import { mkdir, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { GitService, type RepositoryGit } from '@ari/engine/git'
 import type { RequestCheckout, SourceControlError } from '@ari/contracts/rpc'
 import { err, ok, type Result } from '@ari/shared/result'
@@ -87,7 +87,7 @@ export async function checkoutChangeRequest(
     if (await stat(target).catch(() => null)) {
       return ok({ path: target, branch, commit: existing.head, number, created: false })
     }
-    const removed = await worktrees.removeWorktree(git.cwd, target)
+    const removed = await worktrees.removeWorktree(git.cwd, existing.path)
     if (!removed.ok) {
       return err({ code: 'failed', message: 'Could not clear the missing request worktree.' })
     }
@@ -203,12 +203,20 @@ async function findWorktree(
   return undefined
 }
 
-/** git reports the real path. macOS tmp is /var -> /private/var, and Windows may use an 8.3 name. */
+/**
+ * git reports the real path. macOS tmp is /var -> /private/var, and Windows may use an 8.3 name.
+ * A deleted worktree folder cannot be realpath'd, so resolve its nearest existing ancestor.
+ */
 async function canonicalize(path: string): Promise<string> {
-  try {
-    return await realpath(path)
-  } catch {
-    return resolve(path)
+  const absolute = resolve(path)
+  const missing: string[] = []
+  for (let current = absolute; ; current = dirname(current)) {
+    try {
+      return join(await realpath(current), ...missing)
+    } catch {
+      if (dirname(current) === current) return absolute
+      missing.unshift(basename(current))
+    }
   }
 }
 
