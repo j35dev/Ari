@@ -13,6 +13,8 @@ export type ClockAction = 'freeze' | 'step' | 'resume'
 export const DEFAULT_CLOCK_FPS = 60
 export const MAX_CLOCK_STEP_MS = 60_000
 export const MAX_CLOCK_FPS = 240
+/** How long freeze watches the page for changes the shim did not stop. */
+export const CLOCK_WATCH_MS = 250
 
 const SHIM = [
   'const w = window',
@@ -45,7 +47,29 @@ const SHIM = [
   '  c.frozen = true',
   // A frame the page scheduled before the shim existed can still fire once; let it land now.
   '  if (installing) await new Promise(function(done) { c.real.raf(done); w.setTimeout(done, 100) })',
-  '  return { already: false, now: c.t }',
+  // A page that saved the real rAF/clock before the shim, or animates with timers or CSS, keeps changing.
+  '  function canvasHashes() {',
+  "    return Array.from(w.document.querySelectorAll('canvas')).slice(0, 8).map(function(cv) {",
+  '      try {',
+  "        const probe = w.document.createElement('canvas')",
+  '        probe.width = probe.height = 64',
+  "        const ctx = probe.getContext('2d')",
+  '        ctx.drawImage(cv, 0, 0, 64, 64)',
+  '        const px = ctx.getImageData(0, 0, 64, 64).data',
+  '        let h = 0',
+  '        for (let i = 0; i < px.length; i++) h = (h * 31 + px[i]) | 0',
+  '        return h',
+  '      } catch (e) { return null }',
+  '    })',
+  '  }',
+  '  const before = canvasHashes()',
+  '  let mutations = 0',
+  '  const observer = new w.MutationObserver(function(records) { mutations += records.length })',
+  '  observer.observe(w.document, { subtree: true, childList: true, attributes: true, characterData: true })',
+  '  await new Promise(function(done) { w.setTimeout(done, WATCH_MS) })',
+  '  observer.disconnect()',
+  '  const canvases = canvasHashes().filter(function(h, i) { return h !== before[i] }).length',
+  '  return { already: false, now: c.t, mutations, canvases }',
   '}',
   "if (action === 'step') {",
   '  const start = c.t',
@@ -76,7 +100,7 @@ const SHIM = [
 export function clockSource(action: ClockAction, ms = 0, fps = DEFAULT_CLOCK_FPS): string {
   return [
     '(async () => {',
-    `const action = ${JSON.stringify(action)}, ms = ${String(ms)}, fps = ${String(fps)}`,
+    `const action = ${JSON.stringify(action)}, ms = ${String(ms)}, fps = ${String(fps)}, WATCH_MS = ${String(CLOCK_WATCH_MS)}`,
     ...SHIM,
     '})()',
   ].join('\n')
@@ -103,11 +127,20 @@ export function clockText(
   const r = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   if (r['notFrozen'] === true) return { text: NOT_FROZEN, isError: true }
   if (action === 'freeze') {
+    if (r['already'] === true) {
+      return { text: `clock already frozen at performance.now() ${fmt(r['now'])}`, isError: false }
+    }
+    const mutations = num(r['mutations'])
+    const canvases = num(r['canvases'])
+    const frozen = `clock frozen at performance.now() ${fmt(r['now'])}`
+    if (mutations > 0 || canvases > 0) {
+      return {
+        text: `${frozen}, but the page kept changing in the ${String(CLOCK_WATCH_MS)} ms after freeze (${String(mutations)} DOM mutations, ${String(canvases)} canvases redrawn); it likely saved its own requestAnimationFrame, performance.now or Date.now before the freeze, or animates with timers or CSS, so stepping may not control it.`,
+        isError: false,
+      }
+    }
     return {
-      text:
-        r['already'] === true
-          ? `clock already frozen at performance.now() ${fmt(r['now'])}`
-          : `clock frozen at performance.now() ${fmt(r['now'])}. requestAnimationFrame, performance.now and Date.now stay virtual until resume; navigating drops the freeze.`,
+      text: `${frozen}. requestAnimationFrame, performance.now and Date.now stay virtual until resume; navigating drops the freeze.`,
       isError: false,
     }
   }

@@ -7,7 +7,7 @@ import { BrowserService, type BrowserGuest } from './browser-service'
  * A page with a fake compositor: `paint()` is one real browser frame and
  * `elapse()` moves real time. Injected scripts run against `window` for real.
  */
-function fakePage(withLoop: boolean) {
+function fakePage(loop: 'none' | 'shimmed' | 'cached') {
   let realNow = 5000
   let nextId = 0
   const frames = new Map<number, (ts: number) => void>()
@@ -20,15 +20,20 @@ function fakePage(withLoop: boolean) {
     cancelAnimationFrame: (id: number) => frames.delete(id),
     performance: { now: () => realNow },
     Date: { now: () => 1_700_000_000_000 + Math.floor(realNow) },
-    setTimeout: () => 0,
+    setTimeout,
+    document: document.implementation.createHTMLDocument('game'),
+    MutationObserver,
   }
   const game = { frames: 0, lastTs: 0 }
-  const loop = (ts: number): void => {
+  // A 'cached' page saves the native rAF at load, so the shim never sees its loop.
+  const raf = loop === 'cached' ? window.requestAnimationFrame : null
+  const tick = (ts: number): void => {
     game.frames++
     game.lastTs = ts
-    window.requestAnimationFrame(loop)
+    window.document.body.textContent = String(game.frames)
+    ;(raf ?? window.requestAnimationFrame)(tick)
   }
-  if (withLoop) window.requestAnimationFrame(loop)
+  if (loop !== 'none') window.requestAnimationFrame(tick)
   return {
     window,
     game,
@@ -46,13 +51,13 @@ function fakePage(withLoop: boolean) {
 type Page = ReturnType<typeof fakePage>
 
 /** A tab whose every navigation loads a fresh page, like a real document swap. */
-function setup(withLoop = true) {
-  let page = fakePage(withLoop)
+function setup(loop: 'none' | 'shimmed' | 'cached' = 'shimmed') {
+  let page = fakePage(loop)
   let url = 'about:blank'
   const guest: BrowserGuest = {
     loadURL: vi.fn(async (next: string) => {
       url = next
-      page = fakePage(withLoop)
+      page = fakePage(loop)
     }),
     goBack: vi.fn(),
     goForward: vi.fn(),
@@ -81,12 +86,17 @@ function setup(withLoop = true) {
   return { service, clock, page: (): Page => page }
 }
 
-/** Freezes while the browser paints the frame the page had already scheduled. */
+/** Freezes while the browser keeps painting real frames, as it does during the watch. */
 async function freeze(env: ReturnType<typeof setup>) {
-  const pending = env.clock({ action: 'freeze' })
-  await new Promise(setImmediate)
-  env.page().paint()
-  return pending
+  const compositor = setInterval(() => {
+    env.page().elapse(16)
+    env.page().paint()
+  }, 16)
+  try {
+    return await env.clock({ action: 'freeze' })
+  } finally {
+    clearInterval(compositor)
+  }
 }
 
 describe('browser_clock', () => {
@@ -175,7 +185,7 @@ describe('browser_clock', () => {
   })
 
   it('says no frames stepped when the page has no animation frames queued', async () => {
-    const env = setup(false)
+    const env = setup('none')
     await freeze(env)
 
     const step = await env.clock({ action: 'step', ms: 1000 })
@@ -184,6 +194,26 @@ describe('browser_clock', () => {
       text: 'no frames stepped: the page has no requestAnimationFrame callbacks queued; virtual time advanced to 6000.0 ms',
       isError: false,
     })
+  })
+
+  it('warns when the page keeps changing after freeze because it cached rAF', async () => {
+    const env = setup('cached')
+
+    const frozen = await freeze(env)
+
+    expect(frozen.isError).toBe(false)
+    expect(frozen.text).toMatch(
+      /^clock frozen at performance\.now\(\) [\d.]+ ms, but the page kept changing in the 250 ms after freeze \(\d+ DOM mutations, 0 canvases redrawn\); it likely saved its own requestAnimationFrame/,
+    )
+    expect(frozen.text).not.toContain('(0 DOM mutations')
+  })
+
+  it('does not warn when the shim holds the page still', async () => {
+    const env = setup('shimmed')
+
+    const frozen = await freeze(env)
+
+    expect(frozen.text).toMatch(/^clock frozen at performance\.now\(\) [\d.]+ ms\. requestAnimationFrame/)
   })
 
   it('rejects a step without a usable ms', async () => {
