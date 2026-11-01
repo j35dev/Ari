@@ -1,8 +1,15 @@
 import { readFile } from 'node:fs/promises'
 import { request } from 'node:http'
+import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BrowserService, type BrowserGuest } from './browser-service'
-import { dispatchBrowserMcpTool, startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
+import {
+  BROWSER_MCP_TOOLS,
+  dispatchBrowserMcpTool,
+  MAX_BROWSER_STATE_CHARS,
+  startBrowserMcpServer,
+  writeBrowserMcpProxy,
+} from './browser-mcp'
 import { useTempDirs } from './testing/temp-dirs'
 
 const tempDir = useTempDirs()
@@ -32,6 +39,15 @@ function guest(): BrowserGuest {
     setVisible: vi.fn(),
     destroy: vi.fn(),
   }
+}
+
+/** A guest whose page scripts really run, with `page` as the page's `window`. */
+function pageGuest(page: Record<string, unknown>): BrowserGuest {
+  const g = guest()
+  g.executeJavaScript = vi.fn(async (code: string): Promise<unknown> =>
+    runInNewContext(code, { window: page }),
+  )
+  return g
 }
 
 function text(result: Awaited<ReturnType<typeof dispatchBrowserMcpTool>>): string {
@@ -148,6 +164,101 @@ describe('dispatchBrowserMcpTool', () => {
     expect(failed.isError).toBe(true)
     expect(text(failed)).toBe('Object has been destroyed')
   })
+
+  it('returns the page state hook as JSON exactly', async () => {
+    const fixture = {
+      level: 3,
+      player: { x: 12.5, y: -4, alive: true },
+      enemies: [{ id: 'e1', hp: 0 }],
+      label: 'héllo "quoted" \\ end',
+    }
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: () => fixture } }),
+      vi.fn(),
+    )
+
+    const result = await dispatchBrowserMcpTool(service, 'browser_state', {})
+
+    expect(result.isError).toBeUndefined()
+    expect(text(result)).toBe(JSON.stringify(fixture))
+    expect(JSON.parse(text(result))).toEqual(fixture)
+  })
+
+  it('awaits a state hook that returns a promise', async () => {
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: async () => ({ score: 7 }) } }),
+      vi.fn(),
+    )
+    expect(text(await dispatchBrowserMcpTool(service, 'browser_state', {}))).toBe('{"score":7}')
+  })
+
+  it('answers a page without the hook with a hint naming it, not an error', async () => {
+    for (const page of [{}, { __ari: {} }, { __ari: { state: 'not a function' } }]) {
+      const service = new BrowserService(() => pageGuest(page), vi.fn())
+      const result = await dispatchBrowserMcpTool(service, 'browser_state', {})
+      expect(result.isError).toBeUndefined()
+      expect(text(result)).toContain('window.__ari.state()')
+    }
+  })
+
+  it('cuts state over the cap and marks how much was dropped', async () => {
+    const big = { blob: 'x'.repeat(MAX_BROWSER_STATE_CHARS) }
+    const json = JSON.stringify(big)
+    const service = new BrowserService(() => pageGuest({ __ari: { state: () => big } }), vi.fn())
+
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+
+    const dropped = json.length - MAX_BROWSER_STATE_CHARS
+    expect(out).toBe(
+      `${json.slice(0, MAX_BROWSER_STATE_CHARS)}…[truncated ${String(dropped)} of ${String(json.length)} chars]`,
+    )
+  })
+
+  it('keeps state at exactly the cap whole', async () => {
+    const blob = 'x'.repeat(MAX_BROWSER_STATE_CHARS - '{"blob":""}'.length)
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: () => ({ blob }) } }),
+      vi.fn(),
+    )
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+    expect(out).toBe(JSON.stringify({ blob }))
+    expect(out).toHaveLength(MAX_BROWSER_STATE_CHARS)
+  })
+
+  it('reports a state hook that throws as an error', async () => {
+    const service = new BrowserService(
+      () =>
+        pageGuest({
+          __ari: {
+            state: () => {
+              throw new Error('state exploded')
+            },
+          },
+        }),
+      vi.fn(),
+    )
+    const result = await dispatchBrowserMcpTool(service, 'browser_state', {})
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe('state exploded')
+  })
+
+  it('takes no code: browser_state has no params and runs the same fixed script', async () => {
+    const tool = BROWSER_MCP_TOOLS.find((t) => t.name === 'browser_state')
+    expect(tool?.inputSchema).toEqual({
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    })
+
+    const g = pageGuest({})
+    const service = new BrowserService(() => g, vi.fn())
+    await dispatchBrowserMcpTool(service, 'browser_state', {})
+    await dispatchBrowserMcpTool(service, 'browser_state', { code: 'window.pwned = 1' })
+    const scripts = vi.mocked(g.executeJavaScript).mock.calls.map(([code]) => code)
+    expect(scripts).toHaveLength(2)
+    expect(scripts[1]).toBe(scripts[0])
+    expect(scripts[1]).not.toContain('pwned')
+  })
 })
 
 describe('writeBrowserMcpProxy', () => {
@@ -216,6 +327,22 @@ describe('startBrowserMcpServer', () => {
       })
       expect(revoked.status).toBe(401)
       expect(destroyed).toBe(1)
+    } finally {
+      handle.close()
+    }
+  })
+
+  it('reads state from the calling session tab only', async () => {
+    const service = new BrowserService(
+      (id) => pageGuest({ __ari: { state: () => ({ tab: id }) } }),
+      vi.fn(),
+    )
+    const handle = await startBrowserMcpServer(service)
+    try {
+      const a = await callTool(handle.url, handle.tokenFor('sess-a'), 'browser_state')
+      const b = await callTool(handle.url, handle.tokenFor('sess-b'), 'browser_state')
+      expect(a.content[0]?.text).toBe('{"tab":"agent:sess-a"}')
+      expect(b.content[0]?.text).toBe('{"tab":"agent:sess-b"}')
     } finally {
       handle.close()
     }
@@ -331,7 +458,12 @@ describe('startBrowserMcpServer', () => {
       expect(ok.status).toBe(200)
       const body = (await ok.json()) as { result?: { tools?: { name: string }[] } }
       expect(body.result?.tools?.map((t) => t.name)).toEqual(
-        expect.arrayContaining(['browser_navigate', 'browser_screenshot', 'browser_key']),
+        expect.arrayContaining([
+          'browser_navigate',
+          'browser_screenshot',
+          'browser_key',
+          'browser_state',
+        ]),
       )
     } finally {
       handle.close()

@@ -54,6 +54,25 @@ interface BrowserMcpResult {
 const MAX_KEY_HOLD_MS = 5000
 const DEFAULT_KEY_HOLD_MS = 50
 const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,'
+/** browser_state output longer than this is cut, with a marker saying how much was dropped. */
+export const MAX_BROWSER_STATE_CHARS = 20_000
+// Fixed on purpose: browser_state never runs caller-supplied code.
+const STATE_SOURCE = `(async () => {
+  const ari = window.__ari
+  if (!ari || typeof ari.state !== 'function') return { hook: false }
+  const json = JSON.stringify(await ari.state())
+  return { hook: true, json: json === undefined ? 'null' : json }
+})()`
+const NO_STATE_HOOK =
+  'This page has no window.__ari.state() hook. Ask the game to expose window.__ari = { state: () => ({ ... }) } returning JSON-serializable state, or use browser_screenshot.'
+
+function stateText(result: unknown): string {
+  const { hook, json } = asRecord(result)
+  if (hook !== true || typeof json !== 'string') return NO_STATE_HOOK
+  if (json.length <= MAX_BROWSER_STATE_CHARS) return json
+  const dropped = json.length - MAX_BROWSER_STATE_CHARS
+  return `${json.slice(0, MAX_BROWSER_STATE_CHARS)}…[truncated ${String(dropped)} of ${String(json.length)} chars]`
+}
 
 function textResult(text: string, isError = false): BrowserMcpResult {
   return { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) }
@@ -107,6 +126,12 @@ export const BROWSER_MCP_TOOLS = [
     name: 'browser_screenshot',
     description:
       'JPEG screenshot of the in-app browser page. Use it to see canvas, WebGL, or game content that browser_snapshot cannot read.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'browser_state',
+    description:
+      "JSON from the page's window.__ari.state() hook, the cheap way to read game state without a screenshot. Output is capped and cut with a marker.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -185,6 +210,9 @@ export async function dispatchBrowserMcpTool(
       )
       return typed === true ? textResult('typed') : textResult(`no element for ${selector}`, true)
     }
+    if (name === 'browser_state') {
+      return textResult(stateText(await browsers.runScript(tabId, STATE_SOURCE)))
+    }
     if (name === 'browser_screenshot') {
       const still = await browsers.still(tabId)
       if (still === null) return textResult('screenshot failed: the page returned no image', true)
@@ -250,7 +278,7 @@ async function handleRpc(
         capabilities: { tools: {} },
         serverInfo: { name: 'ari-browser', version: '0.1.0' },
         instructions:
-          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_screenshot and browser_key to see and play canvas or game pages. Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
+          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_state, browser_screenshot, and browser_key to see and play canvas or game pages. Prefer browser_state over a screenshot when the page exposes window.__ari.state(). Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
       },
     }
   }
