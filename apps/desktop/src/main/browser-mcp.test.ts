@@ -255,7 +255,7 @@ describe('dispatchBrowserMcpTool', () => {
       const result = await pending
       expect(result.isError).toBe(true)
       expect(text(result)).toContain('did not settle within 5 s')
-      expect(text(result)).toContain('#432')
+      expect(text(result)).toContain('requestAnimationFrame')
     } finally {
       vi.useRealTimers()
     }

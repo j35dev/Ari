@@ -58,7 +58,7 @@ const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,'
 export const MAX_BROWSER_STATE_CHARS = 20_000
 /** browser_state fails if window.__ari.state() has not settled by then. */
 export const BROWSER_STATE_TIMEOUT_MS = 5_000
-const STATE_TIMEOUT_MESSAGE = `window.__ari.state() did not settle within ${String(BROWSER_STATE_TIMEOUT_MS / 1000)} s. Hidden agent tabs never run requestAnimationFrame (#432), so a hook that waits for a frame never settles there.`
+const STATE_TIMEOUT_MESSAGE = `window.__ari.state() did not settle within ${String(BROWSER_STATE_TIMEOUT_MS / 1000)} s. A hook that waits for requestAnimationFrame never settles while the tab isn't rendering.`
 // Fixed on purpose: browser_state never runs caller-supplied code.
 const STATE_SOURCE = `(async () => {
   const ari = window.__ari
