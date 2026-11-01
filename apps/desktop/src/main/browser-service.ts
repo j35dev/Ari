@@ -3,6 +3,23 @@ import { isPickedElement, type PickedElement } from './browser-element'
 import { CANCEL_PICK_SOURCE, PICKER_SOURCE, SNAPSHOT_SOURCE } from './browser-pick-script'
 import { resolveBrowserUrl } from './browser-url'
 
+export const KEY_MODIFIERS = ['shift', 'ctrl', 'alt', 'meta'] as const
+export const POINTER_ACTIONS = ['click', 'down', 'up', 'move', 'drag'] as const
+export const POINTER_BUTTONS = ['left', 'middle', 'right'] as const
+export type KeyModifier = (typeof KEY_MODIFIERS)[number]
+export type PointerAction = (typeof POINTER_ACTIONS)[number]
+export type PointerButton = (typeof POINTER_BUTTONS)[number]
+
+/** Pointer input at viewport CSS px. `to` is the drag end; other actions ignore it. */
+export interface PointerInput {
+  action: PointerAction
+  x: number
+  y: number
+  to?: { x: number; y: number }
+  button: PointerButton
+  modifiers: KeyModifier[]
+}
+
 export interface BrowserBounds {
   x: number
   y: number
@@ -37,7 +54,14 @@ export interface BrowserGuest {
   capturePage(rect?: BrowserBounds, format?: 'png' | 'jpeg'): Promise<Buffer | null>
   /** Console history for this tab, oldest first; cleared when the page navigates. */
   consoleEntries(): ConsoleEntry[]
-  sendKey(key: string, phase: 'down' | 'up'): void
+  sendKey(key: string, phase: 'down' | 'up', modifiers: KeyModifier[]): void
+  sendMouse(
+    phase: 'down' | 'up' | 'move',
+    x: number,
+    y: number,
+    button: PointerButton,
+    modifiers: KeyModifier[],
+  ): void
   setBounds(bounds: BrowserBounds): void
   setVisible(visible: boolean): void
   destroy(): void
@@ -73,6 +97,8 @@ interface Tab {
   guest: BrowserGuest
   error: string | null
 }
+
+const DRAG_STEPS = 10
 
 /**
  * Owns in-app browser tabs. The factory builds the Electron guest; this
@@ -210,13 +236,60 @@ export class BrowserService {
   }
 
   /** Holds `key` down in the page for `holdMs`, then releases it. The key up is always sent. */
-  async key(id: string, key: string, holdMs: number): Promise<void> {
+  async key(id: string, key: string, holdMs: number, modifiers: KeyModifier[] = []): Promise<void> {
     const { guest } = this.#tab(id)
     try {
-      guest.sendKey(key, 'down')
+      guest.sendKey(key, 'down', modifiers)
       await new Promise((resolve) => setTimeout(resolve, holdMs))
     } finally {
-      guest.sendKey(key, 'up')
+      guest.sendKey(key, 'up', modifiers)
+    }
+  }
+
+  /**
+   * Sends pointer input to the page. A point outside the viewport throws before
+   * anything is sent; a click or drag always releases the button it pressed.
+   */
+  async pointer(id: string, input: PointerInput): Promise<void> {
+    const { guest } = this.#tab(id)
+    const { action, button, modifiers } = input
+    const from = { x: Math.round(input.x), y: Math.round(input.y) }
+    const to =
+      action === 'drag' && input.to !== undefined
+        ? { x: Math.round(input.to.x), y: Math.round(input.to.y) }
+        : from
+    const viewport: unknown = await guest.executeJavaScript('[innerWidth, innerHeight]')
+    const [width, height] = Array.isArray(viewport) ? (viewport as unknown[]) : []
+    if (typeof width !== 'number' || typeof height !== 'number') {
+      throw new Error('could not read the viewport size')
+    }
+    for (const { x, y } of [from, to]) {
+      if (x < 0 || y < 0 || x >= width || y >= height) {
+        throw new Error(
+          `${String(x)},${String(y)} is outside the ${String(width)}x${String(height)} viewport`,
+        )
+      }
+    }
+    const send = (phase: 'down' | 'up' | 'move', x: number, y: number): void =>
+      guest.sendMouse(phase, x, y, button, modifiers)
+    if (action === 'down' || action === 'up' || action === 'move') {
+      send(action, from.x, from.y)
+      return
+    }
+    try {
+      send('down', from.x, from.y)
+      if (action === 'drag') {
+        for (let step = 1; step <= DRAG_STEPS; step += 1) {
+          const t = step / DRAG_STEPS
+          send(
+            'move',
+            Math.round(from.x + (to.x - from.x) * t),
+            Math.round(from.y + (to.y - from.y) * t),
+          )
+        }
+      }
+    } finally {
+      send('up', to.x, to.y)
     }
   }
 

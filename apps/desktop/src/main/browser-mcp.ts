@@ -3,7 +3,13 @@ import { join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { createLogger } from '@ari/shared/logger'
-import type { BrowserService } from './browser-service'
+import {
+  KEY_MODIFIERS,
+  POINTER_ACTIONS,
+  POINTER_BUTTONS,
+  type BrowserService,
+  type KeyModifier,
+} from './browser-service'
 import { resolveBrowserUrl } from './browser-url'
 
 const log = createLogger('desktop:browser-mcp')
@@ -55,8 +61,29 @@ const MAX_KEY_HOLD_MS = 5000
 const DEFAULT_KEY_HOLD_MS = 50
 const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,'
 
+const MODIFIERS_SCHEMA = {
+  type: 'array',
+  items: { type: 'string', enum: KEY_MODIFIERS },
+  description: 'Modifier keys held during the input',
+} as const
+
 function textResult(text: string, isError = false): BrowserMcpResult {
   return { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) }
+}
+
+function isOneOf<T extends string>(value: unknown, options: readonly T[]): value is T {
+  return typeof value === 'string' && (options as readonly string[]).includes(value)
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** Missing means none; anything but a list of known modifiers is null. */
+function parseModifiers(value: unknown): KeyModifier[] | null {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) return null
+  return value.every((item) => isOneOf(item, KEY_MODIFIERS)) ? value : null
 }
 
 export const BROWSER_MCP_TOOLS = [
@@ -124,8 +151,28 @@ export const BROWSER_MCP_TOOLS = [
           type: 'number',
           description: `How long to hold the key, 0-${String(MAX_KEY_HOLD_MS)} ms (default ${String(DEFAULT_KEY_HOLD_MS)})`,
         },
+        modifiers: MODIFIERS_SCHEMA,
       },
       required: ['key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'browser_pointer',
+    description:
+      'Pointer input in the in-app browser page at viewport CSS pixels: click, down, up, move, or drag from x,y to toX,toY. Use it for canvas or game pages that browser_click cannot reach.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: POINTER_ACTIONS },
+        x: { type: 'number', description: 'Viewport CSS px from the left edge' },
+        y: { type: 'number', description: 'Viewport CSS px from the top edge' },
+        toX: { type: 'number', description: 'Drag end x; required for drag' },
+        toY: { type: 'number', description: 'Drag end y; required for drag' },
+        button: { type: 'string', enum: POINTER_BUTTONS, description: 'Default left' },
+        modifiers: MODIFIERS_SCHEMA,
+      },
+      required: ['action', 'x', 'y'],
       additionalProperties: false,
     },
   },
@@ -197,10 +244,40 @@ export async function dispatchBrowserMcpTool(
     if (name === 'browser_key') {
       const key = typeof args['key'] === 'string' ? args['key'] : ''
       if (!key) return textResult('key is required', true)
+      const modifiers = parseModifiers(args['modifiers'])
+      if (modifiers === null) {
+        return textResult(`modifiers must be ${KEY_MODIFIERS.join(', ')}`, true)
+      }
       const hold = typeof args['holdMs'] === 'number' ? args['holdMs'] : DEFAULT_KEY_HOLD_MS
       const holdMs = Math.min(MAX_KEY_HOLD_MS, Math.max(0, Number.isFinite(hold) ? hold : 0))
-      await browsers.key(tabId, key, holdMs)
+      await browsers.key(tabId, key, holdMs, modifiers)
       return textResult(`pressed ${key} for ${String(holdMs)}ms`)
+    }
+    if (name === 'browser_pointer') {
+      const action = args['action']
+      if (!isOneOf(action, POINTER_ACTIONS)) {
+        return textResult(`action must be ${POINTER_ACTIONS.join(', ')}`, true)
+      }
+      const button = args['button'] ?? 'left'
+      if (!isOneOf(button, POINTER_BUTTONS)) {
+        return textResult(`button must be ${POINTER_BUTTONS.join(', ')}`, true)
+      }
+      const modifiers = parseModifiers(args['modifiers'])
+      if (modifiers === null) {
+        return textResult(`modifiers must be ${KEY_MODIFIERS.join(', ')}`, true)
+      }
+      const x = finiteNumber(args['x'])
+      const y = finiteNumber(args['y'])
+      if (x === null || y === null) return textResult('x and y must be numbers', true)
+      if (action !== 'drag') {
+        await browsers.pointer(tabId, { action, x, y, button, modifiers })
+        return textResult(`${action} at ${String(x)},${String(y)}`)
+      }
+      const toX = finiteNumber(args['toX'])
+      const toY = finiteNumber(args['toY'])
+      if (toX === null || toY === null) return textResult('drag needs toX and toY', true)
+      await browsers.pointer(tabId, { action, x, y, to: { x: toX, y: toY }, button, modifiers })
+      return textResult(`drag from ${String(x)},${String(y)} to ${String(toX)},${String(toY)}`)
     }
     return textResult(`unknown tool ${name}`, true)
   } catch (error: unknown) {
@@ -250,7 +327,7 @@ async function handleRpc(
         capabilities: { tools: {} },
         serverInfo: { name: 'ari-browser', version: '0.1.0' },
         instructions:
-          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_screenshot and browser_key to see and play canvas or game pages. Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
+          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_screenshot, browser_key, and browser_pointer to see and play canvas or game pages. Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
       },
     }
   }
