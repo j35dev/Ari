@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RepositoryGit } from '@ari/engine/git'
+import { GitService, RepositoryGit } from '@ari/engine/git'
 import { err, ok } from '@ari/shared/result'
 import { checkoutChangeRequest, fetchRequestHead, type FetchRequestHead } from './request-checkout'
 
@@ -249,6 +249,48 @@ describe('request checkout', () => {
     expect(second).toMatchObject({ ok: true, value: { created: true } })
     if (!second.ok) return
     expect(git(second.value.path, 'rev-parse', 'HEAD')).toBe(a)
+  })
+
+  it('clears a deleted request worktree by the path git lists', async () => {
+    const remote = await repo()
+    await writeFile(join(remote, 'a.txt'), 'A\n')
+    git(remote, 'commit', '-qam', 'A')
+    const a = git(remote, 'rev-parse', 'HEAD')
+    git(remote, 'update-ref', 'refs/pull/7/head', a)
+    const consumer = await repo()
+    git(consumer, 'remote', 'add', 'origin', remote)
+    const realRoot = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(realRoot)
+    let rootDir = realRoot
+    if (process.platform !== 'win32') {
+      rootDir = `${realRoot}-link`
+      await symlink(realRoot, rootDir)
+      roots.push(rootDir)
+    }
+    // Only removes a worktree by the exact spelling git lists, like a git that cannot map an 8.3 or symlinked path.
+    class ListedPathOnly extends GitService {
+      override async removeWorktree(repo: string, path: string) {
+        const listed = await this.listWorktrees(repo)
+        if (!listed.ok || !listed.value.some((row) => row.path === path)) {
+          return err({ code: 'invalid_ref' as const, message: `not a listed worktree: ${path}` })
+        }
+        return super.removeWorktree(repo, path)
+      }
+    }
+    const gitApi = new RepositoryGit(consumer)
+    const remotes = [{ name: 'origin', url: 'https://github.com/acme/demo.git' }]
+    const options = {
+      rootDir,
+      fetchHead: fetchRequestHead(gitApi),
+      worktrees: new ListedPathOnly({ timeoutMs: 60_000 }),
+    }
+    const signal = new AbortController().signal
+    const first = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(first).toMatchObject({ ok: true, value: { created: true, commit: a } })
+    if (!first.ok) return
+    await rm(first.value.path, { recursive: true, force: true })
+    const second = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(second).toMatchObject({ ok: true, value: { created: true, commit: a } })
   })
 
   it('re-checks out a request after its worktree was removed', async () => {
