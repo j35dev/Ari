@@ -136,6 +136,11 @@ export async function freezeClock(
     before = await capture()
     await new Promise((resolve) => setTimeout(resolve, CLOCK_WATCH_MS))
     after = await capture()
+  } catch (error: unknown) {
+    // A half-finished freeze must not strand the page: hand it back to real time.
+    await run(clockSource('resume'))
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`freeze failed (${reason}); the clock was left running`, { cause: error })
   } finally {
     mutations = await run(WATCH_END_SOURCE)
   }
