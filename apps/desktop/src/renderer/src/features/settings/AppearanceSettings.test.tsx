@@ -19,12 +19,7 @@ vi.mock('./useEngineSettings', () => ({
 const engineSettings: Settings = {
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
-  appearance: {
-    themeId: 'obsidian',
-    mode: 'system',
-    reducedMotion: false,
-    wallpaper: 'none',
-  },
+  appearance: { ...defaultSettings.appearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },
@@ -112,12 +107,7 @@ describe('AppearanceSettings', () => {
   it('reflects the engine-backed reduced-motion value and toggles via update', async () => {
     mocks.holder.settings = {
       ...engineSettings,
-      appearance: {
-        themeId: 'obsidian',
-        mode: 'system',
-        reducedMotion: true,
-        wallpaper: 'none',
-      },
+      appearance: { ...engineSettings.appearance, reducedMotion: true },
     }
     renderPage()
     const toggle = screen.getByRole('switch', { name: 'Reduce motion' })

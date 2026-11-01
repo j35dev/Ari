@@ -159,6 +159,64 @@ describe('SettingsStore', () => {
     expect(persisted.appearance.mode).toBe('nocturne')
   })
 
+  it('persists every response style and leaves other appearance preferences alone', async () => {
+    const store = new SettingsStore({ dir })
+    expect((await store.load()).appearance.responseStyle).toBe('default')
+    await store.update({
+      appearance: {
+        themeId: 'nocturne',
+        mode: 'nocturne',
+        wallpaper: 'stillwater',
+        reducedMotion: true,
+      },
+    })
+    for (const responseStyle of ['flow', 'fold', 'margin', 'signal', 'default'] as const) {
+      await store.update({ appearance: { responseStyle } })
+      expect((await new SettingsStore({ dir }).load()).appearance).toMatchObject({
+        responseStyle,
+        themeId: 'nocturne',
+        mode: 'nocturne',
+        wallpaper: 'stillwater',
+        reducedMotion: true,
+      })
+    }
+  })
+
+  it('preserves the response choice through concurrent unrelated settings writes', async () => {
+    const store = new SettingsStore({ dir })
+    await store.load()
+    await Promise.all([
+      store.update({ appearance: { responseStyle: 'fold' } }),
+      store.update({ appearance: { themeId: 'porcelain', mode: 'porcelain' } }),
+      store.update({ appearance: { reducedMotion: true } }),
+    ])
+    expect((await new SettingsStore({ dir }).load()).appearance).toMatchObject({
+      responseStyle: 'fold',
+      themeId: 'porcelain',
+      mode: 'porcelain',
+      reducedMotion: true,
+    })
+  })
+
+  it('loads a future response style as default without dropping saved theme or session preferences', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        appearance: { responseStyle: 'future-style', themeId: 'verdant', mode: 'verdant' },
+        sessions: { defaultDriverKind: 'pi', defaultPermissionMode: 'ask' },
+      }),
+    )
+    const loaded = await new SettingsStore({ dir }).load()
+    expect(loaded.appearance).toMatchObject({
+      responseStyle: 'default',
+      themeId: 'verdant',
+      mode: 'verdant',
+    })
+    expect(loaded.sessions.defaultDriverKind).toBe('pi')
+  })
+
   it('keeps the Hive view choice across a reload', async () => {
     const store = new SettingsStore({ dir })
     expect((await store.load()).appearance.hiveView).toBeUndefined()

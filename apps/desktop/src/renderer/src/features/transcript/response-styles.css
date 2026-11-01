@@ -1,0 +1,791 @@
+/* Optional response presentations. Default intentionally has no overrides here.
+   Colors remain Ari tokens, so every preset works with every existing theme. */
+@font-face {
+  font-family: 'Ari Newsreader';
+  src: url('./assets/newsreader.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+.ari-response-transcript:not([data-response-style='default']) {
+  container-name: ari-response;
+  container-type: inline-size;
+}
+
+.ari-response-transcript:is([data-response-style='flow'], [data-response-style='fold'])
+  .ari-response-message
+  > .ari-md {
+  font-size: var(--ari-text-md);
+  line-height: 1.8;
+}
+.ari-response-transcript[data-response-style='flow'] .ari-response-message {
+  padding-block: 0.15rem;
+}
+.ari-response-transcript[data-response-style='fold'] .ari-response-message {
+  padding-block: 0.25rem;
+}
+.ari-response-transcript[data-response-style='margin'] .ari-response-message > .ari-md {
+  font-size: var(--ari-text-md);
+  line-height: 1.85;
+}
+.ari-response-transcript[data-response-style='margin']
+  .ari-response-message
+  > .ari-md
+  > p:first-child {
+  font-family: 'Ari Newsreader', var(--ari-font-ui);
+  font-size: 1.2rem;
+  line-height: 1.5;
+}
+.ari-response-transcript[data-response-style='margin']
+  .ari-response-message
+  > .ari-md
+  :is(h1, h2, h3) {
+  font-family: 'Ari Newsreader', var(--ari-font-ui);
+  font-weight: 400;
+}
+.ari-response-transcript[data-response-style='signal'] .ari-response-message > .ari-md {
+  font-size: var(--ari-text-md);
+  line-height: 1.75;
+}
+
+/* The existing incremental markdown renderer owns content. Only its live edge
+   gains a mark; completed text is never delayed, remounted, or reanimated. */
+.ari-response-transcript:not([data-response-style='default'])
+  .ari-response-message
+  > .ari-md[data-streaming]
+  > :is(p, h1, h2, h3):last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 0.9em;
+  margin-left: 0.3em;
+  vertical-align: -0.05em;
+  background: var(--ari-accent);
+}
+.ari-response-transcript[data-response-style='fold']
+  .ari-response-message
+  > .ari-md[data-streaming]
+  > :is(p, h1, h2, h3):last-child::after {
+  width: 3px;
+  height: 3px;
+  vertical-align: 0.22em;
+  margin-right: 5px;
+  color: var(--ari-accent);
+  box-shadow:
+    5px 0 currentColor,
+    0 5px currentColor,
+    5px 5px currentColor;
+}
+.ari-response-transcript[data-response-style='margin']
+  .ari-response-message
+  > .ari-md[data-streaming]
+  > :is(p, h1, h2, h3):last-child::after {
+  width: 9px;
+  height: 2px;
+  vertical-align: baseline;
+}
+.ari-response-transcript[data-response-style='signal']
+  .ari-response-message
+  > .ari-md[data-streaming]
+  > :is(p, h1, h2, h3):last-child::after {
+  width: 6px;
+}
+
+.ari-response-activity {
+  margin-block: 0.8rem;
+  min-width: 0;
+}
+.ari-response-activity button {
+  -webkit-tap-highlight-color: transparent;
+}
+.ari-response-activity button:focus-visible {
+  outline: 2px solid var(--ari-accent);
+  outline-offset: 2px;
+}
+.ari-response-activity button:disabled {
+  opacity: 0.5;
+}
+.ari-response-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.4rem 0.45rem;
+  border-radius: var(--ari-radius-sm);
+  color: var(--ari-fg-muted);
+  text-align: left;
+  font-size: var(--ari-text-xs);
+  transition: background var(--ari-dur-fast);
+}
+.ari-response-summary:hover {
+  background: var(--ari-surface-1);
+}
+.ari-response-summary > svg {
+  flex-shrink: 0;
+  color: var(--ari-fg-subtle);
+}
+.ari-response-summary-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ari-response-call-count {
+  color: var(--ari-fg-subtle);
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+  white-space: nowrap;
+}
+.ari-response-error-count {
+  color: var(--ari-danger);
+  font-size: var(--ari-text-2xs);
+  white-space: nowrap;
+}
+.ari-response-summary-chevron {
+  transition: transform var(--ari-dur-fast);
+}
+.ari-response-summary[aria-expanded='true'] .ari-response-summary-chevron {
+  transform: rotate(90deg);
+}
+.ari-response-live-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  margin: 3px;
+  background: var(--ari-accent);
+  border-radius: 50%;
+}
+.ari-response-stage {
+  min-width: 0;
+  padding-top: 0.45rem;
+}
+.ari-response-stage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.ari-response-card-wrap {
+  position: relative;
+  min-width: 0;
+}
+.ari-response-tool-card {
+  min-width: 0;
+  padding: 0.9rem 1rem 0;
+  border: 1px solid var(--ari-border);
+  border-radius: var(--ari-radius-md);
+  background: var(--ari-surface-0);
+}
+.ari-response-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  justify-content: space-between;
+  min-width: 0;
+}
+.ari-response-card-heading {
+  min-width: 0;
+  flex: 1;
+}
+.ari-response-kind {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ari-fg-subtle);
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+}
+.ari-response-card-heading h4 {
+  margin-top: 0.45rem;
+  color: var(--ari-fg);
+  font-size: var(--ari-text-sm);
+  font-weight: 500;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ari-response-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  color: var(--ari-fg-subtle);
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+  white-space: nowrap;
+}
+[data-tool-state='failed'] > .ari-response-card-header .ari-response-state {
+  color: var(--ari-danger);
+}
+.ari-response-preview {
+  max-height: 6.4rem;
+  margin-top: 0.65rem;
+  margin-bottom: 0.65rem;
+  white-space: pre-wrap;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  color: var(--ari-fg-muted);
+  font: var(--ari-text-2xs)/1.8 var(--ari-font-mono);
+  scrollbar-width: thin;
+}
+.ari-response-preview-note {
+  margin-block: 0.65rem;
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-xs);
+  line-height: 1.65;
+}
+.ari-response-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.5rem;
+  border-top: 1px solid var(--ari-border);
+}
+.ari-response-inspect {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.4rem;
+  margin-left: auto;
+  padding: 0.45rem 0.1rem 0.45rem 0.4rem;
+  color: var(--ari-fg-muted);
+  font-size: var(--ari-text-2xs);
+}
+.ari-response-inspect:hover {
+  color: var(--ari-fg);
+}
+.ari-response-result-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ari-fg-subtle);
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+}
+.ari-response-diffstat {
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+  color: var(--ari-fg-muted);
+  white-space: nowrap;
+}
+.ari-response-history-toggle,
+.ari-response-follow,
+.ari-response-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: var(--ari-radius-sm);
+  font-size: var(--ari-text-2xs);
+  color: var(--ari-fg-subtle);
+}
+.ari-response-history-toggle:hover,
+.ari-response-follow:hover,
+.ari-response-text-button:hover {
+  color: var(--ari-fg);
+  background: var(--ari-surface-1);
+}
+
+/* Flow's live tool is a low-weight continuation of the conversation. */
+.ari-response-activity[data-response-style='flow'] {
+  border-left: 1px solid var(--ari-border-strong);
+  padding-left: 0.65rem;
+}
+.ari-response-activity[data-response-style='flow'][data-activity='working'] {
+  border-left-color: var(--ari-accent);
+}
+.ari-response-activity[data-response-style='flow'] .ari-response-tool-card {
+  background: var(--ari-surface-0);
+  border-color: var(--ari-border);
+}
+.ari-response-activity[data-response-style='flow'] .ari-response-kind {
+  display: none;
+}
+.ari-response-activity[data-response-style='flow'] .ari-response-card-heading h4 {
+  margin-top: 0;
+  font: var(--ari-text-xs)/1.6 var(--ari-font-mono);
+}
+
+/* Fold: two exposed leaves and a light-facing card. Ink/paper are derived from
+   theme foreground/background rather than hard-coded off-theme colors. */
+.ari-response-activity[data-response-style='fold'] {
+  --response-paper: var(--ari-fg);
+  --response-ink: var(--ari-bg);
+  --response-ink-muted: color-mix(in oklab, var(--response-ink) 78%, var(--response-paper));
+}
+[data-ari-scheme='light'] .ari-response-activity[data-response-style='fold'] {
+  --response-paper: var(--ari-surface-1);
+  --response-ink: var(--ari-fg);
+  --response-ink-muted: var(--ari-fg-muted);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-card-wrap {
+  isolation: isolate;
+  margin: 0.25rem 0.35rem 0.85rem 0;
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-card-wrap::before,
+.ari-response-activity[data-response-style='fold'] .ari-response-card-wrap::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  border-radius: var(--ari-radius-md);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-card-wrap::before {
+  inset: 1.2rem 0.75rem -0.6rem;
+  background: color-mix(in oklab, var(--response-paper) 65%, var(--ari-bg));
+  transform: rotate(-0.6deg);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-card-wrap::after {
+  inset: 0.7rem 0.35rem -0.3rem;
+  background: color-mix(in oklab, var(--response-paper) 82%, var(--ari-bg));
+  transform: rotate(0.4deg);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-tool-card {
+  position: relative;
+  border: 0;
+  background: var(--response-paper);
+  border-top-right-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-tool-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  clip-path: polygon(0 0, 0 100%, 100% 100%);
+  background: color-mix(in oklab, var(--response-ink) 18%, var(--response-paper));
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-card-heading h4 {
+  font-size: var(--ari-text-lg);
+  color: var(--response-ink);
+  letter-spacing: -0.025em;
+}
+.ari-response-activity[data-response-style='fold']
+  :is(
+    .ari-response-kind,
+    .ari-response-preview,
+    .ari-response-preview-note,
+    .ari-response-result-hint,
+    .ari-response-diffstat
+  ) {
+  color: var(--response-ink-muted);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-card-header .ari-response-state {
+  color: var(--response-ink);
+  margin-right: 0.25rem;
+}
+.ari-response-activity[data-response-style='fold']
+  .ari-response-card-header
+  .ari-response-live-dot {
+  background: var(--response-ink);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-inspect {
+  color: var(--response-ink);
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-inspect:focus-visible {
+  outline-color: var(--response-ink);
+  outline-offset: -1px;
+}
+.ari-response-activity[data-response-style='fold'] .ari-response-card-footer {
+  border-color: color-mix(in oklab, var(--response-ink) 18%, transparent);
+}
+.ari-response-leaves {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding-top: 0.2rem;
+}
+.ari-response-leaf {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: min(100%, 17rem);
+  border: 1px solid var(--ari-border-strong);
+  border-radius: 3px var(--ari-radius-sm) var(--ari-radius-sm) var(--ari-radius-sm);
+  padding: 0.4rem 0.5rem;
+  color: var(--ari-fg-muted);
+  background: var(--ari-surface-0);
+}
+.ari-response-leaf:hover {
+  background: var(--ari-surface-1);
+}
+.ari-response-leaf > svg {
+  flex-shrink: 0;
+  color: var(--ari-fg-subtle);
+}
+.ari-response-leaf > span:not(.ari-response-diffstat) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+}
+
+/* Margin: an execution receipt with real, burst-local numbered references. */
+.ari-response-activity[data-response-style='margin'] .ari-response-stage-layout {
+  grid-template-columns: minmax(0, 1fr) 10.5rem;
+  gap: 1.4rem;
+}
+.ari-response-activity[data-response-style='margin'] .ari-response-tool-card {
+  background: color-mix(in oklab, var(--ari-surface-1) 65%, transparent);
+  border: 0;
+  border-block: 1px dashed var(--ari-border-strong);
+  border-radius: 0;
+}
+.ari-response-activity[data-response-style='margin'] .ari-response-card-heading h4 {
+  font:
+    1.15rem/1.45 'Ari Newsreader',
+    var(--ari-font-ui);
+}
+.ari-response-annotations {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.ari-response-annotation {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr);
+  text-align: left;
+  gap: 0.25rem 0.45rem;
+  color: var(--ari-fg-muted);
+  padding: 0.25rem 0 0.6rem;
+  border-bottom: 1px solid var(--ari-border);
+}
+.ari-response-annotation:hover {
+  color: var(--ari-accent);
+}
+.ari-response-sequence {
+  color: var(--ari-fg-subtle);
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ari-response-annotation-title {
+  font-size: var(--ari-text-xs);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ari-response-annotation-state {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.25rem;
+  grid-column: 2;
+  font-size: var(--ari-text-2xs);
+  overflow-wrap: anywhere;
+  color: var(--ari-fg-subtle);
+}
+.ari-response-annotation-state > svg {
+  flex-shrink: 0;
+}
+.ari-response-annotation[data-tool-state='failed'] .ari-response-annotation-state {
+  color: var(--ari-danger);
+}
+
+/* Signal: observed events, not a forecast or percentage-progress gauge. */
+.ari-response-event-strip {
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 2px 2px 0.45rem;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+.ari-response-event {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 5rem;
+  flex: 1;
+  padding: 0.55rem 0.6rem;
+  text-align: left;
+  background: var(--ari-surface-1);
+  border-bottom: 2px solid var(--ari-border-strong);
+  color: var(--ari-fg-muted);
+  font-size: var(--ari-text-2xs);
+}
+.ari-response-event:hover {
+  background: var(--ari-surface-2);
+}
+.ari-response-event[aria-pressed='true'] {
+  border-bottom-color: var(--ari-accent);
+  background: var(--ari-accent-subtle);
+}
+.ari-response-event[data-tool-state='running'] {
+  background: var(--ari-accent);
+  color: var(--ari-fg-on-accent);
+}
+.ari-response-event[data-tool-state='running'] .ari-response-sequence {
+  color: inherit;
+}
+.ari-response-event[data-tool-state='running'] .ari-response-live-dot {
+  background: currentColor;
+}
+.ari-response-event[data-tool-state='failed'] {
+  border-bottom-color: var(--ari-danger);
+}
+.ari-response-event .ari-response-live-dot {
+  justify-self: end;
+}
+.ari-response-earlier {
+  padding: 0.3rem 0.5rem;
+  min-width: 4rem;
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-2xs);
+}
+.ari-response-activity[data-response-style='signal'] .ari-response-stage-layout {
+  grid-template-columns: minmax(0, 1fr) 6.6rem;
+  gap: 1.15rem;
+  padding-block: 0.6rem;
+  border-bottom: 1px solid var(--ari-border-strong);
+}
+.ari-response-activity[data-response-style='signal'] .ari-response-tool-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.ari-response-activity[data-response-style='signal'] .ari-response-card-heading h4 {
+  font-size: var(--ari-text-md);
+  letter-spacing: -0.025em;
+}
+.ari-response-activity[data-response-style='signal'] .ari-response-card-footer {
+  border: 0;
+}
+.ari-response-counter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  border-left: 1px solid var(--ari-border-strong);
+  padding-left: 0.65rem;
+  color: var(--ari-fg-subtle);
+  font: var(--ari-text-2xs)/1.6 var(--ari-font-mono);
+  text-align: right;
+}
+.ari-response-counter > span:first-child {
+  font: 2.2rem/1.2 var(--ari-font-ui);
+  color: var(--ari-fg);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+}
+.ari-response-counter-total {
+  margin-top: 0.5rem;
+}
+
+/* Shared inspection stays inline. Nested MCP image/diff dialogs still use Ari's
+   existing overlay machinery; no new parent modal fights their focus trap. */
+.ari-response-history {
+  list-style: none;
+  max-height: 22rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 0.25rem;
+  border-block: 1px solid var(--ari-border);
+  scrollbar-width: thin;
+}
+.ari-response-history-step {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.45rem;
+  padding: 0.4rem;
+  border-radius: var(--ari-radius-sm);
+  text-align: left;
+  color: var(--ari-fg-muted);
+}
+.ari-response-history-step:hover {
+  background: var(--ari-surface-1);
+}
+.ari-response-history-step > svg {
+  flex-shrink: 0;
+}
+.ari-response-history-step .ari-response-sequence {
+  min-width: 1.2rem;
+}
+.ari-response-history-title {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  font: var(--ari-text-2xs) var(--ari-font-mono);
+}
+.ari-response-history-hint {
+  max-width: 34%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-2xs);
+}
+.ari-response-history-step[data-tool-state='failed'] .ari-response-history-hint,
+.ari-response-history-step[data-tool-state='failed'] > svg:last-child {
+  color: var(--ari-danger);
+}
+.ari-response-orphan-result > p {
+  padding: 0.4rem;
+  color: var(--ari-fg-muted);
+  font-size: var(--ari-text-xs);
+}
+.ari-response-details {
+  margin-top: 0.65rem;
+  border: 1px solid var(--ari-border-strong);
+  border-radius: var(--ari-radius-md);
+  overflow: hidden;
+  background: var(--ari-surface-1);
+}
+.ari-response-details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--ari-border);
+}
+.ari-response-details-header > div {
+  min-width: 0;
+  flex: 1;
+}
+.ari-response-details-header h4 {
+  color: var(--ari-fg);
+  font-size: var(--ari-text-xs);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  margin-bottom: 0.3rem;
+}
+.ari-response-details[data-tool-state='failed'] .ari-response-state {
+  color: var(--ari-danger);
+}
+.ari-response-icon-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: var(--ari-radius-sm);
+  color: var(--ari-fg-subtle);
+}
+.ari-response-icon-button:hover {
+  background: var(--ari-surface-2);
+  color: var(--ari-fg);
+}
+.ari-response-details-body {
+  max-height: 30rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.ari-response-empty-output {
+  padding: 0.65rem 0.75rem;
+  color: var(--ari-fg-subtle);
+  font-size: var(--ari-text-xs);
+}
+
+@container ari-response (max-width: 620px) {
+  .ari-response-activity[data-response-style='margin'] .ari-response-stage-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.85rem;
+  }
+  .ari-response-annotations {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+}
+@container ari-response (max-width: 400px) {
+  .ari-response-activity[data-response-style='signal'] .ari-response-stage-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.4rem;
+  }
+  .ari-response-counter {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    border-left: 0;
+    border-top: 1px solid var(--ari-border);
+    padding: 0.4rem 0 0;
+    text-align: left;
+    flex-wrap: wrap;
+  }
+  .ari-response-counter > span:first-child {
+    font-size: var(--ari-text-lg);
+  }
+  .ari-response-counter-total {
+    margin-top: 0;
+  }
+  .ari-response-card-header {
+    gap: 0.6rem;
+  }
+  .ari-response-tool-card {
+    padding-inline: 0.7rem;
+  }
+  .ari-response-annotations {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ari-response-history-hint {
+    max-width: 26%;
+  }
+  .ari-response-leaf {
+    max-width: 100%;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ari-response-live-dot {
+    animation: ari-response-breathe 1.7s ease-in-out infinite;
+  }
+  .ari-response-transcript:not([data-response-style='default'])
+    .ari-response-message
+    > .ari-md[data-streaming]
+    > :is(p, h1, h2, h3):last-child::after {
+    animation: ari-response-breathe 1.5s ease-in-out infinite;
+  }
+  .ari-response-activity[data-activity='working'] .ari-response-tool-card {
+    animation: ari-response-arrive var(--ari-dur-panel) var(--ari-ease-glide);
+  }
+  @keyframes ari-response-breathe {
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @keyframes ari-response-arrive {
+    from {
+      opacity: 0.35;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+/* Both the system setting and Ari's own Reduce motion switch are authoritative. */
+html[data-ari-reduced-motion] .ari-response-activity *,
+html[data-ari-reduced-motion] .ari-response-activity *::before,
+html[data-ari-reduced-motion] .ari-response-activity *::after,
+html[data-ari-reduced-motion] .ari-response-message *::after {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ari-response-activity *,
+  .ari-response-activity *::before,
+  .ari-response-activity *::after,
+  .ari-response-message *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

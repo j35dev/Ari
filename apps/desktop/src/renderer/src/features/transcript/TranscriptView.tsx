@@ -22,6 +22,10 @@ import { ThinkingBlock } from './ThinkingBlock'
 import { ErrorNote } from './ErrorNote'
 import { NoticeNote } from './NoticeNote'
 import { ActivityBurst } from './ActivityBurst'
+import { ResponseActivity } from './ResponseActivity'
+import { resolveResponseStyle } from './response-styles'
+import type { ResponseStyle } from '@ari/contracts/settings'
+import './response-styles.css'
 import { TurnDiffCard } from './TurnDiffCard'
 import type { TurnDiffValue } from './types'
 import { MessageRail, type MessageRailEntry } from './MessageRail'
@@ -121,6 +125,7 @@ export function TranscriptView({
   onQuoteAssistant,
   regenerateDisabled = false,
   running = false,
+  responseStyle = 'default',
   header,
   onDiffComment,
   onRetryTurnDiff,
@@ -170,6 +175,8 @@ export function TranscriptView({
    * live — see `ActivityBurst`. Defaults to settled.
    */
   running?: boolean
+  /** Opt-in presentation only; omitted/unknown values keep the existing renderer. */
+  responseStyle?: ResponseStyle
   /** Surface pinned above the transcript (plan panel); scrolls away with it. */
   header?: React.ReactNode
   /** Review-note loop (M21.1): inline diff comments flow to the composer. */
@@ -184,6 +191,7 @@ export function TranscriptView({
    */
   hidden?: boolean
 }) {
+  const style = resolveResponseStyle(responseStyle)
   const scrollRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   const lastScrollTopRef = useRef<number | null>(null)
@@ -213,6 +221,8 @@ export function TranscriptView({
     for (let i = rows.length - 1; i >= 0; i--) if (rows[i]?.kind !== 'delegation') return i
     return -1
   }, [rows])
+  const liveRow = rows[activeIndex]
+  const liveTurnId = liveRow && liveRow.kind !== 'delegation' ? rowTurnId(liveRow) : null
   // The last row of each turn, keyed by row key: where its diff card attaches.
   const turnEnds = useMemo(() => {
     const ends = new Map<string, string>()
@@ -465,6 +475,17 @@ export function TranscriptView({
   // has to land on the tail at once rather than at the next resize.
   useLayoutEffect(followTail, [followTail, atBottom, hasWorking])
 
+  // Inspecting optional tool layouts is reader intent, not a request to keep
+  // chasing the growing tail. Pin before opening details changes the layout.
+  const keepReading = useCallback(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+    atBottomRef.current = false
+    readingAtRef.current = { sessionId, top: scroller.scrollTop }
+    lastScrollTopRef.current = scroller.scrollTop
+    setAtBottom(false)
+  }, [sessionId])
+
   const handleWheel = (event: WheelEvent<HTMLDivElement>): void => {
     if (event.deltaY >= 0 || !atBottomRef.current) return
     atBottomRef.current = false
@@ -528,10 +549,11 @@ export function TranscriptView({
         // Not a live region: a screen reader would re-announce every streamed
         // flush. The working status below announces instead.
         aria-live="off"
-        className="ari-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        className="ari-scroll ari-response-transcript min-h-0 flex-1 overflow-y-auto px-4 py-4"
         data-session={sessionId}
+        data-response-style={style}
       >
-        <div ref={innerRef} className="mx-auto max-w-3xl">
+        <div ref={innerRef} className="ari-response-column mx-auto max-w-3xl">
           {rows.map((row, index) => (
             <div
               key={row.key}
@@ -571,6 +593,14 @@ export function TranscriptView({
                   }
                   regenerateDisabled={regenerateDisabled}
                   active={running && index === activeIndex}
+                  responseStyle={style}
+                  turnRunning={
+                    running &&
+                    (liveTurnId === null
+                      ? index === activeIndex
+                      : row.kind !== 'delegation' && rowTurnId(row) === liveTurnId)
+                  }
+                  onExplore={keepReading}
                   onDiffComment={onDiffComment}
                   onRetryTurnDiff={onRetryTurnDiff}
                 />
@@ -664,6 +694,9 @@ const TranscriptRowView = memo(function TranscriptRowView({
   quoteText,
   regenerateDisabled,
   active,
+  responseStyle,
+  turnRunning,
+  onExplore,
   onDiffComment,
   onRetryTurnDiff,
   sessionTitle,
@@ -683,6 +716,9 @@ const TranscriptRowView = memo(function TranscriptRowView({
   regenerateDisabled: boolean
   /** True when a running turn is on this row; only ever the last one. */
   active: boolean
+  responseStyle: ResponseStyle
+  turnRunning: boolean
+  onExplore: () => void
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
   onRetryTurnDiff?: (turnId: string) => void
   /** The bot this chat belongs to; its face rides the assistant rows. */
@@ -767,7 +803,17 @@ function renderRowBody({
   return (
     <>
       {row.kind === 'tool-group' ? (
-        <ActivityBurst row={row} active={active} />
+        responseStyle === 'default' ? (
+          <ActivityBurst row={row} active={active} />
+        ) : (
+          <ResponseActivity
+            row={row}
+            active={active}
+            turnRunning={turnRunning}
+            style={responseStyle}
+            onExplore={onExplore}
+          />
+        )
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard
           turnId={row.turnId}
@@ -796,7 +842,7 @@ function renderRowBody({
             />
           </div>
         ) : (
-          <div>
+          <div className="ari-response-message">
             <MarkdownBlock text={row.text ?? ''} streaming={active} />
             {row.isLastOfMessage && row.messageId ? (
               <MessageFooter

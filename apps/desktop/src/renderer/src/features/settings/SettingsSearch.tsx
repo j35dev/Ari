@@ -25,6 +25,12 @@ export const SETTINGS_SEARCH_INDEX = [
   },
   {
     section: 'settings-appearance',
+    label: 'Response style',
+    keywords:
+      'chat streaming transcript tool calls presentation default current flow fold margin signal',
+  },
+  {
+    section: 'settings-appearance',
     label: 'Wallpaper',
     keywords: 'background scene anime city moon galaxy backdrop image appearance',
   },
@@ -51,7 +57,8 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-providers',
     label: 'Provider binary path',
-    keywords: 'executable location custom cli install path browse which claude.exe npm shim connection',
+    keywords:
+      'executable location custom cli install path browse which claude.exe npm shim connection',
   },
   {
     section: 'settings-agents',

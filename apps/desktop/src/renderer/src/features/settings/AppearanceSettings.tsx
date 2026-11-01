@@ -8,6 +8,8 @@ import { wallpapers } from '@ari/ui/wallpapers'
 import type { Wallpaper } from '@ari/ui/wallpapers'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
+import { ResponseStyleSetting } from './ResponseStyleSetting'
+import { resolveResponseStyle } from '../transcript/response-styles'
 import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:appearance')
@@ -147,7 +149,9 @@ function WallpaperGroup({
 }) {
   return (
     <section className="mt-4" aria-label="Wallpaper">
-      <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">Wallpaper</h3>
+      <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">
+        Wallpaper
+      </h3>
       <div role="radiogroup" aria-label="Wallpaper" className="grid gap-2">
         <ThemeCard
           label="None"
@@ -193,10 +197,11 @@ export function AppearanceSettings() {
 
   return (
     <SettingsPage title="Appearance">
-      <SettingsRow
-        label="Theme"
-        hint="Pick a palette, or follow the system light/dark preference."
-      >
+      <ResponseStyleSetting
+        value={resolveResponseStyle(settings?.appearance.responseStyle)}
+        onChange={(responseStyle) => update({ appearance: { responseStyle } })}
+      />
+      <SettingsRow label="Theme" hint="Pick a palette, or follow the system light/dark preference.">
         <span className="text-xs text-fg-muted">{theme.label}</span>
       </SettingsRow>
 

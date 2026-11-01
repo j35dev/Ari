@@ -12,7 +12,7 @@ export default tseslint.config(
       '**/out/**',
       '**/node_modules/**',
       '**/coverage/**',
-      '.ari/**',
+      '**/.ari/**',
       '.worktrees/**',
       '.claude/worktrees/**',
     ],

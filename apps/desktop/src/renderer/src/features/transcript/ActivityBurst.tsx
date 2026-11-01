@@ -17,7 +17,7 @@ const CLOSE_HOLD_MS = 300
  * would fold away and spring back once per turn boundary. Opening is never
  * delayed: the row is up the moment there is work to show.
  */
-function useHeldLive(live: boolean): boolean {
+export function useHeldLive(live: boolean): boolean {
   const [held, setHeld] = useState(live)
 
   useEffect(() => {

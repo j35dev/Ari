@@ -27,12 +27,7 @@ vi.mock('../../lib/rpc', () => ({
 const engineSettings: Settings = {
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
-  appearance: {
-    themeId: 'obsidian',
-    mode: 'system',
-    reducedMotion: false,
-    wallpaper: 'none',
-  },
+  appearance: { ...defaultSettings.appearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
   notifications: { settleSound: true, desktop: true, discordPresence: true },

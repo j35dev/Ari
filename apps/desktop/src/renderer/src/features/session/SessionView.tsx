@@ -1300,6 +1300,7 @@ export function SessionView({
             onRegenerate={lastUserMessage !== null ? resendLastPrompt : undefined}
             regenerateDisabled={running}
             running={running}
+            responseStyle={engineSettings?.appearance.responseStyle}
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} tasks={tasks} />}
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}

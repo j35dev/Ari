@@ -31,6 +31,10 @@ export type ThemeIdSetting = z.infer<typeof themeIdSchema>
 export const themeModeSchema = z.union([z.literal('system'), themeIdSchema])
 export type ThemeMode = z.infer<typeof themeModeSchema>
 
+/** Desktop transcript presentation. The existing Ari renderer stays the default. */
+export const responseStyleSchema = z.enum(['default', 'flow', 'fold', 'margin', 'signal'])
+export type ResponseStyle = z.infer<typeof responseStyleSchema>
+
 /** Bundled wallpaper identifiers (the paintable scenes; 'none' handled below). */
 export const wallpaperIdSchema = z.enum([
   'anime-city',
@@ -114,6 +118,7 @@ const defaultAppearance = {
   mode: 'system',
   reducedMotion: false,
   wallpaper: 'none',
+  responseStyle: 'default',
 } as const
 
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
@@ -139,6 +144,10 @@ export const settingsSchema = z.object({
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
+      /** Unknown/future styles fall back locally without discarding other saved preferences. */
+      responseStyle: responseStyleSchema
+        .catch(defaultAppearance.responseStyle)
+        .default(defaultAppearance.responseStyle),
       /** Shell shows the Hive roster instead of the session sidebar. */
       hiveView: z.boolean().optional(),
     })
@@ -215,6 +224,7 @@ export const settingsUpdateSchema = z.object({
       mode: themeModeSchema,
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
+      responseStyle: responseStyleSchema,
       hiveView: z.boolean(),
     })
     .partial()
