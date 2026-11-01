@@ -1254,10 +1254,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     ptyFactory,
   )
   const browsers = new BrowserService(
-    (_id, onUpdated) => {
+    (id, onUpdated) => {
       const win = BrowserWindow.fromWebContents(contents)
       if (win === null) throw new Error('browser host window is gone')
-      return createElectronBrowserGuest(win, onUpdated)
+      return createElectronBrowserGuest(win, id, onUpdated)
     },
     (state) => rpcRegistry.publish('browser.updated', state),
   )
