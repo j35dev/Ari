@@ -50,6 +50,20 @@ describe('classifyRemote', () => {
     expect(classifyRemote('origin', url)).toMatchObject({ provider, instance, name, listable })
   })
 
+  it('strips trailing slashes after .git', () => {
+    expect(classifyRemote('origin', 'https://github.com/acme/demo.git/')).toMatchObject({
+      name: 'acme/demo',
+      url: 'https://github.com/acme/demo',
+    })
+    expect(classifyRemote('origin', 'git@github.com:acme/demo.git/')).toMatchObject({
+      name: 'acme/demo',
+      url: 'https://github.com/acme/demo',
+    })
+    expect(classifyRemote('origin', 'https://gitlab.com/g/sub/demo.git/')?.name).toBe(
+      'g/sub/demo',
+    )
+  })
+
   it('does not guess a private host or keep a credential', () => {
     expect(classifyRemote('origin', 'https://git.example.com/acme/demo.git')).toBeNull()
     expect(classifyRemote('origin', 'C:\\repo')).toBeNull()
