@@ -20,8 +20,7 @@ const SHIM = [
   'const w = window',
   'let c = w.__ariClock',
   "if (action !== 'freeze' && !(c && c.frozen)) return { notFrozen: true }",
-  'const installing = !c',
-  'if (installing) {',
+  'if (!c) {',
   '  const real = {',
   '    raf: w.requestAnimationFrame.bind(w),',
   '    caf: w.cancelAnimationFrame.bind(w),',
@@ -64,31 +63,14 @@ const SHIM = [
   '    if (entry.native !== null) c.real.caf(entry.native)',
   '    entry.native = null',
   '  }',
-  // A frame the page scheduled before the shim existed can still fire once; let it land now.
-  '  if (installing) await new Promise(function(done) { c.real.raf(done); w.setTimeout(done, 100) })',
-  // A page that saved the real rAF/clock before the shim, or animates with timers or CSS, keeps changing.
-  '  function canvasHashes() {',
-  "    return Array.from(w.document.querySelectorAll('canvas')).slice(0, 8).map(function(cv) {",
-  '      try {',
-  "        const probe = w.document.createElement('canvas')",
-  '        probe.width = probe.height = 64',
-  "        const ctx = probe.getContext('2d')",
-  '        ctx.drawImage(cv, 0, 0, 64, 64)',
-  '        const px = ctx.getImageData(0, 0, 64, 64).data',
-  '        let h = 0',
-  '        for (let i = 0; i < px.length; i++) h = (h * 31 + px[i]) | 0',
-  '        return h',
-  '      } catch (e) { return null }',
-  '    })',
-  '  }',
-  '  const before = canvasHashes()',
-  '  let mutations = 0',
-  '  const observer = new w.MutationObserver(function(records) { mutations += records.length })',
-  '  observer.observe(w.document, { subtree: true, childList: true, attributes: true, characterData: true })',
-  '  await new Promise(function(done) { w.setTimeout(done, WATCH_MS) })',
-  '  observer.disconnect()',
-  '  const canvases = canvasHashes().filter(function(h, i) { return h !== before[i] }).length',
-  '  return { already: false, now: c.t, mutations, canvases }',
+  // Let a frame the page scheduled before the shim existed land, and the last drawn frame reach the
+  // screen before freezeClock captures it.
+  '  await new Promise(function(done) { c.real.raf(function() { c.real.raf(done) }); w.setTimeout(done, 100) })',
+  // freezeClock reads this back after watching the page; see WATCH_END_SOURCE.
+  '  const watch = c.watch = { mutations: 0, observer: null }',
+  '  watch.observer = new w.MutationObserver(function(records) { watch.mutations += records.length })',
+  '  watch.observer.observe(w.document, { subtree: true, childList: true, attributes: true, characterData: true })',
+  '  return { already: false, now: c.t }',
   '}',
   "if (action === 'step') {",
   '  const start = c.t',
@@ -120,10 +102,40 @@ const SHIM = [
 export function clockSource(action: ClockAction, ms = 0, fps = DEFAULT_CLOCK_FPS): string {
   return [
     '(async () => {',
-    `const action = ${JSON.stringify(action)}, ms = ${String(ms)}, fps = ${String(fps)}, WATCH_MS = ${String(CLOCK_WATCH_MS)}`,
+    `const action = ${JSON.stringify(action)}, ms = ${String(ms)}, fps = ${String(fps)}`,
     ...SHIM,
     '})()',
   ].join('\n')
+}
+
+const WATCH_END_SOURCE = [
+  '(() => {',
+  'const c = window.__ariClock, watch = c && c.watch',
+  'if (!watch) return 0',
+  'watch.observer.disconnect()',
+  'c.watch = null',
+  'return watch.mutations',
+  '})()',
+].join('\n')
+
+/**
+ * Freezes, then watches the page for CLOCK_WATCH_MS. A page the shim does not control (it saved
+ * its own rAF or clock, or animates with timers or CSS) keeps mutating its DOM or repainting,
+ * which two captures of the page catch even for WebGL.
+ */
+export async function freezeClock(
+  run: (code: string) => Promise<unknown>,
+  capture: () => Promise<string | null>,
+): Promise<unknown> {
+  const frozen = await run(clockSource('freeze'))
+  if (frozen === null || typeof frozen !== 'object' || !('already' in frozen) || frozen.already !== false) {
+    return frozen
+  }
+  const before = await capture()
+  await new Promise((resolve) => setTimeout(resolve, CLOCK_WATCH_MS))
+  const after = await capture()
+  const mutations = await run(WATCH_END_SOURCE)
+  return { ...frozen, mutations, repainted: before !== null && after !== null && before !== after }
 }
 
 const NOT_FROZEN =
@@ -151,11 +163,11 @@ export function clockText(
       return { text: `clock already frozen at performance.now() ${fmt(r['now'])}`, isError: false }
     }
     const mutations = num(r['mutations'])
-    const canvases = num(r['canvases'])
+    const repainted = r['repainted'] === true
     const frozen = `clock frozen at performance.now() ${fmt(r['now'])}`
-    if (mutations > 0 || canvases > 0) {
+    if (mutations > 0 || repainted) {
       return {
-        text: `${frozen}, but the page kept changing in the ${String(CLOCK_WATCH_MS)} ms after freeze (${String(mutations)} DOM mutations, ${String(canvases)} canvases redrawn); it likely saved its own requestAnimationFrame, performance.now or Date.now before the freeze, or animates with timers or CSS, so stepping may not control it.`,
+        text: `${frozen}, but the page kept changing in the ${String(CLOCK_WATCH_MS)} ms after freeze (${String(mutations)} DOM mutations, page image ${repainted ? 'changed' : 'unchanged'}); it likely saved its own requestAnimationFrame, performance.now or Date.now before the freeze, or animates with timers or CSS, so stepping may not control it.`,
         isError: false,
       }
     }

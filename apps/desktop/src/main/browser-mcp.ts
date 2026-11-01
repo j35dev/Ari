@@ -14,6 +14,7 @@ import {
   clockSource,
   clockText,
   DEFAULT_CLOCK_FPS,
+  freezeClock,
   MAX_CLOCK_FPS,
   MAX_CLOCK_STEP_MS,
 } from './browser-clock-script'
@@ -392,7 +393,13 @@ export async function dispatchBrowserMcpTool(
       if (action === 'step' && !(fps >= 1 && fps <= MAX_CLOCK_FPS)) {
         return textResult(`fps must be a number from 1 to ${String(MAX_CLOCK_FPS)}`, true)
       }
-      const raw = await browsers.runScript(tabId, clockSource(action, ms, fps))
+      const raw =
+        action === 'freeze'
+          ? await freezeClock(
+              (code) => browsers.runScript(tabId, code),
+              () => browsers.still(tabId),
+            )
+          : await browsers.runScript(tabId, clockSource(action, ms, fps))
       const result = clockText(action, ms, fps, raw)
       return textResult(result.text, result.isError)
     }
