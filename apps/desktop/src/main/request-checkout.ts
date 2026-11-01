@@ -18,7 +18,7 @@ export type FetchRequestHead = (
 /** Fetches a pull or merge request head into an Ari ref. Does not move HEAD. */
 export function fetchRequestHead(git: RepositoryGit): FetchRequestHead {
   return async (remote, remoteRef, localRef, signal) => {
-    const fetched = await git.run(['fetch', '--no-tags', remote, `${remoteRef}:${localRef}`], {
+    const fetched = await git.run(['fetch', '--no-tags', remote, `+${remoteRef}:${localRef}`], {
       signal,
       timeoutMs: 60_000,
     })
@@ -97,7 +97,14 @@ export async function checkoutChangeRequest(
     return err({ code: 'failed', message: 'The fetched request did not resolve to a commit.' })
   }
   await mkdir(parent, { recursive: true })
-  const added = await worktrees.addWorktree(git.cwd, target, branch, 'create-branch', fetched.value)
+  const reset = await git.run(['branch', '-f', branch, fetched.value], { signal })
+  if (!reset.ok) {
+    return err({
+      code: 'failed',
+      message: 'This request branch is already checked out in another worktree.',
+    })
+  }
+  const added = await worktrees.addWorktree(git.cwd, target, branch, 'checkout-branch')
   if (!added.ok) {
     const text = added.error.message.toLowerCase()
     return err({
