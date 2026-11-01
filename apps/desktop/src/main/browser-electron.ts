@@ -20,13 +20,20 @@ function acceleratorKey(key: string): string {
 /**
  * Chromium guest for one in-app tab. Isolated partition, sandboxed, no Node.
  * Popups navigate the same view instead of spawning windows.
+ *
+ * Agent tabs are never laid out, and a hidden view does not paint: rAF stops
+ * and capturePage throws (#432). So they render offscreen, which keeps them
+ * painting without ever drawing into the window. Their viewport follows the
+ * window's size. The inspector stays a normal view because the user sees it.
  */
 export function createElectronBrowserGuest(
   win: BrowserWindow,
+  tabId: string,
   onUpdated: () => void,
 ): BrowserGuest {
   const view = new WebContentsView({
     webPreferences: {
+      offscreen: tabId.startsWith('agent:'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
