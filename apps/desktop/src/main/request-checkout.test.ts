@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -228,8 +228,15 @@ describe('request checkout', () => {
     git(remote, 'update-ref', 'refs/pull/7/head', a)
     const consumer = await repo()
     git(consumer, 'remote', 'add', 'origin', remote)
-    const rootDir = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
-    roots.push(rootDir)
+    const realRoot = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(realRoot)
+    // Reach the root through a symlink, as macOS /var -> /private/var does, so git lists another spelling.
+    let rootDir = realRoot
+    if (process.platform !== 'win32') {
+      rootDir = `${realRoot}-link`
+      await symlink(realRoot, rootDir)
+      roots.push(rootDir)
+    }
     const gitApi = new RepositoryGit(consumer)
     const remotes = [{ name: 'origin', url: 'https://github.com/acme/demo.git' }]
     const options = { rootDir, fetchHead: fetchRequestHead(gitApi) }
