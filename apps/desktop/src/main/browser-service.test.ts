@@ -32,6 +32,7 @@ function fakeGuest(): {
     capturePage: vi.fn(async () => null),
     consoleEntries: () => [],
     sendKey: vi.fn(),
+    sendMouse: vi.fn(),
     setBounds,
     setVisible,
     destroy,
@@ -128,10 +129,10 @@ describe('BrowserService', () => {
       const service = new BrowserService(() => guest, vi.fn())
       await service.open('tab1')
       const pressed = service.key('tab1', 'ArrowRight', 300)
-      expect(sendKey).toHaveBeenCalledExactlyOnceWith('ArrowRight', 'down')
+      expect(sendKey).toHaveBeenCalledExactlyOnceWith('ArrowRight', 'down', [])
       await vi.advanceTimersByTimeAsync(300)
       await pressed
-      expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'up')
+      expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'up', [])
       expect(sendKey).toHaveBeenCalledTimes(2)
     } finally {
       vi.useRealTimers()
@@ -141,6 +142,30 @@ describe('BrowserService', () => {
   it('rejects keys for an unknown tab', async () => {
     const service = new BrowserService(() => fakeGuest().guest, vi.fn())
     await expect(service.key('missing', 'a', 0)).rejects.toThrow('unknown browser tab missing')
+  })
+
+  it('releases a drag at the destination when a move throws', async () => {
+    const { guest } = fakeGuest()
+    guest.executeJavaScript = vi.fn(async () => [800, 600])
+    const sendMouse = vi.fn((phase: string) => {
+      if (phase === 'move') throw new Error('guest gone')
+    })
+    guest.sendMouse = sendMouse
+    const service = new BrowserService(() => guest, vi.fn())
+    await service.open('tab1')
+
+    await expect(
+      service.pointer('tab1', {
+        action: 'drag',
+        x: 0,
+        y: 0,
+        to: { x: 100, y: 100 },
+        button: 'left',
+        modifiers: [],
+      }),
+    ).rejects.toThrow('guest gone')
+    expect(sendMouse.mock.calls.map((call) => call[0])).toEqual(['down', 'move', 'up'])
+    expect(sendMouse).toHaveBeenLastCalledWith('up', 100, 100, 'left', [])
   })
 
   it('hides every guest when the shell reloads or its renderer dies, keeping the pages', async () => {
