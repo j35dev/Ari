@@ -285,7 +285,7 @@ describe('browser_clock', () => {
     expect(frozen.text).toMatch(/^clock frozen at performance\.now\(\) [\d.]+ ms\. requestAnimationFrame/)
   })
 
-  it('stops watching the page when a capture fails mid-watch', async () => {
+  it('stops watching the page and leaves the clock running when a capture fails mid-watch', async () => {
     let captures = 0
     const env = setup('shimmed', () => {
       if (++captures === 2) throw new Error('capture failed')
@@ -306,8 +306,19 @@ describe('browser_clock', () => {
 
     const frozen = await freeze(env)
 
-    expect(frozen).toEqual({ text: 'capture failed', isError: true })
+    expect(frozen).toEqual({
+      text: 'freeze failed (capture failed); the clock was left running',
+      isError: true,
+    })
     expect(observing).toBe(0)
+    const { game, paint, elapse } = env.page()
+    const frames = game.frames
+    const before = window.performance.now()
+    elapse(16)
+    paint()
+    expect(game.frames).toBe(frames + 1)
+    expect(window.performance.now()).toBeGreaterThan(before)
+    expect(await env.clock({ action: 'step', ms: 100 })).toMatchObject({ isError: true })
   })
 
   it('rejects a step without a usable ms', async () => {
