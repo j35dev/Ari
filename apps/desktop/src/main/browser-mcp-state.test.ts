@@ -67,6 +67,7 @@ function browserGuest(pages: Readonly<Record<string, string>>): BrowserGuestFact
       capturePage: async () => null,
       consoleEntries: () => [],
       sendKey: () => {},
+      sendMouse: () => {},
       setBounds: () => {},
       setVisible: () => {},
       destroy: () => dom?.window.close(),
