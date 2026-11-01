@@ -84,11 +84,24 @@ export async function checkoutChangeRequest(
         message: 'A different checkout already uses this request path.',
       })
     }
-    return ok({ path: target, branch, commit: existing.head, number, created: false })
+    if (await stat(target).catch(() => null)) {
+      return ok({ path: target, branch, commit: existing.head, number, created: false })
+    }
+    const removed = await worktrees.removeWorktree(git.cwd, target)
+    if (!removed.ok) {
+      return err({ code: 'failed', message: 'Could not clear the missing request worktree.' })
+    }
   }
   if (await stat(target).catch(() => null)) {
     return err({ code: 'failed', message: 'The request worktree path is already in use.' })
   }
+  if (listed.value.some((row) => row !== existing && row.branch === `refs/heads/${branch}`)) {
+    return err({
+      code: 'failed',
+      message: 'This request branch is already checked out in another worktree.',
+    })
+  }
+  const previous = await readOptional(git, localRef, signal)
   const before = await readPair(git, signal)
   if (!before.ok) return before
   const fetched = await options.fetchHead(host.remote, remoteRef, localRef, signal)
@@ -96,12 +109,26 @@ export async function checkoutChangeRequest(
   if (!oid.test(fetched.value)) {
     return err({ code: 'failed', message: 'The fetched request did not resolve to a commit.' })
   }
+  const tip = await readOptional(git, `refs/heads/${branch}`, signal)
+  if (tip) {
+    const safe =
+      (await git.run(['merge-base', '--is-ancestor', tip, fetched.value], { signal })).ok ||
+      (previous !== undefined &&
+        (await git.run(['merge-base', '--is-ancestor', tip, previous], { signal })).ok)
+    if (!safe) {
+      return err({
+        code: 'failed',
+        message:
+          'This request branch has local commits. Remove or rename it to check out the latest version.',
+      })
+    }
+  }
   await mkdir(parent, { recursive: true })
   const reset = await git.run(['branch', '-f', branch, fetched.value], { signal })
   if (!reset.ok) {
     return err({
       code: 'failed',
-      message: 'This request branch is already checked out in another worktree.',
+      message: 'Could not update the request branch.',
     })
   }
   const added = await worktrees.addWorktree(git.cwd, target, branch, 'checkout-branch')
@@ -141,6 +168,17 @@ async function readCommit(
   return oid.test(commit)
     ? ok(commit)
     : err({ code: 'failed', message: 'The fetched request did not resolve to a commit.' })
+}
+
+async function readOptional(
+  git: RepositoryGit,
+  ref: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const parsed = await git.run(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { signal })
+  if (!parsed.ok) return undefined
+  const commit = parsed.value.trim()
+  return oid.test(commit) ? commit : undefined
 }
 
 async function readPair(

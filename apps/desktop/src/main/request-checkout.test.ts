@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -103,6 +103,145 @@ describe('request checkout', () => {
     expect(second).toMatchObject({ ok: true, value: { created: true, commit: b } })
     if (!second.ok) return
     expect(git(second.value.path, 'rev-parse', 'HEAD')).toBe(b)
+  })
+
+  it('refuses to reset a request branch that has local commits', async () => {
+    const remote = await repo()
+    await writeFile(join(remote, 'a.txt'), 'A\n')
+    git(remote, 'commit', '-qam', 'A')
+    const a = git(remote, 'rev-parse', 'HEAD')
+    git(remote, 'update-ref', 'refs/pull/7/head', a)
+    const consumer = await repo()
+    git(consumer, 'remote', 'add', 'origin', remote)
+    const rootDir = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(rootDir)
+    const gitApi = new RepositoryGit(consumer)
+    const remotes = [{ name: 'origin', url: 'https://github.com/acme/demo.git' }]
+    const options = { rootDir, fetchHead: fetchRequestHead(gitApi) }
+    const signal = new AbortController().signal
+    const first = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(first).toMatchObject({ ok: true, value: { created: true, commit: a } })
+    if (!first.ok) return
+    await writeFile(join(first.value.path, 'local.txt'), 'local\n')
+    git(first.value.path, 'add', '.')
+    git(first.value.path, 'commit', '-qm', 'local')
+    const local = git(first.value.path, 'rev-parse', 'HEAD')
+    git(consumer, 'worktree', 'remove', '--force', first.value.path)
+    const second = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(second).toMatchObject({ ok: false, error: { code: 'failed' } })
+    if (second.ok) return
+    expect(second.error.message).toContain('local commits')
+    expect(git(consumer, 'rev-parse', 'refs/heads/ari/request/github/7')).toBe(local)
+  })
+
+  it('refuses a request branch with local commits when the old request ref is gone', async () => {
+    const remote = await repo()
+    await writeFile(join(remote, 'a.txt'), 'A\n')
+    git(remote, 'commit', '-qam', 'A')
+    const a = git(remote, 'rev-parse', 'HEAD')
+    git(remote, 'update-ref', 'refs/pull/7/head', a)
+    const consumer = await repo()
+    git(consumer, 'remote', 'add', 'origin', remote)
+    const rootDir = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(rootDir)
+    const gitApi = new RepositoryGit(consumer)
+    const remotes = [{ name: 'origin', url: 'https://github.com/acme/demo.git' }]
+    const options = { rootDir, fetchHead: fetchRequestHead(gitApi) }
+    const signal = new AbortController().signal
+    const first = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(first).toMatchObject({ ok: true, value: { created: true, commit: a } })
+    if (!first.ok) return
+    await writeFile(join(first.value.path, 'local.txt'), 'local\n')
+    git(first.value.path, 'add', '.')
+    git(first.value.path, 'commit', '-qm', 'local')
+    const local = git(first.value.path, 'rev-parse', 'HEAD')
+    git(consumer, 'worktree', 'remove', '--force', first.value.path)
+    git(consumer, 'update-ref', '-d', 'refs/ari/requests/github/7')
+    const second = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(second).toMatchObject({ ok: false, error: { code: 'failed' } })
+    if (second.ok) return
+    expect(second.error.message).toContain('local commits')
+    expect(git(consumer, 'rev-parse', 'refs/heads/ari/request/github/7')).toBe(local)
+  })
+
+  it('reports a request branch update failure without blaming another worktree', async () => {
+    const remote = await repo()
+    git(remote, 'update-ref', 'refs/pull/7/head', git(remote, 'rev-parse', 'HEAD'))
+    const consumer = await repo()
+    git(consumer, 'remote', 'add', 'origin', remote)
+    const rootDir = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(rootDir)
+    await mkdir(join(consumer, '.git', 'refs', 'heads', 'ari', 'request', 'github'), {
+      recursive: true,
+    })
+    await writeFile(
+      join(consumer, '.git', 'refs', 'heads', 'ari', 'request', 'github', '7.lock'),
+      '',
+    )
+    const gitApi = new RepositoryGit(consumer)
+    const result = await checkoutChangeRequest(
+      gitApi,
+      [{ name: 'origin', url: 'https://github.com/acme/demo.git' }],
+      7,
+      { rootDir, fetchHead: fetchRequestHead(gitApi) },
+      new AbortController().signal,
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'failed', message: 'Could not update the request branch.' },
+    })
+  })
+
+  it('reports a request branch checked out in another worktree', async () => {
+    const remote = await repo()
+    await writeFile(join(remote, 'a.txt'), 'A\n')
+    git(remote, 'commit', '-qam', 'A')
+    const a = git(remote, 'rev-parse', 'HEAD')
+    git(remote, 'update-ref', 'refs/pull/7/head', a)
+    const consumer = await repo()
+    git(consumer, 'remote', 'add', 'origin', remote)
+    const rootDir = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(rootDir)
+    const gitApi = new RepositoryGit(consumer)
+    const remotes = [{ name: 'origin', url: 'https://github.com/acme/demo.git' }]
+    const options = { rootDir, fetchHead: fetchRequestHead(gitApi) }
+    const signal = new AbortController().signal
+    const first = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(first).toMatchObject({ ok: true, value: { created: true, commit: a } })
+    if (!first.ok) return
+    git(consumer, 'worktree', 'remove', '--force', first.value.path)
+    git(consumer, 'checkout', '-q', 'ari/request/github/7')
+    const second = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(second).toMatchObject({ ok: false, error: { code: 'failed' } })
+    if (second.ok) return
+    expect(second.error.message).toBe(
+      'This request branch is already checked out in another worktree.',
+    )
+    git(consumer, 'checkout', '-q', '-')
+  })
+
+  it('recreates a request worktree whose folder was deleted', async () => {
+    const remote = await repo()
+    await writeFile(join(remote, 'a.txt'), 'A\n')
+    git(remote, 'commit', '-qam', 'A')
+    const a = git(remote, 'rev-parse', 'HEAD')
+    git(remote, 'update-ref', 'refs/pull/7/head', a)
+    const consumer = await repo()
+    git(consumer, 'remote', 'add', 'origin', remote)
+    const rootDir = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(rootDir)
+    const gitApi = new RepositoryGit(consumer)
+    const remotes = [{ name: 'origin', url: 'https://github.com/acme/demo.git' }]
+    const options = { rootDir, fetchHead: fetchRequestHead(gitApi) }
+    const signal = new AbortController().signal
+    const first = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(first).toMatchObject({ ok: true, value: { created: true, commit: a } })
+    if (!first.ok) return
+    await rm(first.value.path, { recursive: true, force: true })
+    const second = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    expect(second).toMatchObject({ ok: true, value: { created: true } })
+    if (!second.ok) return
+    expect(git(second.value.path, 'rev-parse', 'HEAD')).toBe(a)
   })
 
   it('re-checks out a request after its worktree was removed', async () => {
