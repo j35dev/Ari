@@ -1,6 +1,6 @@
 import { WebContentsView, type BrowserWindow, type WebContents } from 'electron'
 import { ConsoleBuffer } from './browser-console'
-import type { BrowserGuest } from './browser-service'
+import type { BrowserGuest, PointerButton } from './browser-service'
 import { isBrowserNavigable } from './browser-url'
 
 export const BROWSER_PARTITION = 'persist:ari-browser'
@@ -37,6 +37,7 @@ export function createElectronBrowserGuest(
   view.setBounds({ x: 0, y: 0, width: 800, height: 600 })
   view.setVisible(false)
   const wc = view.webContents
+  let heldButton: PointerButton | null = null
   wc.setUserAgent(wc.getUserAgent().replace(/\sElectron\/\S+/g, ''))
 
   const emit = (): void => onUpdated()
@@ -95,11 +96,34 @@ export function createElectronBrowserGuest(
         return null
       }
     },
-    sendKey: (key, phase) => {
+    sendKey: (key, phase, modifiers) => {
       if (!wc.isFocused()) wc.focus()
       wc.sendInputEvent({
         type: phase === 'down' ? 'keyDown' : 'keyUp',
         keyCode: acceleratorKey(key),
+        modifiers,
+      })
+    },
+    sendMouse: (phase, x, y, button, modifiers) => {
+      if (!wc.isFocused()) wc.focus()
+      if (phase === 'down' || phase === 'up') {
+        wc.sendInputEvent({
+          type: phase === 'down' ? 'mouseDown' : 'mouseUp',
+          x,
+          y,
+          button,
+          clickCount: 1,
+          modifiers,
+        })
+        heldButton = phase === 'down' ? button : null
+        return
+      }
+      wc.sendInputEvent({
+        type: 'mouseMove',
+        x,
+        y,
+        modifiers:
+          heldButton === null ? modifiers : [...modifiers, `${heldButton}buttondown` as const],
       })
     },
     setBounds: (bounds) => view.setBounds(bounds),

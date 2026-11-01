@@ -23,11 +23,13 @@ function guest(): BrowserGuest {
     isLoading: () => false,
     executeJavaScript: vi.fn(async (code: string) => {
       if (code.includes('el.click()') || code.includes('el.focus()')) return true
+      if (code.includes('innerWidth')) return [800, 600]
       return { url, title: 'Example', text: 'hi', elements: [] }
     }),
     capturePage: vi.fn(async () => null),
     consoleEntries: () => [],
     sendKey: vi.fn(),
+    sendMouse: vi.fn(),
     setBounds: vi.fn(),
     setVisible: vi.fn(),
     destroy: vi.fn(),
@@ -103,11 +105,11 @@ describe('dispatchBrowserMcpTool', () => {
     const held = dispatchBrowserMcpTool(service, 'browser_key', { key: 'ArrowRight', holdMs: 500 })
     await vi.advanceTimersByTimeAsync(0)
     expect(sendKey).toHaveBeenCalledTimes(1)
-    expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'down')
+    expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'down', [])
     await vi.advanceTimersByTimeAsync(499)
     expect(sendKey).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
-    expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'up')
+    expect(sendKey).toHaveBeenLastCalledWith('ArrowRight', 'up', [])
     expect(text(await held)).toBe('pressed ArrowRight for 500ms')
 
     const long = dispatchBrowserMcpTool(service, 'browser_key', { key: 'a', holdMs: 60_000 })
@@ -133,8 +135,8 @@ describe('dispatchBrowserMcpTool', () => {
     expect(failed.isError).toBe(true)
     expect(text(failed)).toBe('guest gone')
     expect(sendKey.mock.calls).toEqual([
-      ['a', 'down'],
-      ['a', 'up'],
+      ['a', 'down', []],
+      ['a', 'up', []],
     ])
   })
 
@@ -147,6 +149,130 @@ describe('dispatchBrowserMcpTool', () => {
     const failed = await dispatchBrowserMcpTool(service, 'browser_key', { key: 'a', holdMs: 0 })
     expect(failed.isError).toBe(true)
     expect(text(failed)).toBe('Object has been destroyed')
+  })
+
+  it('clicks with pointer down then up at the given point', async () => {
+    const g = guest()
+    const sendMouse = vi.fn()
+    g.sendMouse = sendMouse
+    const service = new BrowserService(() => g, vi.fn())
+
+    const result = await dispatchBrowserMcpTool(service, 'browser_pointer', {
+      action: 'click',
+      x: 123,
+      y: 45,
+    })
+
+    expect(result.isError).toBeUndefined()
+    expect(text(result)).toBe('click at 123,45')
+    expect(sendMouse.mock.calls).toEqual([
+      ['down', 123, 45, 'left', []],
+      ['up', 123, 45, 'left', []],
+    ])
+  })
+
+  it('drags through moves and releases at the destination', async () => {
+    const g = guest()
+    const sendMouse = vi.fn()
+    g.sendMouse = sendMouse
+    const service = new BrowserService(() => g, vi.fn())
+
+    const result = await dispatchBrowserMcpTool(service, 'browser_pointer', {
+      action: 'drag',
+      x: 10,
+      y: 20,
+      toX: 110,
+      toY: 220,
+    })
+
+    expect(result.isError).toBeUndefined()
+    expect(text(result)).toBe('drag from 10,20 to 110,220')
+    const calls = sendMouse.mock.calls
+    const moves = calls.slice(1, -1)
+    expect(calls[0]).toEqual(['down', 10, 20, 'left', []])
+    expect(moves.length).toBeGreaterThanOrEqual(1)
+    expect(moves.at(-1)).toEqual(['move', 110, 220, 'left', []])
+    expect(calls.at(-1)).toEqual(['up', 110, 220, 'left', []])
+    expect(calls.map((call) => call[0])).toEqual(['down', ...moves.map(() => 'move'), 'up'])
+  })
+
+  it('rejects pointer input outside the viewport without sending it', async () => {
+    const g = guest()
+    const sendMouse = vi.fn()
+    g.sendMouse = sendMouse
+    const service = new BrowserService(() => g, vi.fn())
+
+    const outsideStart = await dispatchBrowserMcpTool(service, 'browser_pointer', {
+      action: 'drag',
+      x: 800,
+      y: -1,
+      toX: 5000,
+      toY: 10,
+    })
+    expect(outsideStart.isError).toBe(true)
+    expect(text(outsideStart)).toContain('outside the 800x600 viewport')
+
+    const outsideEnd = await dispatchBrowserMcpTool(service, 'browser_pointer', {
+      action: 'drag',
+      x: 10,
+      y: 10,
+      toX: 5000,
+      toY: 20,
+    })
+    expect(outsideEnd.isError).toBe(true)
+    expect(text(outsideEnd)).toContain('outside the 800x600 viewport')
+    expect(sendMouse).not.toHaveBeenCalled()
+  })
+
+  it('passes modifiers to mouse and key input', async () => {
+    const g = guest()
+    const sendMouse = vi.fn()
+    const sendKey = vi.fn()
+    g.sendMouse = sendMouse
+    g.sendKey = sendKey
+    const service = new BrowserService(() => g, vi.fn())
+
+    await dispatchBrowserMcpTool(service, 'browser_pointer', {
+      action: 'down',
+      x: 10,
+      y: 20,
+      modifiers: ['shift'],
+    })
+    expect(sendMouse).toHaveBeenCalledWith('down', 10, 20, 'left', ['shift'])
+
+    await dispatchBrowserMcpTool(service, 'browser_key', {
+      key: 'a',
+      holdMs: 0,
+      modifiers: ['shift'],
+    })
+    expect(sendKey).toHaveBeenCalledWith('a', 'down', ['shift'])
+    expect(sendKey).toHaveBeenCalledWith('a', 'up', ['shift'])
+  })
+
+  it('rejects an unknown modifier without sending input', async () => {
+    const g = guest()
+    const sendMouse = vi.fn()
+    const sendKey = vi.fn()
+    g.sendMouse = sendMouse
+    g.sendKey = sendKey
+    const service = new BrowserService(() => g, vi.fn())
+
+    const pointer = await dispatchBrowserMcpTool(service, 'browser_pointer', {
+      action: 'click',
+      x: 1,
+      y: 2,
+      modifiers: ['hyper'],
+    })
+    expect(pointer.isError).toBe(true)
+
+    const key = await dispatchBrowserMcpTool(service, 'browser_key', {
+      key: 'a',
+      holdMs: 0,
+      modifiers: ['hyper'],
+    })
+    expect(key.isError).toBe(true)
+    expect(sendMouse).not.toHaveBeenCalled()
+    expect(sendKey).not.toHaveBeenCalled()
   })
 })
 
@@ -216,6 +342,31 @@ describe('startBrowserMcpServer', () => {
       })
       expect(revoked.status).toBe(401)
       expect(destroyed).toBe(1)
+    } finally {
+      handle.close()
+    }
+  })
+
+  it('routes pointer input to its session tab', async () => {
+    const guests = new Map<string, BrowserGuest>()
+    const service = new BrowserService((id) => {
+      const created = guest()
+      guests.set(id, created)
+      return created
+    }, vi.fn())
+    const handle = await startBrowserMcpServer(service)
+    const first = handle.tokenFor('sess-a')
+    const second = handle.tokenFor('sess-b')
+    try {
+      await callTool(handle.url, second, 'browser_status')
+      const result = await callTool(handle.url, first, 'browser_pointer', {
+        action: 'click',
+        x: 10,
+        y: 20,
+      })
+      expect(result.content[0]?.text).toBe('click at 10,20')
+      expect(guests.get('agent:sess-a')?.sendMouse).toHaveBeenCalledTimes(2)
+      expect(guests.get('agent:sess-b')?.sendMouse).not.toHaveBeenCalled()
     } finally {
       handle.close()
     }
@@ -331,7 +482,12 @@ describe('startBrowserMcpServer', () => {
       expect(ok.status).toBe(200)
       const body = (await ok.json()) as { result?: { tools?: { name: string }[] } }
       expect(body.result?.tools?.map((t) => t.name)).toEqual(
-        expect.arrayContaining(['browser_navigate', 'browser_screenshot', 'browser_key']),
+        expect.arrayContaining([
+          'browser_navigate',
+          'browser_screenshot',
+          'browser_key',
+          'browser_pointer',
+        ]),
       )
     } finally {
       handle.close()
