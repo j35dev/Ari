@@ -4,11 +4,12 @@ import type { SessionCreateParams } from '@ari/contracts/rpc'
 import type { Session } from '@ari/contracts/session'
 import type { BotStore } from '@ari/engine/bots'
 import { createLogger } from '@ari/shared/logger'
+import type { RpcRegistry } from './rpc-registry'
 
 const log = createLogger('desktop:bots')
 
 export interface SessionCreateDeps {
-  bots: Pick<BotStore, 'get' | 'create' | 'update'>
+  bots: Pick<BotStore, 'get' | 'create' | 'update' | 'list'>
   loadProject: (projectId: string) => Promise<unknown>
   createSession: (session: Session) => Promise<void>
   defaultPermissionMode: () => PermissionMode
@@ -86,4 +87,10 @@ export async function updateBot(
     log.warn('team rooms did not pick up a bot edit', { botId, error: String(error) })
   }
   return bot
+}
+
+export function registerBotRpc(r: Pick<RpcRegistry, 'register'>, deps: SessionCreateDeps): void {
+  r.register('bots.list', () => deps.bots.list())
+  r.register('bots.create', (params) => createBot(deps, params))
+  r.register('bots.setHidden', ({ botId, hidden }) => deps.bots.update(botId, { hidden }))
 }

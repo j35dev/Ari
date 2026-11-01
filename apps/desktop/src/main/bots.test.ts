@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Bot } from '@ari/contracts/bot'
 import { BotStore } from '@ari/engine/bots'
 import { SessionStore } from '@ari/engine/session-store'
-import { createBot, createSession, updateBot, type SessionCreateDeps } from './bots'
+import { createBot, createSession, registerBotRpc, updateBot, type SessionCreateDeps } from './bots'
+import { RpcRegistry } from './rpc-registry'
 
 let dir: string
 let bots: BotStore
@@ -122,6 +123,13 @@ it('creates a bot whose main session runs as that bot', async () => {
   )
 })
 
+it('creates a bot whose main session uses the configured default permission mode', async () => {
+  const bot = await createBot({ ...deps, defaultPermissionMode: () => 'allow-edits' }, botInput)
+
+  const { session } = await sessions.load(bot.mainSessionId!)
+  expect(session?.permissionMode).toBe('allow-edits')
+})
+
 it('leaves the bot without a main session when the session cannot be created', async () => {
   const failing: SessionCreateDeps = {
     ...deps,
@@ -141,14 +149,24 @@ it('refuses a bot for an unknown project before writing it', async () => {
   expect(await bots.list()).toEqual([])
 })
 
-it('hides and unhides a bot', async () => {
+it('hides and unhides a bot through RPC', async () => {
+  const registry = new RpcRegistry({ send: () => undefined })
+  registerBotRpc(registry, deps)
   const bot = await bots.create(botInput)
 
-  await bots.update(bot.id, { hidden: true })
+  await registry.invoke('bots.setHidden', { botId: bot.id, hidden: true })
   expect((await new BotStore({ dir: join(dir, 'bots') }).get(bot.id))?.hidden).toBe(true)
+  const hiddenList = (await registry.invoke('bots.list', undefined)) as Bot[]
+  expect(hiddenList.find((b) => b.id === bot.id)?.hidden).toBe(true)
 
-  await bots.update(bot.id, { hidden: false })
+  await registry.invoke('bots.setHidden', { botId: bot.id, hidden: false })
   expect((await new BotStore({ dir: join(dir, 'bots') }).get(bot.id))?.hidden).toBe(false)
+  const visibleList = (await registry.invoke('bots.list', undefined)) as Bot[]
+  expect(visibleList.find((b) => b.id === bot.id)?.hidden).toBe(false)
+
+  await expect(
+    registry.invoke('bots.setHidden', { botId: 'bot_missing', hidden: true }),
+  ).rejects.toThrow('unknown bot: bot_missing')
 })
 
 it('updates a bot, writes its persona to its own file, and refreshes its rooms', async () => {

@@ -34,7 +34,7 @@ import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
-import { createBot, createSession, updateBot, type SessionCreateDeps } from './bots'
+import { createSession, registerBotRpc, updateBot, type SessionCreateDeps } from './bots'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -1621,9 +1621,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.list', async () => getSessionStore().listSessions())
 
   r.register('session.create', (params) => createSession(sessionDeps, params))
-  r.register('bots.list', () => getBotStore().list())
-  r.register('bots.create', (params) => createBot(sessionDeps, params))
-  r.register('bots.setHidden', ({ botId, hidden }) => getBotStore().update(botId, { hidden }))
+  registerBotRpc(r, sessionDeps)
   r.register('bots.update', ({ botId, patch }) =>
     updateBot(
       {
