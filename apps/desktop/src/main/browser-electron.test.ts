@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { BrowserWindow } from 'electron'
-import { createElectronBrowserGuest } from './browser-electron'
+import type { BrowserWindow, WebContents } from 'electron'
+import { createElectronBrowserGuest, hostedBrowserGuestFactory } from './browser-electron'
 
 const mocks = vi.hoisted(() => {
   const views: { webPreferences: Record<string, unknown> }[] = []
@@ -18,10 +18,14 @@ const mocks = vi.hoisted(() => {
     setBounds = vi.fn()
     setVisible = vi.fn()
   }
-  return { views, WebContentsView }
+  const BrowserWindow = { fromWebContents: vi.fn() }
+  return { views, WebContentsView, BrowserWindow }
 })
 
-vi.mock('electron', () => ({ WebContentsView: mocks.WebContentsView }))
+vi.mock('electron', () => ({
+  WebContentsView: mocks.WebContentsView,
+  BrowserWindow: mocks.BrowserWindow,
+}))
 
 function hostWindow(): BrowserWindow {
   return { contentView: { addChildView: vi.fn() } } as unknown as BrowserWindow
@@ -42,5 +46,25 @@ describe('createElectronBrowserGuest rendering', () => {
     createElectronBrowserGuest(hostWindow(), 'inspector', vi.fn())
 
     expect(mocks.views[0]?.webPreferences).toMatchObject({ offscreen: false, sandbox: true })
+  })
+})
+
+describe('hostedBrowserGuestFactory', () => {
+  it('passes the tab id through so agent tabs from the service factory render offscreen', () => {
+    mocks.BrowserWindow.fromWebContents.mockReturnValue(hostWindow())
+    const createGuest = hostedBrowserGuestFactory({} as WebContents)
+
+    createGuest('agent:sess-a', vi.fn())
+    createGuest('inspector', vi.fn())
+
+    expect(mocks.views.map((v) => v.webPreferences.offscreen)).toEqual([true, false])
+  })
+
+  it('refuses when the host window is gone', () => {
+    mocks.BrowserWindow.fromWebContents.mockReturnValue(null)
+
+    expect(() => hostedBrowserGuestFactory({} as WebContents)('agent:sess-a', vi.fn())).toThrow(
+      'browser host window is gone',
+    )
   })
 })

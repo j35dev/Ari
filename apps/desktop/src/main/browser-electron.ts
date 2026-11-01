@@ -1,6 +1,6 @@
-import { WebContentsView, type BrowserWindow, type WebContents } from 'electron'
+import { BrowserWindow, WebContentsView, type WebContents } from 'electron'
 import { ConsoleBuffer } from './browser-console'
-import type { BrowserGuest } from './browser-service'
+import type { BrowserGuest, BrowserGuestFactory } from './browser-service'
 import { isBrowserNavigable } from './browser-url'
 
 export const BROWSER_PARTITION = 'persist:ari-browser'
@@ -15,6 +15,19 @@ export function isBrowserGuest(contents: WebContents): boolean {
 function acceleratorKey(key: string): string {
   if (key === ' ') return 'Space'
   return key.startsWith('Arrow') ? key.slice('Arrow'.length) : key
+}
+
+/**
+ * BrowserService guest factory for the window hosting `contents`. The tab id
+ * must reach createElectronBrowserGuest: it decides whether the tab renders
+ * offscreen.
+ */
+export function hostedBrowserGuestFactory(contents: WebContents): BrowserGuestFactory {
+  return (tabId, onUpdated) => {
+    const win = BrowserWindow.fromWebContents(contents)
+    if (win === null) throw new Error('browser host window is gone')
+    return createElectronBrowserGuest(win, tabId, onUpdated)
+  }
 }
 
 /**

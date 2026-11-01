@@ -80,7 +80,7 @@ import {
   type PtyLike,
 } from './terminal-service'
 import { BrowserService, hideGuestsOnShellReset } from './browser-service'
-import { createElectronBrowserGuest } from './browser-electron'
+import { hostedBrowserGuestFactory } from './browser-electron'
 import { startBrowserMcpServer, writeBrowserMcpProxy, type BrowserMcpHandle } from './browser-mcp'
 import { buildExtensionInventory, readInventoriedSkill } from './extension-inventory'
 import {
@@ -1253,13 +1253,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
     ptyFactory,
   )
-  const browsers = new BrowserService(
-    (id, onUpdated) => {
-      const win = BrowserWindow.fromWebContents(contents)
-      if (win === null) throw new Error('browser host window is gone')
-      return createElectronBrowserGuest(win, id, onUpdated)
-    },
-    (state) => rpcRegistry.publish('browser.updated', state),
+  const browsers = new BrowserService(hostedBrowserGuestFactory(contents), (state) =>
+    rpcRegistry.publish('browser.updated', state),
   )
   hideGuestsOnShellReset(contents, browsers)
   contents.once('destroyed', () => {
