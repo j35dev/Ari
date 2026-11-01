@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BrowserService, type BrowserGuest } from './browser-service'
 import {
   BROWSER_MCP_TOOLS,
+  BROWSER_STATE_TIMEOUT_MS,
   dispatchBrowserMcpTool,
   MAX_BROWSER_STATE_CHARS,
   startBrowserMcpServer,
@@ -45,7 +46,7 @@ function guest(): BrowserGuest {
 function pageGuest(page: Record<string, unknown>): BrowserGuest {
   const g = guest()
   g.executeJavaScript = vi.fn(async (code: string): Promise<unknown> =>
-    runInNewContext(code, { window: page }),
+    runInNewContext(code, { window: page, setTimeout, clearTimeout }),
   )
   return g
 }
@@ -223,6 +224,41 @@ describe('dispatchBrowserMcpTool', () => {
     const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
     expect(out).toBe(JSON.stringify({ blob }))
     expect(out).toHaveLength(MAX_BROWSER_STATE_CHARS)
+  })
+
+  it('does not split an emoji when the cap lands inside it', async () => {
+    const prefix = '{"s":"'
+    const s = `${'x'.repeat(MAX_BROWSER_STATE_CHARS - prefix.length - 1)}😀tail`
+    const json = JSON.stringify({ s })
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: () => ({ s }) } }),
+      vi.fn(),
+    )
+
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+
+    const kept = MAX_BROWSER_STATE_CHARS - 1
+    expect(out).toBe(
+      `${json.slice(0, kept)}…[truncated ${String(json.length - kept)} of ${String(json.length)} chars]`,
+    )
+  })
+
+  it('fails a state hook that never settles after the time limit', async () => {
+    vi.useFakeTimers()
+    try {
+      const service = new BrowserService(
+        () => pageGuest({ __ari: { state: () => new Promise(() => {}) } }),
+        vi.fn(),
+      )
+      const pending = dispatchBrowserMcpTool(service, 'browser_state', {})
+      await vi.advanceTimersByTimeAsync(BROWSER_STATE_TIMEOUT_MS)
+      const result = await pending
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('did not settle within 5 s')
+      expect(text(result)).toContain('#432')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reports a state hook that throws as an error', async () => {

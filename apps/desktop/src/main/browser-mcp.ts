@@ -56,12 +56,23 @@ const DEFAULT_KEY_HOLD_MS = 50
 const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,'
 /** browser_state output longer than this is cut, with a marker saying how much was dropped. */
 export const MAX_BROWSER_STATE_CHARS = 20_000
+/** browser_state fails if window.__ari.state() has not settled by then. */
+export const BROWSER_STATE_TIMEOUT_MS = 5_000
+const STATE_TIMEOUT_MESSAGE = `window.__ari.state() did not settle within ${String(BROWSER_STATE_TIMEOUT_MS / 1000)} s. Hidden agent tabs never run requestAnimationFrame (#432), so a hook that waits for a frame never settles there.`
 // Fixed on purpose: browser_state never runs caller-supplied code.
 const STATE_SOURCE = `(async () => {
   const ari = window.__ari
   if (!ari || typeof ari.state !== 'function') return { hook: false }
-  const json = JSON.stringify(await ari.state())
-  return { hook: true, json: json === undefined ? 'null' : json }
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(${JSON.stringify(STATE_TIMEOUT_MESSAGE)})), ${String(BROWSER_STATE_TIMEOUT_MS)})
+  })
+  try {
+    const json = JSON.stringify(await Promise.race([ari.state(), timeout]))
+    return { hook: true, json: json === undefined ? 'null' : json }
+  } finally {
+    clearTimeout(timer)
+  }
 })()`
 const NO_STATE_HOOK =
   'This page has no window.__ari.state() hook. Ask the game to expose window.__ari = { state: () => ({ ... }) } returning JSON-serializable state, or use browser_screenshot.'
@@ -70,8 +81,12 @@ function stateText(result: unknown): string {
   const { hook, json } = asRecord(result)
   if (hook !== true || typeof json !== 'string') return NO_STATE_HOOK
   if (json.length <= MAX_BROWSER_STATE_CHARS) return json
-  const dropped = json.length - MAX_BROWSER_STATE_CHARS
-  return `${json.slice(0, MAX_BROWSER_STATE_CHARS)}…[truncated ${String(dropped)} of ${String(json.length)} chars]`
+  // Back off one unit rather than cut a surrogate pair in half.
+  const end =
+    MAX_BROWSER_STATE_CHARS -
+    (/[\uD800-\uDBFF]/.test(json[MAX_BROWSER_STATE_CHARS - 1] ?? '') ? 1 : 0)
+  const dropped = json.length - end
+  return `${json.slice(0, end)}…[truncated ${String(dropped)} of ${String(json.length)} chars]`
 }
 
 function textResult(text: string, isError = false): BrowserMcpResult {
