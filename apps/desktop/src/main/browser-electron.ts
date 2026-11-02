@@ -18,6 +18,50 @@ function acceleratorKey(key: string): string {
   return key.startsWith('Arrow') ? key.slice('Arrow'.length) : key
 }
 
+/** Offscreen agent tabs paint at this rate instead of Electron's default 60. */
+export const AGENT_TAB_FRAME_RATE = 30
+/** An agent tab with no browser tool use for this long stops painting. */
+export const AGENT_TAB_IDLE_MS = 2 * 60_000
+/** After painting restarts, a capture waits this long for a fresh frame. */
+export const AGENT_TAB_WAKE_MS = 100
+
+interface PaintControl {
+  startPainting(): void
+  stopPainting(): void
+  isDestroyed(): boolean
+}
+
+/**
+ * Stops painting an offscreen tab once it has gone `idleMs` without a tool
+ * action. wake() restarts painting and the idle clock before each action, and
+ * returns true when the tab had been asleep.
+ */
+function idlePainter(wc: PaintControl): { wake(): boolean; dispose(): void } {
+  let asleep = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const arm = (): void => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (wc.isDestroyed()) return
+      wc.stopPainting()
+      asleep = true
+    }, AGENT_TAB_IDLE_MS)
+  }
+  arm()
+  return {
+    wake: () => {
+      const woke = asleep
+      if (asleep && !wc.isDestroyed()) {
+        wc.startPainting()
+        asleep = false
+      }
+      arm()
+      return woke
+    },
+    dispose: () => clearTimeout(timer),
+  }
+}
+
 /**
  * BrowserService guest factory for the window hosting `contents`. The tab id
  * must reach createElectronBrowserGuest: it decides whether the tab renders
@@ -39,15 +83,17 @@ export function hostedBrowserGuestFactory(contents: WebContents): BrowserGuestFa
  * and capturePage throws (#432). So they render offscreen, which keeps them
  * painting without ever drawing into the window. Their viewport follows the
  * window's size. The inspector stays a normal view because the user sees it.
+ * Offscreen tabs paint at AGENT_TAB_FRAME_RATE and stop painting while idle.
  */
 export function createElectronBrowserGuest(
   win: BrowserWindow,
   tabId: string,
   onUpdated: () => void,
 ): BrowserGuest {
+  const offscreen = tabId.startsWith('agent:')
   const view = new WebContentsView({
     webPreferences: {
-      offscreen: tabId.startsWith('agent:'),
+      offscreen,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -60,6 +106,9 @@ export function createElectronBrowserGuest(
   const wc = view.webContents
   let heldButton: PointerButton | null = null
   wc.setUserAgent(wc.getUserAgent().replace(/\sElectron\/\S+/g, ''))
+  if (offscreen) wc.setFrameRate(AGENT_TAB_FRAME_RATE)
+  const painter = offscreen ? idlePainter(wc) : null
+  const wake = (): boolean => painter?.wake() ?? false
 
   const emit = (): void => onUpdated()
   const consoleBuffer = new ConsoleBuffer()
@@ -93,22 +142,35 @@ export function createElectronBrowserGuest(
   })
 
   return {
-    loadURL: (url) => wc.loadURL(url),
+    loadURL: (url) => {
+      wake()
+      return wc.loadURL(url)
+    },
     goBack: () => {
+      wake()
       if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
     },
     goForward: () => {
+      wake()
       if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward()
     },
-    reload: () => wc.reload(),
+    reload: () => {
+      wake()
+      wc.reload()
+    },
     canGoBack: () => wc.navigationHistory.canGoBack(),
     canGoForward: () => wc.navigationHistory.canGoForward(),
     getURL: () => wc.getURL(),
     getTitle: () => wc.getTitle(),
     isLoading: () => wc.isLoading(),
-    executeJavaScript: (code) => wc.executeJavaScript(code, true),
+    executeJavaScript: (code) => {
+      wake()
+      return wc.executeJavaScript(code, true)
+    },
     consoleEntries: () => consoleBuffer.entries(),
     capturePage: async (rect, format = 'png', size) => {
+      // A tab that was asleep still holds its last frame; let it paint a new one.
+      if (wake()) await new Promise((resolve) => setTimeout(resolve, AGENT_TAB_WAKE_MS))
       try {
         return encodeCapture(await wc.capturePage(rect), format, size)
       } catch {
@@ -116,6 +178,7 @@ export function createElectronBrowserGuest(
       }
     },
     sendKey: (key, phase, modifiers) => {
+      wake()
       if (!wc.isFocused()) wc.focus()
       wc.sendInputEvent({
         type: phase === 'down' ? 'keyDown' : 'keyUp',
@@ -124,6 +187,7 @@ export function createElectronBrowserGuest(
       })
     },
     sendMouse: (phase, x, y, button, modifiers) => {
+      wake()
       if (!wc.isFocused()) wc.focus()
       if (phase === 'down' || phase === 'up') {
         wc.sendInputEvent({
@@ -148,6 +212,7 @@ export function createElectronBrowserGuest(
     setBounds: (bounds) => view.setBounds(bounds),
     setVisible: (visible) => view.setVisible(visible),
     destroy: () => {
+      painter?.dispose()
       if (!win.isDestroyed()) win.contentView.removeChildView(view)
       if (!wc.isDestroyed()) wc.close()
     },
