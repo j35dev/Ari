@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { encodeCapture, type CapturedImage } from './browser-capture'
 
-function image(width: number, height: number): CapturedImage & { resize: ReturnType<typeof vi.fn> } {
+function image(
+  width: number,
+  height: number,
+): CapturedImage & { resize: ReturnType<typeof vi.fn> } {
   const self = {
     getSize: () => ({ width, height }),
     resize: vi.fn((size: { width: number; height: number }) => image(size.width, size.height)),

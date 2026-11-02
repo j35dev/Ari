@@ -65,34 +65,58 @@ export const MAX_BROWSER_STATE_CHARS = 20_000
 /** browser_state fails if window.__ari.state() has not settled by then. */
 export const BROWSER_STATE_TIMEOUT_MS = 5_000
 const STATE_TIMEOUT_MESSAGE = `window.__ari.state() did not settle within ${String(BROWSER_STATE_TIMEOUT_MS / 1000)} s. A hook that waits for requestAnimationFrame never settles while the tab isn't rendering.`
-// Fixed on purpose: browser_state never runs caller-supplied code.
+// Fixed on purpose: browser_state never runs caller-supplied code. The page
+// cuts the JSON to the cap itself so an oversized state never crosses IPC,
+// and reports the full length so the tool can say how much was dropped. The
+// time limit is enforced in the main process (withTimeout), since a page can
+// replace setTimeout and Promise.race.
 const STATE_SOURCE = `(async () => {
   const ari = window.__ari
   if (!ari || typeof ari.state !== 'function') return { hook: false }
-  let timer
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(${JSON.stringify(STATE_TIMEOUT_MESSAGE)})), ${String(BROWSER_STATE_TIMEOUT_MS)})
-  })
-  try {
-    const json = JSON.stringify(await Promise.race([ari.state(), timeout]))
-    return { hook: true, json: json === undefined ? 'null' : json }
-  } finally {
-    clearTimeout(timer)
-  }
+  const out = JSON.stringify(await ari.state())
+  const json = out === undefined ? 'null' : out
+  const cap = ${String(MAX_BROWSER_STATE_CHARS)}
+  if (json.length <= cap) return { hook: true, json, length: json.length }
+  const last = json.charCodeAt(cap - 1)
+  const end = last >= 0xd800 && last <= 0xdbff ? cap - 1 : cap
+  return { hook: true, json: json.slice(0, end), length: json.length }
 })()`
 const NO_STATE_HOOK =
   'This page has no window.__ari.state() hook. Ask the game to expose window.__ari = { state: () => ({ ... }) } returning JSON-serializable state, or use browser_screenshot.'
 
 function stateText(result: unknown): string {
-  const { hook, json } = asRecord(result)
+  const { hook, json, length } = asRecord(result)
   if (hook !== true || typeof json !== 'string') return NO_STATE_HOOK
-  if (json.length <= MAX_BROWSER_STATE_CHARS) return json
-  // Back off one unit rather than cut a surrogate pair in half.
+  // The page already cut it; cut again in case the page tampered with the script's builtins.
+  const kept = json.length <= MAX_BROWSER_STATE_CHARS ? json : cutAtCap(json)
+  const reported = typeof length === 'number' && Number.isFinite(length) ? length : 0
+  const total = Math.max(reported, json.length)
+  if (total <= kept.length) return kept
+  const dropped = total - kept.length
+  return `${kept}…[truncated ${String(dropped)} of ${String(total)} chars]`
+}
+
+/** Cuts to the cap, backing off one unit rather than splitting a surrogate pair. */
+function cutAtCap(json: string): string {
+  const last = json.charCodeAt(MAX_BROWSER_STATE_CHARS - 1)
   const end =
-    MAX_BROWSER_STATE_CHARS -
-    (/[\uD800-\uDBFF]/.test(json[MAX_BROWSER_STATE_CHARS - 1] ?? '') ? 1 : 0)
-  const dropped = json.length - end
-  return `${json.slice(0, end)}…[truncated ${String(dropped)} of ${String(json.length)} chars]`
+    last >= 0xd800 && last <= 0xdbff ? MAX_BROWSER_STATE_CHARS - 1 : MAX_BROWSER_STATE_CHARS
+  return json.slice(0, end)
+}
+
+/** Rejects with `message` if `promise` has not settled within `ms`. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(message))
+    }, ms)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 const MODIFIERS_SCHEMA = {
@@ -273,7 +297,12 @@ export async function dispatchBrowserMcpTool(
       return typed === true ? textResult('typed') : textResult(`no element for ${selector}`, true)
     }
     if (name === 'browser_state') {
-      return textResult(stateText(await browsers.runScript(tabId, STATE_SOURCE)))
+      const state = await withTimeout(
+        browsers.runScript(tabId, STATE_SOURCE),
+        BROWSER_STATE_TIMEOUT_MS,
+        STATE_TIMEOUT_MESSAGE,
+      )
+      return textResult(stateText(state))
     }
     if (name === 'browser_screenshot') {
       const still = await browsers.screenshot(tabId)
