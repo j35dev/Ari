@@ -12,6 +12,8 @@ export interface GitRunOptions {
   timeoutMs?: number
   env?: NodeJS.ProcessEnv
   allowExitOne?: boolean
+  /** Appends the tail of Git's stderr to a failure (hook output, push rejections). */
+  detail?: boolean
 }
 
 /** Bounded, cancellable Git subprocesses. Arguments are internal argv, never renderer-supplied commands. */
@@ -63,7 +65,13 @@ export class RepositoryGit {
           child.kill()
         } else chunks.push(chunk)
       })
-      child.stderr.resume()
+      let stderr = ''
+      if (options.detail)
+        child.stderr.on(
+          'data',
+          (chunk: Buffer) => (stderr = (stderr + chunk.toString('utf8')).slice(-600)),
+        )
+      else child.stderr.resume()
       child.stdin.on('error', (error: NodeJS.ErrnoException) => {
         if (error.code !== 'EPIPE') log.warn('Git stdin failed', { code: error.code })
       })
@@ -94,10 +102,13 @@ export class RepositoryGit {
           finish(err({ code: 'unavailable', message: 'Git request cancelled.' }))
         else if (code !== 0 && !(options.allowExitOne && code === 1)) {
           log.warn('Git operation failed', { operation: args[0], code })
+          const tail = stderr.trim()
           finish(
             err({
               code: 'failed',
-              message: `Git ${args[0] ?? 'operation'} failed. Check repository state and credentials.`,
+              message: tail
+                ? `Git ${args[0] ?? 'operation'} failed: ${tail}`
+                : `Git ${args[0] ?? 'operation'} failed. Check repository state and credentials.`,
             }),
           )
         } else finish(ok(Buffer.concat(chunks).toString('utf8')))

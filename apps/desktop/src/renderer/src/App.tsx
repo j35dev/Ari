@@ -50,6 +50,7 @@ import { ChangesView } from './features/changes'
 import { openCheckedOutWorktree } from './features/changes/open-request-worktree'
 import { rememberReviewRange } from './features/changes/review-drafts'
 import { useSourceControl } from './features/changes/use-source-control'
+import { GitControl } from './features/changes/GitControl'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
 import { FileExplorer } from './features/files/FileExplorer'
@@ -85,10 +86,7 @@ import {
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
 import { HiveRoster, isBotSession, RoomView, useRooms } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
-import {
-  anchorBelow,
-  type MenuAnchor,
-} from './shell/ContextMenu'
+import { anchorBelow, type MenuAnchor } from './shell/ContextMenu'
 import { NewSessionLauncher } from './shell/NewSessionLauncher'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import {
@@ -205,7 +203,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // Where the pane area is the view on screen: settings, the gallery and the
   // full-page tools each stand in for it. Pane commands act on what the user is
   // looking at, so they are offered only while their effect can be seen.
-  const panesVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
+  const panesVisible =
+    !setupCovered && !settingsOpen && !hubOpen && !galleryOpen && fullPage === null
   // The tab strip rides above the pane area, so it stays visible while Usage or
   // Changes takes the area over — only the whole-window tools hide it.
   const tabsVisible = !setupCovered && !settingsOpen && !hubOpen && !galleryOpen
@@ -624,10 +623,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         setFullPage(null)
         setInspector('browser')
       } else if (view === 'changes' || view === 'source-control') {
+        // Diffs open beside the chat; the titlebar Git control does the Git actions.
         setHubOpen(false)
         setSettingsOpen(false)
-        setInspector(null)
-        setFullPage(view)
+        setFullPage(null)
+        setInspector('changes')
       } else {
         setHubOpen(false)
         setSettingsOpen(false)
@@ -700,14 +700,22 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     if (onboardingOutcome.driverKind !== null)
       rememberPick({ driverKind: onboardingOutcome.driverKind, modelId: null, effort: null })
     refreshProjects()
-    void reloadSessions().then(() => {
-      if (!cancelled && onboardingOutcome.sessionId !== null)
-        selectSessionRef.current(onboardingOutcome.sessionId)
-    }).catch((error: unknown) => {
-      log.warn('workspace refresh after setup failed', error)
-      toast({ tone: 'warning', title: 'Setup is saved', description: 'Reopen Ari if your new projects or session have not appeared yet.' })
-    })
-    return () => { cancelled = true }
+    void reloadSessions()
+      .then(() => {
+        if (!cancelled && onboardingOutcome.sessionId !== null)
+          selectSessionRef.current(onboardingOutcome.sessionId)
+      })
+      .catch((error: unknown) => {
+        log.warn('workspace refresh after setup failed', error)
+        toast({
+          tone: 'warning',
+          title: 'Setup is saved',
+          description: 'Reopen Ari if your new projects or session have not appeared yet.',
+        })
+      })
+    return () => {
+      cancelled = true
+    }
   }, [onboardingOutcome, reloadSessions, refreshProjects, rememberPick, toast])
 
   // Sidebar order is the stored registry order: slot the project before
@@ -1014,7 +1022,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setFullPage(null)
       return
     }
-    if (id === 'usage' || id === 'changes' || id === 'source-control') {
+    if (id === 'changes' || id === 'source-control') {
+      setFullPage(null)
+      setInspector((prev) => (prev === 'changes' ? null : 'changes'))
+      return
+    }
+    if (id === 'usage') {
       setInspector(null)
       setFullPage((prev) => (prev === id ? null : id))
       return
@@ -1108,6 +1121,22 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         }
         onSelectTool={selectWorkspaceTool}
         changeCount={changeSummary.summary?.changedFiles ?? null}
+        git={
+          activeScope && changeSummary.summary ? (
+            <GitControl
+              scope={activeScope}
+              summary={changeSummary.summary}
+              refresh={changeSummary.refresh}
+              onReview={() => {
+                setSettingsOpen(false)
+                setHubOpen(false)
+                setFullPage(null)
+                setInspector('changes')
+              }}
+              onPullRequests={() => selectWorkspaceTool('github')}
+            />
+          ) : undefined
+        }
         usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
       />
@@ -1299,24 +1328,20 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                   <UsagePage />
                 </ErrorBoundary>
               ) : fullPage === 'changes' || fullPage === 'source-control' ? (
-                <ErrorBoundary label={fullPage === 'source-control' ? 'Source control' : 'Changes'}>
+                <ErrorBoundary label="Changes">
                   <ChangesView
                     sessionId={activeSessionId}
                     projectId={activeSession?.projectId ?? null}
-                    sourceControl={fullPage === 'source-control'}
                     onRange={activeSessionId ? attachReviewRange : undefined}
-                    onCheckedOut={
-                      fullPage === 'source-control'
-                        ? (path) =>
-                            openCheckedOutWorktree(path, {
-                              open: (folder) => rpc.invoke('project.open', { path: folder }),
-                              refreshProjects,
-                              startSession: (projectId) => {
-                                setFullPage(null)
-                                createSession(projectId)
-                              },
-                            })
-                        : undefined
+                    onCheckedOut={(path) =>
+                      openCheckedOutWorktree(path, {
+                        open: (folder) => rpc.invoke('project.open', { path: folder }),
+                        refreshProjects,
+                        startSession: (projectId) => {
+                          setFullPage(null)
+                          createSession(projectId)
+                        },
+                      })
                     }
                   />
                 </ErrorBoundary>
@@ -1517,6 +1542,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                 sessionId={activeSessionId}
                                 projectId={activeSession?.projectId ?? null}
                                 onRange={activeSessionId ? attachReviewRange : undefined}
+                                onCheckedOut={(path) =>
+                                  openCheckedOutWorktree(path, {
+                                    open: (folder) => rpc.invoke('project.open', { path: folder }),
+                                    refreshProjects,
+                                    startSession: (projectId) => {
+                                      setInspector(null)
+                                      createSession(projectId)
+                                    },
+                                  })
+                                }
                               />
                             </ErrorBoundary>
                           ) : activeProjectPath && activeScope ? (

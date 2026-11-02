@@ -25,7 +25,7 @@ export function ReviewNavigator({
 }) {
   const [history, setHistory] = useState(false)
   return (
-    <aside className="flex w-56 min-w-40 max-w-[35%] shrink-0 flex-col border-r border-border/60 bg-surface-0">
+    <aside className="flex max-h-[38%] w-full shrink-0 flex-col border-b border-border/60 bg-surface-0 @[44rem]:max-h-none @[44rem]:w-56 @[44rem]:min-w-40 @[44rem]:max-w-[35%] @[44rem]:border-b-0 @[44rem]:border-r">
       <div className="m-3 flex items-center gap-1">
         <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border/60 bg-bg px-2">
           <Search size={12} className="text-fg-subtle" />
