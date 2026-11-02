@@ -11,7 +11,7 @@ export interface ShipRepository {
 
 /** One-click Git flows, in the order they run: commit, then push, then the pull request. */
 export type ShipAction =
-  'commit' | 'commit_push' | 'commit_push_pr' | 'push' | 'push_pr' | 'pull' | 'create_pr'
+  'commit' | 'commit_push' | 'commit_push_pr' | 'push' | 'push_pr' | 'pull' | 'create_pr' | 'fetch'
 
 export interface ShipInput {
   action: ShipAction
@@ -51,6 +51,15 @@ export async function ship(
     return err({ code: 'busy', message: `Finish the ${status.operation} in progress first.` })
   const outcome: ShipOutcome = { committed: null, pushed: false, pulled: false, prUrl: null }
   const action = input.action
+
+  if (action === 'fetch') {
+    const fetched = await git.run(['fetch', '--prune', '--quiet'], {
+      signal,
+      timeoutMs: NETWORK_MS,
+      detail: true,
+    })
+    return fetched.ok ? ok(outcome) : fetched
+  }
 
   if (action === 'commit' || action === 'commit_push' || action === 'commit_push_pr') {
     const chosen = input.paths

@@ -2,6 +2,7 @@ import { realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { GitMutationService, ship, watchGitChanges } from '@ari/engine/git'
 import { currentPullRequest, forget as forgetPullRequest, openPullRequest } from './pull-request'
+import { sourceControlEnvironment } from './source-control-environment'
 import type { GitReviewService } from '@ari/engine/git'
 import { gitScopeSchema } from '@ari/contracts/rpc'
 import { ok } from '@ari/shared/result'
@@ -23,6 +24,8 @@ interface Subscription {
 interface LiveDeps {
   busy(root: string): Promise<boolean>
   watch?: typeof watchGitChanges
+  /** Whether new pull requests open as drafts (Settings → Source control). */
+  draftPullRequests?: () => boolean
 }
 
 /** Leases shared Git refs for writes and watches only subscribed worktrees. */
@@ -77,7 +80,10 @@ export class SourceControlLive {
               },
               {
                 createPr: (signal) =>
-                  openPullRequest(review.cwd, { ...(signal ? { signal } : {}) }),
+                  openPullRequest(review.cwd, {
+                    ...(signal ? { signal } : {}),
+                    draft: this.deps.draftPullRequests?.() ?? false,
+                  }),
               },
             ),
           )
@@ -91,6 +97,7 @@ export class SourceControlLive {
         }
       }),
     )
+    this.registry.register('scm.environment', () => sourceControlEnvironment())
     this.registry.register('scm.pullRequest', (params) =>
       this.host.withReview(params, async (review) => {
         const summary = await review.summary()
