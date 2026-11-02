@@ -4,6 +4,7 @@ import { createLogger } from '@ari/shared/logger'
 import { formatUnknownError } from '@ari/shared/result'
 import type { AdapterApprovalDecision, AdapterSession, Driver, ProviderAdapter } from '../driver'
 import { AcpAuthRequiredError, AcpConnection, AcpConnectionError } from './connection'
+import { acpSessionPool, type AcpSessionPool } from './session-pool'
 import type { AcpChildProcess, AcpLaunch, AcpMcpServer } from './connection'
 import {
   encodeQuestionnaire,
@@ -97,6 +98,8 @@ export async function createAcpAdapter(
   onAuthRequired?: AcpAuthRequiredHandler,
   mcpServers: AcpMcpServer[] = [],
   sessionMeta: Record<string, unknown> | null = null,
+  /** Parks the connection between turns instead of ending it; null ends it. */
+  pool: AcpSessionPool | null = null,
 ): Promise<AcpAdapter> {
   const pendingPermissions = new Map<
     string,
@@ -120,7 +123,7 @@ export async function createAcpAdapter(
   let permissionSeq = 0
   let inputSeq = 0
 
-  const folder = new AcpUpdateFolder()
+  let folder = new AcpUpdateFolder()
   const queue: AgentEvent[] = []
   let notify: (() => void) | null = null
   const push = (events: AgentEvent[]): void => {
@@ -250,18 +253,35 @@ export async function createAcpAdapter(
   }
 
   const effectiveLaunch = launchWithEffort(launch, session.effort ?? null)
+  // A connection parked by this session's previous turn is reused when it was
+  // started the same way: same command, folder, tools and environment.
+  const poolKey = JSON.stringify([
+    effectiveLaunch.command,
+    effectiveLaunch.args,
+    effectiveLaunch.env ?? null,
+    session.workspacePath,
+    session.runtimeEnv ?? null,
+    mcpServers,
+    sessionMeta,
+  ])
+  const pooled = pool?.take(session.sessionId, poolKey) ?? null
+  if (pooled) folder = pooled.folder
   let connection: AcpConnection
-  try {
-    connection = await AcpConnection.connect({
-      launch: effectiveLaunch,
-      ...(session.runtimeEnv ? { runtimeEnv: session.runtimeEnv } : {}),
-      cwd: session.workspacePath,
-      ...(spawn !== undefined ? { spawn } : {}),
-      ...(mcpServers.length > 0 ? { mcpServers } : {}),
-      ...(sessionMeta !== null ? { sessionMeta } : {}),
-    })
-  } catch (error) {
-    throw setupFailure(error)
+  if (pooled) {
+    connection = pooled.connection
+  } else {
+    try {
+      connection = await AcpConnection.connect({
+        launch: effectiveLaunch,
+        ...(session.runtimeEnv ? { runtimeEnv: session.runtimeEnv } : {}),
+        cwd: session.workspacePath,
+        ...(spawn !== undefined ? { spawn } : {}),
+        ...(mcpServers.length > 0 ? { mcpServers } : {}),
+        ...(sessionMeta !== null ? { sessionMeta } : {}),
+      })
+    } catch (error) {
+      throw setupFailure(error)
+    }
   }
 
   connection.onRequestPermission = onRequestPermission
@@ -316,19 +336,25 @@ export async function createAcpAdapter(
 
   let created: AcpNewSessionResult
   let resumed: boolean
-  try {
-    const opened = await openSession()
-    created = opened.created
-    resumed = opened.resumed
-  } catch (error) {
-    connection.kill()
-    throw setupFailure(error)
+  if (pooled) {
+    // The agent session is still open in this process: no load, no replay.
+    created = { sessionId: pooled.sessionId, configOptions: pooled.selectors.configOptions }
+    resumed = true
+  } else {
+    try {
+      const opened = await openSession()
+      created = opened.created
+      resumed = opened.resumed
+    } catch (error) {
+      connection.kill()
+      throw setupFailure(error)
+    }
+    // pi-acp can emit its startup prelude as a regular agent message when the
+    // client does not consume the copy carried in session/new metadata. The
+    // response is delivered before pi-acp's deferred notification, so the
+    // folder has the exact prelude before that notification can be folded.
+    folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   }
-  // pi-acp can emit its startup prelude as a regular agent message when the
-  // client does not consume the copy carried in session/new metadata. The
-  // response is delivered before pi-acp's deferred notification, so the
-  // folder has the exact prelude before that notification can be folded.
-  folder.setStartupInfo(created._meta?.piAcp?.startupInfo)
   const sessionId = created.sessionId as string
   // The pick as the agent names it: a registry id resolves to the agent's row,
   // and the agent then reporting that row is the pick taking effect.
@@ -354,14 +380,20 @@ export async function createAcpAdapter(
   // the next turn instead of losing all context.
   push([{ type: 'session-ref', ref: sessionId }])
 
-  const selectors = resolveSelectors(launch.label, created, resumed)
+  const selectors = pooled
+    ? {
+        configOptions: pooled.selectors.configOptions,
+        availableModes: pooled.selectors.availableModes,
+      }
+    : resolveSelectors(launch.label, created, resumed)
+  // A reused session already holds the model, mode and effort it last took;
+  // only what changed since is sent again.
+  const lastApplied = pooled?.applied ?? null
   try {
-    const applied = await applyModel(
-      connection,
-      sessionId,
-      selectors.configOptions,
-      session.modelId,
-    )
+    const applied =
+      lastApplied && lastApplied.modelId === session.modelId
+        ? ({ kind: 'unchanged' } as const)
+        : await applyModel(connection, sessionId, selectors.configOptions, session.modelId)
     // The pick did not reach the agent, so a different model is about to
     // answer. Say it in the transcript: the composer still shows the pick.
     if (applied.kind === 'unavailable' && session.modelId !== null) {
@@ -380,21 +412,23 @@ export async function createAcpAdapter(
         availableModes: selectors.availableModes,
       })
     }
-    await applyPermissionMode(
-      connection,
-      sessionId,
-      selectors.configOptions,
-      selectors.availableModes,
-      session.permissionMode,
-    )
-    await applyThoughtLevel(
-      connection,
-      sessionId,
-      selectors.configOptions,
-      selectors.availableModes,
-      session.effort ?? null,
-      launch.label,
-    )
+    if (!lastApplied || lastApplied.permissionMode !== session.permissionMode)
+      await applyPermissionMode(
+        connection,
+        sessionId,
+        selectors.configOptions,
+        selectors.availableModes,
+        session.permissionMode,
+      )
+    if (!lastApplied || lastApplied.effort !== (session.effort ?? null))
+      await applyThoughtLevel(
+        connection,
+        sessionId,
+        selectors.configOptions,
+        selectors.availableModes,
+        session.effort ?? null,
+        launch.label,
+      )
   } catch (error) {
     connection.kill()
     throw setupFailure(error)
@@ -636,6 +670,45 @@ export async function createAcpAdapter(
     },
     dispose: async () => {
       releasePending()
+      // With a pool the process stays up for the session's next turn, so the
+      // agent's background shells and sub-agents keep running. Only a prompt
+      // still in flight (a stopped turn) is cancelled.
+      if (pool && !connection.closed) {
+        if (promptInFlight) connection.cancel(sessionId)
+        pool.put(
+          session.sessionId,
+          {
+            key: poolKey,
+            connection,
+            sessionId,
+            folder,
+            selectors: {
+              configOptions: selectors.configOptions,
+              availableModes: selectors.availableModes,
+            },
+            applied: {
+              modelId: session.modelId,
+              permissionMode,
+              effort: session.effort ?? null,
+            },
+            lastActivity: Date.now(),
+          },
+          {
+            // Nobody can answer between turns: the session's mode decides.
+            onRequestPermission: (request) => {
+              const optionId = autoAllows(permissionMode, request.toolCall?.kind)
+                ? optionFor(request.options, ['allow_once', 'allow_always'])
+                : undefined
+              return Promise.resolve(
+                optionId !== undefined
+                  ? { outcome: { outcome: 'selected', optionId } }
+                  : { outcome: { outcome: 'cancelled' } },
+              )
+            },
+          },
+        )
+        return
+      }
       // Cancel first so the agent can stop its own tools and children in
       // order; the ladder in shutdown() is what guarantees they are gone.
       if (!connection.closed) connection.cancel(sessionId)
@@ -1240,6 +1313,7 @@ export class AcpDriver implements Driver {
           this.onAuthRequired ?? undefined,
           this.mcpServers(session),
           systemInstructionsMeta(this.kind, session.instructions),
+          acpSessionPool,
         )
         log.info('turn started over ACP', { kind: this.kind, launch: this.launch.label })
         publishAdvertisedEfforts(this.kind, adapter.advertisedEfforts)
@@ -1259,3 +1333,4 @@ export class AcpDriver implements Driver {
     return this.fallback.create(session)
   }
 }
+export { acpSessionPool, AcpSessionPool } from './session-pool'

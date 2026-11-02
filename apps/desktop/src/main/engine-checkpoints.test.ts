@@ -84,7 +84,7 @@ const done = async function* (): AsyncGenerator<AgentEvent> {
 }
 
 describe('immutable turn snapshots', { timeout: 30_000 }, () => {
-  it('captures after disposal and before settle, excluding later manual and committed edits', async () => {
+  it('settles first, then captures after disposal, excluding later manual and committed edits', async () => {
     const { engine: host, events } = engine(done, async () => {
       await writeFile(join(repo, 'a.txt'), 'final provider write\n')
       await writeFile(join(repo, 'new.txt'), 'new provider file\n')
@@ -95,8 +95,9 @@ describe('immutable turn snapshots', { timeout: 30_000 }, () => {
     const model = await store.load('sess_1')
     const checkpoint = model.checkpoints[0]!
     expect(checkpoint.endRef).toMatch(/^refs\/ari-turn-ends\/sess_1\//)
-    expect(events.findIndex((event) => event.type === 'checkpoint.completed')).toBeLessThan(
-      events.findIndex((event) => event.type === 'turn.settled'),
+    // The reply reads as done without waiting on process teardown or git.
+    expect(events.findIndex((event) => event.type === 'turn.settled')).toBeLessThan(
+      events.findIndex((event) => event.type === 'checkpoint.completed'),
     )
     expect(run('write-tree')).toBe(index)
     await writeFile(join(repo, 'a.txt'), 'manual after turn\n')
@@ -122,6 +123,31 @@ describe('immutable turn snapshots', { timeout: 30_000 }, () => {
     expect(diff.diffText).not.toContain('manual after turn')
     await store.closeJournal('sess_1')
     expect((await store.load('sess_1')).checkpoints).toEqual(model.checkpoints)
+  })
+
+  it('starts the next turn only after the previous end snapshot', async () => {
+    let turn = 0
+    const { engine: host } = engine(
+      async function* () {
+        turn += 1
+        if (turn === 2) await writeFile(join(repo, 'a.txt'), 'second turn edit\n')
+        yield { type: 'done' }
+      },
+      async () => {
+        if (turn === 1) await writeFile(join(repo, 'a.txt'), 'first turn cleanup\n')
+      },
+    )
+    await host.dispatch({ type: 'turn.start', sessionId: 'sess_1', text: 'one', attachments: [] })
+    await host.dispatch({ type: 'turn.start', sessionId: 'sess_1', text: 'two', attachments: [] })
+    await host.quiesce('sess_1')
+    const model = await store.load('sess_1')
+    const first = await queryTurnDiff(git, {
+      path: repo,
+      turnId: model.checkpoints[0]!.turnId,
+      checkpoints: model.checkpoints,
+    })
+    expect(first.diffText).toContain('+first turn cleanup')
+    expect(first.diffText).not.toContain('second turn edit')
   })
 
   it('waits for interrupted provider disposal and retains a stable endpoint', async () => {
