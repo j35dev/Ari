@@ -1,5 +1,5 @@
 import { mkdir, realpath, stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { GitService, type RepositoryGit } from '@ari/engine/git'
 import type { RequestCheckout, SourceControlError } from '@ari/contracts/rpc'
 import { err, ok, type Result } from '@ari/shared/result'
@@ -18,7 +18,7 @@ export type FetchRequestHead = (
 /** Fetches a pull or merge request head into an Ari ref. Does not move HEAD. */
 export function fetchRequestHead(git: RepositoryGit): FetchRequestHead {
   return async (remote, remoteRef, localRef, signal) => {
-    const fetched = await git.run(['fetch', '--no-tags', remote, `${remoteRef}:${localRef}`], {
+    const fetched = await git.run(['fetch', '--no-tags', remote, `+${remoteRef}:${localRef}`], {
       signal,
       timeoutMs: 60_000,
     })
@@ -84,11 +84,29 @@ export async function checkoutChangeRequest(
         message: 'A different checkout already uses this request path.',
       })
     }
-    return ok({ path: target, branch, commit: existing.head, number, created: false })
+    const current = await folderState(target)
+    if (current === 'unreadable') return err(UNREADABLE)
+    if (current === 'present') {
+      return ok({ path: target, branch, commit: existing.head, number, created: false })
+    }
+    // Only a folder that is really gone is cleared; a forced removal would discard its work.
+    const removed = await worktrees.removeWorktree(git.cwd, existing.path)
+    if (!removed.ok) {
+      return err({ code: 'failed', message: 'Could not clear the missing request worktree.' })
+    }
   }
-  if (await stat(target).catch(() => null)) {
+  const state = await folderState(target)
+  if (state === 'unreadable') return err(UNREADABLE)
+  if (state === 'present') {
     return err({ code: 'failed', message: 'The request worktree path is already in use.' })
   }
+  if (listed.value.some((row) => row !== existing && row.branch === `refs/heads/${branch}`)) {
+    return err({
+      code: 'failed',
+      message: 'This request branch is already checked out in another worktree.',
+    })
+  }
+  const previous = await readOptional(git, localRef, signal)
   const before = await readPair(git, signal)
   if (!before.ok) return before
   const fetched = await options.fetchHead(host.remote, remoteRef, localRef, signal)
@@ -96,8 +114,29 @@ export async function checkoutChangeRequest(
   if (!oid.test(fetched.value)) {
     return err({ code: 'failed', message: 'The fetched request did not resolve to a commit.' })
   }
+  const tip = await readOptional(git, `refs/heads/${branch}`, signal)
+  if (tip) {
+    const safe =
+      (await git.run(['merge-base', '--is-ancestor', tip, fetched.value], { signal })).ok ||
+      (previous !== undefined &&
+        (await git.run(['merge-base', '--is-ancestor', tip, previous], { signal })).ok)
+    if (!safe) {
+      return err({
+        code: 'failed',
+        message:
+          'This request branch has local commits. Remove or rename it to check out the latest version.',
+      })
+    }
+  }
   await mkdir(parent, { recursive: true })
-  const added = await worktrees.addWorktree(git.cwd, target, branch, 'create-branch', fetched.value)
+  const reset = await git.run(['branch', '-f', branch, fetched.value], { signal })
+  if (!reset.ok) {
+    return err({
+      code: 'failed',
+      message: 'Could not update the request branch.',
+    })
+  }
+  const added = await worktrees.addWorktree(git.cwd, target, branch, 'checkout-branch')
   if (!added.ok) {
     const text = added.error.message.toLowerCase()
     return err({
@@ -136,6 +175,17 @@ async function readCommit(
     : err({ code: 'failed', message: 'The fetched request did not resolve to a commit.' })
 }
 
+async function readOptional(
+  git: RepositoryGit,
+  ref: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const parsed = await git.run(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { signal })
+  if (!parsed.ok) return undefined
+  const commit = parsed.value.trim()
+  return oid.test(commit) ? commit : undefined
+}
+
 async function readPair(
   git: RepositoryGit,
   signal: AbortSignal,
@@ -158,12 +208,20 @@ async function findWorktree(
   return undefined
 }
 
-/** git reports the real path. macOS tmp is /var -> /private/var, and Windows may use an 8.3 name. */
+/**
+ * git reports the real path. macOS tmp is /var -> /private/var, and Windows may use an 8.3 name.
+ * A deleted worktree folder cannot be realpath'd, so resolve its nearest existing ancestor.
+ */
 async function canonicalize(path: string): Promise<string> {
-  try {
-    return await realpath(path)
-  } catch {
-    return resolve(path)
+  const absolute = resolve(path)
+  const missing: string[] = []
+  for (let current = absolute; ; current = dirname(current)) {
+    try {
+      return join(await realpath(current), ...missing)
+    } catch {
+      if (dirname(current) === current) return absolute
+      missing.unshift(basename(current))
+    }
   }
 }
 
@@ -176,4 +234,25 @@ async function samePath(left: string, right: string): Promise<boolean> {
 function inside(parent: string, child: string): boolean {
   const rel = relative(resolve(parent), resolve(child))
   return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+const UNREADABLE = {
+  code: 'failed',
+  message:
+    'Could not read the request worktree folder. Check that its drive is available and retry.',
+} as const
+
+/**
+ * Whether a worktree folder exists. Only a missing path counts as gone: a
+ * permission error or an offline drive must never look like a deleted folder,
+ * because a missing request worktree is removed with a forced `git worktree remove`.
+ */
+async function folderState(path: string): Promise<'present' | 'missing' | 'unreadable'> {
+  try {
+    await stat(path)
+    return 'present'
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unreadable'
+  }
 }
