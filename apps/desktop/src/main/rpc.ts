@@ -2285,6 +2285,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   })
   sourceControl.register()
   const sourceControlLive = new SourceControlLive(r, sourceControl, {
+    draftPullRequests: () => getSettingsStore().current.sourceControl.draftPullRequests,
     busy: async (root) => {
       for (const row of await getSessionStore().listSessions()) {
         if (!engine.hasLiveTurn(row.id)) continue

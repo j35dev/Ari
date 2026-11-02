@@ -148,6 +148,27 @@ export const settingsSchema = z.object({
     })
     .default({ defaultDriverKind: null, defaultPermissionMode: 'ask' }),
   providers: providerConnectionsSchema.default(defaultConnections),
+  /** How the titlebar Git control and the diff panel behave. */
+  sourceControl: z
+    .object({
+      /** Ask before pushing straight to main, master, trunk or develop. */
+      confirmDefaultPush: z.boolean().default(true),
+      /** Open new pull requests as drafts. */
+      draftPullRequests: z.boolean().default(false),
+      /** Seconds between background `git fetch` runs for the open project; 0 turns it off. */
+      fetchIntervalSeconds: z.number().int().min(0).max(3600).default(60),
+      /** How a diff opens before the user picks: side by side or one column. */
+      diffView: z.enum(['split', 'unified']).default('split'),
+      /** Wrap long lines in diffs instead of scrolling sideways. */
+      wrapDiffLines: z.boolean().default(false),
+    })
+    .default({
+      confirmDefaultPush: true,
+      draftPullRequests: false,
+      fetchIntervalSeconds: 60,
+      diffView: 'split',
+      wrapDiffLines: false,
+    }),
   notifications: z
     .object({
       /** Soft chime when a turn settles; failures get their own muted tone. */
@@ -231,6 +252,16 @@ export const settingsUpdateSchema = z.object({
     )
     .partial()
     .optional(),
+  sourceControl: z
+    .object({
+      confirmDefaultPush: z.boolean(),
+      draftPullRequests: z.boolean(),
+      fetchIntervalSeconds: z.number().int().min(0).max(3600),
+      diffView: z.enum(['split', 'unified']),
+      wrapDiffLines: z.boolean(),
+    })
+    .partial()
+    .optional(),
   notifications: z
     .object({
       settleSound: z.boolean(),
@@ -272,6 +303,13 @@ export const defaultSettings: Settings = {
   appearance: { ...defaultAppearance },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultConnections(),
+  sourceControl: {
+    confirmDefaultPush: true,
+    draftPullRequests: false,
+    fetchIntervalSeconds: 60,
+    diffView: 'split',
+    wrapDiffLines: false,
+  },
   notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },

@@ -4,6 +4,7 @@ import {
   Bell,
   Cpu,
   FileCog,
+  GitBranch,
   Keyboard,
   Palette,
   Plug,
@@ -18,6 +19,7 @@ import { KeybindingsSettings } from './KeybindingsSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 import { RemoteSettings } from './RemoteSettings'
+import { SourceControlSettings } from './SourceControlSettings'
 import { SettingsSearch } from './SettingsSearch'
 import { ProvidersView, AgentConfigSettings } from '../providers'
 import { EndpointsManager } from '../endpoints'
@@ -27,6 +29,7 @@ export const SETTINGS_SECTIONS = [
   { id: 'providers', label: 'Providers', icon: Cpu },
   { id: 'agents', label: 'Agents', icon: FileCog },
   { id: 'endpoints', label: 'Endpoints', icon: Plug },
+  { id: 'source-control', label: 'Source control', icon: GitBranch },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'permissions', label: 'Permissions', icon: Shield },
   { id: 'remote', label: 'Mobile access', icon: Smartphone },
@@ -171,6 +174,7 @@ export function SettingsWorkspace({
               <EndpointsManager />
             </div>
           ) : null}
+          {section === 'source-control' ? <SourceControlSettings /> : null}
           {section === 'notifications' ? <NotificationsSettings /> : null}
           {section === 'permissions' ? <PermissionsSettings /> : null}
           {section === 'remote' ? <RemoteSettings /> : null}

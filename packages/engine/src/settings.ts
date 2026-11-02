@@ -32,6 +32,7 @@ export interface SettingsPatch {
   appearance?: Partial<Settings['appearance']>
   sessions?: Partial<Settings['sessions']>
   providers?: Partial<Record<CliKind, Partial<ProviderConnection>>>
+  sourceControl?: Partial<Settings['sourceControl']>
   notifications?: Partial<Settings['notifications']>
   permissions?: Partial<Settings['permissions']>
   remote?: Partial<Settings['remote']>
@@ -123,6 +124,7 @@ export class SettingsStore {
       appearance: { ...this.#current.appearance, ...patch.appearance },
       sessions: { ...this.#current.sessions, ...patch.sessions },
       providers: mergeConnections(this.#current.providers, patch.providers),
+      sourceControl: { ...this.#current.sourceControl, ...patch.sourceControl },
       notifications: { ...this.#current.notifications, ...patch.notifications },
       permissions: { ...this.#current.permissions, ...patch.permissions },
       remote: { ...this.#current.remote, ...patch.remote },

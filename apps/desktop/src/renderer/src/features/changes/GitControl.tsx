@@ -24,6 +24,7 @@ import { useToast } from '@ari/ui/toast'
 import { createLogger } from '@ari/shared/logger'
 import { rpc } from '../../lib/rpc'
 import { menuActions, pushesToDefault, quickAction, type MenuAction } from './git-quick-action'
+import { useEngineSettings } from '../settings/useEngineSettings'
 
 const log = createLogger('ui:git-control')
 const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
@@ -36,6 +37,7 @@ const PROGRESS: Record<GitShipAction, string> = {
   push_pr: 'Pushing and opening a pull request…',
   pull: 'Pulling…',
   create_pr: 'Opening a pull request…',
+  fetch: 'Fetching…',
 }
 
 function doneTitle(outcome: GitShipOutcome): string {
@@ -111,6 +113,25 @@ export function GitControl({
     paths?: string[]
   } | null>(null)
   const [busy, setBusy] = useState(false)
+  const { settings } = useEngineSettings()
+  const confirmDefault = settings?.sourceControl.confirmDefaultPush ?? true
+  const fetchSeconds = settings?.sourceControl.fetchIntervalSeconds ?? 60
+  const scopeKey = JSON.stringify(scope)
+
+  // Background fetch keeps ahead/behind current so Pull shows up when someone else pushed.
+  useEffect(() => {
+    if (fetchSeconds <= 0 || !summary.hasRemote) return
+    const timer = setInterval(() => {
+      if (document.hidden) return
+      void rpc
+        .invoke('scm.ship', { ...scope, action: 'fetch' })
+        .then((result) => {
+          if (result.ok) refresh()
+        })
+        .catch((error: unknown) => log.debug('background fetch failed', { error: String(error) }))
+    }, fetchSeconds * 1000)
+    return () => clearInterval(timer)
+  }, [scopeKey, fetchSeconds, summary.hasRemote])
 
   const run = async (action: GitShipAction, message?: string, paths?: string[]): Promise<void> => {
     if (busy) return
@@ -157,7 +178,7 @@ export function GitControl({
 
   /** Commits go through the dialog; pushes to a default branch ask first. */
   const start = (action: GitShipAction, message?: string, paths?: string[]): void => {
-    if (pushesToDefault(summary, action))
+    if (confirmDefault && pushesToDefault(summary, action))
       setConfirm({ action, ...(message ? { message } : {}), ...(paths ? { paths } : {}) })
     else void run(action, message, paths)
   }
