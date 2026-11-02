@@ -56,6 +56,8 @@ describe('listChangeRequests', () => {
         '30',
         '--json',
         expect.stringContaining('headRefOid'),
+        '--repo',
+        'github.com/acme/demo',
       ],
       'C:\\repo',
       signal,
@@ -90,10 +92,66 @@ describe('listChangeRequests', () => {
     })
     expect(run).toHaveBeenCalledWith(
       'glab',
-      ['mr', 'list', '--output', 'json', '--per-page', '30'],
+      [
+        'mr',
+        'list',
+        '--output',
+        'json',
+        '--per-page',
+        '30',
+        '--repo',
+        'https://gitlab.com/group/sub/demo',
+      ],
       '/repo',
       signal,
     )
+  })
+
+  it('lists the origin repo, not upstream, in a fork checkout', async () => {
+    for (const item of [
+      {
+        parent: 'https://github.com/acme/parent.git',
+        fork: 'https://github.com/acme/fork.git',
+        command: 'gh',
+        repo: ['--repo', 'github.com/acme/fork'],
+      },
+      {
+        parent: 'https://gitlab.com/acme/parent.git',
+        fork: 'https://gitlab.com/acme/fork.git',
+        command: 'glab',
+        repo: ['--repo', 'https://gitlab.com/acme/fork'],
+      },
+    ]) {
+      const run = runWith('[]')
+      const result = await listChangeRequests(
+        '/repo',
+        [
+          { name: 'upstream', url: item.parent },
+          { name: 'origin', url: item.fork },
+        ],
+        { run, signal },
+      )
+      expect(run).toHaveBeenCalledWith(
+        item.command,
+        expect.arrayContaining(item.repo),
+        '/repo',
+        signal,
+      )
+      expect(result.ok && result.value.repository?.name).toBe('acme/fork')
+    }
+  })
+
+  it('lists a GitHub Enterprise Cloud repo from SSH and HTTPS remotes', async () => {
+    for (const url of ['git@acme.ghe.com:acme/demo.git', 'https://acme.ghe.com/acme/demo.git']) {
+      const run = runWith('[]')
+      const result = await listChangeRequests('/repo', [{ name: 'origin', url }], { run, signal })
+      expect(vi.mocked(run).mock.calls[0]?.[0]).toBe('gh')
+      expect(vi.mocked(run).mock.calls[0]?.[1].slice(-2)).toEqual([
+        '--repo',
+        'acme.ghe.com/acme/demo',
+      ])
+      expect(result.ok && result.value.repository?.name).toBe('acme/demo')
+    }
   })
 
   it('recognizes Forgejo, Bitbucket, and Azure without calling a CLI', async () => {

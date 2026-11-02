@@ -192,8 +192,19 @@ export async function listChangeRequests(
   const noun = command === 'glab' ? 'merge requests' : 'pull requests'
   const args =
     command === 'glab'
-      ? ['mr', 'list', '--output', 'json', '--per-page', '30']
-      : ['pr', 'list', '--state', 'open', '--limit', '30', '--json', GH_FIELDS]
+      ? ['mr', 'list', '--output', 'json', '--per-page', '30', '--repo', host.url]
+      : [
+          'pr',
+          'list',
+          '--state',
+          'open',
+          '--limit',
+          '30',
+          '--json',
+          GH_FIELDS,
+          '--repo',
+          host.url.replace(/^https:\/\//, ''),
+        ]
   try {
     const { stdout } = await options.run(command, args, cwd, options.signal)
     const payload: unknown = JSON.parse(stdout)
