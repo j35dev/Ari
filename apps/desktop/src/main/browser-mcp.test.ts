@@ -239,6 +239,51 @@ describe('dispatchBrowserMcpTool', () => {
     )
   })
 
+  it('cuts oversized state in the page so at most the cap crosses IPC', async () => {
+    const big = { blob: 'x'.repeat(MAX_BROWSER_STATE_CHARS * 5) }
+    const g = pageGuest({ __ari: { state: () => big } })
+    const service = new BrowserService(() => g, vi.fn())
+
+    await dispatchBrowserMcpTool(service, 'browser_state', {})
+
+    const sent = (await vi.mocked(g.executeJavaScript).mock.results[0]?.value) as {
+      json: string
+      length: number
+    }
+    expect(sent.json).toHaveLength(MAX_BROWSER_STATE_CHARS)
+    expect(sent.length).toBe(JSON.stringify(big).length)
+  })
+
+  it('still cuts state a tampered page sends over the cap', async () => {
+    const json = 'y'.repeat(MAX_BROWSER_STATE_CHARS + 10)
+    const g = guest()
+    g.executeJavaScript = vi.fn(async () => ({ hook: true, json, length: 3 }))
+    const service = new BrowserService(() => g, vi.fn())
+
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+
+    expect(out).toBe(
+      `${json.slice(0, MAX_BROWSER_STATE_CHARS)}…[truncated 10 of ${String(json.length)} chars]`,
+    )
+  })
+
+  it('times out in the main process when the page script never returns', async () => {
+    vi.useFakeTimers()
+    try {
+      const g = guest()
+      // A page that replaced setTimeout or Promise.race leaves the script hanging.
+      g.executeJavaScript = vi.fn(() => new Promise<unknown>(() => {}))
+      const service = new BrowserService(() => g, vi.fn())
+      const pending = dispatchBrowserMcpTool(service, 'browser_state', {})
+      await vi.advanceTimersByTimeAsync(BROWSER_STATE_TIMEOUT_MS)
+      const result = await pending
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('did not settle within 5 s')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps state at exactly the cap whole', async () => {
     const blob = 'x'.repeat(MAX_BROWSER_STATE_CHARS - '{"blob":""}'.length)
     const service = new BrowserService(
