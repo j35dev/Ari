@@ -48,6 +48,12 @@ export interface ProviderAdapter {
   interrupt(): void
   dispose(): Promise<void>
   /**
+   * After dispose: whether the agent's process was kept for the session's
+   * next turn, so sub-agents and shells it runs in the background live on.
+   * Absent or false means they ended with the turn.
+   */
+  keepsBackgroundWork?(): boolean
+  /**
    * Answers a pending in-band approval request (M16.8). Optional: one-shot
    * CLIs without an approval channel cannot act on decisions.
    */

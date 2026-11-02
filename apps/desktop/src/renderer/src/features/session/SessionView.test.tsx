@@ -1013,6 +1013,71 @@ describe('SessionView per-turn diff cards', () => {
   })
 })
 
+describe('SessionView background work', () => {
+  beforeEach(() => {
+    invokeMock.mockReset()
+    invokeMock.mockImplementation(async (method) => {
+      if (method === 'settings.get') return SETTINGS
+      if (method === 'project.list') return []
+      if (method === 'session.workspace') return { path: null }
+      if (method === 'files.index') return { paths: [] }
+      if (method === 'session.load') return { session: { ...SESSION }, activeTurnId: null }
+      if (method === 'providers.detect') return []
+      if (method === 'providers.models') return []
+      if (method === 'endpoints.list') return []
+      if (method === 'command.dispatch') return { accepted: true }
+      throw new Error(`unexpected method: ${String(method)}`)
+    })
+    rpcMocks.subscribe.mockImplementation(
+      (name: string, _params: unknown, onEvent: (payload: unknown) => void) => {
+        if (name === 'session.events') {
+          sessionListener = onEvent
+          emitReplayDone()
+        }
+        return () => undefined
+      },
+    )
+  })
+
+  afterEach(() => {
+    sessionListener = null
+    vi.clearAllMocks()
+  })
+
+  const shell = {
+    sessionId: 'sess_1',
+    type: 'background.task.updated',
+    taskId: 'call_bg',
+    kind: 'shell',
+    label: 'npm run dev',
+  }
+
+  it('shows a shell the agent left running after its turn, until it ends', async () => {
+    renderView()
+    await screen.findByLabelText('Message')
+
+    emitSessionEvent({ seq: 1, at: 1, sessionId: 'sess_1', type: 'turn.started', turnId: 'turn_1' })
+    emitSessionEvent({ ...shell, seq: 2, at: 2, status: 'running' })
+    emitSessionEvent({
+      seq: 3,
+      at: 3,
+      sessionId: 'sess_1',
+      type: 'turn.settled',
+      turnId: 'turn_1',
+      stopReason: 'completed',
+      errorMessage: null,
+    })
+
+    expect(await screen.findByRole('button', { name: 'Background work' })).toHaveTextContent(
+      'Background shell running',
+    )
+    emitSessionEvent({ ...shell, seq: 4, at: 4, label: '', status: 'completed' })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Background work' })).not.toBeInTheDocument(),
+    )
+  })
+})
+
 describe('SessionView context meter', () => {
   beforeEach(() => {
     invokeMock.mockReset()

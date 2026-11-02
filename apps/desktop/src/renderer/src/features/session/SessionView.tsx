@@ -10,6 +10,8 @@ import {
   type ComponentProps,
 } from 'react'
 import { ChildSessionActivity } from './ChildSessionActivity'
+import { BackgroundWork, backgroundSummary } from './BackgroundWork'
+import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 import { delegatedChildren, type SpawnRecord } from './delegation-view'
 import { useTurnResume } from './use-turn-resume'
 import type { SessionActivity } from './session-activity'
@@ -168,6 +170,10 @@ function StoreTranscript({
   return <TranscriptView messages={messages} loading={loading === true || pending} {...props} />
 }
 
+const EMPTY_BACKGROUND = { tasks: [] as BackgroundTask[], reporting: false, since: null }
+/** How long the rail keeps saying the agent reports back after its last output. */
+const REPORTING_LINGER_MS = 4000
+
 const EMPTY_TELEMETRY: Telemetry = {
   turnCount: 0,
   lastDurationMs: null,
@@ -290,6 +296,14 @@ export function SessionView({
   // Null until the first snapshot lands: a card drawn before it would have
   // to guess, and reads as idle for the moment it takes to arrive.
   const [tasks, setTasks] = useState<ChildTask[] | null>(null)
+  // The agent harness's own sub-agents and background shells, and whether it
+  // is reporting back between turns right now (output with no turn live).
+  const [background, setBackground] = useState<{
+    tasks: BackgroundTask[]
+    reporting: boolean
+    since: number | null
+  }>(EMPTY_BACKGROUND)
+  const reportingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
   const partCountsRef = useRef(new Map<string, number>())
   const refreshTasksRef = useRef<() => void>(() => {})
@@ -346,6 +360,9 @@ export function SessionView({
     setTurnDiffs({})
     setSpawns([])
     setTasks(null)
+    setBackground(EMPTY_BACKGROUND)
+    if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
+    reportingTimerRef.current = null
     lastPartRef.current = null
     partCountsRef.current = new Map()
     fetchedTurnIdsRef.current = new Set()
@@ -486,6 +503,8 @@ export function SessionView({
     return () => {
       cancelled = true
       if (tasksTimer !== null) clearTimeout(tasksTimer)
+      if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
+      reportingTimerRef.current = null
       refreshTasksRef.current = () => {}
       if (publishFrame !== null) cancelAnimationFrame(publishFrame)
       unsubscribe()
@@ -544,13 +563,30 @@ export function SessionView({
           role: 'assistant',
           createdAt: event.at,
         }))
+        // Output with no turn live is the agent reporting back on its own;
+        // the rail says so while it streams, and a little after.
+        if (live && activeTurnIdRef.current === null) {
+          setBackground((prev) => (prev.reporting ? prev : { ...prev, reporting: true }))
+          if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
+          reportingTimerRef.current = setTimeout(() => {
+            reportingTimerRef.current = null
+            setBackground((prev) => ({ ...prev, reporting: false }))
+          }, REPORTING_LINGER_MS)
+        }
         break
       }
+      case 'background.task.updated':
+        setBackground((prev) => ({
+          ...prev,
+          tasks: foldBackgroundTask(prev.tasks, event, event.at),
+        }))
+        break
       case 'turn.started':
         // A fresh turn supersedes any stale failure banner.
         setTurnError(null)
         setRunning(true)
         activeTurnIdRef.current = event.turnId
+        setBackground((prev) => ({ ...prev, reporting: false, since: event.at }))
         setTelemetry((t) => ({
           ...t,
           turnCount: t.turnCount + 1,
@@ -1099,6 +1135,8 @@ export function SessionView({
     pendingPlan === null &&
     turnError === null
 
+  const backgroundShown = backgroundSummary(background.tasks, background.reporting) !== null
+
   // The composer is built only when something it shows changes: a session
   // view re-render (telemetry, child snapshots) must not re-render the editor
   // and its chips, nor re-measure the dock's layout animation around it.
@@ -1122,7 +1160,7 @@ export function SessionView({
           // A plan approval is answered in the side panel, so it mounts no
           // QuestionPanel and must not raise the strip on its own — an
           // `above` of empty children still draws the border.
-          composerAttentionRequired || childSessions.length > 0 ? (
+          composerAttentionRequired || childSessions.length > 0 || backgroundShown ? (
             <>
               {/* The question rides in the same layer as the approvals: the
                   strip that peeks out from behind the composer. A plan approval
@@ -1164,6 +1202,18 @@ export function SessionView({
                   // While this session runs, its own Stop reaches the children.
                   {...(!running && delegatedWorkLive ? { onStopAll: stopChildren } : {})}
                 />
+              ) : null}
+              {backgroundShown ? (
+                <>
+                  {composerAttentionRequired || childSessions.length > 0 ? (
+                    <div className="mx-3 border-t border-border/60" />
+                  ) : null}
+                  <BackgroundWork
+                    tasks={background.tasks}
+                    reporting={background.reporting}
+                    since={background.since}
+                  />
+                </>
               ) : null}
             </>
           ) : null
@@ -1216,6 +1266,8 @@ export function SessionView({
       onOpenSession,
       delegatedWorkLive,
       stopChildren,
+      backgroundShown,
+      background,
       defaults.driverKind,
       defaults.modelId,
       defaults.effort,

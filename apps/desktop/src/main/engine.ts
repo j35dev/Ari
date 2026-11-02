@@ -11,6 +11,7 @@ import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
 import type { MessageOrigin, MessagePart } from '@ari/contracts/message'
 import type { AgentEvent } from '@ari/contracts/agent-event'
+import { runningBackgroundTasks, type BackgroundTask } from '@ari/contracts/background-task'
 import type { ApprovalOption } from '@ari/contracts/common'
 import { decideCommand, findQueued } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
@@ -31,6 +32,19 @@ const log = createLogger('desktop:engine')
 const TEXT_FLUSH_MS = 50
 /** Background output is not watched live; fewer, larger journal writes suit it. */
 const BACKGROUND_FLUSH_MS = 150
+
+function backgroundTaskUpdated(
+  event: Extract<AgentEvent, { type: 'background-task' }>,
+): UnstampedEvent {
+  return {
+    type: 'background.task.updated',
+    taskId: event.id,
+    kind: event.kind,
+    label: event.label,
+    status: event.status,
+    ...(event.detail !== undefined ? { detail: event.detail } : {}),
+  }
+}
 
 function attributedInput(text: string, origin?: MessageOrigin): string {
   return origin?.kind === 'session'
@@ -251,7 +265,15 @@ export class Engine {
     state.at = now
     for (const event of events) {
       const last = state.parts[state.parts.length - 1]
-      if (event.type === 'text-delta' || event.type === 'thinking-delta') {
+      if (event.type === 'background-task') {
+        // Journaled at once, in order with the parts flushed before it.
+        const current = state
+        current.flushing = current.flushing
+          .then(() => this.#append(sessionId, backgroundTaskUpdated(event)).then(() => undefined))
+          .catch((error: unknown) =>
+            log.warn('background task could not be journaled', { sessionId, error: String(error) }),
+          )
+      } else if (event.type === 'text-delta' || event.type === 'thinking-delta') {
         const type = event.type === 'text-delta' ? 'text' : 'thinking'
         if (last && last.type === type) last.text += event.text
         else state.parts.push({ type, text: event.text })
@@ -289,6 +311,38 @@ export class Engine {
           log.warn('background output could not be journaled', { sessionId, error: String(error) }),
         )
     }, BACKGROUND_FLUSH_MS)
+  }
+
+  /**
+   * Ends the sub-agents and shells the journal still shows running once
+   * nothing can be running them any more: the agent process that ran them is
+   * gone and no turn is live. The host calls it when a parked connection ends
+   * and when a session is opened without one (after a restart, say).
+   */
+  async releaseBackgroundTasks(sessionId: string, detail: string): Promise<void> {
+    if (this.#turnTasks.has(sessionId)) return
+    await this.#endBackgroundTasks(sessionId, () => true, 'stopped', detail)
+  }
+
+  /** Journals an end for every running task `which` selects. */
+  async #endBackgroundTasks(
+    sessionId: string,
+    which: (task: BackgroundTask) => boolean,
+    status: 'completed' | 'stopped',
+    detail: string,
+  ): Promise<void> {
+    const model = await this.#deps.store.load(sessionId)
+    for (const task of runningBackgroundTasks(model.backgroundTasks ?? [])) {
+      if (!which(task)) continue
+      await this.#append(sessionId, {
+        type: 'background.task.updated',
+        taskId: task.id,
+        kind: task.kind,
+        label: task.label,
+        status,
+        detail,
+      })
+    }
   }
   /**
    * One message the adapter took as mid-turn steering, per session. The drain
@@ -609,6 +663,19 @@ export class Engine {
     turnId: string,
     resumeOf: string | null,
   ): Promise<void> {
+    // Nothing reliably says when a background shell ends, so what earlier
+    // turns left running is not tracked past the start of the next one.
+    await this.#endBackgroundTasks(
+      session.id,
+      () => true,
+      'completed',
+      'No longer tracked after the next turn started',
+    ).catch((error: unknown) =>
+      log.warn('background tasks could not be closed', {
+        sessionId: session.id,
+        error: String(error),
+      }),
+    )
     const driver = this.#deps.registry.get(session.driverKind)
     if (!driver) {
       const reason = await this.#deps
@@ -979,6 +1046,9 @@ export class Engine {
           case 'permission-mode':
             await append({ type: 'session.updated', permissionMode: event.mode })
             break
+          case 'background-task':
+            await append(backgroundTaskUpdated(event))
+            break
           case 'notice':
             // Shown, but deliberately not recorded as `firstErrorMessage`:
             // the turn is answering, just not with what the user picked.
@@ -1032,6 +1102,24 @@ export class Engine {
         log.warn('provider disposal failed', { sessionId: session.id, error: String(error) })
       }
       this.#activeTurns.delete(session.id)
+    }
+    // Background work outlives the turn only in a process kept for the next
+    // one. A stop ends the turn's sub-agents with it; its shells run on.
+    try {
+      if (adapter.keepsBackgroundWork?.() !== true)
+        await this.#endBackgroundTasks(session.id, () => true, 'stopped', 'Ended with the turn')
+      else if (interrupted)
+        await this.#endBackgroundTasks(
+          session.id,
+          (task) => task.kind === 'subagent',
+          'stopped',
+          'Stopped with the turn',
+        )
+    } catch (error) {
+      log.warn('background tasks could not be closed', {
+        sessionId: session.id,
+        error: String(error),
+      })
     }
     await this.#captureTurnEnd(session.id, turnId)
   }

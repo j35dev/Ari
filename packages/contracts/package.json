@@ -9,6 +9,7 @@
     "./session": "./src/session.ts",
     "./message": "./src/message.ts",
     "./agent-event": "./src/agent-event.ts",
+    "./background-task": "./src/background-task.ts",
     "./attachments": "./src/attachments.ts",
     "./commands": "./src/commands.ts",
     "./events": "./src/events.ts",

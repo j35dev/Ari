@@ -21,6 +21,80 @@ describe('replayEntries', () => {
     expect(outcome.model.status).toBe('idle')
   })
 
+  it('replays a journal written before background tasks were tracked', () => {
+    const outcome = replayEntries([
+      value(1, { ...base, seq: 0, type: 'turn.started', turnId: 't0' }),
+      value(2, {
+        ...base,
+        seq: 1,
+        type: 'assistant.parts.appended',
+        messageId: 'msg_1',
+        parts: [{ type: 'tool-call', callId: 'c1', name: 'execute', argsJson: '{}' }],
+      }),
+      value(3, { ...base, seq: 2, type: 'turn.settled', turnId: 't0', stopReason: 'completed' }),
+    ])
+    expect(outcome.rejected).toEqual([])
+    expect(outcome.model.backgroundTasks).toBeUndefined()
+  })
+
+  it('folds background task reports, the latest one winning', () => {
+    const task = { taskId: 'call_bg', kind: 'shell', label: 'Run tests' }
+    const outcome = replayEntries([
+      value(1, {
+        ...base,
+        seq: 0,
+        at: 10,
+        type: 'background.task.updated',
+        ...task,
+        status: 'running',
+      }),
+      value(2, {
+        ...base,
+        seq: 1,
+        at: 20,
+        type: 'background.task.updated',
+        ...task,
+        label: '',
+        status: 'completed',
+        detail: 'The agent reported back',
+      }),
+      value(3, {
+        ...base,
+        seq: 2,
+        at: 30,
+        type: 'background.task.updated',
+        taskId: 'agent_1',
+        kind: 'subagent',
+        label: 'Survey',
+        status: 'running',
+        detail: 'Read a.ts',
+      }),
+    ])
+    expect(outcome.rejected).toEqual([])
+    expect(outcome.model.backgroundTasks).toEqual([
+      {
+        id: 'call_bg',
+        kind: 'shell',
+        label: 'Run tests',
+        status: 'completed',
+        detail: 'The agent reported back',
+        startedAt: 10,
+        updatedAt: 20,
+        endedAt: 20,
+      },
+      {
+        id: 'agent_1',
+        kind: 'subagent',
+        label: 'Survey',
+        status: 'running',
+        detail: 'Read a.ts',
+        startedAt: 30,
+        updatedAt: 30,
+        endedAt: null,
+      },
+    ])
+  })
+
   it('quarantines a JSON-error line and keeps folding around it', () => {
     const outcome = replayEntries([
       value(1, { ...base, seq: 0, type: 'turn.started', turnId: 't0' }),
