@@ -3,6 +3,7 @@ import type {
   GitComparison,
   GitScope,
   GitReviewManifest,
+  GitSummary,
   SourceControlContext,
 } from '@ari/contracts/rpc'
 import { createLogger } from '@ari/shared/logger'
@@ -12,7 +13,7 @@ const log = createLogger('ui:source-control')
 interface State {
   key: string
   context: SourceControlContext | null
-  summary: { branch: string | null; changedFiles: number } | null
+  summary: GitSummary | null
   manifest: GitReviewManifest | null
   error: string | null
   watchError: string | null

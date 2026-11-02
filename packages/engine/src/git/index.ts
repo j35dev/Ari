@@ -15,3 +15,5 @@ export type {
   StatusKind,
   WorktreeInfo,
 } from './git-service'
+export { defaultCommitMessage, ship } from './git-ship'
+export type { ShipAction, ShipDeps, ShipInput, ShipOutcome, ShipRepository } from './git-ship'
