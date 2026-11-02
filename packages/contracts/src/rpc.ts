@@ -2,10 +2,6 @@ import { z } from 'zod'
 import { commandSchema } from './commands'
 import { MAX_ATTACHMENT_BASE64_CHARS, MAX_ATTACHMENTS } from './attachments'
 import type { AttachmentRef } from './attachments'
-import { botCreateParamsSchema, botUpdatePatchSchema, BOT_MEMORY_MAX_CHARS } from './bot'
-import type { Bot, BotCharacter } from './bot'
-import { botRoutineAddSchema } from './routine'
-import type { BotRoutine } from './routine'
 import { driverKindSchema, permissionModeSchema } from './common'
 import type { DriverKind } from './common'
 import { endpointFlavorSchema, endpointModelSchema } from './endpoint'
@@ -55,64 +51,15 @@ export const sessionSummarySchema = sessionHierarchySummarySchema.extend({
   /** Messages in the session; 0 marks a pristine, reusable session. */
   messageCount: z.number().int().nonnegative(),
   /**
-   * One-line preview of the session's last text, for the Hive roster's bot
-   * rows. Null until the session says something; absent from older producers.
+   * One-line preview of the session's last text. Null until the session says
+   * something; absent from older producers.
    */
   lastMessagePreview: z.string().nullable().optional(),
-  /** Set for Hive bot sessions (main session and room threads); absent otherwise. */
-  botId: z.string().optional(),
   /** Sidebar flags; treat missing as false. The engine always reports them. */
   archived: z.boolean().optional(),
   pinned: z.boolean().optional(),
 })
 export type SessionSummary = z.infer<typeof sessionSummarySchema>
-
-/** One line of a Hive team room's transcript. */
-export interface TeamRoomEntry {
-  id: string
-  /** Null for the person; a bot id for a bot. */
-  botId: string | null
-  text: string
-  at: number
-}
-
-/** A Hive team room as the shell sees it: roster, transcript, and round state. */
-export interface TeamRoomSummary {
-  id: string
-  title: string
-  /** `sessionId` is the bot's own room thread, not its main session. */
-  bots: {
-    botId: string
-    name: string
-    emoji: string
-    /** Absent for bots made before characters; the shell derives one from `botId`. */
-    character?: BotCharacter
-    sessionId: string
-  }[]
-  leadBotId: string | null
-  activeBotId: string | null
-  needsUser: boolean
-  /** What bots are shown when woken: the most recent messages only. */
-  window: { botId: string | null; text: string }[]
-  /** The whole transcript, oldest first, capped at the newest 500 entries. */
-  log: TeamRoomEntry[]
-  /** Human messages sent while a round runs; each starts its own turn once the room settles. */
-  pending: number
-  round: {
-    rounds: number
-    messages: number
-    followUps: number
-    awaiting: string[]
-    passed: string[]
-  } | null
-  updatedAt: number
-}
-
-/** Payload delivered on the rooms.updated stream; `room` is null once removed. */
-export interface TeamRoomFrame {
-  roomId: string
-  room: TeamRoomSummary | null
-}
 
 /** One redeemable reset. Several can be banked with different expiries. */
 export interface ProviderResetCredit {
@@ -293,7 +240,6 @@ export const sessionCreateParamsSchema = z.object({
   modelId: z.string().nullable(),
   permissionMode: permissionModeSchema,
   effort: z.string().min(1).nullable().optional(),
-  botId: z.string().min(1).optional(),
   lead: z.boolean().optional(),
 })
 export type SessionCreateParams = z.infer<typeof sessionCreateParamsSchema>
@@ -354,7 +300,6 @@ export const streamNames = [
   'providers.updates',
   'app.updates',
   'browser.updated',
-  'rooms.updated',
   'remote.updates',
   'app.navigate',
   'scm.changed',
@@ -634,47 +579,6 @@ export const rpcParams = {
   'app.update.install': z.undefined(),
   'session.list': z.undefined(),
   'session.create': sessionCreateParamsSchema,
-  /** Every bot on disk, hidden ones included — the roster filters, so hiding
-   * stays trivially reversible and never needs a second source of truth. */
-  'bots.list': z.undefined(),
-  /** Creates a Hive bot and its main session; returns the bot with `mainSessionId` set. */
-  'bots.create': botCreateParamsSchema,
-  'bots.setHidden': z.object({ botId: z.string().min(1), hidden: z.boolean() }),
-  /** Edits a bot's face and voice; live rooms pick up the new name and look. */
-  'bots.update': z.object({ botId: z.string().min(1), patch: botUpdatePatchSchema }),
-  'bots.memory.get': z.object({ botId: z.string().min(1) }),
-  /** Replaces a bot's memory wholesale; the cap still applies, empty clears it. */
-  'bots.memory.replace': z.object({
-    botId: z.string().min(1),
-    content: z.string().max(BOT_MEMORY_MAX_CHARS),
-    /** File contents the editor loaded. A mismatch refuses the write. */
-    base: z.string().max(BOT_MEMORY_MAX_CHARS + 1).optional(),
-  }),
-  /** Every bot routine, enabled or paused. */
-  'routines.list': z.undefined(),
-  'routines.add': botRoutineAddSchema,
-  'routines.setEnabled': z.object({
-    routineId: z.string().min(1),
-    enabled: z.boolean(),
-  }),
-  'routines.remove': z.object({ routineId: z.string().min(1) }),
-  'rooms.list': z.undefined(),
-  'rooms.create': z.object({
-    title: z.string().trim().min(1).max(80),
-    botIds: z.array(z.string().min(1)).min(1).max(8),
-    leadBotId: z.string().min(1).nullish(),
-  }),
-  /**
-   * A human message to the room; the host decides who (if anyone) wakes. With
-   * `botId` (the answer to a pick prompt) that bot is addressed directly.
-   */
-  'rooms.send': z.object({
-    roomId: z.string().min(1),
-    text: z.string().trim().min(1).max(64_000),
-    botId: z.string().min(1).optional(),
-  }),
-  /** Deletes the room; each bot's room thread is archived, never deleted. */
-  'rooms.remove': z.object({ roomId: z.string().min(1) }),
   'session.load': z.object({ sessionId: z.string().min(1) }),
   'session.workspace': z.object({ sessionId: z.string().min(1) }),
   /** The children this session delegated to, with their state and last report. */
@@ -1030,22 +934,6 @@ export interface RpcResults {
   'app.update.install': UpdateStart
   'session.list': SessionSummary[]
   'session.create': { sessionId: string }
-  'bots.list': Bot[]
-  'bots.create': Bot
-  'bots.setHidden': Bot
-  'bots.update': Bot
-  /** The bot's memory.md as plain markdown; empty means it remembers nothing. */
-  'bots.memory.get': string
-  'bots.memory.replace': string
-  'routines.list': BotRoutine[]
-  'routines.add': BotRoutine
-  'routines.setEnabled': BotRoutine
-  'routines.remove': { removed: boolean }
-  'rooms.list': TeamRoomSummary[]
-  'rooms.create': TeamRoomSummary
-  /** `queued`: a round was running, so the message waits for the room to settle. */
-  'rooms.send': { targets: string[]; pick: boolean; queued: boolean }
-  'rooms.remove': { removed: boolean }
   'session.load': unknown
   'session.workspace': { path: string | null }
   'session.tasks': ChildTask[]
