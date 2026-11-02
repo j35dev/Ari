@@ -159,13 +159,25 @@ describe('SettingsStore', () => {
     expect(persisted.appearance.mode).toBe('nocturne')
   })
 
-  it('keeps the Hive view choice across a reload', async () => {
+  it('loads a file that still carries the removed Hive settings, and drops them', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        appearance: { themeId: 'nocturne', hiveView: true },
+        hive: { selfMemory: true },
+      }),
+    )
     const store = new SettingsStore({ dir })
-    expect((await store.load()).appearance.hiveView).toBeUndefined()
-    await store.update({ appearance: { hiveView: true } })
+    const loaded = await store.load()
+    expect(loaded.appearance.themeId).toBe('nocturne')
+    expect(loaded).not.toHaveProperty('hive')
+    expect(loaded.appearance).not.toHaveProperty('hiveView')
 
-    const persisted = await new SettingsStore({ dir }).load()
-    expect(persisted.appearance.hiveView).toBe(true)
+    await store.update({ notifications: { settleSound: false } })
+    const persisted = JSON.parse(await readFile(join(dir, 'settings.json'), 'utf8')) as object
+    expect(persisted).not.toHaveProperty('hive')
   })
 
   it('merges notification patches and defaults the settle sound for old files', async () => {

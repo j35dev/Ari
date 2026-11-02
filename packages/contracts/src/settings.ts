@@ -139,8 +139,6 @@ export const settingsSchema = z.object({
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
-      /** Shell shows the Hive roster instead of the session sidebar. */
-      hiveView: z.boolean().optional(),
     })
     .default(defaultAppearance),
   sessions: z
@@ -181,12 +179,6 @@ export const settingsSchema = z.object({
       discordPresence: z.boolean().default(true),
     })
     .default({ settleSound: true, desktop: true, discordPresence: true }),
-  hive: z
-    .object({
-      /** After settled bot turns, one-shot capture prompts let bots save durable facts to memory. */
-      selfMemory: z.boolean().default(false),
-    })
-    .default({ selfMemory: false }),
   permissions: z
     .object({
       /** Tools pre-approved across all sessions, e.g. ['Bash(git status*)']. */
@@ -236,7 +228,6 @@ export const settingsUpdateSchema = z.object({
       mode: themeModeSchema,
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
-      hiveView: z.boolean(),
     })
     .partial()
     .optional(),
@@ -276,12 +267,6 @@ export const settingsUpdateSchema = z.object({
       settleSound: z.boolean(),
       desktop: z.boolean(),
       discordPresence: z.boolean(),
-    })
-    .partial()
-    .optional(),
-  hive: z
-    .object({
-      selfMemory: z.boolean(),
     })
     .partial()
     .optional(),
@@ -326,7 +311,6 @@ export const defaultSettings: Settings = {
     wrapDiffLines: false,
   },
   notifications: { settleSound: true, desktop: true, discordPresence: true },
-  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,

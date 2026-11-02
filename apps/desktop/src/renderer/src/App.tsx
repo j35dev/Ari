@@ -84,7 +84,6 @@ import {
   type PaneEdge,
 } from './features/split/split-layout'
 import { SidebarHeader, SessionsUnderProjects, type SidebarNavId } from './shell/Sidebar'
-import { HiveRoster, isBotSession, RoomView, useRooms } from './features/hive'
 import { isEditableTarget } from './shell/editable-target'
 import { anchorBelow, type MenuAnchor } from './shell/ContextMenu'
 import { NewSessionLauncher } from './shell/NewSessionLauncher'
@@ -142,13 +141,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   const reducedMotion = useReducedMotionConfig()
   const [inspector, setInspector] = useState<InspectorId | null>(null)
   // Usage and Changes get the full page — they're rooms. Files and the terminal
-  // are tools, so they dock to the trailing rail beside the transcript. A Hive
-  // team room takes the full page the same way, so anything that closes one
-  // of them closes it too.
-  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'source-control' | 'room' | null>(
-    null,
-  )
-  const [roomId, setRoomId] = useState<string | null>(null)
+  // are tools, so they dock to the trailing rail beside the transcript.
+  const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'source-control' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hubOpen, setHubOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
@@ -291,7 +285,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   )
   const sidebar = useSidebarWidth()
   const sidebarSearchRef = useRef<HTMLInputElement>(null)
-  // Lives here so switching to Hive view and back keeps the sidebar search.
   const [sidebarQuery, setSidebarQuery] = useState('')
   const dock = useDockWidth()
   const toggleSidebar = useCallback(() => {
@@ -549,25 +542,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // the seed above never left `ask`, whatever the setting said.
   const engineSettings = useEngineSettings()
   const defaultPermissionMode = engineSettings.settings?.sessions.defaultPermissionMode
-  const hiveView = engineSettings.settings?.appearance.hiveView === true
-  const roomStore = useRooms(hiveView)
-  const openRoom =
-    fullPage === 'room' ? roomStore.rooms.find((room) => room.id === roomId) : undefined
-  // A room lives in Hive view, and only as long as the host keeps it.
-  const roomGone =
-    fullPage === 'room' && (!hiveView || (!roomStore.loading && openRoom === undefined))
-  useEffect(() => {
-    if (roomGone) setFullPage(null)
-  }, [roomGone])
-  const showRoom = useCallback(
-    (id: string) => {
-      leaveWorkspaceTool()
-      setInspector(null)
-      setRoomId(id)
-      setFullPage('room')
-    },
-    [leaveWorkspaceTool],
-  )
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
     setDefaults((prev) =>
@@ -670,21 +644,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // then newest, in the Sessions view. Either way keyboard order matches
   // what is rendered, and child agents are not their own stops.
   const openProjects = useMemo(() => projects.filter((p) => p.open), [projects])
-  // Bot sessions live in the Hive: the roster opens a bot's main session and a
-  // room opens its threads, so the normal sidebar (and its Mod+digit order)
-  // never lists them.
-  const sidebarSessions = useMemo(
-    () => sessions.filter((session) => !isBotSession(session)),
-    [sessions],
-  )
   const { collapsed: collapsedChildren } = useSessionCollapse()
   const { view: sidebarView } = useSidebarView()
   const navOrder = useMemo(
     () =>
       sidebarView === 'sessions'
-        ? sessionsViewOrder(sidebarSessions)
-        : sidebarOrder(sidebarSessions, openProjects),
-    [sidebarSessions, openProjects, sidebarView, collapsedChildren],
+        ? sessionsViewOrder(sessions)
+        : sidebarOrder(sessions, openProjects),
+    [sessions, openProjects, sidebarView, collapsedChildren],
   )
 
   const refreshProjects = useCallback((): void => {
@@ -1112,13 +1079,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   return (
     <div className="ari-wallpaper-pane flex h-full flex-col">
       <Titlebar
-        activeTool={
-          settingsOpen
-            ? 'settings'
-            : hubOpen
-              ? 'github'
-              : ((fullPage === 'room' ? null : fullPage) ?? inspector)
-        }
+        activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         changeCount={changeSummary.summary?.changedFiles ?? null}
         git={
@@ -1183,105 +1144,85 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               style={{ '--ari-sidebar-motion-width': `${sidebar.width}px` } as React.CSSProperties}
             >
               <SidebarHeader
-                onSearch={hiveView ? undefined : () => sidebarSearchRef.current?.focus()}
+                onSearch={() => sidebarSearchRef.current?.focus()}
                 onCollapse={toggleSidebar}
-                hiveView={hiveView}
-                onHiveViewChange={(next) => {
-                  void engineSettings
-                    .update({ appearance: { hiveView: next } })
-                    .catch((error: unknown) => log.warn('settings.update failed', error))
+              />
+              <SessionsUnderProjects
+                sessions={sessions}
+                projects={openProjects}
+                knownProjectNames={projects}
+                searchInputRef={sidebarSearchRef}
+                searchQuery={sidebarQuery}
+                onSearchQueryChange={setSidebarQuery}
+                onNewSession={beginNewSession}
+                onOpenProject={openProjectViaDialog}
+                onNewSessionInProject={(projectId) => createSession(projectId)}
+                onImportSessions={setImportProjectId}
+                onRevealProject={(projectId) => {
+                  const path = projects.find((p) => p.id === projectId)?.path
+                  if (path === undefined) return
+                  void rpc
+                    .invoke('shell.revealPath', { path })
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onCloseProject={(projectId) => {
+                  void rpc
+                    .invoke('project.close', { id: projectId })
+                    .then(refreshProjects)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onRemoveProject={(projectId) => {
+                  void rpc
+                    .invoke('project.remove', { id: projectId })
+                    .then(refreshProjects)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onReorderProject={moveProject}
+                onMoveProject={(projectId, delta) => {
+                  const move = projectMoveForDelta(
+                    openProjects.map((p) => p.id),
+                    projectId,
+                    delta,
+                  )
+                  if (move) moveProject(move.id, move.beforeId)
+                }}
+                onLocateProject={openProjectViaDialog}
+                activeSessionId={activeSessionId}
+                activityOf={activityOf}
+                onSelect={selectSession}
+                onOpenInSplit={splitLayoutActions.openInSplit}
+                onRename={(id, title) => patchSessions([id], { title })}
+                onDelete={(id) => {
+                  const dropped = new Set([id, ...descendantIds(sessions, id)])
+                  for (const gone of dropped) forget(gone)
+                  void rpc
+                    .invoke('session.destroy', { sessionId: id })
+                    // The refreshed list blanks the panes those sessions were in.
+                    .then(refreshSessions)
+                    .catch((error: unknown) => log.warn('rpc call failed', error))
+                }}
+                onTogglePin={(id, pinned) => patchSessions([id], { pinned })}
+                onToggleArchive={(id, archived) => patchSessions([id], { archived })}
+                onArchiveMany={(ids) => patchSessions(ids, { archived: true })}
+                onDeleteMany={(ids) => {
+                  const dropped = new Set<string>()
+                  for (const id of ids) {
+                    dropped.add(id)
+                    for (const child of descendantIds(sessions, id)) dropped.add(child)
+                  }
+                  for (const gone of dropped) forget(gone)
+                  void (async () => {
+                    for (const id of ids) {
+                      try {
+                        await rpc.invoke('session.destroy', { sessionId: id })
+                      } catch (error: unknown) {
+                        log.warn('rpc call failed', error)
+                      }
+                    }
+                    refreshSessions()
+                  })()
                 }}
               />
-              {hiveView ? (
-                <HiveRoster
-                  sessions={sessions}
-                  projects={projects}
-                  activityOf={activityOf}
-                  defaults={defaults}
-                  onOpenSession={selectSession}
-                  onSessionsChanged={refreshSessions}
-                  rooms={roomStore}
-                  activeRoomId={openRoom?.id ?? null}
-                  onOpenRoom={showRoom}
-                />
-              ) : (
-                <SessionsUnderProjects
-                  sessions={sidebarSessions}
-                  projects={openProjects}
-                  knownProjectNames={projects}
-                  searchInputRef={sidebarSearchRef}
-                  searchQuery={sidebarQuery}
-                  onSearchQueryChange={setSidebarQuery}
-                  onNewSession={beginNewSession}
-                  onOpenProject={openProjectViaDialog}
-                  onNewSessionInProject={(projectId) => createSession(projectId)}
-                  onImportSessions={setImportProjectId}
-                  onRevealProject={(projectId) => {
-                    const path = projects.find((p) => p.id === projectId)?.path
-                    if (path === undefined) return
-                    void rpc
-                      .invoke('shell.revealPath', { path })
-                      .catch((error: unknown) => log.warn('rpc call failed', error))
-                  }}
-                  onCloseProject={(projectId) => {
-                    void rpc
-                      .invoke('project.close', { id: projectId })
-                      .then(refreshProjects)
-                      .catch((error: unknown) => log.warn('rpc call failed', error))
-                  }}
-                  onRemoveProject={(projectId) => {
-                    void rpc
-                      .invoke('project.remove', { id: projectId })
-                      .then(refreshProjects)
-                      .catch((error: unknown) => log.warn('rpc call failed', error))
-                  }}
-                  onReorderProject={moveProject}
-                  onMoveProject={(projectId, delta) => {
-                    const move = projectMoveForDelta(
-                      openProjects.map((p) => p.id),
-                      projectId,
-                      delta,
-                    )
-                    if (move) moveProject(move.id, move.beforeId)
-                  }}
-                  onLocateProject={openProjectViaDialog}
-                  activeSessionId={activeSessionId}
-                  activityOf={activityOf}
-                  onSelect={selectSession}
-                  onOpenInSplit={splitLayoutActions.openInSplit}
-                  onRename={(id, title) => patchSessions([id], { title })}
-                  onDelete={(id) => {
-                    const dropped = new Set([id, ...descendantIds(sessions, id)])
-                    for (const gone of dropped) forget(gone)
-                    void rpc
-                      .invoke('session.destroy', { sessionId: id })
-                      // The refreshed list blanks the panes those sessions were in.
-                      .then(refreshSessions)
-                      .catch((error: unknown) => log.warn('rpc call failed', error))
-                  }}
-                  onTogglePin={(id, pinned) => patchSessions([id], { pinned })}
-                  onToggleArchive={(id, archived) => patchSessions([id], { archived })}
-                  onArchiveMany={(ids) => patchSessions(ids, { archived: true })}
-                  onDeleteMany={(ids) => {
-                    const dropped = new Set<string>()
-                    for (const id of ids) {
-                      dropped.add(id)
-                      for (const child of descendantIds(sessions, id)) dropped.add(child)
-                    }
-                    for (const gone of dropped) forget(gone)
-                    void (async () => {
-                      for (const id of ids) {
-                        try {
-                          await rpc.invoke('session.destroy', { sessionId: id })
-                        } catch (error: unknown) {
-                          log.warn('rpc call failed', error)
-                        }
-                      }
-                      refreshSessions()
-                    })()
-                  }}
-                />
-              )}
             </motion.aside>
           ) : null}
         </AnimatePresence>
@@ -1343,16 +1284,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                         },
                       })
                     }
-                  />
-                </ErrorBoundary>
-              ) : openRoom !== undefined ? (
-                <ErrorBoundary label="Room">
-                  <RoomView
-                    key={openRoom.id}
-                    room={openRoom}
-                    onSend={roomStore.send}
-                    onRemove={roomStore.remove}
-                    onOpenThread={selectSession}
                   />
                 </ErrorBoundary>
               ) : null}
@@ -1450,7 +1381,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                   <SessionView
                                     sessionId={sessionId}
                                     hidden={hidden}
-                                    botId={sessions.find((s) => s.id === sessionId)?.botId}
                                     defaults={defaultsFor(sessionId)}
                                     onDefaultsChange={(next) => writeDefaults(sessionId, next)}
                                     onPick={rememberPick}

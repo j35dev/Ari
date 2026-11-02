@@ -30,7 +30,6 @@ const baseSettings: Settings = {
     wrapDiffLines: false,
   },
   notifications: { settleSound: true, desktop: true, discordPresence: true },
-  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
