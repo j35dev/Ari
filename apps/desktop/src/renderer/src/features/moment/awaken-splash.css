@@ -1,12 +1,8 @@
 /*
- * "Ari awakens" launch animation: a glitch reveal (corruption fragments,
- * mono corrupt flash with RGB-split ghosts and glitch bands, scanline flash,
- * then the wordmark settling with a `ready` beat), ported from the standalone
- * reveal prototype into the app window so startup is one surface instead of two.
- *
- * Beats are driven by `data-on` attributes flipped on a timeline in
- * AwakenSplash.tsx, so each keyframe sequence fires exactly once. The outro
- * veil wipe reveals the app that mounted underneath.
+ * Launch screen: the wordmark rises in over a slow ambient glow, its dot warms
+ * to the accent, and a hairline shimmers until the engine is ready, then
+ * fills. The outro lifts the wordmark and fades the screen to reveal the app
+ * that mounted underneath.
  *
  * Colors come from the theme-independent launch palette in @ari/ui/tokens.css
  * (`--ari-awaken-*`); no literals here.
@@ -14,7 +10,7 @@
 
 /* Boot canvas: painted from the renderer entry point before React mounts, so
    the very first frame of the window is already the launch canvas rather than
-   the themed app background. Removed when the splash finishes. */
+   the themed app background. Removed when the screen finishes. */
 [data-ari-booting] body {
   background: var(--ari-awaken-bg);
 }
@@ -28,468 +24,192 @@
   display: grid;
   place-items: center;
   user-select: none;
-  background:
-    radial-gradient(800px 480px at 50% 49%, var(--ari-awaken-glitch-haze), transparent 62%),
-    var(--ari-awaken-bg);
+  background: var(--ari-awaken-bg);
+  transition: opacity 0.36s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Very subtle CRT texture, almost invisible. */
-.ari-awaken::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 20;
+.ari-awaken[data-outro='on'] {
+  opacity: 0;
   pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--ari-awaken-glitch-scan) 0,
-    var(--ari-awaken-glitch-scan) 1px,
-    transparent 1px,
-    transparent 4px
-  );
-  opacity: 0.38;
 }
 
+/* Two soft lights drifting slowly behind the wordmark. */
+.ari-awaken-glow {
+  position: absolute;
+  inset: -20%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(34% 30% at 42% 46%, var(--ari-awaken-glitch-haze), transparent 70%),
+    radial-gradient(26% 24% at 60% 56%, var(--ari-awaken-glitch-band-a), transparent 72%);
+  opacity: 0;
+  animation:
+    ari-awaken-glow-in 1.2s ease-out forwards,
+    ari-awaken-drift 9s ease-in-out infinite alternate;
+}
+
+/* A faint vignette keeps the edges quiet. */
 .ari-awaken::after {
   content: '';
   position: absolute;
-  inset: -15%;
-  z-index: 19;
+  inset: 0;
+  z-index: 1;
   pointer-events: none;
   background: radial-gradient(
     circle at center,
-    transparent 50%,
-    var(--ari-awaken-glitch-vignette) 86%
+    transparent 45%,
+    var(--ari-awaken-glitch-vignette) 100%
   );
 }
 
-.ari-awaken-stage {
+.ari-awaken-center {
   position: relative;
-  z-index: 10;
-  width: min(760px, 86vw);
-  height: 220px;
-  display: grid;
-  place-items: center;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  transition:
+    transform 0.36s cubic-bezier(0.4, 0, 0.2, 1),
+    filter 0.36s ease;
 }
 
-/* Scattered corruption fragments. */
-.ari-awaken-fragments {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 440px;
-  height: 110px;
-  transform: translate(-50%, -50%);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.ari-awaken-fragment {
-  position: absolute;
-  background: var(--ari-awaken-glitch);
-  box-shadow: 0 0 7px var(--ari-awaken-glitch-glow);
-}
-
-.ari-awaken-fragments[data-on='on'] {
-  animation: ari-awaken-fragments 0.78s steps(2, end) forwards;
-}
-
-.ari-awaken-wordbox {
-  position: relative;
-  min-width: 390px;
-  height: 130px;
-  display: grid;
-  place-items: center;
-}
-
-.ari-awaken-word,
-.ari-awaken-ghost {
-  position: absolute;
-  font-family: var(--ari-font-ui);
-  font-size: clamp(60px, 12vw, 82px);
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: -0.072em;
-  white-space: nowrap;
+.ari-awaken[data-outro='on'] .ari-awaken-center {
+  transform: translateY(-6px) scale(1.03);
+  filter: blur(2px);
 }
 
 .ari-awaken-word {
-  opacity: 0;
+  font-family: var(--ari-font-ui);
+  font-size: clamp(54px, 9vw, 76px);
+  line-height: 1;
+  font-weight: 650;
+  letter-spacing: -0.06em;
   color: var(--ari-awaken-ink);
-  transform: scale(0.986);
-}
-
-.ari-awaken-word[data-on='on'] {
-  opacity: 1;
-  animation: ari-awaken-settle 0.72s cubic-bezier(0.17, 0.85, 0.22, 1) forwards;
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(6px);
+  animation: ari-awaken-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.08s forwards;
 }
 
 .ari-awaken-dot {
-  color: var(--ari-awaken-glitch);
   display: inline-block;
+  color: var(--ari-awaken-muted);
+  animation: ari-awaken-warm 0.5s ease-out 0.55s forwards;
 }
 
-.ari-awaken-dot[data-on='on'] {
-  animation: ari-awaken-dot-hit 0.48s cubic-bezier(0.15, 0.86, 0.2, 1);
+.ari-awaken[data-ready='on'] .ari-awaken-dot {
+  text-shadow: 0 0 18px var(--ari-awaken-gold);
 }
 
-.ari-awaken-ghost {
+/* Hairline: an indeterminate shimmer that fills once the engine is ready. */
+.ari-awaken-line {
+  position: relative;
+  width: 132px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ari-awaken-glitch-dim);
   opacity: 0;
-  pointer-events: none;
-  font-family: var(--ari-font-mono);
+  animation: ari-awaken-fade 0.4s ease-out 0.35s forwards;
 }
 
-.ari-awaken-ga {
-  color: var(--ari-awaken-glitch-cyan);
-  transform: translateX(-5px);
-}
-
-.ari-awaken-gb {
-  color: var(--ari-awaken-glitch-pink);
-  transform: translateX(5px);
-}
-
-.ari-awaken-gc {
-  color: var(--ari-awaken-glitch-soft);
-  transform: translateY(3px);
-}
-
-.ari-awaken-ga[data-on='on'] {
-  animation: ari-awaken-ghost-a 0.16s steps(1, end);
-}
-
-.ari-awaken-gb[data-on='on'] {
-  animation: ari-awaken-ghost-b 0.2s steps(1, end);
-}
-
-.ari-awaken-gc[data-on='on'] {
-  animation: ari-awaken-ghost-c 0.13s steps(1, end);
-}
-
-.ari-awaken-corrupt {
+.ari-awaken-line-fill {
   position: absolute;
-  font-family: var(--ari-font-mono);
-  font-weight: 700;
-  font-size: clamp(60px, 12vw, 82px);
-  line-height: 1;
-  letter-spacing: -0.075em;
-  color: var(--ari-awaken-ink);
-  opacity: 0;
-  text-shadow:
-    3px 0 var(--ari-awaken-glitch-shadow-cyan),
-    -3px 0 var(--ari-awaken-glitch-shadow-pink);
-}
-
-.ari-awaken-corrupt[data-on='on'] {
-  animation: ari-awaken-corrupt 0.72s steps(2, end) forwards;
-}
-
-/* Horizontal glitch bands. */
-.ari-awaken-band {
-  position: absolute;
-  left: 50%;
-  width: 450px;
-  height: 8px;
-  transform: translateX(-50%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--ari-awaken-glitch-band-a),
-    var(--ari-awaken-glitch-band-b),
-    transparent
-  );
-  opacity: 0;
-  mix-blend-mode: screen;
-}
-
-.ari-awaken-b1 {
-  top: 39%;
-}
-
-.ari-awaken-b2 {
-  top: 49%;
-  height: 4px;
-}
-
-.ari-awaken-b3 {
-  top: 58%;
-  height: 11px;
-}
-
-.ari-awaken-b1[data-on='on'] {
-  animation: ari-awaken-band-1 0.28s steps(2, end);
-}
-
-.ari-awaken-b2[data-on='on'] {
-  animation: ari-awaken-band-2 0.22s steps(2, end);
-}
-
-.ari-awaken-b3[data-on='on'] {
-  animation: ari-awaken-band-3 0.25s steps(2, end);
-}
-
-.ari-awaken-flashline {
-  position: absolute;
+  top: 0;
+  bottom: 0;
   left: 0;
-  right: 0;
-  top: 50%;
-  height: 1px;
-  z-index: 7;
-  background: linear-gradient(90deg, transparent, var(--ari-awaken-glitch-line), transparent);
-  opacity: 0;
-  transform: scaleX(0.08);
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--ari-awaken-ink), transparent);
+  animation: ari-awaken-shimmer 1.1s ease-in-out infinite;
 }
 
-.ari-awaken-flashline[data-on='on'] {
-  animation: ari-awaken-line-flash 0.32s ease-out;
+.ari-awaken[data-ready='on'] .ari-awaken-line-fill {
+  width: 100%;
+  background: var(--ari-awaken-gold);
+  animation: ari-awaken-fill 0.3s ease-out forwards;
 }
 
-.ari-awaken-ready {
-  position: absolute;
-  top: calc(50% + 72px);
-  left: 50%;
-  transform: translateX(-50%);
+.ari-awaken-status {
   font-family: var(--ari-font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ari-awaken-glitch-dim);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: lowercase;
+  color: var(--ari-awaken-muted);
   opacity: 0;
+  animation: ari-awaken-fade 0.4s ease-out 0.45s forwards;
 }
 
-.ari-awaken-ready[data-on='on'] {
-  animation: ari-awaken-ready 0.35s ease-out forwards;
-}
-
-/* Outro: the wordmark swells and dissolves while a veil wipes up over the
-   canvas, revealing the app that mounted underneath. */
-.ari-awaken-veil {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  pointer-events: none;
-  background: var(--ari-awaken-bg);
-  opacity: 0;
-  transform: scaleY(0);
-  transform-origin: 50% 100%;
-}
-
-.ari-awaken[data-outro='on'] .ari-awaken-veil {
-  opacity: 1;
-  transform: scaleY(1);
-  transition:
-    transform 0.5s cubic-bezier(0.22, 0.9, 0.22, 1),
-    opacity 0.16s ease;
-}
-
-.ari-awaken[data-outro='on'] .ari-awaken-word {
-  animation: none;
-  opacity: 0;
-  transform: scale(1.09);
-  transition:
-    transform 0.42s cubic-bezier(0.18, 0.85, 0.18, 1),
-    opacity 0.34s ease;
-}
-
-@keyframes ari-awaken-fragments {
-  0% {
-    opacity: 0;
-  }
-  12% {
-    opacity: 0.9;
-  }
-  22% {
-    opacity: 0.18;
-  }
-  35% {
-    opacity: 0.75;
-  }
-  52% {
-    opacity: 0.1;
-  }
-  68% {
-    opacity: 0.58;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes ari-awaken-corrupt {
-  0% {
-    opacity: 0;
-    transform: translateX(-8px);
-  }
-  12% {
-    opacity: 0.8;
-  }
-  24% {
-    opacity: 0.18;
-    transform: translateX(7px);
-  }
-  42% {
-    opacity: 0.92;
-  }
-  56% {
-    opacity: 0.35;
-    transform: translateX(-3px);
-  }
-  72% {
-    opacity: 0.7;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes ari-awaken-ghost-a {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  12%,
-  64% {
-    opacity: 0.56;
-  }
-}
-
-@keyframes ari-awaken-ghost-b {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  18%,
-  74% {
-    opacity: 0.45;
-  }
-}
-
-@keyframes ari-awaken-ghost-c {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  20%,
-  66% {
-    opacity: 0.38;
-  }
-}
-
-@keyframes ari-awaken-band-1 {
-  0% {
-    opacity: 0;
-    transform: translateX(-70%) scaleX(0.3);
-  }
-  30% {
-    opacity: 0.7;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(-30%) scaleX(1.15);
-  }
-}
-
-@keyframes ari-awaken-band-2 {
-  0% {
-    opacity: 0;
-    transform: translateX(-15%) scaleX(0.2);
-  }
-  35% {
-    opacity: 0.6;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(-70%) scaleX(0.95);
-  }
-}
-
-@keyframes ari-awaken-band-3 {
-  0% {
-    opacity: 0;
-    transform: translateX(-80%) scaleX(0.35);
-  }
-  40% {
-    opacity: 0.48;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(-20%) scaleX(1);
-  }
-}
-
-@keyframes ari-awaken-line-flash {
-  0% {
-    opacity: 0;
-    transform: scaleX(0.08);
-  }
-  28% {
-    opacity: 0.8;
-  }
-  100% {
-    opacity: 0;
-    transform: scaleX(1);
-  }
-}
-
-@keyframes ari-awaken-settle {
-  0% {
-    transform: scale(0.986);
-    filter: blur(0.35px);
-  }
-  42% {
-    transform: scale(1.012);
-  }
-  100% {
-    transform: scale(1);
+@keyframes ari-awaken-rise {
+  to {
+    opacity: 1;
+    transform: translateY(0);
     filter: blur(0);
   }
 }
 
-@keyframes ari-awaken-dot-hit {
-  0% {
-    transform: translateY(-7px) scale(0.62);
-    opacity: 0.15;
-  }
-  52% {
-    transform: translateY(1px) scale(1.22);
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(0) scale(1);
+@keyframes ari-awaken-warm {
+  to {
+    color: var(--ari-awaken-gold);
   }
 }
 
-@keyframes ari-awaken-ready {
+@keyframes ari-awaken-fade {
   to {
     opacity: 1;
   }
 }
 
-/* Reduced motion: the brand still shows, it just arrives already assembled. */
+@keyframes ari-awaken-glow-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ari-awaken-drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 1.5%, 0) scale(1.06);
+  }
+}
+
+@keyframes ari-awaken-shimmer {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+
+@keyframes ari-awaken-fill {
+  from {
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  to {
+    transform: scaleX(1);
+    transform-origin: left;
+  }
+}
+
+/* Reduced motion: the wordmark arrives already in place and nothing drifts. */
 @media (prefers-reduced-motion: reduce) {
   .ari-awaken *,
   .ari-awaken {
     animation-duration: 0.01ms !important;
     animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
     transition: none !important;
   }
   .ari-awaken-word,
-  .ari-awaken-ready {
+  .ari-awaken-line,
+  .ari-awaken-status {
     opacity: 1;
-  }
-  .ari-awaken[data-outro='on'] .ari-awaken-veil {
-    opacity: 1;
-    transform: scaleY(1);
-  }
-}
-
-@media (max-width: 700px) {
-  .ari-awaken-wordbox {
-    min-width: 290px;
-  }
-  .ari-awaken-fragments {
-    width: 320px;
+    transform: none;
+    filter: none;
   }
 }
