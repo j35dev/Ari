@@ -125,7 +125,12 @@ import {
 import { createUpdateChecker, evaluateInstallSettle } from '@ari/providers/updates'
 import { planFor } from '@ari/providers/package-manager'
 import { runInstall, type InstallHandle } from '@ari/providers/install'
-import { AcpDriver, attachModelEfforts, modelsFromConfigOptions } from '@ari/providers/acp'
+import {
+  AcpDriver,
+  acpSessionPool,
+  attachModelEfforts,
+  modelsFromConfigOptions,
+} from '@ari/providers/acp'
 import { resolveAcpLaunch, probeLaunch } from '@ari/providers/acp/launches'
 import { openProviderSetupTerminal } from './provider-setup'
 import { ProviderAccounts } from './provider-accounts'
@@ -1081,6 +1086,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     },
   })
   engineRef = engine
+  // Agent connections outlive their turn so background shells and sub-agents
+  // keep running; what they report between turns lands in the transcript.
+  acpSessionPool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
+  app.once('before-quit', () => void acpSessionPool.shutdownAll())
   const sessionDeps: SessionCreateDeps = {
     bots: getBotStore(),
     loadProject,
@@ -1104,7 +1113,10 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
     }
     if (archived) {
-      for (const id of parents) runtime?.revoke(id)
+      for (const id of parents) {
+        runtime?.revoke(id)
+        acpSessionPool.release(id)
+      }
     }
   }
   teamRooms = new TeamRoomService({
@@ -1718,6 +1730,7 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         await engine.dispatch({ type: 'turn.interrupt', sessionId: id })
         await engine.quiesce(id)
       }
+      acpSessionPool.release(id)
       await store.destroy(id)
       await runtime?.release(id)
     }
