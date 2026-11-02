@@ -34,7 +34,6 @@ const engineSettings: Settings = {
     wrapDiffLines: false,
   },
   notifications: { settleSound: true, desktop: true, discordPresence: true },
-  hive: { selfMemory: false },
   permissions: { allowlist: [] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },
   window: null,
@@ -148,13 +147,5 @@ describe('PermissionsSettings', () => {
     await waitFor(() =>
       expect(mocks.update).toHaveBeenCalledWith({ delegation: { approvalMode: 'always' } }),
     )
-  })
-
-  it('persists the bots-remember switch under hive', async () => {
-    const user = userEvent.setup()
-    render(<PermissionsSettings />)
-
-    await user.click(screen.getByRole('switch', { name: 'Bots remember on their own' }))
-    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({ hive: { selfMemory: true } }))
   })
 })

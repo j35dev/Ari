@@ -15,7 +15,6 @@ export const idPrefixes = {
   endpoint: 'endp',
   checkpoint: 'ckpt',
   command: 'cmd',
-  bot: 'bot',
 } as const
 
 export type IdPrefix = (typeof idPrefixes)[keyof typeof idPrefixes]

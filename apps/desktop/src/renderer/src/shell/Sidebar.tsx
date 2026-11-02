@@ -11,7 +11,6 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
-  Hexagon,
   Import as ImportIcon,
   MoreHorizontal,
   PanelBottom,
@@ -148,13 +147,9 @@ function SelectMark({ checked }: { checked: boolean }) {
 export function SidebarHeader({
   onSearch,
   onCollapse,
-  hiveView = false,
-  onHiveViewChange,
 }: {
   onSearch?: () => void
   onCollapse?: () => void
-  hiveView?: boolean
-  onHiveViewChange?: (next: boolean) => void
 }) {
   return (
     <header className="flex h-12 shrink-0 items-center px-3">
@@ -168,23 +163,6 @@ export function SidebarHeader({
       </div>
 
       <div className="flex items-center gap-0.5">
-        {onHiveViewChange !== undefined ? (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={hiveView}
-            aria-label="Hive view"
-            title="Hive view"
-            onClick={() => onHiveViewChange(!hiveView)}
-            className={`flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
-              hiveView
-                ? 'bg-accent/15 text-accent'
-                : 'text-fg-subtle hover:bg-surface-2 hover:text-fg'
-            }`}
-          >
-            <Hexagon size={14} strokeWidth={1.8} aria-hidden="true" />
-          </button>
-        ) : null}
         {onSearch !== undefined ? (
           <button
             type="button"
@@ -1314,7 +1292,7 @@ type SessionsUnderProjectsProps = SessionRowHandlers &
     /** Anchors the project picker the new session will run in, under the button. */
     onNewSession?: (anchor: MenuAnchor) => void
     searchInputRef?: Ref<HTMLInputElement>
-    /** Controlled search query; owned by the shell so it survives Hive view unmounting this list. */
+    /** Controlled search query; owned by the shell so it survives this list unmounting. */
     searchQuery?: string
     onSearchQueryChange?: (query: string) => void
   }

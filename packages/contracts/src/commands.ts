@@ -30,7 +30,6 @@ export const commandSchema = z.discriminatedUnion('type', [
     driverKind: driverKindSchema,
     modelId: z.string().nullable(),
     permissionMode: permissionModeSchema,
-    botId: z.string().min(1).optional(),
   }),
   z
     .object({
@@ -52,7 +51,7 @@ export const commandSchema = z.discriminatedUnion('type', [
        * non-completed settle, unlike a message the user sent.
        */
       hold: z.boolean().optional(),
-      /** Human by default; room and routine turns wait behind it. */
+      /** Human by default; the other values are legacy. */
       priority: wakePrioritySchema.optional(),
     })
     .superRefine(requiresTextOrAttachments),
