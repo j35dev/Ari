@@ -160,15 +160,13 @@ function ScopedReview({
       preferences.change({ comparison: { kind: value } })
   }
   return (
-    <section className="flex h-full min-h-0 flex-col bg-bg" aria-label={label}>
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-border/60 px-4 py-2">
-        {label === 'Source control' ? (
-          <GitBranch size={18} className="text-accent" />
-        ) : (
-          <FileDiff size={18} className="text-accent" />
-        )}
+    <section className="@container flex h-full min-h-0 flex-col bg-bg" aria-label={label}>
+      <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-3 border-b border-border/60 px-3 py-1.5 @[44rem]:min-h-14 @[44rem]:px-4 @[44rem]:py-2">
+        <FileDiff size={18} className="hidden text-accent @[44rem]:block" />
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight text-fg">{label}</h2>
+          <h2 className="hidden text-sm font-semibold tracking-tight text-fg @[44rem]:block">
+            {label}
+          </h2>
           <p className="flex items-center gap-1.5 font-mono text-2xs text-fg-subtle">
             <GitBranch size={10} />
             {context
@@ -218,7 +216,7 @@ function ScopedReview({
           </button>
         </div>
       ) : null}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col @[44rem]:flex-row">
         <ReviewNavigator
           files={files}
           selected={file?.path}
@@ -327,13 +325,6 @@ function ScopedReview({
         </span>
         <div className="flex-1" />
         {notice ? <span role="status">{notice}</span> : null}
-        <span>
-          {manifest
-            ? manifest.live
-              ? 'Live selection · frozen snapshot'
-              : 'Immutable snapshot'
-            : '—'}
-        </span>
         {manifest?.truncated ? <span className="text-warning">File list truncated</span> : null}
       </div>
     </section>

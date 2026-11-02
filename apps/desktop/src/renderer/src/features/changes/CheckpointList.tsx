@@ -100,7 +100,11 @@ export function CheckpointList({ projectId: _projectId, sessionId }: CheckpointL
   return (
     <section aria-label="Checkpoints" className="flex flex-col gap-2">
       <h3 className="text-xs font-semibold text-fg">Checkpoints</h3>
-      {loadError ? <p role="alert" className="text-xs text-danger">{loadError}</p> : null}
+      {loadError ? (
+        <p role="alert" className="text-xs text-danger">
+          {loadError}
+        </p>
+      ) : null}
       {!loadError && loaded && checkpoints.length === 0 ? (
         <p className="text-sm text-fg-subtle">No checkpoints captured for this session.</p>
       ) : null}
@@ -156,7 +160,10 @@ export function CheckpointList({ projectId: _projectId, sessionId }: CheckpointL
         ))}
       </ul>
       {status ? (
-        <p role="alert" className={`text-xs ${status.tone === 'success' ? 'text-success' : 'text-danger'}`}>
+        <p
+          role="alert"
+          className={`text-xs ${status.tone === 'success' ? 'text-success' : 'text-danger'}`}
+        >
           {status.message}
         </p>
       ) : null}
