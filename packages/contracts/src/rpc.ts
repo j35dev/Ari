@@ -553,6 +553,7 @@ export const gitShipActionSchema = z.enum([
   'push_pr',
   'pull',
   'create_pr',
+  'fetch',
 ])
 export type GitShipAction = z.infer<typeof gitShipActionSchema>
 
@@ -561,6 +562,22 @@ export interface GitShipOutcome {
   pushed: boolean
   pulled: boolean
   prUrl: string | null
+}
+
+/** One tool Settings → Source control reports on: installed, its version, who it is signed in as. */
+export interface SourceControlTool {
+  installed: boolean
+  version: string | null
+  /** Signed-in account; null when signed out or the tool has no sign-in. */
+  account: string | null
+  /** One plain sentence on its state, for the settings row. */
+  detail: string
+}
+
+export interface SourceControlEnvironment {
+  git: SourceControlTool
+  github: SourceControlTool
+  gitlab: SourceControlTool
 }
 
 export interface SourceControlContext {
@@ -872,6 +889,7 @@ export const rpcParams = {
     paths: z.array(sourceControlSchemas.path).min(1).max(2000).optional(),
   }),
   'scm.pullRequest': gitScopeSchema.extend({ refresh: z.boolean().optional() }),
+  'scm.environment': z.undefined(),
   'scm.cancel': z.object({ requestId: z.string().min(1).max(128) }),
   'git.diffWorktree': gitScopeSchema,
   'git.turnDiff': z.object({
@@ -1284,6 +1302,7 @@ export interface RpcResults {
   'scm.mutate': SourceControlResult<GitMutationOutcome>
   'scm.ship': SourceControlResult<GitShipOutcome>
   'scm.pullRequest': SourceControlResult<GitPullRequest | null>
+  'scm.environment': SourceControlEnvironment
   'scm.cancel': { cancelled: boolean }
   'git.status': {
     isRepo: boolean

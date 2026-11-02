@@ -35,6 +35,13 @@ const engineSettings: Settings = {
   },
   sessions: { defaultDriverKind: null, defaultPermissionMode: 'ask' },
   providers: defaultSettings.providers,
+  sourceControl: {
+    confirmDefaultPush: true,
+    draftPullRequests: false,
+    fetchIntervalSeconds: 60,
+    diffView: 'split',
+    wrapDiffLines: false,
+  },
   notifications: { settleSound: true, desktop: true, discordPresence: true },
   permissions: { allowlist: ['git status'] },
   remote: { enabled: false, port: 8787, allowedOrigins: [] },

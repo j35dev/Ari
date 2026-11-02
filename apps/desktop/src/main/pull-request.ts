@@ -67,12 +67,12 @@ export async function currentPullRequest(
  */
 export async function openPullRequest(
   cwd: string,
-  options: { run?: HostCommand; signal?: AbortSignal } = {},
+  options: { run?: HostCommand; signal?: AbortSignal; draft?: boolean } = {},
 ): Promise<Result<string | null, SourceControlError>> {
   try {
     const { stdout } = await (options.run ?? runHostCommand)(
       'gh',
-      ['pr', 'create', '--fill'],
+      ['pr', 'create', '--fill', ...(options.draft ? ['--draft'] : [])],
       cwd,
       options.signal ?? new AbortController().signal,
     )
