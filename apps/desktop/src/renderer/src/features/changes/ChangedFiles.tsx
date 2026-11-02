@@ -19,7 +19,7 @@ export function ChangedFiles({
   const virtual = useVirtualizer({
     count: files.length,
     getScrollElement: () => scroll.current,
-    estimateSize: () => 44,
+    estimateSize: () => 28,
     overscan: 6,
   })
   return (
@@ -71,14 +71,26 @@ export function ChangedFiles({
               >
                 {file.kind === 'untracked' ? '?' : file.kind[0]?.toUpperCase()}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-mono text-2xs">{file.path.slice(at + 1)}</span>
+              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                <span className="shrink-0 truncate font-mono text-2xs">
+                  {file.path.slice(at + 1)}
+                </span>
                 {at >= 0 ? (
-                  <span className="block truncate text-2xs text-fg-subtle">
+                  <span className="min-w-0 truncate text-2xs text-fg-subtle" dir="rtl">
                     {file.path.slice(0, at)}
                   </span>
                 ) : null}
               </span>
+              {file.additions > 0 || file.deletions > 0 ? (
+                <span className="shrink-0 font-mono text-2xs tabular-nums">
+                  {file.additions > 0 ? (
+                    <span className="text-success">+{file.additions}</span>
+                  ) : null}
+                  {file.deletions > 0 ? (
+                    <span className="ml-1 text-danger">−{file.deletions}</span>
+                  ) : null}
+                </span>
+              ) : null}
               {selectedPaths?.has(file.path) ? (
                 <span className="text-accent" aria-hidden>
                   ✓

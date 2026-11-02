@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { GitMutationService, watchGitChanges } from '@ari/engine/git'
+import { GitMutationService, ship, watchGitChanges } from '@ari/engine/git'
+import { currentPullRequest, forget as forgetPullRequest, openPullRequest } from './pull-request'
 import type { GitReviewService } from '@ari/engine/git'
 import { gitScopeSchema } from '@ari/contracts/rpc'
 import { ok } from '@ari/shared/result'
@@ -59,6 +60,46 @@ export class SourceControlLive {
           if (mutationTails.get(key) === task) mutationTails.delete(key)
           this.changed()
         }
+      }),
+    )
+    this.registry.register('scm.ship', (params) =>
+      this.host.withReview(params, async (review) => {
+        const key = keyFor(review.cwd)
+        const task = (mutationTails.get(key) ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(() =>
+            ship(
+              review,
+              {
+                action: params.action,
+                ...(params.message !== undefined ? { message: params.message } : {}),
+                ...(params.paths !== undefined ? { paths: params.paths } : {}),
+              },
+              {
+                createPr: (signal) =>
+                  openPullRequest(review.cwd, { ...(signal ? { signal } : {}) }),
+              },
+            ),
+          )
+        mutationTails.set(key, task)
+        try {
+          return await task
+        } finally {
+          if (mutationTails.get(key) === task) mutationTails.delete(key)
+          forgetPullRequest(review.cwd)
+          this.changed()
+        }
+      }),
+    )
+    this.registry.register('scm.pullRequest', (params) =>
+      this.host.withReview(params, async (review) => {
+        const summary = await review.summary()
+        if (!summary.ok) return summary
+        return ok(
+          await currentPullRequest(review.cwd, summary.value.branch, {
+            ...(params.refresh ? { refresh: true } : {}),
+          }),
+        )
       }),
     )
   }
