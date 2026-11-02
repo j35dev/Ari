@@ -9,7 +9,8 @@ import type { Command } from '@ari/contracts/commands'
 import type { DriverKind } from '@ari/contracts/common'
 import type { JournalEvent } from '@ari/contracts/events'
 import type { Session } from '@ari/contracts/session'
-import type { MessageOrigin } from '@ari/contracts/message'
+import type { MessageOrigin, MessagePart } from '@ari/contracts/message'
+import type { AgentEvent } from '@ari/contracts/agent-event'
 import type { ApprovalOption } from '@ari/contracts/common'
 import { decideCommand, findQueued } from '@ari/engine/dispatcher'
 import type { DispatchIds } from '@ari/engine/dispatcher'
@@ -28,6 +29,8 @@ const log = createLogger('desktop:engine')
 
 /** Longest streamed text is held before it is journaled and published. */
 const TEXT_FLUSH_MS = 50
+/** Background output is not watched live; fewer, larger journal writes suit it. */
+const BACKGROUND_FLUSH_MS = 150
 
 function attributedInput(text: string, origin?: MessageOrigin): string {
   return origin?.kind === 'session'
@@ -210,6 +213,82 @@ export class Engine {
   /** Includes providers still disposing after a durable settle. */
   hasLiveTurn(sessionId: string): boolean {
     return this.#turnTasks.has(sessionId)
+  }
+
+  /** Between-turn output buffered per session, flushed as one journal event. */
+  readonly #background = new Map<
+    string,
+    {
+      messageId: string
+      at: number
+      parts: MessagePart[]
+      timer: ReturnType<typeof setTimeout> | null
+      flushing: Promise<void>
+    }
+  >()
+
+  /**
+   * Records what an agent produced between turns: a background shell or
+   * sub-agent reporting back after the turn that started it ended. It joins
+   * the transcript as an agent message outside any turn. Output during a turn
+   * never comes here; the turn's own stream carries it.
+   */
+  recordBackground(sessionId: string, events: AgentEvent[]): void {
+    if (this.#turnTasks.has(sessionId)) return
+    const now = Date.now()
+    let state = this.#background.get(sessionId)
+    // A quiet minute starts a new message, so separate reports read separately.
+    if (!state || (state.parts.length === 0 && now - state.at > 60_000)) {
+      state = {
+        messageId: newTypedId('msg'),
+        at: now,
+        parts: [],
+        timer: null,
+        flushing: Promise.resolve(),
+      }
+      this.#background.set(sessionId, state)
+    }
+    state.at = now
+    for (const event of events) {
+      const last = state.parts[state.parts.length - 1]
+      if (event.type === 'text-delta' || event.type === 'thinking-delta') {
+        const type = event.type === 'text-delta' ? 'text' : 'thinking'
+        if (last && last.type === type) last.text += event.text
+        else state.parts.push({ type, text: event.text })
+      } else if (event.type === 'tool-started') {
+        state.parts.push({
+          type: 'tool-call',
+          callId: event.callId,
+          name: event.name,
+          argsJson: event.argsJson,
+        })
+      } else if (event.type === 'tool-completed') {
+        state.parts.push({
+          type: 'tool-result',
+          callId: event.callId,
+          resultJson: event.resultJson,
+          isError: event.isError,
+        })
+      }
+    }
+    if (state.parts.length === 0) return
+    const current = state
+    current.timer ??= setTimeout(() => {
+      current.timer = null
+      const parts = current.parts.splice(0)
+      if (parts.length === 0) return
+      current.flushing = current.flushing
+        .then(() =>
+          this.#append(sessionId, {
+            type: 'assistant.parts.appended',
+            messageId: current.messageId,
+            parts,
+          }).then(() => undefined),
+        )
+        .catch((error: unknown) =>
+          log.warn('background output could not be journaled', { sessionId, error: String(error) }),
+        )
+    }, BACKGROUND_FLUSH_MS)
   }
   /**
    * One message the adapter took as mid-turn steering, per session. The drain
@@ -645,6 +724,7 @@ export class Engine {
       })
     } catch (e) {
       await this.#settle(session.id, turnId, 'error', String(e))
+      await this.#captureTurnEnd(session.id, turnId)
       return
     }
 
@@ -939,18 +1019,21 @@ export class Engine {
       errorMessage = String(e)
     } finally {
       if (flushTimer !== null) clearTimeout(flushTimer)
+    }
+    // The reply reads as done as soon as it ends; process teardown and the end
+    // snapshot follow. Disposal still fences the snapshot against late provider
+    // writes, and the next turn on this session waits for both (#turnTasks).
+    try {
+      if (!interrupted) await this.#settle(session.id, turnId, stopReason, errorMessage)
+    } finally {
       try {
         await adapter.dispose()
       } catch (error) {
         log.warn('provider disposal failed', { sessionId: session.id, error: String(error) })
-        stopReason = 'error'
-        errorMessage ??= String(error)
       }
       this.#activeTurns.delete(session.id)
     }
-    // Disposal fences the final snapshot against late provider writes and the next turn.
-    if (interrupted) await this.#captureTurnEnd(session.id, turnId)
-    else await this.#settle(session.id, turnId, stopReason, errorMessage)
+    await this.#captureTurnEnd(session.id, turnId)
   }
 
   async #captureTurnEnd(sessionId: string, turnId: string): Promise<void> {
@@ -977,10 +1060,7 @@ export class Engine {
     stopReason: 'completed' | 'interrupted' | 'error',
     errorMessage: string | null,
   ): Promise<void> {
-    let model = await this.#deps.store.load(sessionId)
-    if (model.activeTurnId !== turnId) return
-    await this.#captureTurnEnd(sessionId, turnId)
-    model = await this.#deps.store.load(sessionId)
+    const model = await this.#deps.store.load(sessionId)
     if (model.activeTurnId !== turnId) return
     const nextStatus = stopReason === 'error' ? 'error' : 'idle'
     // Fold status before publishing turn.settled so subscribers that load

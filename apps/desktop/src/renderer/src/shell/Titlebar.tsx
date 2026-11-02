@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   FileDiff,
   Folder,
   Gauge,
-  GitBranch,
   Globe,
   PanelLeftOpen,
   Settings,
@@ -15,7 +14,6 @@ import type { SidebarNavId } from './Sidebar'
 import type { DriverKind } from '@ari/contracts/common'
 import { ProviderUsagePill } from '../features/usage/ProviderUsagePill'
 import { FocusPill } from '../features/focus'
-import { GithubMark } from '../features/github/GithubMark'
 
 const TITLEBAR_TOOLS: {
   id: Exclude<SidebarNavId, 'session'>
@@ -23,12 +21,10 @@ const TITLEBAR_TOOLS: {
   icon: LucideIcon
 }[] = [
   { id: 'changes', label: 'Review changes', icon: FileDiff },
-  { id: 'source-control', label: 'Source control', icon: GitBranch },
   { id: 'files', label: 'Files', icon: Folder },
   { id: 'usage', label: 'Usage', icon: Gauge },
   { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
   { id: 'browser', label: 'Browser', icon: Globe },
-  { id: 'github', label: 'PRs & issues', icon: GithubMark },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
@@ -58,6 +54,7 @@ export function Titlebar({
   changeCount = null,
   onExpandSidebar,
   minimal = false,
+  git,
 }: {
   activeTool?: SidebarNavId | null
   onSelectTool?: (id: SidebarNavId) => void
@@ -67,6 +64,8 @@ export function Titlebar({
   onExpandSidebar?: () => void
   /** Setup keeps only the native window controls, without starting focus-tool subscriptions. */
   minimal?: boolean
+  /** The Git control for the active workspace; absent outside a repository. */
+  git?: ReactNode
 }) {
   const [platform] = useState<TitlebarPlatform>(detectPlatform)
   const [maximized, setMaximized] = useState(false)
@@ -96,6 +95,7 @@ export function Titlebar({
       <div className="flex-1" />
       {minimal ? null : <FocusPill />}
       {usage ? <ProviderUsagePill {...usage} /> : null}
+      {git ? <div className="ml-2">{git}</div> : null}
 
       {onSelectTool ? (
         <nav

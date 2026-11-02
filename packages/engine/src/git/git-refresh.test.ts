@@ -73,14 +73,16 @@ describe('active source-control reads', { timeout: 30_000 }, () => {
     })
   })
 
-  it('coalesces visible file/index changes, ignores object churn and releases watchers', async () => {
+  it('watches Git metadata only, ignores worktree and object churn and releases watchers', async () => {
     const changed = vi.fn()
     const watched = await watchGitChanges(root, changed)
     if (!watched.ok) throw new Error(watched.error.message)
     try {
+      // Worktree edits refresh through turn checkpoints and window focus; a
+      // whole-tree watch took 30s+ and stalled the main process on big repos.
       await writeFile(join(root, 'a.txt'), 'changed\n')
-      await vi.waitFor(() => expect(changed).toHaveBeenCalled(), { timeout: 5000 })
-      changed.mockClear()
+      await new Promise((resolve) => setTimeout(resolve, 650))
+      expect(changed).not.toHaveBeenCalled()
       run('add', 'a.txt')
       await vi.waitFor(() => expect(changed).toHaveBeenCalled(), { timeout: 5000 })
       changed.mockClear()
