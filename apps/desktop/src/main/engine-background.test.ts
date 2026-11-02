@@ -36,7 +36,7 @@ afterEach(async () => {
 
 describe('background output', () => {
   it('journals what an agent reports between turns as one agent message', async () => {
-    const engine = new Engine({ store, registry: new DriverRegistry() })
+    const engine = new Engine({ store, registry: new DriverRegistry(), publish: () => undefined })
     engine.recordBackground('sess_1', [
       { type: 'tool-started', callId: 'c1', name: 'Bash', argsJson: '{"command":"npm test"}' },
     ])
