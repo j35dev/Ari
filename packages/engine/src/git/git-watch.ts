@@ -1,28 +1,18 @@
 import { watch } from 'chokidar'
-import { relative, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { RepositoryGit } from './repository-git'
 import type { SourceControlError } from '@ari/contracts/rpc'
 import { err, ok, type Result } from '@ari/shared/result'
 import { createLogger } from '@ari/shared/logger'
 
 const log = createLogger('engine:git-watch')
-const excluded = new Set([
-  '.git',
-  '.ari',
-  '.worktrees',
-  'node_modules',
-  'dist',
-  'out',
-  'build',
-  'coverage',
-  'target',
-  '.venv',
-  'vendor',
-  '.next',
-  '.turbo',
-])
 
-/** Watches one visible worktree and its Git metadata, ignoring snapshot/object churn. */
+/**
+ * Watches a worktree's Git metadata (HEAD, index, refs), ignoring object churn.
+ * The worktree itself is not watched: chokidar walking a large repo took 30s+
+ * and stalled the main process for seconds. Worktree edits refresh through
+ * turn checkpoints and window focus instead.
+ */
 export async function watchGitChanges(
   cwd: string,
   onChange: (error?: string) => void,
@@ -44,14 +34,6 @@ export async function watchGitChanges(
       if (!closed) onChange()
     }, 300)
   }
-  const files = watch(cwd, {
-    ignoreInitial: true,
-    followSymlinks: false,
-    ignored: (path) =>
-      relative(cwd, path)
-        .split(/[\\/]/)
-        .some((part) => excluded.has(part)),
-  })
   const metadata = watch(
     [
       ...[
@@ -72,22 +54,18 @@ export async function watchGitChanges(
   const close = async (): Promise<void> => {
     closed = true
     clearTimeout(timer)
-    await Promise.all([files.close(), metadata.close()])
+    await metadata.close()
   }
-  const ready = (watcher: typeof files): Promise<void> =>
-    new Promise((resolve, reject) => {
-      watcher.once('ready', resolve)
-      watcher.once('error', reject)
-    })
-  for (const watcher of [files, metadata]) {
-    watcher.on('all', changed)
-    watcher.on('error', (error: unknown) => {
-      log.warn('Git watcher failed', { error: String(error) })
-      if (!closed) onChange('Live refresh is unavailable. Refresh manually to retry.')
-    })
-  }
+  metadata.on('all', changed)
+  metadata.on('error', (error: unknown) => {
+    log.warn('Git watcher failed', { error: String(error) })
+    if (!closed) onChange('Live refresh is unavailable. Refresh manually to retry.')
+  })
   try {
-    await Promise.all([ready(files), ready(metadata)])
+    await new Promise<void>((resolve, reject) => {
+      metadata.once('ready', resolve)
+      metadata.once('error', reject)
+    })
     return ok(close)
   } catch {
     await close()
