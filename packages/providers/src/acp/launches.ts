@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import type { DriverKind } from '@ari/contracts/common'
 import { createLogger } from '@ari/shared/logger'
@@ -75,6 +75,57 @@ export function findNpxCommand(env: DetectEnvironment): string | null {
   for (const dir of dirs) {
     for (const name of names) {
       if (existsSync(join(dir, name))) return join(dir, name)
+    }
+  }
+  return null
+}
+
+/** npx's install root: `<npm cache>/_npx`, from the configured cache or npm's default. */
+function npxCacheRoot(env: DetectEnvironment): string | null {
+  const configured = env.vars?.['npm_config_cache']?.trim()
+  if (configured) return join(configured, '_npx')
+  if (env.platform === 'win32') {
+    return env.localAppData ? join(env.localAppData, 'npm-cache', '_npx') : null
+  }
+  return env.homeDir ? join(env.homeDir, '.npm', '_npx') : null
+}
+
+/**
+ * The entry script of `pkg@version` when npx has already installed it, or null.
+ * Launching that script with node skips the ~5s npx spends resolving a cached
+ * package on every turn. An entry without its own package.json is an
+ * interrupted install, which only npx can repair, so it is skipped.
+ */
+export function findInstalledAdapter(
+  pkg: string,
+  version: string,
+  env: DetectEnvironment,
+): string | null {
+  const root = npxCacheRoot(env)
+  if (root === null) return null
+  let entries: string[]
+  try {
+    entries = readdirSync(root)
+  } catch {
+    return null
+  }
+  for (const entry of entries) {
+    const dir = join(root, entry)
+    const pkgDir = join(dir, 'node_modules', ...pkg.split('/'))
+    try {
+      if (!existsSync(join(dir, 'package.json'))) continue
+      const manifest = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')) as {
+        version?: string
+        bin?: string | Record<string, string>
+      }
+      if (manifest.version !== version) continue
+      const bin =
+        typeof manifest.bin === 'string' ? manifest.bin : Object.values(manifest.bin ?? {})[0]
+      if (bin === undefined) continue
+      const script = join(pkgDir, bin)
+      if (existsSync(script)) return script
+    } catch {
+      // Not this package, or a manifest that cannot be read.
     }
   }
   return null
@@ -163,14 +214,34 @@ export function resolveAcpLaunch(
     const spec = acpAdapterSpec(kind) ?? adapterPkg
     const claudeExecutable =
       kind === 'claude' ? claudeAdapterExecutable(options.cliBinaryPath) : null
+    // Otherwise the adapter runs its bundled CLI, which can lag the user's own.
+    const adapterEnv: { env?: Record<string, string> } =
+      kind === 'codex'
+        ? { env: { CODEX_PATH: options.cliBinaryPath } }
+        : claudeExecutable === null
+          ? {}
+          : { env: { CLAUDE_CODE_EXECUTABLE: claudeExecutable } }
+    // npx installs next to its own node, so that node runs the cached adapter.
+    const pinned = spec === `${adapterPkg}@${ACP_ADAPTER_VERSIONS[kind]}`
+    const node = join(dirname(npx), detectEnv.platform === 'win32' ? 'node.exe' : 'node')
+    const installed =
+      pinned && existsSync(node)
+        ? findInstalledAdapter(adapterPkg, ACP_ADAPTER_VERSIONS[kind] ?? '', detectEnv)
+        : null
+    if (installed !== null) {
+      return {
+        label: `${kind} (ACP adapter ${spec})`,
+        command: node,
+        args: [installed],
+        ...adapterEnv,
+      }
+    }
     return {
       label: `${kind} (ACP adapter ${spec})`,
       command: npx,
       args: ['-y', spec],
       viaNpx: true,
-      // Otherwise the adapter runs its bundled CLI, which can lag the user's own.
-      ...(kind === 'codex' ? { env: { CODEX_PATH: options.cliBinaryPath } } : {}),
-      ...(claudeExecutable === null ? {} : { env: { CLAUDE_CODE_EXECUTABLE: claudeExecutable } }),
+      ...adapterEnv,
     }
   }
 
