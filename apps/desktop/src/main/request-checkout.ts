@@ -84,15 +84,20 @@ export async function checkoutChangeRequest(
         message: 'A different checkout already uses this request path.',
       })
     }
-    if (await stat(target).catch(() => null)) {
+    const current = await folderState(target)
+    if (current === 'unreadable') return err(UNREADABLE)
+    if (current === 'present') {
       return ok({ path: target, branch, commit: existing.head, number, created: false })
     }
+    // Only a folder that is really gone is cleared; a forced removal would discard its work.
     const removed = await worktrees.removeWorktree(git.cwd, existing.path)
     if (!removed.ok) {
       return err({ code: 'failed', message: 'Could not clear the missing request worktree.' })
     }
   }
-  if (await stat(target).catch(() => null)) {
+  const state = await folderState(target)
+  if (state === 'unreadable') return err(UNREADABLE)
+  if (state === 'present') {
     return err({ code: 'failed', message: 'The request worktree path is already in use.' })
   }
   if (listed.value.some((row) => row !== existing && row.branch === `refs/heads/${branch}`)) {
@@ -229,4 +234,25 @@ async function samePath(left: string, right: string): Promise<boolean> {
 function inside(parent: string, child: string): boolean {
   const rel = relative(resolve(parent), resolve(child))
   return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+const UNREADABLE = {
+  code: 'failed',
+  message:
+    'Could not read the request worktree folder. Check that its drive is available and retry.',
+} as const
+
+/**
+ * Whether a worktree folder exists. Only a missing path counts as gone: a
+ * permission error or an offline drive must never look like a deleted folder,
+ * because a missing request worktree is removed with a forced `git worktree remove`.
+ */
+async function folderState(path: string): Promise<'present' | 'missing' | 'unreadable'> {
+  try {
+    await stat(path)
+    return 'present'
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unreadable'
+  }
 }
