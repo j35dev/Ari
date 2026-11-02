@@ -1,12 +1,24 @@
 // @vitest-environment node
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import type * as FsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GitService, RepositoryGit } from '@ari/engine/git'
 import { err, ok } from '@ari/shared/result'
 import { checkoutChangeRequest, fetchRequestHead, type FetchRequestHead } from './request-checkout'
+
+/** Makes the checkout's folder check fail as an unreadable drive would. */
+const statFault = vi.hoisted(() => ({ code: null as string | null }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof FsPromises>()
+  const stat = (async (...args: Parameters<typeof real.stat>) => {
+    if (statFault.code) throw Object.assign(new Error('stat failed'), { code: statFault.code })
+    return real.stat(...args)
+  }) as typeof real.stat
+  return { ...real, stat }
+})
 
 const roots: string[] = []
 afterEach(async () => {
@@ -103,6 +115,33 @@ describe('request checkout', () => {
     expect(second).toMatchObject({ ok: true, value: { created: true, commit: b } })
     if (!second.ok) return
     expect(git(second.value.path, 'rev-parse', 'HEAD')).toBe(b)
+  })
+
+  it('refuses, and keeps the worktree, when its folder cannot be read', async () => {
+    const remote = await repo()
+    git(remote, 'update-ref', 'refs/pull/7/head', git(remote, 'rev-parse', 'HEAD'))
+    const consumer = await repo()
+    git(consumer, 'remote', 'add', 'origin', remote)
+    const rootDir = await mkdtemp(join(tmpdir(), 'ari-request-root-'))
+    roots.push(rootDir)
+    const gitApi = new RepositoryGit(consumer)
+    const remotes = [{ name: 'origin', url: 'https://github.com/acme/demo.git' }]
+    const options = { rootDir, fetchHead: fetchRequestHead(gitApi) }
+    const signal = new AbortController().signal
+    const first = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+    if (!first.ok) throw new Error(first.error.message)
+    await writeFile(join(first.value.path, 'unsaved.txt'), 'work in progress')
+    statFault.code = 'EACCES'
+    try {
+      const again = await checkoutChangeRequest(gitApi, remotes, 7, options, signal)
+      expect(again).toMatchObject({
+        ok: false,
+        error: { message: expect.stringMatching(/Could not read/) },
+      })
+    } finally {
+      statFault.code = null
+    }
+    expect(await readFile(join(first.value.path, 'unsaved.txt'), 'utf8')).toBe('work in progress')
   })
 
   it('refuses to reset a request branch that has local commits', async () => {
