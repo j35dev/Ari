@@ -328,32 +328,20 @@ describe('SessionStore', () => {
     expect(migrated['outputTokens']).toBe(3)
   })
 
-  it('lists the bot a session belongs to, and nothing for a plain session', async () => {
-    const bot: Session = { ...session, id: 'sess_bot', botId: 'bot_ada', updatedAt: 2000 }
+  it('reads an index entry that still carries a removed Hive botId, and drops it', async () => {
     await store.append(session.id, { type: 'session.created', session })
-    await store.append(bot.id, { type: 'session.created', session: bot })
-    const [botRow, plainRow] = await store.listSessions()
-    expect(botRow).toMatchObject({ id: 'sess_bot', botId: 'bot_ada' })
-    expect(plainRow?.id).toBe(session.id)
-    expect(plainRow).not.toHaveProperty('botId')
-  })
-
-  it('rebuilds a v4 index entry, which cannot say whether its session is a bot’s', async () => {
-    const bot: Session = { ...session, botId: 'bot_ada' }
-    await store.append(bot.id, { type: 'session.created', session: bot })
     expect(await store.listSessions()).toHaveLength(1)
 
     const { readFile, writeFile } = await import('node:fs/promises')
-    const indexPath = join(rootDir, bot.id, 'index.json')
+    const indexPath = join(rootDir, session.id, 'index.json')
     const legacy = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
-    delete legacy['botId']
-    legacy['version'] = 4
+    legacy['botId'] = 'bot_ada'
     await writeFile(indexPath, JSON.stringify(legacy), 'utf8')
 
     const fresh = new SessionStore({ rootDir })
-    expect((await fresh.listSessions())[0]?.botId).toBe('bot_ada')
-    const rebuilt = JSON.parse(await readFile(indexPath, 'utf8')) as Record<string, unknown>
-    expect(rebuilt).toMatchObject({ version: 5, botId: 'bot_ada' })
+    const [row] = await fresh.listSessions()
+    expect(row?.id).toBe(session.id)
+    expect(row).not.toHaveProperty('botId')
   })
 
   it('indexes what a session last said as its one-line roster preview', async () => {
