@@ -1070,6 +1070,14 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   // Agent connections outlive their turn so background shells and sub-agents
   // keep running; what they report between turns lands in the transcript.
   acpSessionPool.onBackground = (sessionId, events) => engine.recordBackground(sessionId, events)
+  // A parked process that ends takes its background shells and sub-agents along.
+  acpSessionPool.onEnded = (sessionId) => {
+    void engine
+      .releaseBackgroundTasks(sessionId, 'The agent process ended')
+      .catch((error: unknown) =>
+        log.warn('background tasks could not be closed', { sessionId, error: String(error) }),
+      )
+  }
   app.once('before-quit', () => void acpSessionPool.shutdownAll())
   const sessionDeps: SessionCreateDeps = {
     loadProject,
@@ -2528,8 +2536,20 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
             replay: true,
           } satisfies SessionEventFrame)
         }
-        void engine
-          .replaySessionChunks(sessionId, sendChunk)
+        // Without a parked agent process nothing can still be running the
+        // background work the journal shows open (Ari restarted, say).
+        const settled = acpSessionPool.has(sessionId)
+          ? Promise.resolve()
+          : engine
+              .releaseBackgroundTasks(sessionId, 'The agent process ended')
+              .catch((error: unknown) =>
+                log.warn('background tasks could not be closed', {
+                  sessionId,
+                  error: String(error),
+                }),
+              )
+        void settled
+          .then(() => engine.replaySessionChunks(sessionId, sendChunk))
           // The sentinel still goes out: the renderer holds live frames, and
           // its loading state, until it arrives.
           .catch((error: unknown) => {
