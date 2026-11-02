@@ -6,6 +6,7 @@ import type { DiffLine } from './parseDiff'
 import { parseDiff } from './parseDiff'
 import { reviewRows } from './review-rows'
 import { useDiffHighlight } from './use-diff-highlight'
+import { useEngineSettings } from '../settings/useEngineSettings'
 
 export type DiffRange = Pick<GitReviewNote, 'side' | 'startLine' | 'endLine' | 'context'>
 export interface DiffSurfaceProps {
@@ -28,7 +29,10 @@ export function DiffSurface({
   scrollOffset = 0,
   onScrollOffset,
 }: DiffSurfaceProps) {
-  const [preferSplit, setSplit] = useState(true)
+  // Null until the user picks; until then Settings → Source control decides.
+  const [preferSplit, setSplit] = useState<boolean | null>(null)
+  const { settings } = useEngineSettings()
+  const defaults = settings?.sourceControl
   const [wrapPref, setWrap] = useState<boolean | null>(null)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
   const [raw, setRaw] = useState(false)
@@ -62,9 +66,8 @@ export function DiffSurface({
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
-  const [chose, setChose] = useState(false)
-  const wrap = wrapPref ?? narrow
-  const split = (chose ? preferSplit : preferSplit && !narrow) && !oneSided
+  const wrap = wrapPref ?? ((defaults?.wrapDiffLines ?? false) || narrow)
+  const split = (preferSplit ?? (defaults?.diffView !== 'unified' && !narrow)) && !oneSided
   const rows = useMemo(
     () => (file ? reviewRows(file, split, ignoreWhitespace) : []),
     [file, split, ignoreWhitespace],
@@ -244,7 +247,6 @@ export function DiffSurface({
           disabled={oneSided}
           title={oneSided ? 'Only one side changed' : undefined}
           onClick={() => {
-            setChose(true)
             setSplit(true)
           }}
         >
@@ -256,7 +258,6 @@ export function DiffSurface({
           aria-label="Unified diff"
           aria-pressed={!split}
           onClick={() => {
-            setChose(true)
             setSplit(false)
           }}
         >
