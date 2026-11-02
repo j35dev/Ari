@@ -3,12 +3,7 @@ import { agentEventSchema } from './agent-event'
 import { commandSchema } from './commands'
 import { journalEventSchema } from './events'
 import { messagePartSchema } from './message'
-import {
-  rpcParams,
-  SEARCH_CONTENT_MAX_RESULTS,
-  sessionSummarySchema,
-  usageSummarySchema,
-} from './rpc'
+import { rpcParams, SEARCH_CONTENT_MAX_RESULTS, usageSummarySchema } from './rpc'
 import { sessionSchema } from './session'
 import { settingsSchema, settingsUpdateSchema } from './settings'
 
@@ -28,18 +23,6 @@ describe('contracts', () => {
   it('round-trips a session', () => {
     const parsed = sessionSchema.parse(baseSession)
     expect(parsed.driverKind).toBe('claude')
-  })
-
-  it('carries the bot a session summary belongs to, and parses one without it', () => {
-    const summary = {
-      id: 'sess_1',
-      projectId: 'proj_1',
-      title: 'Ada',
-      updatedAt: 1,
-      messageCount: 0,
-    }
-    expect(sessionSummarySchema.parse({ ...summary, botId: 'bot_ada' }).botId).toBe('bot_ada')
-    expect(sessionSummarySchema.parse(summary).botId).toBeUndefined()
   })
 
   it('accepts a reset redemption for a known provider and grant', () => {
@@ -525,41 +508,5 @@ describe('approval decisions', () => {
     })
     if (cmd.type !== 'approval.respond') throw new Error('unreachable')
     expect(cmd.optionId).toBe('allow_prefix')
-  })
-})
-
-describe('bot RPC params', () => {
-  it('requires a project when creating a bot', () => {
-    const params = {
-      name: 'Forge',
-      emoji: '🔨',
-      personaMd: '# Forge\n',
-      driverKind: 'claude',
-      modelId: null,
-      projectId: 'proj_1',
-    }
-    expect(rpcParams['bots.create'].parse(params)).toEqual(params)
-    expect(() => rpcParams['bots.create'].parse({ ...params, projectId: undefined })).toThrow()
-  })
-
-  it('requires a hidden flag when setting visibility', () => {
-    expect(rpcParams['bots.setHidden'].parse({ botId: 'bot_1', hidden: true })).toEqual({
-      botId: 'bot_1',
-      hidden: true,
-    })
-    expect(() => rpcParams['bots.setHidden'].parse({ botId: 'bot_1' })).toThrow()
-  })
-
-  it('accepts a bot on session.create and rejects an empty one', () => {
-    const params = {
-      projectId: 'proj_1',
-      title: 'Hive',
-      driverKind: 'claude',
-      modelId: null,
-      permissionMode: 'ask',
-      botId: 'bot_1',
-    }
-    expect(rpcParams['session.create'].parse(params)).toEqual(params)
-    expect(() => rpcParams['session.create'].parse({ ...params, botId: '' })).toThrow()
   })
 })

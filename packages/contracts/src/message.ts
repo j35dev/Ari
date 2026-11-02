@@ -21,11 +21,13 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
     sessionId: z.string().min(1),
     inputId: z.string().min(1),
   }),
-  /** A Hive bot routine fired with nobody present to answer it. */
+  /**
+   * Legacy, no longer produced: the removed Hive bots wrote `routine`,
+   * `memory-capture`, and `room` origins. They stay so old journals still
+   * replay — journal replay rejects lines that fail to parse.
+   */
   z.object({ kind: z.literal('routine'), routineId: z.string().min(1) }),
-  /** Ari's post-turn memory capture, a housekeeping prompt into a bot's chat. */
   z.object({ kind: z.literal('memory-capture') }),
-  /** A turn the team room host sent to one of its bots. */
   z.object({
     kind: z.literal('room'),
     roomId: z.string().min(1),
@@ -35,8 +37,9 @@ export const messageOriginSchema = z.discriminatedUnion('kind', [
 export type MessageOrigin = z.infer<typeof messageOriginSchema>
 
 /**
- * Why a queued turn exists. A person outranks the room, which outranks
- * automation, so a routine never makes someone wait for their own turn.
+ * Why a queued turn exists. Only `human` is produced now; `room` and
+ * `routine` are legacy values from the removed Hive bots, kept so old
+ * journals still replay. They still rank below a person's turn.
  */
 export const wakePrioritySchema = z.enum(['human', 'room', 'routine'])
 export type WakePriority = z.infer<typeof wakePrioritySchema>

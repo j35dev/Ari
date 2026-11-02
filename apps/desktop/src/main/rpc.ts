@@ -34,7 +34,7 @@ import { mobileWebRoot } from './mobile-web-root'
 import { descendantIds } from './subtree-ids'
 import { startAgentRuntime } from './agent-runtime'
 import { AttachmentStore } from './attachments'
-import { createBot, createSession, updateBot, type SessionCreateDeps } from './bots'
+import { createSession, type SessionCreateDeps } from './session-create'
 import { WalkCache } from './file-index'
 import {
   commit as gitCommit,
@@ -46,10 +46,7 @@ import { ensureParentDir, writeTextFile } from './fs-write'
 import { resolveInsideRoots, resolveScopedPath } from './path-jail'
 import { RunningTurnCounter } from './running-turns'
 import { SessionNotifier } from './session-notifier'
-import { BotRoutineSchedule } from './bot-routine-schedule'
-import { BotMemoryCapture } from './bot-memory-capture'
 import { ResumeSchedule, routineHost } from './resume-schedule'
-import { TeamRoomService } from './team-rooms'
 import { controlCliApproval } from '@ari/engine/control-cli'
 import { RpcRegistry } from './rpc-registry'
 import { fetchAllowanceReading, ProviderAllowanceReader } from './provider-allowance'
@@ -63,8 +60,6 @@ import { registerMusicEngine } from './music-engine'
 import { createPullRequest } from './gh-pr'
 import { listHubItems, viewHubItem } from './github-hub'
 import {
-  getBotMemoryStore,
-  getBotStore,
   getEndpointStore,
   getProjectStore,
   getSessionStore,
@@ -1009,7 +1004,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       notification.show()
     },
   })
-  let teamRooms: TeamRoomService | null = null
   const publishSessionEvent = (sessionId: string, event: JournalEvent): void => {
     const payload: SessionEventFrame = { sessionId, event }
     // A pane subscribes to one session; the shell's feeds name none and get
@@ -1023,13 +1017,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       options.onRunningCount(runningTurns.count)
     }
     void notifier.observe(sessionId, event)
-    if (event.type === 'turn.settled' && teamRooms !== null) {
-      teamRooms
-        .onSettled(sessionId, event.turnId)
-        .catch((error: unknown) =>
-          log.warn('team room settle failed', { sessionId, error: String(error) }),
-        )
-    }
   }
   // Composer image staging: pasted/dropped bytes land here keyed by id; only
   // refs cross IPC and journals, so history replay never replays megabytes.
@@ -1060,12 +1047,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       ...(await controlReady).environment(session),
       ...providerEnvironment(session.driverKind),
     }),
-    botPersona: async (botId, sessionId) => {
-      const bot = await getBotStore().get(botId)
-      if (!bot) return null
-      const memory = (await getBotMemoryStore().snapshot(botId, sessionId)).trim()
-      return memory.length === 0 ? bot.personaMd : `${bot.personaMd}\n\n## Memory\n\n${memory}`
-    },
     respondControlApproval: (id, decision) => runtime?.approvals.respond(id, decision) ?? false,
     authorizeTurn: async (session) => (await controlReady).authorizeTurn(session),
     deliversResults: () => {
@@ -1099,10 +1080,8 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   }
   app.once('before-quit', () => void acpSessionPool.shutdownAll())
   const sessionDeps: SessionCreateDeps = {
-    bots: getBotStore(),
     loadProject,
     createSession: (session) => engine.createSession(session),
-    defaultPermissionMode: () => getSettingsStore().current.sessions.defaultPermissionMode,
   }
   // An archive follows a session's delegated children, and archived runs lose
   // their control grants.
@@ -1127,26 +1106,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
       }
     }
   }
-  teamRooms = new TeamRoomService({
-    path: join(app.getPath('userData'), 'team-rooms.json'),
-    bots: getBotStore(),
-    store: getSessionStore(),
-    dispatch: (command, origin) => engine.dispatch(command, origin),
-    createThread: async (input) =>
-      (
-        await createSession(sessionDeps, {
-          ...input,
-          permissionMode: sessionDeps.defaultPermissionMode(),
-        })
-      ).sessionId,
-    archiveThread: async (sessionId) => {
-      const result = await engine.dispatch({ type: 'session.update', sessionId, archived: true })
-      if (!result.accepted) throw new Error(result.reason ?? 'archive was refused')
-      await cascadeArchive(sessionId, true)
-    },
-    publish: (frame) => rpcRegistry.publish('rooms.updated', frame),
-  })
-  const teamRoomsReady = teamRooms.load()
   // Timed prompts outlive a session turn and a restart: they are journaled in
   // their own file, and the control runtime schedules into the same store.
   const resumeSchedule: ResumeSchedule = new ResumeSchedule({
@@ -1155,24 +1114,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     dispatch: (command) => engine.dispatch(command),
   })
   const resumeReady: Promise<void> = resumeSchedule.load().then(() => resumeSchedule.start())
-  // Bot routines live beside the bots, not inside a session: they keep their
-  // own file, and each fire becomes a held message in the bot's main session.
-  const botRoutines = new BotRoutineSchedule({
-    path: join(app.getPath('userData'), 'bot-routines.json'),
-    bots: getBotStore(),
-    store: getSessionStore(),
-    dispatch: (command, origin) => engine.dispatch(command, origin),
-  })
-  const botRoutinesReady: Promise<void> = botRoutines.load().then(() => botRoutines.start())
-  // Post-turn memory capture: the same session store that saw the settle runs
-  // the check, so a bot never captures while its own turn is mid-flight.
-  const botMemoryCapture = new BotMemoryCapture({
-    store: getSessionStore(),
-    memory: getBotMemoryStore(),
-    dispatch: (command, origin) => engine.dispatch(command, origin),
-    enabled: () => getSettingsStore().current.hive.selfMemory,
-  })
-  botMemoryCapture.start(getSessionStore())
   const backgroundReady = options.backgroundReady ?? Promise.resolve()
   // The runtime's start-up recovery replays every delegated session; turns
   // and agent-control calls wait on it, the first paint does not.
@@ -1193,12 +1134,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
         recover: firstRuntime,
         onDrop: (id) => browserMcpHandle?.revoke(id),
         routines: routineHost(resumeSchedule),
-        memory: {
-          read: (botId) => getBotMemoryStore().read(botId),
-          add: (botId, text) => getBotMemoryStore().add(botId, text),
-          patch: (botId, find, text) => getBotMemoryStore().patch(botId, find, text),
-          remove: (botId, find) => getBotMemoryStore().remove(botId, find),
-        },
         providers: async () => {
           const detections = await probeAllDetections()
           const endpoints = await getEndpointStore().load()
@@ -1233,8 +1168,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
     )
   app.once('before-quit', () => {
     resumeSchedule.close()
-    botRoutines.close()
-    botMemoryCapture.close()
     void runtime?.close().catch(() => log.error('Agent control runtime failed to close'))
   })
 
@@ -1641,61 +1574,6 @@ export function registerRpc(contents: WebContents, options: RegisterRpcOptions =
   r.register('session.list', async () => getSessionStore().listSessions())
 
   r.register('session.create', (params) => createSession(sessionDeps, params))
-  r.register('bots.list', () => getBotStore().list())
-  r.register('bots.create', (params) => createBot(sessionDeps, params))
-  r.register('bots.setHidden', ({ botId, hidden }) => getBotStore().update(botId, { hidden }))
-  r.register('bots.update', ({ botId, patch }) =>
-    updateBot(
-      {
-        bots: getBotStore(),
-        refreshRooms: async (bot) => {
-          await teamRoomsReady
-          await teamRooms?.refreshBot(bot)
-        },
-      },
-      botId,
-      patch,
-    ),
-  )
-  r.register('bots.memory.get', ({ botId }) => getBotMemoryStore().read(botId))
-  r.register('bots.memory.replace', ({ botId, content, base }) =>
-    getBotMemoryStore().replace(botId, content, base),
-  )
-  r.register('routines.list', async () => {
-    await botRoutinesReady
-    return botRoutines.list()
-  })
-  r.register('routines.add', async (input) => {
-    await botRoutinesReady
-    return botRoutines.add(input)
-  })
-  r.register('routines.setEnabled', async ({ routineId, enabled }) => {
-    await botRoutinesReady
-    return botRoutines.setEnabled(routineId, enabled)
-  })
-  r.register('routines.remove', async ({ routineId }) => {
-    await botRoutinesReady
-    return { removed: await botRoutines.remove(routineId) }
-  })
-  r.register('rooms.list', async () => {
-    await teamRoomsReady
-    return teamRooms?.list() ?? []
-  })
-  r.register('rooms.create', async (input) => {
-    await teamRoomsReady
-    if (teamRooms === null) throw new Error('team rooms are unavailable')
-    return teamRooms.create(input)
-  })
-  r.register('rooms.send', async ({ roomId, text, botId }) => {
-    await teamRoomsReady
-    if (teamRooms === null) throw new Error('team rooms are unavailable')
-    return teamRooms.send(roomId, text, botId)
-  })
-  r.register('rooms.remove', async ({ roomId }) => {
-    await teamRoomsReady
-    if (teamRooms === null) throw new Error('team rooms are unavailable')
-    return teamRooms.remove(roomId)
-  })
 
   r.register('session.load', async (params) => {
     const model = await getSessionStore().load(params.sessionId)
