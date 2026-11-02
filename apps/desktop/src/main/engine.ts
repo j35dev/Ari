@@ -653,6 +653,7 @@ export class Engine {
       })
     } catch (e) {
       await this.#settle(session.id, turnId, 'error', String(e))
+      await this.#captureTurnEnd(session.id, turnId)
       return
     }
 
@@ -947,18 +948,21 @@ export class Engine {
       errorMessage = String(e)
     } finally {
       if (flushTimer !== null) clearTimeout(flushTimer)
+    }
+    // The reply reads as done as soon as it ends; process teardown and the end
+    // snapshot follow. Disposal still fences the snapshot against late provider
+    // writes, and the next turn on this session waits for both (#turnTasks).
+    try {
+      if (!interrupted) await this.#settle(session.id, turnId, stopReason, errorMessage)
+    } finally {
       try {
         await adapter.dispose()
       } catch (error) {
         log.warn('provider disposal failed', { sessionId: session.id, error: String(error) })
-        stopReason = 'error'
-        errorMessage ??= String(error)
       }
       this.#activeTurns.delete(session.id)
     }
-    // Disposal fences the final snapshot against late provider writes and the next turn.
-    if (interrupted) await this.#captureTurnEnd(session.id, turnId)
-    else await this.#settle(session.id, turnId, stopReason, errorMessage)
+    await this.#captureTurnEnd(session.id, turnId)
   }
 
   async #captureTurnEnd(sessionId: string, turnId: string): Promise<void> {
@@ -985,10 +989,7 @@ export class Engine {
     stopReason: 'completed' | 'interrupted' | 'error',
     errorMessage: string | null,
   ): Promise<void> {
-    let model = await this.#deps.store.load(sessionId)
-    if (model.activeTurnId !== turnId) return
-    await this.#captureTurnEnd(sessionId, turnId)
-    model = await this.#deps.store.load(sessionId)
+    const model = await this.#deps.store.load(sessionId)
     if (model.activeTurnId !== turnId) return
     const nextStatus = stopReason === 'error' ? 'error' : 'idle'
     // Fold status before publishing turn.settled so subscribers that load
