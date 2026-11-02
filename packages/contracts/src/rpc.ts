@@ -578,6 +578,46 @@ export type GitScope = z.infer<typeof gitScopeSchema>
 
 export type SourceControlResult<T> =
   { ok: true; value: T } | { ok: false; error: SourceControlError }
+/** Cheap branch state for persistent chrome: the titlebar Git control reads only this. */
+export interface GitSummary {
+  branch: string | null
+  changedFiles: number
+  upstream: string | null
+  ahead: number
+  behind: number
+  /** Whether any Git remote is configured. */
+  hasRemote: boolean
+  operation: SourceControlStatus['operation']
+}
+
+/** The open pull request for the current branch, as the GitHub CLI reports it. */
+export interface GitPullRequest {
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'closed' | 'merged'
+  isDraft: boolean
+}
+
+/** One-click Git flows; each runs its steps in order and stops at the first failure. */
+export const gitShipActionSchema = z.enum([
+  'commit',
+  'commit_push',
+  'commit_push_pr',
+  'push',
+  'push_pr',
+  'pull',
+  'create_pr',
+])
+export type GitShipAction = z.infer<typeof gitShipActionSchema>
+
+export interface GitShipOutcome {
+  committed: string | null
+  pushed: boolean
+  pulled: boolean
+  prUrl: string | null
+}
+
 export interface SourceControlContext {
   status: SourceControlStatus
   refs: string[]
@@ -648,7 +688,10 @@ export const rpcParams = {
     botId: z.string().min(1),
     content: z.string().max(BOT_MEMORY_MAX_CHARS),
     /** File contents the editor loaded. A mismatch refuses the write. */
-    base: z.string().max(BOT_MEMORY_MAX_CHARS + 1).optional(),
+    base: z
+      .string()
+      .max(BOT_MEMORY_MAX_CHARS + 1)
+      .optional(),
   }),
   /** Every bot routine, enabled or paused. */
   'routines.list': z.undefined(),
@@ -921,6 +964,13 @@ export const rpcParams = {
     requestId: z.string().min(1).max(128).optional(),
   }),
   'scm.mutate': gitScopeSchema.extend({ action: gitMutationSchema }),
+  'scm.ship': gitScopeSchema.extend({
+    action: gitShipActionSchema,
+    message: z.string().max(8000).optional(),
+    /** Files to commit; omitted commits every change. */
+    paths: z.array(sourceControlSchemas.path).min(1).max(2000).optional(),
+  }),
+  'scm.pullRequest': gitScopeSchema.extend({ refresh: z.boolean().optional() }),
   'scm.cancel': z.object({ requestId: z.string().min(1).max(128) }),
   'git.diffWorktree': gitScopeSchema,
   'git.turnDiff': z.object({
@@ -1340,13 +1390,15 @@ export interface RpcResults {
   'endpoints.setModels': { models: EndpointModel[]; defaultModel: string } | null
   'settings.get': Settings
   'settings.update': Settings
-  'scm.summary': SourceControlResult<{ branch: string | null; changedFiles: number }>
+  'scm.summary': SourceControlResult<GitSummary>
   'scm.requests': SourceControlResult<HostConnection>
   'scm.checkout': SourceControlResult<RequestCheckout>
   'scm.status': SourceControlResult<SourceControlContext>
   'scm.review': SourceControlResult<GitReviewManifest>
   'scm.diff': SourceControlResult<string>
   'scm.mutate': SourceControlResult<GitMutationOutcome>
+  'scm.ship': SourceControlResult<GitShipOutcome>
+  'scm.pullRequest': SourceControlResult<GitPullRequest | null>
   'scm.cancel': { cancelled: boolean }
   'git.status': {
     isRepo: boolean
