@@ -161,24 +161,6 @@ function parse(argv) {
       default:
         throw new Error('Unknown session command')
     }
-  } else if (group === 'memory') {
-    if (verb === 'list' || verb === 'read' || verb === 'show') {
-      method = 'memory.read'
-      params = {}
-    } else if (verb === 'add') {
-      const value = [target, ...rest].filter(Boolean).join(' ')
-      if (!value) throw new Error('memory add needs text')
-      method = 'memory.add'
-      params = { text: value, idempotencyKey: key }
-    } else if (verb === 'patch') {
-      if (!flags.find || !flags.text) throw new Error('memory patch needs --find and --text')
-      method = 'memory.patch'
-      params = { find: flags.find, text: flags.text, idempotencyKey: key }
-    } else if (verb === 'rm' || verb === 'remove') {
-      if (!flags.find) throw new Error('memory remove needs --find')
-      method = 'memory.remove'
-      params = { find: flags.find, idempotencyKey: key }
-    } else throw new Error('Unknown memory command')
   } else if (group === 'routine') {
     if (verb === 'add') {
       if (!flags.prompt || flags.prompt.trim().length === 0)
@@ -210,7 +192,7 @@ function parse(argv) {
     } else throw new Error('Unknown routine command')
   } else
     throw new Error(
-      'Use ari env, ari agents, ari session <command>, ari routine <command>, ari memory <command>, or ari --skill',
+      'Use ari env, ari agents, ari session <command>, ari routine <command>, or ari --skill',
     )
   return { method, params, flags, timeoutMs }
 }

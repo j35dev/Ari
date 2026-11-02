@@ -69,7 +69,7 @@ function forge(host: string): {
 
 function repoName(provider: SourceControlProvider, path: string): string | null {
   let segments = path
-    .replace(/\.git$/i, '')
+    .replace(/\.git\/*$/i, '')
     .split('/')
     .filter((segment) => segment.length > 0)
   if (provider === 'azure-devops') {
