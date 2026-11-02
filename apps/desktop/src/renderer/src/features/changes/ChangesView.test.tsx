@@ -13,9 +13,9 @@ vi.mock('./ReviewWorkspace', () => ({
     </pre>
   ),
 }))
-vi.mock('./SourceControlWorkspace', () => ({
-  SourceControlWorkspace: (props: ReviewWorkspaceProps) => (
-    <pre data-testid="source-control">{JSON.stringify(props.scope)}</pre>
+vi.mock('./ChangeRequests', () => ({
+  ChangeRequests: (props: { scope: unknown }) => (
+    <pre data-testid="requests">{JSON.stringify(props.scope)}</pre>
   ),
 }))
 beforeEach(() => {
@@ -64,10 +64,10 @@ describe('Changes route', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('session.load', { sessionId: 's' })
   })
 
-  it('routes Source control separately from review', () => {
-    render(<ChangesView sessionId="s" sourceControl />)
-    expect(screen.getByTestId('source-control')).toHaveTextContent('"sessionId":"s"')
-    expect(screen.queryByTestId('review')).not.toBeInTheDocument()
+  it('shows open requests above the review in one view', () => {
+    render(<ChangesView sessionId="s" />)
+    expect(screen.getByTestId('requests')).toHaveTextContent('"sessionId":"s"')
+    expect(screen.getByTestId('review')).toHaveTextContent('"sessionId":"s"')
   })
 
   it('surfaces fallback scope failures and permits retry', async () => {

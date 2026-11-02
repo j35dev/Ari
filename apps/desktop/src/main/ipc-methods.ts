@@ -114,6 +114,8 @@ export const IPC_METHODS = [
   'scm.review',
   'scm.diff',
   'scm.mutate',
+  'scm.ship',
+  'scm.pullRequest',
   'scm.cancel',
   'git.diffWorktree',
   'git.turnDiff',

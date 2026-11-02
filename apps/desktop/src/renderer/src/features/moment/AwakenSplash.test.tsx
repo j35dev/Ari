@@ -2,8 +2,6 @@ import { render, screen, act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AwakenSplash, AWAKEN_MAX_MS, AWAKEN_MIN_MS, AWAKEN_OUTRO_MS } from './AwakenSplash'
 
-vi.mock('./awaken-sound', () => ({ playAwakenSound: () => () => undefined }))
-
 const splash = () => screen.getByTestId('awaken-splash')
 
 describe('AwakenSplash', () => {
@@ -15,17 +13,20 @@ describe('AwakenSplash', () => {
     vi.useRealTimers()
   })
 
-  it('renders the brand sequence in the window, not a separate surface', () => {
-    render(<AwakenSplash ready={false} onDone={() => undefined} />)
+  it('renders the launch screen in the window, not a separate surface', () => {
+    const { rerender } = render(<AwakenSplash ready={false} onDone={() => undefined} />)
     expect(splash()).toHaveAttribute('aria-label', 'Ari is starting')
     expect(screen.getByTestId('awaken-word')).toHaveTextContent('Ari.')
+    expect(screen.getByText('starting')).toBeInTheDocument()
+    rerender(<AwakenSplash ready={true} onDone={() => undefined} />)
     expect(screen.getByText('ready')).toBeInTheDocument()
+    expect(splash()).toHaveAttribute('data-ready', 'on')
     // Covers the whole window; the shell mounts underneath it.
     expect(splash()).toHaveClass('ari-awaken')
     expect(splash()).toHaveAttribute('data-outro', 'off')
   })
 
-  it('holds the floor so a fast boot never truncates the animation', () => {
+  it('holds a short floor so a fast boot does not flash the screen', () => {
     const onDone = vi.fn()
     render(<AwakenSplash ready={true} onDone={onDone} />)
 

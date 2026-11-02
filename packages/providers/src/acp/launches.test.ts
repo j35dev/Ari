@@ -268,6 +268,65 @@ describe('findNpxCommand', () => {
 })
 
 /** Creates a temp dir containing a fake npx so resolution has a real hit. */
+describe('an adapter npx has already installed', () => {
+  /** Lays out `<cache>/_npx/<hash>` the way npx leaves a finished install. */
+  async function installInCache(
+    cache: string,
+    pkg: string,
+    version: string,
+    opts: { manifest?: boolean } = {},
+  ): Promise<string> {
+    const entry = join(cache, '_npx', 'abc123')
+    const pkgDir = join(entry, 'node_modules', ...pkg.split('/'))
+    await mkdir(join(pkgDir, 'dist'), { recursive: true })
+    await writeFile(
+      join(pkgDir, 'package.json'),
+      JSON.stringify({ name: pkg, version, bin: { 'some-acp': 'dist/index.js' } }),
+    )
+    await writeFile(join(pkgDir, 'dist', 'index.js'), '')
+    if (opts.manifest !== false) {
+      await writeFile(join(entry, 'package.json'), JSON.stringify({ dependencies: { [pkg]: version } }))
+    }
+    return join(pkgDir, 'dist', 'index.js')
+  }
+
+  async function setup(version: string, opts: { manifest?: boolean } = {}) {
+    const npxPath = await makeFakeNpx()
+    const nodePath = join(dirname(npxPath), process.platform === 'win32' ? 'node.exe' : 'node')
+    await writeFile(nodePath, '')
+    const cache = await tempDir('ari-npm-cache-')
+    const script = await installInCache(cache, 'pi-acp', version, opts)
+    const env: DetectEnvironment = {
+      ...ENV,
+      pathEnv: dirname(npxPath),
+      vars: { npm_config_cache: cache },
+    }
+    return { npxPath, nodePath, script, env }
+  }
+
+  it('runs it with node directly, skipping the seconds npx spends resolving it', async () => {
+    const version = acpAdapterSpec('pi')!.split('@').pop()!
+    const { nodePath, script, env } = await setup(version)
+    const launch = resolveAcpLaunch('pi', { cliBinaryPath: '/usr/bin/pi' }, env)
+    expect(launch).toMatchObject({ command: nodePath, args: [script] })
+    expect(launch?.viaNpx).toBeUndefined()
+    expect(probeLaunch(launch!)).toEqual(launch)
+  })
+
+  it('goes through npx when the cached copy is another version', async () => {
+    const { npxPath, env } = await setup('0.0.1')
+    const launch = resolveAcpLaunch('pi', { cliBinaryPath: '/usr/bin/pi' }, env)
+    expect(launch).toMatchObject({ command: npxPath, viaNpx: true })
+  })
+
+  it('goes through npx when the install was interrupted before npx wrote its manifest', async () => {
+    const version = acpAdapterSpec('pi')!.split('@').pop()!
+    const { npxPath, env } = await setup(version, { manifest: false })
+    const launch = resolveAcpLaunch('pi', { cliBinaryPath: '/usr/bin/pi' }, env)
+    expect(launch).toMatchObject({ command: npxPath, viaNpx: true })
+  })
+})
+
 async function makeFakeNpx(): Promise<string> {
   const dir = await tempDir('ari-npx-')
   const name = process.platform === 'win32' ? 'npx.cmd' : 'npx'

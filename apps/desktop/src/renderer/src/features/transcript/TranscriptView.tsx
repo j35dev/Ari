@@ -506,7 +506,7 @@ export function TranscriptView({
   if (!loading) historyLoadedRef.current = true
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div className="ari-reading-lane relative flex h-full min-h-0 flex-col">
       <h2 className="sr-only">Messages</h2>
       {header}
       <div
