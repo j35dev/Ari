@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Game Fixture</title>
+  </head>
+  <body>
+    <canvas id="game" width="320" height="180"></canvas>
+    <button id="start">Start</button>
+    <button id="score">Score</button>
+    <button id="new-game">New game</button>
+    <script>
+      // A browser_state fixture: nothing sets window.__ari until #start is clicked,
+      // and #new-game replaces window.__ari with a new object for a new game.
+      const canvas = document.getElementById('game')
+      let game = null
+
+      function newGame(gen) {
+        const own = { gen: gen, level: 1, score: 0 }
+        game = own
+        window.__ari = {
+          state: function () {
+            return {
+              gen: own.gen,
+              level: own.level,
+              player: { x: 2, y: 3, alive: true },
+              score: own.score,
+              title: document.title,
+              canvas: { width: canvas.width, height: canvas.height },
+            }
+          },
+        }
+      }
+
+      document.getElementById('start').addEventListener('click', function () {
+        if (game === null) newGame(1)
+      })
+      document.getElementById('score').addEventListener('click', function () {
+        if (game !== null) game.score += 10
+      })
+      document.getElementById('new-game').addEventListener('click', function () {
+        if (game !== null) newGame(game.gen + 1)
+      })
+    </script>
+  </body>
+</html>

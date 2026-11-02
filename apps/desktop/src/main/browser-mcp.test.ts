@@ -1,9 +1,17 @@
 import { readFile } from 'node:fs/promises'
 import { request } from 'node:http'
+import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { encodeCapture, type CapturedImage } from './browser-capture'
 import { BrowserService, type BrowserGuest } from './browser-service'
-import { dispatchBrowserMcpTool, startBrowserMcpServer, writeBrowserMcpProxy } from './browser-mcp'
+import {
+  BROWSER_MCP_TOOLS,
+  BROWSER_STATE_TIMEOUT_MS,
+  dispatchBrowserMcpTool,
+  MAX_BROWSER_STATE_CHARS,
+  startBrowserMcpServer,
+  writeBrowserMcpProxy,
+} from './browser-mcp'
 import { useTempDirs } from './testing/temp-dirs'
 
 const tempDir = useTempDirs()
@@ -35,6 +43,15 @@ function guest(): BrowserGuest {
     setVisible: vi.fn(),
     destroy: vi.fn(),
   }
+}
+
+/** A guest whose page scripts really run, with `page` as the page's `window`. */
+function pageGuest(page: Record<string, unknown>): BrowserGuest {
+  const g = guest()
+  g.executeJavaScript = vi.fn(async (code: string): Promise<unknown> =>
+    runInNewContext(code, { window: page, setTimeout, clearTimeout }),
+  )
+  return g
 }
 
 function text(result: Awaited<ReturnType<typeof dispatchBrowserMcpTool>>): string {
@@ -171,6 +188,181 @@ describe('dispatchBrowserMcpTool', () => {
     const failed = await dispatchBrowserMcpTool(service, 'browser_key', { key: 'a', holdMs: 0 })
     expect(failed.isError).toBe(true)
     expect(text(failed)).toBe('Object has been destroyed')
+  })
+
+  it('returns the page state hook as JSON exactly', async () => {
+    const fixture = {
+      level: 3,
+      player: { x: 12.5, y: -4, alive: true },
+      enemies: [{ id: 'e1', hp: 0 }],
+      label: 'héllo "quoted" \\ end',
+    }
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: () => fixture } }),
+      vi.fn(),
+    )
+
+    const result = await dispatchBrowserMcpTool(service, 'browser_state', {})
+
+    expect(result.isError).toBeUndefined()
+    expect(text(result)).toBe(JSON.stringify(fixture))
+    expect(JSON.parse(text(result))).toEqual(fixture)
+  })
+
+  it('awaits a state hook that returns a promise', async () => {
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: async () => ({ score: 7 }) } }),
+      vi.fn(),
+    )
+    expect(text(await dispatchBrowserMcpTool(service, 'browser_state', {}))).toBe('{"score":7}')
+  })
+
+  it('answers a page without the hook with a hint naming it, not an error', async () => {
+    for (const page of [{}, { __ari: {} }, { __ari: { state: 'not a function' } }]) {
+      const service = new BrowserService(() => pageGuest(page), vi.fn())
+      const result = await dispatchBrowserMcpTool(service, 'browser_state', {})
+      expect(result.isError).toBeUndefined()
+      expect(text(result)).toContain('window.__ari.state()')
+    }
+  })
+
+  it('cuts state over the cap and marks how much was dropped', async () => {
+    const big = { blob: 'x'.repeat(MAX_BROWSER_STATE_CHARS) }
+    const json = JSON.stringify(big)
+    const service = new BrowserService(() => pageGuest({ __ari: { state: () => big } }), vi.fn())
+
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+
+    const dropped = json.length - MAX_BROWSER_STATE_CHARS
+    expect(out).toBe(
+      `${json.slice(0, MAX_BROWSER_STATE_CHARS)}…[truncated ${String(dropped)} of ${String(json.length)} chars]`,
+    )
+  })
+
+  it('cuts oversized state in the page so at most the cap crosses IPC', async () => {
+    const big = { blob: 'x'.repeat(MAX_BROWSER_STATE_CHARS * 5) }
+    const g = pageGuest({ __ari: { state: () => big } })
+    const service = new BrowserService(() => g, vi.fn())
+
+    await dispatchBrowserMcpTool(service, 'browser_state', {})
+
+    const sent = (await vi.mocked(g.executeJavaScript).mock.results[0]?.value) as {
+      json: string
+      length: number
+    }
+    expect(sent.json).toHaveLength(MAX_BROWSER_STATE_CHARS)
+    expect(sent.length).toBe(JSON.stringify(big).length)
+  })
+
+  it('still cuts state a tampered page sends over the cap', async () => {
+    const json = 'y'.repeat(MAX_BROWSER_STATE_CHARS + 10)
+    const g = guest()
+    g.executeJavaScript = vi.fn(async () => ({ hook: true, json, length: 3 }))
+    const service = new BrowserService(() => g, vi.fn())
+
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+
+    expect(out).toBe(
+      `${json.slice(0, MAX_BROWSER_STATE_CHARS)}…[truncated 10 of ${String(json.length)} chars]`,
+    )
+  })
+
+  it('times out in the main process when the page script never returns', async () => {
+    vi.useFakeTimers()
+    try {
+      const g = guest()
+      // A page that replaced setTimeout or Promise.race leaves the script hanging.
+      g.executeJavaScript = vi.fn(() => new Promise<unknown>(() => {}))
+      const service = new BrowserService(() => g, vi.fn())
+      const pending = dispatchBrowserMcpTool(service, 'browser_state', {})
+      await vi.advanceTimersByTimeAsync(BROWSER_STATE_TIMEOUT_MS)
+      const result = await pending
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('did not settle within 5 s')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps state at exactly the cap whole', async () => {
+    const blob = 'x'.repeat(MAX_BROWSER_STATE_CHARS - '{"blob":""}'.length)
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: () => ({ blob }) } }),
+      vi.fn(),
+    )
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+    expect(out).toBe(JSON.stringify({ blob }))
+    expect(out).toHaveLength(MAX_BROWSER_STATE_CHARS)
+  })
+
+  it('does not split an emoji when the cap lands inside it', async () => {
+    const prefix = '{"s":"'
+    const s = `${'x'.repeat(MAX_BROWSER_STATE_CHARS - prefix.length - 1)}😀tail`
+    const json = JSON.stringify({ s })
+    const service = new BrowserService(
+      () => pageGuest({ __ari: { state: () => ({ s }) } }),
+      vi.fn(),
+    )
+
+    const out = text(await dispatchBrowserMcpTool(service, 'browser_state', {}))
+
+    const kept = MAX_BROWSER_STATE_CHARS - 1
+    expect(out).toBe(
+      `${json.slice(0, kept)}…[truncated ${String(json.length - kept)} of ${String(json.length)} chars]`,
+    )
+  })
+
+  it('fails a state hook that never settles after the time limit', async () => {
+    vi.useFakeTimers()
+    try {
+      const service = new BrowserService(
+        () => pageGuest({ __ari: { state: () => new Promise(() => {}) } }),
+        vi.fn(),
+      )
+      const pending = dispatchBrowserMcpTool(service, 'browser_state', {})
+      await vi.advanceTimersByTimeAsync(BROWSER_STATE_TIMEOUT_MS)
+      const result = await pending
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('did not settle within 5 s')
+      expect(text(result)).toContain('requestAnimationFrame')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports a state hook that throws as an error', async () => {
+    const service = new BrowserService(
+      () =>
+        pageGuest({
+          __ari: {
+            state: () => {
+              throw new Error('state exploded')
+            },
+          },
+        }),
+      vi.fn(),
+    )
+    const result = await dispatchBrowserMcpTool(service, 'browser_state', {})
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe('state exploded')
+  })
+
+  it('takes no code: browser_state has no params and runs the same fixed script', async () => {
+    const tool = BROWSER_MCP_TOOLS.find((t) => t.name === 'browser_state')
+    expect(tool?.inputSchema).toEqual({
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    })
+
+    const g = pageGuest({})
+    const service = new BrowserService(() => g, vi.fn())
+    await dispatchBrowserMcpTool(service, 'browser_state', {})
+    await dispatchBrowserMcpTool(service, 'browser_state', { code: 'window.pwned = 1' })
+    const scripts = vi.mocked(g.executeJavaScript).mock.calls.map(([code]) => code)
+    expect(scripts).toHaveLength(2)
+    expect(scripts[1]).toBe(scripts[0])
+    expect(scripts[1]).not.toContain('pwned')
   })
 
   it('clicks with pointer down then up at the given point', async () => {
@@ -377,6 +569,22 @@ describe('startBrowserMcpServer', () => {
     }
   })
 
+  it('reads state from the calling session tab only', async () => {
+    const service = new BrowserService(
+      (id) => pageGuest({ __ari: { state: () => ({ tab: id }) } }),
+      vi.fn(),
+    )
+    const handle = await startBrowserMcpServer(service)
+    try {
+      const a = await callTool(handle.url, handle.tokenFor('sess-a'), 'browser_state')
+      const b = await callTool(handle.url, handle.tokenFor('sess-b'), 'browser_state')
+      expect(a.content[0]?.text).toBe('{"tab":"agent:sess-a"}')
+      expect(b.content[0]?.text).toBe('{"tab":"agent:sess-b"}')
+    } finally {
+      handle.close()
+    }
+  })
+
   it('routes pointer input to its session tab', async () => {
     const guests = new Map<string, BrowserGuest>()
     const service = new BrowserService((id) => {
@@ -516,6 +724,7 @@ describe('startBrowserMcpServer', () => {
           'browser_navigate',
           'browser_screenshot',
           'browser_key',
+          'browser_state',
           'browser_pointer',
         ]),
       )

@@ -60,6 +60,64 @@ interface BrowserMcpResult {
 const MAX_KEY_HOLD_MS = 5000
 const DEFAULT_KEY_HOLD_MS = 50
 const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,'
+/** browser_state output longer than this is cut, with a marker saying how much was dropped. */
+export const MAX_BROWSER_STATE_CHARS = 20_000
+/** browser_state fails if window.__ari.state() has not settled by then. */
+export const BROWSER_STATE_TIMEOUT_MS = 5_000
+const STATE_TIMEOUT_MESSAGE = `window.__ari.state() did not settle within ${String(BROWSER_STATE_TIMEOUT_MS / 1000)} s. A hook that waits for requestAnimationFrame never settles while the tab isn't rendering.`
+// Fixed on purpose: browser_state never runs caller-supplied code. The page
+// cuts the JSON to the cap itself so an oversized state never crosses IPC,
+// and reports the full length so the tool can say how much was dropped. The
+// time limit is enforced in the main process (withTimeout), since a page can
+// replace setTimeout and Promise.race.
+const STATE_SOURCE = `(async () => {
+  const ari = window.__ari
+  if (!ari || typeof ari.state !== 'function') return { hook: false }
+  const out = JSON.stringify(await ari.state())
+  const json = out === undefined ? 'null' : out
+  const cap = ${String(MAX_BROWSER_STATE_CHARS)}
+  if (json.length <= cap) return { hook: true, json, length: json.length }
+  const last = json.charCodeAt(cap - 1)
+  const end = last >= 0xd800 && last <= 0xdbff ? cap - 1 : cap
+  return { hook: true, json: json.slice(0, end), length: json.length }
+})()`
+const NO_STATE_HOOK =
+  'This page has no window.__ari.state() hook. Ask the game to expose window.__ari = { state: () => ({ ... }) } returning JSON-serializable state, or use browser_screenshot.'
+
+function stateText(result: unknown): string {
+  const { hook, json, length } = asRecord(result)
+  if (hook !== true || typeof json !== 'string') return NO_STATE_HOOK
+  // The page already cut it; cut again in case the page tampered with the script's builtins.
+  const kept = json.length <= MAX_BROWSER_STATE_CHARS ? json : cutAtCap(json)
+  const reported = typeof length === 'number' && Number.isFinite(length) ? length : 0
+  const total = Math.max(reported, json.length)
+  if (total <= kept.length) return kept
+  const dropped = total - kept.length
+  return `${kept}…[truncated ${String(dropped)} of ${String(total)} chars]`
+}
+
+/** Cuts to the cap, backing off one unit rather than splitting a surrogate pair. */
+function cutAtCap(json: string): string {
+  const last = json.charCodeAt(MAX_BROWSER_STATE_CHARS - 1)
+  const end =
+    last >= 0xd800 && last <= 0xdbff ? MAX_BROWSER_STATE_CHARS - 1 : MAX_BROWSER_STATE_CHARS
+  return json.slice(0, end)
+}
+
+/** Rejects with `message` if `promise` has not settled within `ms`. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(message))
+    }, ms)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 const MODIFIERS_SCHEMA = {
   type: 'array',
@@ -134,6 +192,12 @@ export const BROWSER_MCP_TOOLS = [
     name: 'browser_screenshot',
     description:
       'JPEG screenshot of the in-app browser viewport, one image pixel per viewport CSS pixel, so x,y read off it are the coordinates browser_pointer takes. Use it to see canvas, WebGL, or game content that browser_snapshot cannot read.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'browser_state',
+    description:
+      "JSON from the page's window.__ari.state() hook, the cheap way to read game state without a screenshot. Output is capped and cut with a marker.",
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -232,6 +296,14 @@ export async function dispatchBrowserMcpTool(
       )
       return typed === true ? textResult('typed') : textResult(`no element for ${selector}`, true)
     }
+    if (name === 'browser_state') {
+      const state = await withTimeout(
+        browsers.runScript(tabId, STATE_SOURCE),
+        BROWSER_STATE_TIMEOUT_MS,
+        STATE_TIMEOUT_MESSAGE,
+      )
+      return textResult(stateText(state))
+    }
     if (name === 'browser_screenshot') {
       const still = await browsers.screenshot(tabId)
       if (still === null) return textResult('screenshot failed: the page returned no image', true)
@@ -327,7 +399,7 @@ async function handleRpc(
         capabilities: { tools: {} },
         serverInfo: { name: 'ari-browser', version: '0.1.0' },
         instructions:
-          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_screenshot, browser_key, and browser_pointer to see and play canvas or game pages. Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
+          "You are connected to Ari's in-app browser. The user can see the page. Use browser_navigate, browser_snapshot, browser_click, and browser_type for every web task, and browser_state, browser_screenshot, browser_key, and browser_pointer to see and play canvas or game pages. Prefer browser_state over a screenshot when the page exposes window.__ari.state(). Never say a browser is unavailable and do not use a separate browser or computer-use tool.",
       },
     }
   }
