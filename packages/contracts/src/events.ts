@@ -17,6 +17,7 @@ import {
 } from './message'
 import { attachmentRefSchema, MAX_ATTACHMENTS } from './attachments'
 import { delegationRoleSchema, sessionSchema } from './session'
+import { backgroundTaskKindSchema, backgroundTaskStatusSchema } from './background-task'
 
 /**
  * Journal events. The engine appends these to per-session JSONL journals and
@@ -176,6 +177,19 @@ export const journalEventSchema = z.discriminatedUnion('type', [
     type: z.literal('session.ref.observed'),
     /** Provider-native session/thread id reported by the adapter. */
     ref: z.string().min(1),
+  }),
+  /**
+   * A sub-agent or background shell of the agent's harness opened, changed or
+   * ended. Journals written before these were tracked simply have none.
+   */
+  eventBase.extend({
+    type: z.literal('background.task.updated'),
+    taskId: z.string().min(1),
+    kind: backgroundTaskKindSchema,
+    label: z.string(),
+    status: backgroundTaskStatusSchema,
+    /** Absent keeps the task's last detail; null clears it. */
+    detail: z.string().nullable().optional(),
   }),
   eventBase.extend({
     type: z.literal('message.enqueued'),

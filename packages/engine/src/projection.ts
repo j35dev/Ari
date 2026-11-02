@@ -3,6 +3,7 @@ import type { ApprovalOption } from '@ari/contracts/common'
 import type { Message } from '@ari/contracts/message'
 import type { QueuedMessage } from '@ari/contracts/attachments'
 import type { Session, SessionStatus } from '@ari/contracts/session'
+import { foldBackgroundTask, type BackgroundTask } from '@ari/contracts/background-task'
 
 /** Omit that distributes over unions — required for discriminated events. */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
@@ -65,6 +66,11 @@ export interface SessionReadModel {
    * resurface as undelivered once its acknowledgment scrolls out of the cap.
    */
   childCompletions?: Record<string, ChildCompletion>
+  /**
+   * Sub-agents and background shells of the agent's own harness. Absent until
+   * the first is reported, which older journals never do.
+   */
+  backgroundTasks?: BackgroundTask[]
 }
 
 export interface ChildCompletion {
@@ -274,6 +280,10 @@ export function applyEvent(state: SessionReadModel, event: JournalEvent): Sessio
 
     case 'session.ref.observed':
       next.providerSessionId = event.ref
+      break
+
+    case 'background.task.updated':
+      next.backgroundTasks = foldBackgroundTask(state.backgroundTasks ?? [], event, event.at)
       break
 
     case 'session.updated': {

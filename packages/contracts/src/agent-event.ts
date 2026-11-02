@@ -5,6 +5,7 @@ import {
   sessionStatusSchema,
   timestampSchema,
 } from './common'
+import { backgroundTaskKindSchema, backgroundTaskStatusSchema } from './background-task'
 
 /**
  * Normalized stream events emitted by every provider adapter. Native CLI
@@ -86,6 +87,20 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     usedTokens: z.number().nonnegative(),
     /** Window size when the provider reports it; null defers to the catalog. */
     windowTokens: z.number().positive().nullable(),
+  }),
+  /**
+   * A sub-agent or background shell the agent's own harness runs, opened,
+   * updated or ended. Reported beside the tool events of the call that started
+   * it, which still render as before; this only tracks that it runs on.
+   */
+  z.object({
+    type: z.literal('background-task'),
+    id: z.string().min(1),
+    kind: backgroundTaskKindSchema,
+    label: z.string(),
+    status: backgroundTaskStatusSchema,
+    /** Current activity or how it ended; absent keeps the last one. */
+    detail: z.string().nullable().optional(),
   }),
   z.object({ type: z.literal('status'), status: sessionStatusSchema }),
   /**

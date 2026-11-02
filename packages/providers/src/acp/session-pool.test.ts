@@ -186,14 +186,76 @@ describe('pooled ACP sessions', () => {
 
   it('closes connections idle past the limit', async () => {
     const pool = new AcpSessionPool(1_000)
+    const ended = vi.fn()
+    pool.onEnded = ended
     const child = agent(standard)
     const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, undefined, [], null, pool)
     await drain(adapter)
     await adapter.dispose()
+    expect(adapter.keepsBackgroundWork?.()).toBe(true)
+    expect(pool.has('ari_1')).toBe(true)
     pool.reap(Date.now() + 500)
     expect(pool.size).toBe(1)
     pool.reap(Date.now() + 5_000)
     expect(pool.size).toBe(0)
+    expect(pool.has('ari_1')).toBe(false)
+    // The host hears of it, so it can end what the process still ran.
+    expect(ended).toHaveBeenCalledWith('ari_1')
     await vi.waitFor(() => expect(child.killed).toBe(true))
+  }, 15_000)
+
+  it('reports a background shell from the turn and its end when the agent reports back', async () => {
+    const pool = new AcpSessionPool()
+    const background = vi.fn()
+    pool.onBackground = background
+    const update = (body: Record<string, unknown>) =>
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: { sessionId: 'agent_1', update: body },
+      })}\n`
+    const child = agent((method) => {
+      if (method === 'session/prompt') {
+        // The agent launches a shell in the background, then ends its turn.
+        child.stdout.write(
+          update({
+            sessionUpdate: 'tool_call',
+            toolCallId: 'bg_1',
+            status: 'pending',
+            rawInput: { command: 'npm test', description: 'Run tests', run_in_background: true },
+            _meta: { claudeCode: { toolName: 'Bash' } },
+          }),
+        )
+        child.stdout.write(
+          update({
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'bg_1',
+            status: 'completed',
+            _meta: { claudeCode: { toolName: 'Bash' } },
+          }),
+        )
+      }
+      return standard(method)
+    })
+    const adapter = await createAcpAdapter(LAUNCH, SESSION, () => child, undefined, [], null, pool)
+    const events = await drain(adapter)
+    expect(events.filter((event) => event.type === 'background-task')).toEqual([
+      expect.objectContaining({ id: 'bg_1', kind: 'shell', label: 'Run tests', status: 'running' }),
+    ])
+    await adapter.dispose()
+
+    child.stdout.write(
+      update({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'All green.' },
+      }),
+    )
+    await vi.waitFor(() =>
+      expect(background).toHaveBeenCalledWith('ari_1', [
+        { type: 'text-delta', text: 'All green.' },
+        expect.objectContaining({ id: 'bg_1', status: 'completed' }),
+      ]),
+    )
+    await pool.shutdownAll()
   }, 15_000)
 })

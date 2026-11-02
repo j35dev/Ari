@@ -265,7 +265,11 @@ export async function createAcpAdapter(
     sessionMeta,
   ])
   const pooled = pool?.take(session.sessionId, poolKey) ?? null
-  if (pooled) folder = pooled.folder
+  if (pooled) {
+    folder = pooled.folder
+    // The engine ends what earlier turns left open; the folder starts over.
+    folder.beginTurn()
+  }
   let connection: AcpConnection
   if (pooled) {
     connection = pooled.connection
@@ -500,7 +504,11 @@ export async function createAcpAdapter(
         // bailing on `closed` threw the text away without a word.
         if (connection.closed) {
           acceptingSteer = false
-          push([...lostSteeringEvents(steeredTexts.splice(0)), ...stopReasonEvents(stopReason)])
+          push([
+            ...lostSteeringEvents(steeredTexts.splice(0)),
+            ...folder.endPrompt('cancelled'),
+            ...stopReasonEvents(stopReason),
+          ])
           return
         }
         const next = acceptingSteer ? steeredTexts.shift() : undefined
@@ -509,7 +517,11 @@ export async function createAcpAdapter(
           // longer be delivered, so the engine must keep it queued.
           const lost = acceptingSteer ? [] : steeredTexts.splice(0)
           acceptingSteer = false
-          push([...lostSteeringEvents(lost), ...stopReasonEvents(stopReason)])
+          push([
+            ...lostSteeringEvents(lost),
+            ...folder.endPrompt(stopReason),
+            ...stopReasonEvents(stopReason),
+          ])
           return
         }
         log.debug('acp steering chained at the turn boundary', { sessionId })
@@ -531,6 +543,7 @@ export async function createAcpAdapter(
         const lost = steered ? [text, ...steeredTexts.splice(0)] : steeredTexts.splice(0)
         push([
           ...lostSteeringEvents(lost),
+          ...folder.endPrompt('cancelled'),
           { type: 'error', message: formatUnknownError(error), rawJson: null },
           { type: 'done' },
         ])
@@ -594,8 +607,12 @@ export async function createAcpAdapter(
     }
   })()
 
+  /** Set once dispose parked the process, so its background work lives on. */
+  let parked = false
+
   return {
     start: () => ({ [Symbol.asyncIterator]: () => iterator }),
+    keepsBackgroundWork: () => parked,
     interrupt: () => {
       // Unpark anything the turn is waiting on first: the agent sits on its
       // question until the client answers, so a bare session/cancel leaves
@@ -707,6 +724,7 @@ export async function createAcpAdapter(
             },
           },
         )
+        parked = true
         return
       }
       // Cancel first so the agent can stop its own tools and children in

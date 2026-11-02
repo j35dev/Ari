@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AgentEvent } from '@ari/contracts/agent-event'
 import { formatUnknownError } from '@ari/shared/result'
 import { imageOutputEvents } from '../image-output'
+import { BackgroundTaskTracker } from './background-tasks'
 
 /**
  * Structural types for the subset of the Agent Client Protocol (ACP) v1
@@ -106,6 +107,8 @@ export interface AcpSessionUpdate {
   used?: number
   size?: number
   cost?: AcpUsageCost | null
+  /** Adapter extensions, e.g. `claudeCode.toolName` / `parentToolUseId`. */
+  _meta?: unknown
 }
 
 export interface AcpSessionNotification {
@@ -331,10 +334,30 @@ function resultJsonOf(update: AcpToolCallUpdate): string {
 export class AcpUpdateFolder {
   readonly #started = new Set<string>()
   #startupInfo: string | null = null
+  readonly #background: BackgroundTaskTracker
+
+  constructor(now: () => number = Date.now) {
+    this.#background = new BackgroundTaskTracker(now)
+  }
 
   /** Remembers the adapter-owned prelude so it never becomes transcript prose. */
   setStartupInfo(text: string | null | undefined): void {
     this.#startupInfo = typeof text === 'string' && text.length > 0 ? text : null
+  }
+
+  /** A turn starts on this folder (a reused connection's, too). */
+  beginTurn(): void {
+    this.#background.beginTurn()
+  }
+
+  /** The turn's last prompt returned with `stopReason`; ends its sub-agents. */
+  endPrompt(stopReason: string): AgentEvent[] {
+    return this.#background.endPrompt(stopReason)
+  }
+
+  /** Folds an update that arrived between turns, while no prompt runs. */
+  foldBetweenTurns(notification: AcpSessionNotification): AgentEvent[] {
+    return this.#background.betweenTurns(() => this.fold(notification))
   }
 
   fold(notification: AcpSessionNotification): AgentEvent[] {
@@ -357,13 +380,14 @@ export class AcpUpdateFolder {
             ...imageOutputEvents(update.rawOutput),
           )
         }
-        return events
+        return [...events, ...this.#background.observe(update)]
       }
       case 'tool_call_update': {
         const callId = typeof update.toolCallId === 'string' ? update.toolCallId : null
         if (callId === null) return []
+        const background = this.#background.observe(update)
         const terminal = update.status === 'completed' || update.status === 'failed'
-        if (!terminal) return []
+        if (!terminal) return background
         // Some agents finalize without a prior create — synthesize the start.
         const started: AgentEvent[] = this.#started.has(callId) ? [] : [toStarted(callId, update)]
         this.#started.add(callId)
@@ -372,6 +396,7 @@ export class AcpUpdateFolder {
           toCompleted(callId, update),
           ...imageOutputEvents(update.content),
           ...imageOutputEvents(update.rawOutput),
+          ...background,
         ]
       }
       case 'error': {
