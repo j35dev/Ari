@@ -623,11 +623,11 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         setFullPage(null)
         setInspector('browser')
       } else if (view === 'changes' || view === 'source-control') {
-        // Review and Git actions share one view now; the titlebar Git control acts.
+        // Diffs open beside the chat; the titlebar Git control does the Git actions.
         setHubOpen(false)
         setSettingsOpen(false)
-        setInspector(null)
-        setFullPage('changes')
+        setFullPage(null)
+        setInspector('changes')
       } else {
         setHubOpen(false)
         setSettingsOpen(false)
@@ -1022,10 +1022,14 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
       setFullPage(null)
       return
     }
-    if (id === 'usage' || id === 'changes' || id === 'source-control') {
-      const page = id === 'source-control' ? 'changes' : id
+    if (id === 'changes' || id === 'source-control') {
+      setFullPage(null)
+      setInspector((prev) => (prev === 'changes' ? null : 'changes'))
+      return
+    }
+    if (id === 'usage') {
       setInspector(null)
-      setFullPage((prev) => (prev === page ? null : page))
+      setFullPage((prev) => (prev === id ? null : id))
       return
     }
     setFullPage(null)
@@ -1126,8 +1130,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               onReview={() => {
                 setSettingsOpen(false)
                 setHubOpen(false)
-                setInspector(null)
-                setFullPage('changes')
+                setFullPage(null)
+                setInspector('changes')
               }}
               onPullRequests={() => selectWorkspaceTool('github')}
             />
@@ -1538,6 +1542,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                 sessionId={activeSessionId}
                                 projectId={activeSession?.projectId ?? null}
                                 onRange={activeSessionId ? attachReviewRange : undefined}
+                                onCheckedOut={(path) =>
+                                  openCheckedOutWorktree(path, {
+                                    open: (folder) => rpc.invoke('project.open', { path: folder }),
+                                    refreshProjects,
+                                    startSession: (projectId) => {
+                                      setInspector(null)
+                                      createSession(projectId)
+                                    },
+                                  })
+                                }
                               />
                             </ErrorBoundary>
                           ) : activeProjectPath && activeScope ? (

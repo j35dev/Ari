@@ -29,7 +29,7 @@ export function DiffSurface({
   onScrollOffset,
 }: DiffSurfaceProps) {
   const [preferSplit, setSplit] = useState(true)
-  const [wrap, setWrap] = useState(false)
+  const [wrapPref, setWrap] = useState<boolean | null>(null)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
   const [raw, setRaw] = useState(false)
   const [query, setQuery] = useState('')
@@ -50,7 +50,21 @@ export function DiffSurface({
     const lines = reviewRows(file, false, false).filter((row) => !row.header)
     return lines.length > 0 && (lines.every((row) => !row.old) || lines.every((row) => !row.next))
   }, [file])
-  const split = preferSplit && !oneSided
+  // In a side panel two columns are too narrow to read, so it starts unified.
+  const root = useRef<HTMLElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const element = root.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setNarrow(entry.contentRect.width < 640)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const [chose, setChose] = useState(false)
+  const wrap = wrapPref ?? narrow
+  const split = (chose ? preferSplit : preferSplit && !narrow) && !oneSided
   const rows = useMemo(
     () => (file ? reviewRows(file, split, ignoreWhitespace) : []),
     [file, split, ignoreWhitespace],
@@ -156,7 +170,7 @@ export function DiffSurface({
           {line?.type === 'add' ? '+' : line?.type === 'del' ? '−' : ''}
         </span>
         <code
-          className={`min-w-0 flex-1 pr-4 font-mono text-xs ${wrap || split ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
+          className={`min-w-0 flex-1 pr-4 font-mono text-xs ${wrap || split ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
         >
           {line && highlights[`${index}:${side}`] ? (
             <span dangerouslySetInnerHTML={{ __html: highlights[`${index}:${side}`]! }} />
@@ -169,6 +183,7 @@ export function DiffSurface({
   }
   return (
     <section
+      ref={root}
       className="flex h-full min-h-0 flex-col"
       aria-label={`Diff for ${path}`}
       onKeyDown={(event) => {
@@ -228,7 +243,10 @@ export function DiffSurface({
           aria-pressed={split}
           disabled={oneSided}
           title={oneSided ? 'Only one side changed' : undefined}
-          onClick={() => setSplit(true)}
+          onClick={() => {
+            setChose(true)
+            setSplit(true)
+          }}
         >
           <Columns2 size={14} />
         </button>
@@ -237,7 +255,10 @@ export function DiffSurface({
           className={control}
           aria-label="Unified diff"
           aria-pressed={!split}
-          onClick={() => setSplit(false)}
+          onClick={() => {
+            setChose(true)
+            setSplit(false)
+          }}
         >
           <Rows3 size={14} />
         </button>

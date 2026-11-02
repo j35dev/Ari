@@ -49,6 +49,9 @@ export function ChangeRequests({
     }
   }, [scopeKey, attempt])
   if (!scope || state.kind === 'hidden') return null
+  // No recognized forge: nothing to list, and the reason is not worth a banner.
+  if (state.kind === 'ready' && !state.value.repository && state.value.requests.length === 0)
+    return null
   const provider = state.kind === 'ready' ? state.value.repository?.provider : undefined
   const canCheckout = provider === 'github' || provider === 'gitlab'
   const open = (url: string): void => {
