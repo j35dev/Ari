@@ -7,7 +7,6 @@
     "./agent-control": "./src/agent-control.ts",
     "./common": "./src/common.ts",
     "./session": "./src/session.ts",
-    "./bot": "./src/bot.ts",
     "./message": "./src/message.ts",
     "./agent-event": "./src/agent-event.ts",
     "./attachments": "./src/attachments.ts",
@@ -17,7 +16,6 @@
     "./settings": "./src/settings.ts",
     "./endpoint": "./src/endpoint.ts",
     "./project": "./src/project.ts",
-    "./routine": "./src/routine.ts",
     "./remote": "./src/remote.ts"
   },
   "scripts": {

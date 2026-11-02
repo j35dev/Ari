@@ -4,8 +4,6 @@ import { EndpointStore } from '@ari/ari-core/endpoints'
 import type { Project } from '@ari/contracts/project'
 import type { WorkspaceWatcher } from '@ari/engine/watcher'
 import { ProjectStore } from '@ari/engine/projects'
-import { BotStore } from '@ari/engine/bots'
-import { BotMemoryStore } from '@ari/engine/bot-memory'
 import { SessionStore } from '@ari/engine/session-store'
 import { SettingsStore } from '@ari/engine/settings'
 import { createLogger } from '@ari/shared/logger'
@@ -17,8 +15,6 @@ const log = createLogger('desktop:store')
 let sessionStore: SessionStore | null = null
 let settingsStore: SettingsStore | null = null
 let projectStore: ProjectStore | null = null
-let botStore: BotStore | null = null
-let botMemoryStore: BotMemoryStore | null = null
 let endpointStore: EndpointStore | null = null
 
 /** Root for all per-session journals: <userData>/sessions/<sessionId>/. */
@@ -54,19 +50,6 @@ export function getProjectStore(): ProjectStore {
     projectStore = new ProjectStore({ dir: app.getPath('userData') })
   }
   return projectStore
-}
-
-/** Hive bots and their persona files: <userData>/bots/<botId>/{bot.json,persona.md}. */
-export function getBotStore(): BotStore {
-  if (!botStore) botStore = new BotStore({ dir: join(app.getPath('userData'), 'bots') })
-  return botStore
-}
-
-/** Per-bot memory and its per-session snapshots, beside the bot records. */
-export function getBotMemoryStore(): BotMemoryStore {
-  if (!botMemoryStore)
-    botMemoryStore = new BotMemoryStore({ dir: join(app.getPath('userData'), 'bots') })
-  return botMemoryStore
 }
 
 export function getEndpointStore(): EndpointStore {
