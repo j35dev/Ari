@@ -31,6 +31,32 @@ describe('encodeCapture', () => {
     expect(capture.resize).not.toHaveBeenCalled()
   })
 
+  it('never scales above the capture when the page reports a huge viewport', () => {
+    const capture = image(800, 600)
+    const shot = encodeCapture(capture, 'jpeg', { width: 1e6, height: 1e6 })
+    expect(shot?.toString()).toBe('jpeg 800x600')
+    expect(capture.resize).not.toHaveBeenCalled()
+  })
+
+  it('clamps each side to the capture', () => {
+    const capture = image(1280, 1024)
+    expect(encodeCapture(capture, 'jpeg', { width: 640, height: 1e6 })?.toString()).toBe(
+      'jpeg 640x1024',
+    )
+    expect(capture.resize).toHaveBeenCalledWith({ width: 640, height: 1024 })
+  })
+
+  it.each([
+    [Number.NaN, 600],
+    [Number.POSITIVE_INFINITY, 600],
+    [800, -1],
+    [0, 600],
+  ])('does not resize for a reported viewport of %s x %s', (width, height) => {
+    const capture = image(800, 600)
+    expect(encodeCapture(capture, 'jpeg', { width, height })?.toString()).toBe('jpeg 800x600')
+    expect(capture.resize).not.toHaveBeenCalled()
+  })
+
   it('returns null for an empty capture', () => {
     const empty: CapturedImage = { ...image(0, 0), toPNG: () => Buffer.alloc(0) }
     expect(encodeCapture(empty, 'png')).toBeNull()
