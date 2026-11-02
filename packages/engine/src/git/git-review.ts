@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import type {
   GitComparison,
   GitReviewManifest,
+  GitSummary,
   SourceControlError,
   SourceControlStatus,
 } from '@ari/contracts/rpc'
@@ -31,16 +32,25 @@ export class GitReviewService {
   }
 
   /** Cheap scope-filtered status for persistent chrome; never hashes snapshots or reads history. */
-  async summary(
-    signal?: AbortSignal,
-  ): Promise<Result<{ branch: string | null; changedFiles: number }, SourceControlError>> {
-    const raw = await this.git.run(
-      ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--', '.'],
-      { signal },
-    )
+  async summary(signal?: AbortSignal): Promise<Result<GitSummary, SourceControlError>> {
+    const [raw, remotes] = await Promise.all([
+      this.git.run(
+        ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all', '--', '.'],
+        { signal },
+      ),
+      this.git.run(['remote'], { signal }),
+    ])
     if (!raw.ok) return raw
     const status = parseRepositoryStatus(raw.value)
-    return ok({ branch: status.branch, changedFiles: status.files.length })
+    return ok({
+      branch: status.branch,
+      changedFiles: status.files.length,
+      upstream: status.upstream,
+      ahead: status.ahead,
+      behind: status.behind,
+      hasRemote: remotes.ok && remotes.value.trim().length > 0,
+      operation: status.operation,
+    })
   }
 
   async status(signal?: AbortSignal): Promise<Result<SourceControlStatus, SourceControlError>> {

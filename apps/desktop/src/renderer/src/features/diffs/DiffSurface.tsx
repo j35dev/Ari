@@ -28,8 +28,8 @@ export function DiffSurface({
   scrollOffset = 0,
   onScrollOffset,
 }: DiffSurfaceProps) {
-  const [split, setSplit] = useState(true)
-  const [wrap, setWrap] = useState(false)
+  const [preferSplit, setSplit] = useState(true)
+  const [wrapPref, setWrap] = useState<boolean | null>(null)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
   const [raw, setRaw] = useState(false)
   const [query, setQuery] = useState('')
@@ -43,6 +43,28 @@ export function DiffSurface({
   const scroll = useRef<HTMLDivElement>(null)
   const search = useRef<HTMLInputElement>(null)
   const file = useMemo(() => parseDiff(diffText).files[0], [diffText])
+  // A new or deleted file has nothing on one side: split view would spend half
+  // the width on an empty column, so it reads as a single column instead.
+  const oneSided = useMemo(() => {
+    if (!file) return false
+    const lines = reviewRows(file, false, false).filter((row) => !row.header)
+    return lines.length > 0 && (lines.every((row) => !row.old) || lines.every((row) => !row.next))
+  }, [file])
+  // In a side panel two columns are too narrow to read, so it starts unified.
+  const root = useRef<HTMLElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const element = root.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setNarrow(entry.contentRect.width < 640)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const [chose, setChose] = useState(false)
+  const wrap = wrapPref ?? narrow
+  const split = (chose ? preferSplit : preferSplit && !narrow) && !oneSided
   const rows = useMemo(
     () => (file ? reviewRows(file, split, ignoreWhitespace) : []),
     [file, split, ignoreWhitespace],
@@ -148,7 +170,7 @@ export function DiffSurface({
           {line?.type === 'add' ? '+' : line?.type === 'del' ? '−' : ''}
         </span>
         <code
-          className={`min-w-0 flex-1 pr-4 font-mono text-xs ${wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'}`}
+          className={`min-w-0 flex-1 pr-4 font-mono text-xs ${wrap || split ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
         >
           {line && highlights[`${index}:${side}`] ? (
             <span dangerouslySetInnerHTML={{ __html: highlights[`${index}:${side}`]! }} />
@@ -161,6 +183,7 @@ export function DiffSurface({
   }
   return (
     <section
+      ref={root}
       className="flex h-full min-h-0 flex-col"
       aria-label={`Diff for ${path}`}
       onKeyDown={(event) => {
@@ -218,7 +241,12 @@ export function DiffSurface({
           className={control}
           aria-label="Split diff"
           aria-pressed={split}
-          onClick={() => setSplit(true)}
+          disabled={oneSided}
+          title={oneSided ? 'Only one side changed' : undefined}
+          onClick={() => {
+            setChose(true)
+            setSplit(true)
+          }}
         >
           <Columns2 size={14} />
         </button>
@@ -227,7 +255,10 @@ export function DiffSurface({
           className={control}
           aria-label="Unified diff"
           aria-pressed={!split}
-          onClick={() => setSplit(false)}
+          onClick={() => {
+            setChose(true)
+            setSplit(false)
+          }}
         >
           <Rows3 size={14} />
         </button>
@@ -258,7 +289,7 @@ export function DiffSurface({
         </button>
       </div>
       {split && !raw ? (
-        <div className="grid grid-cols-2 border-b border-border/60 bg-surface-0 font-mono text-2xs text-fg-subtle">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-b border-border/60 bg-surface-0 font-mono text-2xs text-fg-subtle">
           <span className="px-4 py-1.5">Before</span>
           <span className="border-l border-border/60 px-4 py-1.5">After</span>
         </div>
@@ -284,9 +315,8 @@ export function DiffSurface({
             style={{
               height: virtual.getTotalSize(),
               position: 'relative',
-              minWidth: wrap
-                ? undefined
-                : `calc(${maxChars * (split ? 2 : 1)}ch + ${split ? 10 : 5}rem)`,
+              // Split halves wrap inside their column; only unified view scrolls sideways.
+              minWidth: wrap || split ? undefined : `calc(${maxChars}ch + 5rem)`,
             }}
           >
             {virtual.getVirtualItems().map((item) => {
@@ -310,7 +340,7 @@ export function DiffSurface({
                       {row.header}
                     </div>
                   ) : split ? (
-                    <div className="grid grid-cols-2 [&>div+div]:border-l [&>div+div]:border-border/60">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] [&>div+div]:border-l [&>div+div]:border-border/60">
                       {cell(row.old, 'old', item.index)}
                       {cell(row.next, 'new', item.index)}
                     </div>

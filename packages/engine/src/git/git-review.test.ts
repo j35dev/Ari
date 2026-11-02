@@ -38,7 +38,15 @@ describe('snapshot-backed Git review', { timeout: 60_000 }, () => {
     await writeFile(join(root, 'ignored.txt'), 'private\n')
     const summary = await new GitReviewService(root).summary()
     if (!summary.ok) throw new Error(summary.error.message)
-    expect(summary.value).toEqual({ branch: 'main', changedFiles: 2 })
+    expect(summary.value).toEqual({
+      branch: 'main',
+      changedFiles: 2,
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+      hasRemote: false,
+      operation: null,
+    })
     expect(git(root, 'rev-parse', 'HEAD')).toMatch(/^[a-f0-9]{40}$/)
   })
 

@@ -17,17 +17,12 @@ describe('Titlebar workspace tools', () => {
   it('places workspace tools in the titlebar, not the session sidebar', () => {
     render(<Titlebar activeTool="files" onSelectTool={() => undefined} />)
     expect(screen.getByRole('navigation', { name: 'Workspace' })).toBeInTheDocument()
-    for (const label of [
-      'Review changes',
-      'Source control',
-      'Files',
-      'Usage',
-      'Terminal',
-      'PRs & issues',
-      'Settings',
-    ]) {
+    for (const label of ['Review changes', 'Files', 'Usage', 'Terminal', 'Settings']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
+    // Git actions and pull requests live in the one Git control, not as extra tools.
+    expect(screen.queryByRole('button', { name: 'Source control' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'PRs & issues' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Sessions' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByText('Settings')).not.toBeInTheDocument()
@@ -40,7 +35,16 @@ describe('Titlebar workspace tools', () => {
       'true',
     )
     expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Source control' })).toBeInTheDocument()
+  })
+
+  it('renders the Git control it is given beside the tools', () => {
+    render(
+      <Titlebar
+        onSelectTool={() => undefined}
+        git={<button type="button">Commit &amp; push</button>}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Commit & push' })).toBeInTheDocument()
   })
 
   it('reports the chosen tool', async () => {
