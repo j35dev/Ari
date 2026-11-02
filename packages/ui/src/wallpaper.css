@@ -135,6 +135,45 @@
   mask-image: linear-gradient(to bottom, transparent 35%, var(--ari-fg) 72%);
 }
 
+/* Reading lane: once a conversation runs, a calm band sits behind the text and
+   fades out at its sides, so the scene stays visible at the edges while the
+   messages read against a quiet backdrop. It does not scroll with them. */
+[data-ari-wallpaper] .ari-reading-lane::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: min(100%, 54rem);
+  transform: translateX(-50%);
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--ari-bg) 52%, transparent) 0%,
+    color-mix(in oklab, var(--ari-bg) 80%, transparent) 14%,
+    color-mix(in oklab, var(--ari-bg) 84%, transparent) 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--ari-fg) 4rem,
+    var(--ari-fg) calc(100% - 4rem),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--ari-fg) 4rem,
+    var(--ari-fg) calc(100% - 4rem),
+    transparent
+  );
+}
+
+[data-ari-wallpaper] .ari-reading-lane {
+  isolation: isolate;
+}
+
 /* Reduced transparency: keep the scene visible (it is an explicit opt-in) but
    drop the blur and raise the tint so contrast never depends on blur. */
 @media (prefers-reduced-transparency: reduce) {
