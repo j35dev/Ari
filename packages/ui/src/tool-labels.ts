@@ -91,6 +91,64 @@ export function pastVerb(kind: ToolKind): string {
   return PAST_VERB[kind]
 }
 
+/** What a step did when it names no target ("Ran a command"). */
+const PAST_PHRASE: Record<ToolKind, string> = {
+  run: 'Ran a command',
+  edit: 'Edited a file',
+  read: 'Read a file',
+  search: 'Searched',
+  todo: 'Updated the plan',
+}
+
+/** What the in-flight step is doing when it names no target yet. */
+const LIVE_PHRASE: Record<ToolKind, string> = {
+  run: 'Running a command',
+  edit: 'Editing a file',
+  read: 'Reading a file',
+  search: 'Searching',
+  todo: 'Updating the plan',
+}
+
+/**
+ * Provider names that only restate the bucket (`execute`, `bash`, `edit`).
+ * Shown bare they read as jargon, so a target-less step falls back to a plain
+ * phrase instead; a specific name like `browser_navigate` is still shown.
+ */
+const GENERIC_KIND_NAMES = new Set([
+  'execute',
+  'exec',
+  'bash',
+  'shell',
+  'terminal',
+  'command',
+  'run',
+  'powershell',
+  'edit',
+  'write',
+  'read',
+  'search',
+  'grep',
+  'glob',
+  'fetch',
+  'think',
+  'other',
+  'tool',
+  'unknown',
+])
+
+/**
+ * Label for a step with no showable target: a plain phrase for generic names,
+ * the humanized name otherwise. `live` picks the in-flight tense.
+ */
+export function namelessStepLabel(block: ToolCallRef, live = false): string {
+  const name = effectiveToolName(block.name, block.argsJson)
+  const kind = classifyTool(name)
+  if (GENERIC_KIND_NAMES.has(name.trim().toLowerCase())) {
+    return live ? LIVE_PHRASE[kind] : PAST_PHRASE[kind]
+  }
+  return humanizeToolName(name)
+}
+
 /** Present-participle verb for the in-flight step ("Reading src/app.ts"). */
 const LIVE_VERB: Record<ToolKind, string> = {
   run: 'Running',
@@ -197,18 +255,27 @@ function isPathKey(key: string): boolean {
  */
 const NESTED_ARG_KEYS = ['input', 'arguments', 'args', 'parameters', 'params'] as const
 
-/** Keys that describe the call rather than its subject; never shown as target. */
+/**
+ * Keys that describe the call rather than its subject; never shown as target.
+ * Compared lowercased. A working folder is where a command ran, not what it
+ * did, so `Ran D:\Projects\app` would only restate the project.
+ */
 const NON_TARGET_KEYS = new Set([
   'title',
   'name',
   'tool',
   'tool_name',
-  'toolName',
+  'toolname',
   'description',
   'explanation',
   'id',
   'callid',
   'kind',
+  'cwd',
+  'workdir',
+  'working_directory',
+  'workingdirectory',
+  'shell',
 ])
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -334,7 +401,10 @@ export function toolTarget(argsJson: string | undefined): string {
   const records = argRecords(args)
   for (const record of records) {
     for (const key of TARGET_KEYS) {
-      const value = record[key]
+      const raw = record[key]
+      // Some agents send a command as an argv array.
+      const value =
+        Array.isArray(raw) && raw.every((part) => typeof part === 'string') ? raw.join(' ') : raw
       if (typeof value !== 'string' || value.length === 0) continue
       return oneLine(isPathKey(key) ? shortenPath(value) : value)
     }

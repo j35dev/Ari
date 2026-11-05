@@ -124,26 +124,22 @@ export function ActivityBurst({
         className="group flex w-full items-center gap-2 rounded-md px-1 py-[3px] text-left transition-colors hover:bg-surface-1/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
       >
         {live ? (
-          <span className="flex shrink-0 items-center gap-1 font-mono text-2xs text-accent">
-            <span className="ari-pulse size-1 rounded-full bg-accent" aria-hidden="true" />
-            live
-          </span>
+          <span className="ari-pulse size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
         ) : null}
         <span className="min-w-0 flex-1 truncate">
-          <span className={`text-xs ${live ? 'text-fg' : 'text-fg-subtle'}`}>{verb}</span>
+          <span className={`text-[13px] ${live ? 'text-fg' : 'text-fg-muted'}`}>{verb}</span>
           {subject.length > 0 ? (
-            <span className={`ml-1.5 font-mono text-2xs ${live ? 'text-fg' : 'text-fg-muted'}`}>
+            <span className={`ml-1.5 font-mono text-xs ${live ? 'text-fg' : 'text-fg-muted'}`}>
               {subject}
             </span>
           ) : null}
-          {more > 0 ? (
-            <span className="ml-1 font-mono text-2xs text-fg-subtle">+{more}</span>
-          ) : null}
+          {more > 0 ? <span className="ml-1 text-xs text-fg-subtle">+{more}</span> : null}
         </span>
         <span className="flex shrink-0 items-center gap-3">
           {stat !== null && (stat.added > 0 || stat.removed > 0) ? (
-            <span aria-hidden="true" className="font-mono text-2xs tabular-nums text-fg-muted">
-              +{stat.added} −{stat.removed}
+            <span aria-hidden="true" className="flex gap-1 text-xs tabular-nums">
+              {stat.added > 0 ? <span className="text-success/90">+{stat.added}</span> : null}
+              {stat.removed > 0 ? <span className="text-danger/90">−{stat.removed}</span> : null}
             </span>
           ) : null}
           <ActivityLedger entries={ledger} />

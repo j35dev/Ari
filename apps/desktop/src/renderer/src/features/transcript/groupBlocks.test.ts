@@ -398,8 +398,13 @@ describe('describeActivity', () => {
     expect(describeActivity(group(blocks), false).label).toBe('Ran pnpm verify')
   })
 
-  it('names a targetless live call by its tool, never verb + name', () => {
-    expect(describeActivity(group([call('c1', 'Edit', '{}')]), true).label).toBe('Edit')
+  it('names a targetless live call plainly, never verb + name', () => {
+    expect(describeActivity(group([call('c1', 'Edit', '{}')]), true).label).toBe('Editing a file')
+    // Claude's ACP adapter opens a shell call with an empty input.
+    expect(
+      describeActivity(group([call('c1', 'execute', '{"title":"Terminal","input":{}}')]), true)
+        .label,
+    ).toBe('Running a command')
     expect(
       describeActivity(
         group([call('c1', 'tool', '{"title":"run_terminal_command","input":{}}')]),

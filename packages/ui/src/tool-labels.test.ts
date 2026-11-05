@@ -8,6 +8,7 @@ import {
   effectiveToolName,
   isImageGenerationCall,
   humanizeToolName,
+  namelessStepLabel,
   parseToolArgs,
   pastVerb,
   pathTail,
@@ -56,6 +57,20 @@ describe('classifyTool', () => {
   })
 })
 
+describe('namelessStepLabel', () => {
+  it('words generic provider names plainly, in the step tense', () => {
+    expect(namelessStepLabel({ name: 'execute', argsJson: '{"title":"Terminal","input":{}}' })).toBe(
+      'Ran a command',
+    )
+    expect(namelessStepLabel({ name: 'edit' }, true)).toBe('Editing a file')
+    expect(namelessStepLabel({ name: 'read' })).toBe('Read a file')
+  })
+
+  it('keeps a specific name humanized', () => {
+    expect(namelessStepLabel({ name: 'browser_navigate' })).toBe('browser navigate')
+  })
+})
+
 describe('ariToolName', () => {
   it('brands every bucket as an Ari tool', () => {
     expect(ariToolName('run')).toBe('Ari Run')
@@ -94,6 +109,17 @@ describe('shortenPath', () => {
 })
 
 describe('toolTarget', () => {
+  it('never names the working folder as what a command did', () => {
+    expect(toolTarget('{"title":"bash","input":{"cwd":"D:\\\\Projects\\\\test"}}')).toBe('')
+    expect(toolTarget('{"workdir":"/srv/app"}')).toBe('')
+  })
+
+  it('joins a command sent as an argv array', () => {
+    expect(toolTarget('{"command":["git","status","--short"],"cwd":"/srv"}')).toBe(
+      'git status --short',
+    )
+  })
+
   it('prefers the command over other arguments', () => {
     expect(toolTarget('{"command":"git log -1 --oneline","cwd":"D:/Projects/Ari"}')).toBe(
       'git log -1 --oneline',
