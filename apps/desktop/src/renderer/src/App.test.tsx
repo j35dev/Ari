@@ -9,7 +9,7 @@ import { useToast } from '@ari/ui/toast'
 import { settingsSchema } from '@ari/contracts/settings'
 import { useEngineSettings } from './features/settings/useEngineSettings'
 import { AppProviders, App } from './App'
-import { BRANCH_POLL_MS, SessionBranchChip } from './features/session/SessionBranchChip'
+import { ParentSessionLink } from './features/session/ParentSessionLink'
 import { splitLayoutActions, splitLayoutSnapshot } from './features/split/use-split-layout'
 import { MAX_PANES, paneCount } from './features/split/split-layout'
 
@@ -93,168 +93,23 @@ const invokeMock = rpcMocks.invoke as unknown as Mock<
   (method: string, params?: unknown) => Promise<unknown>
 >
 
-describe('SessionBranchChip', () => {
-  beforeEach(() => {
-    invokeMock.mockReset()
-    invokeMock.mockImplementation(async (method) => {
-      if (method === 'session.workspace') return { path: 'C:\\repos\\demo' }
-      if (method === 'project.list')
-        return [{ id: 'proj_1', name: 'Demo', path: 'C:\\repos\\demo' }]
-      if (method === 'git.status') return { isRepo: true, branch: 'feat/demo', files: [] }
-      throw new Error(`unexpected method: ${String(method)}`)
-    })
+describe('ParentSessionLink', () => {
+  it('renders nothing for a top-level session', () => {
+    const { container } = render(<ParentSessionLink />)
+    expect(container).toBeEmptyDOMElement()
   })
 
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('asks git.status with the session scope, never a resolved path', async () => {
-    render(<SessionBranchChip sessionId="sess_1" />)
-
-    expect(await screen.findByText('feat/demo')).toBeInTheDocument()
-    expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
-    expect(invokeMock).not.toHaveBeenCalledWith('session.workspace', expect.anything())
-  })
-
-  it('stays hidden when the session workspace is unavailable', async () => {
-    invokeMock.mockImplementation(async (method) => {
-      if (method === 'git.status') throw new Error('session workspace is unavailable')
-      throw new Error(`unexpected method: ${String(method)}`)
-    })
-
-    render(<SessionBranchChip sessionId="sess_1" />)
-    await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
-    })
-
-    expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
-  })
-
-  it('refreshes the readout when the branch changes behind the open session', async () => {
-    vi.useFakeTimers()
-    try {
-      render(<SessionBranchChip sessionId="sess_1" />)
-      // Flush the initial status round-trip without findByText, which cannot
-      // tick under fake timers.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
-      })
-      expect(screen.getByText('feat/demo')).toBeInTheDocument()
-
-      invokeMock.mockImplementation(async (method) => {
-        if (method === 'git.status') return { isRepo: true, branch: 'fix/other', files: [] }
-        throw new Error(`unexpected method: ${String(method)}`)
-      })
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(BRANCH_POLL_MS)
-      })
-      expect(screen.getByText('fix/other')).toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('clears the readout when the workspace stops being a repo', async () => {
-    vi.useFakeTimers()
-    try {
-      render(<SessionBranchChip sessionId="sess_1" />)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
-      })
-      expect(screen.getByText('feat/demo')).toBeInTheDocument()
-
-      invokeMock.mockImplementation(async (method) => {
-        if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
-        throw new Error(`unexpected method: ${String(method)}`)
-      })
-      // A single miss means nothing; three consecutive misses clear it.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(BRANCH_POLL_MS)
-      })
-      expect(screen.getByText('feat/demo')).toBeInTheDocument()
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2 * BRANCH_POLL_MS)
-      })
-      expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('keeps the readout across a transient miss between successful polls', async () => {
-    vi.useFakeTimers()
-    try {
-      render(<SessionBranchChip sessionId="sess_1" />)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
-      })
-      expect(screen.getByText('feat/demo')).toBeInTheDocument()
-
-      let calls = 0
-      invokeMock.mockImplementation(async (method) => {
-        if (method !== 'git.status') throw new Error(`unexpected method: ${String(method)}`)
-        calls += 1
-        if (calls === 1) return { isRepo: false, branch: null, files: [] }
-        return { isRepo: true, branch: 'feat/demo', files: [] }
-      })
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2 * BRANCH_POLL_MS)
-      })
-      expect(screen.getByText('feat/demo')).toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('pauses the poll while the window is hidden and refreshes on return', async () => {
-    vi.useFakeTimers()
-    const setVisibility = (state: DocumentVisibilityState): void => {
-      Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
-    }
-    try {
-      render(<SessionBranchChip sessionId="sess_1" />)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
-      })
-      expect(invokeMock).toHaveBeenCalledTimes(1)
-
-      setVisibility('hidden')
-      await act(async () => {
-        document.dispatchEvent(new Event('visibilitychange'))
-        await vi.advanceTimersByTimeAsync(3 * BRANCH_POLL_MS)
-      })
-      expect(invokeMock).toHaveBeenCalledTimes(1)
-
-      invokeMock.mockImplementation(async (method) => {
-        if (method === 'git.status') return { isRepo: true, branch: 'fix/other', files: [] }
-        throw new Error(`unexpected method: ${String(method)}`)
-      })
-      setVisibility('visible')
-      await act(async () => {
-        document.dispatchEvent(new Event('visibilitychange'))
-        await vi.advanceTimersByTimeAsync(0)
-      })
-      expect(invokeMock).toHaveBeenCalledTimes(2)
-      expect(screen.getByText('fix/other')).toBeInTheDocument()
-    } finally {
-      delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState
-      vi.useRealTimers()
-    }
-  })
-
-  it('stays hidden outside a git repo', async () => {
-    invokeMock.mockImplementation(async (method) => {
-      if (method === 'git.status') return { isRepo: false, branch: null, files: [] }
-      throw new Error(`unexpected method: ${String(method)}`)
-    })
-
-    render(<SessionBranchChip sessionId="sess_1" />)
-    await vi.waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith('git.status', { sessionId: 'sess_1' })
-    })
-
-    expect(screen.queryByTitle('Active branch')).not.toBeInTheDocument()
+  it('opens the session that delegated this one', async () => {
+    const user = userEvent.setup()
+    const onOpenSession = vi.fn()
+    render(
+      <ParentSessionLink
+        parentSession={{ id: 'sess_parent', title: 'Plan the release' }}
+        onOpenSession={onOpenSession}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Open parent session: Plan the release' }))
+    expect(onOpenSession).toHaveBeenCalledWith('sess_parent')
   })
 })
 
