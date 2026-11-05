@@ -178,7 +178,9 @@ export function ExtensionInventory({
           Trust skills in this folder ({untrusted})
         </Button>
       ) : null}
-      {kind === 'ari-core' ? <CoreMcpForm servers={servers} onSaved={() => void refresh()} /> : null}
+      {kind === 'ari-core' ? (
+        <CoreMcpForm servers={servers} onSaved={() => void refresh()} />
+      ) : null}
     </section>
   )
 }
@@ -205,7 +207,10 @@ function CoreMcpForm({ servers, onSaved }: { servers: PublicServer[]; onSaved: (
           .invoke('ariCore.mcp.upsert', {
             name: name.trim(),
             command: command.trim(),
-            args: args.split('\n').map((line) => line.trim()).filter((line) => line.length > 0),
+            args: args
+              .split('\n')
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0),
             ...(env.trim().length > 0 ? { env: envRecord } : {}),
           })
           .then(() => {
@@ -216,7 +221,9 @@ function CoreMcpForm({ servers, onSaved }: { servers: PublicServer[]; onSaved: (
             setError(null)
             onSaved()
           })
-          .catch((caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)))
+          .catch((caught: unknown) =>
+            setError(caught instanceof Error ? caught.message : String(caught)),
+          )
       }}
     >
       <p className="text-sm font-medium text-fg">Add an Ari Core MCP server</p>

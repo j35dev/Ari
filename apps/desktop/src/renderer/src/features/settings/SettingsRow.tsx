@@ -17,9 +17,7 @@ export function SettingsRow({ label, hint, children, className }: SettingsRowPro
     >
       <div className="min-w-0 max-w-lg">
         <p className="text-sm font-medium text-fg">{label}</p>
-        {hint != null && (
-          <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{hint}</p>
-        )}
+        {hint != null && <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{hint}</p>}
       </div>
       {children != null && <div className="flex shrink-0 items-center gap-2">{children}</div>}
     </div>

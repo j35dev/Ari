@@ -884,7 +884,11 @@ export function SessionView({
           command: { type: 'checkpoint.revert', sessionId, turnId },
         })
         if (!result.accepted) throw new Error(result.reason ?? 'The engine rejected the revert.')
-        toast({ title: 'Changes undone', description: 'Files are back to before that turn.', tone: 'success' })
+        toast({
+          title: 'Changes undone',
+          description: 'Files are back to before that turn.',
+          tone: 'success',
+        })
         return true
       } catch (err) {
         toast({

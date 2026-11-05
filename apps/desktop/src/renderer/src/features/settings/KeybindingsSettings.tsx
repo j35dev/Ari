@@ -16,10 +16,7 @@ export function resolveChord(chord: string): string[] {
 /** Keybindings settings page: read-only table of the app's logical shortcuts. */
 export function KeybindingsSettings() {
   return (
-    <SettingsPage
-      title="Keybindings"
-      description="Every shortcut the workspace responds to."
-    >
+    <SettingsPage title="Keybindings" description="Every shortcut the workspace responds to.">
       <SettingsSection
         title="Shortcuts"
         headingId="keybindings-map-heading"

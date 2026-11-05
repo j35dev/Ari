@@ -137,12 +137,28 @@ describe('session projection', () => {
     expect(state.status).toBe('idle') // status changes arrive as explicit events
     state = applyEvent(
       state,
-      ev(3, { type: 'session.status.changed', from: 'running', to: 'waiting-approval', reason: null }),
+      ev(3, {
+        type: 'session.status.changed',
+        from: 'running',
+        to: 'waiting-approval',
+        reason: null,
+      }),
     )
     expect(state.status).toBe('waiting-approval')
-    state = applyEvent(state, ev(4, { type: 'approval.responded', approvalId: 'a1', decision: 'allow' }))
+    state = applyEvent(
+      state,
+      ev(4, { type: 'approval.responded', approvalId: 'a1', decision: 'allow' }),
+    )
     expect(state.pendingApprovals).toHaveLength(0)
-    state = applyEvent(state, ev(5, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'completed', errorMessage: null }))
+    state = applyEvent(
+      state,
+      ev(5, {
+        type: 'turn.settled',
+        turnId: 'turn_1',
+        stopReason: 'completed',
+        errorMessage: null,
+      }),
+    )
     expect(state.activeTurnId).toBeNull()
     expect(state.streamingMessageId).toBeNull()
   })
@@ -223,7 +239,12 @@ describe('session projection', () => {
     // prompts must go away so a later answer is rejected instead of stuck.
     state = applyEvent(
       state,
-      ev(4, { type: 'turn.settled', turnId: 'turn_1', stopReason: 'interrupted', errorMessage: null }),
+      ev(4, {
+        type: 'turn.settled',
+        turnId: 'turn_1',
+        stopReason: 'interrupted',
+        errorMessage: null,
+      }),
     )
     expect(state.pendingInputs).toHaveLength(0)
     expect(state.pendingApprovals).toHaveLength(0)
@@ -241,13 +262,15 @@ describe('session projection', () => {
     state = applyEvent(state, ev(4, { type: 'message.dequeued', text: 'first', attachments: [] }))
     expect(state.queuedMessages).toEqual([{ text: 'second', attachments: [] }])
     // A full replay (reload path) restores the same queue.
-    expect(projectEvents([
-      ev(0, { type: 'session.created', session }),
-      ev(1, { type: 'turn.started', turnId: 'turn_1' }),
-      ev(2, { type: 'message.enqueued', text: 'first', attachments: [] }),
-      ev(3, { type: 'message.enqueued', text: 'second', attachments: [] }),
-      ev(4, { type: 'message.dequeued', text: 'first', attachments: [] }),
-    ]).queuedMessages).toEqual([{ text: 'second', attachments: [] }])
+    expect(
+      projectEvents([
+        ev(0, { type: 'session.created', session }),
+        ev(1, { type: 'turn.started', turnId: 'turn_1' }),
+        ev(2, { type: 'message.enqueued', text: 'first', attachments: [] }),
+        ev(3, { type: 'message.enqueued', text: 'second', attachments: [] }),
+        ev(4, { type: 'message.dequeued', text: 'first', attachments: [] }),
+      ]).queuedMessages,
+    ).toEqual([{ text: 'second', attachments: [] }])
     // Dequeuing unknown text is a no-op.
     const noop = applyEvent(
       projectEvents([ev(0, { type: 'session.created', session })]),
@@ -272,16 +295,35 @@ describe('session projection', () => {
   it('accumulates token usage and keeps cost null until a price arrives', () => {
     let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
     expect(state.usage).toEqual({ inputTokens: 0, outputTokens: 0, costUsd: null })
-    state = applyEvent(state, ev(1, { type: 'usage.recorded', inputTokens: 10, outputTokens: 4, costUsd: 0.01 }))
-    state = applyEvent(state, ev(2, { type: 'usage.recorded', inputTokens: 5, outputTokens: 6, costUsd: null }))
-    state = applyEvent(state, ev(3, { type: 'usage.recorded', inputTokens: 1, outputTokens: 2, costUsd: 0.005 }))
+    state = applyEvent(
+      state,
+      ev(1, { type: 'usage.recorded', inputTokens: 10, outputTokens: 4, costUsd: 0.01 }),
+    )
+    state = applyEvent(
+      state,
+      ev(2, { type: 'usage.recorded', inputTokens: 5, outputTokens: 6, costUsd: null }),
+    )
+    state = applyEvent(
+      state,
+      ev(3, { type: 'usage.recorded', inputTokens: 1, outputTokens: 2, costUsd: 0.005 }),
+    )
     expect(state.usage).toEqual({ inputTokens: 16, outputTokens: 12, costUsd: 0.015 })
   })
 
   it('projectEvents folds a full list in order', () => {
     const model = projectEvents([
       ev(0, { type: 'session.created', session }),
-      ev(1, { type: 'user.message.added', message: { id: 'm1', sessionId: 'sess_1', turnId: null, role: 'user', parts: [{ type: 'text', text: 'hi' }], createdAt: 1001 } }),
+      ev(1, {
+        type: 'user.message.added',
+        message: {
+          id: 'm1',
+          sessionId: 'sess_1',
+          turnId: null,
+          role: 'user',
+          parts: [{ type: 'text', text: 'hi' }],
+          createdAt: 1001,
+        },
+      }),
     ])
     expect(model.messages).toHaveLength(1)
     expect(model.lastSeq).toBe(1)
@@ -289,10 +331,7 @@ describe('session projection', () => {
 
   it('folds child.session.destroyed and caps childEvents at 200', () => {
     let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
-    state = applyEvent(
-      state,
-      ev(1, { type: 'child.session.destroyed', childSessionId: 'child_1' }),
-    )
+    state = applyEvent(state, ev(1, { type: 'child.session.destroyed', childSessionId: 'child_1' }))
     expect(state.childEvents?.at(-1)?.type).toBe('child.session.destroyed')
     for (let i = 0; i < 210; i++) {
       state = applyEvent(
@@ -313,14 +352,45 @@ describe('session projection', () => {
         push({ type: 'turn.started', turnId: `turn_${turn}` })
         push({
           type: 'user.message.added',
-          message: { id: `u${turn}`, sessionId: 'sess_1', turnId: `turn_${turn}`, role: 'user', parts: [{ type: 'text', text: 'go' }], createdAt: 1 },
+          message: {
+            id: `u${turn}`,
+            sessionId: 'sess_1',
+            turnId: `turn_${turn}`,
+            role: 'user',
+            parts: [{ type: 'text', text: 'go' }],
+            createdAt: 1,
+          },
         })
-        push({ type: 'assistant.parts.appended', messageId: `a${turn}`, parts: [{ type: 'text', text: 'a' }] })
-        push({ type: 'approval.requested', approvalId: `ap${turn}`, toolName: 'bash', summaryJson: '{}', options: [] })
-        push({ type: 'assistant.parts.appended', messageId: `a${turn}`, parts: [{ type: 'text', text: 'b' }] })
+        push({
+          type: 'assistant.parts.appended',
+          messageId: `a${turn}`,
+          parts: [{ type: 'text', text: 'a' }],
+        })
+        push({
+          type: 'approval.requested',
+          approvalId: `ap${turn}`,
+          toolName: 'bash',
+          summaryJson: '{}',
+          options: [],
+        })
+        push({
+          type: 'assistant.parts.appended',
+          messageId: `a${turn}`,
+          parts: [{ type: 'text', text: 'b' }],
+        })
         // A late part for an earlier message, not the newest one.
-        if (turn > 0) push({ type: 'assistant.parts.appended', messageId: 'a0', parts: [{ type: 'text', text: 'late' }] })
-        push({ type: 'turn.settled', turnId: `turn_${turn}`, stopReason: 'completed', errorMessage: null })
+        if (turn > 0)
+          push({
+            type: 'assistant.parts.appended',
+            messageId: 'a0',
+            parts: [{ type: 'text', text: 'late' }],
+          })
+        push({
+          type: 'turn.settled',
+          turnId: `turn_${turn}`,
+          stopReason: 'completed',
+          errorMessage: null,
+        })
       }
       return events
     }
@@ -345,7 +415,11 @@ describe('session projection', () => {
       for (let seq = 1; seq <= count; seq++) {
         draft = applyEventToDraft(
           draft,
-          ev(seq, { type: 'assistant.parts.appended', messageId: 'm1', parts: [{ type: 'text', text: 'x' }] }),
+          ev(seq, {
+            type: 'assistant.parts.appended',
+            messageId: 'm1',
+            parts: [{ type: 'text', text: 'x' }],
+          }),
         )
       }
       // The pure fold copies the growing parts array per event: ~200M copies.

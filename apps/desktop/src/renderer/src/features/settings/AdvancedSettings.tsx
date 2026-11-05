@@ -246,9 +246,8 @@ export function AdvancedSettings() {
             <div className="min-w-0 max-w-lg">
               <p className="text-sm font-medium text-fg">Settings bundle</p>
               <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
-                Export appearance, session, notification, and permission settings as a JSON
-                bundle, or import one from another device. Window bounds stay local to this
-                machine.
+                Export appearance, session, notification, and permission settings as a JSON bundle,
+                or import one from another device. Window bounds stay local to this machine.
               </p>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -279,8 +278,8 @@ export function AdvancedSettings() {
           hint={
             <>
               Session journals live under the app data directory at{' '}
-              <code className="font-mono text-2xs text-fg">userData/sessions</code>, one JSONL
-              file per session. Copy that folder to back up or move your history.
+              <code className="font-mono text-2xs text-fg">userData/sessions</code>, one JSONL file
+              per session. Copy that folder to back up or move your history.
             </>
           }
         />

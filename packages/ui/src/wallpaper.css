@@ -170,11 +170,12 @@
     background-size: cover;
   }
   [data-ari-wallpaper] {
-    --ari-haze-art: linear-gradient(
-      color-mix(in oklab, var(--ari-surface-0) 70%, transparent),
-      color-mix(in oklab, var(--ari-surface-0) 70%, transparent)
-    ),
-    var(--ari-wallpaper-image);
+    --ari-haze-art:
+      linear-gradient(
+        color-mix(in oklab, var(--ari-surface-0) 70%, transparent),
+        color-mix(in oklab, var(--ari-surface-0) 70%, transparent)
+      ),
+      var(--ari-wallpaper-image);
   }
   [data-ari-wallpaper] .ari-reading-lane::before {
     content: none;

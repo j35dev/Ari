@@ -85,11 +85,11 @@ export function SessionImportList({
   }
 
   if (loading) {
-  return (
-        <div role="status" className="flex items-center gap-2 text-sm text-fg-muted">
-          <Spinner size="sm" />
-          <span>Finding pi sessions…</span>
-        </div>
+    return (
+      <div role="status" className="flex items-center gap-2 text-sm text-fg-muted">
+        <Spinner size="sm" />
+        <span>Finding pi sessions…</span>
+      </div>
     )
   }
 
@@ -100,57 +100,57 @@ export function SessionImportList({
   return (
     <div className="space-y-3">
       <ul className="flex flex-col" aria-label="Pi sessions">
-          {sessions.map((session) => {
+        {sessions.map((session) => {
           const error = errorsByPath[session.candidateId]
-            return (
-              <li
+          return (
+            <li
               key={session.candidateId}
-                className="flex flex-col gap-1 border-b border-border/60 py-3 last:border-b-0"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm text-fg">{session.title}</span>
-                      {session.imported ? <Badge tone="success">in Ari</Badge> : null}
-                      {error !== undefined ? <Badge tone="danger">error</Badge> : null}
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-fg-muted">
-                      {session.messageCount} messages · {formatWhen(session.updatedAt)} ·{' '}
-                      <span className="font-mono">{session.cwd}</span>
-                    </p>
+              className="flex flex-col gap-1 border-b border-border/60 py-3 last:border-b-0"
+            >
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm text-fg">{session.title}</span>
+                    {session.imported ? <Badge tone="success">in Ari</Badge> : null}
+                    {error !== undefined ? <Badge tone="danger">error</Badge> : null}
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={session.imported || busyPath !== null}
-                  loading={busyPath === session.candidateId}
-                    onClick={() => void importOne(session)}
-                    aria-label={
-                    busyPath === session.candidateId
-                        ? `Importing ${session.title}`
-                        : error !== undefined
-                          ? `Retry ${session.title}`
-                          : `Import ${session.title}`
-                    }
-                  >
-                    {session.imported
-                      ? 'Imported'
-                    : busyPath === session.candidateId
-                        ? 'Importing…'
-                        : error !== undefined
-                          ? 'Retry'
-                          : 'Import'}
-                  </Button>
-                </div>
-                {error !== undefined ? (
-                  <p role="alert" className="break-words text-xs text-danger">
-                    {error}
+                  <p className="mt-0.5 truncate text-xs text-fg-muted">
+                    {session.messageCount} messages · {formatWhen(session.updatedAt)} ·{' '}
+                    <span className="font-mono">{session.cwd}</span>
                   </p>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={session.imported || busyPath !== null}
+                  loading={busyPath === session.candidateId}
+                  onClick={() => void importOne(session)}
+                  aria-label={
+                    busyPath === session.candidateId
+                      ? `Importing ${session.title}`
+                      : error !== undefined
+                        ? `Retry ${session.title}`
+                        : `Import ${session.title}`
+                  }
+                >
+                  {session.imported
+                    ? 'Imported'
+                    : busyPath === session.candidateId
+                      ? 'Importing…'
+                      : error !== undefined
+                        ? 'Retry'
+                        : 'Import'}
+                </Button>
+              </div>
+              {error !== undefined ? (
+                <p role="alert" className="break-words text-xs text-danger">
+                  {error}
+                </p>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
 
       {busySession !== null ? (
         <p role="status" aria-live="polite" className="text-sm text-fg-muted">

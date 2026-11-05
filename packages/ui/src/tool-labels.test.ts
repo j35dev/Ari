@@ -59,9 +59,9 @@ describe('classifyTool', () => {
 
 describe('namelessStepLabel', () => {
   it('words generic provider names plainly, in the step tense', () => {
-    expect(namelessStepLabel({ name: 'execute', argsJson: '{"title":"Terminal","input":{}}' })).toBe(
-      'Ran a command',
-    )
+    expect(
+      namelessStepLabel({ name: 'execute', argsJson: '{"title":"Terminal","input":{}}' }),
+    ).toBe('Ran a command')
     expect(namelessStepLabel({ name: 'edit' }, true)).toBe('Editing a file')
     expect(namelessStepLabel({ name: 'read' })).toBe('Read a file')
   })
@@ -127,9 +127,9 @@ describe('toolTarget', () => {
   })
 
   it('shortens path-shaped arguments', () => {
-    expect(toolTarget('{"target_file":"D:\\\\Projects\\\\Ari\\\\apps\\\\desktop\\\\index.ts"}')).toBe(
-      'desktop/index.ts',
-    )
+    expect(
+      toolTarget('{"target_file":"D:\\\\Projects\\\\Ari\\\\apps\\\\desktop\\\\index.ts"}'),
+    ).toBe('desktop/index.ts')
   })
 
   it('collapses newlines and caps long commands', () => {
@@ -204,7 +204,8 @@ describe('the ACP { title, input } envelope', () => {
   }
   const readCall = {
     name: 'tool',
-    argsJson: '{"title":"read_file","input":{"target_file":"D:\\\\Projects\\\\Ari\\\\.ari\\\\state.json"}}',
+    argsJson:
+      '{"title":"read_file","input":{"target_file":"D:\\\\Projects\\\\Ari\\\\.ari\\\\state.json"}}',
   }
 
   it('recovers the real tool name from the request title', () => {
@@ -224,26 +225,31 @@ describe('the ACP { title, input } envelope', () => {
 
   it('never shows the envelope title as the target', () => {
     expect(toolTarget('{"title":"some_tool","input":{}}')).toBe('')
-    expect(describeToolCall({ name: 'tool', argsJson: '{"title":"some_tool","input":{}}' })).toEqual(
-      { kind: 'run', verb: 'Ran', target: '' },
-    )
+    expect(
+      describeToolCall({ name: 'tool', argsJson: '{"title":"some_tool","input":{}}' }),
+    ).toEqual({ kind: 'run', verb: 'Ran', target: '' })
   })
 })
 
 describe('todoItems', () => {
   it('reads Ari Core and Claude plan shapes', () => {
     expect(
-      todoItems({ items: [{ text: 'a', status: 'done' }, { text: 'b', status: 'in_progress' }] }),
+      todoItems({
+        items: [
+          { text: 'a', status: 'done' },
+          { text: 'b', status: 'in_progress' },
+        ],
+      }),
     ).toEqual([
       { text: 'a', done: true, active: false },
       { text: 'b', done: false, active: true },
     ])
-    expect(
-      todoItems({ todos: [{ content: 'a', status: 'completed' }, { content: 'b' }] }),
-    ).toEqual([
-      { text: 'a', done: true, active: false },
-      { text: 'b', done: false, active: false },
-    ])
+    expect(todoItems({ todos: [{ content: 'a', status: 'completed' }, { content: 'b' }] })).toEqual(
+      [
+        { text: 'a', done: true, active: false },
+        { text: 'b', done: false, active: false },
+      ],
+    )
   })
 
   it('returns null when no list is present', () => {

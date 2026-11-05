@@ -483,9 +483,7 @@ export function EndpointsManager() {
       // Optimistic: the card is the source of truth the user is looking at.
       setEndpoints((prev) =>
         prev.map((e) =>
-          e.id === id
-            ? { ...e, models: next.models, model: next.defaultModel || e.model }
-            : e,
+          e.id === id ? { ...e, models: next.models, model: next.defaultModel || e.model } : e,
         ),
       )
       try {
@@ -576,7 +574,11 @@ export function EndpointsManager() {
                   onClick={() => setShowApiKey((visible) => !visible)}
                   className="rounded-sm p-0.5 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                 >
-                  {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  {showApiKey ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
                 </button>
               }
             />
@@ -649,8 +651,8 @@ export function EndpointsManager() {
         <h2 className="px-1 text-sm font-semibold text-fg">Saved endpoints</h2>
         {endpoints.length === 0 ? (
           <p className="rounded-xl border border-border bg-surface-1/70 px-4 py-3.5 text-xs text-fg-muted">
-            None yet — add an OpenAI-compatible, Anthropic, or Ollama endpoint above to chat
-            through Ari Core.
+            None yet — add an OpenAI-compatible, Anthropic, or Ollama endpoint above to chat through
+            Ari Core.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">

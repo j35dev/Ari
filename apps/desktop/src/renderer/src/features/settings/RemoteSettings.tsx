@@ -286,10 +286,7 @@ export function RemoteSettings() {
             />
           )
         ) : (
-          <section
-            aria-labelledby="remote-tailscale-heading"
-            className="space-y-3 p-4"
-          >
+          <section aria-labelledby="remote-tailscale-heading" className="space-y-3 p-4">
             <Step
               number="2"
               title="Connect your private network"
@@ -348,10 +345,7 @@ export function RemoteSettings() {
           </section>
         )}
 
-        <section
-          aria-labelledby="remote-pairing-heading"
-          className="space-y-3 p-4"
-        >
+        <section aria-labelledby="remote-pairing-heading" className="space-y-3 p-4">
           <Step
             number="3"
             title="Pair your phone"
@@ -473,9 +467,7 @@ export function RemoteSettings() {
         title="Paired devices"
         headingId="remote-devices-heading"
         action={
-          <span className="text-xs tabular-nums text-fg-subtle">
-            {remote?.devices.length ?? 0}
-          </span>
+          <span className="text-xs tabular-nums text-fg-subtle">{remote?.devices.length ?? 0}</span>
         }
         bare
       >

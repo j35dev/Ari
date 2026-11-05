@@ -265,7 +265,7 @@ export function currentModelId(configOptions: AcpConfigOption[] | null | undefin
   return typeof current === 'string' && current.length > 0 ? current : null
 }
 
-/** The argv for one auth method, or null when Ari has no way to run it. */function runnableLaunch(
+/** The argv for one auth method, or null when Ari has no way to run it. */ function runnableLaunch(
   method: AcpAuthMethod,
   agentLaunch?: { command: string; args: string[] },
 ): { command: string; args: string[] } | null {
@@ -393,7 +393,9 @@ export class AcpUpdateFolder {
         // Adapters start a call with empty input and send the real input in
         // a later update, so an open call is announced again when it changes.
         if (!terminal) {
-          return this.#open.has(callId) ? [...this.#announce(callId, update), ...background] : background
+          return this.#open.has(callId)
+            ? [...this.#announce(callId, update), ...background]
+            : background
         }
         // Some agents finalize without a prior create — synthesize the start.
         const started =

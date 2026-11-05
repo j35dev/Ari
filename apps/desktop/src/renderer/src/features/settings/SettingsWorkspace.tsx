@@ -78,8 +78,7 @@ function sectionLabel(id: SettingsSectionId): string {
   return SETTINGS_SECTIONS.find((entry) => entry.id === id)?.label ?? id
 }
 
-const FOCUS_RING =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
+const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
 /**
  * T3-style settings mode: the sessions sidebar is replaced by a section
@@ -205,7 +204,10 @@ export function SettingsWorkspace({
             <X size={15} strokeWidth={1.8} aria-hidden />
           </button>
         </header>
-        <div key={section} className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+        <div
+          key={section}
+          className="ari-enter-rise ari-scroll min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+        >
           {section === 'appearance' ? <AppearanceSettings /> : null}
           {section === 'providers' ? (
             <div id="settings-providers" className="mx-auto w-full max-w-4xl px-8 pb-16 pt-9">
