@@ -5,6 +5,7 @@ import { Badge } from '@ari/ui/badge'
 import { Button } from '@ari/ui/button'
 import { Spinner } from '@ari/ui/spinner'
 import { rpc } from '../../lib/rpc'
+import { SETTINGS_CARD_CLASS } from '../settings/SettingsSection'
 
 type RecordRow = RpcResults['providers.extensionInventory']['records'][number]
 type PublicServer = RpcResults['ariCore.mcp.list']['servers'][number]
@@ -69,10 +70,10 @@ export function ExtensionInventory({
 
   return (
     <section aria-labelledby="extensions-heading" className="space-y-3">
-      <h2 id="extensions-heading" className="text-sm font-medium">
+      <h2 id="extensions-heading" className="px-1 text-sm font-semibold text-fg">
         Skills and MCP
       </h2>
-      <p className="text-sm text-fg-muted">
+      <p className="px-1 text-xs leading-relaxed text-fg-muted">
         {kind === 'ari-core'
           ? 'Ari Core loads these itself. User skills apply immediately on the next message. Project skills stay off until you trust this folder.'
           : 'Claude Code and Codex load these themselves. Ari only adds the in-app browser. Changes show up on the next message. If a resumed chat still lacks a server, start a new chat.'}
@@ -86,10 +87,10 @@ export function ExtensionInventory({
       {truncated ? <p className="text-xs text-fg-subtle">The list is truncated.</p> : null}
       {!loading && records.length === 0 ? (
         <p className="text-sm text-fg-muted">No skills or MCP servers found for this agent.</p>
-      ) : (
-        <ul className="flex flex-col">
+      ) : records.length > 0 ? (
+        <ul className={SETTINGS_CARD_CLASS}>
           {records.map((row) => (
-            <li key={row.id} className="border-b border-border/60 py-3 last:border-b-0">
+            <li key={row.id} className="px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="font-mono text-sm text-fg">{row.name}</span>
                 <Badge tone="neutral">{row.kind}</Badge>
@@ -156,7 +157,7 @@ export function ExtensionInventory({
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
       {preview ? (
         <pre className="max-h-64 overflow-auto rounded-md border border-border bg-surface-1 p-3 font-mono text-xs text-fg">
           {preview}

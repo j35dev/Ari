@@ -165,10 +165,10 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
 
   return (
     <section aria-label="Providers" className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-lg font-semibold">Providers</h1>
-          <p className="text-sm text-fg-muted">
+      <div className="mb-3 flex items-start justify-between gap-6 px-1">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-fg">Providers</h1>
+          <p className="mt-1 max-w-xl text-sm leading-relaxed text-fg-muted">
             Choose which agents Ari uses and which install of each it runs.
           </p>
         </div>
@@ -190,7 +190,7 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
         </p>
       )}
 
-      <div className="grid overflow-hidden rounded-lg border border-border bg-surface-1 md:grid-cols-[16rem_minmax(0,1fr)]">
+      <div className="grid overflow-hidden rounded-xl border border-border bg-surface-1/70 md:grid-cols-[16rem_minmax(0,1fr)]">
         <div className="border-b border-border md:border-b-0 md:border-r">
           <ProviderList
             rows={rows}

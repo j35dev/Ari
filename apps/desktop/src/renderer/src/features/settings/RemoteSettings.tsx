@@ -9,6 +9,7 @@ import { Switch } from '@ari/ui/switch'
 import { rpc } from '../../lib/rpc'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
+import { SETTINGS_CARD_CLASS, SettingsSection } from './SettingsSection'
 import { RemotePairingApproval } from './RemotePairingApproval'
 import { DeviceAccessPicker } from './DeviceAccessPicker'
 import { RemoteConnectSetup } from './RemoteConnectSetup'
@@ -140,16 +141,16 @@ export function RemoteSettings() {
 
   return (
     <SettingsPage
+      id="settings-remote"
       title="Mobile access"
       description="Your Ari workspace, wherever you are."
-      className="space-y-7"
     >
       <section
         aria-label="Connection status"
-        className="flex items-center gap-4 rounded-xl bg-surface-1 p-5"
+        className="flex items-center gap-4 rounded-xl border border-border bg-surface-1/70 p-4"
       >
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-fg-muted">
-          <Monitor size={23} aria-hidden="true" />
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-fg-muted">
+          <Monitor size={21} aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">{status}</p>
@@ -171,11 +172,8 @@ export function RemoteSettings() {
         </div>
       ) : null}
 
-      <section aria-labelledby="remote-method-heading">
-        <h2 id="remote-method-heading" className="text-sm font-semibold">
-          Connection method
-        </h2>
-        <div role="group" aria-label="Connection method" className="mt-3 grid gap-3 sm:grid-cols-2">
+      <SettingsSection title="Connection method" headingId="remote-method-heading" bare>
+        <div role="group" aria-label="Connection method" className="grid gap-3 sm:grid-cols-2">
           {(
             [
               {
@@ -198,7 +196,7 @@ export function RemoteSettings() {
               aria-pressed={method === option.id}
               onClick={() => setMethod(option.id)}
               disabled={disabled}
-              className={`flex items-start gap-3 rounded-lg border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-accent ${method === option.id ? 'border-accent bg-accent/5' : 'border-border hover:bg-surface-1'}`}
+              className={`flex items-start gap-3 rounded-xl border bg-surface-1/70 p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-60 ${method === option.id ? 'border-accent/70 ring-1 ring-accent/40' : 'border-border hover:border-border-strong hover:bg-surface-2/60'}`}
             >
               <option.icon
                 size={19}
@@ -214,16 +212,18 @@ export function RemoteSettings() {
             </button>
           ))}
         </div>
-      </section>
+      </SettingsSection>
 
-      <section aria-label="Mobile connection setup" className="space-y-5">
-        <section aria-labelledby="remote-access-heading">
-          <Step
-            number="1"
-            title="Enable mobile access"
-            id="remote-access-heading"
-            done={remote?.enabled === true}
-          />
+      <section aria-label="Mobile connection setup" className={SETTINGS_CARD_CLASS}>
+        <section aria-labelledby="remote-access-heading" className="pt-4">
+          <div className="px-4">
+            <Step
+              number="1"
+              title="Enable mobile access"
+              id="remote-access-heading"
+              done={remote?.enabled === true}
+            />
+          </div>
           <SettingsRow
             label="Remote access"
             hint="Starts the local gateway. Paired devices keep their grants when you turn it off."
@@ -239,7 +239,7 @@ export function RemoteSettings() {
 
         {method === 'connect' ? (
           connect === null ? (
-            <p role="status" className="text-sm text-fg-muted">
+            <p role="status" className="p-4 text-sm text-fg-muted">
               Checking Ari Connect…
             </p>
           ) : (
@@ -288,7 +288,7 @@ export function RemoteSettings() {
         ) : (
           <section
             aria-labelledby="remote-tailscale-heading"
-            className="space-y-3 border-t border-border pt-5"
+            className="space-y-3 p-4"
           >
             <Step
               number="2"
@@ -350,7 +350,7 @@ export function RemoteSettings() {
 
         <section
           aria-labelledby="remote-pairing-heading"
-          className="space-y-3 border-t border-border pt-5"
+          className="space-y-3 p-4"
         >
           <Step
             number="3"
@@ -384,7 +384,7 @@ export function RemoteSettings() {
               </Button>
             </div>
           ) : (
-            <div className="flex flex-wrap items-start gap-5 rounded-lg bg-surface-1 p-4">
+            <div className="flex flex-wrap items-start gap-5 rounded-lg bg-surface-2/50 p-4">
               {qr === null ? (
                 <p role={qrError ? 'alert' : 'status'} className="text-sm text-fg-muted">
                   {qrError
@@ -469,24 +469,27 @@ export function RemoteSettings() {
         />
       ) : null}
 
-      <section aria-labelledby="remote-devices-heading">
-        <div className="flex items-center justify-between">
-          <h2 id="remote-devices-heading" className="text-sm font-semibold">
-            Paired devices
-          </h2>
-          <span className="font-mono text-xs text-fg-subtle">{remote?.devices.length ?? 0}</span>
-        </div>
+      <SettingsSection
+        title="Paired devices"
+        headingId="remote-devices-heading"
+        action={
+          <span className="text-xs tabular-nums text-fg-subtle">
+            {remote?.devices.length ?? 0}
+          </span>
+        }
+        bare
+      >
         {(remote?.devices.length ?? 0) === 0 ? (
-          <div className="mt-3 flex items-center gap-3 border-y border-border py-5">
-            <Smartphone size={20} className="text-fg-subtle" aria-hidden="true" />
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-surface-1/70 px-4 py-4">
+            <Smartphone size={18} className="text-fg-subtle" aria-hidden="true" />
             <p className="text-sm text-fg-muted">No phones are paired yet.</p>
           </div>
         ) : (
-          <ul className="mt-3 divide-y divide-border border-y border-border">
+          <ul className={SETTINGS_CARD_CLASS}>
             {remote?.devices.map((device) => (
               <li
                 key={device.deviceId}
-                className="flex flex-wrap items-center justify-between gap-3 py-4"
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5"
               >
                 <div className="min-w-0 space-y-1">
                   <p className="text-sm font-medium">{device.displayName}</p>
@@ -607,9 +610,9 @@ export function RemoteSettings() {
             ))}
           </ul>
         )}
-      </section>
-      <details className="border-t border-border pt-3 text-xs text-fg-muted">
-        <summary className="min-h-11 cursor-pointer py-3 font-medium">
+      </SettingsSection>
+      <details className="rounded-xl border border-border bg-surface-1/70 px-4 text-xs text-fg-muted">
+        <summary className="min-h-11 cursor-pointer rounded-xl py-3 text-sm font-medium text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring">
           Connection diagnostics
         </summary>
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 pb-4">
@@ -620,7 +623,7 @@ export function RemoteSettings() {
           <dt>Tailscale host</dt>
           <dd className="break-all font-mono">{tailscale?.dnsName ?? 'Not detected'}</dd>
         </dl>
-        <p className="leading-relaxed">
+        <p className="pb-4 leading-relaxed">
           A reachable address is not authorization. Each phone needs its own approved pairing. This
           computer must stay awake for mobile access.
         </p>
@@ -649,7 +652,7 @@ function Step({
     <h2 id={id} className="flex items-center gap-3 text-sm font-semibold">
       <span
         aria-hidden="true"
-        className={`flex size-6 items-center justify-center rounded-md font-mono text-xs ${done ? 'bg-accent/10 text-accent' : 'bg-surface-2 text-fg-muted'}`}
+        className={`flex size-6 items-center justify-center rounded-md text-xs font-medium tabular-nums ${done ? 'bg-accent/10 text-accent' : 'bg-surface-2 text-fg-muted'}`}
       >
         {done ? <Check size={14} aria-hidden="true" /> : number}
       </span>

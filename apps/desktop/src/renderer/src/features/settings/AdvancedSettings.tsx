@@ -6,6 +6,8 @@ import { err, formatUnknownError, ok, type Result } from '@ari/shared/result'
 import { Button } from '@ari/ui/button'
 import { useAppUpdate, type AppUpdate, type AppUpdateState, type UpdatePhase } from '../updates'
 import { SettingsPage } from './SettingsPage'
+import { SettingsRow } from './SettingsRow'
+import { SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:advanced')
@@ -198,24 +200,15 @@ export function AdvancedSettings() {
   }
 
   return (
-    <SettingsPage
-      title="Advanced"
-      description="Diagnostics and maintenance tools."
-    >
-      <section aria-labelledby="advanced-version-heading" className="space-y-3">
-        <h2 id="advanced-version-heading" className="text-sm font-medium">
-          Version
-        </h2>
-        <div className="space-y-3 rounded-md border border-border bg-surface-1 p-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0 space-y-0.5">
-              <p className="text-sm text-fg">
-                Ari{' '}
-                <span data-testid="app-version" className="font-mono">
-                  {appUpdate.currentVersion ?? '…'}
-                </span>
+    <SettingsPage title="Advanced" description="Diagnostics and maintenance tools.">
+      <SettingsSection title="Version" headingId="advanced-version-heading">
+        <div className="space-y-3 px-4 py-3">
+          <div className="flex min-h-8 items-center justify-between gap-6">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-fg">
+                Ari <span data-testid="app-version">{appUpdate.currentVersion ?? '…'}</span>
               </p>
-              <p className="text-xs text-fg-muted" role="status">
+              <p className="mt-0.5 text-xs leading-relaxed text-fg-muted" role="status">
                 {updateStatusText(appUpdate)}
               </p>
             </div>
@@ -237,67 +230,68 @@ export function AdvancedSettings() {
             </div>
           )}
         </div>
-      </section>
+      </SettingsSection>
 
-      <section aria-labelledby="advanced-diagnostics-heading" className="space-y-3">
-        <h2 id="advanced-diagnostics-heading" className="text-sm font-medium">
-          Diagnostics
-        </h2>
-        <p className="text-sm text-fg-muted">
-          Export app version, user agent, and active theme as JSON for bug reports.
-        </p>
-        <Button onClick={exportDiagnostics}>Export diagnostics</Button>
-      </section>
-
-      <section aria-labelledby="advanced-bundle-heading" className="space-y-3">
-        <h2 id="advanced-bundle-heading" className="text-sm font-medium">
-          Settings bundle
-        </h2>
-        <p className="text-sm text-fg-muted">
-          Export appearance, session, notification, and permission settings as a JSON bundle, or
-          import one from another device. Window bounds stay local to this machine.
-        </p>
-        <div className="flex gap-2">
-          <Button onClick={exportSettings} disabled={settings === null}>
-            Export settings
+      <SettingsSection title="Data">
+        <SettingsRow
+          label="Diagnostics"
+          hint="Export app version, user agent, and active theme as JSON for bug reports."
+        >
+          <Button size="sm" onClick={exportDiagnostics}>
+            Export diagnostics
           </Button>
-          <Button onClick={() => fileInputRef.current?.click()}>Import settings</Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            aria-label="Settings bundle file"
-            className="hidden"
-            onChange={(e) => void handleImportChange(e)}
-          />
+        </SettingsRow>
+        <div className="px-4 py-3">
+          <div className="flex min-h-8 items-center justify-between gap-6">
+            <div className="min-w-0 max-w-lg">
+              <p className="text-sm font-medium text-fg">Settings bundle</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
+                Export appearance, session, notification, and permission settings as a JSON
+                bundle, or import one from another device. Window bounds stay local to this
+                machine.
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" onClick={exportSettings} disabled={settings === null}>
+                Export settings
+              </Button>
+              <Button size="sm" onClick={() => fileInputRef.current?.click()}>
+                Import settings
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                aria-label="Settings bundle file"
+                className="hidden"
+                onChange={(e) => void handleImportChange(e)}
+              />
+            </div>
+          </div>
+          {importError != null && (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              Import failed: {importError}
+            </p>
+          )}
         </div>
-        {importError != null && (
-          <p role="alert" className="text-xs text-danger">
-            Import failed: {importError}
-          </p>
-        )}
-      </section>
+        <SettingsRow
+          label="Journal location"
+          hint={
+            <>
+              Session journals live under the app data directory at{' '}
+              <code className="font-mono text-2xs text-fg">userData/sessions</code>, one JSONL
+              file per session. Copy that folder to back up or move your history.
+            </>
+          }
+        />
+      </SettingsSection>
 
-      <section aria-labelledby="advanced-journal-heading" className="space-y-3">
-        <h2 id="advanced-journal-heading" className="text-sm font-medium">
-          Journal location
-        </h2>
-        <p className="text-sm text-fg-muted">
-          Session journals live under the app data directory at{' '}
-          <code className="font-mono text-xs text-fg">userData/sessions</code>, one JSONL file
-          per session. Copy that folder to back up or move your history.
-        </p>
-      </section>
-
-      <section aria-labelledby="advanced-danger-heading" className="space-y-3">
-        <h2 id="advanced-danger-heading" className="text-sm font-medium">
-          Danger zone
-        </h2>
-        <div className="space-y-3 rounded-md border border-border bg-surface-1 p-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <p className="text-sm text-fg">Clear cached drafts</p>
-              <p className="text-xs text-fg-muted">
+      <SettingsSection title="Danger zone" headingId="advanced-danger-heading">
+        <div className="px-4 py-3">
+          <div className="flex min-h-8 items-center justify-between gap-6">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-fg">Clear cached drafts</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
                 Deletes every unsent composer draft stored on this device.
               </p>
             </div>
@@ -318,12 +312,12 @@ export function AdvancedSettings() {
             )}
           </div>
           {clearedCount != null && (
-            <p role="status" className="text-xs text-fg-muted">
+            <p role="status" className="mt-2 text-xs text-fg-muted">
               Cleared {clearedCount} cached {clearedCount === 1 ? 'draft' : 'drafts'}.
             </p>
           )}
         </div>
-      </section>
+      </SettingsSection>
     </SettingsPage>
   )
 }
