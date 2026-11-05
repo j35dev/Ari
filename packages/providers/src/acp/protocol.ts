@@ -329,10 +329,13 @@ function resultJsonOf(update: AcpToolCallUpdate): string {
 /**
  * Folds `session/update` notification payloads into normalized events.
  * Tool calls are deduped per id across create/update pairs so each Ari tool
- * part starts once and completes once.
+ * part completes once. A start repeats only when the call's args change; the
+ * repeat replaces the earlier tool part downstream.
  */
 export class AcpUpdateFolder {
   readonly #started = new Set<string>()
+  /** Calls still running, with what was last announced for each. */
+  readonly #open = new Map<string, OpenCall>()
   #startupInfo: string | null = null
   readonly #background: BackgroundTaskTracker
 
@@ -371,9 +374,9 @@ export class AcpUpdateFolder {
       case 'tool_call': {
         const callId = typeof update.toolCallId === 'string' ? update.toolCallId : null
         if (callId === null) return []
-        this.#started.add(callId)
-        const events: AgentEvent[] = [toStarted(callId, update)]
+        const events: AgentEvent[] = this.#announce(callId, update)
         if (update.status === 'completed' || update.status === 'failed') {
+          this.#open.delete(callId)
           events.push(
             toCompleted(callId, update),
             ...imageOutputEvents(update.content),
@@ -387,10 +390,15 @@ export class AcpUpdateFolder {
         if (callId === null) return []
         const background = this.#background.observe(update)
         const terminal = update.status === 'completed' || update.status === 'failed'
-        if (!terminal) return background
+        // Adapters start a call with empty input and send the real input in
+        // a later update, so an open call is announced again when it changes.
+        if (!terminal) {
+          return this.#open.has(callId) ? [...this.#announce(callId, update), ...background] : background
+        }
         // Some agents finalize without a prior create — synthesize the start.
-        const started: AgentEvent[] = this.#started.has(callId) ? [] : [toStarted(callId, update)]
-        this.#started.add(callId)
+        const started =
+          this.#open.has(callId) || !this.#started.has(callId) ? this.#announce(callId, update) : []
+        this.#open.delete(callId)
         return [
           ...started,
           toCompleted(callId, update),
@@ -434,6 +442,35 @@ export class AcpUpdateFolder {
     }
   }
 
+  /**
+   * Starts a call, or announces an open one again with the update merged in.
+   * Empty when the merged args match what was already announced.
+   */
+  #announce(callId: string, update: AcpToolCallUpdate): AgentEvent[] {
+    const prev = this.#open.get(callId)
+    const title = typeof update.title === 'string' ? update.title : prev?.title
+    const kind =
+      typeof update.kind === 'string' && update.kind.length > 0 ? update.kind : prev?.kind
+    // A later update without input keeps the input already known.
+    const rawInput =
+      prev === undefined || hasInput(update.rawInput) ? update.rawInput : prev.rawInput
+    const fresh = toStarted(callId, {
+      ...(title !== undefined ? { title } : {}),
+      ...(kind !== undefined ? { kind } : {}),
+      ...(rawInput !== undefined ? { rawInput } : {}),
+    })
+    // A refinement never downgrades a known name to the fallback.
+    const started =
+      fresh.name === 'tool' && prev !== undefined ? { ...fresh, name: prev.announced.name } : fresh
+    const same =
+      prev !== undefined &&
+      prev.announced.name === started.name &&
+      prev.announced.argsJson === started.argsJson
+    this.#started.add(callId)
+    this.#open.set(callId, { title, kind, rawInput, announced: same ? prev.announced : started })
+    return same ? [] : [started]
+  }
+
   #messageChunk(content: AcpContentBlock | AcpContentBlock[] | undefined): AgentEvent[] {
     const blocks = asBlocks(content)
     const text = textOf(blocks)
@@ -452,7 +489,23 @@ function chunkToDeltas(text: string, kind: 'text-delta' | 'thinking-delta'): Age
   return text.length > 0 ? [{ type: kind, text }] : []
 }
 
-function toStarted(callId: string, update: AcpToolCallUpdate): AgentEvent {
+type ToolStarted = Extract<AgentEvent, { type: 'tool-started' }>
+
+interface OpenCall {
+  title: string | undefined
+  kind: string | undefined
+  rawInput: unknown
+  announced: ToolStarted
+}
+
+/** True for input worth showing: not missing, null, or an empty object. */
+function hasInput(value: unknown): boolean {
+  if (value === undefined || value === null) return false
+  if (typeof value === 'object' && !Array.isArray(value)) return Object.keys(value).length > 0
+  return true
+}
+
+function toStarted(callId: string, update: AcpToolCallUpdate): ToolStarted {
   const rawName =
     update.rawInput !== null && typeof update.rawInput === 'object' && update.rawInput !== null
       ? (update.rawInput as Record<string, unknown>)['name']

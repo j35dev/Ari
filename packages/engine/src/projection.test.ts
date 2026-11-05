@@ -60,6 +60,66 @@ describe('session projection', () => {
     expect(state.activeTurnId).toBe('turn_1')
   })
 
+  it('replaces a repeated tool call in place on both fold paths', () => {
+    const call = (argsJson: string) => ({
+      type: 'tool-call' as const,
+      callId: 'c1',
+      name: 'execute',
+      argsJson,
+    })
+    const events = [
+      ev(0, { type: 'session.created', session }),
+      ev(1, { type: 'turn.started', turnId: 'turn_1' }),
+      ev(2, {
+        type: 'assistant.parts.appended',
+        messageId: 'msg_1',
+        parts: [{ type: 'text', text: 'Running it.' }, call('{"input":{}}')],
+      }),
+      ev(3, {
+        type: 'assistant.parts.appended',
+        messageId: 'msg_1',
+        parts: [{ type: 'text', text: 'Meanwhile.' }],
+      }),
+      ev(4, {
+        type: 'assistant.parts.appended',
+        messageId: 'msg_1',
+        parts: [call('{"input":{"command":"ls"}}')],
+      }),
+      ev(5, {
+        type: 'assistant.parts.appended',
+        messageId: 'msg_1',
+        parts: [{ type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false }],
+      }),
+    ]
+    const expected = [
+      { type: 'text', text: 'Running it.' },
+      call('{"input":{"command":"ls"}}'),
+      { type: 'text', text: 'Meanwhile.' },
+      { type: 'tool-result', callId: 'c1', resultJson: '"ok"', isError: false },
+    ]
+
+    const immutable = events.slice(0, 4).reduce(applyEvent, initialReadModel())
+    const before = immutable.messages[0]
+    const after = applyEvent(immutable, events[4]!)
+    // The earlier snapshot is untouched.
+    expect(before?.parts[1]).toEqual(call('{"input":{}}'))
+    expect(after.messages[0]?.parts).toEqual(expected.slice(0, 3))
+    expect(applyEvent(after, events[5]!).messages[0]?.parts).toEqual(expected)
+
+    expect(projectEvents(events).messages[0]?.parts).toEqual(expected)
+
+    // Two announcements in one append still make one part.
+    const sameEvent = projectEvents([
+      ev(0, { type: 'session.created', session }),
+      ev(1, {
+        type: 'assistant.parts.appended',
+        messageId: 'msg_2',
+        parts: [call('{"input":{}}'), call('{"input":{"command":"ls"}}')],
+      }),
+    ])
+    expect(sameEvent.messages[0]?.parts).toEqual([call('{"input":{"command":"ls"}}')])
+  })
+
   it('clears streaming + active turn on settle and tracks approvals lifecycle', () => {
     let state = applyEvent(initialReadModel(), ev(0, { type: 'session.created', session }))
     state = applyEvent(state, ev(1, { type: 'turn.started', turnId: 'turn_1' }))
