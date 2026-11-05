@@ -315,7 +315,6 @@ export function SessionView({
   }>(EMPTY_BACKGROUND)
   const reportingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastPartRef = useRef<{ messageId: string; parts: number } | null>(null)
-  const partCountsRef = useRef(new Map<string, number>())
   const refreshTasksRef = useRef<() => void>(() => {})
   const notifySettledTurn = useSettleNotify(() => sessionTitleRef.current)
   const notifySettledRef = useRef(notifySettledTurn)
@@ -379,7 +378,6 @@ export function SessionView({
     if (reportingTimerRef.current !== null) clearTimeout(reportingTimerRef.current)
     reportingTimerRef.current = null
     lastPartRef.current = null
-    partCountsRef.current = new Map()
     fetchedTurnIdsRef.current = new Set()
     settledTurnIdsRef.current = new Set()
     activeTurnIdRef.current = null
@@ -584,16 +582,14 @@ export function SessionView({
       case 'assistant.parts.appended': {
         // Counted per message: a steered user message lands in the middle of
         // a turn, and the assistant message it interrupts keeps growing after.
-        const parts = (partCountsRef.current.get(event.messageId) ?? 0) + event.parts.length
-        partCountsRef.current.set(event.messageId, parts)
-        lastPartRef.current = { messageId: event.messageId, parts }
-        messageFoldRef.current.appendParts(event.messageId, event.parts, () => ({
+        const parts = messageFoldRef.current.appendParts(event.messageId, event.parts, () => ({
           id: event.messageId,
           sessionId: event.sessionId,
           turnId: activeTurnIdRef.current,
           role: 'assistant',
           createdAt: event.at,
         }))
+        lastPartRef.current = { messageId: event.messageId, parts }
         // Output with no turn live is the agent reporting back on its own;
         // the rail says so while it streams, and a little after.
         if (live && activeTurnIdRef.current === null) {

@@ -1,4 +1,4 @@
-import type { Message, MessagePart } from '@ari/contracts/message'
+import { pushMessageParts, type Message, type MessagePart } from '@ari/contracts/message'
 
 /**
  * Mutable fold of a session's journal into its message list. Events land in
@@ -15,13 +15,14 @@ export interface MessageFold {
   addUser(message: Message): void
   /**
    * Appends streamed parts to an assistant message, starting it from
-   * `start()` (parts excluded) when the id is new.
+   * `start()` (parts excluded) when the id is new. A repeated tool call
+   * replaces its earlier part. Returns the message's part count.
    */
   appendParts(
     messageId: string,
     parts: readonly MessagePart[],
     start: () => Omit<Message, 'parts'>,
-  ): void
+  ): number
   /** The list as of now, or null when nothing changed since the last commit. */
   commit(): Message[] | null
 }
@@ -45,17 +46,22 @@ export function createMessageFold(): MessageFold {
       const index = indexById.get(messageId)
       const existing = index === undefined ? undefined : list[index]
       if (index === undefined || existing === undefined) {
+        const fresh: MessagePart[] = []
+        pushMessageParts(fresh, parts)
         indexById.set(messageId, list.length)
-        list.push({ ...start(), parts: [...parts] })
+        list.push({ ...start(), parts: fresh })
         drafts.add(messageId)
-        return
+        return fresh.length
       }
       if (drafts.has(messageId)) {
-        existing.parts.push(...parts)
-        return
+        pushMessageParts(existing.parts, parts)
+        return existing.parts.length
       }
-      list[index] = { ...existing, parts: [...existing.parts, ...parts] }
+      const copy = [...existing.parts]
+      pushMessageParts(copy, parts)
+      list[index] = { ...existing, parts: copy }
       drafts.add(messageId)
+      return copy.length
     },
     commit() {
       if (!dirty) return null

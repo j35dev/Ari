@@ -69,6 +69,112 @@ describe('AcpUpdateFolder', () => {
     expect(JSON.parse((events[1] as { resultJson: string }).resultJson)).toEqual({ ok: true })
   })
 
+  it('announces a call again when a later update brings its input', () => {
+    // claude-agent-acp starts the call before the input has streamed.
+    const folder = new AcpUpdateFolder()
+    const fold = (update: AcpSessionNotification['update']) => folder.fold({ update })
+    expect(
+      fold({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'toolu_1',
+        title: 'Terminal',
+        kind: 'execute',
+        status: 'pending',
+        rawInput: {},
+      }),
+    ).toEqual([
+      {
+        type: 'tool-started',
+        callId: 'toolu_1',
+        name: 'execute',
+        argsJson: JSON.stringify({ title: 'Terminal', input: {} }),
+      },
+    ])
+
+    const refined = {
+      type: 'tool-started',
+      callId: 'toolu_1',
+      name: 'execute',
+      argsJson: JSON.stringify({ title: '`ls -la`', input: { command: 'ls -la' } }),
+    }
+    expect(
+      fold({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'toolu_1',
+        title: '`ls -la`',
+        rawInput: { command: 'ls -la' },
+      }),
+    ).toEqual([refined])
+
+    // Status-only updates repeat nothing, and the input is not lost.
+    expect(
+      fold({ sessionUpdate: 'tool_call_update', toolCallId: 'toolu_1', status: 'in_progress' }),
+    ).toEqual([])
+    expect(
+      fold({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'toolu_1',
+        status: 'in_progress',
+        rawInput: {},
+      }),
+    ).toEqual([])
+
+    const done = fold({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'toolu_1',
+      status: 'completed',
+      rawOutput: 'ok',
+    })
+    expect(done.map((e) => e.type)).toEqual(['tool-completed'])
+  })
+
+  it('announces refined input carried by the terminal update before completing', () => {
+    const folder = new AcpUpdateFolder()
+    folder.fold({
+      update: { sessionUpdate: 'tool_call', toolCallId: 't1', kind: 'edit', rawInput: {} },
+    })
+    const events = folder.fold({
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 't1',
+        status: 'completed',
+        title: 'Edit a.ts',
+        rawInput: { file_path: 'a.ts' },
+      },
+    })
+    expect(events.map((e) => e.type)).toEqual(['tool-started', 'tool-completed'])
+    expect(events[0]).toEqual({
+      type: 'tool-started',
+      callId: 't1',
+      name: 'edit',
+      argsJson: JSON.stringify({ title: 'Edit a.ts', input: { file_path: 'a.ts' } }),
+    })
+    // A closed call is not announced again.
+    expect(
+      folder.fold({
+        update: { sessionUpdate: 'tool_call_update', toolCallId: 't1', title: 'late' },
+      }),
+    ).toEqual([])
+  })
+
+  it('keeps a known tool name when a refinement cannot name the tool', () => {
+    const folder = new AcpUpdateFolder()
+    folder.fold({
+      update: { sessionUpdate: 'tool_call', toolCallId: 'n1', rawInput: { name: 'read_file' } },
+    })
+    const events = folder.fold({
+      update: { sessionUpdate: 'tool_call_update', toolCallId: 'n1', rawInput: { path: 'x' } },
+    })
+    expect(events).toEqual([
+      {
+        type: 'tool-started',
+        callId: 'n1',
+        name: 'read_file',
+        argsJson: JSON.stringify({ input: { path: 'x' } }),
+      },
+    ])
+  })
+
   it('reports the context gauge as a reading and drops malformed payloads', () => {
     const folder = new AcpUpdateFolder()
     expect(
