@@ -54,10 +54,10 @@ describe('wallpaper.css', () => {
     expect(declarations).not.toContain('--ari-haze-presence')
   })
 
-  it('shows sharp art only on empty screens, fading into the plate', () => {
-    const art = /\.ari-session-scene,\s*\[data-ari-wallpaper\] \.ari-welcome-glow::before \{([^}]+)\}/.exec(
-      css,
-    )?.[1]
+  it('shows sharp art only on the empty session, fading into the plate', () => {
+    const art = /\[data-ari-wallpaper\] \.ari-session-scene \{([^}]+)\}/.exec(css)?.[1]
+    // The welcome panel is too dense for sharp art; it stays on the plate.
+    expect(css).not.toContain('.ari-welcome-glow::before')
     // Window-pinned so it lines up with the baked blur it fades into.
     expect(art).toContain('fixed')
     expect(art).toContain('mask-image: var(--ari-haze-fade)')
