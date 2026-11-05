@@ -94,18 +94,12 @@ export function GitControl({
   refresh,
   onReview,
   onPullRequests,
-  variant = 'bar',
-  totals = null,
 }: {
   scope: GitScope
   summary: GitSummary
   refresh: () => void
   onReview: () => void
   onPullRequests: () => void
-  /** `bar` is the compact split button; `card` lays the same controls out as rows. */
-  variant?: 'bar' | 'card'
-  /** Working-tree line totals for the card's Changes row, when read. */
-  totals?: { additions: number; deletions: number } | null
 }) {
   const { toast, update } = useToast()
   const [revision, setRevision] = useState(0)
@@ -218,179 +212,117 @@ export function GitControl({
             : ArrowUp
           : GitCommitHorizontal
   const disabled = primary.kind === 'disabled' || busy
-  const branchText = summary.branch ? branchLabel(summary.branch) : 'detached'
-  const onMenuOpenChange = (open: boolean): void => {
-    setMenuOpen(open)
-    if (open) {
-      refresh()
-      setRevision((value) => value + 1)
-    }
-  }
-  const row =
-    'flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring disabled:pointer-events-none'
-
-  const menu = (
-    <Popover.Content side="bottom" align="end" sideOffset={6} bare>
-      <div
-        role="menu"
-        className="w-64 rounded-xl border border-border bg-surface-1 p-1 text-xs shadow-lg"
-      >
-        <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-1 text-2xs text-fg-subtle">
-          <GitBranch size={11} aria-hidden />
-          <span className="truncate font-mono">{summary.branch ?? 'detached HEAD'}</span>
-          <span className="ml-auto font-mono tabular-nums">
-            {summary.ahead > 0 ? `↑${summary.ahead} ` : ''}
-            {summary.behind > 0 ? `↓${summary.behind}` : ''}
-          </span>
-        </div>
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="menuitem"
-            disabled={item.reason !== null || busy}
-            title={item.reason ?? undefined}
-            onClick={() => onItem(item)}
-            className="flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 disabled:pointer-events-none"
-          >
-            <span className={item.reason ? 'text-fg-subtle' : 'text-fg'}>{item.label}</span>
-            {item.reason ? <span className="text-2xs text-fg-subtle/80">{item.reason}</span> : null}
-          </button>
-        ))}
-        <div className="my-1 h-px bg-border/60" />
-        <button
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            setMenuOpen(false)
-            onReview()
-          }}
-          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-fg transition-colors hover:bg-surface-2"
-        >
-          <FileDiff size={12} aria-hidden className="text-fg-subtle" />
-          Review changes
-          {summary.changedFiles > 0 ? (
-            <span className="ml-auto font-mono text-2xs text-fg-subtle">
-              {summary.changedFiles}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            setMenuOpen(false)
-            onPullRequests()
-          }}
-          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-fg transition-colors hover:bg-surface-2"
-        >
-          <GitPullRequest size={12} aria-hidden className="text-fg-subtle" />
-          Pull requests
-        </button>
-      </div>
-    </Popover.Content>
-  )
 
   return (
-    <div className={variant === 'card' ? 'flex flex-col' : 'flex items-center'} style={noDrag}>
-      {variant === 'card' ? (
-        <>
-          <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
-            <Popover.Trigger
-              aria-label="Git actions"
-              aria-haspopup="menu"
-              title={summary.branch ?? 'Detached HEAD'}
-              className={row}
+    <div className="flex items-center" style={noDrag}>
+      <div
+        className="flex h-7 items-stretch overflow-hidden rounded-lg border border-border/70 bg-surface-1/70 text-xs text-fg shadow-sm"
+        title={primary.kind === 'disabled' ? primary.reason : undefined}
+      >
+        {/* The branch the workspace is on; it used to take a row of its own
+            above the transcript. */}
+        <span
+          className="flex max-w-40 items-center gap-1.5 pl-2.5 pr-2 text-fg-muted"
+          title={summary.branch ?? 'Detached HEAD'}
+          data-testid="git-branch"
+        >
+          <GitBranch size={12} aria-hidden className="shrink-0" />
+          <span className="truncate">
+            {summary.branch ? branchLabel(summary.branch) : 'detached'}
+          </span>
+        </span>
+        <span aria-hidden className="w-px bg-border/70" />
+        <button
+          type="button"
+          onClick={onPrimary}
+          disabled={disabled}
+          aria-label={primary.label}
+          className="flex items-center gap-1.5 px-2.5 font-medium transition-colors hover:bg-surface-2 disabled:pointer-events-none disabled:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+        >
+          <Icon size={13} aria-hidden className={disabled ? '' : 'text-accent'} />
+          <span className="whitespace-nowrap">{busy ? 'Working…' : primary.label}</span>
+        </button>
+        <span aria-hidden className="w-px bg-border/70" />
+        <Popover
+          open={menuOpen}
+          onOpenChange={(open) => {
+            setMenuOpen(open)
+            if (open) {
+              refresh()
+              setRevision((value) => value + 1)
+            }
+          }}
+        >
+          <Popover.Trigger
+            aria-label="Git actions"
+            aria-haspopup="menu"
+            className="flex w-6 items-center justify-center text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+          >
+            <ChevronDown size={12} aria-hidden />
+          </Popover.Trigger>
+          <Popover.Content side="bottom" align="end" sideOffset={6} bare>
+            <div
+              role="menu"
+              className="w-64 rounded-xl border border-border bg-surface-1 p-1 text-xs shadow-lg"
             >
-              <GitBranch size={14} aria-hidden className="shrink-0 text-fg-subtle" />
-              <span className="min-w-0 flex-1 truncate text-fg" data-testid="git-branch">
-                {branchText}
-              </span>
-              {summary.ahead > 0 || summary.behind > 0 ? (
-                <span className="shrink-0 text-xs tabular-nums text-fg-subtle">
-                  {summary.ahead > 0 ? `↑${summary.ahead}` : ''}
-                  {summary.ahead > 0 && summary.behind > 0 ? ' ' : ''}
+              <div className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-1 text-2xs text-fg-subtle">
+                <GitBranch size={11} aria-hidden />
+                <span className="truncate font-mono">{summary.branch ?? 'detached HEAD'}</span>
+                <span className="ml-auto font-mono tabular-nums">
+                  {summary.ahead > 0 ? `↑${summary.ahead} ` : ''}
                   {summary.behind > 0 ? `↓${summary.behind}` : ''}
                 </span>
-              ) : null}
-              <ChevronDown size={13} aria-hidden className="shrink-0 text-fg-subtle" />
-            </Popover.Trigger>
-            {menu}
-          </Popover>
-          <button
-            type="button"
-            onClick={onPrimary}
-            disabled={disabled}
-            aria-label={primary.label}
-            title={primary.kind === 'disabled' ? primary.reason : undefined}
-            className={`${row} ${disabled ? 'text-fg-subtle' : 'text-fg'}`}
-          >
-            <Icon size={14} aria-hidden className={`shrink-0 ${disabled ? '' : 'text-accent'}`} />
-            <span className="min-w-0 flex-1 truncate">{busy ? 'Working…' : primary.label}</span>
-          </button>
-          <button
-            type="button"
-            onClick={onReview}
-            aria-label={`Review changes, ${summary.changedFiles} files changed`}
-            className={`${row} ${summary.changedFiles > 0 ? 'text-fg' : 'text-fg-subtle'}`}
-          >
-            <FileDiff size={14} aria-hidden className="shrink-0 text-fg-subtle" />
-            <span className="min-w-0 flex-1 truncate">
-              {summary.changedFiles > 0 ? 'Changes' : 'No changes'}
-            </span>
-            {summary.changedFiles > 0 ? (
-              <span className="flex shrink-0 gap-1.5 text-xs tabular-nums">
-                {totals !== null ? (
-                  <>
-                    <span className="text-success">+{totals.additions.toLocaleString()}</span>
-                    <span className="text-danger">−{totals.deletions.toLocaleString()}</span>
-                  </>
-                ) : (
-                  <span className="text-fg-subtle">
-                    {summary.changedFiles} file{summary.changedFiles === 1 ? '' : 's'}
+              </div>
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitem"
+                  disabled={item.reason !== null || busy}
+                  title={item.reason ?? undefined}
+                  onClick={() => onItem(item)}
+                  className="flex w-full flex-col items-start rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-2 disabled:pointer-events-none"
+                >
+                  <span className={item.reason ? 'text-fg-subtle' : 'text-fg'}>{item.label}</span>
+                  {item.reason ? (
+                    <span className="text-2xs text-fg-subtle/80">{item.reason}</span>
+                  ) : null}
+                </button>
+              ))}
+              <div className="my-1 h-px bg-border/60" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onReview()
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-fg transition-colors hover:bg-surface-2"
+              >
+                <FileDiff size={12} aria-hidden className="text-fg-subtle" />
+                Review changes
+                {summary.changedFiles > 0 ? (
+                  <span className="ml-auto font-mono text-2xs text-fg-subtle">
+                    {summary.changedFiles}
                   </span>
-                )}
-              </span>
-            ) : null}
-          </button>
-        </>
-      ) : (
-        <div
-          className="flex h-7 items-stretch overflow-hidden rounded-lg border border-border/70 bg-surface-1/70 text-xs text-fg shadow-sm"
-          title={primary.kind === 'disabled' ? primary.reason : undefined}
-        >
-          <span
-            className="flex max-w-40 items-center gap-1.5 pl-2.5 pr-2 text-fg-muted"
-            title={summary.branch ?? 'Detached HEAD'}
-            data-testid="git-branch"
-          >
-            <GitBranch size={12} aria-hidden className="shrink-0" />
-            <span className="truncate">{branchText}</span>
-          </span>
-          <span aria-hidden className="w-px bg-border/70" />
-          <button
-            type="button"
-            onClick={onPrimary}
-            disabled={disabled}
-            aria-label={primary.label}
-            className="flex items-center gap-1.5 px-2.5 font-medium transition-colors hover:bg-surface-2 disabled:pointer-events-none disabled:text-fg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
-          >
-            <Icon size={13} aria-hidden className={disabled ? '' : 'text-accent'} />
-            <span className="whitespace-nowrap">{busy ? 'Working…' : primary.label}</span>
-          </button>
-          <span aria-hidden className="w-px bg-border/70" />
-          <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
-            <Popover.Trigger
-              aria-label="Git actions"
-              aria-haspopup="menu"
-              className="flex w-6 items-center justify-center text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
-            >
-              <ChevronDown size={12} aria-hidden />
-            </Popover.Trigger>
-            {menu}
-          </Popover>
-        </div>
-      )}
+                ) : null}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onPullRequests()
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-fg transition-colors hover:bg-surface-2"
+              >
+                <GitPullRequest size={12} aria-hidden className="text-fg-subtle" />
+                Pull requests
+              </button>
+            </div>
+          </Popover.Content>
+        </Popover>
+      </div>
       {commit !== null ? (
         <CommitDialog
           scope={scope}
