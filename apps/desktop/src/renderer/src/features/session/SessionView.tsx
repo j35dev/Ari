@@ -876,6 +876,29 @@ export function SessionView({
     fetchTurnDiffRef.current(turnId)
   }, [])
 
+  /** Restores the workspace to the checkpoint taken when the turn began. */
+  const undoTurn = useCallback(
+    async (turnId: string): Promise<boolean> => {
+      try {
+        const result = await rpc.invoke('command.dispatch', {
+          command: { type: 'checkpoint.revert', sessionId, turnId },
+        })
+        if (!result.accepted) throw new Error(result.reason ?? 'The engine rejected the revert.')
+        toast({ title: 'Changes undone', description: 'Files are back to before that turn.', tone: 'success' })
+        return true
+      } catch (err) {
+        toast({
+          title: 'Couldn’t undo',
+          description: err instanceof Error ? err.message : String(err),
+          tone: 'danger',
+          durationMs: 6000,
+        })
+        return false
+      }
+    },
+    [sessionId, toast],
+  )
+
   /** M21.1 review loop: a saved diff line note joins the next message. */
   const handleDiffComment = useCallback(
     (comment: { path: string; line: number | null; text: string }) => {
@@ -1386,6 +1409,7 @@ export function SessionView({
             header={<PlanPanel sessionId={sessionId} refreshNonce={planNonce} />}
             onDiffComment={handleDiffComment}
             onRetryTurnDiff={retryTurnDiff}
+            onUndoTurn={undoTurn}
             working={
               running || (workView?.tasks.length ?? tasks?.length ?? 0) > 0 ? (
                 <>

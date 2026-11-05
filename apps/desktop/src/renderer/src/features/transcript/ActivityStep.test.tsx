@@ -33,11 +33,17 @@ describe('ActivityStep', () => {
     expect(screen.getByText('"done"')).toBeInTheDocument()
   })
 
-  it('names a targetless step by its tool instead of doubling verb + name', () => {
+  it('words a targetless generic step plainly instead of doubling verb + name', () => {
     render(<ActivityStep call={call('Edit', '{}')} result={result()} />)
 
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edited a file' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Edited Edit' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a specific tool name when the step has no target', () => {
+    render(<ActivityStep call={call('browser_navigate', '{}')} result={result()} />)
+
+    expect(screen.getByRole('button', { name: 'browser navigate' })).toBeInTheDocument()
   })
 
   it('advertises edit size and tenses a pending step live', () => {
