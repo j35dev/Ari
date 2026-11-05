@@ -18,7 +18,10 @@ describe('ActivityStep', () => {
   it('reads verb + target and opens to arguments and result', async () => {
     const user = userEvent.setup()
     const { container } = render(
-      <ActivityStep call={call('run_terminal_command', '{"command":"git status --short"}')} result={result()} />,
+      <ActivityStep
+        call={call('run_terminal_command', '{"command":"git status --short"}')}
+        result={result()}
+      />,
     )
 
     const toggle = screen.getByRole('button', { name: 'Ran git status --short' })
@@ -47,7 +50,10 @@ describe('ActivityStep', () => {
   })
 
   it('advertises edit size and tenses a pending step live', () => {
-    const edit = call('Edit', JSON.stringify({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' }))
+    const edit = call(
+      'Edit',
+      JSON.stringify({ file_path: 'src/a.ts', old_string: 'a', new_string: 'b' }),
+    )
     render(<ActivityStep call={edit} result={undefined} />)
 
     expect(screen.getByRole('button', { name: 'Editing src/a.ts' })).toBeInTheDocument()

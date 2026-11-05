@@ -80,7 +80,6 @@ export function PermissionsSettings() {
     modeRefs.current[next]?.focus()
   }
 
-
   const numberRows = [
     [
       'maxConcurrentChildren',
@@ -108,11 +107,7 @@ export function PermissionsSettings() {
         description="New sessions start in this mode."
         bare
       >
-        <div
-          role="radiogroup"
-          aria-label="Default permission mode"
-          className={SETTINGS_CARD_CLASS}
-        >
+        <div role="radiogroup" aria-label="Default permission mode" className={SETTINGS_CARD_CLASS}>
           {PERMISSION_MODES.map((m, index) => {
             const selected = mode === m.value
             return (
@@ -170,7 +165,9 @@ export function PermissionsSettings() {
         >
           <Switch
             checked={delegation.allowSharedWorkspace}
-            onCheckedChange={(checked) => persist({ delegation: { allowSharedWorkspace: checked } })}
+            onCheckedChange={(checked) =>
+              persist({ delegation: { allowSharedWorkspace: checked } })
+            }
             aria-label="Allow shared workspaces"
           />
         </SettingsRow>

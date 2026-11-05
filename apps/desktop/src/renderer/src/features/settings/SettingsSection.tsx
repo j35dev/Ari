@@ -5,13 +5,7 @@ import type { ReactNode } from 'react'
 export const SETTINGS_CARD_CLASS =
   'rounded-xl border border-border bg-surface-1/70 divide-y divide-border/70'
 
-export function SettingsCard({
-  children,
-  className,
-}: {
-  children: ReactNode
-  className?: string
-}) {
+export function SettingsCard({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={[SETTINGS_CARD_CLASS, className].filter(Boolean).join(' ')}>{children}</div>
   )

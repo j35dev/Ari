@@ -327,10 +327,7 @@ export function parseToolArgs(argsJson: string | undefined): ParsedToolArgs | nu
 }
 
 /** First non-empty string among `keys`, or null when none is present. */
-export function stringArg(
-  record: Record<string, unknown>,
-  keys: readonly string[],
-): string | null {
+export function stringArg(record: Record<string, unknown>, keys: readonly string[]): string | null {
   for (const key of keys) {
     const value = record[key]
     if (typeof value === 'string' && value.length > 0) return value
@@ -429,10 +426,7 @@ function recordList(argsJson: string | undefined): Record<string, unknown>[] {
   return parsed.payload === parsed.args ? [parsed.args] : [parsed.args, parsed.payload]
 }
 
-function firstString(
-  records: Record<string, unknown>[],
-  keys: readonly string[],
-): string | null {
+function firstString(records: Record<string, unknown>[], keys: readonly string[]): string | null {
   for (const record of records) {
     const value = stringArg(record, keys)
     if (value !== null) return value
@@ -463,10 +457,7 @@ const GENERIC_NAMES = new Set(['tool', 'other', 'unknown', 'function', ''])
  * when a request carries no `rawInput.name` or `kind`, in which case the
  * request title (`run_terminal_command`) is the only real identifier.
  */
-export function effectiveToolName(
-  name: string | undefined,
-  argsJson: string | undefined,
-): string {
+export function effectiveToolName(name: string | undefined, argsJson: string | undefined): string {
   const given = (name ?? '').trim()
   if (!GENERIC_NAMES.has(given.toLowerCase())) return given
   const args = asRecord(parseArgs(argsJson))
@@ -520,10 +511,7 @@ export function humanizeToolName(name: string | undefined): string {
  * fall back to {@link humanizeToolName} — never the raw id as a target, which
  * read as "Editing Edit".
  */
-export function describeToolCall(
-  block: ToolCallRef,
-  live = false,
-): ToolStepLabel {
+export function describeToolCall(block: ToolCallRef, live = false): ToolStepLabel {
   const name = effectiveToolName(block.name, block.argsJson)
   const kind = classifyTool(name)
   const verb = live ? LIVE_VERB[kind] : PAST_VERB[kind]

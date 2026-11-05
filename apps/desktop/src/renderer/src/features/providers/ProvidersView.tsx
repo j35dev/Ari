@@ -130,7 +130,9 @@ export function ProvidersView({ onOpenTerminal, onOpenEndpoints }: ProvidersView
   useEffect(() => {
     if (chosen.current || detections === null) return
     chosen.current = true
-    const troubled = rows.find((row) => row.status.tone === 'error' || row.status.tone === 'warning')
+    const troubled = rows.find(
+      (row) => row.status.tone === 'error' || row.status.tone === 'warning',
+    )
     if (troubled) setSelected(troubled.kind)
   }, [detections, rows])
 

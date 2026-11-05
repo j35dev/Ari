@@ -350,7 +350,11 @@ export function AppearanceSettings() {
         description="A scene behind every palette, softly scrimmed so text stays readable."
         bare
       >
-        <div role="radiogroup" aria-label="Wallpaper" className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <div
+          role="radiogroup"
+          aria-label="Wallpaper"
+          className="grid grid-cols-2 gap-3 lg:grid-cols-3"
+        >
           <PreviewTile
             label="None"
             description="Solid theme background."

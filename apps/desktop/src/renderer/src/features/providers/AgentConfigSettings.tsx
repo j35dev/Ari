@@ -90,7 +90,8 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
       setDraft(read.content)
       setSaved(read.content)
       setOpenId(file.id)
-      if (read.truncated) setNotice('This file is too large to edit in Ari; saving would truncate it.')
+      if (read.truncated)
+        setNotice('This file is too large to edit in Ari; saving would truncate it.')
     } catch (e: unknown) {
       setError(String(e instanceof Error ? e.message : e))
     } finally {
@@ -104,7 +105,11 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
     setNotice(null)
     setBusy(true)
     try {
-      const result = await rpc.invoke('providers.writeConfig', { kind, fileId: openId, content: draft })
+      const result = await rpc.invoke('providers.writeConfig', {
+        kind,
+        fileId: openId,
+        content: draft,
+      })
       if (!result.ok) {
         setError(result.error)
         return
