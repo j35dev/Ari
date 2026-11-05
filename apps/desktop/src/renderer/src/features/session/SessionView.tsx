@@ -46,6 +46,7 @@ import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { ParentSessionLink } from './ParentSessionLink'
+import { WorkspaceCard } from '../changes/WorkspaceCard'
 import { ComposerDock } from './ComposerDock'
 import { SessionStatusCapsule } from './SessionStatusCapsule'
 import { createMessageFold } from './message-fold'
@@ -230,8 +231,14 @@ export function SessionView({
   sessionTitle,
   parentSession = null,
   hidden = false,
+  onReviewChanges,
+  onPullRequests,
 }: {
   sessionId: string
+  /** Opens this session's working-tree changes, from the pane's workspace card. */
+  onReviewChanges?: () => void
+  /** Opens the pull requests view, from the pane's workspace card. */
+  onPullRequests?: () => void
   defaults: SessionDefaults
   onDefaultsChange: (next: SessionDefaults) => void
   /** A model or reasoning level the user chose here, for new sessions to start from. */
@@ -884,7 +891,11 @@ export function SessionView({
           command: { type: 'checkpoint.revert', sessionId, turnId },
         })
         if (!result.accepted) throw new Error(result.reason ?? 'The engine rejected the revert.')
-        toast({ title: 'Changes undone', description: 'Files are back to before that turn.', tone: 'success' })
+        toast({
+          title: 'Changes undone',
+          description: 'Files are back to before that turn.',
+          tone: 'success',
+        })
         return true
       } catch (err) {
         toast({
@@ -1378,18 +1389,13 @@ export function SessionView({
           data-visible={centered || undefined}
           aria-hidden
         />
-        <div className="flex h-7 shrink-0 items-center pr-3">
-          <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
-          <button
-            type="button"
-            aria-expanded={workOpen}
-            aria-controls={workPanelId}
-            onClick={() => setWorkOpen((value) => !value)}
-            className="ml-auto rounded px-2 py-1 text-xs text-fg-subtle hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            Work
-          </button>
-        </div>
+        <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
+        <WorkspaceCard
+          sessionId={sessionId}
+          active={!hidden}
+          onReview={onReviewChanges}
+          onPullRequests={onPullRequests}
+        />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}

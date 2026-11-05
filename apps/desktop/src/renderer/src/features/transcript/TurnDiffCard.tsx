@@ -1,38 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, FileDiff, RotateCcw } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronRight, FileDiff } from 'lucide-react'
 import { DiffViewer, parseDiff } from '../diffs'
 import type { DiffComment } from '../diffs'
 
-/** Files listed before the rest fold behind "Show N more files". */
-const PREVIEW_FILES = 3
-
-interface FileStat {
-  path: string
-  added: number
-  removed: number
-}
-
 type UndoState = 'idle' | 'confirming' | 'pending' | 'done'
 
-function splitPath(path: string): { dir: string; name: string } {
-  const at = path.lastIndexOf('/')
-  return at < 0 ? { dir: '', name: path } : { dir: path.slice(0, at + 1), name: path.slice(at + 1) }
-}
-
-function Stat({ added, removed }: { added: number; removed: number }) {
-  return (
-    <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
-      {added > 0 ? <span className="text-success">+{added.toLocaleString()}</span> : null}
-      {removed > 0 ? <span className="text-danger">−{removed.toLocaleString()}</span> : null}
-    </span>
-  )
-}
-
 /**
- * Summary card for one settled turn's file changes: how many files, the line
- * totals, and the first few files with their own counts. Review opens the
- * full diff inline (with line notes when `onComment` is set); Undo restores
- * the workspace to the checkpoint taken when the turn began.
+ * Collapsed-by-default row for one settled turn's git changes: file count and
+ * line totals, expanding to the shared diff viewer (with line notes when
+ * `onComment` is set). A quiet Undo restores the workspace to the checkpoint
+ * taken when the turn began, after an inline confirm.
  */
 export function TurnDiffCard({
   turnId,
@@ -53,51 +30,36 @@ export function TurnDiffCard({
   undoDisabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const [showAll, setShowAll] = useState(false)
   const [undo, setUndo] = useState<UndoState>('idle')
-  const [focusPath, setFocusPath] = useState<string | null>(null)
-  const reviewRef = useRef<HTMLDivElement>(null)
-
   const stats = useMemo(() => {
-    const files: FileStat[] = parseDiff(diffText).files.map((file) => {
-      let added = 0
-      let removed = 0
+    const { files } = parseDiff(diffText)
+    let added = 0
+    let removed = 0
+    for (const file of files) {
       for (const hunk of file.hunks) {
         for (const line of hunk.lines) {
           if (line.type === 'add') added += 1
           else if (line.type === 'del') removed += 1
         }
       }
-      return { path: file.path, added, removed }
-    })
-    return {
-      files,
-      added: files.reduce((sum, f) => sum + f.added, 0),
-      removed: files.reduce((sum, f) => sum + f.removed, 0),
     }
+    return { fileCount: files.length, added, removed }
   }, [diffText])
-
-  // Once the review is open, bring the file the reader picked into view.
-  useEffect(() => {
-    if (!open || focusPath === null) return
-    const target = reviewRef.current?.querySelector(`[data-file-path="${CSS.escape(focusPath)}"]`)
-    target?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
-  }, [open, focusPath])
 
   if (error !== undefined && error.length > 0) {
     return (
       <div
-        className="my-2 flex items-center gap-2 rounded-xl border border-border bg-surface-1 px-3 py-2"
+        className="my-2 flex items-center gap-2 rounded-md border border-border bg-surface-1 px-2 py-1.5"
         data-turn-diff={turnId}
         role="status"
       >
-        <FileDiff size={13} aria-hidden="true" className="shrink-0 text-fg-subtle" />
+        <FileDiff size={12} aria-hidden="true" className="shrink-0 text-fg-subtle" />
         <span className="min-w-0 flex-1 truncate text-xs text-danger">{error}</span>
         {onRetry !== undefined ? (
           <button
             type="button"
             onClick={onRetry}
-            className="shrink-0 text-xs text-fg-muted underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="shrink-0 text-2xs text-fg-muted underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             Retry turn diff
           </button>
@@ -106,10 +68,9 @@ export function TurnDiffCard({
     )
   }
 
-  const count = stats.files.length
-  const noun = `file${count === 1 ? '' : 's'}`
-  const listed = showAll ? stats.files : stats.files.slice(0, PREVIEW_FILES)
-  const hidden = count - listed.length
+  const noun = `file${stats.fileCount === 1 ? '' : 's'}`
+  const link =
+    'shrink-0 rounded px-1 text-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50'
 
   const confirmUndo = (): void => {
     if (onUndo === undefined) return
@@ -117,130 +78,73 @@ export function TurnDiffCard({
     void onUndo().then((ok) => setUndo(ok ? 'done' : 'idle'))
   }
 
-  const openFile = (path: string): void => {
-    setFocusPath(path)
-    setOpen(true)
-  }
-
-  const action =
-    'flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:pointer-events-none disabled:opacity-50'
-
   return (
-    <div
-      className="ari-turn-card my-3 overflow-hidden rounded-xl border border-border bg-surface-1"
-      data-turn-diff={turnId}
-    >
-      <div className="flex items-center gap-3 px-3 py-2.5">
-        <span
-          aria-hidden="true"
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-fg-muted"
-        >
-          <FileDiff size={15} strokeWidth={1.8} />
-        </span>
-        <div className="min-w-0 flex-1">
-          {undo === 'confirming' ? (
-            <p className="text-sm text-fg">
-              Restore these files to before this turn?
-              <span className="block text-xs text-fg-muted">Changes made after it are undone too.</span>
-            </p>
-          ) : (
-            <>
-              <p className="text-sm font-medium text-fg">
-                {undo === 'done' ? `Undid changes to ${count} ${noun}` : `Edited ${count} ${noun}`}
-              </p>
-              <Stat added={stats.added} removed={stats.removed} />
-            </>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {undo === 'confirming' || undo === 'pending' ? (
-            <>
+    <div className="my-2" data-turn-diff={turnId}>
+      <div className="group flex items-center gap-1 rounded-md border border-border bg-surface-1 pr-1.5 transition-colors hover:bg-surface-2">
+        {undo === 'confirming' || undo === 'pending' ? (
+          <>
+            <span className="min-w-0 flex-1 truncate px-2 py-1.5 text-xs text-fg">
+              Restore these files to before this turn? Later changes go too.
+            </span>
+            <button
+              type="button"
+              onClick={() => setUndo('idle')}
+              disabled={undo === 'pending'}
+              className={`${link} text-fg-muted hover:text-fg`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmUndo}
+              disabled={undo === 'pending'}
+              aria-label="Confirm undo"
+              className={`${link} font-medium text-danger hover:text-danger/80`}
+            >
+              {undo === 'pending' ? 'Undoing…' : 'Undo'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              aria-expanded={open}
+              aria-label={`Turn diff: ${stats.fileCount} ${noun} changed`}
+              className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
+            >
+              <ChevronRight
+                size={12}
+                aria-hidden="true"
+                className={`shrink-0 text-fg-subtle transition-transform duration-[180ms] ${open ? 'rotate-90' : ''}`}
+              />
+              <FileDiff size={12} aria-hidden="true" className="shrink-0 text-fg-subtle" />
+              <span className="min-w-0 flex-1 truncate text-xs text-fg-muted">
+                {undo === 'done' ? 'Undid changes to' : 'Edited'} {stats.fileCount} {noun}
+              </span>
+              <span className="ml-auto flex shrink-0 items-center gap-1 text-2xs tabular-nums">
+                {stats.added > 0 ? <span className="text-success">+{stats.added}</span> : null}
+                {stats.removed > 0 ? <span className="text-danger">−{stats.removed}</span> : null}
+              </span>
+            </button>
+            {onUndo !== undefined && undo !== 'done' ? (
               <button
                 type="button"
-                onClick={() => setUndo('idle')}
-                disabled={undo === 'pending'}
-                className={`${action} text-fg-muted hover:bg-surface-2 hover:text-fg`}
+                onClick={() => setUndo('confirming')}
+                disabled={undoDisabled}
+                title={
+                  undoDisabled
+                    ? 'Available once the turn finishes'
+                    : 'Undo this turn’s file changes'
+                }
+                className={`${link} text-fg-subtle opacity-0 hover:text-fg focus-visible:opacity-100 group-hover:opacity-100`}
               >
-                Cancel
+                Undo
               </button>
-              <button
-                type="button"
-                onClick={confirmUndo}
-                disabled={undo === 'pending'}
-                aria-label="Confirm undo"
-                className={`${action} bg-danger/15 text-danger hover:bg-danger/25`}
-              >
-                {undo === 'pending' ? 'Undoing…' : 'Undo changes'}
-              </button>
-            </>
-          ) : (
-            <>
-              {onUndo !== undefined && undo !== 'done' ? (
-                <button
-                  type="button"
-                  onClick={() => setUndo('confirming')}
-                  disabled={undoDisabled}
-                  title={undoDisabled ? 'Available once the turn finishes' : undefined}
-                  className={`${action} text-fg-muted hover:bg-surface-2 hover:text-fg`}
-                >
-                  Undo
-                  <RotateCcw size={12} aria-hidden="true" />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setOpen((o) => !o)}
-                aria-expanded={open}
-                aria-label={`Turn diff: ${count} ${noun} changed`}
-                className={`${action} border border-border bg-surface-2/60 text-fg hover:bg-surface-2`}
-              >
-                {open ? 'Hide changes' : 'Review'}
-              </button>
-            </>
-          )}
-        </div>
+            ) : null}
+          </>
+        )}
       </div>
-
-      {count > 0 ? (
-        <ul className="border-t border-border/70">
-          {listed.map((file) => {
-            const { dir, name } = splitPath(file.path)
-            return (
-              <li key={file.path}>
-                <button
-                  type="button"
-                  onClick={() => openFile(file.path)}
-                  title={file.path}
-                  className="flex w-full items-center gap-3 px-3 py-1.5 text-left transition-colors hover:bg-surface-2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
-                >
-                  <span className="min-w-0 flex-1 truncate text-[13px]">
-                    <span className="text-fg-subtle">{dir}</span>
-                    <span className="text-fg">{name}</span>
-                  </span>
-                  <Stat added={file.added} removed={file.removed} />
-                </button>
-              </li>
-            )
-          })}
-          {hidden > 0 || showAll ? (
-            <li>
-              <button
-                type="button"
-                onClick={() => setShowAll((s) => !s)}
-                className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-fg-muted transition-colors hover:bg-surface-2/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
-              >
-                {showAll ? 'Show fewer' : `Show ${hidden} more ${hidden === 1 ? 'file' : 'files'}`}
-                <ChevronDown
-                  size={12}
-                  aria-hidden="true"
-                  className={`transition-transform duration-150 ${showAll ? 'rotate-180' : ''}`}
-                />
-              </button>
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
-
       {/* Height tween via grid-template-rows 0fr↔1fr; matches the diff viewer's cards. */}
       <div
         className={`grid transition-[grid-template-rows] duration-[180ms] ease-out ${
@@ -249,7 +153,7 @@ export function TurnDiffCard({
       >
         <div className="overflow-hidden">
           {open ? (
-            <div ref={reviewRef} className="ari-enter-rise border-t border-border/70 p-2">
+            <div className="ari-enter-rise pt-2">
               <DiffViewer diffText={diffText} onLineComment={onComment} />
             </div>
           ) : null}

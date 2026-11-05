@@ -51,7 +51,6 @@ import { ChangesView } from './features/changes'
 import { openCheckedOutWorktree } from './features/changes/open-request-worktree'
 import { rememberReviewRange } from './features/changes/review-drafts'
 import { useSourceControl } from './features/changes/use-source-control'
-import { GitControl } from './features/changes/GitControl'
 import { openProjectViaPicker } from './features/projects/open-project'
 import { UsagePage } from './features/usage/UsagePage'
 import { FileExplorer } from './features/files/FileExplorer'
@@ -1097,17 +1096,6 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         activeTool={settingsOpen ? 'settings' : hubOpen ? 'github' : (fullPage ?? inspector)}
         onSelectTool={selectWorkspaceTool}
         changeCount={changeSummary.summary?.changedFiles ?? null}
-        git={
-          activeScope && changeSummary.summary ? (
-            <GitControl
-              scope={activeScope}
-              summary={changeSummary.summary}
-              refresh={changeSummary.refresh}
-              onReview={() => openSourceControl('changes')}
-              onPullRequests={() => openSourceControl('requests')}
-            />
-          ) : undefined
-        }
         usage={{ sessionId: activeSessionId, kind: activeDriverKind }}
         onExpandSidebar={sidebarOpen || workspaceToolOpen ? undefined : toggleSidebar}
       />
@@ -1413,6 +1401,16 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                                     )}
                                     sessionTitle={sessionTitle}
                                     parentSession={parentOf(sessions, sessionId)}
+                                    // The pane's workspace card: review shows this
+                                    // session's changes, so its pane takes focus first.
+                                    onReviewChanges={() => {
+                                      splitLayoutActions.focus(paneId)
+                                      setSettingsOpen(false)
+                                      setHubOpen(false)
+                                      setFullPage(null)
+                                      setInspector('changes')
+                                    }}
+                                    onPullRequests={() => selectWorkspaceTool('github')}
                                   />
                                 )}
                               />
