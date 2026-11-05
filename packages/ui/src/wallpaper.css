@@ -91,34 +91,27 @@
   background: none;
 }
 
-/* Empty screens show the scene sharp. The art is pinned to the window, the
-   same geometry as the baked blur below, and fades out toward the bottom, so
-   it dissolves into the plate as a gradual focus pull rather than a seam or a
-   doubled image. Only stationary artwork is treated, never the live UI. */
+/* The empty session (a title and the composer) shows the scene sharp. The art
+   is pinned to the window, the same geometry as the baked blur below, and
+   fades out toward the bottom, so it dissolves into the plate as a gradual
+   focus pull rather than a seam or a doubled image. The tint is heaviest
+   where the title sits. The welcome panel is too dense for sharp art behind
+   it and stays on the plate like the rest of the window. */
 [data-ari-wallpaper] {
   --ari-haze-art:
     linear-gradient(
       to bottom,
-      color-mix(in oklab, var(--ari-surface-0) 10%, transparent) 0%,
-      color-mix(in oklab, var(--ari-surface-0) 30%, transparent) 45%,
-      color-mix(in oklab, var(--ari-surface-0) 55%, transparent) 85%
+      color-mix(in oklab, var(--ari-surface-0) 22%, transparent) 0%,
+      color-mix(in oklab, var(--ari-surface-0) 50%, transparent) 38%,
+      color-mix(in oklab, var(--ari-surface-0) 62%, transparent) 85%
     ),
     var(--ari-wallpaper-image);
   --ari-haze-fade: linear-gradient(to bottom, var(--ari-fg) 0%, var(--ari-fg) 42%, transparent 88%);
 }
 
-[data-ari-wallpaper] .ari-session-scene,
-[data-ari-wallpaper] .ari-welcome-glow::before {
+[data-ari-wallpaper] .ari-session-scene {
   background: var(--ari-haze-art) center / cover no-repeat fixed;
   mask-image: var(--ari-haze-fade);
-}
-
-[data-ari-wallpaper] .ari-welcome-glow::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
 }
 
 /* Reading lane: once a conversation runs, a faint band of the plate's own tone
