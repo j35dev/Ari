@@ -171,10 +171,10 @@ export interface SessionImportProps {
 export function SessionImport({ onImported }: SessionImportProps) {
   return (
     <section aria-labelledby="agents-import-heading" className="space-y-3">
-      <h2 id="agents-import-heading" className="text-sm font-medium">
+      <h2 id="agents-import-heading" className="px-1 text-sm font-semibold text-fg">
         Import pi sessions
       </h2>
-      <p className="text-sm text-fg-muted">
+      <p className="px-1 text-xs leading-relaxed text-fg-muted">
         Replays a session you already had in pi into Ari, with its transcript and usage. pi&apos;s
         own file is only read — the session stays resumable in pi.
       </p>

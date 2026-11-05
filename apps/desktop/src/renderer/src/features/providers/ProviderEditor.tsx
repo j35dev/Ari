@@ -40,7 +40,7 @@ export interface ProviderEditorProps {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section aria-label={title} className="border-t border-border/60 px-5 py-4">
-      <h3 className="mb-3 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">{title}</h3>
+      <h3 className="mb-3 text-xs font-semibold text-fg-muted">{title}</h3>
       {children}
     </section>
   )
@@ -50,7 +50,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-6 py-1.5">
       <span className="shrink-0 text-sm text-fg-muted">{label}</span>
-      <span className="min-w-0 text-right text-sm text-fg">{children}</span>
+      <span className="min-w-0 break-words text-right text-sm text-fg [overflow-wrap:anywhere]">{children}</span>
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Check, Monitor } from 'lucide-react'
 import { createLogger } from '@ari/shared/logger'
 import { Switch } from '@ari/ui/switch'
@@ -10,6 +11,7 @@ import { codeFonts, interfaceFonts } from '../../lib/appearance'
 import type { Wallpaper } from '@ari/ui/wallpapers'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
+import { SettingsCard, SettingsSection } from './SettingsSection'
 import { useEngineSettings } from './useEngineSettings'
 
 const log = createLogger('settings:appearance')
@@ -22,28 +24,28 @@ const log = createLogger('settings:appearance')
 function ThemePreview({ theme }: { theme: Theme }) {
   const { colors } = theme
   const line = (width: string, color: string) => (
-    <span className="block h-0.5 rounded-full" style={{ width, background: color }} />
+    <span className="block h-1 rounded-full" style={{ width, background: color }} />
   )
   return (
     <span
       aria-hidden="true"
-      className="flex h-14 w-24 shrink-0 overflow-hidden rounded border border-border"
+      className="flex h-[76px] w-full overflow-hidden rounded-md"
       style={{ background: colors.bg, color: colors.fg }}
     >
       <span
-        className="flex w-8 shrink-0 flex-col gap-1 p-1.5"
+        className="flex w-[30%] shrink-0 flex-col gap-1.5 p-2"
         style={{ background: colors['surface-0'], borderRight: `1px solid ${colors.border}` }}
       >
-        {line('60%', colors['fg-subtle'])}
-        <span className="mt-0.5 h-1.5 rounded-sm" style={{ background: colors['surface-2'] }} />
+        {line('55%', colors['fg-subtle'])}
+        <span className="mt-0.5 h-2.5 rounded-sm" style={{ background: colors['surface-2'] }} />
         {line('80%', colors['surface-3'])}
         {line('65%', colors['surface-3'])}
       </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1 p-1.5">
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5 p-2">
         {line('70%', colors['fg-muted'])}
         {line('45%', colors['fg-subtle'])}
         <span
-          className="mt-auto h-2.5 w-4/5 self-end rounded-sm"
+          className="mt-auto h-4 w-4/5 self-end rounded"
           style={{ background: colors['surface-1'], border: `1px solid ${colors.border}` }}
         />
         <span className="h-1 w-2/5 rounded-full" style={{ background: colors.accent }} />
@@ -52,17 +54,18 @@ function ThemePreview({ theme }: { theme: Theme }) {
   )
 }
 
-function ThemeCard({
+/** Selectable tile: visual preview on top, name and one line of copy below. */
+function PreviewTile({
   label,
   description,
   selected,
-  chips,
+  preview,
   onSelect,
 }: {
   label: string
   description: string
   selected: boolean
-  chips: React.ReactNode
+  preview: ReactNode
   onSelect: () => void
 }) {
   return (
@@ -71,18 +74,29 @@ function ThemeCard({
       role="radio"
       aria-checked={selected}
       onClick={onSelect}
-      className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
+      className={`group flex w-full flex-col gap-2.5 rounded-xl border bg-surface-1/70 p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${
         selected
-          ? 'border-accent/60 bg-accent-subtle'
-          : 'border-border bg-surface-1 hover:border-border-strong hover:bg-surface-2'
+          ? 'border-accent/70 ring-1 ring-accent/40'
+          : 'border-border hover:border-border-strong hover:bg-surface-2/60'
       }`}
     >
-      {chips}
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-fg">{label}</span>
-        <span className="block text-xs leading-relaxed text-fg-muted">{description}</span>
+      <span className="relative block">
+        {preview}
+        {selected ? (
+          <span
+            aria-hidden="true"
+            className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-accent text-fg-on-accent shadow-sm"
+          >
+            <Check size={12} strokeWidth={2.5} />
+          </span>
+        ) : null}
       </span>
-      {selected ? <Check size={14} className="shrink-0 text-accent" aria-hidden="true" /> : null}
+      <span className="block px-1 pb-1">
+        <span className="block text-sm font-medium text-fg">{label}</span>
+        <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-fg-muted">
+          {description}
+        </span>
+      </span>
     </button>
   )
 }
@@ -99,16 +113,16 @@ function ThemeGroup({
   onSelect: (id: ThemeId) => void
 }) {
   return (
-    <section className="mt-4" aria-label={title}>
-      <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">{title}</h3>
-      <div role="radiogroup" aria-label={title} className="ari-theme-grid grid gap-2">
+    <section aria-label={title}>
+      <h3 className="mb-2.5 px-1 text-xs font-medium text-fg-muted">{title}</h3>
+      <div role="radiogroup" aria-label={title} className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         {themes.map((theme) => (
-          <ThemeCard
+          <PreviewTile
             key={theme.id}
             label={theme.label}
             description={theme.description}
             selected={selectedMode === theme.id}
-            chips={<ThemePreview theme={theme} />}
+            preview={<ThemePreview theme={theme} />}
             onSelect={() => onSelect(theme.id)}
           />
         ))}
@@ -125,53 +139,19 @@ function WallpaperThumb({ wallpaper, theme }: { wallpaper: Wallpaper | null; the
         src={wallpaper.src}
         alt=""
         aria-hidden="true"
-        className="h-14 w-24 shrink-0 rounded border border-border object-cover"
+        className="block aspect-video w-full rounded-md object-cover"
       />
     )
   }
   return (
     <span
       aria-hidden="true"
-      className="h-14 w-24 shrink-0 rounded border border-border"
-      style={{ background: theme.colors.bg }}
+      className="block aspect-video w-full rounded-md"
+      style={{
+        background: theme.colors.bg,
+        boxShadow: `inset 0 0 0 1px ${theme.colors.border}`,
+      }}
     />
-  )
-}
-
-function WallpaperGroup({
-  theme,
-  selected,
-  onSelect,
-}: {
-  theme: Theme
-  selected: string
-  onSelect: (wallpaper: 'none' | Wallpaper['id']) => void
-}) {
-  return (
-    <section className="mt-4" aria-label="Wallpaper">
-      <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">
-        Wallpaper
-      </h3>
-      <div role="radiogroup" aria-label="Wallpaper" className="grid gap-2">
-        <ThemeCard
-          label="None"
-          description="Solid theme background — the scene layers under every palette."
-          selected={selected === 'none'}
-          chips={<WallpaperThumb wallpaper={null} theme={theme} />}
-          onSelect={() => onSelect('none')}
-        />
-        {wallpapers.map((wallpaper) => (
-          <ThemeCard
-            key={wallpaper.id}
-            label={wallpaper.label}
-            description={`${wallpaper.description} Softly scrimmed; text and theme stay in front.`}
-            selected={selected === wallpaper.id}
-            chips={<WallpaperThumb wallpaper={wallpaper} theme={theme} />}
-            onSelect={() => onSelect(wallpaper.id)}
-          />
-        ))}
-      </div>
-    </section>
   )
 }
 
@@ -201,10 +181,14 @@ export function AppearanceSettings() {
 
   const dark = themeList.filter((t) => t.scheme === 'dark')
   const light = themeList.filter((t) => t.scheme === 'light')
+  const followingSystem = mode === 'system'
 
   return (
-    <SettingsPage title="Appearance">
-      <section aria-label="Typography and chat" className="mb-6">
+    <SettingsPage title="Appearance" description="Palette, wallpaper, type, and motion.">
+      <SettingsSection
+        title="Typography"
+        description="Fonts, size, width, and how the conversation reads."
+      >
         <SettingsRow
           label="Interface font"
           hint="Choose the typeface for the app and conversation. Bundled fonts also work offline."
@@ -319,27 +303,75 @@ export function AppearanceSettings() {
           </p>
           <code className="mt-3 block font-mono text-xs text-accent">{'> ari / workspace'}</code>
         </div>
-      </section>
-      <SettingsRow label="Theme" hint="Pick a palette, or follow the system light/dark preference.">
-        <span className="text-xs text-fg-muted">{theme.label}</span>
-      </SettingsRow>
+      </SettingsSection>
+      <SettingsSection
+        title="Theme"
+        description="Pick a palette, or follow the system light/dark preference."
+        action={<span className="text-xs text-fg-muted">{theme.label}</span>}
+        bare
+      >
+        <div className="space-y-6">
+          <SettingsCard>
+            <div role="radiogroup" aria-label="Follow system">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={followingSystem}
+                onClick={() => setMode('system')}
+                className="flex min-h-14 w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-surface-2/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+              >
+                <Monitor size={16} className="shrink-0 text-fg-muted" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-fg">Follow system</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-fg-muted">
+                    Matches your OS light and dark preference automatically.
+                  </span>
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    followingSystem ? 'border-accent bg-accent' : 'border-border-strong'
+                  }`}
+                >
+                  {followingSystem ? (
+                    <span className="size-1.5 rounded-full bg-fg-on-accent" />
+                  ) : null}
+                </span>
+              </button>
+            </div>
+          </SettingsCard>
+          <ThemeGroup title="Dark" themes={dark} selectedMode={mode} onSelect={setMode} />
+          <ThemeGroup title="Light" themes={light} selectedMode={mode} onSelect={setMode} />
+        </div>
+      </SettingsSection>
 
-      <div role="radiogroup" aria-label="Follow system">
-        <ThemeCard
-          label="Follow system"
-          description="Matches your OS light and dark preference automatically."
-          selected={mode === 'system'}
-          chips={<Monitor size={14} className="shrink-0 text-fg-muted" aria-hidden="true" />}
-          onSelect={() => setMode('system')}
-        />
-      </div>
+      <SettingsSection
+        title="Wallpaper"
+        description="A scene behind every palette, softly scrimmed so text stays readable."
+        bare
+      >
+        <div role="radiogroup" aria-label="Wallpaper" className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <PreviewTile
+            label="None"
+            description="Solid theme background."
+            selected={wallpaper === 'none'}
+            preview={<WallpaperThumb wallpaper={null} theme={theme} />}
+            onSelect={() => setWallpaper('none')}
+          />
+          {wallpapers.map((entry) => (
+            <PreviewTile
+              key={entry.id}
+              label={entry.label}
+              description={entry.description}
+              selected={wallpaper === entry.id}
+              preview={<WallpaperThumb wallpaper={entry} theme={theme} />}
+              onSelect={() => setWallpaper(entry.id)}
+            />
+          ))}
+        </div>
+      </SettingsSection>
 
-      <ThemeGroup title="Dark" themes={dark} selectedMode={mode} onSelect={setMode} />
-      <ThemeGroup title="Light" themes={light} selectedMode={mode} onSelect={setMode} />
-
-      <WallpaperGroup theme={theme} selected={wallpaper} onSelect={setWallpaper} />
-
-      <div className="mt-4">
+      <SettingsSection title="Motion">
         <SettingsRow label="Reduce motion" hint="Minimize animations throughout the app.">
           <Switch
             checked={reducedMotion}
@@ -347,7 +379,7 @@ export function AppearanceSettings() {
             aria-label="Reduce motion"
           />
         </SettingsRow>
-      </div>
+      </SettingsSection>
     </SettingsPage>
   )
 }

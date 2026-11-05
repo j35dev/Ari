@@ -1,5 +1,6 @@
 import { Kbd } from '@ari/ui/kbd'
 import { SettingsPage } from './SettingsPage'
+import { SETTINGS_CARD_CLASS, SettingsSection } from './SettingsSection'
 import { APP_SHORTCUTS } from './shortcuts'
 
 function isApplePlatform(): boolean {
@@ -19,17 +20,19 @@ export function KeybindingsSettings() {
       title="Keybindings"
       description="Every shortcut the workspace responds to."
     >
-      <section aria-labelledby="keybindings-map-heading" className="space-y-3">
-        <h2 id="keybindings-map-heading" className="text-sm font-medium">
-          Shortcuts
-        </h2>
-        <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1">
+      <SettingsSection
+        title="Shortcuts"
+        headingId="keybindings-map-heading"
+        description="Read-only for now; remapping lands with the keybindings layer."
+        bare
+      >
+        <ul className={SETTINGS_CARD_CLASS}>
           {APP_SHORTCUTS.map((shortcut) => {
             const keys = resolveChord(shortcut.chord)
             return (
               <li
                 key={shortcut.id}
-                className="flex items-center justify-between gap-4 px-3 py-2"
+                className="flex min-h-11 items-center justify-between gap-4 px-4 py-2"
               >
                 <span className="text-sm text-fg">{shortcut.label}</span>
                 <span
@@ -44,10 +47,7 @@ export function KeybindingsSettings() {
             )
           })}
         </ul>
-        <p className="text-sm text-fg-muted">
-          Read-only in v1 — remapping lands with the keybindings layer.
-        </p>
-      </section>
+      </SettingsSection>
     </SettingsPage>
   )
 }

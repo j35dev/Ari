@@ -7,6 +7,7 @@ import { Spinner } from '@ari/ui/spinner'
 import { Textarea } from '@ari/ui/textarea'
 import { createLogger } from '@ari/shared/logger'
 import { SettingsPage } from '../settings/SettingsPage'
+import { SETTINGS_CARD_CLASS, SettingsSection } from '../settings/SettingsSection'
 import { SessionImport } from './SessionImport'
 import { ExtensionInventory } from './ExtensionInventory'
 import { rpc } from '../../lib/rpc'
@@ -126,11 +127,8 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
       title="Agents"
       description="Edit each agent's own configuration — model defaults, extensions, system prompts. Ari saves these files verbatim in the agent's format."
     >
-      <section aria-labelledby="agents-picker-heading" className="space-y-3">
-        <h2 id="agents-picker-heading" className="text-sm font-medium">
-          Agent
-        </h2>
-        <div className="flex flex-wrap gap-1.5">
+      <SettingsSection title="Agent" headingId="agents-picker-heading" bare>
+        <div className="flex flex-wrap gap-1.5 px-1">
           {CONFIGURABLE.map((entry) => (
             <button
               key={entry}
@@ -148,27 +146,23 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
           ))}
         </div>
         {dir !== null ? (
-          <p className="break-all font-mono text-xs text-fg-subtle">{dir}</p>
+          <p className="mt-2.5 break-all px-1 font-mono text-xs text-fg-subtle">{dir}</p>
         ) : null}
-      </section>
+      </SettingsSection>
 
-      <section aria-labelledby="agents-files-heading" className="space-y-3">
-        <h2 id="agents-files-heading" className="text-sm font-medium">
-          Configuration files
-        </h2>
+      <SettingsSection title="Configuration files" headingId="agents-files-heading" bare>
         {loading ? (
-          <Spinner size="sm" />
+          <div className="px-1">
+            <Spinner size="sm" />
+          </div>
         ) : files.length === 0 && kind !== 'ari-core' ? (
-          <p className="text-sm text-fg-muted">
+          <p className="rounded-xl border border-border bg-surface-1/70 px-4 py-3.5 text-sm text-fg-muted">
             Ari has no confirmed config layout for this agent, so it will not guess at a path.
           </p>
-        ) : (
-          <ul className="flex flex-col">
+        ) : files.length === 0 ? null : (
+          <ul className={SETTINGS_CARD_CLASS}>
             {files.map((file) => (
-              <li
-                key={file.id}
-                className="flex items-center gap-3 border-b border-border/60 py-3 last:border-b-0"
-              >
+              <li key={file.id} className="flex min-h-14 items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm text-fg">{file.label}</span>
@@ -191,14 +185,16 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
             ))}
           </ul>
         )}
-      </section>
+      </SettingsSection>
 
       {openFile !== null ? (
-        <section aria-labelledby="agents-editor-heading" className="space-y-3">
-          <h2 id="agents-editor-heading" className="text-sm font-medium">
-            {openFile.label}
-          </h2>
-          <p className="break-all font-mono text-xs text-fg-subtle">{openFile.path}</p>
+        <SettingsSection
+          title={openFile.label}
+          headingId="agents-editor-heading"
+          description={<span className="break-all font-mono">{openFile.path}</span>}
+          bare
+          className="space-y-3"
+        >
           <Textarea
             aria-label={`${openFile.label} contents`}
             className="font-mono text-xs"
@@ -229,7 +225,7 @@ export function AgentConfigSettings({ workspacePath = null }: { workspacePath?: 
             </p>
           ) : null}
           {notice !== null ? <p className="text-sm text-fg-muted">{notice}</p> : null}
-        </section>
+        </SettingsSection>
       ) : null}
 
       <ExtensionInventory kind={kind} workspacePath={workspacePath} />

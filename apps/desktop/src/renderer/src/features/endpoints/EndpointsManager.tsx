@@ -174,7 +174,7 @@ function EndpointCard({
 }: EndpointCardProps) {
   const badge = FLAVOR_BADGES[endpoint.flavor]
   return (
-    <li className="rounded-md border border-border bg-surface-1 p-3">
+    <li className="rounded-xl border border-border bg-surface-1/70 p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -509,9 +509,9 @@ export function EndpointsManager() {
       <form
         ref={formRef}
         onSubmit={(e) => void handleSave(e)}
-        className="flex max-w-md flex-col gap-3 rounded-md border border-border bg-surface-1 p-3"
+        className="flex flex-col gap-3 rounded-xl border border-border bg-surface-1/70 p-4"
       >
-        <h3 className="text-sm font-medium text-fg">
+        <h3 className="text-sm font-semibold text-fg">
           {editingId != null ? 'Edit endpoint' : 'Add endpoint'}
         </h3>
         <Field label="Name">
@@ -646,9 +646,9 @@ export function EndpointsManager() {
         </div>
       </form>
       <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium text-fg">Saved endpoints</h2>
+        <h2 className="px-1 text-sm font-semibold text-fg">Saved endpoints</h2>
         {endpoints.length === 0 ? (
-          <p className="text-xs text-fg-muted">
+          <p className="rounded-xl border border-border bg-surface-1/70 px-4 py-3.5 text-xs text-fg-muted">
             None yet — add an OpenAI-compatible, Anthropic, or Ollama endpoint above to chat
             through Ari Core.
           </p>
