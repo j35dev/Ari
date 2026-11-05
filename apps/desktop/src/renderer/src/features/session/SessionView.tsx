@@ -46,7 +46,6 @@ import { WorkingGlyph } from '../moment'
 import { useEngineSettings } from '../settings/useEngineSettings'
 import { PlanPanel } from './PlanPanel'
 import { ParentSessionLink } from './ParentSessionLink'
-import { WorkspaceCard } from '../changes/WorkspaceCard'
 import { ComposerDock } from './ComposerDock'
 import { SessionStatusCapsule } from './SessionStatusCapsule'
 import { createMessageFold } from './message-fold'
@@ -231,14 +230,8 @@ export function SessionView({
   sessionTitle,
   parentSession = null,
   hidden = false,
-  onReviewChanges,
-  onPullRequests,
 }: {
   sessionId: string
-  /** Opens this session's working-tree changes, from the pane's workspace card. */
-  onReviewChanges?: () => void
-  /** Opens the pull requests view, from the pane's workspace card. */
-  onPullRequests?: () => void
   defaults: SessionDefaults
   onDefaultsChange: (next: SessionDefaults) => void
   /** A model or reasoning level the user chose here, for new sessions to start from. */
@@ -891,11 +884,7 @@ export function SessionView({
           command: { type: 'checkpoint.revert', sessionId, turnId },
         })
         if (!result.accepted) throw new Error(result.reason ?? 'The engine rejected the revert.')
-        toast({
-          title: 'Changes undone',
-          description: 'Files are back to before that turn.',
-          tone: 'success',
-        })
+        toast({ title: 'Changes undone', description: 'Files are back to before that turn.', tone: 'success' })
         return true
       } catch (err) {
         toast({
@@ -1390,12 +1379,6 @@ export function SessionView({
           aria-hidden
         />
         <ParentSessionLink parentSession={parentSession} onOpenSession={onOpenSession} />
-        <WorkspaceCard
-          sessionId={sessionId}
-          active={!hidden}
-          onReview={onReviewChanges}
-          onPullRequests={onPullRequests}
-        />
         <div className={`min-h-0 flex-1 ${centered ? 'invisible' : ''}`} inert={centered}>
           <StoreTranscript
             sessionId={sessionId}
