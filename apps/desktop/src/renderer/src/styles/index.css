@@ -12,6 +12,7 @@
 @import '@ari/ui/motion.css';
 @import '@ari/ui/scroll-area.css';
 @import './interaction-motion.css';
+@import './workspace-appearance.css';
 
 /* Tailwind v4's automatic source detection only reaches this app's own tree,
    so utilities that appear solely in the shared UI package — reached here
@@ -64,6 +65,13 @@
   --font-ui: var(--ari-font-ui);
   --font-mono: var(--ari-font-mono);
   --text-2xs: var(--ari-text-2xs);
+  --text-xs: var(--ari-text-xs);
+  --text-sm: var(--ari-text-sm);
+  --text-base: var(--ari-text-md);
+  --text-lg: var(--ari-text-lg);
+  --text-xl: var(--ari-text-xl);
+  --text-2xl: var(--ari-text-2xl);
+  --text-3xl: var(--ari-text-3xl);
 }
 
 /* The z-index scale from tokens.css. Popovers sit under modal scrims, toasts

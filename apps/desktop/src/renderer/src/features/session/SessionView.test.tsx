@@ -17,11 +17,7 @@ import {
   type SessionDefaults,
 } from './SessionView'
 import { dropReviewDraftMemory, rememberReviewRange } from '../changes/review-drafts'
-import {
-  ContextMeter,
-  formatCompactTokens,
-  formatTurnDuration,
-} from './SessionStatusCapsule'
+import { ContextMeter, formatCompactTokens, formatTurnDuration } from './SessionStatusCapsule'
 
 // jsdom implements neither ResizeObserver nor element scrolling; TranscriptView's
 // stick-to-bottom effect calls scrollTo during mount (same stubs as its own tests).
@@ -153,9 +149,13 @@ describe('SessionView question panel', () => {
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('session.load', { sessionId: 'sess_1' }),
     )
-    expect(screen.queryByRole('heading', { name: 'What are we building?' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Make room for your next idea.' }),
+    ).not.toBeInTheDocument()
     emitReplayDone()
-    expect(await screen.findByRole('heading', { name: 'What are we building?' })).toBeVisible()
+    expect(
+      await screen.findByRole('heading', { name: 'Make room for your next idea.' }),
+    ).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Explore this project' }))
     expect(editor).toHaveValue('Explore this project and explain its architecture.')
     expect(invokeMock.mock.calls.filter(([method]) => method === 'command.dispatch')).toHaveLength(
@@ -177,7 +177,9 @@ describe('SessionView question panel', () => {
         createdAt: 1,
       },
     })
-    expect(screen.queryByRole('heading', { name: 'What are we building?' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Make room for your next idea.' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByLabelText('Message')).toBe(editor)
     expect((editor as HTMLTextAreaElement).selectionStart).toBe(4)
     expect((editor as HTMLTextAreaElement).selectionEnd).toBe(8)
@@ -187,7 +189,7 @@ describe('SessionView question panel', () => {
   it('keeps the welcome plate open and docks it when approval requires attention', async () => {
     renderView()
     const editor = await screen.findByLabelText('Message')
-    await screen.findByRole('heading', { name: 'What are we building?' })
+    await screen.findByRole('heading', { name: 'Make room for your next idea.' })
     expect(editor.closest('.ari-composer-shell')).not.toHaveAttribute('data-resting')
     emitSessionEvent({
       seq: 1,
@@ -198,7 +200,9 @@ describe('SessionView question panel', () => {
       prompt: 'Which approach?',
       choicesJson: '["A","B"]',
     })
-    expect(screen.queryByRole('heading', { name: 'What are we building?' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Make room for your next idea.' }),
+    ).not.toBeInTheDocument()
     expect(screen.getByLabelText('Message')).toBe(editor)
     expect(await screen.findByText('Which approach?')).toBeVisible()
   })
@@ -1176,7 +1180,7 @@ describe('SessionView context meter', () => {
     emitContext(4, 33_587, null)
 
     expect(await screen.findByTitle('Context: 33.6K tokens')).toBeInTheDocument()
-    expect(screen.queryByText(/\/.+/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/\d[KM]?\s*\/\s*\d/)).not.toBeInTheDocument()
   })
 
   it('keeps the window the provider reported across readings that omit it', async () => {

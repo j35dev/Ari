@@ -189,7 +189,7 @@ export function SessionStatusCapsule({
 
   return (
     <div
-      className={`mx-auto w-full max-w-3xl shrink-0 px-4 pb-1.5 pt-1 transition-opacity duration-[var(--ari-dur-panel)] ${blank ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
+      className={`ari-chat-column shrink-0 pb-1.5 pt-1 transition-opacity duration-[var(--ari-dur-panel)] ${blank ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
       aria-hidden={blank || undefined}
     >
       <div className="ari-status-capsule mx-auto flex w-fit max-w-full min-h-7 items-center gap-2 whitespace-nowrap rounded-2xl border border-border bg-surface-1 px-3 font-mono text-2xs tabular-nums text-fg-subtle shadow-2">

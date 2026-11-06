@@ -15,6 +15,7 @@ const baseSettings: Settings = {
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
+    ...defaultSettings.appearance,
     themeId: 'obsidian',
     mode: 'system',
     reducedMotion: false,
@@ -65,6 +66,7 @@ describe('useEngineSettings', () => {
     const updated: Settings = {
       ...baseSettings,
       appearance: {
+        ...baseSettings.appearance,
         themeId: 'obsidian',
         mode: 'system',
         reducedMotion: true,

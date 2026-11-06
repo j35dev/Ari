@@ -44,6 +44,16 @@ export type WallpaperIdSetting = z.infer<typeof wallpaperIdSchema>
 export const wallpaperSchema = z.union([z.literal('none'), wallpaperIdSchema])
 export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 
+export const interfaceFontSchema = z.enum(['theme', 'geist', 'system', 'mono', 'serif'])
+export const interfaceFontSizeSchema = z.union([
+  z.literal(14),
+  z.literal(16),
+  z.literal(18),
+  z.literal(20),
+])
+export const chatWidthSchema = z.enum(['focused', 'comfortable', 'wide'])
+export const chatStyleSchema = z.enum(['conversation', 'terminal'])
+
 /** The agent CLIs Ari drives; Ari Core is built in and has no connection to configure. */
 export const cliKindSchema = driverKindSchema.exclude(['ari-core'])
 export type CliKind = z.infer<typeof cliKindSchema>
@@ -114,6 +124,10 @@ const defaultAppearance = {
   mode: 'system',
   reducedMotion: false,
   wallpaper: 'none',
+  fontFamily: 'theme',
+  fontSize: 16,
+  chatWidth: 'comfortable',
+  chatStyle: 'conversation',
 } as const
 
 /** Completion is optional so pre-onboarding installations migrate without losing settings. */
@@ -139,6 +153,10 @@ export const settingsSchema = z.object({
       reducedMotion: z.boolean().default(defaultAppearance.reducedMotion),
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
+      fontFamily: interfaceFontSchema.default(defaultAppearance.fontFamily),
+      fontSize: interfaceFontSizeSchema.default(defaultAppearance.fontSize),
+      chatWidth: chatWidthSchema.default(defaultAppearance.chatWidth),
+      chatStyle: chatStyleSchema.default(defaultAppearance.chatStyle),
     })
     .default(defaultAppearance),
   sessions: z
@@ -228,6 +246,10 @@ export const settingsUpdateSchema = z.object({
       mode: themeModeSchema,
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
+      fontFamily: interfaceFontSchema,
+      fontSize: interfaceFontSizeSchema,
+      chatWidth: chatWidthSchema,
+      chatStyle: chatStyleSchema,
     })
     .partial()
     .optional(),

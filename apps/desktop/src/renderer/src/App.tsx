@@ -5,6 +5,7 @@ import { MotionProvider } from '@ari/ui/motion-provider'
 import { AnimatePresence, motion, useReducedMotionConfig } from 'motion/react'
 import { transitions } from '@ari/ui/motion'
 import { useEngineSettings } from './features/settings/useEngineSettings'
+import { applyAppearance, cacheAppearance } from './lib/appearance'
 import { ToastProvider, useToast } from '@ari/ui/toast'
 import { SessionImportDialog } from './features/providers'
 import { useUpdateToasts } from './features/providers/use-update-toasts'
@@ -1140,7 +1141,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               animate={{ width: sidebar.width, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={sidebar.dragging || reducedMotion ? { duration: 0 } : transitions.sidebar}
-              className="ari-sidebar-motion flex shrink-0 flex-col overflow-hidden bg-surface-0"
+              className="ari-sidebar-motion ari-workspace-sidebar flex shrink-0 flex-col overflow-hidden bg-surface-0"
               style={{ '--ari-sidebar-motion-width': `${sidebar.width}px` } as React.CSSProperties}
             >
               <SidebarHeader
@@ -1238,13 +1239,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             tabIndex={0}
             title="Drag to resize · double-click to reset"
             {...sidebar.handleProps}
-            className={`w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
+            className={`ari-sidebar-resize w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
               sidebar.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
             }`}
           />
         ) : null}
 
-        <main className="flex min-w-0 flex-1 flex-col bg-bg border-l border-border/50">
+        <main className="flex min-w-0 flex-1 flex-col bg-bg">
           <SpaceTabs
             spaces={spaceStore.spaces}
             activeSpaceId={spaceStore.activeSpaceId}
@@ -1563,6 +1564,11 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
 function RendererMotion({ children }: { children: React.ReactNode }) {
   const { settings } = useEngineSettings()
   const reducedMotion = settings?.appearance.reducedMotion ?? false
+  useEffect(() => {
+    if (!settings) return
+    applyAppearance(settings.appearance)
+    cacheAppearance(settings.appearance)
+  }, [settings])
   useEffect(() => {
     document.documentElement.toggleAttribute('data-ari-reduced-motion', reducedMotion)
     return () => document.documentElement.removeAttribute('data-ari-reduced-motion')

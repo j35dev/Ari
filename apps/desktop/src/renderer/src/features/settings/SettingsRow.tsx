@@ -9,8 +9,8 @@ export interface SettingsRowProps {
 /** T3-style setting row: copy on the left, control on the right. */
 export function SettingsRow({ label, hint, children }: SettingsRowProps) {
   return (
-    <div className="flex items-start justify-between gap-8 border-b border-border/60 py-3.5 last:border-b-0">
-      <div className="min-w-0 max-w-lg">
+    <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-border/40 py-3.5 last:border-b-0">
+      <div className="min-w-0 max-w-lg flex-1 basis-56">
         <p className="text-sm font-medium text-fg">{label}</p>
         <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{hint}</p>
       </div>
