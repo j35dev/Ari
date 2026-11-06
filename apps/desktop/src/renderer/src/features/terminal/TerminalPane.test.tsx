@@ -1,9 +1,12 @@
 import { render } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defaultSettings } from '@ari/contracts/settings'
+import { applyAppearance } from '../../lib/appearance'
 import { TerminalPane } from './TerminalPane'
 
-const { ctorOptions, invokeFn, writelnFn } = vi.hoisted(() => ({
+const { ctorOptions, liveOptions, invokeFn, writelnFn } = vi.hoisted(() => ({
   ctorOptions: [] as Record<string, unknown>[],
+  liveOptions: [] as Record<string, unknown>[],
   invokeFn: vi.fn(),
   writelnFn: vi.fn(),
 }))
@@ -16,6 +19,7 @@ vi.mock('@xterm/xterm', () => ({
     constructor(options: Record<string, unknown>) {
       ctorOptions.push(options)
       this.options = { ...options }
+      liveOptions.push(this.options)
     }
     loadAddon(): void {}
     open(): void {}
@@ -60,8 +64,11 @@ function mount(): Record<string, unknown> {
 }
 
 describe('TerminalPane', () => {
+  afterEach(() => applyAppearance(defaultSettings.appearance))
   beforeEach(() => {
+    applyAppearance(defaultSettings.appearance)
     ctorOptions.length = 0
+    liveOptions.length = 0
     invokeFn.mockReset()
     invokeFn.mockResolvedValue(undefined)
     writelnFn.mockClear()
@@ -82,6 +89,17 @@ describe('TerminalPane', () => {
 
     expect(options['fontSize']).toBe(13)
     expect(options['lineHeight']).toBeGreaterThan(1)
+  })
+
+  it('updates the font and scale of an open terminal without respawning its shell', async () => {
+    mount()
+    applyAppearance({ ...defaultSettings.appearance, codeFont: 'jetbrains-mono', fontSize: 22 })
+    await vi.waitFor(() => {
+      expect(liveOptions[0]?.['fontFamily']).toContain('JetBrains Mono Variable')
+      expect(liveOptions[0]?.['fontSize']).toBe(17.875)
+    })
+    expect(ctorOptions).toHaveLength(1)
+    expect(invokeFn.mock.calls.filter(([method]) => method === 'terminal.create')).toHaveLength(1)
   })
 
   it('spawns the pty for its own id in the given cwd', () => {

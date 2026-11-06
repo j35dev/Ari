@@ -29,17 +29,17 @@
     "./checkbox": "./src/components/Checkbox.tsx",
     "./badge": "./src/components/Badge.tsx",
     "./kbd": "./src/components/Kbd.tsx",
-      "./tabs": "./src/components/Tabs.tsx",
-      "./segmented-control": "./src/components/SegmentedControl.tsx",
-      "./scroll-area": "./src/components/ScrollArea.tsx",
-      "./skeleton": "./src/components/Skeleton.tsx",
-      "./spinner": "./src/components/Spinner.tsx",
-      "./popover": "./src/components/Popover.tsx",
-      "./tooltip": "./src/components/Tooltip.tsx",
-      "./dialog": "./src/components/Dialog.tsx",
-      "./sheet": "./src/components/Sheet.tsx",
-      "./select": "./src/components/Select.tsx",
-      "./toast": "./src/components/Toast.tsx"
+    "./tabs": "./src/components/Tabs.tsx",
+    "./segmented-control": "./src/components/SegmentedControl.tsx",
+    "./scroll-area": "./src/components/ScrollArea.tsx",
+    "./skeleton": "./src/components/Skeleton.tsx",
+    "./spinner": "./src/components/Spinner.tsx",
+    "./popover": "./src/components/Popover.tsx",
+    "./tooltip": "./src/components/Tooltip.tsx",
+    "./dialog": "./src/components/Dialog.tsx",
+    "./sheet": "./src/components/Sheet.tsx",
+    "./select": "./src/components/Select.tsx",
+    "./toast": "./src/components/Toast.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -47,8 +47,13 @@
   },
   "dependencies": {
     "@floating-ui/react-dom": "^2.1.9",
+    "@fontsource-variable/fira-code": "^5.3.0",
     "@fontsource-variable/geist": "^5.2.5",
     "@fontsource-variable/geist-mono": "^5.2.5",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
+    "@fontsource-variable/source-sans-3": "^5.3.1",
+    "@fontsource-variable/source-serif-4": "^5.3.1",
     "motion": "^13.1.1"
   },
   "peerDependencies": {

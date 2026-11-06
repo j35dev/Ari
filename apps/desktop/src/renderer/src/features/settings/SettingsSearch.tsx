@@ -36,7 +36,13 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-appearance',
     label: 'Interface font',
-    keywords: 'typography typeface geist mono system serif appearance',
+    keywords:
+      'typography typeface geist mono system serif jetbrains fira manrope source appearance',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Code and terminal font',
+    keywords: 'monospace jetbrains fira cascadia code shell terminal diff font',
   },
   {
     section: 'settings-appearance',
@@ -46,7 +52,7 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-appearance',
     label: 'Chat width',
-    keywords: 'compact focused comfortable wide spacing margins layout',
+    keywords: 'compact focused balanced comfortable wide full width spacing margins layout',
   },
   {
     section: 'settings-appearance',

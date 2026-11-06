@@ -44,14 +44,36 @@ export type WallpaperIdSetting = z.infer<typeof wallpaperIdSchema>
 export const wallpaperSchema = z.union([z.literal('none'), wallpaperIdSchema])
 export type WallpaperSetting = z.infer<typeof wallpaperSchema>
 
-export const interfaceFontSchema = z.enum(['theme', 'geist', 'system', 'mono', 'serif'])
+export const interfaceFontSchema = z.enum([
+  'theme',
+  'geist',
+  'system',
+  'mono',
+  'serif',
+  'jetbrains-mono',
+  'fira-code',
+  'manrope',
+  'source-sans',
+  'source-serif',
+])
+export const codeFontSchema = z.enum([
+  'geist-mono',
+  'jetbrains-mono',
+  'fira-code',
+  'cascadia',
+  'system-mono',
+])
 export const interfaceFontSizeSchema = z.union([
   z.literal(14),
+  z.literal(15),
   z.literal(16),
+  z.literal(17),
   z.literal(18),
+  z.literal(19),
   z.literal(20),
+  z.literal(22),
 ])
-export const chatWidthSchema = z.enum(['focused', 'comfortable', 'wide'])
+export const chatWidthSchema = z.enum(['focused', 'balanced', 'comfortable', 'wide', 'full'])
 export const chatStyleSchema = z.enum(['conversation', 'terminal'])
 
 /** The agent CLIs Ari drives; Ari Core is built in and has no connection to configure. */
@@ -125,6 +147,7 @@ const defaultAppearance = {
   reducedMotion: false,
   wallpaper: 'none',
   fontFamily: 'theme',
+  codeFont: 'geist-mono',
   fontSize: 16,
   chatWidth: 'comfortable',
   chatStyle: 'conversation',
@@ -154,6 +177,7 @@ export const settingsSchema = z.object({
       /** Bundled background scene composited under the themed UI, or 'none'. */
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
       fontFamily: interfaceFontSchema.default(defaultAppearance.fontFamily),
+      codeFont: codeFontSchema.default(defaultAppearance.codeFont),
       fontSize: interfaceFontSizeSchema.default(defaultAppearance.fontSize),
       chatWidth: chatWidthSchema.default(defaultAppearance.chatWidth),
       chatStyle: chatStyleSchema.default(defaultAppearance.chatStyle),
@@ -247,6 +271,7 @@ export const settingsUpdateSchema = z.object({
       reducedMotion: z.boolean(),
       wallpaper: wallpaperSchema,
       fontFamily: interfaceFontSchema,
+      codeFont: codeFontSchema,
       fontSize: interfaceFontSizeSchema,
       chatWidth: chatWidthSchema,
       chatStyle: chatStyleSchema,

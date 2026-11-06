@@ -1,5 +1,5 @@
 /**
- * Font loading. Geist + Geist Mono are bundled (OFL-licensed) so rendering is
+ * Font loading. The selectable faces are bundled (OFL-licensed) so rendering is
  * identical across Windows, macOS, and Linux.
  *
  * This is a TS module rather than a CSS file on purpose. Reaching the fonts
@@ -12,3 +12,8 @@
  */
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
+import '@fontsource-variable/jetbrains-mono'
+import '@fontsource-variable/fira-code'
+import '@fontsource-variable/manrope'
+import '@fontsource-variable/source-sans-3'
+import '@fontsource-variable/source-serif-4'

@@ -3,6 +3,22 @@ import { defaultSettings, settingsUpdateSchema, type Settings } from '@ari/contr
 const CACHE_KEY = 'ari.appearance'
 type Appearance = Settings['appearance']
 
+const geistMono = "'Geist Mono Variable', 'Cascadia Code', ui-monospace, monospace"
+const jetbrainsMono = "'JetBrains Mono Variable', 'Cascadia Code', ui-monospace, monospace"
+const firaCode = "'Fira Code Variable', 'Cascadia Code', ui-monospace, monospace"
+
+export const codeFonts = [
+  { id: 'geist-mono', label: 'Geist Mono', family: geistMono },
+  { id: 'jetbrains-mono', label: 'JetBrains Mono', family: jetbrainsMono },
+  { id: 'fira-code', label: 'Fira Code', family: firaCode },
+  {
+    id: 'cascadia',
+    label: 'Cascadia Code (system)',
+    family: "'Cascadia Code', 'Cascadia Mono', ui-monospace, monospace",
+  },
+  { id: 'system-mono', label: 'System monospace', family: 'ui-monospace, monospace' },
+] as const
+
 export const interfaceFonts = [
   { id: 'theme', label: 'Theme default', family: null },
   { id: 'geist', label: 'Geist', family: "'Geist Variable', 'Segoe UI', system-ui, sans-serif" },
@@ -11,7 +27,24 @@ export const interfaceFonts = [
     label: 'System sans',
     family: "'Segoe UI', system-ui, -apple-system, sans-serif",
   },
-  { id: 'mono', label: 'Geist Mono', family: 'var(--ari-font-mono)' },
+  {
+    id: 'manrope',
+    label: 'Manrope',
+    family: "'Manrope Variable', 'Segoe UI', system-ui, sans-serif",
+  },
+  {
+    id: 'source-sans',
+    label: 'Source Sans 3',
+    family: "'Source Sans 3 Variable', 'Segoe UI', system-ui, sans-serif",
+  },
+  { id: 'mono', label: 'Geist Mono', family: geistMono },
+  { id: 'jetbrains-mono', label: 'JetBrains Mono', family: jetbrainsMono },
+  { id: 'fira-code', label: 'Fira Code', family: firaCode },
+  {
+    id: 'source-serif',
+    label: 'Source Serif 4',
+    family: "'Source Serif 4 Variable', 'Georgia', serif",
+  },
   { id: 'serif', label: 'Book serif', family: "'Charter', 'Georgia', serif" },
 ] as const
 
@@ -19,6 +52,8 @@ export const interfaceFonts = [
 export function applyAppearance(appearance: Appearance): void {
   const root = document.documentElement
   root.style.fontSize = `${appearance.fontSize}px`
+  const codeFamily = codeFonts.find((font) => font.id === appearance.codeFont)?.family ?? geistMono
+  root.style.setProperty('--ari-font-mono', codeFamily)
   const family = interfaceFonts.find((font) => font.id === appearance.fontFamily)?.family
   if (family) root.style.setProperty('--ari-font-ui', family)
   else root.style.removeProperty('--ari-font-ui')
