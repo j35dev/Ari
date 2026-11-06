@@ -144,6 +144,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // are tools, so they dock to the trailing rail beside the transcript.
   const [fullPage, setFullPage] = useState<'usage' | 'changes' | 'source-control' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sourceControlTab, setSourceControlTab] = useState<'changes' | 'requests'>('changes')
   const [hubOpen, setHubOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('appearance')
   const [listedSessions, setSessions] = useState<SessionSummary[]>([])
@@ -541,6 +542,21 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
   // New sessions start in the mode Settings → Permissions names; without this
   // the seed above never left `ask`, whatever the setting said.
   const engineSettings = useEngineSettings()
+  const openSourceControl = useCallback(
+    (tab: 'changes' | 'requests' = 'changes'): void => {
+      setSourceControlTab(tab)
+      setHubOpen(false)
+      setSettingsOpen(false)
+      if (engineSettings.settings?.sourceControl.diffOpenMode === 'sidebar') {
+        setFullPage(null)
+        setInspector('changes')
+      } else {
+        setInspector(null)
+        setFullPage('changes')
+      }
+    },
+    [engineSettings.settings?.sourceControl.diffOpenMode],
+  )
   const defaultPermissionMode = engineSettings.settings?.sessions.defaultPermissionMode
   useEffect(() => {
     if (defaultPermissionMode === undefined) return
@@ -597,11 +613,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
         setFullPage(null)
         setInspector('browser')
       } else if (view === 'changes' || view === 'source-control') {
-        // Diffs open beside the chat; the titlebar Git control does the Git actions.
-        setHubOpen(false)
-        setSettingsOpen(false)
-        setFullPage(null)
-        setInspector('changes')
+        openSourceControl()
       } else {
         setHubOpen(false)
         setSettingsOpen(false)
@@ -967,41 +979,43 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
     [createSession, refreshProjects],
   )
 
-  const selectWorkspaceTool = useCallback((id: SidebarNavId): void => {
-    if (id === 'settings') {
-      setSettingsOpen(true)
-      setHubOpen(false)
-      setFullPage(null)
-      setInspector(null)
-      return
-    }
-    if (id === 'github') {
-      setHubOpen(true)
+  const selectWorkspaceTool = useCallback(
+    (id: SidebarNavId): void => {
+      if (id === 'settings') {
+        setSettingsOpen(true)
+        setHubOpen(false)
+        setFullPage(null)
+        setInspector(null)
+        return
+      }
+      if (id === 'github') {
+        setHubOpen(true)
+        setSettingsOpen(false)
+        setFullPage(null)
+        setInspector(null)
+        return
+      }
       setSettingsOpen(false)
+      setHubOpen(false)
+      if (id === 'session') {
+        setInspector(null)
+        setFullPage(null)
+        return
+      }
+      if (id === 'changes' || id === 'source-control') {
+        openSourceControl()
+        return
+      }
+      if (id === 'usage') {
+        setInspector(null)
+        setFullPage((prev) => (prev === id ? null : id))
+        return
+      }
       setFullPage(null)
-      setInspector(null)
-      return
-    }
-    setSettingsOpen(false)
-    setHubOpen(false)
-    if (id === 'session') {
-      setInspector(null)
-      setFullPage(null)
-      return
-    }
-    if (id === 'changes' || id === 'source-control') {
-      setFullPage(null)
-      setInspector((prev) => (prev === 'changes' ? null : 'changes'))
-      return
-    }
-    if (id === 'usage') {
-      setInspector(null)
-      setFullPage((prev) => (prev === id ? null : id))
-      return
-    }
-    setFullPage(null)
-    setInspector((prev) => (prev === id ? null : id))
-  }, [])
+      setInspector((prev) => (prev === id ? null : id))
+    },
+    [openSourceControl],
+  )
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   // The usage chip names the driver of whichever session is active, which in a
@@ -1088,13 +1102,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               scope={activeScope}
               summary={changeSummary.summary}
               refresh={changeSummary.refresh}
-              onReview={() => {
-                setSettingsOpen(false)
-                setHubOpen(false)
-                setFullPage(null)
-                setInspector('changes')
-              }}
-              onPullRequests={() => selectWorkspaceTool('github')}
+              onReview={() => openSourceControl('changes')}
+              onPullRequests={() => openSourceControl('requests')}
             />
           ) : undefined
         }
@@ -1271,6 +1280,13 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               ) : fullPage === 'changes' || fullPage === 'source-control' ? (
                 <ErrorBoundary label="Changes">
                   <ChangesView
+                    initialTab={sourceControlTab}
+                    onTabChange={setSourceControlTab}
+                    onDock={() => {
+                      setFullPage(null)
+                      setInspector('changes')
+                    }}
+                    onClose={() => setFullPage(null)}
                     sessionId={activeSessionId}
                     projectId={activeSession?.projectId ?? null}
                     onRange={activeSessionId ? attachReviewRange : undefined}
@@ -1469,6 +1485,12 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
                           {inspector === 'changes' ? (
                             <ErrorBoundary label="Changes">
                               <ChangesView
+                                initialTab={sourceControlTab}
+                                onTabChange={setSourceControlTab}
+                                onExpand={() => {
+                                  setInspector(null)
+                                  setFullPage('changes')
+                                }}
                                 sessionId={activeSessionId}
                                 projectId={activeSession?.projectId ?? null}
                                 onRange={activeSessionId ? attachReviewRange : undefined}

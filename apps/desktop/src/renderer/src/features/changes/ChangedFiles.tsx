@@ -1,4 +1,5 @@
-import { useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronRight, File, Folder } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { GitReviewFile } from '@ari/contracts/rpc'
 import { setDragFilePath } from '../composer/drag-file'
@@ -9,17 +10,42 @@ export function ChangedFiles({
   selected,
   onSelect,
   selectedPaths,
+  tree = false,
 }: {
   files: GitReviewFile[]
   selected: string | undefined
   onSelect: (path: string, multiple?: boolean) => void
   selectedPaths?: ReadonlySet<string>
+  tree?: boolean
 }) {
   const scroll = useRef<HTMLElement>(null)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const rows = useMemo(() => {
+    if (!tree) return files.map((file) => ({ file, folder: '', depth: 0 }))
+    const result: { file?: GitReviewFile; folder: string; depth: number }[] = []
+    const seen = new Set<string>()
+    for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+      const parts = file.path.split('/')
+      let hidden = false
+      for (let depth = 0; depth < parts.length - 1; depth++) {
+        const folder = parts.slice(0, depth + 1).join('/')
+        if (!seen.has(folder)) {
+          result.push({ folder, depth })
+          seen.add(folder)
+        }
+        if (collapsed.has(folder)) {
+          hidden = true
+          break
+        }
+      }
+      if (!hidden) result.push({ file, folder: '', depth: parts.length - 1 })
+    }
+    return result
+  }, [files, tree, collapsed])
   const virtual = useVirtualizer({
-    count: files.length,
+    count: rows.length,
     getScrollElement: () => scroll.current,
-    estimateSize: () => 28,
+    estimateSize: (index) => (rows[index]?.file ? 34 : 28),
     overscan: 6,
   })
   return (
@@ -43,7 +69,39 @@ export function ChangedFiles({
     >
       <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
         {virtual.getVirtualItems().map((item) => {
-          const file = files[item.index]!
+          const node = rows[item.index]!
+          const file = node.file
+          if (!file)
+            return (
+              <button
+                key={`folder:${node.folder}`}
+                type="button"
+                aria-label={`Folder ${node.folder}`}
+                aria-expanded={!collapsed.has(node.folder)}
+                onClick={() =>
+                  setCollapsed((current) => {
+                    const next = new Set(current)
+                    if (next.has(node.folder)) next.delete(node.folder)
+                    else next.add(node.folder)
+                    return next
+                  })
+                }
+                className="absolute left-0 top-0 flex w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs text-fg-subtle hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring"
+                style={{
+                  height: item.size,
+                  transform: `translateY(${item.start}px)`,
+                  paddingLeft: 6 + node.depth * 12,
+                }}
+              >
+                {collapsed.has(node.folder) ? (
+                  <ChevronRight size={11} />
+                ) : (
+                  <ChevronDown size={11} />
+                )}
+                <Folder size={13} />
+                <span className="truncate">{node.folder.split('/').at(-1)}</span>
+              </button>
+            )
           const at = file.path.lastIndexOf('/')
           return (
             <button
@@ -63,23 +121,24 @@ export function ChangedFiles({
                 width: '100%',
                 height: item.size,
                 transform: `translateY(${item.start}px)`,
+                paddingLeft: tree ? 23 + node.depth * 12 : 8,
               }}
               className={`flex items-center gap-2 rounded-md px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-ring ${selected === file.path ? 'bg-accent-subtle text-fg' : 'text-fg-muted hover:bg-surface-1'}`}
             >
-              <span
-                className={`font-mono text-2xs ${file.kind === 'deleted' ? 'text-danger' : file.kind === 'added' || file.kind === 'untracked' ? 'text-success' : 'text-fg-subtle'}`}
-              >
-                {file.kind === 'untracked' ? '?' : file.kind[0]?.toUpperCase()}
-              </span>
+              <File size={13} className="shrink-0 text-fg-subtle" aria-hidden />
               <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <span className="shrink-0 truncate font-mono text-2xs">
-                  {file.path.slice(at + 1)}
-                </span>
-                {at >= 0 ? (
+                <span className="min-w-0 truncate text-xs">{file.path.slice(at + 1)}</span>
+                {at >= 0 && !tree ? (
                   <span className="min-w-0 truncate text-2xs text-fg-subtle" dir="rtl">
                     {file.path.slice(0, at)}
                   </span>
                 ) : null}
+              </span>
+              <span
+                title={file.kind}
+                className={`shrink-0 font-mono text-2xs ${file.kind === 'deleted' || file.kind === 'conflicted' ? 'text-danger' : file.kind === 'added' || file.kind === 'untracked' ? 'text-success' : 'text-fg-subtle'}`}
+              >
+                {file.kind === 'untracked' ? '?' : file.kind[0]?.toUpperCase()}
               </span>
               {file.additions > 0 || file.deletions > 0 ? (
                 <span className="shrink-0 font-mono text-2xs tabular-nums">

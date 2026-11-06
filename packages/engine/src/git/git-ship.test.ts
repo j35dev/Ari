@@ -67,6 +67,21 @@ describe('ship', { timeout: 30_000 }, () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'invalid-input' } })
   })
 
+  it('preserves unselected staged files and treats selected pathspec characters literally', async () => {
+    await writeFile(join(repo, 'a.txt'), 'staged elsewhere\n')
+    git(repo, 'add', 'a.txt')
+    await writeFile(join(repo, '[change].txt'), 'selected\n')
+    const result = await ship(
+      new GitReviewService(repo),
+      { action: 'commit', message: 'Selected change', paths: ['[change].txt'] },
+      noPr,
+    )
+    expect(result.ok).toBe(true)
+    expect(git(repo, 'show', '--name-only', '--format=', 'HEAD')).toBe('[change].txt')
+    expect(git(repo, 'diff', '--cached', '--name-only')).toBe('a.txt')
+    expect(git(repo, 'diff', '--cached')).toContain('staged elsewhere')
+  })
+
   it('opens the pull request after pushing and reports its URL', async () => {
     const createPr = vi.fn(async () => ok('https://github.com/o/r/pull/7'))
     git(repo, 'switch', '-q', '-c', 'feature')

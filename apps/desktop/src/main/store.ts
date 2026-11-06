@@ -9,6 +9,9 @@ import { SettingsStore } from '@ari/engine/settings'
 import { createLogger } from '@ari/shared/logger'
 import { migrateLegacyPlaintextKeys, resolveSecretBox } from './secret-box'
 import { watchers } from './watcher-bridge'
+import { SourceControlConnections } from './source-control-connections'
+import { HostingApi } from './hosting-api'
+import { HostingService } from './hosting-service'
 
 const log = createLogger('desktop:store')
 
@@ -16,6 +19,19 @@ let sessionStore: SessionStore | null = null
 let settingsStore: SettingsStore | null = null
 let projectStore: ProjectStore | null = null
 let endpointStore: EndpointStore | null = null
+let hostingService: HostingService | null = null
+
+export function getHostingService(): HostingService {
+  if (!hostingService) {
+    const dir = app.getPath('userData')
+    const connections = new SourceControlConnections(
+      join(dir, 'source-control', 'connections.json'),
+      resolveSecretBox({ storage: safeStorage, keyDir: join(dir, 'secrets') }),
+    )
+    hostingService = new HostingService(new HostingApi(connections))
+  }
+  return hostingService
+}
 
 /** Root for all per-session journals: <userData>/sessions/<sessionId>/. */
 export function sessionsRoot(): string {

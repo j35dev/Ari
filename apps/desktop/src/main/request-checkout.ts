@@ -4,6 +4,7 @@ import { GitService, type RepositoryGit } from '@ari/engine/git'
 import type { RequestCheckout, SourceControlError } from '@ari/contracts/rpc'
 import { err, ok, type Result } from '@ari/shared/result'
 import { chooseHost } from './host-remote'
+import type { HostingService } from './hosting-service'
 
 const oid = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
 const remoteName = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/
@@ -41,29 +42,45 @@ export async function checkoutChangeRequest(
   number: number,
   options: { rootDir: string; fetchHead: FetchRequestHead; worktrees?: GitService },
   signal: AbortSignal,
+  hosting?: HostingService,
 ): Promise<Result<RequestCheckout, SourceControlError>> {
   if (!Number.isInteger(number) || number < 1 || number > 1_000_000) {
     return err({ code: 'invalid-input', message: 'A request number is required.' })
   }
-  const host = chooseHost(remotes)
+  const host = hosting?.host(remotes) ?? chooseHost(remotes)
   if (!host) {
     return err({
       code: 'unsupported',
       message: 'No recognized hosting remote. Ari does not guess a private host.',
     })
   }
-  if (!host.listable || (host.provider !== 'github' && host.provider !== 'gitlab')) {
+  if (
+    !hosting &&
+    (!('listable' in host) ||
+      !host.listable ||
+      (host.provider !== 'github' && host.provider !== 'gitlab'))
+  ) {
     return err({
       code: 'unsupported',
-      message: `${host.label} is recognized. Checkout into a worktree is not connected.`,
+      message: `${'label' in host ? String(host.label) : host.provider} is recognized. Checkout into a worktree is not connected.`,
     })
   }
   if (!remoteName.test(host.remote)) {
     return err({ code: 'invalid-input', message: 'The hosting remote name is not safe to fetch.' })
   }
   const provider = host.provider
-  const remoteRef =
-    provider === 'github' ? `refs/pull/${number}/head` : `refs/merge-requests/${number}/head`
+  let remoteRef =
+    provider === 'gitlab' ? `refs/merge-requests/${number}/head` : `refs/pull/${number}/head`
+  if (hosting && !['github', 'gitlab', 'forgejo'].includes(provider ?? '')) {
+    const request = await hosting.detail(host, number, signal)
+    if (!request.ok) return request
+    if (!request.value.headOid)
+      return err({
+        code: 'unavailable',
+        message: 'The host has not reported the request head yet.',
+      })
+    remoteRef = request.value.headOid
+  }
   const localRef = `refs/ari/requests/${provider}/${number}`
   const branch = `ari/request/${provider}/${number}`
   const slug =

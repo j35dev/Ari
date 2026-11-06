@@ -14,6 +14,7 @@
     "./commands": "./src/commands.ts",
     "./events": "./src/events.ts",
     "./rpc": "./src/rpc.ts",
+    "./source-control-providers": "./src/source-control-providers.ts",
     "./settings": "./src/settings.ts",
     "./endpoint": "./src/endpoint.ts",
     "./project": "./src/project.ts",
