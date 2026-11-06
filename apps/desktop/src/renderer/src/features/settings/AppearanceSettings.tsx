@@ -245,10 +245,16 @@ export function AppearanceSettings() {
             ))}
           </select>
         </SettingsRow>
-        <SettingsRow label="Text size" hint="Scale text and controls together throughout the app.">
+        <SettingsRow
+          label="Text size"
+          hint="Adjust chat messages and the composer. Sidebar and app controls keep their original size."
+        >
           <select
             aria-label="Text size"
-            value={settings?.appearance.fontSize ?? defaultSettings.appearance.fontSize}
+            value={Math.min(
+              18,
+              settings?.appearance.fontSize ?? defaultSettings.appearance.fontSize,
+            )}
             className={selectClass}
             onChange={(event) =>
               saveAppearance({
@@ -256,14 +262,11 @@ export function AppearanceSettings() {
               })
             }
           >
-            <option value={14}>14 · Small</option>
-            <option value={15}>15</option>
-            <option value={16}>16 · Default</option>
-            <option value={17}>17</option>
-            <option value={18}>18 · Medium</option>
-            <option value={19}>19</option>
-            <option value={20}>20 · Large</option>
-            <option value={22}>22 · Extra large</option>
+            <option value={14}>Small</option>
+            <option value={15}>Compact</option>
+            <option value={16}>Default</option>
+            <option value={17}>Comfortable</option>
+            <option value={18}>Larger</option>
           </select>
         </SettingsRow>
         <SettingsRow

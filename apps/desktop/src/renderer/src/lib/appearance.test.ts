@@ -17,7 +17,8 @@ it('restores cached font and scale before hydration, and lets themes own their d
   })
   applyCachedAppearance()
   const root = document.documentElement
-  expect(root.style.fontSize).toBe('18px')
+  expect(root.style.fontSize).toBe('16px')
+  expect(root.style.getPropertyValue('--ari-chat-scale')).toBe('1.125')
   expect(root.style.getPropertyValue('--ari-font-ui')).toContain('Geist Mono Variable')
   expect(root.dataset['ariChatWidth']).toBe('wide')
   expect(root.dataset['ariChatStyle']).toBe('terminal')
@@ -44,6 +45,25 @@ it('restores JetBrains code fonts and full width independently of the interface 
   const root = document.documentElement
   expect(root.style.getPropertyValue('--ari-font-ui')).toContain('Source Sans 3 Variable')
   expect(root.style.getPropertyValue('--ari-font-mono')).toContain('JetBrains Mono Variable')
-  expect(root.style.fontSize).toBe('17px')
+  expect(root.style.fontSize).toBe('16px')
+  expect(root.style.getPropertyValue('--ari-chat-scale')).toBe('1.0625')
+  expect(root.dataset['ariChatWidth']).toBe('full')
+})
+
+it('caps an oversized cached preference without losing the font or layout', () => {
+  localStorage.setItem(
+    'ari.appearance',
+    JSON.stringify({
+      ...defaultSettings.appearance,
+      fontSize: 22,
+      fontFamily: 'mono',
+      chatWidth: 'full',
+    }),
+  )
+  applyCachedAppearance()
+  const root = document.documentElement
+  expect(root.style.fontSize).toBe('16px')
+  expect(root.style.getPropertyValue('--ari-chat-scale')).toBe('1.125')
+  expect(root.style.getPropertyValue('--ari-font-ui')).toContain('Geist Mono Variable')
   expect(root.dataset['ariChatWidth']).toBe('full')
 })

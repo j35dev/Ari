@@ -91,12 +91,12 @@ describe('TerminalPane', () => {
     expect(options['lineHeight']).toBeGreaterThan(1)
   })
 
-  it('updates the font and scale of an open terminal without respawning its shell', async () => {
+  it('updates an open terminal font while chat sizing leaves its grid unchanged', async () => {
     mount()
-    applyAppearance({ ...defaultSettings.appearance, codeFont: 'jetbrains-mono', fontSize: 22 })
+    applyAppearance({ ...defaultSettings.appearance, codeFont: 'jetbrains-mono', fontSize: 18 })
     await vi.waitFor(() => {
       expect(liveOptions[0]?.['fontFamily']).toContain('JetBrains Mono Variable')
-      expect(liveOptions[0]?.['fontSize']).toBe(17.875)
+      expect(liveOptions[0]?.['fontSize']).toBe(13)
     })
     expect(ctorOptions).toHaveLength(1)
     expect(invokeFn.mock.calls.filter(([method]) => method === 'terminal.create')).toHaveLength(1)

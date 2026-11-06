@@ -47,7 +47,7 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-appearance',
     label: 'Text size',
-    keywords: 'font size small large accessibility scale density',
+    keywords: 'font size small compact comfortable larger accessibility chat messages composer',
   },
   {
     section: 'settings-appearance',

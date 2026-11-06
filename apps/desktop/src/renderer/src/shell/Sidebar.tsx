@@ -154,7 +154,7 @@ export function SidebarHeader({
   return (
     <header className="flex h-12 shrink-0 items-center px-3">
       <div className="flex min-w-0 flex-1 items-baseline gap-2">
-        <span aria-label="Ari" className="text-base font-semibold tracking-[-0.03em] text-fg">
+        <span aria-label="Ari" className="text-[15px] font-semibold tracking-[-0.03em] text-fg">
           Ari
           <span aria-hidden="true" className="text-accent">
             .
@@ -483,7 +483,7 @@ function SessionRow({
               </span>
             </span>
             <span className="flex w-full min-w-0 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-sm text-fg">{session.title}</span>
+              <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{session.title}</span>
             </span>
             {session.branch ? (
               <span className="flex w-full min-w-0 items-center gap-1.5 text-2xs text-fg-subtle">
@@ -498,7 +498,7 @@ function SessionRow({
           <>
             <span className="flex size-3 shrink-0 items-center justify-center">{mark}</span>
             <span
-              className={`min-w-0 flex-1 truncate text-sm ${
+              className={`min-w-0 flex-1 truncate text-[13px] ${
                 hasChildren ? 'font-medium text-fg' : nested && !isActive ? 'text-fg-muted' : ''
               }`}
             >
@@ -991,7 +991,7 @@ function ProjectGroupSection({
           >
             <ContextMark variant={project ? 'project' : 'unfiled'} active={isActiveGroup} />
             <span
-              className={`min-w-0 flex-1 truncate text-sm font-medium ${
+              className={`min-w-0 flex-1 truncate text-[13px] font-medium ${
                 missing ? 'text-fg-subtle line-through' : ''
               }`}
             >
@@ -1653,11 +1653,13 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           aria-label="New session"
           title="New session (Mod+N)"
           onClick={(e) => onNewSession?.(anchorBelow(e.currentTarget))}
-          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-sm font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
-          New session
-          <Kbd className="ml-auto h-4 border-border/60 px-1 text-2xs text-fg-subtle">Mod+N</Kbd>
+          <SquarePen size={14} strokeWidth={1.8} aria-hidden className="shrink-0 text-fg-muted" />
+          <span className="min-w-0 flex-1 truncate text-left">New session</span>
+          <Kbd className="ml-auto h-4 shrink-0 border-border/60 px-1 text-[10px] text-fg-subtle">
+            Mod+N
+          </Kbd>
         </button>
         {/* Adding a project is how a session gets somewhere to run, so it sits
             beside New session rather than tucked away as a sidebar icon. */}
@@ -1666,10 +1668,10 @@ const SessionsUnderProjectsBody = memo(function SessionsUnderProjectsBody({
           aria-label="Add project"
           title="Add a folder as a project"
           onClick={() => onOpenProject?.()}
-          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-sm font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+          className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-surface-1 px-2.5 text-[13px] font-medium text-fg transition-colors hover:border-border-strong hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
         >
-          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="text-fg-muted" />
-          Add project
+          <FolderPlus size={14} strokeWidth={1.8} aria-hidden className="shrink-0 text-fg-muted" />
+          <span className="min-w-0 truncate">Add project</span>
         </button>
       </div>
       <SidebarSearch query={query} onQueryChange={setQuery} inputRef={searchInputRef} collapsed />

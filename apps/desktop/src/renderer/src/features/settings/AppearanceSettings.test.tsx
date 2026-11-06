@@ -50,6 +50,14 @@ function renderPage() {
 }
 
 describe('AppearanceSettings', () => {
+  it('offers only modest text sizes and starts at the released default scale', () => {
+    renderPage()
+    const select = screen.getByRole('combobox', { name: 'Text size' }) as HTMLSelectElement
+    expect(select.value).toBe('16')
+    expect(Array.from(select.options, (option) => Number(option.value))).toEqual([
+      14, 15, 16, 17, 18,
+    ])
+  })
   it('offers bundled fonts, separate code faces, intermediate sizes, and full width', async () => {
     renderPage()
     const user = userEvent.setup()
