@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Check, Copy, FileDiff, GitBranch, RefreshCw, UnfoldVertical } from 'lucide-react'
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  FileDiff,
+  GitBranch,
+  RefreshCw,
+  UnfoldVertical,
+} from 'lucide-react'
 import type {
   GitComparison,
   GitScope,
@@ -69,6 +78,10 @@ function ScopedReview({
   const [retry, setRetry] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [selection, setSelection] = useState<string[]>([])
+  const [viewed, setViewed] = useState<{ id: string; paths: Set<string> }>({
+    id: '',
+    paths: new Set(),
+  })
   useEffect(() => {
     if (initialComparison) preferences.change({ comparison: initialComparison })
   }, [JSON.stringify(initialComparison)])
@@ -148,6 +161,7 @@ function ScopedReview({
   }
   const selectComparison = (value: string) => {
     setContextLines(3)
+    setSelection([])
     if (value.startsWith('turn:'))
       preferences.change({ comparison: { kind: 'turn', turnId: value.slice(5) } })
     else if (value === 'branch') preferences.change({ comparison: { kind: 'branch' } })
@@ -164,9 +178,7 @@ function ScopedReview({
       <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-3 border-b border-border/60 px-3 py-1.5 @[44rem]:min-h-14 @[44rem]:px-4 @[44rem]:py-2">
         <FileDiff size={18} className="hidden text-accent @[44rem]:block" />
         <div className="min-w-0">
-          <h2 className="hidden text-sm font-semibold tracking-tight text-fg @[44rem]:block">
-            {label}
-          </h2>
+          <h2 className="text-sm font-semibold tracking-tight text-fg">{label}</h2>
           <p className="flex items-center gap-1.5 font-mono text-2xs text-fg-subtle">
             <GitBranch size={10} />
             {context
@@ -175,6 +187,12 @@ function ScopedReview({
                 ? 'Reading repository…'
                 : 'Repository unavailable'}{' '}
             · {scope.sessionId ? 'session' : 'project'}
+            {context?.status.ahead ? (
+              <span title="Commits ahead of upstream">↑{context.status.ahead}</span>
+            ) : null}
+            {context?.status.behind ? (
+              <span title="Commits behind upstream">↓{context.status.behind}</span>
+            ) : null}
           </p>
         </div>
         <div className="flex-1" />
@@ -235,6 +253,12 @@ function ScopedReview({
             setContextLines(3)
           }}
           selectedPaths={renderControls ? new Set(paths) : undefined}
+          onSelectAll={
+            renderControls
+              ? () => setSelection(files.slice(0, 500).map((file) => file.path))
+              : undefined
+          }
+          selectedCommit={comparison.kind === 'commit' ? comparison.ref : undefined}
           onCommit={(ref) => {
             preferences.change({ comparison: { kind: 'commit', ref } })
             setContextLines(3)
@@ -244,14 +268,65 @@ function ScopedReview({
           {file && manifest ? (
             <>
               <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-4 py-2">
+                <FileDiff size={13} className="shrink-0 text-fg-subtle" aria-hidden />
                 <span
-                  className="min-w-0 flex-1 truncate font-mono text-xs text-fg"
+                  className="min-w-0 flex-1 basis-[calc(100%-1.5rem)] truncate font-mono text-xs text-fg @[44rem]:basis-auto"
                   title={file.path}
                 >
                   {file.path}
                 </span>
                 <span className="font-mono text-2xs text-success">+{file.additions}</span>
                 <span className="font-mono text-2xs text-danger">−{file.deletions}</span>
+                <label className="ml-2 flex cursor-pointer items-center gap-1.5 text-2xs text-fg-muted">
+                  <input
+                    type="checkbox"
+                    aria-label={`Mark ${file.path} viewed`}
+                    checked={viewed.id === manifest.id && viewed.paths.has(file.path)}
+                    onChange={(event) => {
+                      const next = new Set(viewed.id === manifest.id ? viewed.paths : [])
+                      if (event.target.checked) next.add(file.path)
+                      else next.delete(file.path)
+                      setViewed({ id: manifest.id, paths: next })
+                    }}
+                  />
+                  Viewed
+                </label>
+                <span className="mx-1 h-4 w-px bg-border/60" aria-hidden />
+                <button
+                  type="button"
+                  className={control}
+                  aria-label="Previous file"
+                  disabled={files.indexOf(file) <= 0}
+                  onClick={() => {
+                    const next = files[files.indexOf(file) - 1]
+                    if (next) {
+                      preferences.change({ path: next.path })
+                      setContextLines(3)
+                      setSelection([next.path])
+                    }
+                  }}
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="font-mono text-2xs tabular-nums text-fg-subtle">
+                  {files.indexOf(file) + 1}/{files.length}
+                </span>
+                <button
+                  type="button"
+                  className={control}
+                  aria-label="Next file"
+                  disabled={files.indexOf(file) >= files.length - 1}
+                  onClick={() => {
+                    const next = files[files.indexOf(file) + 1]
+                    if (next) {
+                      preferences.change({ path: next.path })
+                      setContextLines(3)
+                      setSelection([next.path])
+                    }
+                  }}
+                >
+                  <ChevronRight size={13} />
+                </button>
                 <button
                   type="button"
                   className={control}
@@ -297,9 +372,18 @@ function ScopedReview({
                     />
                   )
                 ) : (
-                  <p role="status" className="p-6 text-xs text-fg-subtle">
-                    Loading file diff…
-                  </p>
+                  <div role="status" aria-label="Loading file diff" className="space-y-3 p-5">
+                    <span className="sr-only">Loading file diff…</span>
+                    {[70, 90, 50, 80, 65, 85].map((width, index) => (
+                      <div key={index} className="flex gap-4">
+                        <span className="h-2.5 w-7 animate-pulse rounded bg-surface-2" />
+                        <span
+                          className="h-2.5 animate-pulse rounded bg-surface-2"
+                          style={{ width: `${width}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </>
@@ -315,6 +399,12 @@ function ScopedReview({
                     : 'This comparison has no net changes.'}
               </p>
             </div>
+          ) : loading ? (
+            <div role="status" className="space-y-3 p-6">
+              <span className="sr-only">Loading changes…</span>
+              <div className="h-3 w-44 animate-pulse rounded bg-surface-2" />
+              <div className="h-3 w-64 animate-pulse rounded bg-surface-2" />
+            </div>
           ) : null}
         </div>
       </div>
@@ -326,6 +416,11 @@ function ScopedReview({
         <div className="flex-1" />
         {notice ? <span role="status">{notice}</span> : null}
         {manifest?.truncated ? <span className="text-warning">File list truncated</span> : null}
+        {manifest && viewed.id === manifest.id && viewed.paths.size ? (
+          <span>
+            {viewed.paths.size}/{manifest.files.length} viewed
+          </span>
+        ) : null}
       </div>
     </section>
   )

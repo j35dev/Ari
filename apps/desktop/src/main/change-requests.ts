@@ -51,6 +51,7 @@ export type HostCommand = (
   args: string[],
   cwd: string,
   signal: AbortSignal,
+  options?: { input?: string },
 ) => Promise<{ stdout: string }>
 
 function requestState(value: string): 'open' | 'closed' | 'merged' | null {
@@ -230,15 +231,49 @@ export async function runHostCommand(
   args: string[],
   cwd: string,
   signal: AbortSignal,
+  options?: { input?: string },
 ): Promise<{ stdout: string }> {
   const { pathEnv } = await resolveDetectionEnvironment()
+  if (options?.input !== undefined) {
+    return new Promise((resolve, reject) => {
+      const child = execFile(
+        command,
+        args,
+        {
+          cwd,
+          timeout: 30_000,
+          shell: false,
+          windowsHide: true,
+          encoding: 'utf8',
+          maxBuffer: 8 * 1024 * 1024,
+          env: {
+            ...processEnvWithPath(pathEnv),
+            GH_PROMPT_DISABLED: '1',
+            GIT_TERMINAL_PROMPT: '0',
+            NO_COLOR: '1',
+          },
+          signal,
+        },
+        (error, stdout) =>
+          error ? reject(new Error(error.message, { cause: error })) : resolve({ stdout }),
+      )
+      child.stdin?.on('error', () => undefined)
+      child.stdin?.end(options.input)
+    })
+  }
   const { stdout } = await execFileP(command, args, {
     cwd,
     timeout: 30_000,
     shell: false,
     windowsHide: true,
     encoding: 'utf8',
-    env: processEnvWithPath(pathEnv),
+    maxBuffer: 8 * 1024 * 1024,
+    env: {
+      ...processEnvWithPath(pathEnv),
+      GH_PROMPT_DISABLED: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      NO_COLOR: '1',
+    },
     signal,
   })
   return { stdout: String(stdout) }

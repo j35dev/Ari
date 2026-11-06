@@ -64,10 +64,23 @@ describe('Changes route', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('session.load', { sessionId: 's' })
   })
 
-  it('shows open requests above the review in one view', () => {
+  it('keeps requests lazy and separate from local review', () => {
     render(<ChangesView sessionId="s" />)
-    expect(screen.getByTestId('requests')).toHaveTextContent('"sessionId":"s"')
+    expect(screen.queryByTestId('requests')).not.toBeInTheDocument()
     expect(screen.getByTestId('review')).toHaveTextContent('"sessionId":"s"')
+    fireEvent.click(screen.getByRole('tab', { name: 'Pull requests' }))
+    expect(screen.getByTestId('requests')).toHaveTextContent('"sessionId":"s"')
+    expect(screen.queryByTestId('review')).not.toBeInTheDocument()
+  })
+
+  it('moves tab focus with arrow keys and reports selection for expand/dock', () => {
+    const onTabChange = vi.fn()
+    render(<ChangesView sessionId="s" onTabChange={onTabChange} />)
+    const changes = screen.getByRole('tab', { name: 'Changes' })
+    changes.focus()
+    fireEvent.keyDown(changes, { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { name: 'Pull requests' })).toHaveFocus()
+    expect(onTabChange).toHaveBeenCalledWith('requests')
   })
 
   it('surfaces fallback scope failures and permits retry', async () => {

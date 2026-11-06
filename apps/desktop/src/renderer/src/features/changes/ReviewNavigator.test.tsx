@@ -47,7 +47,7 @@ describe('review navigation', () => {
         onCommit={() => undefined}
       />,
     )
-    expect(screen.getByText('2 changed files')).toBeInTheDocument()
+    expect(screen.getAllByText('2 changed files')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'src/a.ts' })).toHaveAttribute('aria-current', 'true')
     await user.click(screen.getByRole('button', { name: 'src/b.ts' }))
     expect(onSelect).toHaveBeenCalledWith('src/b.ts', false)
