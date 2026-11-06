@@ -118,6 +118,7 @@ export function TranscriptView({
   onQuoteAssistant,
   regenerateDisabled = false,
   running = false,
+  chatStyle = 'conversation',
   header,
   onDiffComment,
   onRetryTurnDiff,
@@ -160,6 +161,7 @@ export function TranscriptView({
    * live — see `ActivityBurst`. Defaults to settled.
    */
   running?: boolean
+  chatStyle?: 'conversation' | 'terminal'
   /** Surface pinned above the transcript (plan panel); scrolls away with it. */
   header?: React.ReactNode
   /** Review-note loop (M21.1): inline diff comments flow to the composer. */
@@ -506,7 +508,10 @@ export function TranscriptView({
   if (!loading) historyLoadedRef.current = true
 
   return (
-    <div className="ari-reading-lane relative flex h-full min-h-0 flex-col">
+    <div
+      className="ari-reading-lane relative flex h-full min-h-0 flex-col"
+      data-chat-style={chatStyle}
+    >
       <h2 className="sr-only">Messages</h2>
       {header}
       <div
@@ -518,10 +523,10 @@ export function TranscriptView({
         // Not a live region: a screen reader would re-announce every streamed
         // flush. The working status below announces instead.
         aria-live="off"
-        className="ari-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        className="ari-scroll ari-transcript-scroll min-h-0 flex-1 overflow-y-auto py-6"
         data-session={sessionId}
       >
-        <div ref={innerRef} className="mx-auto max-w-3xl">
+        <div ref={innerRef} className="ari-chat-column">
           {rows.map((row, index) => (
             <div
               key={row.key}
@@ -560,6 +565,7 @@ export function TranscriptView({
                   }
                   regenerateDisabled={regenerateDisabled}
                   active={running && index === activeIndex}
+                  terminal={chatStyle === 'terminal'}
                   onDiffComment={onDiffComment}
                   onRetryTurnDiff={onRetryTurnDiff}
                 />
@@ -572,7 +578,7 @@ export function TranscriptView({
 
         {activity}
         {loading && rows.length === 0 ? (
-          <div className="mx-auto flex max-w-3xl flex-col gap-4" aria-hidden="true">
+          <div className="ari-chat-column flex flex-col gap-4" aria-hidden="true">
             {LOADING_ROW_WIDTHS.map((width) => (
               <Skeleton key={width} h={14} style={{ width }} />
             ))}
@@ -584,7 +590,7 @@ export function TranscriptView({
         </span>
 
         {working ? (
-          <div className="mx-auto mt-3 max-w-3xl px-1" aria-live="polite">
+          <div className="ari-chat-column mt-3 px-1" aria-live="polite">
             {working}
           </div>
         ) : null}
@@ -653,6 +659,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
   quoteText,
   regenerateDisabled,
   active,
+  terminal,
   onDiffComment,
   onRetryTurnDiff,
   sessionTitle,
@@ -671,12 +678,14 @@ const TranscriptRowView = memo(function TranscriptRowView({
   regenerateDisabled: boolean
   /** True when a running turn is on this row; only ever the last one. */
   active: boolean
+  terminal: boolean
   onDiffComment?: (comment: { path: string; line: number | null; text: string }) => void
   onRetryTurnDiff?: (turnId: string) => void
 }) {
   const body = renderRowBody({
     row,
     active,
+    terminal,
     onEditUserMessage,
     onRegenerate,
     onQuote,
@@ -704,6 +713,7 @@ const TranscriptRowView = memo(function TranscriptRowView({
 function renderRowBody({
   row,
   active,
+  terminal,
   onEditUserMessage,
   onRegenerate,
   onQuote,
@@ -716,6 +726,7 @@ function renderRowBody({
 }: {
   row: TranscriptRow
   active: boolean
+  terminal: boolean
   onEditUserMessage?: (text: string) => void
   onRegenerate?: () => void
   onQuote?: (quoted: string) => void
@@ -729,7 +740,7 @@ function renderRowBody({
   return (
     <>
       {row.kind === 'tool-group' ? (
-        <ActivityBurst row={row} active={active} />
+        <ActivityBurst row={row} active={active} terminal={terminal} />
       ) : row.kind === 'turn-diff' ? (
         <TurnDiffCard
           turnId={row.turnId}
@@ -759,7 +770,13 @@ function renderRowBody({
           </div>
         ) : (
           <div>
-            <MarkdownBlock text={row.text ?? ''} streaming={active} />
+            {terminal ? (
+              <div className="ari-terminal-output" data-streaming={active || undefined}>
+                {row.text ?? ''}
+              </div>
+            ) : (
+              <MarkdownBlock text={row.text ?? ''} streaming={active} />
+            )}
             {row.isLastOfMessage && row.messageId ? (
               <MessageFooter
                 message={{
@@ -783,7 +800,7 @@ function renderRowBody({
       ) : row.kind === 'notice' ? (
         <NoticeNote text={row.text ?? ''} />
       ) : row.kind === 'thinking' ? (
-        <ThinkingBlock text={row.text ?? ''} />
+        <ThinkingBlock text={row.text ?? ''} expanded={terminal} />
       ) : null}
     </>
   )
@@ -954,7 +971,7 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
     }
   }
   return (
-    <div className="group my-2 flex justify-end">
+    <div className="ari-user-message group my-5 flex justify-end">
       <div className="flex max-w-[85%] items-end gap-1">
         {onEdit ? (
           <button
@@ -975,7 +992,7 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
         </button>
-        <div className="whitespace-pre-wrap break-words rounded-2xl border border-border/70 bg-surface-2/90 px-4 py-2.5 text-sm leading-relaxed text-fg shadow-sm">
+        <div className="ari-user-bubble ari-chat-copy whitespace-pre-wrap break-words rounded-xl bg-surface-1 px-4 py-3 text-fg">
           {text}
         </div>
       </div>

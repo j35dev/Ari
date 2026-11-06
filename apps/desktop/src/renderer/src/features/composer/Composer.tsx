@@ -558,7 +558,7 @@ export function Composer({
   )
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className="ari-composer-content px-4 pb-4 pt-2">
       <AnimatePresence>
         {queued.length > 0 ? (
           <motion.div
@@ -821,7 +821,7 @@ const MentionOverlay = forwardRef<HTMLDivElement, { text: string; resting: boole
       <div
         ref={ref}
         aria-hidden="true"
-        className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
+        className={`ari-composer-mention-overlay pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words pt-3.5 text-sm leading-relaxed text-fg [scrollbar-gutter:stable] ${
           resting ? 'pl-4 pr-12' : 'px-4'
         }`}
       >

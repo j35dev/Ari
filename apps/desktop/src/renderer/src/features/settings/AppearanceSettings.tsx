@@ -5,6 +5,8 @@ import { useTheme } from '@ari/ui/theme-provider'
 import { themeList } from '@ari/ui/themes'
 import type { Theme, ThemeId } from '@ari/ui/themes'
 import { wallpapers } from '@ari/ui/wallpapers'
+import type { Settings } from '@ari/contracts/settings'
+import { interfaceFonts } from '../../lib/appearance'
 import type { Wallpaper } from '@ari/ui/wallpapers'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
@@ -99,7 +101,7 @@ function ThemeGroup({
   return (
     <section className="mt-4" aria-label={title}>
       <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">{title}</h3>
-      <div role="radiogroup" aria-label={title} className="grid gap-2 md:grid-cols-2">
+      <div role="radiogroup" aria-label={title} className="ari-theme-grid grid gap-2">
         {themes.map((theme) => (
           <ThemeCard
             key={theme.id}
@@ -147,7 +149,9 @@ function WallpaperGroup({
 }) {
   return (
     <section className="mt-4" aria-label="Wallpaper">
-      <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">Wallpaper</h3>
+      <h3 className="mb-2 text-2xs font-medium uppercase tracking-wide text-fg-subtle">
+        Wallpaper
+      </h3>
       <div role="radiogroup" aria-label="Wallpaper" className="grid gap-2">
         <ThemeCard
           label="None"
@@ -181,6 +185,13 @@ export function AppearanceSettings() {
   const { settings, update } = useEngineSettings()
   const { mode, setMode, theme, wallpaper, setWallpaper } = useTheme()
   const reducedMotion = settings?.appearance.reducedMotion ?? false
+  const saveAppearance = (patch: Partial<Settings['appearance']>) => {
+    void update({ appearance: patch }).catch((error: unknown) => {
+      log.warn('failed to persist appearance', { error })
+    })
+  }
+  const selectClass =
+    'max-w-full rounded-lg border border-border bg-surface-1 px-3 py-2 text-sm text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring'
 
   const handleReducedMotionChange = (checked: boolean) => {
     void update({ appearance: { reducedMotion: checked } }).catch((error: unknown) => {
@@ -193,10 +204,95 @@ export function AppearanceSettings() {
 
   return (
     <SettingsPage title="Appearance">
-      <SettingsRow
-        label="Theme"
-        hint="Pick a palette, or follow the system light/dark preference."
-      >
+      <section aria-label="Typography and chat" className="mb-6">
+        <SettingsRow
+          label="Interface font"
+          hint="Choose the typeface for the app and conversation. Code keeps its monospace font."
+        >
+          <select
+            aria-label="Interface font"
+            value={settings?.appearance.fontFamily ?? 'theme'}
+            className={selectClass}
+            onChange={(event) =>
+              saveAppearance({
+                fontFamily: event.target.value as Settings['appearance']['fontFamily'],
+              })
+            }
+          >
+            {interfaceFonts.map((font) => (
+              <option key={font.id} value={font.id}>
+                {font.label}
+              </option>
+            ))}
+          </select>
+        </SettingsRow>
+        <SettingsRow label="Text size" hint="Scale text and controls together throughout the app.">
+          <select
+            aria-label="Text size"
+            value={settings?.appearance.fontSize ?? 16}
+            className={selectClass}
+            onChange={(event) =>
+              saveAppearance({
+                fontSize: Number(event.target.value) as Settings['appearance']['fontSize'],
+              })
+            }
+          >
+            <option value={14}>Small</option>
+            <option value={16}>Default</option>
+            <option value={18}>Large</option>
+            <option value={20}>Extra large</option>
+          </select>
+        </SettingsRow>
+        <SettingsRow
+          label="Chat width"
+          hint="Give messages, edits, and the composer more room on larger screens."
+        >
+          <select
+            aria-label="Chat width"
+            value={settings?.appearance.chatWidth ?? 'comfortable'}
+            className={selectClass}
+            onChange={(event) =>
+              saveAppearance({
+                chatWidth: event.target.value as Settings['appearance']['chatWidth'],
+              })
+            }
+          >
+            <option value="focused">Focused</option>
+            <option value="comfortable">Comfortable</option>
+            <option value="wide">Wide</option>
+          </select>
+        </SettingsRow>
+        <SettingsRow
+          label="Chat style"
+          hint="Conversation formats replies. Terminal shows plain streamed text and keeps commands, edits, and results expanded."
+        >
+          <select
+            aria-label="Chat style"
+            value={settings?.appearance.chatStyle ?? 'conversation'}
+            className={selectClass}
+            onChange={(event) =>
+              saveAppearance({
+                chatStyle: event.target.value as Settings['appearance']['chatStyle'],
+              })
+            }
+          >
+            <option value="conversation">Conversation</option>
+            <option value="terminal">Terminal</option>
+          </select>
+        </SettingsRow>
+        <div
+          className="ari-appearance-preview mt-4 rounded-xl bg-surface-1 px-5 py-4"
+          aria-label="Typography preview"
+        >
+          <p className="mb-2 text-xs text-fg-muted">Preview</p>
+          <p className="ari-chat-copy text-fg">A little more room to think.</p>
+          <p className="mt-2 text-sm leading-relaxed text-fg-muted">
+            Explore your project, follow the work, and shape what comes next.
+          </p>
+          <code className="mt-3 block font-mono text-xs text-accent">{'> ari / workspace'}</code>
+        </div>
+      </section>
+      <SettingsRow label="Theme" hint="Pick a palette, or follow the system light/dark preference.">
         <span className="text-xs text-fg-muted">{theme.label}</span>
       </SettingsRow>
 

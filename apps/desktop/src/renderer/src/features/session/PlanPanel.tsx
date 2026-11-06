@@ -62,7 +62,7 @@ export function PlanPanel({
   if ((items === null || items.length === 0) && children.length === 0) return null
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-2 px-4 pt-3">
+    <div className="ari-chat-column flex flex-col gap-2 pt-3">
       {items !== null && items.length > 0 ? (
         <PlanCard
           items={items}

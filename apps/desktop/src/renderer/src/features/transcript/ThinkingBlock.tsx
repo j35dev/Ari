@@ -7,8 +7,17 @@ import { thoughtPreview } from './toolLabels'
  * italic preview line that expands to the full thought. Used standalone and
  * as a step inside an expanded activity burst.
  */
-export function ThinkingBlock({ text, compact = false }: { text: string; compact?: boolean }) {
-  const [open, setOpen] = useState(false)
+export function ThinkingBlock({
+  text,
+  compact = false,
+  expanded = false,
+}: {
+  text: string
+  compact?: boolean
+  expanded?: boolean
+}) {
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null)
+  const open = openOverride ?? expanded
   return (
     <div
       className={
@@ -19,7 +28,7 @@ export function ThinkingBlock({ text, compact = false }: { text: string; compact
     >
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpenOverride((previous) => !(previous ?? expanded))}
         aria-expanded={open}
         aria-label="Reasoning"
         className={`flex w-full items-center gap-2 rounded-md text-left transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ${compact ? 'px-1 py-[3px]' : 'py-0.5'}`}

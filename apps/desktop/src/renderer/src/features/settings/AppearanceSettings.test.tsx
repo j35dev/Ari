@@ -20,6 +20,7 @@ const engineSettings: Settings = {
   version: 1,
   delegation: delegationSettingsSchema.parse({}),
   appearance: {
+    ...defaultSettings.appearance,
     themeId: 'obsidian',
     mode: 'system',
     reducedMotion: false,
@@ -49,6 +50,20 @@ function renderPage() {
 }
 
 describe('AppearanceSettings', () => {
+  it('persists font, scale, width, and terminal choices as independent patches', async () => {
+    renderPage()
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Interface font' }), 'mono')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Text size' }), '18')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Chat width' }), 'wide')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Chat style' }), 'terminal')
+    expect(mocks.update.mock.calls.map(([patch]) => patch)).toEqual([
+      { appearance: { fontFamily: 'mono' } },
+      { appearance: { fontSize: 18 } },
+      { appearance: { chatWidth: 'wide' } },
+      { appearance: { chatStyle: 'terminal' } },
+    ])
+  })
   beforeEach(() => {
     mocks.update.mockReset()
     mocks.update.mockResolvedValue(engineSettings)
@@ -119,6 +134,7 @@ describe('AppearanceSettings', () => {
     mocks.holder.settings = {
       ...engineSettings,
       appearance: {
+        ...engineSettings.appearance,
         themeId: 'obsidian',
         mode: 'system',
         reducedMotion: true,

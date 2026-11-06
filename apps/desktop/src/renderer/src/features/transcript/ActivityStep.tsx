@@ -1,12 +1,5 @@
 import { useMemo, useState } from 'react'
-import {
-  FilePen,
-  FileText,
-  ListChecks,
-  Search,
-  Terminal,
-  type LucideIcon,
-} from 'lucide-react'
+import { FilePen, FileText, ListChecks, Search, Terminal, type LucideIcon } from 'lucide-react'
 import { ToolCallDetails } from './ToolCallDetails'
 import { ToolResultBody } from './ToolResultBody'
 import { editDiffStat } from './edit-diff'
@@ -30,15 +23,19 @@ export const KIND_ICON: Record<ToolKind, LucideIcon> = {
 export function StepBody({
   call,
   result,
+  expanded = false,
 }: {
   call: TranscriptBlock
   result: TranscriptBlock | undefined
+  expanded?: boolean
 }) {
   if (call.argsJson === undefined && result?.resultJson === undefined) return null
   return (
-    <div className="ari-burst-steps mb-1 ml-4 overflow-hidden rounded-md border border-border bg-surface-1">
+    <div className="ari-tool-body ari-burst-steps mb-1 ml-4 overflow-hidden rounded-md border border-border bg-surface-1">
       {call.argsJson ? <ToolCallDetails call={call} /> : null}
-      {result?.resultJson ? <ToolResultBody resultJson={result.resultJson} /> : null}
+      {result?.resultJson ? (
+        <ToolResultBody resultJson={result.resultJson} expanded={expanded} />
+      ) : null}
     </div>
   )
 }
@@ -55,11 +52,14 @@ export function StepBody({
 export function ActivityStep({
   call,
   result,
+  expanded = false,
 }: {
   call: TranscriptBlock
   result: TranscriptBlock | undefined
+  expanded?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null)
+  const open = openOverride ?? expanded
   const step = useMemo(() => {
     const { kind, verb, target } = describeToolCall(call, result === undefined)
     const nameOnly = target.length === 0
@@ -83,7 +83,7 @@ export function ActivityStep({
     <div>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpenOverride((previous) => !(previous ?? expanded))}
         aria-expanded={open}
         aria-label={failed ? `${label}, error` : label}
         className="grid w-full grid-cols-[13px_3.5rem_minmax(0,1fr)_auto] items-center gap-x-2 rounded-sm px-1 py-[3px] text-left transition-colors hover:bg-surface-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-ring"
@@ -113,7 +113,7 @@ export function ActivityStep({
           ) : null}
         </span>
       </button>
-      {open ? <StepBody call={call} result={result} /> : null}
+      {open ? <StepBody call={call} result={result} expanded={expanded} /> : null}
     </div>
   )
 }

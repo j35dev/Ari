@@ -30,6 +30,48 @@ function message(id: string): Message {
 }
 
 describe('TranscriptView announcements', () => {
+  it('switches to plain streaming text and expanded tools without changing the journal', async () => {
+    const prompt = message('prompt')
+    const reply: Message = {
+      ...message('reply'),
+      role: 'assistant',
+      turnId: 'turn_1',
+      parts: [
+        { type: 'tool-call', callId: 'c', name: 'Bash', argsJson: '{"command":"pnpm typecheck"}' },
+        { type: 'tool-result', callId: 'c', resultJson: 'Typecheck passed', isError: false },
+        { type: 'text', text: '**Ready** to review' },
+      ],
+    }
+    const view = (terminal: boolean, current = reply, running = false) => (
+      <TranscriptView
+        sessionId="sess_1"
+        messages={[prompt, current]}
+        chatStyle={terminal ? 'terminal' : 'conversation'}
+        running={running}
+      />
+    )
+    const { container, rerender } = render(view(false))
+    expect(container.querySelector('.ari-md strong')).toHaveTextContent('Ready')
+    expect(screen.queryByText('Typecheck passed')).not.toBeInTheDocument()
+    rerender(view(true, reply, true))
+    expect(container.querySelector('.ari-terminal-output')).toHaveTextContent('**Ready** to review')
+    expect(container.querySelector('.ari-terminal-output')).toHaveAttribute('data-streaming')
+    expect(screen.getByText('Typecheck passed')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Ran pnpm typecheck' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    const growing: Message = {
+      ...reply,
+      parts: [...reply.parts.slice(0, 2), { type: 'text', text: '**Ready** to review now' }],
+    }
+    rerender(view(true, growing, true))
+    expect(container.querySelector('.ari-terminal-output')).toHaveTextContent('review now')
+    rerender(view(false, growing))
+    expect(container.querySelector('.ari-md strong')).toHaveTextContent('Ready')
+    expect(container.querySelector('.ari-terminal-output')).toBeNull()
+    expect(screen.getByText('hello prompt')).toBeInTheDocument()
+  })
   it('announces the turn, not every streamed flush', () => {
     const { rerender } = render(
       createElement(TranscriptView, { sessionId: 'sess_1', messages: [message('m1')] }),

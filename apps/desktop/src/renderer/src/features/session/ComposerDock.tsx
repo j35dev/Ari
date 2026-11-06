@@ -55,7 +55,7 @@ export const ComposerDock = memo(function ComposerDock({
   return (
     <motion.div
       ref={dockRef}
-      className="ari-composer-dock relative z-pane-chrome mx-auto w-full max-w-3xl shrink-0"
+      className="ari-composer-dock ari-chat-column relative z-pane-chrome shrink-0"
       data-centered={centered || undefined}
       initial={false}
       layout="position"
@@ -68,19 +68,23 @@ export const ComposerDock = memo(function ComposerDock({
       transition={instant || !measured ? { duration: 0 } : transitions.composerDock}
     >
       <motion.div
-        className="ari-session-intro pointer-events-none absolute inset-x-4 bottom-full pb-5 text-center"
+        className="ari-session-intro pointer-events-none absolute inset-x-0 bottom-full pb-6 text-left"
         aria-hidden={!centered}
         initial={false}
         animate={{ opacity: centered ? 1 : 0, y: centered ? 0 : -8 }}
         transition={instant ? { duration: 0 } : transitions.fadeUp}
       >
-        <p className="mb-2 text-2xs font-medium tracking-[0.2em] text-accent">A R I</p>
-        <h2 className="text-2xl font-medium tracking-tight text-fg">What are we building?</h2>
-        <p className="mt-2 text-sm text-fg-muted">A fresh canvas for your next idea.</p>
+        <p className="mb-3 text-sm font-medium text-accent">
+          Ari <span className="font-normal text-fg-muted">/ New session</span>
+        </p>
+        <h2 className="ari-session-heading font-medium text-fg">Make room for your next idea.</h2>
+        <p className="mt-3 text-sm leading-relaxed text-fg-muted">
+          Ask a question, explore your code, or put your agent to work.
+        </p>
       </motion.div>
       {children}
       <motion.div
-        className="ari-session-starters absolute inset-x-4 top-full flex flex-wrap justify-center gap-2 pt-1"
+        className="ari-session-starters absolute inset-x-0 top-full flex flex-wrap justify-start gap-x-4 gap-y-2 pt-2"
         aria-hidden={!centered}
         inert={!centered}
         initial={false}
@@ -92,7 +96,7 @@ export const ComposerDock = memo(function ComposerDock({
             key={starter.label}
             type="button"
             onClick={() => onStart(starter.prompt)}
-            className="rounded-full border border-border bg-surface-1/90 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            className="rounded-md px-1 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-1 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             {starter.label}
           </button>

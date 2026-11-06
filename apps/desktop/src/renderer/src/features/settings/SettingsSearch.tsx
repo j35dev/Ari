@@ -35,8 +35,23 @@ export const SETTINGS_SEARCH_INDEX = [
   },
   {
     section: 'settings-appearance',
-    label: 'Density',
-    keywords: 'compact comfortable spacing layout',
+    label: 'Interface font',
+    keywords: 'typography typeface geist mono system serif appearance',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Text size',
+    keywords: 'font size small large accessibility scale density',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Chat width',
+    keywords: 'compact focused comfortable wide spacing margins layout',
+  },
+  {
+    section: 'settings-appearance',
+    label: 'Chat style',
+    keywords: 'terminal cli streaming conversation commands edits results',
   },
   {
     section: 'settings-providers',
@@ -51,7 +66,8 @@ export const SETTINGS_SEARCH_INDEX = [
   {
     section: 'settings-providers',
     label: 'Provider binary path',
-    keywords: 'executable location custom cli install path browse which claude.exe npm shim connection',
+    keywords:
+      'executable location custom cli install path browse which claude.exe npm shim connection',
   },
   {
     section: 'settings-agents',
