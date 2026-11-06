@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from './Composer'
 import { FILE_MIME } from './drag-file'
 import { PASTE_FILE_MIN_BYTES } from './paste-as-file'
+import { applyAppearance } from '../../lib/appearance'
+import { defaultSettings } from '@ari/contracts/settings'
 
 const rpcMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -245,6 +247,27 @@ describe('Composer', () => {
     contentHeight = 52
     fireEvent.change(field, { target: { value: 'ab' } })
     expect(field.style.height).toBe('52px')
+  })
+
+  it('reflows an existing draft in both directions after changing text size', async () => {
+    const { unmount } = render(<Composer onSend={vi.fn()} />)
+    const field = screen.getByLabelText('Message')
+    let contentHeight = 74
+    Object.defineProperty(field, 'scrollHeight', { configurable: true, get: () => contentHeight })
+    Object.defineProperty(field, 'clientHeight', { configurable: true, get: () => 52 })
+    fireEvent.change(field, { target: { value: 'keep this draft' } })
+    try {
+      contentHeight = 96
+      applyAppearance({ ...defaultSettings.appearance, fontSize: 18 })
+      await waitFor(() => expect(field.style.height).toBe('96px'))
+      contentHeight = 52
+      applyAppearance(defaultSettings.appearance)
+      await waitFor(() => expect(field.style.height).toBe('52px'))
+      expect(field).toHaveValue('keep this draft')
+    } finally {
+      unmount()
+      applyAppearance(defaultSettings.appearance)
+    }
   })
 })
 

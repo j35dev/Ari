@@ -1,4 +1,4 @@
-import { defaultSettings, settingsUpdateSchema, type Settings } from '@ari/contracts/settings'
+import { defaultSettings, settingsSchema, type Settings } from '@ari/contracts/settings'
 
 const CACHE_KEY = 'ari.appearance'
 type Appearance = Settings['appearance']
@@ -48,10 +48,13 @@ export const interfaceFonts = [
   { id: 'serif', label: 'Book serif', family: "'Charter', 'Georgia', serif" },
 ] as const
 
-/** Apply before mount and after engine saves so every pane uses the same scale. */
+/** Keep app chrome at its released size; scale only conversation content. */
 export function applyAppearance(appearance: Appearance): void {
   const root = document.documentElement
-  root.style.fontSize = `${appearance.fontSize}px`
+  root.style.fontSize = '16px'
+  // A running older dev engine can still return a removed size until it restarts.
+  const size = Math.min(18, Math.max(14, appearance.fontSize))
+  root.style.setProperty('--ari-chat-scale', String(size / 16))
   const codeFamily = codeFonts.find((font) => font.id === appearance.codeFont)?.family ?? geistMono
   root.style.setProperty('--ari-font-mono', codeFamily)
   const family = interfaceFonts.find((font) => font.id === appearance.fontFamily)?.family
@@ -74,8 +77,8 @@ export function applyCachedAppearance(): void {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
     if (raw) {
-      const parsed = settingsUpdateSchema.safeParse({ appearance: JSON.parse(raw) as unknown })
-      if (parsed.success) appearance = { ...appearance, ...parsed.data.appearance }
+      const parsed = settingsSchema.shape.appearance.safeParse(JSON.parse(raw) as unknown)
+      if (parsed.success) appearance = parsed.data
     }
   } catch {
     // Invalid or unavailable cache: paint the defaults until the engine loads.

@@ -13,10 +13,6 @@ function readToken(name: string, fallback: string): string {
 /** Used when the mono token is missing, and as the round trip that re-measures. */
 const FALLBACK_FONT = "'Cascadia Code', ui-monospace, monospace"
 const FONT_SIZE = 13
-function readFontSize(): number {
-  const base = Number.parseFloat(getComputedStyle(document.documentElement).fontSize)
-  return FONT_SIZE * (Number.isFinite(base) && base > 0 ? base / 16 : 1)
-}
 /** xterm defaults to 1.0, which reads as one solid block of text. */
 const LINE_HEIGHT = 1.3
 
@@ -60,7 +56,7 @@ export function TerminalPane({
     // font family is rejected outright, leaving the grid measured against
     // 10px sans-serif while the rows render in the real font. Resolve it here.
     const fontFamily = readToken('--ari-font-mono', FALLBACK_FONT)
-    const fontSize = readFontSize()
+    const fontSize = FONT_SIZE
 
     const term = new Terminal({
       fontFamily,
@@ -134,7 +130,7 @@ export function TerminalPane({
     // Update font metrics in place so choosing a new face never restarts a shell.
     const fontObserver = new MutationObserver(() => {
       const family = readToken('--ari-font-mono', FALLBACK_FONT)
-      const size = readFontSize()
+      const size = FONT_SIZE
       if (term.options.fontFamily === family && term.options.fontSize === size) return
       term.options.fontFamily = family
       term.options.fontSize = size

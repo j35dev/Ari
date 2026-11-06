@@ -69,10 +69,12 @@ export const interfaceFontSizeSchema = z.union([
   z.literal(16),
   z.literal(17),
   z.literal(18),
-  z.literal(19),
-  z.literal(20),
-  z.literal(22),
 ])
+// Preserve preferences from previews that offered oversized text settings.
+const savedInterfaceFontSizeSchema = z.preprocess(
+  (value) => (value === 19 || value === 20 || value === 22 ? 18 : value),
+  interfaceFontSizeSchema,
+)
 export const chatWidthSchema = z.enum(['focused', 'balanced', 'comfortable', 'wide', 'full'])
 export const chatStyleSchema = z.enum(['conversation', 'terminal'])
 
@@ -178,7 +180,7 @@ export const settingsSchema = z.object({
       wallpaper: wallpaperSchema.default(defaultAppearance.wallpaper),
       fontFamily: interfaceFontSchema.default(defaultAppearance.fontFamily),
       codeFont: codeFontSchema.default(defaultAppearance.codeFont),
-      fontSize: interfaceFontSizeSchema.default(defaultAppearance.fontSize),
+      fontSize: savedInterfaceFontSizeSchema.default(defaultAppearance.fontSize),
       chatWidth: chatWidthSchema.default(defaultAppearance.chatWidth),
       chatStyle: chatStyleSchema.default(defaultAppearance.chatStyle),
     })
