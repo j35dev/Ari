@@ -1,20 +1,26 @@
-/* One type scale and one conversation measure across the desktop workspace. */
+/* Preserve Ari's type scale; the root size preference scales it together. */
 :root {
-  --ari-text-2xs: 0.75rem;
-  --ari-text-xs: 0.8125rem;
-  --ari-text-sm: 0.875rem;
-  --ari-text-md: 0.9375rem;
-  --ari-text-lg: 1.0625rem;
-  --ari-chat-text: 1rem;
-  --ari-chat-width: 64rem;
-  --ari-chat-gutter: clamp(1rem, 3cqw, 2.5rem);
+  --ari-chat-text: var(--ari-text-sm);
+  --ari-composer-text: 0.875rem;
+  /* Width is independent of the user's text scale. Columns still shrink to fit. */
+  --ari-chat-width: 768px;
+  --ari-chat-gutter: clamp(1rem, 1.25cqw, 1.5rem);
 }
 
 [data-ari-chat-width='focused'] {
-  --ari-chat-width: 48rem;
+  --ari-chat-width: 640px;
+}
+[data-ari-chat-width='comfortable'] {
+  --ari-chat-width: 768px;
+}
+[data-ari-chat-width='balanced'] {
+  --ari-chat-width: 960px;
 }
 [data-ari-chat-width='wide'] {
-  --ari-chat-width: 88rem;
+  --ari-chat-width: 1200px;
+}
+[data-ari-chat-width='full'] {
+  --ari-chat-width: none;
 }
 
 .ari-chat-column {
@@ -26,18 +32,18 @@
 
 .ari-chat-copy,
 .ari-composer-shell textarea {
-  font-size: var(--ari-chat-text);
-  line-height: 1.7;
+  font-size: var(--ari-composer-text);
+  line-height: 1.625;
 }
 
 /* The mention mirror must have the exact same type metrics as the editor. */
 .ari-composer-mention-overlay {
-  font-size: var(--ari-chat-text);
-  line-height: 1.7;
+  font-size: var(--ari-composer-text);
+  line-height: 1.625;
 }
 
 .ari-session-heading {
-  font-size: clamp(1.75rem, 4cqw, 2.75rem);
+  font-size: clamp(1.25rem, 3cqw, 1.5rem);
   letter-spacing: -0.04em;
   line-height: 1.15;
   text-wrap: balance;

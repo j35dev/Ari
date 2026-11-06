@@ -50,6 +50,32 @@ function renderPage() {
 }
 
 describe('AppearanceSettings', () => {
+  it('offers bundled fonts, separate code faces, intermediate sizes, and full width', async () => {
+    renderPage()
+    const user = userEvent.setup()
+    for (const label of [
+      'JetBrains Mono',
+      'Fira Code',
+      'Manrope',
+      'Source Sans 3',
+      'Source Serif 4',
+    ]) {
+      expect(screen.getAllByRole('option', { name: label }).length).toBeGreaterThan(0)
+    }
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Interface font' }), 'manrope')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Code and terminal font' }),
+      'jetbrains-mono',
+    )
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Text size' }), '17')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Chat width' }), 'full')
+    expect(mocks.update.mock.calls.map(([patch]) => patch)).toEqual([
+      { appearance: { fontFamily: 'manrope' } },
+      { appearance: { codeFont: 'jetbrains-mono' } },
+      { appearance: { fontSize: 17 } },
+      { appearance: { chatWidth: 'full' } },
+    ])
+  })
   it('persists font, scale, width, and terminal choices as independent patches', async () => {
     renderPage()
     const user = userEvent.setup()

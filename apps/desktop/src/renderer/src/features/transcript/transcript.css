@@ -2,7 +2,7 @@
 
 .ari-md {
   font-size: var(--ari-chat-text, var(--ari-text-md));
-  line-height: 1.75;
+  line-height: 1.65;
   color: var(--ari-fg);
   word-break: break-word;
 }

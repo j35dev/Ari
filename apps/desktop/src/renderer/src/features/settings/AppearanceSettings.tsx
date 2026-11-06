@@ -5,8 +5,8 @@ import { useTheme } from '@ari/ui/theme-provider'
 import { themeList } from '@ari/ui/themes'
 import type { Theme, ThemeId } from '@ari/ui/themes'
 import { wallpapers } from '@ari/ui/wallpapers'
-import type { Settings } from '@ari/contracts/settings'
-import { interfaceFonts } from '../../lib/appearance'
+import { defaultSettings, type Settings } from '@ari/contracts/settings'
+import { codeFonts, interfaceFonts } from '../../lib/appearance'
 import type { Wallpaper } from '@ari/ui/wallpapers'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
@@ -207,7 +207,7 @@ export function AppearanceSettings() {
       <section aria-label="Typography and chat" className="mb-6">
         <SettingsRow
           label="Interface font"
-          hint="Choose the typeface for the app and conversation. Code keeps its monospace font."
+          hint="Choose the typeface for the app and conversation. Bundled fonts also work offline."
         >
           <select
             aria-label="Interface font"
@@ -226,10 +226,29 @@ export function AppearanceSettings() {
             ))}
           </select>
         </SettingsRow>
+        <SettingsRow
+          label="Code and terminal font"
+          hint="Set the monospace face for code, diffs, terminal chat, and shell panes."
+        >
+          <select
+            aria-label="Code and terminal font"
+            value={settings?.appearance.codeFont ?? 'geist-mono'}
+            className={selectClass}
+            onChange={(event) =>
+              saveAppearance({ codeFont: event.target.value as Settings['appearance']['codeFont'] })
+            }
+          >
+            {codeFonts.map((font) => (
+              <option key={font.id} value={font.id}>
+                {font.label}
+              </option>
+            ))}
+          </select>
+        </SettingsRow>
         <SettingsRow label="Text size" hint="Scale text and controls together throughout the app.">
           <select
             aria-label="Text size"
-            value={settings?.appearance.fontSize ?? 16}
+            value={settings?.appearance.fontSize ?? defaultSettings.appearance.fontSize}
             className={selectClass}
             onChange={(event) =>
               saveAppearance({
@@ -237,15 +256,19 @@ export function AppearanceSettings() {
               })
             }
           >
-            <option value={14}>Small</option>
-            <option value={16}>Default</option>
-            <option value={18}>Large</option>
-            <option value={20}>Extra large</option>
+            <option value={14}>14 · Small</option>
+            <option value={15}>15</option>
+            <option value={16}>16 · Default</option>
+            <option value={17}>17</option>
+            <option value={18}>18 · Medium</option>
+            <option value={19}>19</option>
+            <option value={20}>20 · Large</option>
+            <option value={22}>22 · Extra large</option>
           </select>
         </SettingsRow>
         <SettingsRow
           label="Chat width"
-          hint="Give messages, edits, and the composer more room on larger screens."
+          hint="Comfortable keeps Ari's original centered width. Choose a wider layout to use more of your workspace."
         >
           <select
             aria-label="Chat width"
@@ -257,9 +280,11 @@ export function AppearanceSettings() {
               })
             }
           >
-            <option value="focused">Focused</option>
-            <option value="comfortable">Comfortable</option>
-            <option value="wide">Wide</option>
+            <option value="focused">Focused · 640 px</option>
+            <option value="comfortable">Comfortable · 768 px (default)</option>
+            <option value="balanced">Balanced · 960 px</option>
+            <option value="wide">Wide · 1200 px</option>
+            <option value="full">Full width</option>
           </select>
         </SettingsRow>
         <SettingsRow

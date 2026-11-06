@@ -24,24 +24,32 @@ describe('SettingsStore', () => {
     const store = new SettingsStore({ dir })
     expect((await store.load()).appearance).toMatchObject({
       fontFamily: 'theme',
+      codeFont: 'geist-mono',
       fontSize: 16,
       chatWidth: 'comfortable',
       chatStyle: 'conversation',
     })
     await store.update({
-      appearance: { fontFamily: 'mono', fontSize: 18, chatWidth: 'wide', chatStyle: 'terminal' },
+      appearance: {
+        fontFamily: 'jetbrains-mono',
+        codeFont: 'fira-code',
+        fontSize: 17,
+        chatWidth: 'full',
+        chatStyle: 'terminal',
+      },
     })
     await store.update({ appearance: { themeId: 'porcelain', mode: 'porcelain' } })
     expect((await new SettingsStore({ dir }).load()).appearance).toMatchObject({
       themeId: 'porcelain',
       wallpaper: 'anime-city',
-      fontFamily: 'mono',
-      fontSize: 18,
-      chatWidth: 'wide',
+      fontFamily: 'jetbrains-mono',
+      codeFont: 'fira-code',
+      fontSize: 17,
+      chatWidth: 'full',
       chatStyle: 'terminal',
     })
     await expect(store.update({ appearance: { fontSize: 200 as 16 } })).rejects.toThrow()
-    expect(store.current.appearance.fontSize).toBe(18)
+    expect(store.current.appearance.fontSize).toBe(17)
   })
   it('persists first-run completion across unrelated updates and rejects invalid markers', async () => {
     const store = new SettingsStore({ dir })
