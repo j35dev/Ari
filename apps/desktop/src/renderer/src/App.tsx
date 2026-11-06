@@ -1239,7 +1239,7 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
             tabIndex={0}
             title="Drag to resize · double-click to reset"
             {...sidebar.handleProps}
-            className={`ari-sidebar-resize w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
+            className={`ari-sidebar-resize -ml-1 w-1 shrink-0 cursor-col-resize transition-colors focus-visible:outline-none focus-visible:bg-accent ${
               sidebar.dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent-subtle'
             }`}
           />
