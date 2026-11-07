@@ -144,8 +144,10 @@ export class MobileSession {
    * user cannot fix. A failure that could be the tailnet still waking up is
    * retried a few times before the UI is told anything is wrong.
    */
-  async connect(): Promise<ConnectionState> {
+  async connect(signal?: AbortSignal): Promise<ConnectionState> {
+    signal?.throwIfAborted()
     await this.#keyring.load()
+    signal?.throwIfAborted()
     const deviceId = this.#keyring.deviceId
     if (deviceId === null) return this.#set('unpaired')
 
@@ -155,17 +157,20 @@ export class MobileSession {
         // Asked before anything else is sent: a client that speaks a different
         // protocol should say so, not discover it from a failed command.
         const info = await this.#client.info()
+        signal?.throwIfAborted()
         if (info.protocolVersion !== CLIENT_PROTOCOL_VERSION) {
           return this.#set('version-mismatch')
         }
         this.#capabilities = info.capabilities
-        await this.#authorize(deviceId)
+        await this.#authorize(deviceId, signal)
+        signal?.throwIfAborted()
         return this.#set('connected')
       } catch (error) {
+        signal?.throwIfAborted()
         if (attempt + 1 >= CONNECT_ATTEMPTS || !retryable(error)) {
           return this.#set(stateForError(error))
         }
-        await new Promise((resolve) => setTimeout(resolve, this.#connectRetryMs * (attempt + 1)))
+        await waitForRetry(this.#connectRetryMs * (attempt + 1), signal)
       }
     }
   }
@@ -308,40 +313,50 @@ export class MobileSession {
     let disposed = false
     let close: (() => void) | null = null
     let renewal: ReturnType<typeof setTimeout> | null = null
+    const renewalController = new AbortController()
     let cursor = options.fromSeq
     const onFrame = (message: RemoteServerMessage): void => {
+      if (disposed || renewalController.signal.aborted) return
       if (message.type === 'events.frame')
         for (const event of message.events) cursor = Math.max(cursor ?? 0, event.seq)
       options.onFrame(message)
     }
+    const onClose = (info: { code: number; reason: string }): void => {
+      if (disposed || renewalController.signal.aborted) return
+      renewalController.abort()
+      if (renewal !== null) clearTimeout(renewal)
+      renewal = null
+      // A private gateway policy close is a refusal. Other unexpected closes
+      // (including a managed lease expiring) need a fresh authorization cycle.
+      if (info.code === 1008 && this.#managed === null) this.#set('revoked')
+      else if (
+        info.code !== 1000 &&
+        !['revoked', 'unknown-device', 'version-mismatch', 'unpaired'].includes(this.#state)
+      )
+        this.#set('reconnecting')
+      options.onClose(info)
+    }
     const open = (): void => {
-      if (disposed) return
+      if (disposed || renewalController.signal.aborted) return
       close = this.#client.subscribe(sessionId, {
         ...(cursor === undefined ? {} : { fromSeq: cursor }),
         onFrame,
-        onClose: (info) => {
-          // 1006 is an abnormal close — the phone lost the network, or the
-          // desktop went away. Anything the gateway closed deliberately is
-          // reported as it was, because the reason is on screen.
-          if (info.code === 1006) this.#set('reconnecting')
-          else if (info.code === 1008)
-            this.#set(this.#managed === null ? 'revoked' : 'reconnecting')
-          options.onClose(info)
-        },
+        onClose,
       })
       if (this.#managed !== null)
         renewal = setTimeout(() => {
-          void this.#renewLease(true)
+          renewal = null
+          void this.#renewLease(true, renewalController.signal)
             .then(() => {
-              if (!disposed) {
+              if (!disposed && !renewalController.signal.aborted) {
                 close?.()
                 open()
               }
             })
             .catch((error: unknown) => {
-              if (!disposed) {
+              if (!disposed && !renewalController.signal.aborted) {
                 close?.()
-                options.onClose({
+                onClose({
                   code: 1013,
                   reason: error instanceof Error ? error.message : 'Membership renewal failed.',
                 })
@@ -352,6 +367,7 @@ export class MobileSession {
     open()
     return () => {
       disposed = true
+      renewalController.abort()
       close?.()
       if (renewal !== null) clearTimeout(renewal)
     }
@@ -367,21 +383,30 @@ export class MobileSession {
   }
 
   /** Exchanges a signature over a fresh nonce for a new token. */
-  async #authorize(deviceId: string): Promise<void> {
+  async #authorize(deviceId: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted()
     const { nonce } = await this.#client.deviceChallenge(deviceId)
+    signal?.throwIfAborted()
     const signature = await this.#keyring.sign(nonce)
+    signal?.throwIfAborted()
     const authorized = await this.#client.deviceAuthorize(deviceId, { nonce, signature })
+    signal?.throwIfAborted()
+    await this.#renewLease(false, signal)
+    signal?.throwIfAborted()
     this.#useToken(authorized.token)
     this.#projectIds = authorized.projectIds
     this.#allowTerminal = authorized.allowTerminal === true
-    await this.#renewLease()
   }
 
-  async #renewLease(force = false): Promise<void> {
+  async #renewLease(force = false, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted()
     if (this.#managed === null) return
     try {
-      this.#client.lease = await this.#managed.token(force)
+      const lease = await this.#managed.token(force)
+      signal?.throwIfAborted()
+      this.#client.lease = lease
     } catch (error) {
+      signal?.throwIfAborted()
       this.#client.lease = null
       this.#set('unreachable')
       throw error
@@ -422,6 +447,26 @@ export class MobileSession {
       throw error
     }
   }
+}
+
+/** Cancelling a computer's lifecycle must also cancel its delayed attempts. */
+function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cancel = (): void => {
+      clearTimeout(timer)
+      reject(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new DOMException('Connection cancelled.', 'AbortError'),
+      )
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', cancel)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', cancel, { once: true })
+    if (signal?.aborted === true) cancel()
+  })
 }
 
 /**

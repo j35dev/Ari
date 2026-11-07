@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRemoteGateway, type RemoteGateway } from '@ari/remote-gateway/gateway'
 import { PairingService } from '@ari/remote-gateway/pairing'
 import type { RemoteCaller, RemoteHost } from '@ari/remote-gateway/host'
+import type { JournalEvent } from '@ari/contracts/events'
 import { remoteModelCatalogSchema, type RemoteOperation } from '@ari/contracts/remote'
 import { sessionIdOf } from './command-result'
 import { DeviceKeyring, MemoryDeviceStore } from './device-key'
 import { GatewayClient } from './gateway-client'
 import { MobileSession } from './session'
+import { RawWebSocket } from '../../../../packages/remote-gateway/src/testing/ws-client'
 
 /**
  * The mobile client against the real gateway, over real sockets.
@@ -21,6 +23,8 @@ const ALLOWED = 'https://ari.tailnet.ts.net'
 
 const running: RemoteGateway[] = []
 afterEach(async () => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
   await Promise.all(running.splice(0).map((gateway) => gateway.close()))
 })
 
@@ -247,6 +251,327 @@ describe('mobile pairing', () => {
 })
 
 describe('mobile reconnection', () => {
+  it('reconnects and resumes one event stream through the real gateway after a TCP drop', async () => {
+    const host = fakeHost()
+    let highWater = 0
+    const getSession = host.getSession.bind(host)
+    host.getSession = async (caller, id) => {
+      const snapshot = await getSession(caller, id)
+      if (snapshot !== undefined) snapshot.seq = highWater
+      return snapshot
+    }
+    const listeners = new Set<(event: JournalEvent) => void>()
+    const subscribe = vi.fn<RemoteHost['subscribe']>((_caller, _id, listener) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    })
+    host.subscribe = subscribe
+    const replay = vi.spyOn(host, 'replay')
+    const gateway = await startGateway(host)
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    await pairPhone(gateway, keyring)
+    const sockets: RawWebSocket[] = []
+    const offered: string[][] = []
+    // Adapt the existing raw socket fixture to browser events. Only the browser
+    // surface is adapted; handshake, bearer, event frames and TCP loss are real.
+    const webSocket = (url: string, protocols: string[]): WebSocket => {
+      const events = new EventTarget()
+      let raw: RawWebSocket | null = null
+      let disposed = false
+      offered.push(protocols)
+      void RawWebSocket.open(Number(new URL(url).port), '/events', { origin: ALLOWED, protocols })
+        .then(async (socket) => {
+          raw = socket
+          sockets.push(socket)
+          socket.socket.once('close', () => {
+            events.dispatchEvent(Object.assign(new Event('close'), { code: 1006, reason: '' }))
+          })
+          if (disposed) {
+            socket.close()
+            return
+          }
+          events.dispatchEvent(new Event('open'))
+          while (!disposed) {
+            const data = await socket.nextMessage()
+            if (!disposed) events.dispatchEvent(Object.assign(new Event('message'), { data }))
+          }
+        })
+        .catch(() =>
+          events.dispatchEvent(Object.assign(new Event('close'), { code: 1006, reason: '' })),
+        )
+      return {
+        addEventListener: events.addEventListener.bind(events),
+        send: (data: string) => raw?.send(data),
+        close: () => {
+          disposed = true
+          raw?.close()
+        },
+      } as unknown as WebSocket
+    }
+    const session = new MobileSession({
+      keyring,
+      client: new GatewayClient({ origin: gateway.origin, fetch: browserFetch(), webSocket }),
+      connectRetryMs: 1,
+    })
+    await expect(session.connect()).resolves.toBe('connected')
+    const frames: unknown[] = []
+    const onFrame = (frame: unknown): void => {
+      frames.push(frame)
+    }
+    const onClose = vi.fn(() => expect(session.state).toBe('reconnecting'))
+    const dispose = session.subscribe('sess_1', { fromSeq: 0, onFrame, onClose })
+    await vi.waitFor(() => expect(listeners.size).toBe(1))
+    const emit = (seq: number): void => {
+      highWater = seq
+      for (const listener of listeners)
+        listener({ type: 'turn.started', seq, at: 1, sessionId: 'sess_1', turnId: `turn_${seq}` })
+    }
+    emit(1)
+    await vi.waitFor(() => expect(frames).toHaveLength(1))
+    sockets[0]!.socket.destroy()
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    dispose()
+    await vi.waitFor(() => expect(listeners.size).toBe(0))
+    await expect(session.connect()).resolves.toBe('connected')
+    const resumed = session.subscribe('sess_1', { fromSeq: 1, onFrame, onClose })
+    await vi.waitFor(() => expect(listeners.size).toBe(1))
+    expect(replay.mock.calls.map((call) => call[2])).toEqual([0, 1])
+    emit(2)
+    await vi.waitFor(() => expect(frames).toHaveLength(2))
+    expect(frames).toMatchObject([
+      { type: 'events.frame', events: [{ seq: 1 }] },
+      { type: 'events.frame', events: [{ seq: 2 }] },
+    ])
+    expect(offered[1]).not.toEqual(offered[0])
+    expect(subscribe).toHaveBeenCalledTimes(2)
+    expect(host.executed).toEqual([])
+    expect(session.allowTerminal).toBe(false)
+    resumed()
+    await vi.waitFor(() => expect(listeners.size).toBe(0))
+  })
+
+  it('bounds a failed connection cycle at three spaced attempts', async () => {
+    const gateway = await startGateway()
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    await pairPhone(gateway, keyring)
+    const failing = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network lost'))
+    const session = new MobileSession({
+      keyring,
+      client: new GatewayClient({ origin: gateway.origin, fetch: failing }),
+    })
+    vi.useFakeTimers()
+    const connection = session.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(failing).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(899)
+    expect(failing).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(failing).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1799)
+    expect(failing).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(connection).resolves.toBe('unreachable')
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(failing).toHaveBeenCalledTimes(3)
+    expect(session.usable).toBe(false)
+  })
+
+  it('cancels connection backoff without making another transport attempt', async () => {
+    const gateway = await startGateway()
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    await pairPhone(gateway, keyring)
+    const failing = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('network lost'))
+    const session = new MobileSession({
+      keyring,
+      client: new GatewayClient({ origin: gateway.origin, fetch: failing }),
+    })
+    const controller = new AbortController()
+    vi.useFakeTimers()
+    const connection = session.connect(controller.signal)
+    const cancelled = expect(connection).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(failing).toHaveBeenCalledTimes(1)
+    controller.abort()
+    await cancelled
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(failing).toHaveBeenCalledTimes(1)
+    expect(session.usable).toBe(false)
+  })
+
+  it('does not install a late authorization response after cancellation', async () => {
+    const gateway = await startGateway()
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    await pairPhone(gateway, keyring)
+    let release: (() => void) | undefined
+    const browser = browserFetch()
+    const delayed: typeof fetch = async (input, init) => {
+      const response = await browser(input, init)
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (url.endsWith('/device/authorize'))
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      return response
+    }
+    const states: string[] = []
+    const client = new GatewayClient({ origin: gateway.origin, fetch: delayed })
+    const session = new MobileSession({
+      keyring,
+      client,
+      onState: (state) => {
+        states.push(state)
+      },
+    })
+    const controller = new AbortController()
+    const connection = session.connect(controller.signal)
+    const cancelled = expect(connection).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.waitFor(() => expect(release).toBeDefined())
+    controller.abort()
+    release!()
+    await cancelled
+    expect(states).toEqual(['connecting'])
+    expect(session.usable).toBe(false)
+    await expect(client.query('session.list')).rejects.toMatchObject({ code: 'unauthenticated' })
+  })
+
+  it.each([
+    [1000, 'connected'],
+    [1001, 'reconnecting'],
+    [1006, 'reconnecting'],
+    [1008, 'revoked'],
+    [1013, 'reconnecting'],
+  ] as const)('reports stream close %s as %s before forwarding it', async (code, state) => {
+    const gateway = await startGateway()
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    await pairPhone(gateway, keyring)
+    const socket = Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
+    const session = new MobileSession({
+      keyring,
+      client: new GatewayClient({
+        origin: gateway.origin,
+        fetch: browserFetch(),
+        webSocket: () => socket as unknown as WebSocket,
+      }),
+    })
+    await expect(session.connect()).resolves.toBe('connected')
+    const frames = vi.fn()
+    const closed = vi.fn(() => expect(session.state).toBe(state))
+    const dispose = session.subscribe('sess_1', { onFrame: frames, onClose: closed })
+    socket.dispatchEvent(Object.assign(new Event('close'), { code, reason: 'test close' }))
+    expect(session.state).toBe(state)
+    expect(closed).toHaveBeenCalledExactlyOnceWith({ code, reason: 'test close' })
+    dispose()
+    socket.dispatchEvent(Object.assign(new Event('close'), { code: 1006, reason: '' }))
+    socket.dispatchEvent(
+      Object.assign(new Event('message'), {
+        data: JSON.stringify({ type: 'events.frame', events: [{ seq: 7 }] }),
+      }),
+    )
+    expect(session.state).toBe(state)
+    expect(closed).toHaveBeenCalledTimes(1)
+    expect(frames).not.toHaveBeenCalled()
+  })
+
+  it('treats a managed policy close as reconnecting and cancels the closed stream renewal', async () => {
+    const gateway = await startGateway()
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    await pairPhone(gateway, keyring)
+    const nativeFetch = fetch
+    const request = vi.fn<typeof fetch>(async (input, init) => {
+      if (input === '/me') return Response.json({ csrfToken: 'test-csrf' })
+      if (input === '/leases/renew')
+        return Response.json({
+          lease: {
+            token: 'test-membership',
+            expiresAt: new Date(Date.now() + 120000).toISOString(),
+          },
+        })
+      return nativeFetch(input, init)
+    })
+    vi.stubGlobal('fetch', request)
+    const socket = Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
+    const session = new MobileSession({
+      keyring,
+      managedComputerId: 'computer_1',
+      client: new GatewayClient({
+        origin: gateway.origin,
+        fetch: browserFetch(),
+        webSocket: () => socket as unknown as WebSocket,
+      }),
+    })
+    await expect(session.connect()).resolves.toBe('connected')
+    request.mockClear()
+    vi.useFakeTimers()
+    const closed = vi.fn()
+    const dispose = session.subscribe('sess_1', { onFrame: vi.fn(), onClose: closed })
+    socket.dispatchEvent(Object.assign(new Event('close'), { code: 1008, reason: 'lease expired' }))
+    expect(session.state).toBe('reconnecting')
+    expect(closed).toHaveBeenCalledExactlyOnceWith({ code: 1008, reason: 'lease expired' })
+    await vi.advanceTimersByTimeAsync(45000)
+    expect(request).not.toHaveBeenCalled()
+    dispose()
+    socket.dispatchEvent(Object.assign(new Event('close'), { code: 1006, reason: '' }))
+    expect(closed).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a disposed stream membership renewal that fails after a foreground reconnect', async () => {
+    const gateway = await startGateway()
+    const keyring = new DeviceKeyring(new MemoryDeviceStore())
+    await pairPhone(gateway, keyring)
+    const nativeFetch = fetch
+    let renewals = 0
+    let release: (() => void) | undefined
+    vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (input === '/me') return Response.json({ csrfToken: 'test-csrf' })
+      if (input !== '/leases/renew') return nativeFetch(input, init)
+      if (++renewals === 1)
+        return Response.json({
+          lease: {
+            token: 'test-membership',
+            expiresAt: new Date(Date.now() + 120000).toISOString(),
+          },
+        })
+      return new Promise<Response>((resolve) => {
+        release = () =>
+          resolve(
+            Response.json(
+              { error: { message: 'Membership service unavailable.' } },
+              { status: 503 },
+            ),
+          )
+      })
+    })
+    const socket = Object.assign(new EventTarget(), { send: vi.fn(), close: vi.fn() })
+    const session = new MobileSession({
+      keyring,
+      managedComputerId: 'computer_1',
+      client: new GatewayClient({
+        origin: gateway.origin,
+        fetch: browserFetch(),
+        webSocket: () => socket as unknown as WebSocket,
+      }),
+    })
+    await expect(session.connect()).resolves.toBe('connected')
+    vi.useFakeTimers()
+    const closed = vi.fn()
+    const dispose = session.subscribe('sess_1', { onFrame: vi.fn(), onClose: closed })
+    await vi.advanceTimersByTimeAsync(45000)
+    vi.useRealTimers()
+    await vi.waitFor(() => expect(release).toBeDefined())
+    dispose()
+    // The current lease is still valid, so foreground authorization can finish
+    // while the disposed stream's forced renewal remains in flight.
+    await expect(session.connect()).resolves.toBe('connected')
+    release!()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(session.state).toBe('connected')
+    expect(session.usable).toBe(true)
+    expect(closed).not.toHaveBeenCalled()
+    expect(socket.close).toHaveBeenCalledTimes(1)
+  })
+
   it('re-pairs a revoked phone only after fresh approval and keeps its old identity revoked', async () => {
     const gateway = await startGateway()
     const keyring = new DeviceKeyring(new MemoryDeviceStore())
