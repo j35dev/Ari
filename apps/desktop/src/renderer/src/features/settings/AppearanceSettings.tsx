@@ -276,7 +276,7 @@ export function AppearanceSettings() {
         </SettingsRow>
         <SettingsRow
           label="Chat style"
-          hint="Conversation formats replies. Terminal shows plain streamed text and keeps commands, edits, and results expanded."
+          hint="Conversation formats replies. Terminal is a command log: edits and notes stay open, and shell output stays one line until you open it."
         >
           <select
             aria-label="Chat style"

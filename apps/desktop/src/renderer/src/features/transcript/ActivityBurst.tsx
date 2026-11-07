@@ -4,7 +4,7 @@ import { describeActivity, formatToolSummary, type ActivityLedgerEntry } from '.
 import { ActivityStep, KIND_ICON, StepBody } from './ActivityStep'
 import { ImageGenerationActivity } from './ImageGenerationActivity'
 import { ThinkingBlock } from './ThinkingBlock'
-import { isImageGenerationCall } from './toolLabels'
+import { classifyToolCall, isImageGenerationCall } from './toolLabels'
 import type { ToolGroupRow, TranscriptBlock } from './types'
 
 /** How long a row that just went quiet stays open before it folds away. */
@@ -94,6 +94,9 @@ export function ActivityBurst({
   const live = useHeldLive(active)
   const activity = useMemo(() => describeActivity(row, live), [row, live])
   const { verb, subject, more, label, summary, ledger, stat } = activity
+  // Terminal keeps the command log open after the turn settles. Each step's
+  // stdout stays closed: opening every body is what pasted a whole bash
+  // transcript into the reading lane.
   const open = openOverride ?? (terminal || live)
   const steps = row.blocks.filter((block) => block.kind !== 'tool-result')
   // The lone-call shortcut trades the step list for the call's own body. Held
@@ -109,6 +112,21 @@ export function ActivityBurst({
   const imageCall = row.calls.length === 1 ? row.calls[0] : undefined
   if (live && imageCall !== undefined && isImageGenerationCall(imageCall)) {
     return <ImageGenerationActivity call={imageCall} />
+  }
+
+  // Terminal is the log itself. The conversation headline ("Edited index.html")
+  // is the default view's summary card; leaving it above an open step list
+  // makes terminal look like that card left expanded.
+  if (terminal) {
+    return (
+      <div className="ari-burst ari-terminal-log my-1" data-activity={live ? 'working' : 'settled'}>
+        <div className="ari-burst-steps">
+          {steps.map((step) => (
+            <BurstStep key={step.key} step={step} results={row.resultsByCallId} terminal />
+          ))}
+        </div>
+      </div>
+    )
   }
 
   const named = [live ? `Working: ${label}` : label]
@@ -159,12 +177,7 @@ export function ActivityBurst({
         ) : (
           <div className="ari-burst-steps pb-1 pl-0.5">
             {steps.map((step) => (
-              <BurstStep
-                key={step.key}
-                step={step}
-                results={row.resultsByCallId}
-                terminal={terminal}
-              />
+              <BurstStep key={step.key} step={step} results={row.resultsByCallId} />
             ))}
           </div>
         )
@@ -176,19 +189,23 @@ export function ActivityBurst({
 function BurstStep({
   step,
   results,
-  terminal,
+  terminal = false,
 }: {
   step: TranscriptBlock
   results: Map<string, TranscriptBlock>
-  terminal: boolean
+  terminal?: boolean
 }) {
   if (step.kind === 'thinking')
     return <ThinkingBlock text={step.text ?? ''} compact expanded={terminal} />
+  // Shell output is the transcript that used to arrive as a page of text, or
+  // as one character code per line. Everything else opens: an edit shows its
+  // diff, a read or search shows what it found.
+  const showBody = terminal && classifyToolCall(step) !== 'run'
   return (
     <ActivityStep
       call={step}
       result={step.callId ? results.get(step.callId) : undefined}
-      expanded={terminal}
+      expanded={showBody}
     />
   )
 }

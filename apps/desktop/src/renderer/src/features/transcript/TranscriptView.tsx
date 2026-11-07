@@ -769,7 +769,11 @@ function renderRowBody({
       ) : row.kind === 'delegation' ? (
         <DelegationCard row={row} onOpenSession={onOpenSession} />
       ) : row.kind === 'image' ? (
-        <ImageRow images={row.images ?? []} right={row.role === 'user'} />
+        <ImageRow
+          images={row.images ?? []}
+          right={row.role === 'user'}
+          alignEnd={row.role === 'user' && !terminal}
+        />
       ) : row.kind === 'markdown' ? (
         row.role === 'user' ? (
           <div>
@@ -782,6 +786,7 @@ function renderRowBody({
             ) : null}
             <UserBubble
               text={row.text ?? ''}
+              prompt={terminal}
               onEdit={row.origin?.kind === 'session' ? undefined : onEditUserMessage}
             />
           </div>
@@ -828,7 +833,17 @@ function renderRowBody({
  * bubble. Bytes load lazily from the main process (`attachments.read`,
  * cached per id); a missing file renders its filename, never a broken image.
  */
-function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean }) {
+function ImageRow({
+  images,
+  right,
+  alignEnd = right,
+}: {
+  images: TranscriptImage[]
+  /** User attachments use the small frame; assistant images use the large one. */
+  right: boolean
+  /** Conversation pins a user's images to the right. Terminal keeps them with the prompt. */
+  alignEnd?: boolean
+}) {
   const [urls, setUrls] = useState<Record<string, string | null>>({})
   const [selected, setSelected] = useState<TranscriptImage | null>(null)
 
@@ -849,7 +864,10 @@ function ImageRow({ images, right }: { images: TranscriptImage[]; right: boolean
   const selectedUrl = selected === null ? null : urls[selected.attachmentId]
   return (
     <>
-      <div className={`my-2 flex ${right ? 'justify-end' : 'justify-start'}`}>
+      <div
+        className={`ari-image-row my-2 flex ${alignEnd ? 'justify-end' : 'justify-start'}`}
+        data-align={alignEnd ? 'end' : 'start'}
+      >
         <div
           role="list"
           aria-label={right ? 'Attached images' : 'Generated images'}
@@ -976,7 +994,16 @@ function SenderLabel({
  * affordances. Edit hands the bubble's text back via `onEdit`, which fills
  * the composer for an edit-and-resend flow.
  */
-function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) => void }) {
+function UserBubble({
+  text,
+  prompt = false,
+  onEdit,
+}: {
+  text: string
+  /** Terminal draws a prompt line. Conversation draws a bubble. */
+  prompt?: boolean
+  onEdit?: (text: string) => void
+}) {
   const [copied, setCopied] = useState(false)
   const copy = async (): Promise<void> => {
     try {
@@ -986,6 +1013,39 @@ function UserBubble({ text, onEdit }: { text: string; onEdit?: (text: string) =>
     } catch {
       // clipboard unavailable — affordance stays silent
     }
+  }
+  if (prompt) {
+    return (
+      <div className="ari-user-message ari-terminal-prompt group my-3 flex items-baseline justify-start gap-2">
+        <span className="ari-terminal-prompt-mark select-none" aria-hidden="true">
+          ❯
+        </span>
+        <div className="ari-terminal-prompt-text min-w-0 flex-1 whitespace-pre-wrap break-words text-fg">
+          {text}
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={() => onEdit(text)}
+              aria-label="Edit message"
+              title="Edit and resend"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none"
+            >
+              <Pencil size={12} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void copy()}
+            aria-label={copied ? 'Copied' : 'Copy message'}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-fg-subtle hover:bg-surface-2 hover:text-fg focus-visible:outline-none"
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
+        </div>
+      </div>
+    )
   }
   return (
     <div className="ari-user-message group my-5 flex justify-end">

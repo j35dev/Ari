@@ -56,10 +56,11 @@ describe('TranscriptView announcements', () => {
     rerender(view(true, reply, true))
     expect(container.querySelector('.ari-terminal-output')).toHaveTextContent('**Ready** to review')
     expect(container.querySelector('.ari-terminal-output')).toHaveAttribute('data-streaming')
-    expect(screen.getByText('Typecheck passed')).toBeVisible()
+    // The command stays in the log. Its stdout stays folded until asked for.
+    expect(screen.queryByText('Typecheck passed')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ran pnpm typecheck' })).toHaveAttribute(
       'aria-expanded',
-      'true',
+      'false',
     )
     const growing: Message = {
       ...reply,
@@ -420,6 +421,41 @@ describe('TranscriptView image output', () => {
 
     await user.click(screen.getByRole('button', { name: 'Close image preview' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('keeps a user prompt and its image on the left in terminal style', () => {
+    const attached = {
+      type: 'image' as const,
+      attachmentId: 'att_shot',
+      name: 'shot.png',
+      mimeType: 'image/png',
+      size: 2,
+    }
+    const { container, rerender } = render(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        chatStyle: 'terminal',
+        messages: [
+          { ...message('prompt'), parts: [attached, { type: 'text', text: 'look at this' }] },
+        ],
+      }),
+    )
+    expect(container.querySelector('.ari-image-row')).toHaveAttribute('data-align', 'start')
+    expect(container.querySelector('.ari-terminal-prompt')).toHaveTextContent('look at this')
+    expect(container.querySelector('.ari-user-bubble')).toBeNull()
+    expect(screen.getByRole('list', { name: 'Attached images' })).toBeInTheDocument()
+    expect(screen.getByText('look at this')).toBeInTheDocument()
+
+    rerender(
+      createElement(TranscriptView, {
+        sessionId: 'sess_1',
+        chatStyle: 'conversation',
+        messages: [
+          { ...message('prompt'), parts: [attached, { type: 'text', text: 'look at this' }] },
+        ],
+      }),
+    )
+    expect(container.querySelector('.ari-image-row')).toHaveAttribute('data-align', 'end')
   })
 })
 

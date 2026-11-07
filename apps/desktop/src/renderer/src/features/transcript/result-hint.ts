@@ -1,3 +1,4 @@
+import { textFromBytePayload } from './tool-result-text'
 import type { ToolKind } from './toolLabels'
 
 /** Keys providers use for the readable body of a result, most specific first. */
@@ -107,7 +108,8 @@ export function resultHint(
   } catch {
     // A raw, unparseable payload is text as it stands.
   }
-  const text = resultText(parsed)
+  const decoded = textFromBytePayload(parsed)
+  const text = decoded ?? resultText(parsed)
   if (isError) {
     const record = asRecord(parsed)
     const message = record === null ? null : firstString(record, ERROR_KEYS)
@@ -117,6 +119,15 @@ export function resultHint(
   if (kind === 'edit' || kind === 'todo') return null
   const code = exitCode(parsed)
   if (code !== null && code !== 0) return `exit ${code}`
+  // A byte dump is the command's text, not a list of entries.
+  if (decoded !== null) {
+    const decodedLines = lineCount(decoded)
+    if (kind === 'search') {
+      return decodedLines > 0 ? plural(decodedLines, 'match', 'matches') : 'no matches'
+    }
+    if (decodedLines > 0) return plural(decodedLines, 'line', 'lines')
+    return kind === 'run' ? 'no output' : null
+  }
   if (kind === 'search') {
     const length = listLength(parsed)
     if (length !== null) return plural(length, 'match', 'matches')

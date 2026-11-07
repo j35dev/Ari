@@ -4,6 +4,7 @@ import { Dialog } from '@ari/ui/dialog'
 import { DiffViewer } from '../diffs'
 import { CodeBlock } from './CodeBlock'
 import { CopyButton } from './CopyButton'
+import { presentToolResult } from './tool-result-text'
 
 /**
  * Heuristic for diff-shaped tool results: a real unified diff has at least one
@@ -115,9 +116,10 @@ export function ToolResultBody({
   const parsed = useMemo(() => {
     try {
       const value: unknown = JSON.parse(resultJson)
+      const presented = presentToolResult(resultJson)
       return {
-        text: JSON.stringify(value, null, 2) ?? resultJson,
-        isJson: true,
+        text: presented.text,
+        isJson: presented.lang === 'json',
         content: mcpContentItems(value),
       }
     } catch {

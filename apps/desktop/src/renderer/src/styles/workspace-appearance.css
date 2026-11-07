@@ -143,13 +143,24 @@
   animation: ari-terminal-caret 1.1s step-end infinite;
 }
 
-[data-chat-style='terminal'] .ari-user-message {
-  justify-content: flex-start;
+[data-chat-style='terminal'] .ari-terminal-prompt {
+  font-family: var(--ari-font-mono);
+  font-size: var(--ari-chat-text);
+  line-height: 1.55;
 }
-[data-chat-style='terminal'] .ari-user-bubble {
-  background: var(--ari-accent-subtle);
+[data-chat-style='terminal'] .ari-terminal-prompt-mark {
+  color: var(--ari-accent);
+}
+[data-chat-style='terminal'] .ari-terminal-log::before,
+[data-chat-style='terminal'] .ari-terminal-log::after {
+  display: none;
+}
+[data-chat-style='terminal'] .ari-image-row[data-align='start'] {
+  margin-bottom: 0;
+}
+[data-chat-style='terminal'] .ari-image-row[data-align='start'] img {
+  max-height: 14rem;
   border-radius: var(--ari-radius-sm);
-  border-left: 2px solid var(--ari-accent);
 }
 [data-chat-style='terminal'] .ari-tool-body {
   border: 0;

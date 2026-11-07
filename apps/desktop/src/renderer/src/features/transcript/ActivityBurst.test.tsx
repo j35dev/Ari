@@ -155,6 +155,54 @@ describe('ActivityBurst expanded', () => {
     expect(screen.getByText(/deeper detail here/)).toBeInTheDocument()
   })
 
+  it('keeps the command log open in terminal style and leaves each stdout folded', () => {
+    render(<ActivityBurst row={row(RUN)} active={false} terminal />)
+
+    // No conversation summary card above the log.
+    expect(
+      screen.queryByRole('button', { name: /Edited main\.ts, types\.ts/ }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ran git status --short' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.getByRole('button', { name: 'Edited desktop/main.ts' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    expect(screen.getByText(/deeper detail here/)).toBeInTheDocument()
+    expect(screen.queryByText('"done"')).not.toBeInTheDocument()
+  })
+
+  it('shows an edit diff in terminal style and keeps shell stdout folded', () => {
+    const blocks = [
+      call('c1', 'Bash', '{"command":"git status"}'),
+      result('c1'),
+      call(
+        'c2',
+        'Edit',
+        JSON.stringify({
+          file_path: 'src/a.ts',
+          old_string: 'const a = 1',
+          new_string: 'const a = 2',
+        }),
+      ),
+      result('c2'),
+    ]
+    render(<ActivityBurst row={row(blocks)} active={false} terminal />)
+
+    expect(screen.getByRole('button', { name: 'Ran git status' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.getByRole('button', { name: 'Edited src/a.ts' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    expect(screen.getByText('const a = 2')).toBeInTheDocument()
+    expect(screen.queryByText('"done"')).not.toBeInTheDocument()
+  })
+
   it('opens a lone call straight to its body instead of a one-item list', async () => {
     const user = userEvent.setup()
     const lone = [call('c1', 'Bash', '{"command":"git status --short"}'), result('c1')]

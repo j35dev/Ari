@@ -13,7 +13,12 @@ describe('resultHint', () => {
     expect(
       resultHint(
         'read',
-        JSON.stringify({ content: [{ type: 'text', text: 'a\nb' }, { type: 'text', text: 'c' }] }),
+        JSON.stringify({
+          content: [
+            { type: 'text', text: 'a\nb' },
+            { type: 'text', text: 'c' },
+          ],
+        }),
       ),
     ).toBe('3 lines')
     expect(resultHint('read', 'not json at all')).toBe('1 line')
@@ -28,6 +33,14 @@ describe('resultHint', () => {
   it('counts listings as entries', () => {
     expect(resultHint('read', JSON.stringify({ files: ['a', 'b'] }))).toBe('2 entries')
     expect(resultHint('read', JSON.stringify({ entries: ['a'] }))).toBe('1 entry')
+  })
+
+  it('counts a character-code dump as lines of output, not one entry per byte', () => {
+    const bytes = Array.from(new TextEncoder().encode('space_path="D:\\Projects"\n'))
+    expect(resultHint('run', JSON.stringify(bytes))).toBe('1 line')
+    expect(resultHint('read', JSON.stringify(Array.from({ length: 24 }, (_, i) => i + 1)))).toBe(
+      '24 entries',
+    )
   })
 
   it('leads a failure with its own message, never a count', () => {
