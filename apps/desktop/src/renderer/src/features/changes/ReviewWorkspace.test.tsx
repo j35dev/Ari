@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewWorkspace } from './ReviewWorkspace'
@@ -8,8 +8,9 @@ vi.mock('../../lib/rpc', () => ({ rpc: mocks }))
 vi.mock('../diffs/DiffSurface', () => ({
   DiffSurface: ({ diffText }: { diffText: string }) => <pre>{diffText}</pre>,
 }))
-const files = ['a.ts', 'b.ts'].map((path) => ({
+const files = ['a.ts', 'b.ts'].map((path, index) => ({
   path,
+  contentId: String(index + 1).repeat(64),
   kind: 'modified',
   additions: 1,
   deletions: 1,
@@ -29,10 +30,19 @@ const context = {
 }
 const manifest = {
   ok: true,
-  value: { id: 'a'.repeat(64), files, baseLabel: 'HEAD', headLabel: 'Working tree', live: true },
+  value: {
+    id: 'a'.repeat(64),
+    reviewScopeId: 'b'.repeat(64),
+    files,
+    baseLabel: 'HEAD',
+    headLabel: 'Working tree',
+    live: true,
+  },
 }
+let review = manifest
 beforeEach(() => {
   sessionStorage.clear()
+  review = manifest
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(240)
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(900)
   mocks.invoke.mockReset()
@@ -40,7 +50,7 @@ beforeEach(() => {
     method === 'scm.status'
       ? context
       : method === 'scm.review'
-        ? manifest
+        ? review
         : method === 'scm.diff'
           ? { ok: true, value: `${params.path}:${params.context}` }
           : { cancelled: true },
@@ -49,6 +59,117 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('ReviewWorkspace', () => {
+  it('keeps explicit viewed progress across navigation, remount and changes to another file', async () => {
+    const user = userEvent.setup()
+    const view = render(<ReviewWorkspace scope={{ projectId: 'p' }} />)
+    await screen.findByText('a.ts:3')
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'b.ts' }))
+    await screen.findByText('b.ts:3')
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
+    view.unmount()
+    render(<ReviewWorkspace scope={{ projectId: 'p' }} />)
+    await screen.findByText('b.ts:3')
+    expect(screen.getByText('1/2 viewed')).toBeInTheDocument()
+    review = {
+      ...manifest,
+      value: {
+        ...manifest.value,
+        id: 'c'.repeat(64),
+        files: [files[0]!, { ...files[1]!, contentId: '3'.repeat(64) }],
+      },
+    }
+    await user.click(screen.getByRole('button', { name: 'Refresh changes' }))
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith(
+        'scm.diff',
+        expect.objectContaining({ snapshotId: review.value.id }),
+      ),
+    )
+    expect(screen.getByText('1/2 viewed')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'a.ts' }))
+    await screen.findByText('a.ts:3')
+    expect(screen.getByRole('checkbox')).toBeChecked()
+    await user.click(screen.getByRole('checkbox'))
+    expect(screen.queryByText('1/2 viewed')).not.toBeInTheDocument()
+  })
+
+  it('invalidates changed content even when line counts match and does not restore reverted marks', async () => {
+    const user = userEvent.setup()
+    render(<ReviewWorkspace scope={{ projectId: 'p' }} />)
+    await screen.findByText('a.ts:3')
+    await user.click(screen.getByRole('checkbox'))
+    review = {
+      ...manifest,
+      value: {
+        ...manifest.value,
+        id: 'c'.repeat(64),
+        files: [{ ...files[0]!, contentId: '3'.repeat(64) }, files[1]!],
+      },
+    }
+    await user.click(screen.getByRole('button', { name: 'Refresh changes' }))
+    await waitFor(() => expect(screen.getByRole('checkbox')).not.toBeChecked())
+    expect(screen.queryByText('1/2 viewed')).not.toBeInTheDocument()
+    review = manifest
+    await user.click(screen.getByRole('button', { name: 'Refresh changes' }))
+    await screen.findByText('a.ts:3')
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
+  })
+
+  it('isolates marks when comparison, resolved base, workspace or project changes', async () => {
+    const user = userEvent.setup()
+    const view = render(<ReviewWorkspace scope={{ projectId: 'p' }} />)
+    await screen.findByText('a.ts:3')
+    await user.click(screen.getByRole('checkbox'))
+    review = { ...manifest, value: { ...manifest.value, reviewScopeId: 'c'.repeat(64) } }
+    await user.click(screen.getByRole('button', { name: 'Compare changes' }))
+    await user.click(screen.getByRole('option', { name: 'Staged' }))
+    await waitFor(() => expect(screen.getByRole('checkbox')).not.toBeChecked())
+    review = manifest
+    await user.click(screen.getByRole('button', { name: 'Compare changes' }))
+    await user.click(screen.getByRole('option', { name: 'Working tree' }))
+    await waitFor(() => expect(screen.getByRole('checkbox')).toBeChecked())
+    // The backend scope also changes for a new resolved base or project worktree.
+    review = { ...manifest, value: { ...manifest.value, reviewScopeId: 'd'.repeat(64) } }
+    await user.click(screen.getByRole('button', { name: 'Refresh changes' }))
+    await waitFor(() => expect(screen.getByRole('checkbox')).not.toBeChecked())
+    review = manifest
+    view.rerender(<ReviewWorkspace scope={{ projectId: 'other' }} />)
+    await screen.findByText('a.ts:3')
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
+  })
+
+  it('drops deleted and renamed paths without carrying viewed status to a replacement', async () => {
+    const user = userEvent.setup()
+    render(<ReviewWorkspace scope={{ projectId: 'p' }} />)
+    await screen.findByText('a.ts:3')
+    await user.click(screen.getByRole('checkbox'))
+    review = {
+      ...manifest,
+      value: { ...manifest.value, id: 'c'.repeat(64), files: [files[1]!] },
+    }
+    await user.click(screen.getByRole('button', { name: 'Refresh changes' }))
+    await screen.findByText('b.ts:3')
+    expect(screen.queryByText(/viewed$/)).not.toBeInTheDocument()
+    review = manifest
+    await user.click(screen.getByRole('button', { name: 'Refresh changes' }))
+    await screen.findByText('a.ts:3')
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
+    await user.click(screen.getByRole('checkbox'))
+    review = {
+      ...manifest,
+      value: {
+        ...manifest.value,
+        id: 'd'.repeat(64),
+        files: [{ ...files[0]!, path: 'renamed.ts' }, files[1]!],
+      },
+    }
+    await user.click(screen.getByRole('button', { name: 'Refresh changes' }))
+    await screen.findByText('renamed.ts:3')
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
+  })
+
   it('loads only the selected file and restores its selection after remount', async () => {
     const user = userEvent.setup()
     const view = render(<ReviewWorkspace scope={{ sessionId: 's' }} />)
