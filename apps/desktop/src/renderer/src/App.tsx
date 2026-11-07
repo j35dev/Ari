@@ -1103,13 +1103,8 @@ function Shell({ onOpenSetup, setupCovered, onboardingOutcome }: OnboardingWorks
               scope={activeScope}
               summary={changeSummary.summary}
               refresh={changeSummary.refresh}
-              onReview={() => {
-                setSettingsOpen(false)
-                setHubOpen(false)
-                setFullPage(null)
-                setInspector('changes')
-              }}
-              onPullRequests={() => selectWorkspaceTool('github')}
+              onReview={() => openSourceControl('changes')}
+              onPullRequests={() => openSourceControl('requests')}
             />
           ) : undefined
         }
