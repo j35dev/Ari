@@ -58,6 +58,7 @@ export class HistoryJournal {
   /** Rebuilds journal-derived controls, without replaying any live side effects. */
   controls() {
     let model = initialReadModel()
+    const settledTurnIds = new Set<string>()
     const telemetry = {
       turnCount: 0,
       lastDurationMs: null as number | null,
@@ -78,6 +79,7 @@ export class HistoryJournal {
           telemetry.startedAt = event.at
           break
         case 'turn.settled':
+          settledTurnIds.add(event.turnId)
           if (telemetry.startedAt !== null)
             telemetry.lastDurationMs = Math.max(0, event.at - telemetry.startedAt)
           telemetry.startedAt = null
@@ -95,7 +97,7 @@ export class HistoryJournal {
           break
       }
     }
-    return { model, telemetry }
+    return { model, telemetry, settledTurnIds }
   }
 
   #append(event: JournalEvent): void {

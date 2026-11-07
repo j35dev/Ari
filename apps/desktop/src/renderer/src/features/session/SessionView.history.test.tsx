@@ -181,6 +181,173 @@ describe('SessionView history recovery', () => {
     },
   )
 
+  it('clears an older failure when retry recovers a completed turn', async () => {
+    render(view())
+    await screen.findByLabelText('Message')
+    emit({
+      replay: true,
+      events: [
+        { seq: 1, at: 1, sessionId, type: 'turn.started', turnId: 'old' },
+        {
+          seq: 2,
+          at: 2,
+          sessionId,
+          type: 'turn.settled',
+          turnId: 'old',
+          stopReason: 'error',
+          errorMessage: 'Old failure',
+        },
+      ],
+    })
+    emit({ replayDone: true, replayOutcome: 'incomplete', liveTurnId: null })
+    expect(screen.getByRole('alert')).toHaveTextContent('Old failure')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry history' }))
+    emit({
+      replay: true,
+      events: [
+        { seq: 3, at: 3, sessionId, type: 'turn.started', turnId: 'new' },
+        {
+          seq: 4,
+          at: 4,
+          sessionId,
+          type: 'turn.settled',
+          turnId: 'new',
+          stopReason: 'completed',
+          errorMessage: null,
+        },
+      ],
+    })
+    emit({ replayDone: true, replayOutcome: 'complete', liveTurnId: null })
+    expect(screen.queryByRole('button', { name: 'Dismiss error' })).toBeNull()
+    expect(sounds.playSettleSound).not.toHaveBeenCalled()
+  })
+
+  it('shows a failure settlement recovered by history retry without replaying its chime', async () => {
+    render(view())
+    await screen.findByLabelText('Message')
+    emit({
+      replay: true,
+      events: [{ seq: 1, at: 1, sessionId, type: 'turn.started', turnId: 'failed' }],
+    })
+    emit({ replayDone: true, replayOutcome: 'incomplete', liveTurnId: null })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry history' }))
+    emit({
+      replay: true,
+      events: [
+        {
+          seq: 2,
+          at: 2,
+          sessionId,
+          type: 'turn.settled',
+          turnId: 'failed',
+          stopReason: 'error',
+          errorMessage: 'Recovered failure',
+        },
+      ],
+    })
+    emit({ replayDone: true, replayOutcome: 'complete', liveTurnId: null })
+    expect(screen.getByRole('alert')).toHaveTextContent('Recovered failure')
+    expect(sounds.playSettleSound).not.toHaveBeenCalled()
+  })
+
+  it('keeps a dismissed failure dismissed when retry recovers the same outcome', async () => {
+    render(view())
+    await screen.findByLabelText('Message')
+    const events: JournalEvent[] = [
+      { seq: 1, at: 1, sessionId, type: 'turn.started', turnId: 'dismissed' },
+      {
+        seq: 2,
+        at: 2,
+        sessionId,
+        type: 'turn.settled',
+        turnId: 'dismissed',
+        stopReason: 'error',
+        errorMessage: 'Dismissed failure',
+      },
+    ]
+    emit({ replay: true, events })
+    emit({ replayDone: true, replayOutcome: 'incomplete', liveTurnId: null })
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss error' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry history' }))
+    emit({ replay: true, events })
+    emit({ replayDone: true, replayOutcome: 'complete', liveTurnId: null })
+    expect(screen.queryByRole('button', { name: 'Dismiss error' })).toBeNull()
+  })
+
+  it('loads the diff for a settled turn recovered by history retry when it enters view', async () => {
+    vi.stubGlobal('IntersectionObserver', undefined)
+    const fallback = rpc.invoke.getMockImplementation()!
+    rpc.invoke.mockImplementation(async (method: string, params) => {
+      if (method === 'git.turnDiff') return { diffText: null }
+      return fallback(method, params)
+    })
+    try {
+      const rendered = render(view())
+      await screen.findByLabelText('Message')
+      emit({ replayDone: true, replayOutcome: 'incomplete', liveTurnId: null })
+      fireEvent.click(screen.getByRole('button', { name: 'Retry history' }))
+      emit({
+        replay: true,
+        events: [
+          { seq: 1, at: 1, sessionId, type: 'turn.started', turnId: 'recovered-turn' },
+          {
+            seq: 2,
+            at: 2,
+            sessionId,
+            type: 'user.message.added',
+            message: {
+              id: 'recovered-prompt',
+              sessionId,
+              turnId: 'recovered-turn',
+              role: 'user',
+              createdAt: 2,
+              parts: [{ type: 'text', text: 'Recovered change request' }],
+            },
+          },
+          {
+            seq: 3,
+            at: 3,
+            sessionId,
+            type: 'assistant.parts.appended',
+            messageId: 'recovered-response',
+            parts: [{ type: 'text', text: 'Recovered work completed' }],
+          },
+          {
+            seq: 4,
+            at: 4,
+            sessionId,
+            type: 'turn.settled',
+            turnId: 'recovered-turn',
+            stopReason: 'completed',
+            errorMessage: null,
+          },
+        ],
+      })
+      emit({ replayDone: true, replayOutcome: 'complete', liveTurnId: null })
+      expect(await screen.findByText('Recovered work completed')).toBeVisible()
+      await waitFor(() =>
+        expect(rpc.invoke).toHaveBeenCalledWith('git.turnDiff', {
+          sessionId,
+          turnId: 'recovered-turn',
+        }),
+      )
+      rendered.unmount()
+      rpc.invoke.mockClear()
+      render(view())
+      await screen.findByLabelText('Message')
+      emit({ replayDone: true, replayOutcome: 'incomplete', liveTurnId: null })
+      expect(await screen.findByText('Recovered work completed')).toBeVisible()
+      await waitFor(() =>
+        expect(rpc.invoke).toHaveBeenCalledWith('git.turnDiff', {
+          sessionId,
+          turnId: 'recovered-turn',
+        }),
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('keeps metadata failure distinct and retries metadata without resetting the conversation', async () => {
     metadataFails = true
     render(view())
