@@ -937,7 +937,11 @@ export class Engine {
     }
 
     if ((await this.#deps.store.load(session.id)).activeTurnId !== turnId || this.#closing) {
-      adapter.interrupt()
+      try {
+        adapter.interrupt()
+      } catch (error) {
+        log.warn('provider cancellation failed before startup completed', { error })
+      }
       await adapter.dispose()
       if (this.#closing) await this.#settle(session.id, turnId, 'interrupted', null)
       await this.#captureTurnEnd(session.id, turnId)

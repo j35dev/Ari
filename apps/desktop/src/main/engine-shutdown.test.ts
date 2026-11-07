@@ -166,6 +166,43 @@ it('does not launch a provider after pending runtime initialization completes du
   }
 })
 
+it('disposes a late-starting provider even when its cancellation throws', async () => {
+  const creating = gate()
+  const created = gate()
+  const start = vi.fn(() => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'done' as const }
+    },
+  }))
+  const dispose = vi.fn(async () => undefined)
+  registry.register({
+    kind: 'claude',
+    create: async () => {
+      creating.resolve()
+      await created.promise
+      return {
+        start,
+        interrupt: () => {
+          throw new Error('late transport cancellation failed')
+        },
+        dispose,
+      }
+    },
+  })
+  try {
+    await engine.dispatch({ type: 'turn.start', sessionId: 's', text: 'work', attachments: [] })
+    await creating.promise
+    const shutdown = engine.shutdown()
+    created.resolve()
+    await shutdown
+    expect(start).not.toHaveBeenCalled()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect((await store.load('s')).activeTurnId).toBeNull()
+  } finally {
+    created.resolve()
+  }
+})
+
 it('closes transports retained by dispose before waiting for the provider stream to end', async () => {
   const started = gate()
   const transportClosed = gate()
