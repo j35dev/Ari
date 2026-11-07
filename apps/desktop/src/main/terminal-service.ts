@@ -26,11 +26,7 @@ export interface PtySpawnOptions {
   windowsHide: boolean
 }
 
-export type PtyFactory = (
-  file: string,
-  args: string[],
-  options: PtySpawnOptions,
-) => PtyLike
+export type PtyFactory = (file: string, args: string[], options: PtySpawnOptions) => PtyLike
 
 export interface TerminalEvents {
   onData: (id: string, data: string) => void
@@ -73,6 +69,7 @@ function killTree(pid: number): void {
 interface Session {
   pty: PtyLike
   scrollback: string
+  exited: boolean
 }
 
 /**
@@ -85,6 +82,7 @@ export class TerminalService {
   readonly #sessions = new Map<string, Session>()
   readonly #events: TerminalEvents
   readonly #spawnPty: PtyFactory
+  #closed = false
 
   constructor(events: TerminalEvents, spawnPty: PtyFactory) {
     this.#events = events
@@ -105,13 +103,8 @@ export class TerminalService {
    * A specific program, not a shell. Sign-in uses this so keystrokes are
    * stdin for that program and cannot start another command.
    */
-  spawn(
-    id: string,
-    file: string,
-    args: string[],
-    cwd: string,
-    env: Record<string, string>,
-  ): void {
+  spawn(id: string, file: string, args: string[], cwd: string, env: Record<string, string>): void {
+    if (this.#closed) throw new Error('Ari is shutting down')
     if (this.#sessions.has(id)) return
     const pty = this.#spawnPty(file, args, {
       name: 'xterm-256color',
@@ -119,7 +112,7 @@ export class TerminalService {
       env,
       windowsHide: true,
     })
-    const session: Session = { pty, scrollback: '' }
+    const session: Session = { pty, scrollback: '', exited: false }
     this.#sessions.set(id, session)
     pty.onData((data) => {
       session.scrollback += data
@@ -128,7 +121,10 @@ export class TerminalService {
       }
       this.#events.onData(id, data)
     })
-    pty.onExit(() => this.#events.onExit(id))
+    pty.onExit(() => {
+      session.exited = true
+      this.#events.onExit(id)
+    })
   }
 
   write(id: string, data: string): void {
@@ -154,7 +150,14 @@ export class TerminalService {
     } catch {
       // already gone
     }
-    killTree(session.pty.pid)
+    // An exited shell's PID may already belong to another process.
+    if (!session.exited) killTree(session.pty.pid)
+  }
+
+  /** Release every native handle and its child process tree on app shutdown. */
+  close(): void {
+    this.#closed = true
+    for (const id of this.#sessions.keys()) this.kill(id)
   }
 
   replay(id: string): string {
