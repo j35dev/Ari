@@ -1,7 +1,13 @@
 import { MousePointer2, X } from 'lucide-react'
 import { chipLabelFor, removeBrowserPick, type BrowserPick } from './browser-picks'
 
-export function ElementChips({ picks }: { picks: readonly BrowserPick[] }) {
+export function ElementChips({
+  picks,
+  sessionId,
+}: {
+  picks: readonly BrowserPick[]
+  sessionId?: string
+}) {
   if (picks.length === 0) return null
   return (
     <div
@@ -19,10 +25,16 @@ export function ElementChips({ picks }: { picks: readonly BrowserPick[] }) {
         >
           <MousePointer2 size={10} aria-hidden className="shrink-0 text-accent" />
           <span className="min-w-0 truncate font-mono">{chipLabelFor(pick)}</span>
+          {pick.imageIntent && !pick.image && !pick.imageIntent.ref ? (
+            <span role="status">
+              Reattach {pick.imageIntent.metadata.name} ({pick.imageIntent.metadata.size} bytes) —
+              paste or drop the image
+            </span>
+          ) : null}
           <button
             type="button"
             aria-label={`Remove ${chipLabelFor(pick)}`}
-            onClick={() => removeBrowserPick(pick.id)}
+            onClick={() => removeBrowserPick(pick.id, sessionId)}
             className="shrink-0 rounded-full text-fg-subtle transition-colors hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <X size={10} />
