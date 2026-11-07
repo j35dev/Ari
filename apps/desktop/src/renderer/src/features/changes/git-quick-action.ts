@@ -31,7 +31,12 @@ export function quickAction(summary: GitSummary, pr: GitPullRequest | null): Qui
   if (changedFiles > 0) {
     if (!hasRemote || !branch) return ship('commit', 'Commit')
     if (openPr || onDefault) return ship('commit_push', 'Commit & push')
-    return ship('commit_push_pr', 'Commit, push & PR')
+    return summary.canCreateRequest === false
+      ? ship('commit_push', 'Commit & push')
+      : ship(
+          'commit_push_pr',
+          summary.requestKind === 'merge' ? 'Commit, push & MR' : 'Commit, push & PR',
+        )
   }
   if (!branch)
     return {
@@ -47,9 +52,12 @@ export function quickAction(summary: GitSummary, pr: GitPullRequest | null): Qui
     }
   if (behind > 0) return ship('pull', 'Pull')
   if (hasRemote && (ahead > 0 || !upstream))
-    return openPr || onDefault ? ship('push', 'Push') : ship('push_pr', 'Push & create PR')
+    return openPr || onDefault || summary.canCreateRequest === false
+      ? ship('push', 'Push')
+      : ship('push_pr', summary.requestKind === 'merge' ? 'Push & create MR' : 'Push & create PR')
   if (openPr) return { kind: 'view-pr', label: 'View PR', url: openPr.url }
-  if (hasRemote && upstream && !onDefault) return ship('create_pr', 'Create PR')
+  if (hasRemote && upstream && !onDefault && summary.canCreateRequest !== false)
+    return ship('create_pr', summary.requestKind === 'merge' ? 'Create MR' : 'Create PR')
   return {
     kind: 'disabled',
     label: 'Up to date',
@@ -92,16 +100,22 @@ export function menuActions(summary: GitSummary, pr: GitPullRequest | null): Men
     },
     {
       id: 'pr',
-      label: openPr ? `View PR #${openPr.number}` : 'Create PR',
+      label: openPr
+        ? `View ${summary.requestKind === 'merge' ? 'MR' : 'PR'} #${openPr.number}`
+        : summary.requestKind === 'merge'
+          ? 'Create MR'
+          : 'Create PR',
       reason: openPr
         ? null
-        : !hasRemote
-          ? 'Add a Git remote to open a pull request.'
-          : branch !== null && DEFAULT_BRANCHES.has(branch)
-            ? 'Switch to a feature branch to open a pull request.'
-            : !upstream
-              ? 'Push the branch first.'
-              : null,
+        : summary.canCreateRequest === false
+          ? 'Connect this hosting instance in Source control settings.'
+          : !hasRemote
+            ? 'Add a Git remote to open a pull request.'
+            : branch !== null && DEFAULT_BRANCHES.has(branch)
+              ? 'Switch to a feature branch to open a pull request.'
+              : !upstream
+                ? 'Push the branch first.'
+                : null,
     },
   ]
 }

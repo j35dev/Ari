@@ -75,6 +75,32 @@ const instance = z
     const url = new URL(value)
     return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash
   }, 'an HTTPS instance URL without credentials or query parameters is required')
+const connect = z.object({
+  provider,
+  instance,
+  username: z.string().trim().max(320).default(''),
+  token: z.string().trim().max(16384).default(''),
+})
+const connection = z.object({
+  id: z.string().min(1).max(128),
+  provider,
+  instance,
+  username: z.string(),
+  account: z.string().nullable(),
+  hasToken: z.boolean(),
+})
+const requestAction = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('comment'), text: z.string().trim().min(1).max(8000) }),
+  z.object({ kind: z.literal('approve'), text: z.string().max(8000).default('') }),
+  z.object({ kind: z.literal('request-changes'), text: z.string().trim().min(1).max(8000) }),
+  z.object({
+    kind: z.literal('merge'),
+    method: z.enum(['merge', 'squash', 'rebase']),
+    headOid: oid,
+  }),
+  z.object({ kind: z.literal('close') }),
+  z.object({ kind: z.literal('ready') }),
+])
 const repository = z.object({
   provider: provider.nullable(),
   instance,
@@ -104,6 +130,7 @@ const changeRequest = z.object({
   head: z.string(),
   headOid: oid.nullable(),
   updatedAt: z.string(),
+  headIsFork: z.boolean().optional(),
   capabilities,
 })
 const hostConnection = z.object({
@@ -156,6 +183,9 @@ export const sourceControlSchemas = {
   note,
   provider,
   instance,
+  connect,
+  connection,
+  requestAction,
   repository,
   capabilities,
   changeRequest,
@@ -170,6 +200,9 @@ export type GitReviewFile = z.infer<typeof file>
 export type GitReviewManifest = z.infer<typeof manifest>
 export type GitReviewNote = z.infer<typeof note>
 export type SourceControlProvider = z.infer<typeof provider>
+export type SourceControlConnection = z.infer<typeof connection>
+export type SourceControlConnect = z.infer<typeof connect>
+export type ChangeRequestAction = z.infer<typeof requestAction>
 export type SourceControlRepository = z.infer<typeof repository>
 export type ChangeRequest = z.infer<typeof changeRequest>
 export type ChangeRequestCapabilities = z.infer<typeof capabilities>

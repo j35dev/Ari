@@ -5,7 +5,7 @@ import { currentPullRequest, forget as forgetPullRequest, openPullRequest } from
 import { sourceControlEnvironment } from './source-control-environment'
 import type { GitReviewService } from '@ari/engine/git'
 import { gitScopeSchema } from '@ari/contracts/rpc'
-import { ok } from '@ari/shared/result'
+import { err, ok } from '@ari/shared/result'
 import { createLogger } from '@ari/shared/logger'
 import type { RpcRegistry } from './rpc-registry'
 import type { SourceControlHost } from './source-control-host'
@@ -67,11 +67,18 @@ export class SourceControlLive {
     )
     this.registry.register('scm.ship', (params) =>
       this.host.withReview(params, async (review) => {
-        const key = keyFor(review.cwd)
+        const common = await review.git.run(['rev-parse', '--git-common-dir'])
+        if (!common.ok) return common
+        const key = keyFor(await realpath(resolve(review.cwd, common.value.trim())))
         const task = (mutationTails.get(key) ?? Promise.resolve())
           .catch(() => undefined)
-          .then(() =>
-            ship(
+          .then(async () => {
+            if (params.action !== 'fetch' && (await this.deps.busy(review.cwd)))
+              return err({
+                code: 'busy' as const,
+                message: 'Wait for the active agent turn to finish before changing Git state.',
+              })
+            return ship(
               review,
               {
                 action: params.action,
@@ -80,13 +87,19 @@ export class SourceControlLive {
               },
               {
                 createPr: (signal) =>
-                  openPullRequest(review.cwd, {
-                    ...(signal ? { signal } : {}),
-                    draft: this.deps.draftPullRequests?.() ?? false,
-                  }),
+                  this.host.deps.hosting
+                    ? this.host.deps.hosting.create(
+                        review,
+                        this.deps.draftPullRequests?.() ?? false,
+                        signal,
+                      )
+                    : openPullRequest(review.cwd, {
+                        ...(signal ? { signal } : {}),
+                        draft: this.deps.draftPullRequests?.() ?? false,
+                      }),
               },
-            ),
-          )
+            )
+          })
         mutationTails.set(key, task)
         try {
           return await task
@@ -97,11 +110,54 @@ export class SourceControlLive {
         }
       }),
     )
-    this.registry.register('scm.environment', () => sourceControlEnvironment())
+    this.registry.register('scm.environment', async () => ({
+      ...(await sourceControlEnvironment()),
+      connections: this.host.deps.hosting?.api.connections.list() ?? [],
+    }))
+    this.registry.register('scm.connect', async (params) => {
+      const result =
+        (await this.host.deps.hosting?.connect(params)) ??
+        err({ code: 'unavailable', message: 'Hosting connections are unavailable.' })
+      if (result.ok) this.changed()
+      return result
+    })
+    this.registry.register('scm.disconnect', (params) => {
+      try {
+        const removed = this.host.deps.hosting?.api.connections.remove(params.id) ?? false
+        if (removed) this.changed()
+        return ok(removed)
+      } catch {
+        return err({ code: 'failed', message: 'Could not remove this connection. Retry.' })
+      }
+    })
     this.registry.register('scm.pullRequest', (params) =>
       this.host.withReview(params, async (review) => {
         const summary = await review.summary()
         if (!summary.ok) return summary
+        if (this.host.deps.hosting) {
+          const status = await review.status()
+          if (!status.ok) return status
+          const listed = await this.host.deps.hosting.list(
+            status.value.remotes,
+            undefined,
+            summary.value.branch ?? undefined,
+          )
+          if (!listed.ok) return listed
+          const pr = summary.value.branch
+            ? listed.value.requests.find((request) => request.head === summary.value.branch)
+            : null
+          return ok(
+            pr
+              ? {
+                  number: pr.number,
+                  title: pr.title,
+                  url: pr.url,
+                  state: pr.state,
+                  isDraft: pr.draft,
+                }
+              : null,
+          )
+        }
         return ok(
           await currentPullRequest(review.cwd, summary.value.branch, {
             ...(params.refresh ? { refresh: true } : {}),

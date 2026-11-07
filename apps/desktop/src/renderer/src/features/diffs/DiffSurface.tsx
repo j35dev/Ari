@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowDown, ArrowUp, Columns2, Rows3, TextWrap } from 'lucide-react'
+import { ArrowDown, ArrowUp, Columns2, MoreHorizontal, Rows3, Search, TextWrap } from 'lucide-react'
+import { Popover } from '@ari/ui/popover'
 import type { GitReviewNote } from '@ari/contracts/rpc'
 import type { DiffLine } from './parseDiff'
 import { parseDiff } from './parseDiff'
@@ -18,7 +19,7 @@ export interface DiffSurfaceProps {
   onScrollOffset?: (offset: number) => void
 }
 const control =
-  'flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30'
+  'flex size-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg aria-pressed:bg-surface-2 aria-pressed:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring disabled:opacity-30'
 
 /** Shared, virtualized split/unified review with bounded syntax, search and side-aware ranges. */
 export function DiffSurface({
@@ -36,6 +37,7 @@ export function DiffSurface({
   const [wrapPref, setWrap] = useState<boolean | null>(null)
   const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
   const [raw, setRaw] = useState(false)
+  const [optionsOpen, setOptionsOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [match, setMatch] = useState(0)
   const [hunk, setHunk] = useState(0)
@@ -66,7 +68,7 @@ export function DiffSurface({
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
-  const wrap = wrapPref ?? ((defaults?.wrapDiffLines ?? false) || narrow)
+  const wrap = wrapPref ?? defaults?.wrapDiffLines ?? false
   const split = (preferSplit ?? (defaults?.diffView !== 'unified' && !narrow)) && !oneSided
   const rows = useMemo(
     () => (file ? reviewRows(file, split, ignoreWhitespace) : []),
@@ -164,7 +166,7 @@ export function DiffSurface({
       line?.type === 'add' ? 'bg-success-subtle' : line?.type === 'del' ? 'bg-danger-subtle' : ''
     return (
       <div
-        className={`flex min-w-0 ${tint} ${selected ? 'ring-1 ring-inset ring-accent/40' : ''}`}
+        className={`flex min-w-0 border-l-2 ${line?.type === 'add' ? 'border-success/40' : line?.type === 'del' ? 'border-danger/40' : 'border-transparent'} ${tint} ${selected ? 'ring-1 ring-inset ring-accent/40' : ''}`}
         data-line-type={line?.type}
       >
         {!split ? gutter(line, 'old') : null}
@@ -173,7 +175,7 @@ export function DiffSurface({
           {line?.type === 'add' ? '+' : line?.type === 'del' ? '−' : ''}
         </span>
         <code
-          className={`min-w-0 flex-1 pr-4 font-mono text-xs ${wrap || split ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
+          className={`min-w-0 flex-1 pr-4 font-mono text-xs ${wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre'}`}
         >
           {line && highlights[`${index}:${side}`] ? (
             <span dangerouslySetInnerHTML={{ __html: highlights[`${index}:${side}`]! }} />
@@ -197,6 +199,7 @@ export function DiffSurface({
       }}
     >
       <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 bg-surface-0 px-3 py-1">
+        <Search size={12} className="shrink-0 text-fg-subtle" aria-hidden />
         <input
           ref={search}
           type="search"
@@ -220,32 +223,36 @@ export function DiffSurface({
             {matches.length ? currentMatch + 1 : 0}/{matches.length}
           </span>
         ) : null}
-        <button
-          type="button"
-          className={control}
-          aria-label="Previous match"
-          disabled={!matches.length}
-          onClick={() => navigate(-1)}
-        >
-          <ArrowUp size={13} />
-        </button>
-        <button
-          type="button"
-          className={control}
-          aria-label="Next match"
-          disabled={!matches.length}
-          onClick={() => navigate(1)}
-        >
-          <ArrowDown size={13} />
-        </button>
+        {query ? (
+          <>
+            <button
+              type="button"
+              className={control}
+              aria-label="Previous match"
+              disabled={!matches.length}
+              onClick={() => navigate(-1)}
+            >
+              <ArrowUp size={13} />
+            </button>
+            <button
+              type="button"
+              className={control}
+              aria-label="Next match"
+              disabled={!matches.length}
+              onClick={() => navigate(1)}
+            >
+              <ArrowDown size={13} />
+            </button>
+          </>
+        ) : null}
         <span className="mx-1 h-4 w-px bg-border" />
         <button
           type="button"
           className={control}
           aria-label="Split diff"
+          title={oneSided ? 'Only one side changed' : 'Side by side'}
           aria-pressed={split}
           disabled={oneSided}
-          title={oneSided ? 'Only one side changed' : undefined}
           onClick={() => {
             setSplit(true)
           }}
@@ -256,6 +263,7 @@ export function DiffSurface({
           type="button"
           className={control}
           aria-label="Unified diff"
+          title="Unified view"
           aria-pressed={!split}
           onClick={() => {
             setSplit(false)
@@ -267,27 +275,59 @@ export function DiffSurface({
           type="button"
           className={control}
           aria-label="Wrap lines"
+          title="Wrap long lines"
           aria-pressed={wrap}
           onClick={() => setWrap(!wrap)}
         >
           <TextWrap size={14} />
         </button>
-        <label className="ml-2 flex items-center gap-1.5 text-2xs text-fg-muted">
-          <input
-            type="checkbox"
-            checked={ignoreWhitespace}
-            onChange={(event) => setIgnoreWhitespace(event.target.checked)}
-          />
-          Ignore whitespace
-        </label>
-        <button
-          type="button"
-          className="ml-2 text-2xs text-fg-muted hover:text-fg"
-          aria-pressed={raw}
-          onClick={() => setRaw(!raw)}
-        >
-          Raw patch
-        </button>
+        {narrow ? (
+          <Popover open={optionsOpen} onOpenChange={setOptionsOpen}>
+            <Popover.Trigger aria-label="Diff options" className={control}>
+              <MoreHorizontal size={14} />
+            </Popover.Trigger>
+            <Popover.Content align="end" className="w-44">
+              <label className="flex items-center gap-2 text-xs text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={ignoreWhitespace}
+                  onChange={(event) => setIgnoreWhitespace(event.target.checked)}
+                />
+                Ignore whitespace
+              </label>
+              <button
+                type="button"
+                aria-pressed={raw}
+                onClick={() => {
+                  setRaw(!raw)
+                  setOptionsOpen(false)
+                }}
+                className="mt-3 block w-full rounded-md py-1 text-left text-xs text-fg-muted hover:text-fg"
+              >
+                Raw patch
+              </button>
+            </Popover.Content>
+          </Popover>
+        ) : (
+          <>
+            <label className="ml-2 flex items-center gap-1.5 text-2xs text-fg-muted">
+              <input
+                type="checkbox"
+                checked={ignoreWhitespace}
+                onChange={(event) => setIgnoreWhitespace(event.target.checked)}
+              />
+              Ignore whitespace
+            </label>
+            <button
+              type="button"
+              className="ml-2 text-2xs text-fg-muted hover:text-fg"
+              aria-pressed={raw}
+              onClick={() => setRaw(!raw)}
+            >
+              Raw patch
+            </button>
+          </>
+        )}
       </div>
       {split && !raw ? (
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-b border-border/60 bg-surface-0 font-mono text-2xs text-fg-subtle">
@@ -297,7 +337,7 @@ export function DiffSurface({
       ) : null}
       <div
         ref={scroll}
-        className="ari-scroll shiki min-h-0 flex-1 overflow-auto"
+        className="ari-scroll shiki min-h-0 flex-1 overflow-auto bg-bg [scrollbar-gutter:stable]"
         tabIndex={0}
         aria-label="Diff lines"
         onScroll={(event) => onScrollOffset?.(event.currentTarget.scrollTop)}
@@ -317,7 +357,11 @@ export function DiffSurface({
               height: virtual.getTotalSize(),
               position: 'relative',
               // Split halves wrap inside their column; only unified view scrolls sideways.
-              minWidth: wrap || split ? undefined : `calc(${maxChars}ch + 5rem)`,
+              minWidth: wrap
+                ? undefined
+                : split
+                  ? `max(100%, calc(${maxChars * 2}ch + 9rem))`
+                  : `max(100%, calc(${maxChars}ch + 7rem))`,
             }}
           >
             {virtual.getVirtualItems().map((item) => {
@@ -337,7 +381,7 @@ export function DiffSurface({
                   className={`min-h-6 leading-6 ${query && matches[currentMatch] === item.index ? 'outline outline-1 outline-accent/50' : ''}`}
                 >
                   {row.header ? (
-                    <div className="bg-surface-2/60 px-4 font-mono text-2xs text-fg-subtle">
+                    <div className="border-y border-border/40 bg-surface-1 px-4 font-mono text-2xs text-fg-subtle">
                       {row.header}
                     </div>
                   ) : split ? (

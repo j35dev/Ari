@@ -10,6 +10,7 @@ import { rpc } from '../../lib/rpc'
 import { SettingsPage } from './SettingsPage'
 import { SettingsRow } from './SettingsRow'
 import { useEngineSettings } from './useEngineSettings'
+import { SourceControlConnectionsSettings } from './SourceControlConnectionsSettings'
 
 const log = createLogger('settings:source-control')
 
@@ -21,7 +22,7 @@ const FETCH_OPTIONS = [
   { value: '900', label: 'Every 15 minutes' },
 ]
 
-const TOOLS: { key: keyof SourceControlEnvironment; label: string }[] = [
+const TOOLS: { key: 'git' | 'github' | 'gitlab'; label: string }[] = [
   { key: 'git', label: 'Git' },
   { key: 'github', label: 'GitHub CLI' },
   { key: 'gitlab', label: 'GitLab CLI' },
@@ -82,14 +83,19 @@ export function SourceControlSettings() {
   const { settings, update } = useEngineSettings()
   const [environment, setEnvironment] = useState<SourceControlEnvironment | null>(null)
   const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
   const current = settings?.sourceControl
 
   const scan = useCallback(() => {
     setScanning(true)
+    setScanError(null)
     void rpc
       .invoke('scm.environment')
       .then(setEnvironment)
-      .catch((error: unknown) => log.warn('source control scan failed', { error: String(error) }))
+      .catch((error: unknown) => {
+        log.warn('source control scan failed', { error: String(error) })
+        setScanError('Could not check hosting connections. Retry below.')
+      })
       .finally(() => setScanning(false))
   }, [])
   useEffect(scan, [scan])
@@ -103,8 +109,15 @@ export function SourceControlSettings() {
   return (
     <SettingsPage
       title="Source control"
-      description="How the Git button commits, pushes and opens pull requests, and how diffs open."
+      description="Connect your repositories, choose how Git actions work, and make code review your own."
     >
+      <Section title="Hosting connections">
+        <SourceControlConnectionsSettings environment={environment} onChanged={scan} />
+        <p className="border-t border-border/60 py-3 text-xs leading-relaxed text-fg-subtle">
+          Git commits, branches, fetch, push and pull work with any Git remote. Connect a host to
+          create, review and manage its pull or merge requests.
+        </p>
+      </Section>
       <Section title="Git actions">
         <SettingsRow
           label="Confirm pushes to the default branch"
@@ -141,6 +154,23 @@ export function SourceControlSettings() {
       </Section>
 
       <Section title="Diffs">
+        <SettingsRow
+          label="Open reviews in"
+          hint="Use the full workspace for room to compare code, or keep changes beside your conversation."
+        >
+          <SegmentedControl
+            aria-label="Open reviews in"
+            size="sm"
+            value={current?.diffOpenMode ?? 'workspace'}
+            options={[
+              { value: 'workspace', label: 'Workspace' },
+              { value: 'sidebar', label: 'Sidebar' },
+            ]}
+            onChange={(value) =>
+              set({ diffOpenMode: value === 'sidebar' ? 'sidebar' : 'workspace' })
+            }
+          />
+        </SettingsRow>
         <SettingsRow
           label="Default view"
           hint="How a diff first opens. Narrow panels and one-sided files always start in one column."
@@ -186,6 +216,11 @@ export function SourceControlSettings() {
         {TOOLS.map((tool) => (
           <ToolRow key={tool.key} label={tool.label} tool={environment?.[tool.key] ?? null} />
         ))}
+        {scanError ? (
+          <p role="alert" className="pb-3 text-xs text-danger">
+            {scanError}
+          </p>
+        ) : null}
       </Section>
     </SettingsPage>
   )

@@ -7,6 +7,7 @@ import { createLogger } from '@ari/shared/logger'
 import { listChangeRequests, runHostCommand, type HostCommand } from './change-requests'
 import { checkoutChangeRequest, fetchRequestHead, type FetchRequestHead } from './request-checkout'
 import type { RpcRegistry } from './rpc-registry'
+import type { HostingService } from './hosting-service'
 
 const log = createLogger('desktop:source-control')
 interface SourceControlDeps {
@@ -18,6 +19,7 @@ interface SourceControlDeps {
   requestRoot?: string
   /** Test seam. Production fetches the request head with git. */
   fetchRequestHead?: FetchRequestHead
+  hosting?: HostingService
 }
 
 /** Owns capability-scoped snapshots and cancellation for desktop review queries. */
@@ -85,16 +87,77 @@ export class SourceControlHost {
       return { cancelled: !!request }
     })
     r.register('scm.summary', (scope) =>
-      this.#read(scope, scope.requestId, (review, signal) => review.summary(signal)),
+      this.#read(scope, scope.requestId, async (review, signal) => {
+        const summary = await review.summary(signal)
+        if (!summary.ok || !this.deps.hosting) return summary
+        const configured = await review.git.run(['config', '--get-regexp', '^remote\\..*\\.url$'], {
+          signal,
+        })
+        const remotes = configured.ok
+          ? configured.value
+              .trim()
+              .split('\n')
+              .flatMap((line) => {
+                const match = /^remote\.(.+)\.url\s+(.+)$/.exec(line)
+                return match?.[1] && match[2] ? [{ name: match[1], url: match[2] }] : []
+              })
+          : []
+        const host = this.deps.hosting.host(remotes)
+        return ok({
+          ...summary.value,
+          canCreateRequest: !!host,
+          requestKind: host?.provider === 'gitlab' ? 'merge' : 'pull',
+        })
+      }),
     )
     r.register('scm.requests', (scope) =>
       this.#read(scope, scope.requestId, async (review, signal) => {
         const status = await review.status(signal)
         if (!status.ok) return status
+        if (this.deps.hosting) return this.deps.hosting.list(status.value.remotes, signal)
         return listChangeRequests(review.git.cwd, status.value.remotes, {
           run: this.deps.hostCommand ?? runHostCommand,
           signal,
         })
+      }),
+    )
+    r.register('scm.request', (scope) =>
+      this.#read(scope, scope.requestId, async (review, signal) => {
+        const status = await review.status(signal)
+        if (!status.ok) return status
+        const host = this.deps.hosting?.host(status.value.remotes)
+        if (!host || !this.deps.hosting)
+          return err({
+            code: 'unsupported',
+            message: 'Connect this hosting instance in Source control settings.',
+          })
+        return this.deps.hosting.detail(host, scope.number, signal)
+      }),
+    )
+    r.register('scm.requestDiff', (scope) =>
+      this.#read(scope, scope.requestId, async (review, signal) => {
+        const status = await review.status(signal)
+        if (!status.ok) return status
+        const host = this.deps.hosting?.host(status.value.remotes)
+        if (!host || !this.deps.hosting)
+          return err({
+            code: 'unsupported',
+            message: 'Connect this hosting instance in Source control settings.',
+          })
+        return this.deps.hosting.diff(host, scope.number, review, signal)
+      }),
+    )
+    r.register('scm.requestAction', (scope) =>
+      this.#read(scope, undefined, async (review, signal) => {
+        const status = await review.status(signal)
+        if (!status.ok) return status
+        const host = this.deps.hosting?.host(status.value.remotes)
+        if (!host || !this.deps.hosting)
+          return err({
+            code: 'unsupported',
+            message: 'Connect this hosting instance in Source control settings.',
+          })
+        return this.deps.hosting.act(host, scope.number, scope.action, signal)
       }),
     )
     r.register('scm.checkout', (scope) => {
@@ -114,6 +177,7 @@ export class SourceControlHost {
             fetchHead: this.deps.fetchRequestHead ?? fetchRequestHead(review.git),
           },
           signal,
+          this.deps.hosting,
         )
       })
     })

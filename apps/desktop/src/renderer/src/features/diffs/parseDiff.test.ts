@@ -59,6 +59,25 @@ function serializeHunks(file: DiffFile): string[] {
 }
 
 describe('parseDiff', () => {
+  it('decodes Git octal UTF-8 and escaped literal backslashes', () => {
+    const patch = String.raw`diff --git "a/caf\303\251.ts" "b/caf\303\251.ts"
+--- "a/caf\303\251.ts"
++++ "b/caf\303\251.ts"
+@@ -1 +1 @@
+-before
++after
+diff --git "a/literal\\303.ts" "b/literal\\303.ts"
+Binary files differ`
+    expect(parseDiff(patch).files.map((file) => file.path)).toEqual([
+      'café.ts',
+      String.raw`literal\303.ts`,
+    ])
+  })
+
+  it('preserves a revision-like prefix in rename metadata', () => {
+    const patch = 'diff --git a/a/old.ts b/a/new.ts\nrename from a/old.ts\nrename to a/new.ts'
+    expect(parseDiff(patch).files[0]).toMatchObject({ path: 'a/new.ts', oldPath: 'a/old.ts' })
+  })
   it('parses every file of a multi-file diff', () => {
     const { files } = parseDiff(MULTI_FILE_DIFF)
     expect(files.map((f) => f.path)).toEqual([
@@ -185,7 +204,7 @@ describe('parseDiff', () => {
       '+b',
     ].join('\n')
     const { files } = parseDiff(diff)
-    expect(files[0]?.path).toBe('src/caf\\303\\251.ts')
+    expect(files[0]?.path).toBe('src/caf\u00e9.ts')
     expect(files[0]?.oldPath).toBeUndefined()
   })
 
@@ -194,7 +213,9 @@ describe('parseDiff', () => {
   })
 
   it('tolerates bare ---/+++ blocks without a diff --git preamble', () => {
-    const { files } = parseDiff(['--- a/solo.txt', '+++ b/solo.txt', '@@ -1 +1 @@', '-x', '+y'].join('\n'))
+    const { files } = parseDiff(
+      ['--- a/solo.txt', '+++ b/solo.txt', '@@ -1 +1 @@', '-x', '+y'].join('\n'),
+    )
     expect(files).toHaveLength(1)
     expect(files[0]).toMatchObject({ path: 'solo.txt' })
     expect(files[0]?.oldPath).toBeUndefined()

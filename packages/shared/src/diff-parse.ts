@@ -49,13 +49,50 @@ function stripRevisionPrefix(token: string): string {
   return token.startsWith('a/') || token.startsWith('b/') ? token.slice(2) : token
 }
 
+/** Git C-quotes control characters and UTF-8 octets in path headers. */
+function unquotePath(value: string): string {
+  if (!value.startsWith('"') || !value.endsWith('"')) return value
+  const bytes: number[] = []
+  const encoder = new TextEncoder()
+  const body = value.slice(1, -1)
+  const escapes: Record<string, number> = {
+    a: 7,
+    b: 8,
+    t: 9,
+    n: 10,
+    v: 11,
+    f: 12,
+    r: 13,
+    '"': 34,
+    '\\': 92,
+  }
+  for (let index = 0; index < body.length;) {
+    if (body[index] === '\\') {
+      const octal = /^\\([0-7]{1,3})/.exec(body.slice(index))
+      if (octal) {
+        bytes.push(parseInt(octal[1]!, 8))
+        index += octal[0].length
+        continue
+      }
+      const escaped = escapes[body[index + 1] ?? '']
+      if (escaped !== undefined) {
+        bytes.push(escaped)
+        index += 2
+        continue
+      }
+    }
+    const character = String.fromCodePoint(body.codePointAt(index)!)
+    bytes.push(...encoder.encode(character))
+    index += character.length
+  }
+  return new TextDecoder().decode(Uint8Array.from(bytes))
+}
+
 /** Extracts the path from a `---`/`+++` header value; null for `/dev/null`. */
 function headerPath(value: string): string | null {
   const tab = value.indexOf('\t')
   let token = tab === -1 ? value : value.slice(0, tab)
-  if (token.length >= 2 && token.startsWith('"') && token.endsWith('"')) {
-    token = token.slice(1, -1)
-  }
+  token = unquotePath(token)
   if (token === '/dev/null') return null
   return stripRevisionPrefix(token)
 }
@@ -63,6 +100,14 @@ function headerPath(value: string): string | null {
 /** Fallback path extraction from `diff --git a/<old> b/<new>` when no `---`/`+++` headers exist. */
 function gitHeaderPaths(line: string): { oldPath: string; newPath: string } {
   const body = line.slice('diff --git '.length)
+  if (body.startsWith('"')) {
+    const quoted = /^("(?:\\.|[^"\\])*")\s+("(?:\\.|[^"\\])*"|b\/.*)$/.exec(body)
+    if (quoted?.[1] && quoted[2])
+      return {
+        oldPath: stripRevisionPrefix(unquotePath(quoted[1])),
+        newPath: stripRevisionPrefix(unquotePath(quoted[2])),
+      }
+  }
   const match = /^a\/(.*) b\/(.*)$/.exec(body)
   if (match && match[1] !== undefined && match[2] !== undefined) {
     return { oldPath: match[1], newPath: match[2] }
@@ -100,8 +145,7 @@ export function parseDiff(diffText: string): ParsedDiff {
     if (hunk && (oldRemaining > 0 || newRemaining > 0)) {
       const marker = raw.charAt(0)
       if (marker === '\\') continue
-      const type: DiffLineType =
-        marker === '+' ? 'add' : marker === '-' ? 'del' : 'context'
+      const type: DiffLineType = marker === '+' ? 'add' : marker === '-' ? 'del' : 'context'
       const line: DiffLine = { type, content: raw.slice(1) }
       if (marker !== '+') line.oldLineNo = oldNo++
       if (marker !== '-') line.newLineNo = newNo++
@@ -160,12 +204,12 @@ export function parseDiff(diffText: string): ParsedDiff {
     }
 
     if (raw.startsWith('rename from ')) {
-      current.oldPath = stripRevisionPrefix(raw.slice('rename from '.length))
+      current.oldPath = unquotePath(raw.slice('rename from '.length))
       continue
     }
 
     if (raw.startsWith('rename to ')) {
-      current.path = stripRevisionPrefix(raw.slice('rename to '.length))
+      current.path = unquotePath(raw.slice('rename to '.length))
       continue
     }
 
