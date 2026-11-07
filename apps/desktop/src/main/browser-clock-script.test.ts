@@ -80,6 +80,7 @@ function setup(
     capturePage: vi.fn(async () => capture()),
     consoleEntries: () => [],
     sendKey: vi.fn(),
+    sendMouse: vi.fn(),
     setBounds: vi.fn(),
     setVisible: vi.fn(),
     destroy: vi.fn(),
