@@ -339,6 +339,21 @@ describe('contracts', () => {
     expect(() => rpcParams['git.turnDiff'].parse({ sessionId: 's', turnId: '' })).toThrow()
   })
 
+  it('validates lazy turn diff files with pinned trees and repository-relative paths', () => {
+    const params = {
+      sessionId: 'sess_1',
+      baseOid: 'a'.repeat(40),
+      headOid: 'b'.repeat(40),
+      path: '[file] with spaces.txt',
+    }
+    expect(rpcParams['git.turnDiffFile'].parse(params)).toEqual(params)
+    for (const path of ['../escape', '/absolute', 'C:\\outside', '.git/config']) {
+      expect(() => rpcParams['git.turnDiffFile'].parse({ ...params, path })).toThrow()
+      expect(() => rpcParams['git.turnDiffFile'].parse({ ...params, oldPath: path })).toThrow()
+    }
+    expect(() => rpcParams['git.turnDiffFile'].parse({ ...params, headOid: '--all' })).toThrow()
+  })
+
   it('validates git scopes and rejects absolute working directories', () => {
     expect(rpcParams['git.status'].parse({ projectId: 'proj_1' })).toEqual({ projectId: 'proj_1' })
     expect(rpcParams['git.status'].parse({ sessionId: 'sess_1' })).toEqual({ sessionId: 'sess_1' })
