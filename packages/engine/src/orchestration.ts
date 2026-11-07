@@ -373,7 +373,12 @@ export class OrchestrationService {
       }
       if (!attempt.sessionId) continue
       const state = await this.options.host.store.load(attempt.sessionId)
-      if (!state.session) continue
+      if (
+        !state.session ||
+        state.session.parentSessionId !== parent.id ||
+        state.session.projectId !== parent.projectId
+      )
+        continue
       const currentResult = task.results.find((entry) => entry.resultId === task.currentResultId)
       if (
         currentResult &&
@@ -806,6 +811,11 @@ export class OrchestrationService {
     if (checkCurrent) {
       const child = (await this.options.host.store.load(currentAttempt(task).sessionId!)).session
       if (!child) throw new ControlFailure('session_not_found', 'Worker session is unavailable.')
+      if (child.parentSessionId !== parent.id || child.projectId !== parent.projectId)
+        throw new ControlFailure(
+          'scope_denied',
+          'The result worker is outside this session family.',
+        )
       const state = await this.options.host.store.load(child.id)
       if (
         state.activeTurnId ||
@@ -1381,6 +1391,15 @@ export class OrchestrationService {
         throw new ControlFailure('stale_snapshot', 'Retry must name the exact result snapshot.')
       const attempt = currentAttempt(task)
       const state = attempt.sessionId ? await this.options.host.store.load(attempt.sessionId) : null
+      if (
+        state?.session &&
+        (state.session.parentSessionId !== parent.id ||
+          state.session.projectId !== parent.projectId)
+      )
+        throw new ControlFailure(
+          'scope_denied',
+          'The result worker is outside this session family.',
+        )
       if (
         state?.activeTurnId ||
         (attempt.sessionId && this.options.host.isRunning?.(attempt.sessionId)) ||

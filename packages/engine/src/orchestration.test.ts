@@ -270,6 +270,76 @@ it('pins result review to the historical identity without capturing current work
   liveDiff.mockRestore()
 }, 60_000)
 
+it.each(['parentSessionId', 'projectId'] as const)(
+  'rejects result mutations before worker effects when its %s leaves the family',
+  async (field) => {
+    const task = await launch(`foreign-result-${field}`)
+    const worker = (await store.load(attempt(task).sessionId!)).session!
+    if (worker.workspace?.kind !== 'managed-worktree')
+      throw new Error('expected isolated workspace')
+    await writeFile(join(worker.workspace.path, 'file.txt'), 'result changes\n')
+    await settle(task)
+    const view = await orchestration.invoke('root', 'orchestration.view', { sessionId: 'root' })
+    const result = view.tasks[0]!.results[0]!
+    const target = {
+      sessionId: 'root',
+      taskId: task.taskId,
+      resultId: result.resultId,
+      snapshotCommit: result.snapshotCommit!,
+    }
+    await orchestration.invoke('root', 'orchestration.review', {
+      ...target,
+      state: 'accepted',
+      idempotencyKey: 'accept-before-move',
+    })
+    const load = store.load.bind(store)
+    vi.spyOn(store, 'load').mockImplementation(async (id) => {
+      const state = await load(id)
+      return id === worker.id
+        ? {
+            ...state,
+            session: { ...state.session!, [field]: 'outside-family' },
+            lastTurn: { ...state.lastTurn!, turnId: 'outside-family-turn' },
+          }
+        : state
+    })
+    const liveDiff = vi.spyOn(host, 'diff')
+    const integrate = vi.spyOn(host, 'integrate')
+    const submitted = submissions
+    for (const method of [
+      'orchestration.review',
+      'orchestration.verify',
+      'orchestration.integrate',
+    ] as const)
+      await expect(
+        orchestration.invoke('root', method, {
+          ...target,
+          ...(method === 'orchestration.review' ? { state: 'changes_requested' } : {}),
+          idempotencyKey: `foreign-${method}`,
+        }),
+      ).rejects.toMatchObject({ code: 'scope_denied' })
+    await expect(
+      orchestration.invoke('root', 'orchestration.retry', {
+        sessionId: 'root',
+        taskId: task.taskId,
+        expectedResultId: result.resultId,
+        expectedAttemptId: result.attemptId,
+        expectedSnapshotCommit: result.snapshotCommit,
+        feedback: 'Fix this',
+        idempotencyKey: 'foreign-retry',
+      }),
+    ).rejects.toMatchObject({ code: 'scope_denied' })
+    expect(liveDiff).not.toHaveBeenCalled()
+    expect(integrate).not.toHaveBeenCalled()
+    expect(submissions).toBe(submitted)
+    const stored = (await load('root')).orchestration!.tasks[task.taskId]!
+    expect(stored.attempts).toHaveLength(1)
+    expect(stored.currentResultId).toBe(result.resultId)
+    expect(stored.results).toHaveLength(1)
+    expect(stored.results[0]!.reviewState).toBe('accepted')
+  },
+)
+
 it('keeps dependency waits distinct and dispatches only accepted prerequisites, rejecting cycles', async () => {
   const a = await launch('A')
   const b = await launch('B', [a.taskId])

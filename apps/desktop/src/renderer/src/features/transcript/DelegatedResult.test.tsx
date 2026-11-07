@@ -231,7 +231,9 @@ describe('delegated result continuity', () => {
     await userEvent.type(screen.getByLabelText('Correction feedback'), 'Handle empty queries')
     await userEvent.click(screen.getByRole('button', { name: 'Send correction' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Connection lost')
-    expect(screen.getByText('Feedback saved. Correction has not started yet.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Feedback saved. Correction start is not confirmed yet.'),
+    ).toBeInTheDocument()
     const retry = screen.getByRole('button', { name: 'Retry correction for version 1' })
     await waitFor(() => expect(retry).toBeEnabled())
     await userEvent.click(retry)
@@ -282,6 +284,89 @@ describe('delegated result continuity', () => {
       snapshotCommit: SNAPSHOT,
     })
     expect(screen.queryByRole('button', { name: 'Integrate accepted result' })).toBeNull()
+  })
+
+  it('allows a fresh correction action after a durable rejection without reusing its failed receipt', async () => {
+    const fallback = mocks.invoke.getMockImplementation()!
+    let rejected: Record<string, unknown> | null = null
+    let blocked = true
+    mocks.invoke.mockImplementation((method, params) => {
+      if (method === 'orchestration.view' && rejected)
+        return Promise.resolve({
+          ...viewFixture(task),
+          operations: [
+            {
+              operationId: 'failed-correction',
+              method: 'orchestration.retry',
+              fingerprint: JSON.stringify(rejected),
+              status: 'completed',
+              result: { operationFailure: { code: 'task_running', message: 'Wait for worker' } },
+            },
+          ],
+        })
+      if (method === 'orchestration.retry' && blocked) {
+        rejected = params
+        // Like Electron IPC, this rejection has no custom code property.
+        return Promise.reject(new Error('Wait for worker'))
+      }
+      return fallback(method, params)
+    })
+    mount()
+    await open()
+    await userEvent.click(screen.getByRole('button', { name: 'Request correction' }))
+    await userEvent.type(screen.getByLabelText('Correction feedback'), 'Handle empty queries')
+    await userEvent.click(screen.getByRole('button', { name: 'Send correction' }))
+    await screen.findByRole('alert')
+    const send = screen.getByRole('button', { name: 'Send correction' })
+    await waitFor(() => expect(send).toBeEnabled())
+    expect(screen.queryByRole('button', { name: 'Retry correction for version 1' })).toBeNull()
+    blocked = false
+    await userEvent.click(send)
+    await screen.findByText('Correction requested for version 1.')
+    const [first, second] = calls('orchestration.retry').map(([, params]) => params)
+    expect(second).toEqual({ ...first, idempotencyKey: second.idempotencyKey })
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey)
+    expect(calls('orchestration.review')[1]?.[1]).toEqual(calls('orchestration.review')[0]?.[1])
+  })
+
+  it('retains the exact correction receipt and draft when a started correction reply is lost', async () => {
+    const fallback = mocks.invoke.getMockImplementation()!
+    let lost: Record<string, unknown> | null = null
+    mocks.invoke.mockImplementation((method, params) => {
+      if (method === 'orchestration.view' && lost)
+        return Promise.resolve({
+          ...viewFixture(task),
+          operations: [
+            {
+              operationId: 'uncertain-correction',
+              method: 'orchestration.retry',
+              fingerprint: JSON.stringify(lost),
+              status: 'uncertain',
+            },
+          ],
+        })
+      if (method === 'orchestration.retry') {
+        lost = params
+        task = { ...task!, currentResultId: null, currentAttemptId: 'attempt-2' }
+        return Promise.reject(new Error('Connection lost'))
+      }
+      return fallback(method, params)
+    })
+    mount()
+    await open()
+    await userEvent.click(screen.getByRole('button', { name: 'Request correction' }))
+    await userEvent.type(screen.getByLabelText('Correction feedback'), 'Handle empty queries')
+    await userEvent.click(screen.getByRole('button', { name: 'Send correction' }))
+    await screen.findByRole('alert')
+    expect(
+      screen.getByText('Feedback saved. Correction start is not confirmed yet.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Correction feedback')).toHaveValue('Handle empty queries')
+    const retry = screen.getByRole('button', { name: 'Retry correction for version 1' })
+    await waitFor(() => expect(retry).toBeEnabled())
+    await userEvent.click(retry)
+    await waitFor(() => expect(calls('orchestration.retry')).toHaveLength(2))
+    expect(calls('orchestration.retry')[1]?.[1]).toEqual(calls('orchestration.retry')[0]?.[1])
   })
 
   it('surfaces stale snapshot diff failures and leaves acceptance untouched', async () => {

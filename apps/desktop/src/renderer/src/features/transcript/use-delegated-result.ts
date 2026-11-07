@@ -93,7 +93,32 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
   const invoke = <M extends OrchestrationMethod>(
     method: M,
     params: OrchestrationParams<M>,
-  ): Promise<OrchestrationResults[M]> => rpc.invoke(method, params)
+  ): Promise<OrchestrationResults[M]> => {
+    return rpc.invoke(method, params).catch(async (cause: unknown) => {
+      if (!alive.current || !('idempotencyKey' in params)) throw cause
+      // Electron does not preserve custom Error fields. Only a durable completed
+      // failure proves that a new user action may safely use a fresh receipt.
+      const view = await rpc.invoke('orchestration.view', { sessionId }).catch(() => null)
+      const failed = view?.operations.some((operation) => {
+        if (operation.method !== method || operation.status !== 'completed') return false
+        try {
+          const captured = JSON.parse(operation.fingerprint) as { idempotencyKey?: string }
+          const outcome = operation.result as { operationFailure?: unknown } | undefined
+          return captured.idempotencyKey === params.idempotencyKey && !!outcome?.operationFailure
+        } catch {
+          return false
+        }
+      })
+      if (failed) {
+        for (const [fingerprint, key] of keys.current)
+          if (key === params.idempotencyKey) keys.current.delete(fingerprint)
+        throw new ResultActionFailure(
+          cause instanceof Error ? cause.message : 'Could not complete this action.',
+        )
+      }
+      throw cause
+    })
+  }
   const receipt = (value: unknown) => {
     const fingerprint = JSON.stringify([sessionId, task?.taskId, value])
     let key = keys.current.get(fingerprint)
@@ -236,7 +261,7 @@ export function useDelegatedResult(sessionId: string, childSessionId: string, op
     }
     void run(`correction for version ${result.version}`, async () => {
       update(await invoke('orchestration.review', review))
-      if (alive.current) setNotice('Feedback saved. Correction has not started yet.')
+      if (alive.current) setNotice('Feedback saved. Correction start is not confirmed yet.')
       await invoke('orchestration.retry', correction)
       if (alive.current) {
         setNotice(`Correction requested for version ${result.version}.`)
