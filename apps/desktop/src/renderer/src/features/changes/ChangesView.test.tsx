@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@ari/ui/toast'
+import userEvent from '@testing-library/user-event'
 import type { ReviewWorkspaceProps } from './ReviewWorkspace'
 import { ChangesView } from './ChangesView'
 
@@ -39,6 +40,7 @@ describe('Changes route', () => {
     )
     expect(screen.getByTestId('review')).toHaveTextContent('"sessionId":"child"')
     expect(screen.getByTestId('review')).toHaveTextContent('"kind":"turn"')
+    expect(screen.queryByRole('button', { name: 'Source control project' })).not.toBeInTheDocument()
     expect(mocks.invoke).not.toHaveBeenCalled()
   })
 
@@ -50,6 +52,23 @@ describe('Changes route', () => {
     await vi.waitFor(() =>
       expect(screen.getByTestId('review')).toHaveTextContent('"projectId":"p"'),
     )
+  })
+
+  it('lets standalone source control choose a project for both changes and requests', async () => {
+    mocks.invoke.mockResolvedValue([
+      { id: 'self-hosted', name: 'Company repo', path: 'C:\\repos\\company' },
+      { id: 'github', name: 'Ari', path: 'C:\\repos\\ari' },
+    ])
+    const user = userEvent.setup()
+    render(<ChangesView initialTab="requests" />)
+    const picker = await screen.findByRole('button', { name: 'Source control project' })
+    expect(picker).toHaveTextContent('Company repo')
+    expect(screen.getByTestId('requests')).toHaveTextContent('"projectId":"self-hosted"')
+    await user.click(picker)
+    await user.click(screen.getByRole('option', { name: 'Ari' }))
+    expect(screen.getByTestId('requests')).toHaveTextContent('"projectId":"github"')
+    await user.click(screen.getByRole('tab', { name: 'Changes' }))
+    expect(screen.getByTestId('review')).toHaveTextContent('"projectId":"github"')
   })
 
   it('keeps checkpoint history lazy while preserving existing revert actions', async () => {
