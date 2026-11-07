@@ -54,8 +54,8 @@ function writeDraft(sessionId: string, text: string): void {
  * Per-session composer draft (M6.7). Loads the stored draft synchronously,
  * keeps edits in state instantly, and writes the whole draft map back to
  * localStorage (`ari.drafts`) with a 300ms debounce; pending edits are
- * flushed when the session changes or the component unmounts so nothing is
- * lost. An empty draft clears the session's entry.
+ * flushed when the session changes, the component unmounts, or the page exits.
+ * An empty draft clears the session's entry.
  */
 export function useDrafts(sessionId: string): UseDraftsResult {
   const [draft, setDraft] = useState(() => loadDraft(sessionId))
@@ -95,6 +95,17 @@ export function useDrafts(sessionId: string): UseDraftsResult {
   }, [sessionId, flush])
 
   useEffect(() => window.clearTimeout(timerRef.current), [])
+
+  // Reloading or closing the window does not unmount React first. Persist the
+  // latest edit (or a sent draft's clear) before the document is discarded.
+  useEffect(() => {
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [flush])
 
   return { draft, setDraft: setDraftDebounced }
 }
