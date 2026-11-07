@@ -331,8 +331,12 @@ export interface SessionEventFrame {
   events?: unknown[]
   /** True on the frame carrying `events`. */
   replay?: boolean
-  /** Sentinel: the replay burst for this session is complete. */
+  /** Sentinel: the replay attempt ended; this alone does not imply success. */
   replayDone?: boolean
+  /** Terminal outcome. Absent on older hosts, whose sentinel implied completion. */
+  replayOutcome?: 'complete' | 'incomplete'
+  /** Runtime-owned turn at the terminal boundary; journal execution is not live. */
+  liveTurnId?: string | null
 }
 
 /** Payload delivered on the terminal.data stream. */
