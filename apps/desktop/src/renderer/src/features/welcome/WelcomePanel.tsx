@@ -1,29 +1,52 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { motion } from 'motion/react'
-import {
-  ArrowRight,
-  Check,
-  GitBranch,
-  Layers,
-  Loader2,
-  PlugZap,
-  Search,
-  Sparkles,
-  Terminal,
-} from 'lucide-react'
+import { ArrowRight, Check, Loader2, PlugZap, Sparkles } from 'lucide-react'
+import { createLogger } from '@ari/shared/logger'
+import { Button } from '@ari/ui/button'
 import { useToast } from '@ari/ui/toast'
 import { transitions } from '@ari/ui/motion'
 import { rpc } from '../../lib/rpc'
 import { anchorBelow, type MenuAnchor } from '../../shell/ContextMenu'
 
-interface Detection {
-  kind: string
-  binaryPath: string | null
-  version: string | null
-  authStatus: string
-  enabled?: boolean
+const log = createLogger('welcome')
+const CHECK_TIMEOUT_MS = 15_000
+
+type SetupCheck<T> = { status: 'loading' | 'error' } | { status: 'success'; value: T }
+
+/** Each check can fail or retry independently, without discarding the other's result. */
+function useSetupCheck<T>(load: (fresh: boolean) => Promise<T>) {
+  const [state, setState] = useState<SetupCheck<T>>({ status: 'loading' })
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    let active = true
+    setState({ status: 'loading' })
+    const timer = setTimeout(() => {
+      if (!active) return
+      active = false
+      log.warn('setup check timed out')
+      setState({ status: 'error' })
+    }, CHECK_TIMEOUT_MS)
+    void load(attempt > 0)
+      .then((value) => {
+        if (active) setState({ status: 'success', value })
+      })
+      .catch((error: unknown) => {
+        log.warn('setup check failed', error)
+        if (active) setState({ status: 'error' })
+      })
+      .finally(() => clearTimeout(timer))
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [attempt, load])
+  return { state, retry: () => setAttempt((previous) => previous + 1) }
 }
+
+const detectProviders = (fresh: boolean) =>
+  rpc.invoke(fresh ? 'providers.rescan' : 'providers.detect')
+const listEndpoints = () => rpc.invoke('endpoints.list').then((list) => list.length > 0)
 
 const CLI_LABELS: Record<string, string> = {
   claude: 'Claude Code',
@@ -55,7 +78,7 @@ function createId(): string {
  * a CLI nor a model endpoint is available — offers an inline connect form so
  * Ari Core chat works immediately after setup.
  *
- * Starting a session needs a project, so both session entry points hand their
+ * Starting a session needs a project, so the session entry point hands its
  * anchor to App, which opens the project picker under the button that was
  * pressed. With no projects yet the button instead says what to do about it.
  */
@@ -69,28 +92,17 @@ export function WelcomePanel({
   onConnect: (endpointId: string, anchor: MenuAnchor) => void
 }) {
   const { toast } = useToast()
-  const [detections, setDetections] = useState<Detection[] | null>(null)
-  const [hasEndpoints, setHasEndpoints] = useState<boolean | null>(null)
+  const providers = useSetupCheck(detectProviders)
+  const endpoints = useSetupCheck(listEndpoints)
   const [form, setForm] = useState({ baseUrl: '', model: '', apiKey: '' })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   /** The connect button, so the session's project picker opens beneath it. */
   const connectButtonRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    void rpc
-      .invoke('providers.detect')
-      .then(setDetections)
-      .catch(() => setDetections([]))
-    void rpc
-      .invoke('endpoints.list')
-      .then((list) => setHasEndpoints(list.length > 0))
-      .catch(() => setHasEndpoints(false))
-  }, [])
-
   const clis = useMemo(
     () =>
-      (detections ?? [])
+      (providers.state.status === 'success' ? providers.state.value : [])
         .filter((d) => d.kind !== 'ari-core' && d.enabled !== false)
         .map((d) => ({
           kind: d.kind,
@@ -99,11 +111,19 @@ export function WelcomePanel({
           version: d.version,
           authenticated: d.authStatus === 'authenticated',
         })),
-    [detections],
+    [providers.state],
   )
   const anyCliInstalled = clis.some((c) => c.installed)
   const needsSetup =
-    detections !== null && hasEndpoints !== null && !anyCliInstalled && !hasEndpoints
+    providers.state.status === 'success' &&
+    endpoints.state.status === 'success' &&
+    !anyCliInstalled &&
+    !endpoints.state.value
+  const checking = providers.state.status === 'loading' || endpoints.state.status === 'loading'
+  const failedChecks = [
+    ...(providers.state.status === 'error' ? ['local agents'] : []),
+    ...(endpoints.state.status === 'error' ? ['saved model endpoints'] : []),
+  ]
 
   const connect = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -129,7 +149,7 @@ export function WelcomePanel({
         apiKey: form.apiKey.trim() === '' ? null : form.apiKey.trim(),
         headers: {},
       })
-      toast({ title: 'Model connected', description: `${saved.name} · ${model}`, tone: 'success' })
+      toast({ title: 'Model saved', description: `${saved.name} · ${model}`, tone: 'success' })
       const trigger = connectButtonRef.current
       onConnect(saved.id, trigger ? anchorBelow(trigger) : { x: 24, y: 88 })
     } catch (e) {
@@ -138,32 +158,9 @@ export function WelcomePanel({
       setSaving(false)
     }
   }
-  const PROMPT_SUGGESTIONS = [
-    {
-      title: 'Explain architecture',
-      desc: 'Map module boundaries and data flow',
-      icon: Layers,
-    },
-    {
-      title: 'Audit git changes',
-      desc: 'Review modified files and diffs',
-      icon: GitBranch,
-    },
-    {
-      title: 'Run test suite',
-      desc: 'Execute tests and inspect regressions',
-      icon: Terminal,
-    },
-    {
-      title: 'Find dead code',
-      desc: 'Scan for unused exports and patterns',
-      icon: Search,
-    },
-  ]
 
   return (
     <div className="ari-scroll ari-welcome-glow relative flex h-full items-center justify-center overflow-y-auto p-6">
-
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -183,45 +180,6 @@ export function WelcomePanel({
           </p>
         </div>
 
-        {/* Quick prompt action grid */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-              Quick Actions
-            </span>
-            <span className="text-2xs text-fg-subtle">Click to start</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {PROMPT_SUGGESTIONS.map((item) => {
-              const Icon = item.icon
-              return (
-                <button
-                  key={item.title}
-                  type="button"
-                  onClick={(e) => onCreateSession(anchorBelow(e.currentTarget))}
-                  className="group relative flex flex-col items-start gap-1.5 rounded-xl border border-border/80 bg-surface-1/70 p-3 text-left shadow-sm transition-[color,background-color,border-color,scale] duration-150 hover:border-accent/50 hover:bg-surface-2 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-                >
-                  <div className="flex w-full items-center justify-between">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 border border-border/60 text-fg-muted transition-colors group-hover:border-accent/40 group-hover:text-accent">
-                      <Icon size={14} />
-                    </div>
-                    <ArrowRight
-                      size={13}
-                      className="text-fg-subtle opacity-0 transition-[color,opacity,translate] duration-150 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-accent"
-                    />
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-fg group-hover:text-accent transition-colors">
-                      {item.title}
-                    </p>
-                    <p className="text-[11px] text-fg-subtle line-clamp-1">{item.desc}</p>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
         {/* Primary start button */}
         <button
           type="button"
@@ -232,6 +190,29 @@ export function WelcomePanel({
           <span>{hasProjects ? 'Start a new session' : 'Add a project to start'}</span>
           <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
         </button>
+
+        {checking ? (
+          <p role="status" className="flex items-center justify-center gap-2 text-xs text-fg-muted">
+            <Loader2 size={13} className="animate-spin" aria-hidden />
+            Checking local agents and saved model endpoints…
+          </p>
+        ) : null}
+        {failedChecks.length > 0 ? (
+          <div className="flex flex-col gap-3 rounded-xl border border-danger/30 bg-danger-subtle p-4">
+            <p role="alert" className="text-xs leading-relaxed text-danger">
+              Could not check {failedChecks.join(' and ')}. Retry, or review your setup in Settings.
+            </p>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (providers.state.status === 'error') providers.retry()
+                if (endpoints.state.status === 'error') endpoints.retry()
+              }}
+            >
+              Retry setup checks
+            </Button>
+          </div>
+        ) : null}
 
         {/* Detected agents list */}
         {clis.length > 0 ? (
@@ -286,8 +267,8 @@ export function WelcomePanel({
               <h2 className="text-sm font-medium text-fg">Connect a model to begin</h2>
             </div>
             <p className="text-xs leading-relaxed text-fg-muted">
-              Ari works out of the box with your installed CLIs above — or point it at any
-              OpenAI-compatible API (OpenAI, OpenRouter, LM Studio, Ollama via OpenAI mode).
+              Save an OpenAI-compatible endpoint to use with Ari Core. You can also install a coding
+              agent and check your setup in Settings.
             </p>
             <input
               value={form.baseUrl}
@@ -330,7 +311,7 @@ export function WelcomePanel({
               className="flex items-center justify-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-surface-3 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
             >
               {saving ? <Loader2 size={13} className="animate-spin" /> : null}
-              Connect and start chatting
+              Save and choose project
             </button>
           </form>
         ) : null}
